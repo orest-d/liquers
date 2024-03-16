@@ -31,6 +31,24 @@ pub trait EnvRef<E: Environment>: Sized {
     }
 }
 
+impl<E: Environment> Clone for ArcEnvRef<E> {
+    fn clone(&self) -> Self {
+        self.get_ref()
+    }
+}
+
+impl<E: Environment> Clone for RcEnvRef<E> {
+    fn clone(&self) -> Self {
+        self.get_ref()
+    }
+}
+
+impl<E: Environment> Clone for StatEnvRef<E> {
+    fn clone(&self) -> Self {
+        self.get_ref()
+    }
+}
+
 pub struct StatEnvRef<E: Environment + 'static>(pub &'static E);
 
 impl<E: Environment> EnvRef<E> for StatEnvRef<E> {
