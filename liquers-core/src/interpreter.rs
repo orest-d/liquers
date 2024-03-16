@@ -30,6 +30,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         self
     }
 
+    // TODO: make into query
     pub fn with_query(&mut self, query: &str) -> Result<&mut Self, Error> {
         let query = parse_query(query)?;
         let cmr = self.environment.get().get_command_metadata_registry();
@@ -42,6 +43,14 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         let plan = pb.build()?;
         Ok(self.with_plan(plan))
     }
+
+    // TODO: make into query
+    pub fn evaluate(&mut self, query: &str) -> Result<State<E::Value>, Error> {
+        self.with_query(query)?;
+        self.run()?;
+        self.state.take().ok_or(Error::general_error("No state".to_string()))
+    }
+
     pub fn run(&mut self) -> Result<(), Error> {
         let mut context = self.environment.new_context();
         if self.plan.is_none() {
