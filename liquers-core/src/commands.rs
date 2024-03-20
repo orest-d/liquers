@@ -15,9 +15,7 @@ use crate::query::Position;
 use crate::state::State;
 use crate::value::ValueInterface;
 
-
 pub struct NoInjection;
-
 
 pub struct CommandArguments {
     pub parameters: ResolvedParameters,
@@ -25,7 +23,7 @@ pub struct CommandArguments {
     pub argument_number: usize,
 }
 
-impl CommandArguments{
+impl CommandArguments {
     pub fn new(parameters: ResolvedParameters) -> Self {
         CommandArguments {
             parameters,
@@ -33,14 +31,14 @@ impl CommandArguments{
             argument_number: 0,
         }
     }
-    
+
     pub fn has_no_parameters(&self) -> bool {
         self.parameters.parameters.is_empty()
     }
     pub fn len(&self) -> usize {
         self.parameters.parameters.len()
     }
-    pub fn get_parameter(&mut self)->Result<&Parameter,Error>{
+    pub fn get_parameter(&mut self) -> Result<&Parameter, Error> {
         if let Some(p) = self.parameters.parameters.get(self.argument_number) {
             self.argument_number += 1;
             Ok(p)
@@ -52,7 +50,10 @@ impl CommandArguments{
             ))
         }
     }
-    pub fn get<T: FromCommandArguments<T, ER, E>,ER:EnvRef<E>,E:Environment>(&mut self, context:&Context<ER,E>) -> Result<T, Error> {
+    pub fn get<T: FromCommandArguments<T, ER, E>, ER: EnvRef<E>, E: Environment>(
+        &mut self,
+        context: &Context<ER, E>,
+    ) -> Result<T, Error> {
         T::from_arguments(self, context)
     }
     /// Returns true if all parameters have been used
@@ -81,7 +82,7 @@ impl CommandArguments{
 /// - value V encapsulating the main value type
 /// - environment E encapsulating the environment
 /// - EnvRef<E> specifies how the environment is referenced
-pub trait Command<ER: EnvRef<E>, E:Environment, V: ValueInterface> {
+pub trait Command<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
     fn execute(
         &self,
         state: &State<V>,
@@ -144,11 +145,11 @@ where
 impl<F, ER, E, V, R> Command<ER, E, V> for Command0<R, F>
 where
     F: Fn() -> R,
-    R:Clone,
-    F:Clone,
+    R: Clone,
+    F: Clone,
     V: ValueInterface + From<R>,
-    E:Environment,
-    ER:EnvRef<E>,
+    E: Environment,
+    ER: EnvRef<E>,
 {
     fn execute(
         &self,
@@ -172,9 +173,9 @@ where
 #[derive(Clone)]
 pub struct Command0c<ER, E, R, F>
 where
-    F: Fn(Context<ER,E>) -> R,
-    E:Environment,
-    ER:EnvRef<E>,
+    F: Fn(Context<ER, E>) -> R,
+    E: Environment,
+    ER: EnvRef<E>,
 {
     f: F,
     envref: PhantomData<ER>,
@@ -184,9 +185,9 @@ where
 
 impl<ER, E, R, F> From<F> for Command0c<ER, E, R, F>
 where
-    F: Fn(Context<ER,E>) -> R,
-    E:Environment,
-    ER:EnvRef<E>,
+    F: Fn(Context<ER, E>) -> R,
+    E: Environment,
+    ER: EnvRef<E>,
 {
     fn from(f: F) -> Self {
         Command0c {
@@ -224,11 +225,11 @@ where
 impl<F, ER, E, V, R> Command<ER, E, V> for Command1<&State<V>, R, F>
 where
     F: Fn(&State<V>) -> R,
-    R:Clone,
-    F:Clone,
+    R: Clone,
+    F: Clone,
     V: ValueInterface + From<R>,
-    E:Environment,
-    ER:EnvRef<E>,
+    E: Environment,
+    ER: EnvRef<E>,
 {
     fn execute(
         &self,
@@ -236,15 +237,17 @@ where
         arguments: &mut CommandArguments,
         context: Context<ER, E>,
     ) -> Result<V, Error> {
-
-        if !arguments.all_parameters_used(){
+        if !arguments.all_parameters_used() {
             Err(Error::new(
                 ErrorType::TooManyParameters,
-                format!("Too many parameters: {} - no parameters expected, {} excess parameters found", arguments.len(), arguments.excess_parameters()),
+                format!(
+                    "Too many parameters: {} - no parameters expected, {} excess parameters found",
+                    arguments.len(),
+                    arguments.excess_parameters()
+                ),
             )
             .with_position(&arguments.parameter_position()))
-        }
-        else{
+        } else {
             let result = (self.f)(state);
             Ok(V::from(result))
         }
@@ -290,13 +293,13 @@ where
 impl<F, ER, E, V, T, R> Command<ER, E, V> for Command2<&State<V>, T, R, F>
 where
     F: Fn(&State<V>, T) -> R,
-    R:Clone,
-    F:Clone,
-    T:Clone,
+    R: Clone,
+    F: Clone,
+    T: Clone,
     V: ValueInterface + From<R>,
     T: FromCommandArguments<T, ER, E>,
-    E:Environment,
-    ER:EnvRef<E>,
+    E: Environment,
+    ER: EnvRef<E>,
 {
     fn execute(
         &self,
@@ -305,18 +308,47 @@ where
         context: Context<ER, E>,
     ) -> Result<V, Error> {
         let argument: T = arguments.get(&context)?;
-        if !arguments.all_parameters_used(){
+        if !arguments.all_parameters_used() {
             Err(Error::new(
                 ErrorType::TooManyParameters,
-                format!("Too many parameters: {}; {} excess parameters found", arguments.len(), arguments.excess_parameters()),
+                format!(
+                    "Too many parameters: {}; {} excess parameters found",
+                    arguments.len(),
+                    arguments.excess_parameters()
+                ),
             )
             .with_position(&arguments.parameter_position()))
-        }
-        else{
+        } else {
             let result = (self.f)(state, argument);
             Ok(V::from(result))
         }
     }
+}
+
+macro_rules! make_command_wrapper {
+    ($wrapper_name:ident, $($arg:ident:$argtype:ident),*) => {
+        stringify!(
+            impl<F, ER, E, V, $($argtype,)*  R> Command<ER, E, V> for $wrapper_name<&State<V>, $($argtype,)* R, F>
+            where
+            F: Fn(&State<V> $(,$argtype)*) -> R,
+            R:Clone,
+            F:Clone,
+            $($argtype:Clone,)*
+            V: ValueInterface + From<R>,
+            $($argtype: FromCommandArguments<$argtype, ER, E>,)*
+            E:Environment,
+            ER:EnvRef<E>,
+            {
+                fn execute(
+                    &self,
+                    state: &State<V>,
+                    arguments: &mut CommandArguments,
+                    context: Context<ER, E>,
+                ) -> Result<V, Error> {
+                }
+            }
+        )
+    };
 }
 
 pub trait FromParameter<T> {
@@ -337,17 +369,20 @@ impl FromParameter<String> for String {
     }
 }
 
-pub trait FromCommandArguments<T, ER: EnvRef<E>, E:Environment> {
-    fn from_arguments(args: &mut CommandArguments, context:&Context<ER, E> ) -> Result<T, Error>;
+pub trait FromCommandArguments<T, ER: EnvRef<E>, E: Environment> {
+    fn from_arguments(args: &mut CommandArguments, context: &Context<ER, E>) -> Result<T, Error>;
     fn is_injected() -> bool;
 }
 
-impl<T, ER: EnvRef<E>, E:Environment> FromCommandArguments<T, ER, E> for T
+impl<T, ER: EnvRef<E>, E: Environment> FromCommandArguments<T, ER, E> for T
 where
     T: FromParameter<T>,
-    E:Environment,
+    E: Environment,
 {
-    fn from_arguments<'e>(args: &mut CommandArguments, _context:&Context<ER, E>) -> Result<T, Error> {
+    fn from_arguments<'e>(
+        args: &mut CommandArguments,
+        _context: &Context<ER, E>,
+    ) -> Result<T, Error> {
         T::from_parameter(args.get_parameter()?)
     }
     fn is_injected() -> bool {
@@ -356,7 +391,7 @@ where
 }
 
 // TODO: Use CommandKey instead of realm, namespace, command_name
-pub trait CommandExecutor<ER: EnvRef<E>, E:Environment, V: ValueInterface> {
+pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
     fn execute<'e>(
         &self,
         realm: &str,
@@ -368,7 +403,9 @@ pub trait CommandExecutor<ER: EnvRef<E>, E:Environment, V: ValueInterface> {
     ) -> Result<V, Error>;
 }
 
-impl<ER: EnvRef<E>, E:Environment, V: ValueInterface> CommandExecutor<ER, E, V> for HashMap<CommandKey, Box<dyn Command<ER, E, V>>> {
+impl<ER: EnvRef<E>, E: Environment, V: ValueInterface> CommandExecutor<ER, E, V>
+    for HashMap<CommandKey, Box<dyn Command<ER, E, V>>>
+{
     fn execute(
         &self,
         realm: &str,
@@ -397,7 +434,7 @@ pub struct CommandRegistry<ER, E, V: ValueInterface> {
     pub command_metadata_registry: CommandMetadataRegistry,
 }
 
-impl<ER: EnvRef<E>, E:Environment, V: ValueInterface> CommandRegistry<ER, E, V> {
+impl<ER: EnvRef<E>, E: Environment, V: ValueInterface> CommandRegistry<ER, E, V> {
     pub fn new() -> Self {
         CommandRegistry {
             executors: HashMap::new(),
@@ -451,7 +488,9 @@ impl<ER: EnvRef<E>, E:Environment, V: ValueInterface> CommandRegistry<ER, E, V> 
     */
 }
 
-impl<ER: EnvRef<E>, E:Environment, V: ValueInterface> CommandExecutor<ER, E, V> for CommandRegistry<ER, E, V> {
+impl<ER: EnvRef<E>, E: Environment, V: ValueInterface> CommandExecutor<ER, E, V>
+    for CommandRegistry<ER, E, V>
+{
     fn execute(
         &self,
         realm: &str,
@@ -459,7 +498,7 @@ impl<ER: EnvRef<E>, E:Environment, V: ValueInterface> CommandExecutor<ER, E, V> 
         command_name: &str,
         state: &State<V>,
         arguments: &mut CommandArguments,
-        context:Context<ER, E>
+        context: Context<ER, E>,
     ) -> Result<V, Error> {
         let key = CommandKey::new(realm, namespace, command_name);
         if let Some(command) = self.executors.get(&key) {
@@ -473,6 +512,70 @@ impl<ER: EnvRef<E>, E:Environment, V: ValueInterface> CommandExecutor<ER, E, V> 
             ))
         }
     }
+}
+
+// TODO: Replace CommandRegistry by the NewCommandRegistry
+pub struct NewCommandRegistry<ER, E, V: ValueInterface>
+where
+    V: ValueInterface,
+    E: Environment,
+    ER: EnvRef<E>,
+{
+    executors: HashMap<
+        CommandKey,
+        Box<dyn Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>>,
+    >,
+    pub command_metadata_registry: CommandMetadataRegistry,
+}
+
+impl<ER, E, V> NewCommandRegistry<ER, E, V>
+where
+    V: ValueInterface,
+    E: Environment,
+    ER: EnvRef<E>,
+{
+    //    type CommandFunction = Box<dyn Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>>;
+    pub fn new() -> Self {
+        NewCommandRegistry {
+            executors: HashMap::new(),
+            command_metadata_registry: CommandMetadataRegistry::new(),
+        }
+    }
+    pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
+    where
+        K: Into<CommandKey>,
+        F: Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error> + 'static,
+    {
+        let key = key.into();
+        let command_metadata = CommandMetadata::from_key(key.clone());
+        self.command_metadata_registry
+            .add_command(&command_metadata);
+        self.executors.insert(key.clone(), Box::new(f));
+        Ok(self.command_metadata_registry.get_mut(key).unwrap())
+    }
+}
+
+macro_rules! command_wrapper {
+    ($realm:ident - $namespace:ident - $name:ident 
+        ($($argname:ident:$argtype:ty),*)) => {
+            stringify!(
+            |state: &State<V>, arguments: &mut CommandArguments, context: Context<ER, E>| -> Result<V, Error> {
+                $(
+                    let $argname: $argtype = arguments.get::<$argtype, ER, E>(&context)?;
+                )*
+                if arguments.all_parameters_used(){
+                    V::try_from($name($($argname),*))
+                }
+                else{
+                        Err(Error::new(
+                            ErrorType::TooManyParameters,
+                            format!("Too many parameters: {}; {} excess parameters found", arguments.len(), arguments.excess_parameters()),
+                        )
+                        .with_position(&arguments.parameter_position()))
+                }
+            }
+        )
+        }
 }
 
 #[cfg(test)]
@@ -516,7 +619,7 @@ mod tests {
             value: "Hello".into(),
             ..Parameter::default()
         });
-        let injection= Box::leak(Box::new(NoInjection));
+        let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
         let mut context = Context::new(envref);
         let mut ca = CommandArguments::new(rp);
@@ -526,7 +629,7 @@ mod tests {
     #[test]
     fn test_execute_command() -> Result<(), Error> {
         let c = Command0::from(|| -> String { "Hello".into() });
-        let injection= Box::leak(Box::new(NoInjection));
+        let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
         let mut context = Context::new(envref);
         let mut ca = CommandArguments::new(ResolvedParameters::new());
@@ -538,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_command_executor() -> Result<(), Error> {
-        let injection= Box::leak(Box::new(NoInjection));
+        let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
         let mut context = Context::new(envref);
         let mut ca = CommandArguments::new(ResolvedParameters::new());
@@ -551,7 +654,10 @@ mod tests {
     }
     #[test]
     fn test_hashmap_command_executor() -> Result<(), Error> {
-        let mut hm = HashMap::<CommandKey, Box<dyn Command<StatEnvRef<NoInjection>, NoInjection, Value>>>::new();
+        let mut hm = HashMap::<
+            CommandKey,
+            Box<dyn Command<StatEnvRef<NoInjection>, NoInjection, Value>>,
+        >::new();
         hm.insert(
             CommandKey::new("", "", "test"),
             Box::new(Command0::from(|| -> String { "Hello1".into() })),
@@ -562,14 +668,18 @@ mod tests {
         );
 
         let state = State::new();
-        let injection= Box::leak(Box::new(NoInjection));
+        let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
         let mut context = Context::new(envref);
         let mut ca = CommandArguments::new(ResolvedParameters::new());
-        let s = hm.execute("", "", "test", &state, &mut ca, context.clone_context()).unwrap();
+        let s = hm
+            .execute("", "", "test", &state, &mut ca, context.clone_context())
+            .unwrap();
         assert_eq!(s.try_into_string()?, "Hello1");
         let mut ca = CommandArguments::new(ResolvedParameters::new());
-        let s = hm.execute("", "", "test2", &state, &mut ca, context.clone_context()).unwrap();
+        let s = hm
+            .execute("", "", "test2", &state, &mut ca, context.clone_context())
+            .unwrap();
         assert_eq!(s.try_into_string()?, "Hello2");
         Ok(())
     }
@@ -586,15 +696,25 @@ mod tests {
 
         let state = State::new();
 
-        let injection= Box::leak(Box::new(NoInjection));
+        let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
         let mut context = Context::new(envref);
         let mut ca = CommandArguments::new(ResolvedParameters::new());
-        let s = cr.execute("", "", "test", &state, &mut ca, context.clone_context()).unwrap();
+        let s = cr
+            .execute("", "", "test", &state, &mut ca, context.clone_context())
+            .unwrap();
         assert_eq!(s.try_into_string()?, "Hello1");
         let mut ca = CommandArguments::new(ResolvedParameters::new());
-        let s = cr.execute("", "", "test2", &state, &mut ca, context.clone_context()).unwrap();
+        let s = cr
+            .execute("", "", "test2", &state, &mut ca, context.clone_context())
+            .unwrap();
         assert_eq!(s.try_into_string()?, "Hello2");
+        Ok(())
+    }
+    #[test]
+    fn test_macro() -> Result<(), Error> {
+        println!("Macro: {}", make_command_wrapper!(Test1, a:A, b:B));
+        println!("Command wrapper: {}", command_wrapper!(xx-yy-zz(a:A, b:B)));
         Ok(())
     }
 }

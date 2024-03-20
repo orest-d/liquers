@@ -26,6 +26,7 @@ pub enum Value {
     Bytes(Vec<u8>),
 }
 
+// TODO: Remove the serialization and deserialization from ValueInterface (is it there?)
 /// ValueInterface is a trait that must be implemented by the value type.
 /// This is a central trait that defines the minimum set of operations
 /// that must be supported by the value type.

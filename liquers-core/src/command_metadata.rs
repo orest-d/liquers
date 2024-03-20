@@ -445,6 +445,19 @@ impl CommandMetadata {
             volatile:false,
         }
     }
+    pub fn from_key(key: CommandKey) -> Self {
+        CommandMetadata {
+            realm: key.realm,
+            namespace: key.namespace,
+            name: key.name,
+            module: "".to_string(),
+            doc: "".to_string(),
+            state_argument: ArgumentInfo::any_argument("state"),
+            arguments: Vec::new(),
+            cache:true,
+            volatile:false,
+        }
+    }
     pub fn check(&self) -> Vec<CommandRegistryIssue> {
         let mut issues = Vec::new();
         if self.name == "" {
