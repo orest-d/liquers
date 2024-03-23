@@ -109,7 +109,11 @@ impl Error {
             query: None,
         }
     }
-    pub fn conversion_error_with_message<W: Display, T: Display>(what: W, to: T, message:&str) -> Self {
+    pub fn conversion_error_with_message<W: Display, T: Display>(
+        what: W,
+        to: T,
+        message: &str,
+    ) -> Self {
         Error {
             error_type: ErrorType::ConversionError,
             message: format!("Can't convert '{}' to {}: {}", what, to, message),
@@ -154,10 +158,18 @@ impl Error {
         }
     }
 
-    pub(crate) fn unknown_command_executor(realm: &str, namespace: &str, command_name: &str, action_position: &Position) -> Error {
+    pub(crate) fn unknown_command_executor(
+        realm: &str,
+        namespace: &str,
+        command_name: &str,
+        action_position: &Position,
+    ) -> Error {
         Error {
             error_type: ErrorType::UnknownCommand,
-            message: format!("Unknown command executor - realm:'{}' namespace:'{}' command:'{}'", realm, namespace, command_name),
+            message: format!(
+                "Unknown command executor - realm:'{}' namespace:'{}' command:'{}'",
+                realm, namespace, command_name
+            ),
             position: action_position.clone(),
             query: None,
         }

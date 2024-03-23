@@ -142,7 +142,7 @@ impl<'c> PlanBuilder<'c> {
         // TODO: get default namespaces from command registry
         namespaces.push("".to_string());
         namespaces.push("root".to_string());
-        
+
         // TODO: check if the namespaces are registered in command registry
         Ok(namespaces)
     }
@@ -154,9 +154,9 @@ impl<'c> PlanBuilder<'c> {
     ) -> Result<CommandMetadata, Error> {
         let namespaces = self.get_namespaces(query)?;
         let realm = query.last_transform_query_name().unwrap_or("".to_string());
-        println!("action:     {}",action_request.encode());
-        println!("namespaces: {:?}",&namespaces);
-        println!("realm:      {}",&realm);
+        println!("action:     {}", action_request.encode());
+        println!("namespaces: {:?}", &namespaces);
+        println!("realm:      {}", &realm);
 
         if let Some(command_metadata) = self.command_registry.find_command_in_namespaces(
             &realm,
@@ -194,27 +194,27 @@ impl<'c> PlanBuilder<'c> {
     }
 
     fn process_query(&mut self, query: &Query) -> Result<(), Error> {
-        println!("process query {}",query);
+        println!("process query {}", query);
         if query.is_empty() || query.is_ns() {
             println!("empty or ns");
             return Ok(());
         }
         if let Some(rq) = query.resource_query() {
-            println!("RESOURCE {}",rq);
+            println!("RESOURCE {}", rq);
             self.process_resource_query(&rq)?;
             return Ok(());
         }
         if let Some(transform) = query.transform_query() {
-            println!("TRANSFORM {}",&transform);
+            println!("TRANSFORM {}", &transform);
             if let Some(action) = transform.action() {
-                println!("ACTION {}",&action);
+                println!("ACTION {}", &action);
                 let mut query = query.clone();
                 query.segments = Vec::new();
                 self.process_action(&query, &action)?;
                 return Ok(());
             }
             if transform.is_filename() {
-                println!("FILENAME {}",&transform);
+                println!("FILENAME {}", &transform);
                 self.plan
                     .steps
                     .push(Step::Filename(transform.filename.unwrap().clone()));
@@ -224,8 +224,8 @@ impl<'c> PlanBuilder<'c> {
         }
 
         let (p, q) = query.predecessor();
-        println!("PREDECESOR: {:?}",&p);
-        println!("REMAINDER:  {:?}",&q);
+        println!("PREDECESOR: {:?}", &p);
+        println!("REMAINDER:  {:?}", &q);
 
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
@@ -340,6 +340,9 @@ impl<'c> PlanBuilder<'c> {
         self.parameter_number = 0;
         self.resolved_parameters = ResolvedParameters::new();
         for (i, a) in command_metadata.arguments.iter().enumerate() {
+            if a.injected {
+                continue;
+            }
             self.arginfo_number = i;
             let value = self.pop_value(a, action_request)?;
             self.resolved_parameters.parameters.push(Parameter {

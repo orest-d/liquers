@@ -1,10 +1,23 @@
-use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::{Arc, Mutex}};
-
-use crate::{
-    cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::{CommandExecutor, CommandRegistry}, error::Error, metadata::{self, MetadataRecord}, query::{Key, Query}, state::State, store::{NoStore, Store}, value::ValueInterface
+use std::{
+    cell::RefCell,
+    marker::PhantomData,
+    rc::Rc,
+    sync::{Arc, Mutex},
 };
 
-pub trait Environment: Sized{
+use crate::{
+    cache::{Cache, NoCache},
+    command_metadata::CommandMetadataRegistry,
+    commands::{CommandExecutor, CommandRegistry},
+    error::Error,
+    metadata::{self, MetadataRecord},
+    query::{Key, Query},
+    state::State,
+    store::{NoStore, Store},
+    value::ValueInterface,
+};
+
+pub trait Environment: Sized {
     type Value: ValueInterface;
     type EnvironmentReference: EnvRef<Self>;
     type CommandExecutor: CommandExecutor<Self::EnvironmentReference, Self, Self::Value>;
@@ -23,7 +36,7 @@ pub trait Environment: Sized{
 pub trait EnvRef<E: Environment>: Sized {
     fn get(&self) -> &E;
     fn get_ref(&self) -> Self;
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>{
+    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
         self.get().get_store()
     }
     fn new_context(&self) -> Context<Self, E> {
@@ -82,13 +95,13 @@ impl<E: Environment> EnvRef<E> for ArcEnvRef<E> {
     }
 }
 
-pub struct Context<ER:EnvRef<E>, E: Environment> {
+pub struct Context<ER: EnvRef<E>, E: Environment> {
     envref: ER,
     metadata: Rc<RefCell<MetadataRecord>>,
-    environment: PhantomData<E>
+    environment: PhantomData<E>,
 }
 
-impl <ER:EnvRef<E>, E: Environment> Context<ER, E> {
+impl<ER: EnvRef<E>, E: Environment> Context<ER, E> {
     pub fn new(environment: ER) -> Self {
         Context {
             envref: environment,
@@ -114,16 +127,16 @@ impl <ER:EnvRef<E>, E: Environment> Context<ER, E> {
     pub fn set_filename(&self, filename: String) {
         self.metadata.borrow_mut().with_filename(filename);
     }
-    pub fn debug(&self, message:&str){
+    pub fn debug(&self, message: &str) {
         self.metadata.borrow_mut().debug(message);
     }
-    pub fn info(&self, message:&str){
+    pub fn info(&self, message: &str) {
         self.metadata.borrow_mut().info(message);
     }
-    pub fn warning(&self, message:&str){
+    pub fn warning(&self, message: &str) {
         self.metadata.borrow_mut().warning(message);
     }
-    pub fn error(&self, message:&str){
+    pub fn error(&self, message: &str) {
         self.metadata.borrow_mut().error(message);
     }
     pub fn clone_context(&self) -> Self {
@@ -140,10 +153,10 @@ impl <ER:EnvRef<E>, E: Environment> Context<ER, E> {
 pub struct SimpleEnvironment<V: ValueInterface> {
     store: Arc<Mutex<Box<dyn Store>>>,
     cache: Arc<Mutex<Box<dyn Cache<V>>>>,
-    command_registry: CommandRegistry<ArcEnvRef<Self>,Self,V>
+    command_registry: CommandRegistry<ArcEnvRef<Self>, Self, V>,
 }
 
-impl<V: ValueInterface+'static> SimpleEnvironment<V> {
+impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
     pub fn new() -> Self {
         SimpleEnvironment {
             store: Arc::new(Mutex::new(Box::new(NoStore))),
@@ -165,9 +178,9 @@ impl<V: ValueInterface+'static> SimpleEnvironment<V> {
 }
 
 impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
-    type Value=V;
-    type CommandExecutor=CommandRegistry<Self::EnvironmentReference, Self,V>;
-    type EnvironmentReference=ArcEnvRef<Self>;
+    type Value = V;
+    type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, V>;
+    type EnvironmentReference = ArcEnvRef<Self>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry
@@ -183,10 +196,10 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
         &mut self.command_registry
     }
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>{
+    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
         self.store.clone()
     }
-    
+
     fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>> {
         self.cache.clone()
     }

@@ -15,7 +15,7 @@ impl<V: ValueInterface> State<V> {
             metadata: Arc::new(Metadata::new()),
         }
     }
-    pub fn from_value_and_metadata(value:V, metadata:Arc<Metadata>) -> State<V> {
+    pub fn from_value_and_metadata(value: V, metadata: Arc<Metadata>) -> State<V> {
         State {
             data: value.into(),
             metadata: metadata,

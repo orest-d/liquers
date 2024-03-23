@@ -621,10 +621,10 @@ macro_rules! command_wrapper_parameter_assignment {
         let command_wrapper_parameter_name!($cxpar, context) = $context;
     };
     ($cxpar:ident, $arguments:ident, $context:ident, $argname:ident:$argtype:ty) => {
-        let command_wrapper_parameter_name!($cxpar, $argname): $argtype = $arguments.get(&$context)?;
+        let command_wrapper_parameter_name!($cxpar, $argname): $argtype =
+            $arguments.get(&$context)?;
     };
 }
-
 
 macro_rules! command_wrapper {
     ($name:ident
@@ -650,12 +650,26 @@ macro_rules! command_wrapper {
         };
 }
 
-    
-
 macro_rules! register_command {
     ($cr:ident, $name:ident ($($argname:ident$(:$argtype:ty)?),*)) => {
-        $cr.register_command(stringify!($name), command_wrapper!($name($($argname$(:$argtype)?),*)))
+        {
+        let reg_command_metadata = $cr.register_command(stringify!($name), command_wrapper!($name($($argname$(:$argtype)?),*)))?
+        .with_name(stringify!($name));
+        $(
+            register_command!(@arg reg_command_metadata $argname$(:$argtype)?);
+        )*
+    }
     };
+    (@arg $cm:ident context) =>{
+        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument("context").set_injected().clone());
+    };
+    (@arg $cm:ident $argname:ident:String) =>{
+        $cm.with_argument(crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
+    };
+    (@arg $cm:ident $argname:ident:$argtype:ty) =>{
+       $cm.with_argument(crate::command_metadata::ArgumentInfo::argument(stringify!($argname)));
+    };
+
 }
 
 #[cfg(test)]
@@ -801,15 +815,17 @@ mod tests {
         fn test1() -> Result<Value, Error> {
             Ok(Value::from_string("Hello1".into()))
         }
-        fn test2(context:Context<StatEnvRef<NoInjection>, NoInjection>) -> Result<Value, Error> {
+        fn test2(context: Context<StatEnvRef<NoInjection>, NoInjection>) -> Result<Value, Error> {
             context.info("test2 called");
             Ok(Value::from_string(format!("Hello2")))
         }
         let mut cr = NewCommandRegistry::<StatEnvRef<NoInjection>, NoInjection, Value>::new();
         //cr.register_command("test1", command_wrapper1!(test1()<Value, StatEnvRef<NoInjection>, NoInjection>))?;
         cr.register_command("test1a", command_wrapper!(test1()))?;
-        register_command!(cr, test1())?;
-        register_command!(cr, test2(context))?;
+        register_command!(cr, test1());
+        register_command!(cr, test2(context));
+        serde_yaml::to_writer(std::io::stdout(), &cr.command_metadata_registry)
+            .expect("cr yaml error");
 
         //trace_macros!(false);
 
@@ -835,9 +851,9 @@ mod tests {
             .execute("", "", "test2", &state, &mut ca, context.clone_context())
             .unwrap();
 
-        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
+        //        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
         assert_eq!(context.get_metadata().log[0].message, "test2 called");
-        
+
         Ok(())
     }
 }

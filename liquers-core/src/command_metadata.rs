@@ -41,7 +41,7 @@ impl CommandRegistryIssue {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EnumArgumentAlternative {
     pub name: String,
-    pub value: Value,
+    pub value: DefaultValue,
 }
 
 /// Type of an enum argument, see EnumArgument
@@ -69,6 +69,7 @@ impl Default for EnumArgumentType {
         EnumArgumentType::String
     }
 }
+//TODO: add support for value with type_identifier
 
 /// Enum argument type specification
 /// EnumArgument specifies string aliases for values via vector of EnumArgumentAlternative.
@@ -89,13 +90,13 @@ impl EnumArgument {
             name: name.to_string(),
             values: Vec::new(),
             others_allowed: false,
-            value_type: EnumArgumentType::String,
+            value_type: EnumArgumentType::Any,
         }
     }
     pub fn with_value(&mut self, name: &str, value: Value) -> &mut Self {
         self.values.push(EnumArgumentAlternative {
             name: name.to_string(),
-            value,
+            value: DefaultValue::Value(value),
         });
         self
     }
@@ -107,10 +108,18 @@ impl EnumArgument {
         self.others_allowed = true;
         self
     }
+    /// Convert name of an enum alternative to its value
+    /// If the name is not found in the alternatives (and others_allowed is true), then the name is returned as a string value
+    /// Warning: if enum value is a link, None is returned
+    /// This allows simple extraction of enum values from parameter values, but it is not suitable
+    /// for links
     pub fn name_to_value(&self, name: String) -> Option<Value> {
         for alternative in &self.values {
             if alternative.name == name {
-                return Some(alternative.value.clone());
+                match &alternative.value {
+                    DefaultValue::Value(value) => return Some(value.clone()),
+                    _ => return None,
+                }
             }
         }
         if self.others_allowed {
@@ -119,6 +128,9 @@ impl EnumArgument {
         None
     }
 }
+
+//TODO: add support for value with type_identifier
+/// Argument type specification
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ArgumentType {
     #[serde(rename = "string")]
@@ -223,6 +235,7 @@ pub struct ArgumentInfo {
     pub default: DefaultValue,
     pub argument_type: ArgumentType,
     pub multiple: bool,
+    pub injected: bool,
     pub gui_info: ArgumentGUIInfo,
 }
 
@@ -234,6 +247,7 @@ impl ArgumentInfo {
             default: DefaultValue::NoDefault,
             argument_type: ArgumentType::Any,
             multiple: false,
+            injected: false,
             gui_info: ArgumentGUIInfo::TextField(40),
         }
     }
@@ -249,6 +263,7 @@ impl ArgumentInfo {
             default: DefaultValue::NoDefault,
             argument_type: ArgumentType::Any,
             multiple: false,
+            injected: false,
             gui_info: ArgumentGUIInfo::TextField(40),
         }
     }
@@ -259,6 +274,7 @@ impl ArgumentInfo {
             default: DefaultValue::NoDefault,
             argument_type: ArgumentType::String,
             multiple: false,
+            injected: false,
             gui_info: ArgumentGUIInfo::TextField(40),
         }
     }
@@ -277,6 +293,7 @@ impl ArgumentInfo {
                 ArgumentType::Integer
             },
             multiple: false,
+            injected: false,
             gui_info: ArgumentGUIInfo::IntegerField,
         }
     }
@@ -295,6 +312,7 @@ impl ArgumentInfo {
                 ArgumentType::Float
             },
             multiple: false,
+            injected: false,
             gui_info: ArgumentGUIInfo::FloatField,
         }
     }
@@ -305,6 +323,7 @@ impl ArgumentInfo {
             default: DefaultValue::NoDefault,
             argument_type: ArgumentType::Boolean,
             multiple: false,
+            injected: false,
             gui_info: ArgumentGUIInfo::Checkbox,
         }
     }
@@ -327,6 +346,14 @@ impl ArgumentInfo {
 
     pub fn with_label(&mut self, label: &str) -> &mut Self {
         self.label = label.to_string();
+        self
+    }
+    pub fn set_injected(&mut self) -> &mut Self {
+        self.injected = true;
+        self
+    }
+    pub fn set_multiple(&mut self) -> &mut Self {
+        self.multiple = true;
         self
     }
 }
@@ -409,11 +436,11 @@ impl From<&str> for CommandKey {
 /// which is used to fill default values and type-check/validate the arguments
 /// during the [crate::plan::Plan] building phase.
 /// It does not specify how to execute the command though, this is the role of a CommandExecutor.
-/// 
+///
 /// # Example
 /// ```
 /// use liquers_core::command_metadata::*;
-/// 
+///
 /// let mut command = CommandMetadata::new("test");
 /// command.with_doc("This is a test command")
 ///    .with_argument(ArgumentInfo::string_argument("arg1"));
@@ -425,10 +452,11 @@ pub struct CommandMetadata {
     pub name: String,
     pub module: String,
     pub doc: String,
+    //TODO: state argument should be optional
     pub state_argument: ArgumentInfo,
     pub arguments: Vec<ArgumentInfo>,
-    pub cache:bool,
-    pub volatile:bool,
+    pub cache: bool,
+    pub volatile: bool,
 }
 
 impl CommandMetadata {
@@ -441,8 +469,8 @@ impl CommandMetadata {
             doc: "".to_string(),
             state_argument: ArgumentInfo::any_argument("state"),
             arguments: Vec::new(),
-            cache:true,
-            volatile:false,
+            cache: true,
+            volatile: false,
         }
     }
     pub fn from_key(key: CommandKey) -> Self {
@@ -454,8 +482,8 @@ impl CommandMetadata {
             doc: "".to_string(),
             state_argument: ArgumentInfo::any_argument("state"),
             arguments: Vec::new(),
-            cache:true,
-            volatile:false,
+            cache: true,
+            volatile: false,
         }
     }
     pub fn check(&self) -> Vec<CommandRegistryIssue> {
@@ -532,24 +560,32 @@ impl CommandMetadataRegistry {
         self
     }
 
-    pub fn get_mut<K>(&mut self, key:K) -> Option<&mut CommandMetadata>
-    where K:Into<CommandKey>
+    pub fn get_mut<K>(&mut self, key: K) -> Option<&mut CommandMetadata>
+    where
+        K: Into<CommandKey>,
     {
-        let key:CommandKey = key.into();
+        let key: CommandKey = key.into();
         for command in &mut self.commands {
-            if command.realm == key.realm && command.namespace == key.namespace && command.name == key.name {
+            if command.realm == key.realm
+                && command.namespace == key.namespace
+                && command.name == key.name
+            {
                 return Some(command);
             }
         }
         None
     }
 
-    pub fn get<K>(&self, key:K) -> Option<&CommandMetadata>
-    where K:Into<CommandKey>
+    pub fn get<K>(&self, key: K) -> Option<&CommandMetadata>
+    where
+        K: Into<CommandKey>,
     {
         let key = key.into();
         for command in &self.commands {
-            if command.realm == key.realm && command.namespace == key.namespace && command.name == key.name {
+            if command.realm == key.realm
+                && command.namespace == key.namespace
+                && command.name == key.name
+            {
                 return Some(command);
             }
         }
@@ -582,5 +618,4 @@ impl CommandMetadataRegistry {
         }
         None
     }
-    
 }

@@ -30,7 +30,7 @@ pub enum Value {
 /// ValueInterface is a trait that must be implemented by the value type.
 /// This is a central trait that defines the minimum set of operations
 /// that must be supported by the value type.
-pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSerializer{
+pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSerializer {
     /// Empty value
     fn none() -> Self;
 
@@ -135,7 +135,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;
 
     /// Try to convert JSON value to value type
-    fn try_from_json_value(value:&serde_json::Value) -> Result<Self, Error>{
+    fn try_from_json_value(value: &serde_json::Value) -> Result<Self, Error> {
         match value {
             serde_json::Value::Null => Ok(Self::none()),
             serde_json::Value::Bool(b) => Ok(Self::from_bool(*b)),
@@ -145,16 +145,22 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
                 } else if let Some(f) = n.as_f64() {
                     Ok(Self::from_f64(f))
                 } else {
-                    Err(Error::conversion_error_with_message(value, "i64 or f64", "Invalid JSON number"))
+                    Err(Error::conversion_error_with_message(
+                        value,
+                        "i64 or f64",
+                        "Invalid JSON number",
+                    ))
                 }
             }
             serde_json::Value::String(s) => Ok(Self::new(s)),
-            serde_json::Value::Array(a) => {
-                Err(Error::not_supported("JSON Array conversion not supported by default for a generic ValueInterface".to_string()))
-            }
-            serde_json::Value::Object(o) => {
-                Err(Error::not_supported("JSON Object conversion not supported by default for a generic ValueInterface".to_string()))
-            }
+            serde_json::Value::Array(a) => Err(Error::not_supported(
+                "JSON Array conversion not supported by default for a generic ValueInterface"
+                    .to_string(),
+            )),
+            serde_json::Value::Object(o) => Err(Error::not_supported(
+                "JSON Object conversion not supported by default for a generic ValueInterface"
+                    .to_string(),
+            )),
         }
     }
 }
@@ -181,9 +187,7 @@ impl ValueInterface for Value {
             Value::I64(n) => Ok(format!("{n}")),
             Value::F64(n) => Ok(format!("{n}")),
             Value::Text(t) => Ok(t.to_owned()),
-            Value::Bytes(b) => {
-                Ok(String::from_utf8_lossy(b).to_string())
-            },
+            Value::Bytes(b) => Ok(String::from_utf8_lossy(b).to_string()),
             _ => Err(Error::conversion_error(self.identifier(), "string")),
         }
     }
@@ -316,8 +320,8 @@ impl ValueInterface for Value {
     fn from_bytes(b: Vec<u8>) -> Self {
         Value::Bytes(b)
     }
-    
-    fn try_from_json_value(value:&serde_json::Value) -> Result<Self, Error> {
+
+    fn try_from_json_value(value: &serde_json::Value) -> Result<Self, Error> {
         match value {
             serde_json::Value::Null => Ok(Value::None),
             serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
@@ -327,7 +331,11 @@ impl ValueInterface for Value {
                 } else if let Some(f) = n.as_f64() {
                     Ok(Value::F64(f))
                 } else {
-                    Err(Error::conversion_error_with_message(value, "i64 or f64", "Invalid JSON number"))
+                    Err(Error::conversion_error_with_message(
+                        value,
+                        "i64 or f64",
+                        "Invalid JSON number",
+                    ))
                 }
             }
             serde_json::Value::String(s) => Ok(Value::Text(s.to_owned())),
@@ -354,7 +362,8 @@ impl TryFrom<&Value> for i32 {
     fn try_from(value: &Value) -> Result<Self, Self::Error> {
         match value {
             Value::I32(x) => Ok(*x),
-            Value::I64(x) => i32::try_from(*x).map_err(|e| Error::conversion_error_with_message("I64", "i32", &e.to_string())),
+            Value::I64(x) => i32::try_from(*x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "i32", &e.to_string())),
             _ => Err(Error::conversion_error(value.type_name(), "i32")),
         }
     }
@@ -365,7 +374,8 @@ impl TryFrom<Value> for i32 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::I32(x) => Ok(x),
-            Value::I64(x) => i32::try_from(x).map_err(|e| Error::conversion_error_with_message("I64", "i32", &e.to_string())),
+            Value::I64(x) => i32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "i32", &e.to_string())),
             _ => Err(Error::conversion_error(value.type_name(), "i32")),
         }
     }
@@ -462,13 +472,14 @@ where
     Self: Sized,
 {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error>;
-    fn deserialize_from_bytes(b: &[u8], type_identifier:&str, format: &str) -> Result<Self, Error>;
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, format: &str)
+        -> Result<Self, Error>;
 }
 
 impl DefaultValueSerializer for Value {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
         match format {
-            "json" => serde_json::to_vec(self).map_err(|e| {                
+            "json" => serde_json::to_vec(self).map_err(|e| {
                 Error::new(ErrorType::SerializationError, format!("JSON error {}", e))
             }),
             "txt" | "html" => match self {
@@ -494,7 +505,7 @@ impl DefaultValueSerializer for Value {
             )),
         }
     }
-    fn deserialize_from_bytes(b: &[u8], _type_identifier:&str, fmt: &str) -> Result<Self, Error> {
+    fn deserialize_from_bytes(b: &[u8], _type_identifier: &str, fmt: &str) -> Result<Self, Error> {
         match fmt {
             "json" => serde_json::from_slice(b).map_err(|e| {
                 Error::new(

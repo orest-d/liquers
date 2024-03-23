@@ -48,7 +48,9 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     pub fn evaluate(&mut self, query: &str) -> Result<State<E::Value>, Error> {
         self.with_query(query)?;
         self.run()?;
-        self.state.take().ok_or(Error::general_error("No state".to_string()))
+        self.state
+            .take()
+            .ok_or(Error::general_error("No state".to_string()))
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
@@ -203,7 +205,7 @@ mod tests {
         fn get_store(&self) -> Arc<Mutex<Box<dyn crate::store::Store>>> {
             self.store.clone()
         }
-        
+
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
@@ -232,7 +234,7 @@ mod tests {
         fn get_store(&self) -> Arc<Mutex<Box<dyn crate::store::Store>>> {
             panic!("NoInjection has no store")
         }
-        
+
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
@@ -267,7 +269,7 @@ mod tests {
         fn get_store(&self) -> std::sync::Arc<std::sync::Mutex<Box<dyn crate::store::Store>>> {
             self.store.clone()
         }
-        
+
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }

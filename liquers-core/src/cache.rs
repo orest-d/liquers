@@ -141,42 +141,56 @@ impl BinCache for MemoryBinCache {
     }
 }
 
-pub trait Cache<V:ValueInterface>:BinCache{
-    fn get(&self, query:&Query)->Result<State<V>,Error>;
-    fn set(&mut self, state:State<V>)->Result<(),Error>;
+pub trait Cache<V: ValueInterface>: BinCache {
+    fn get(&self, query: &Query) -> Result<State<V>, Error>;
+    fn set(&mut self, state: State<V>) -> Result<(), Error>;
 }
 
-pub struct NoCache<V:ValueInterface>(PhantomData<V>);
+pub struct NoCache<V: ValueInterface>(PhantomData<V>);
 
-impl<V:ValueInterface> NoCache<V>{
-    pub fn new()->Self{
+impl<V: ValueInterface> NoCache<V> {
+    pub fn new() -> Self {
         NoCache(PhantomData::default())
     }
 }
 
-impl <V:ValueInterface> BinCache for NoCache<V>{
+impl<V: ValueInterface> BinCache for NoCache<V> {
     fn clear(&mut self) {}
-    fn get_binary(&self, _query: &Query) -> Option<Vec<u8>> {None}
-    fn get_metadata(&self, _query: &Query) -> Option<Arc<Metadata>> {None}
-    fn set_binary(&mut self, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {Err(Error::cache_not_supported())}
-    fn set_metadata(&mut self, _metadata: &Metadata) -> Result<(), Error> {Err(Error::cache_not_supported())}
-    fn remove(&mut self, _query: &Query) -> Result<(), Error> {Err(Error::cache_not_supported())}
-    fn contains(&self, _query: &Query) -> bool {false}
-    fn keys(&self) -> Vec<Query> {Vec::new()}
-}
-
-impl<V:ValueInterface> Cache<V> for NoCache<V>{
-    fn get(&self, _query:&Query)->Result<State<V>,Error> {
+    fn get_binary(&self, _query: &Query) -> Option<Vec<u8>> {
+        None
+    }
+    fn get_metadata(&self, _query: &Query) -> Option<Arc<Metadata>> {
+        None
+    }
+    fn set_binary(&mut self, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
         Err(Error::cache_not_supported())
     }
-    fn set(&mut self, _state:State<V>)->Result<(),Error> {
+    fn set_metadata(&mut self, _metadata: &Metadata) -> Result<(), Error> {
+        Err(Error::cache_not_supported())
+    }
+    fn remove(&mut self, _query: &Query) -> Result<(), Error> {
+        Err(Error::cache_not_supported())
+    }
+    fn contains(&self, _query: &Query) -> bool {
+        false
+    }
+    fn keys(&self) -> Vec<Query> {
+        Vec::new()
+    }
+}
+
+impl<V: ValueInterface> Cache<V> for NoCache<V> {
+    fn get(&self, _query: &Query) -> Result<State<V>, Error> {
+        Err(Error::cache_not_supported())
+    }
+    fn set(&mut self, _state: State<V>) -> Result<(), Error> {
         Err(Error::cache_not_supported())
     }
 }
 
-pub struct SerializingCache<V:ValueInterface,BC:BinCache>(BC,PhantomData<V>);
+pub struct SerializingCache<V: ValueInterface, BC: BinCache>(BC, PhantomData<V>);
 
-impl<V:ValueInterface, BC:BinCache> BinCache for SerializingCache<V, BC>{
+impl<V: ValueInterface, BC: BinCache> BinCache for SerializingCache<V, BC> {
     fn clear(&mut self) {
         self.0.clear()
     }
@@ -210,23 +224,26 @@ impl<V:ValueInterface, BC:BinCache> BinCache for SerializingCache<V, BC>{
     }
 }
 
-impl<V:ValueInterface, BC:BinCache> Cache<V> for SerializingCache<V, BC>{
-    fn get(&self, query:&Query)->Result<State<V>,Error> {
-        let b = self.get_binary(query).ok_or(Error::not_available().with_query(query))?;
-        let metadata = self.get_metadata(query).ok_or(Error::not_available().with_query(query))?;
+impl<V: ValueInterface, BC: BinCache> Cache<V> for SerializingCache<V, BC> {
+    fn get(&self, query: &Query) -> Result<State<V>, Error> {
+        let b = self
+            .get_binary(query)
+            .ok_or(Error::not_available().with_query(query))?;
+        let metadata = self
+            .get_metadata(query)
+            .ok_or(Error::not_available().with_query(query))?;
         let type_identifier = metadata.type_identifier()?;
         let extension = metadata.extension().unwrap_or("b".to_owned()); // TODO: what is the default extension ?
         let value = V::deserialize_from_bytes(&b, &type_identifier, &extension)?;
         Ok(State::from_value_and_metadata(value, metadata))
     }
 
-    fn set(&mut self, state:State<V>)->Result<(),Error> {
+    fn set(&mut self, state: State<V>) -> Result<(), Error> {
         let value = state.data.as_ref();
-        if let Some(extension) = state.metadata.extension(){
+        if let Some(extension) = state.metadata.extension() {
             let b = state.data.as_bytes(&extension)?;
             self.set_binary(&b, &state.metadata)?;
-        }
-        else{
+        } else {
             let extension = value.default_extension();
             let b = value.as_bytes(extension.as_ref())?;
             let mut metadata = state.metadata.as_ref().clone();

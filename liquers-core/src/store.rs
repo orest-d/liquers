@@ -223,7 +223,6 @@ pub struct NoStore;
 
 impl Store for NoStore {}
 
-
 #[derive(Debug, Clone)]
 pub struct FileStore {
     pub path: PathBuf,
@@ -427,7 +426,6 @@ impl Store for FileStore {
     }
 }
 
-
 pub struct MemoryStore {
     data: std::collections::HashMap<Key, (Vec<u8>, Metadata)>,
     prefix: Key,
@@ -444,10 +442,7 @@ impl MemoryStore {
 
 impl Store for MemoryStore {
     fn store_name(&self) -> String {
-        format!(
-            "{} Memory store",
-            self.key_prefix()
-        )
+        format!("{} Memory store", self.key_prefix())
     }
 
     fn key_prefix(&self) -> Key {
@@ -500,13 +495,15 @@ impl Store for MemoryStore {
     }
 
     fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), StoreError> {
-        self.data.insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
+        self.data
+            .insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
         Ok(())
     }
 
     fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), StoreError> {
         if let Some((data, _)) = self.data.get(key) {
-            self.data.insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
+            self.data
+                .insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
             Ok(())
         } else {
             Err(StoreError::KeyNotFound(key.to_owned()))
@@ -519,7 +516,12 @@ impl Store for MemoryStore {
     }
 
     fn removedir(&mut self, key: &Key) -> Result<(), StoreError> {
-        let keys = self.data.keys().filter(|k| k.has_key_prefix(key)).cloned().collect::<Vec<_>>();
+        let keys = self
+            .data
+            .keys()
+            .filter(|k| k.has_key_prefix(key))
+            .cloned()
+            .collect::<Vec<_>>();
         for k in keys {
             self.data.remove(&k);
         }
@@ -531,8 +533,12 @@ impl Store for MemoryStore {
     }
 
     fn is_dir(&self, key: &Key) -> bool {
-
-        let keys = self.data.keys().filter(|k| k.has_key_prefix(key)).cloned().collect::<Vec<_>>();
+        let keys = self
+            .data
+            .keys()
+            .filter(|k| k.has_key_prefix(key))
+            .cloned()
+            .collect::<Vec<_>>();
         for k in keys {
             if k.len() > key.len() {
                 return true;
@@ -553,12 +559,22 @@ impl Store for MemoryStore {
 
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, StoreError> {
         let n = key.len() + 1;
-        let keys = self.data.keys().filter(|k| k.has_key_prefix(key) && k.len()==n).cloned().collect::<Vec<_>>();
+        let keys = self
+            .data
+            .keys()
+            .filter(|k| k.has_key_prefix(key) && k.len() == n)
+            .cloned()
+            .collect::<Vec<_>>();
         Ok(keys)
     }
 
     fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, StoreError> {
-        let keys = self.data.keys().filter(|k| k.has_key_prefix(key)).cloned().collect::<Vec<_>>();
+        let keys = self
+            .data
+            .keys()
+            .filter(|k| k.has_key_prefix(key))
+            .cloned()
+            .collect::<Vec<_>>();
         Ok(keys)
     }
 
@@ -570,7 +586,6 @@ impl Store for MemoryStore {
     fn is_supported(&self, _key: &Key) -> bool {
         true
     }
-    
 }
 
 // Unittests

@@ -337,9 +337,8 @@ impl MetadataRecord {
                 filename.push_str(".");
                 filename.push_str(extension);
             }
-        }
-        else{
-            self.filename = Some(format!("file.{}",extension));
+        } else {
+            self.filename = Some(format!("file.{}", extension));
         }
     }
 }
@@ -516,24 +515,23 @@ impl Metadata {
         }
         None
     }
-    
-    pub fn set_extension(&mut self, extension: &str)->Result<&mut Self, Error> {
+
+    pub fn set_extension(&mut self, extension: &str) -> Result<&mut Self, Error> {
         match self {
             Metadata::LegacyMetadata(_) => {
-                let mut error = Error::general_error(
-                    "Cannot set extension on legacy metadata".to_string(),
-                );
+                let mut error =
+                    Error::general_error("Cannot set extension on legacy metadata".to_string());
                 if let Ok(query) = self.query() {
                     Err(error.with_query(&query))
                 } else {
                     Err(error)
-                }        
+                }
             }
             Metadata::MetadataRecord(m) => {
                 m.set_extension(extension);
                 Ok(self)
             }
-        }   
+        }
     }
 }
 
