@@ -555,16 +555,45 @@ where
     }
 }
 
-macro_rules! command_wrapper {
-    ($realm:ident - $namespace:ident - $name:ident 
-        ($($argname:ident:$argtype:ty),*)) => {
-            stringify!(
-            |state: &State<V>, arguments: &mut CommandArguments, context: Context<ER, E>| -> Result<V, Error> {
+impl<ER, E, V> CommandExecutor<ER, E, V> for NewCommandRegistry<ER, E, V>
+where
+    V: ValueInterface,
+    E: Environment,
+    ER: EnvRef<E>,
+{
+    fn execute(
+        &self,
+        realm: &str,
+        namespace: &str,
+        command_name: &str,
+        state: &State<V>,
+        arguments: &mut CommandArguments,
+        context: Context<ER, E>,
+    ) -> Result<V, Error> {
+        let key = CommandKey::new(realm, namespace, command_name);
+        if let Some(command) = self.executors.get(&key) {
+            command(state, arguments, context)
+        } else {
+            Err(Error::unknown_command_executor(
+                realm,
+                namespace,
+                command_name,
+                &arguments.action_position,
+            ))
+        }
+    }
+}
+
+macro_rules! command_wrapper_typed {
+    ($name:ident
+        ($($argname:ident:$argtype:ty),*)<$V:ty, $ER:ty, $E:ty>) => {
+            //stringify!(
+            |state: &State<$V>, arguments: &mut CommandArguments, context: Context<$ER, $E>| -> Result<$V, Error> {
                 $(
-                    let $argname: $argtype = arguments.get::<$argtype, ER, E>(&context)?;
+                    let $argname: $argtype = arguments.get::<$argtype, $ER, $E>(&context)?;
                 )*
                 if arguments.all_parameters_used(){
-                    V::try_from($name($($argname),*))
+                    $name($($argname),*)
                 }
                 else{
                         Err(Error::new(
@@ -574,8 +603,59 @@ macro_rules! command_wrapper {
                         .with_position(&arguments.parameter_position()))
                 }
             }
-        )
-        }
+        //)
+        };
+}
+
+macro_rules! command_wrapper_parameter_name {
+    ($cxpar:ident, context) => {
+        $cxpar
+    };
+    ($cxpar:ident, $argname:ident) => {
+        $argname
+    };
+}
+
+macro_rules! command_wrapper_parameter_assignment {
+    ($cxpar:ident, $arguments:ident, $context:ident, context) => {
+        let command_wrapper_parameter_name!($cxpar, context) = $context;
+    };
+    ($cxpar:ident, $arguments:ident, $context:ident, $argname:ident:$argtype:ty) => {
+        let command_wrapper_parameter_name!($cxpar, $argname): $argtype = $arguments.get(&$context)?;
+    };
+}
+
+
+macro_rules! command_wrapper {
+    ($name:ident
+        ($($argname:ident$(:$argtype:ty)?),*)) => {
+            //stringify!(
+            |state, arguments, context|{
+                let cx_wrapper_parameter = 0;
+                $(
+                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, arguments, context, $argname$(:$argtype)?);
+                )*
+                if arguments.all_parameters_used(){
+                    $name($(command_wrapper_parameter_name!(cx_wrapper_parameter, $argname)),*)
+                }
+                else{
+                        Err(Error::new(
+                            ErrorType::TooManyParameters,
+                            format!("Too many parameters: {}; {} excess parameters found", arguments.len(), arguments.excess_parameters()),
+                        )
+                        .with_position(&arguments.parameter_position()))
+                }
+            }
+        //)
+        };
+}
+
+    
+
+macro_rules! register_command {
+    ($cr:ident, $name:ident ($($argname:ident$(:$argtype:ty)?),*)) => {
+        $cr.register_command(stringify!($name), command_wrapper!($name($($argname$(:$argtype)?),*)))
+    };
 }
 
 #[cfg(test)]
@@ -711,10 +791,53 @@ mod tests {
         assert_eq!(s.try_into_string()?, "Hello2");
         Ok(())
     }
+
     #[test]
-    fn test_macro() -> Result<(), Error> {
-        println!("Macro: {}", make_command_wrapper!(Test1, a:A, b:B));
-        println!("Command wrapper: {}", command_wrapper!(xx-yy-zz(a:A, b:B)));
+    fn test_macro_wrapper() -> Result<(), Error> {
+        #![feature(trace_macros)]
+        //println!("Macro: {}", make_command_wrapper!(Test1, a:A, b:B));
+        //println!("Command wrapper: {}", command_wrapper!(xx-yy-zz(a:A, b:B)));
+        //trace_macros!(true);
+        fn test1() -> Result<Value, Error> {
+            Ok(Value::from_string("Hello1".into()))
+        }
+        fn test2(context:Context<StatEnvRef<NoInjection>, NoInjection>) -> Result<Value, Error> {
+            context.info("test2 called");
+            Ok(Value::from_string(format!("Hello2")))
+        }
+        let mut cr = NewCommandRegistry::<StatEnvRef<NoInjection>, NoInjection, Value>::new();
+        //cr.register_command("test1", command_wrapper1!(test1()<Value, StatEnvRef<NoInjection>, NoInjection>))?;
+        cr.register_command("test1a", command_wrapper!(test1()))?;
+        register_command!(cr, test1())?;
+        register_command!(cr, test2(context))?;
+
+        //trace_macros!(false);
+
+        let injection = Box::leak(Box::new(NoInjection));
+
+        let envref = StatEnvRef(injection);
+        let state = State::new();
+        let mut context: Context<StatEnvRef<NoInjection>, NoInjection> = Context::new(envref);
+        let mut ca = CommandArguments::new(ResolvedParameters::new());
+
+        let s = cr
+            .execute("", "", "test1a", &state, &mut ca, context.clone_context())
+            .unwrap();
+        assert_eq!(s.try_into_string()?, "Hello1");
+
+        let s = cr
+            .execute("", "", "test1", &state, &mut ca, context.clone_context())
+            .unwrap();
+        assert_eq!(s.try_into_string()?, "Hello1");
+        assert_eq!(context.get_metadata().log.len(), 0);
+
+        let s = cr
+            .execute("", "", "test2", &state, &mut ca, context.clone_context())
+            .unwrap();
+
+        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
+        assert_eq!(context.get_metadata().log[0].message, "test2 called");
+        
         Ok(())
     }
 }

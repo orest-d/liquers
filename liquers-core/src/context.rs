@@ -192,3 +192,21 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
 }
 
+mod tests {
+    use super::*;
+    use crate::value::Value;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_context() {
+        let env = SimpleEnvironment::<Value>::new().to_ref();
+        let context = env.new_context();
+        assert!(context.get_metadata().log.is_empty());
+        context.info("test");
+        assert_eq!(context.get_metadata().log.len(), 1);
+        let cx = context.clone_context();
+        cx.info("info");
+        assert_eq!(context.get_metadata().log.len(), 2);
+        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
+    }
+}
