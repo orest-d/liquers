@@ -7,6 +7,8 @@ use std::hash::Hash;
 use std::ops::{Add, Index, IndexMut};
 use std::path::Path;
 
+use crate::error::Error;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Position {
     pub offset: usize,
@@ -1377,6 +1379,56 @@ impl Query {
     }
     pub fn len(&self) -> usize {
         self.segments.len()
+    }
+}
+
+pub trait TryToQuery{
+    fn try_to_query(self) -> Result<Query, Error>;
+}
+
+impl TryToQuery for &str {
+    fn try_to_query(self) -> Result<Query, Error> {
+        crate::parse::parse_query(self)
+    }
+}
+
+impl TryToQuery for String {
+    fn try_to_query(self) -> Result<Query, Error> {
+        crate::parse::parse_query(&self)
+    }
+}
+
+impl TryToQuery for Query {
+    fn try_to_query(self) -> Result<Query, Error> {
+        Ok(self)
+    }
+}
+
+impl TryToQuery for &Query {
+    fn try_to_query(self) -> Result<Query, Error> {
+        Ok(self.clone())
+    }
+}
+
+impl From<&Query> for Query {
+    fn from(value: &Query) -> Self {
+        value.clone()
+    }
+}
+
+impl TryFrom<&str> for Query {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        crate::parse::parse_query(value)
+    }
+}
+
+impl TryFrom<String> for Query {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        crate::parse::parse_query(&value)
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
     commands::{CommandExecutor, CommandRegistry},
     error::Error,
     metadata::{self, MetadataRecord},
-    query::{Key, Query},
+    query::{Key, Query, TryToQuery},
     state::State,
     store::{NoStore, Store},
     value::ValueInterface,
@@ -21,6 +21,7 @@ pub trait Environment: Sized {
     type Value: ValueInterface;
     type EnvironmentReference: EnvRef<Self>;
     type CommandExecutor: CommandExecutor<Self::EnvironmentReference, Self, Self::Value>;
+    type Context: ContextInterface<Self>;
 
     fn evaluate(&mut self, _query: &Query) -> Result<State<Self::Value>, Error> {
         Err(Error::not_supported("evaluate not implemented".to_string()))
@@ -101,48 +102,73 @@ pub struct Context<ER: EnvRef<E>, E: Environment> {
     environment: PhantomData<E>,
 }
 
-impl<ER: EnvRef<E>, E: Environment> Context<ER, E> {
+pub trait ContextInterface<E: Environment>{
+    fn evaluate<Q:TryToQuery>(&mut self, query: Q) -> Result<State<<E as Environment>::Value>, Error> {
+        crate::interpreter::PlanInterpreter::new(self.get_envref()).evaluate(query)
+    }
+    fn get_envref(&self) -> E::EnvironmentReference;
+    fn get_environment(&self) -> &E;
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
+    fn get_command_executor(&self) -> &E::CommandExecutor;
+    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>;
+    fn get_metadata(&self) -> MetadataRecord;
+    fn set_filename(&self, filename: String);
+    fn debug(&self, message: &str);
+    fn info(&self, message: &str);
+    fn warning(&self, message: &str);
+    fn error(&self, message: &str);
+    fn clone_context(&self) -> Self;
+}
+
+impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::EnvironmentReference, E>
+{
+    fn get_environment(&self) -> &E {
+        self.envref.get()
+    }
+    fn get_envref(&self) -> <E as Environment>::EnvironmentReference {
+        self.envref.get_ref()
+    }    
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+        self.envref.get().get_command_metadata_registry()
+    }
+    fn get_command_executor(&self) -> &E::CommandExecutor {
+        self.envref.get().get_command_executor()
+    }
+    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
+        self.envref.get().get_store()
+    }
+    fn get_metadata(&self) -> MetadataRecord {
+        self.metadata.borrow().clone()
+    }
+    fn set_filename(&self, filename: String) {
+        self.metadata.borrow_mut().with_filename(filename);
+    }
+    fn debug(&self, message: &str) {
+        self.metadata.borrow_mut().debug(message);
+    }
+    fn info(&self, message: &str) {
+        self.metadata.borrow_mut().info(message);
+    }
+    fn warning(&self, message: &str) {
+        self.metadata.borrow_mut().warning(message);
+    }
+    fn error(&self, message: &str) {
+        self.metadata.borrow_mut().error(message);
+    }
+    fn clone_context(&self) -> Self {
+        Context {
+            envref: self.envref.get_ref(),
+            metadata: self.metadata.clone(),
+            environment: PhantomData::default(),
+        }
+    }    
+}
+
+impl<ER: EnvRef<E>, E: Environment> Context<ER, E>{
     pub fn new(environment: ER) -> Self {
         Context {
             envref: environment,
             metadata: Rc::new(RefCell::new(MetadataRecord::new())),
-            environment: PhantomData::default(),
-        }
-    }
-    pub fn get_environment(&self) -> &E {
-        self.envref.get()
-    }
-    pub fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
-        self.envref.get().get_command_metadata_registry()
-    }
-    pub fn get_command_executor(&self) -> &E::CommandExecutor {
-        self.envref.get().get_command_executor()
-    }
-    pub fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
-        self.envref.get().get_store()
-    }
-    pub fn get_metadata(&self) -> MetadataRecord {
-        self.metadata.borrow().clone()
-    }
-    pub fn set_filename(&self, filename: String) {
-        self.metadata.borrow_mut().with_filename(filename);
-    }
-    pub fn debug(&self, message: &str) {
-        self.metadata.borrow_mut().debug(message);
-    }
-    pub fn info(&self, message: &str) {
-        self.metadata.borrow_mut().info(message);
-    }
-    pub fn warning(&self, message: &str) {
-        self.metadata.borrow_mut().warning(message);
-    }
-    pub fn error(&self, message: &str) {
-        self.metadata.borrow_mut().error(message);
-    }
-    pub fn clone_context(&self) -> Self {
-        Context {
-            envref: self.envref.get_ref(),
-            metadata: self.metadata.clone(),
             environment: PhantomData::default(),
         }
     }
@@ -181,6 +207,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type Value = V;
     type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, V>;
     type EnvironmentReference = ArcEnvRef<Self>;
+    type Context = Context<Self::EnvironmentReference, Self>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry

@@ -73,7 +73,7 @@ impl Step {
 /// Supported scalar values (string, integer, optional integer, float, optional float, boolean, enum and any) are never injected,
 /// all other types are always injected. Note that any is a Environment::Value type. 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-enum ParameterValue {
+pub enum ParameterValue {
     DefaultValue(Value),
     DefaultLink(Query),
     ParameterValue(Value, Position),
@@ -98,7 +98,7 @@ impl Display for ParameterValue {
 }
 
 impl ParameterValue {
-    fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
+    pub fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
         match &arginfo.default {
             DefaultValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
             DefaultValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
@@ -112,14 +112,14 @@ impl ParameterValue {
         }
     }
 
-    fn to_result(self, error:impl Fn()->String, position: &Position)->Result<Self,Error>{
+    pub fn to_result(self, error:impl Fn()->String, position: &Position)->Result<Self,Error>{
         match self{
             ParameterValue::None=>Err(Error::new(ErrorType::ArgumentMissing, error()).with_position(position)),
             _=>Ok(self)
         }
     }
 
-    fn from_string(arginfo: &ArgumentInfo, s: &str, pos: &Position) -> Result<Self, Error> {
+    pub fn from_string(arginfo: &ArgumentInfo, s: &str, pos: &Position) -> Result<Self, Error> {
         match arginfo.argument_type {
             ArgumentType::String => Ok(ParameterValue::ParameterValue(Value::String(s.to_owned()), pos.to_owned())),
             ArgumentType::Integer => {
@@ -220,7 +220,7 @@ impl ParameterValue {
         }
     }
 
-    fn pop_value(arginfo: &ArgumentInfo, param: &mut ActionParameterIterator) -> Result<Self, Error> {
+    pub fn pop_value(arginfo: &ArgumentInfo, param: &mut ActionParameterIterator) -> Result<Self, Error> {
         let mut p = Self::from_arginfo(arginfo);
         if arginfo.injected {
             return Ok(p);
@@ -263,20 +263,20 @@ impl ParameterValue {
             }
         }
     }
-    fn is_default(&self) -> bool {
+    pub fn is_default(&self) -> bool {
         match self {
             ParameterValue::DefaultValue(_) => true,
             ParameterValue::DefaultLink(_) => true,
             _ => false,
         }
     }
-    fn is_none(&self) -> bool {
+    pub fn is_none(&self) -> bool {
         match self {
             ParameterValue::None => true,
             _ => false,
         }
     }
-    fn is_link(&self) -> bool {
+    pub fn is_link(&self) -> bool {
         match self {
             ParameterValue::DefaultLink(_) => true,
             ParameterValue::ParameterLink(_, _) => true,
@@ -284,20 +284,20 @@ impl ParameterValue {
             _ => false,
         }
     }
-    fn is_injected(&self) -> bool {
+    pub fn is_injected(&self) -> bool {
         match self {
             ParameterValue::Injected => true,
             _ => false,
         }
     }
-    fn value(&self) -> Option<Value> {
+    pub fn value(&self) -> Option<Value> {
         match self {
             ParameterValue::DefaultValue(v) => Some(v.clone()),
             ParameterValue::ParameterValue(v, _) => Some(v.clone()),
             _ => None,
         }
     }
-    fn link(&self) -> Option<Query> {
+    pub fn link(&self) -> Option<Query> {
         match self {
             ParameterValue::DefaultLink(q) => Some(q.clone()),
             ParameterValue::ParameterLink(q, _) => Some(q.clone()),
@@ -307,6 +307,7 @@ impl ParameterValue {
     }
 }
 
+//TODO: Parameter should be replaced by ParameterValue
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Parameter {
     pub value: Value,
@@ -343,6 +344,10 @@ pub struct ResolvedParameters {
     pub parameters: Vec<Parameter>,
     pub links: Vec<(usize, Query)>,
 }
+
+//TODO: ResolvedParameters should be replaced by ResolvedParameterValues
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
 
 impl ResolvedParameters {
     pub fn new() -> Self {

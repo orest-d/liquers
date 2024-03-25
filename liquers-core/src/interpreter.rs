@@ -1,11 +1,14 @@
 use crate::commands::{CommandArguments, CommandExecutor};
-use crate::context::{Context, EnvRef, Environment};
+use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::Error;
 use crate::metadata::MetadataRecord;
 use crate::parse::parse_query;
 use crate::plan::{Plan, PlanBuilder, Step};
+use crate::query::{Query, TryToQuery};
 use crate::state::State;
 use crate::value::ValueInterface;
+use std::convert::TryFrom;
+use std::convert::TryInto;
 
 pub struct PlanInterpreter<ER: EnvRef<E>, E: Environment> {
     plan: Option<Plan>,
@@ -31,8 +34,9 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     }
 
     // TODO: make into query
-    pub fn with_query(&mut self, query: &str) -> Result<&mut Self, Error> {
-        let query = parse_query(query)?;
+    pub fn with_query<Q:TryToQuery>(&mut self, query: Q) -> Result<&mut Self, Error>
+    {
+        let query = query.try_to_query()?;
         let cmr = self.environment.get().get_command_metadata_registry();
         println!("Query: {}", query);
         println!(
@@ -45,7 +49,8 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     }
 
     // TODO: make into query
-    pub fn evaluate(&mut self, query: &str) -> Result<State<E::Value>, Error> {
+    pub fn evaluate<Q:TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> 
+    {
         self.with_query(query)?;
         self.run()?;
         self.state
@@ -54,7 +59,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
-        let mut context = self.environment.new_context();
+        let context = self.environment.new_context();
         if self.plan.is_none() {
             return Err(Error::general_error("No plan".to_string()));
         }
@@ -193,7 +198,8 @@ mod tests {
         type Value = Value;
         type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, Value>;
         type EnvironmentReference = StatEnvRef<Self>;
-
+        type Context = context::Context<Self::EnvironmentReference, Self>;
+        
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &self.cr
         }
@@ -222,6 +228,7 @@ mod tests {
         type Value = Value;
         type CommandExecutor = TestExecutor;
         type EnvironmentReference = StatEnvRef<Self>;
+        type Context = context::Context<Self::EnvironmentReference, Self>;
 
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &TestExecutor
@@ -247,6 +254,11 @@ mod tests {
     }
 
     impl Environment for MutableInjectionTest {
+        type Value = Value;
+        type CommandExecutor = CommandRegistry<StatEnvRef<Self>, Self, Value>;
+        type EnvironmentReference = StatEnvRef<Self>;
+        type Context = context::Context<Self::EnvironmentReference, Self>;
+
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
         }
@@ -254,9 +266,6 @@ mod tests {
             &mut self.cr.command_metadata_registry
         }
 
-        type Value = Value;
-        type CommandExecutor = CommandRegistry<StatEnvRef<Self>, Self, Value>;
-        type EnvironmentReference = StatEnvRef<Self>;
 
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &self.cr

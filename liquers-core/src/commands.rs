@@ -8,9 +8,9 @@ use std::marker::PhantomData;
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
-use crate::context::{self, Context, EnvRef, Environment};
+use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::{Error, ErrorType};
-use crate::plan::{Parameter, ResolvedParameters};
+use crate::plan::{Parameter, ParameterValue, ResolvedParameterValues, ResolvedParameters};
 use crate::query::Position;
 use crate::state::State;
 use crate::value::ValueInterface;
@@ -19,6 +19,13 @@ pub struct NoInjection;
 
 pub struct CommandArguments {
     pub parameters: ResolvedParameters,
+    pub action_position: Position,
+    pub argument_number: usize,
+}
+
+//TODO: Rename and replace CommandArguments
+pub struct NewCommandArguments {
+    pub parameters: ResolvedParameterValues,
     pub action_position: Position,
     pub argument_number: usize,
 }
@@ -72,6 +79,45 @@ impl CommandArguments {
         } else {
             self.action_position.clone()
         }
+    }
+}
+
+impl NewCommandArguments {
+    pub fn new(parameters: ResolvedParameterValues) -> Self {
+        NewCommandArguments {
+            parameters,
+            action_position: Position::unknown(),
+            argument_number: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.parameters.0.len()
+    }
+
+    pub fn pop_parameter(&mut self) -> Result<&ParameterValue, Error> {
+        if let Some(p) = self.parameters.0.get(self.argument_number) {
+            self.argument_number += 1;
+            Ok(p)
+        } else {
+            Err(Error::missing_argument(
+                self.argument_number,
+                "?",
+                &self.action_position,
+            ))
+        }
+    }
+
+    pub fn get<T: FromParameterValue<T, E>, ER: EnvRef<E>, E: Environment>(
+        &mut self,
+        context: &impl ContextInterface<E>,
+    ) -> Result<T, Error> {
+        T::from_parameter_value(self.pop_parameter()?, context)
+    }
+    /// Returns true if all parameters have been used
+    /// This is checked during the command execution
+    pub fn all_parameters_used(&self) -> bool {
+        self.argument_number == self.parameters.0.len()
     }
 }
 
@@ -354,6 +400,9 @@ macro_rules! make_command_wrapper {
 pub trait FromParameter<T> {
     fn from_parameter(param: &Parameter) -> Result<T, Error>;
 }
+pub trait FromParameterValue<T, E:Environment> {
+    fn from_parameter_value(param: &ParameterValue, context:&impl ContextInterface<E>) -> Result<T, Error>;
+}
 
 impl FromParameter<String> for String {
     fn from_parameter(param: &Parameter) -> Result<String, Error> {
@@ -364,6 +413,22 @@ impl FromParameter<String> for String {
                 param.value.clone(),
                 "string",
                 &param.position,
+            ))
+        }
+    }
+}
+
+//TODO: Temporary solution, remove
+impl<E:Environment> FromParameterValue<String, E> for String {
+    fn from_parameter_value(param: &ParameterValue, context:&impl ContextInterface<E>) -> Result<String, Error>{
+        if let Some(p) = param.value() {
+            p.as_str().map(|s| s.to_owned()).ok_or(
+                Error::conversion_error_with_message(p, "string", "String parameter value expected")
+            )
+        } else {
+            Err(Error::conversion_error(
+                "non-value parameter",
+                "string"
             ))
         }
     }
@@ -674,7 +739,7 @@ macro_rules! register_command {
 
 #[cfg(test)]
 mod tests {
-    use self::context::StatEnvRef;
+    use crate::context::StatEnvRef;
 
     use super::*;
     use crate::{state, value::Value};
