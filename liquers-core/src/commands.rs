@@ -421,15 +421,18 @@ impl FromParameter<String> for String {
 //TODO: Temporary solution, remove
 impl<E:Environment> FromParameterValue<String, E> for String {
     fn from_parameter_value(param: &ParameterValue, context:&impl ContextInterface<E>) -> Result<String, Error>{
+        
         if let Some(p) = param.value() {
             p.as_str().map(|s| s.to_owned()).ok_or(
                 Error::conversion_error_with_message(p, "string", "String parameter value expected")
             )
         } else {
-            Err(Error::conversion_error(
-                "non-value parameter",
-                "string"
-            ))
+            if let Some(link) = param.link() {
+                let state = context.evaluate_dependency(link)?;
+                return state.data.try_into_string();
+            } else {
+                return Err(Error::conversion_error_with_message(param, "string", "String parameter value expected")); // TODO: check none
+            }
         }
     }
 }

@@ -103,7 +103,7 @@ pub struct Context<ER: EnvRef<E>, E: Environment> {
 }
 
 pub trait ContextInterface<E: Environment>{
-    fn evaluate<Q:TryToQuery>(&mut self, query: Q) -> Result<State<<E as Environment>::Value>, Error> {
+    fn evaluate_dependency<Q:TryToQuery>(&self, query: Q) -> Result<State<<E as Environment>::Value>, Error> {
         crate::interpreter::PlanInterpreter::new(self.get_envref()).evaluate(query)
     }
     fn get_envref(&self) -> E::EnvironmentReference;
