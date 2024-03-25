@@ -108,12 +108,19 @@ impl EnumArgument {
         self.others_allowed = true;
         self
     }
+
+    // TODO: This probably should be removed due to its lack of proper link support
     /// Convert name of an enum alternative to its value
     /// If the name is not found in the alternatives (and others_allowed is true), then the name is returned as a string value
     /// Warning: if enum value is a link, None is returned
     /// This allows simple extraction of enum values from parameter values, but it is not suitable
     /// for links
-    pub fn name_to_value(&self, name: String) -> Option<Value> {
+    pub fn name_to_value(&self, name: &str) -> Option<Value> {
+        match self.expand_alias(name){
+            DefaultValue::Value(x) => {return Some(x.clone())},
+            DefaultValue::Query(_) => {return None;},
+            DefaultValue::NoDefault => {},
+        }
         for alternative in &self.values {
             if alternative.name == name {
                 match &alternative.value {
@@ -123,9 +130,20 @@ impl EnumArgument {
             }
         }
         if self.others_allowed {
-            return Some(Value::String(name));
+            return Some(Value::String(name.to_owned()));
         }
         None
+    }
+    // TODO: alias would be better then name
+    /// Convert alias of an enum alternative
+    /// If the name is not found in the alternatives, then DefaultValue::NoDefault is returned
+    pub fn expand_alias(&self, name: &str) -> DefaultValue {
+        for alternative in &self.values {
+            if alternative.name == name {
+                return alternative.value.clone();
+            }
+        }
+        DefaultValue::NoDefault
     }
 }
 

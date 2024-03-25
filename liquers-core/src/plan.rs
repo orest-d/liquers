@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
+use std::clone;
 use std::fmt::Display;
 
 use itertools::Itertools;
@@ -54,9 +55,263 @@ impl Step {
     }
 }
 
+/// Parameter value contains the partially or fully resolved value of a single command parameter.
+/// Parameter values are passed to the command executor when the command is executed.
+/// There are four variants of parameter value:
+/// - JSON value - directly containing the parameter value. To keep things simple, it is represented as a serde_json::Value.
+/// - Link - a query that will be executed to get the parameter value. The query is resolved before the command is executed.
+/// - Injected - the parameter value is injected by the environment.
+/// - None - the parameter value is not set. This is a temporary state. Plan should never contain a parameter with None value.
+/// 
+/// Parameter can be obtained from several sources:
+/// - Resolved from the action request. This is the most common case.
+/// - Default value from the command metadata (ArgumentInfo). This is used when ActionRequest does not have enough parameters
+/// or (depending on a type) when ActionParameter is an empty string. 
+/// - From a link passed as an ActionParameter.
+/// - From a value or link that is an enum value for the ActionParameter.
+/// - Injected from an environment. Whether a parameter is injected is determined by its type and is set in the ArgumentInfo. 
+/// Supported scalar values (string, integer, optional integer, float, optional float, boolean, enum and any) are never injected,
+/// all other types are always injected. Note that any is a Environment::Value type. 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum ParameterValue {
+    DefaultValue(Value),
+    DefaultLink(Query),
+    ParameterValue(Value, Position),
+    ParameterLink(Query, Position),
+    EnumLink(Query, Position),
+    Injected,
+    None
+}
+
+impl Display for ParameterValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self{
+            ParameterValue::DefaultValue(v)=>write!(f, "default:{}", v),
+            ParameterValue::DefaultLink(q)=>write!(f, "default link:{}", q.encode()),
+            ParameterValue::ParameterValue(v, _)=>write!(f, "value:{}", v),
+            ParameterValue::ParameterLink(q, _)=>write!(f, "link:{}", q.encode()),
+            ParameterValue::EnumLink(q, _)=>write!(f, "enum link:{}", q.encode()),
+            ParameterValue::Injected=>write!(f, "injected value"),
+            ParameterValue::None=>write!(f, "None"),
+        }
+    }
+}
+
+impl ParameterValue {
+    fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
+        match &arginfo.default {
+            DefaultValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
+            DefaultValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
+            DefaultValue::NoDefault => {
+                if arginfo.injected {
+                    ParameterValue::Injected
+                } else {
+                    ParameterValue::None
+                }            
+            },
+        }
+    }
+
+    fn to_result(self, error:impl Fn()->String, position: &Position)->Result<Self,Error>{
+        match self{
+            ParameterValue::None=>Err(Error::new(ErrorType::ArgumentMissing, error()).with_position(position)),
+            _=>Ok(self)
+        }
+    }
+
+    fn from_string(arginfo: &ArgumentInfo, s: &str, pos: &Position) -> Result<Self, Error> {
+        match arginfo.argument_type {
+            ArgumentType::String => Ok(ParameterValue::ParameterValue(Value::String(s.to_owned()), pos.to_owned())),
+            ArgumentType::Integer => {
+                if s.is_empty() {
+                    return Self::from_arginfo(arginfo).to_result(
+                        ||format!("Integer argument {} missing", &arginfo.name), pos);
+                }
+                let n = s
+                    .parse::<i64>()
+                    .map_err(|e| Error::conversion_error_at_position(s, "integer", pos))?;
+                Ok(ParameterValue::ParameterValue(n.into(), pos.to_owned()))
+            }
+            ArgumentType::IntegerOption => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if res.is_none() {
+                        return Ok(Self::ParameterValue(Value::Null, pos.to_owned()));
+                    }
+                    else{
+                        return Ok(res);
+                    }
+                }
+                let n = s
+                    .parse::<i64>()
+                    .map_err(|e| Error::conversion_error_at_position(s, "integer", pos))?;
+                Ok(ParameterValue::ParameterValue(n.into(), pos.to_owned()))
+            }
+            ArgumentType::Float => {
+                if s.is_empty() {
+                    return Self::from_arginfo(arginfo).to_result(
+                        ||format!("Float argument {} missing", &arginfo.name), pos);
+                }
+                let x = s
+                    .parse::<f64>()
+                    .map_err(|e| Error::conversion_error_at_position(s, "float", pos))?;
+                Ok(ParameterValue::ParameterValue(x.into(), pos.to_owned()))
+            }
+            ArgumentType::FloatOption => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if res.is_none() {
+                        return Ok(Self::ParameterValue(Value::Null, pos.to_owned()));
+                    }
+                    else{
+                        return Ok(res);
+                    }
+                }
+                let x = s
+                    .parse::<f64>()
+                    .map_err(|e| Error::conversion_error_at_position(s, "float", pos))?;
+                Ok(ParameterValue::ParameterValue(x.into(), pos.to_owned()))
+            }
+            ArgumentType::Boolean => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if res.is_none() {
+                        return Ok(Self::ParameterValue(Value::Bool(false), pos.to_owned()));
+                    }
+                    else{
+                        return Ok(res);
+                    }
+                }
+                match s.to_lowercase().as_str(){
+                    "true" | "t" | "yes" | "y" | "1"=>Ok(ParameterValue::ParameterValue(Value::Bool(true), pos.to_owned())),
+                    "false" |"f" | "no" | "n" | "0"=>Ok(ParameterValue::ParameterValue(Value::Bool(false), pos.to_owned())),
+                    _=>Err(Error::conversion_error_at_position(s.to_owned(), "boolean", pos))
+                }
+            }
+            ArgumentType::Enum(ref e) => {
+                match e.expand_alias(s) {
+                    DefaultValue::Value(x) => {Ok(ParameterValue::ParameterValue(x.clone(), pos.to_owned()))},
+                    DefaultValue::Query(q) => {Ok(ParameterValue::EnumLink(q.clone(), pos.to_owned()))},
+                    DefaultValue::NoDefault => {
+                        if e.others_allowed {
+                            Ok(ParameterValue::ParameterValue(Value::String(s.to_owned()), pos.to_owned()))
+                        } else {
+                            Err(Error::conversion_error_with_message(s.to_owned(), &e.name, 
+                            &format!("Undefined enum {}",e.name)).with_position(&pos))
+                        }
+                    },
+                }
+            }
+            ArgumentType::Any => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if res.is_none() {
+                        return Ok(Self::ParameterValue(s.into(), pos.to_owned()));
+                    }
+                    else{
+                        return Ok(res);
+                    }
+                }
+                else{
+                    Ok(ParameterValue::ParameterValue(Value::String(s.to_owned()), pos.to_owned()))
+                }
+            }
+            ArgumentType::None => Err(Error::not_supported("None not supported as argument type".to_string())),
+        }
+    }
+
+    fn pop_value(arginfo: &ArgumentInfo, param: &mut ActionParameterIterator) -> Result<Self, Error> {
+        let mut p = Self::from_arginfo(arginfo);
+        if arginfo.injected {
+            return Ok(p);
+        }
+        if arginfo.multiple {
+            let mut values = Vec::new();
+            let values_pos = param.position.clone();
+            for x in &mut *param {
+                match x {
+                    ActionParameter::String(s, pos) => {
+                        let pv = Self::from_string(arginfo, s, pos)?;
+                        if let Some(v) = pv.value()  {
+                            values.push(v);
+                        }
+                        else{
+                            return Err(Error::not_supported(
+                                format!("Only values are supported inside vector argument, found {}.", &pv)
+                            ).with_position(pos));
+                        }
+                    }
+                    ActionParameter::Link(q, pos) => {
+                        return Err(Error::not_supported(
+                            "Link not supported in vector argument".to_string(),
+                        ).with_position(&param.position));
+                    }
+                }
+            }
+            return Ok(ParameterValue::ParameterValue(Value::Array(values), values_pos));
+        }
+        match param.next() {
+            Some(ActionParameter::String(s, pos)) => {
+                Self::from_string(arginfo, s, pos)
+            },
+            Some(ActionParameter::Link(q,pos)) => {
+                Ok(ParameterValue::ParameterLink(q.clone(), pos.clone()))
+            },
+            None => {
+                Self::from_arginfo(arginfo).to_result(
+                    ||format!("Missing argument {}", arginfo.name), &param.position)
+            }
+        }
+    }
+    fn is_default(&self) -> bool {
+        match self {
+            ParameterValue::DefaultValue(_) => true,
+            ParameterValue::DefaultLink(_) => true,
+            _ => false,
+        }
+    }
+    fn is_none(&self) -> bool {
+        match self {
+            ParameterValue::None => true,
+            _ => false,
+        }
+    }
+    fn is_link(&self) -> bool {
+        match self {
+            ParameterValue::DefaultLink(_) => true,
+            ParameterValue::ParameterLink(_, _) => true,
+            ParameterValue::EnumLink(_, _) => true,
+            _ => false,
+        }
+    }
+    fn is_injected(&self) -> bool {
+        match self {
+            ParameterValue::Injected => true,
+            _ => false,
+        }
+    }
+    fn value(&self) -> Option<Value> {
+        match self {
+            ParameterValue::DefaultValue(v) => Some(v.clone()),
+            ParameterValue::ParameterValue(v, _) => Some(v.clone()),
+            _ => None,
+        }
+    }
+    fn link(&self) -> Option<Query> {
+        match self {
+            ParameterValue::DefaultLink(q) => Some(q.clone()),
+            ParameterValue::ParameterLink(q, _) => Some(q.clone()),
+            ParameterValue::EnumLink(q, _) => Some(q.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Parameter {
     pub value: Value,
+    pub link: Option<Query>,
+    pub injected: bool,
     pub position: Position,
     pub default: bool,
 }
@@ -64,7 +319,11 @@ pub struct Parameter {
 impl Parameter {}
 impl Display for Parameter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({})", self.value, self.position)
+        if let Some(ref link) = self.link {
+            write!(f, "Link:{} ({})", link.encode(), self.position)
+        } else {
+            write!(f, "Value:{} ({})", self.value, self.position)
+        }
     }
 }
 impl Default for Parameter {
@@ -72,6 +331,8 @@ impl Default for Parameter {
         Parameter {
             value: Value::Null,
             position: Position::unknown(),
+            link: None,
+            injected: false,
             default: false,
         }
     }
@@ -103,6 +364,36 @@ pub struct PlanBuilder<'c> {
     parameter_number: usize,
     arginfo_number: usize,
     plan: Plan,
+}
+
+pub struct ActionParameterIterator<'a> {
+    pub action_request: &'a ActionRequest,
+    pub parameter_number: usize,
+    pub position: Position,
+}
+
+impl<'a> ActionParameterIterator<'a> {
+    pub fn new(action_request: &'a ActionRequest) -> Self {
+        ActionParameterIterator {
+            action_request,
+            parameter_number: 0,
+            position: action_request.position.clone(),
+        }
+    }
+}
+
+impl<'a> Iterator for ActionParameterIterator<'a> {
+    type Item = &'a ActionParameter;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.parameter_number < self.action_request.parameters.len() {
+            let p = &self.action_request.parameters[self.parameter_number];
+            self.parameter_number += 1;
+            self.position = p.position();
+            Some(p)
+        } else {
+            None
+        }
+    }
 }
 
 // TODO: support cache and volatile flags
@@ -154,23 +445,19 @@ impl<'c> PlanBuilder<'c> {
     ) -> Result<CommandMetadata, Error> {
         let namespaces = self.get_namespaces(query)?;
         let realm = query.last_transform_query_name().unwrap_or("".to_string());
-        println!("action:     {}", action_request.encode());
-        println!("namespaces: {:?}", &namespaces);
-        println!("realm:      {}", &realm);
 
         if let Some(command_metadata) = self.command_registry.find_command_in_namespaces(
             &realm,
             &namespaces,
             &action_request.name,
         ) {
-            println!("Command found");
             Ok(command_metadata.clone())
         } else {
-            println!("Command not found");
             Err(Error::action_not_registered(action_request, &namespaces))
         }
     }
 
+    // TODO: RQS realm should should be supported
     fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), Error> {
         self.plan.steps.push(Step::GetResource(rqs.key.clone()));
         Ok(())
@@ -319,7 +606,7 @@ impl<'c> PlanBuilder<'c> {
             (ArgumentType::FloatOption, (Some(x), is_default)) => Ok(x),
             (ArgumentType::Boolean, (Some(x), is_default)) => Ok(x),
             (ArgumentType::Enum(e), (Some(x), is_default)) => {
-                if let Some(xx) = e.name_to_value(x.to_string()) {
+                if let Some(xx) = e.name_to_value(&x.to_string()) { //TODO: name_to_value should be removed
                     Ok(xx)
                 } else {
                     Err(Error::conversion_error(x, &e.name))
@@ -347,12 +634,118 @@ impl<'c> PlanBuilder<'c> {
             let value = self.pop_value(a, action_request)?;
             self.resolved_parameters.parameters.push(Parameter {
                 value: value,
+                link: None,
+                injected: false,
                 position: Position::unknown(), //TODO: Get the position from ActionParameter
                 //action_request.parameters[self.parameter_number].position(),
                 default: false, //TODO: set default properly
             });
         }
         Ok(())
+    }
+
+    fn get_argument(
+        &self,
+        arginfo: &ArgumentInfo,
+        parameters: &mut ActionParameterIterator,
+    ) -> Result<Parameter, Error> {
+        let mut p = Parameter::default();
+        if arginfo.injected {
+            p.injected = true;
+            return Ok(p);
+        }
+        if arginfo.multiple {
+            return Err(Error::not_supported(
+                "Multiple perameters per argument not supported yet".to_string(),
+            ));
+        }
+        match &arginfo.default{
+            DefaultValue::Value(v) => {
+                p.value = v.clone();
+                p.default = true;
+            }
+            DefaultValue::Query(q) => {
+                p.link = Some(q.clone());
+                p.default = true;
+            }
+            DefaultValue::NoDefault => {
+                p.default = true;
+            }
+        }
+        /* 
+        match parameters.next() {
+            Some(ActionParameter::String(s, pos)) => match arginfo.argument_type {
+                ArgumentType::String => {
+                    p.value = Value::String(s.clone());
+                    p.position = pos;
+                }
+                ArgumentType::Integer => {
+                    if s.is_empty(){
+                        p.value = 
+                    }
+                    let n = s
+                        .parse::<i64>()
+                        .map_err(|e| Error::conversion_error_at_position(s, "integer", pos))?;
+                    p.value = n.into();
+                    p.position = pos;
+                }
+                ArgumentType::IntegerOption => {
+                    p.value = Value::Number(serde_json::Number::from(s.parse::<i64>().unwrap()));
+                    p.position = pos;
+                }
+                ArgumentType::Float => {
+                    p.value = Value::Number(
+                        serde_json::Number::from_f64(s.parse::<f64>().unwrap()).unwrap(),
+                    );
+                    p.position = pos;
+                }
+                ArgumentType::FloatOption => {
+                    p.value = Value::Number(
+                        serde_json::Number::from_f64(s.parse::<f64>().unwrap()).unwrap(),
+                    );
+                    p.position = pos;
+                }
+                ArgumentType::Boolean => {
+                    p.value = Value::Bool(s.parse::<bool>().unwrap());
+                    p.position = pos;
+                }
+                ArgumentType::Enum(ref e) => {
+                    if let Some(v) = e.name_to_value(s.clone()) {
+                        p.value = v;
+                        p.position = pos;
+                    } else {
+                        return Err(Error::conversion_error(s.clone(), &e.name));
+                    }
+                }
+                ArgumentType::Any => {
+                    p.value = Value::String(s.clone());
+                    p.position = pos;
+                }
+                ArgumentType::None => {
+                    return Err(Error::not_supported(
+                        "None not supported as argument type".to_string(),
+                    ));
+                }
+            },
+            Some(ActionParameter::Link(q, pos)) => {
+                p.link = Some(q.clone());
+                p.position = pos;
+            }
+            None => {
+                if let DefaultValue::Value(v) = &arginfo.default {
+                    p.value = v.clone();
+                    p.default = true;
+                } else {
+                    return Err(Error::missing_argument(
+                        self.arginfo_number,
+                        &arginfo.name,
+                        &arginfo.position,
+                    ));
+                }
+            }
+        }
+        */
+        Ok(p)
     }
 }
 
@@ -421,4 +814,42 @@ mod tests {
         );
         print!("");
     }
+
+    #[test]
+    fn test_string_parameter_value(){
+        let mut arginfo = ArgumentInfo::string_argument("test");
+        arginfo.with_default("default".into());
+        let pv = ParameterValue::from_arginfo(&arginfo);
+        assert_eq!(pv.value(), Some(Value::String("default".to_string())));
+        let pv = ParameterValue::from_string(&arginfo, "testarg", &Position::unknown()).unwrap();
+        assert_eq!(pv.value(), Some(Value::String("testarg".to_string())));
+        let pv = ParameterValue::from_string(&arginfo, "", &Position::unknown()).unwrap();
+        assert_eq!(pv.value(), Some(Value::String("".to_string())));
+     }
+     #[test]
+     fn test_pop_parameter_value()->Result<(),Error>{
+        let mut arginfo = ArgumentInfo::string_argument("test");
+        arginfo.with_default("default".into());
+        let action = parse_query("hello-testarg-123")?.action().unwrap();
+        let mut param = ActionParameterIterator::new(&action);
+        
+        let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
+        assert_eq!(pv.value(), Some(Value::String("testarg".to_string())));
+
+        let mut arginfo = ArgumentInfo::integer_argument("intarg", false);
+        let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
+        assert_eq!(pv.value(), Some(Value::Number(123.into())));
+
+        let mut arginfo = ArgumentInfo::integer_argument("intarg2", true);
+        let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
+        assert_eq!(pv.value(), Some(Value::Null));
+
+        let mut param = ActionParameterIterator::new(&action);
+        let mut arginfo = ArgumentInfo::string_argument("test");
+        arginfo.set_multiple();
+        let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
+        assert_eq!(pv.value(), Some(Value::Array(vec![Value::String("testarg".to_string()),Value::String("123".to_string())])));
+
+        Ok(())
+     }
 }
