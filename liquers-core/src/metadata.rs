@@ -467,7 +467,7 @@ impl Metadata {
                 if let Some(Value::String(type_identifier)) = o.get("type_identifier") {
                     Ok(type_identifier.to_string())
                 } else {
-                    let mut error = Error::general_error(
+                    let error = Error::general_error(
                         "type_identifier not found in legacy metadata".to_string(),
                     );
                     if let Ok(query) = self.query() {
@@ -479,7 +479,7 @@ impl Metadata {
             }
             Metadata::MetadataRecord(m) => Ok(m.type_identifier()),
             _ => {
-                let mut error = Error::general_error(
+                let error = Error::general_error(
                     "type_identifier is not defined in non-object legacy metadata".to_string(),
                 );
                 if let Ok(query) = self.query() {
@@ -519,7 +519,7 @@ impl Metadata {
     pub fn set_extension(&mut self, extension: &str) -> Result<&mut Self, Error> {
         match self {
             Metadata::LegacyMetadata(_) => {
-                let mut error =
+                let error =
                     Error::general_error("Cannot set extension on legacy metadata".to_string());
                 if let Ok(query) = self.query() {
                     Err(error.with_query(&query))

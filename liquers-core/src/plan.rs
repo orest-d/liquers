@@ -229,7 +229,7 @@ impl ParameterValue {
     }
 
     pub fn pop_value(arginfo: &ArgumentInfo, param: &mut ActionParameterIterator) -> Result<Self, Error> {
-        let mut p = Self::from_arginfo(arginfo);
+        let p = Self::from_arginfo(arginfo);
         if arginfo.injected {
             return Ok(p);
         }

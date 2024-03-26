@@ -1,14 +1,10 @@
 use crate::commands::{CommandArguments, CommandExecutor, NewCommandArguments};
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::Error;
-use crate::metadata::MetadataRecord;
-use crate::parse::parse_query;
 use crate::plan::{Plan, PlanBuilder, Step};
-use crate::query::{Query, TryToQuery};
+use crate::query::{TryToQuery};
 use crate::state::State;
 use crate::value::ValueInterface;
-use std::convert::TryFrom;
-use std::convert::TryInto;
 
 pub struct PlanInterpreter<ER: EnvRef<E>, E: Environment> {
     plan: Option<Plan>,
