@@ -108,9 +108,36 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
         }
     }
 
-    /// Try to get a string out
+    /// Try to get an integer
     fn try_into_i32(&self) -> Result<i32, Error>;
 
+    /// Try to get a i64
+    fn try_into_i64(&self) -> Result<i64, Error>;
+
+    /// Try to get a i64 option
+    fn try_into_i64_option(&self) -> Result<Option<i64>, Error>{
+        if self.is_none() {
+            Ok(None)
+        } else {
+            self.try_into_i64().map(Some)
+        }
+    }
+
+    /// Try to get a i64
+    fn try_into_f64(&self) -> Result<f64, Error>;
+
+    /// Try to get a i64 option
+    fn try_into_f64_option(&self) -> Result<Option<f64>, Error>{
+        if self.is_none() {
+            Ok(None)
+        } else {
+            self.try_into_f64().map(Some)
+        }
+    }
+
+    /// Try into boolean
+    fn try_into_bool(&self) -> Result<bool, Error>;
+    
     /// String identifier of the state type
     /// Several types can be linked to the same identifier.
     /// The identifier must be cross-platform
@@ -353,6 +380,32 @@ impl ValueInterface for Value {
                 }
                 Ok(Value::Object(m))
             }
+        }
+    }
+    
+    fn try_into_i64(&self) -> Result<i64, Error> {
+        match self {
+            Value::I32(n) => Ok(*n as i64),
+            Value::I64(n) => Ok(*n),
+            _ => Err(Error::conversion_error(self.identifier(), "i64")),
+        }
+    }
+    
+    fn try_into_bool(&self) -> Result<bool, Error> {
+        match self {
+            Value::Bool(b) => Ok(*b),
+            Value::I32(n) => Ok(*n != 0),
+            Value::I64(n) => Ok(*n != 0),
+            _ => Err(Error::conversion_error(self.identifier(), "bool")),
+        }
+    }
+    
+    fn try_into_f64(&self) -> Result<f64, Error> {
+        match self {
+            Value::I32(n) => Ok(*n as f64),
+            Value::I64(n) => Ok(*n as f64),
+            Value::F64(n) => Ok(*n),
+            _ => Err(Error::conversion_error(self.identifier(), "f64")),
         }
     }
 }

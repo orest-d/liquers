@@ -400,8 +400,11 @@ macro_rules! make_command_wrapper {
 pub trait FromParameter<T> {
     fn from_parameter(param: &Parameter) -> Result<T, Error>;
 }
-pub trait FromParameterValue<T, E:Environment> {
-    fn from_parameter_value(param: &ParameterValue, context:&impl ContextInterface<E>) -> Result<T, Error>;
+pub trait FromParameterValue<T, E: Environment> {
+    fn from_parameter_value(
+        param: &ParameterValue,
+        context: &impl ContextInterface<E>,
+    ) -> Result<T, Error>;
 }
 
 impl FromParameter<String> for String {
@@ -418,24 +421,78 @@ impl FromParameter<String> for String {
     }
 }
 
-//TODO: Temporary solution, remove
-impl<E:Environment> FromParameterValue<String, E> for String {
-    fn from_parameter_value(param: &ParameterValue, context:&impl ContextInterface<E>) -> Result<String, Error>{
-        
+
+//TODO: Temporary solution, remove FromParameter
+/*
+impl<E: Environment> FromParameterValue<String, E> for String {
+    fn from_parameter_value(
+        param: &ParameterValue,
+        context: &impl ContextInterface<E>,
+    ) -> Result<String, Error> {
         if let Some(p) = param.value() {
             p.as_str().map(|s| s.to_owned()).ok_or(
-                Error::conversion_error_with_message(p, "string", "String parameter value expected")
+                Error::conversion_error_with_message(
+                    p,
+                    "string",
+                    "String parameter value expected",
+                )
+                .with_position(&param.position()),
             )
         } else {
             if let Some(link) = param.link() {
                 let state = context.evaluate_dependency(link)?;
                 return state.data.try_into_string();
             } else {
-                return Err(Error::conversion_error_with_message(param, "string", "String parameter value expected")); // TODO: check none
+                return Err(Error::conversion_error_with_message(
+                    param,
+                    "string",
+                    "String parameter value expected",
+                )); // TODO: check none
             }
         }
     }
 }
+*/
+
+macro_rules! impl_from_parameter_value {
+    ($t:ty, $jsonvalue_to_opt:expr, $stateval_to_res:ident) => {
+        impl<E: Environment> FromParameterValue<$t, E> for $t {
+            fn from_parameter_value(
+                param: &ParameterValue,
+                context: &impl ContextInterface<E>,
+            ) -> Result<$t, Error> {
+                if let Some(ref p) = param.value() {
+                    $jsonvalue_to_opt(p).ok_or(
+                        Error::conversion_error_with_message(
+                            p,
+                            stringify!($t),
+                            concat!(stringify!($t), " parameter value expected"),
+                        )
+                        .with_position(&param.position()),
+                    )
+                } else {
+                    if let Some(link) = param.link() {
+                        let state = context.evaluate_dependency(link)?;
+                        return <E as Environment>::Value::$stateval_to_res(&*(state.data));
+                    } else {
+                        return Err(Error::conversion_error_with_message(
+                            param,
+                            "string",
+                            "String parameter value expected",
+                        )); // TODO: check none
+                    }
+                }
+            }
+        }
+    };
+}
+
+impl_from_parameter_value!(String, (|p:&serde_json::Value| p.as_str().map(|s| s.to_owned())), try_into_string);
+impl_from_parameter_value!(i64, |p:&serde_json::Value| p.as_i64(), try_into_i64);
+impl_from_parameter_value!(f64, |p:&serde_json::Value| p.as_f64(), try_into_f64);
+impl_from_parameter_value!(Option<i64>, |p:&serde_json::Value| {if p.is_null() {Some(None)} else {p.as_i64().map(Some)}}, try_into_i64_option);
+impl_from_parameter_value!(Option<f64>, |p:&serde_json::Value| {if p.is_null() {Some(None)} else {p.as_f64().map(Some)}}, try_into_f64_option);
+impl_from_parameter_value!(bool, |p:&serde_json::Value| p.as_bool(), try_into_bool);
 
 pub trait FromCommandArguments<T, ER: EnvRef<E>, E: Environment> {
     fn from_arguments(args: &mut CommandArguments, context: &Context<ER, E>) -> Result<T, Error>;

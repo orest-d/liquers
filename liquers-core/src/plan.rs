@@ -305,6 +305,14 @@ impl ParameterValue {
             _ => None,
         }
     }
+    pub fn position(&self) -> Position {
+        match self {
+            ParameterValue::ParameterValue(_, pos) => pos.clone(),
+            ParameterValue::ParameterLink(_, pos) => pos.clone(),
+            ParameterValue::EnumLink(_, pos) => pos.clone(),
+            _ => Position::unknown(),
+        }
+    }
 }
 
 //TODO: Parameter should be replaced by ParameterValue
