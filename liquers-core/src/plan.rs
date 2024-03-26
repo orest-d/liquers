@@ -516,6 +516,16 @@ impl<'c> PlanBuilder<'c> {
             position: action_request.position.clone(),
             parameters: self.resolved_parameters.clone(),
         });
+        //TODO: PVR !!!
+        /*
+        self.plan.steps.push(Step::NewAction {
+            realm: command_metadata.realm.clone(),
+            ns: command_metadata.namespace.clone(),
+            action_name: action_request.name.clone(),
+            position: action_request.position.clone(),
+            parameters: ResolvedParameterValues::from_action(action_request, &command_metadata)?
+        });
+        */
         Ok(())
     }
 

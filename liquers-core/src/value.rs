@@ -180,11 +180,11 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
                 }
             }
             serde_json::Value::String(s) => Ok(Self::new(s)),
-            serde_json::Value::Array(a) => Err(Error::not_supported(
+            serde_json::Value::Array(_a) => Err(Error::not_supported(
                 "JSON Array conversion not supported by default for a generic ValueInterface"
                     .to_string(),
             )),
-            serde_json::Value::Object(o) => Err(Error::not_supported(
+            serde_json::Value::Object(_o) => Err(Error::not_supported(
                 "JSON Object conversion not supported by default for a generic ValueInterface"
                     .to_string(),
             )),

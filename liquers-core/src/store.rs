@@ -578,7 +578,7 @@ impl Store for MemoryStore {
         Ok(keys)
     }
 
-    fn makedir(&self, key: &Key) -> Result<(), StoreError> {
+    fn makedir(&self, _key: &Key) -> Result<(), StoreError> {
         // TODO: implement correct makedir
         Ok(())
     }
