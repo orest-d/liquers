@@ -361,9 +361,6 @@ pub struct ResolvedParameters {
     pub links: Vec<(usize, Query)>,
 }
 
-//TODO: PVR
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
 
 impl ResolvedParameters {
     pub fn new() -> Self {
@@ -375,6 +372,27 @@ impl ResolvedParameters {
     pub fn clear(&mut self) {
         self.parameters.clear();
         self.links.clear();
+    }
+}
+
+//TODO: PVR
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
+impl ResolvedParameterValues {
+    pub fn new() -> Self {
+        ResolvedParameterValues(Vec::new())
+    }
+    pub fn from_action(action_request:&ActionRequest, command_metadata: &CommandMetadata) -> Result<Self,Error> {
+        let mut parameters = ActionParameterIterator::new(action_request);
+        let mut values = Vec::new();
+        for a in command_metadata.arguments.iter() {
+            let pv = ParameterValue::pop_value(a, &mut parameters)?;
+            values.push(pv);
+        }
+        Ok(ResolvedParameterValues(values))
+    }
+    pub fn clear(&mut self) {
+        self.0.clear();
     }
 }
 
@@ -807,6 +825,7 @@ impl Plan {
 mod tests {
     use crate::command_metadata::*;
     use crate::parse::parse_query;
+    use crate::query::TryToQuery;
     use serde_yaml;
 
     use super::*;
@@ -839,7 +858,7 @@ mod tests {
     #[test]
     fn test_string_parameter_value(){
         let mut arginfo = ArgumentInfo::string_argument("test");
-        arginfo.with_default("default".into());
+        arginfo.with_default("default");
         let pv = ParameterValue::from_arginfo(&arginfo);
         assert_eq!(pv.value(), Some(Value::String("default".to_string())));
         let pv = ParameterValue::from_string(&arginfo, "testarg", &Position::unknown()).unwrap();
@@ -850,7 +869,7 @@ mod tests {
      #[test]
      fn test_pop_parameter_value()->Result<(),Error>{
         let mut arginfo = ArgumentInfo::string_argument("test");
-        arginfo.with_default("default".into());
+        arginfo.with_default("default");
         let action = parse_query("hello-testarg-123")?.action().unwrap();
         let mut param = ActionParameterIterator::new(&action);
         
@@ -872,5 +891,23 @@ mod tests {
         assert_eq!(pv.value(), Some(Value::Array(vec![Value::String("testarg".to_string()),Value::String("123".to_string())])));
 
         Ok(())
+     }
+     #[test]
+     fn test_resolved_parameter_values(){
+        let mut cm = CommandMetadata::new("testcommand");
+        cm.with_argument(ArgumentInfo::string_argument("arg1"));
+        cm.with_argument(ArgumentInfo::integer_argument("arg2", false).with_default(123).to_owned());
+        let action = "testcommand-xxx-234".try_to_query().unwrap().action().unwrap();
+        let rp = ResolvedParameterValues::from_action(&action, &cm).unwrap();
+        assert_eq!(rp.0.len(), 2);
+        assert_eq!(rp.0[0].value(), Some(Value::String("xxx".to_string())));
+        assert_eq!(rp.0[1].value(), Some(Value::Number(234.into())));
+        dbg!(rp);
+        let action = "testcommand-yyy".try_to_query().unwrap().action().unwrap();
+        let rp = ResolvedParameterValues::from_action(&action, &cm).unwrap();
+        assert_eq!(rp.0.len(), 2);
+        assert_eq!(rp.0[0].value(), Some(Value::String("yyy".to_string())));
+        assert_eq!(rp.0[1].value(), Some(Value::Number(123.into())));
+        dbg!(rp);
      }
 }

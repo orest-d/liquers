@@ -344,31 +344,39 @@ impl ArgumentInfo {
             gui_info: ArgumentGUIInfo::Checkbox,
         }
     }
+    //TODO: should return self
     pub fn with_default_none(&mut self) -> &mut Self {
         self.default = CommandParameterValue::null();
         self
     }
-    pub fn with_default(&mut self, value: &str) -> &mut Self {
-        self.default = CommandParameterValue::from_string(value);
+    //TODO: should be into Value
+    //TODO: should return self
+    pub fn with_default<T:Into<Value>>(&mut self, value: T) -> &mut Self {
+        self.default = CommandParameterValue::from_value(value.into());
         self
     }
+    //TODO: should return self
     pub fn true_by_default(&mut self) -> &mut Self {
         self.default = CommandParameterValue::from_value(Value::Bool(true));
         self
     }
+    //TODO: should return self
     pub fn false_by_default(&mut self) -> &mut Self {
         self.default = CommandParameterValue::from_value(Value::Bool(false));
         self
     }
 
+    //TODO: should return self
     pub fn with_label(&mut self, label: &str) -> &mut Self {
         self.label = label.to_string();
         self
     }
+    //TODO: should return self
     pub fn set_injected(&mut self) -> &mut Self {
         self.injected = true;
         self
     }
+    //TODO: should return self
     pub fn set_multiple(&mut self) -> &mut Self {
         self.multiple = true;
         self
