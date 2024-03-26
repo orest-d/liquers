@@ -895,7 +895,7 @@ mod tests {
      #[test]
      fn test_resolved_parameter_values(){
         let mut cm = CommandMetadata::new("testcommand");
-        cm.with_argument(ArgumentInfo::string_argument("arg1"));
+        cm.with_argument(ArgumentInfo::string_argument("arg1").with_default("zzz").to_owned());
         cm.with_argument(ArgumentInfo::integer_argument("arg2", false).with_default(123).to_owned());
         let action = "testcommand-xxx-234".try_to_query().unwrap().action().unwrap();
         let rp = ResolvedParameterValues::from_action(&action, &cm).unwrap();
@@ -907,6 +907,12 @@ mod tests {
         let rp = ResolvedParameterValues::from_action(&action, &cm).unwrap();
         assert_eq!(rp.0.len(), 2);
         assert_eq!(rp.0[0].value(), Some(Value::String("yyy".to_string())));
+        assert_eq!(rp.0[1].value(), Some(Value::Number(123.into())));
+        dbg!(rp);
+        let action = "testcommand".try_to_query().unwrap().action().unwrap();
+        let rp = ResolvedParameterValues::from_action(&action, &cm).unwrap();
+        assert_eq!(rp.0.len(), 2);
+        assert_eq!(rp.0[0].value(), Some(Value::String("zzz".to_string())));
         assert_eq!(rp.0[1].value(), Some(Value::Number(123.into())));
         dbg!(rp);
      }
