@@ -1,4 +1,4 @@
-use crate::commands::{CommandArguments, CommandExecutor};
+use crate::commands::{CommandArguments, CommandExecutor, NewCommandArguments};
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::Error;
 use crate::metadata::MetadataRecord;
@@ -33,7 +33,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         self
     }
 
-    // TODO: make into query
     pub fn with_query<Q:TryToQuery>(&mut self, query: Q) -> Result<&mut Self, Error>
     {
         let query = query.try_to_query()?;
@@ -48,7 +47,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         Ok(self.with_plan(plan))
     }
 
-    // TODO: make into query
     pub fn evaluate<Q:TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> 
     {
         self.with_query(query)?;
@@ -138,6 +136,24 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                     .with_data(result)
                     .with_metadata(context.get_metadata().into());
                 /// TODO - reset metadata ?
+                return Ok(state);
+            }
+            crate::plan::Step::NewAction {
+                realm,
+                ns,
+                action_name,
+                position,
+                parameters,
+            } => {
+                let mut arguments = NewCommandArguments::new(parameters.clone());
+                arguments.action_position = position.clone();
+
+                let ce = self.environment.get().get_command_executor();
+                let state = State::new()
+                    //.with_data(result)
+                    .with_metadata(context.get_metadata().into());
+                /// TODO - reset metadata ?
+                println!("New action: {} {} {} - not implemented", realm, ns, action_name);
                 return Ok(state);
             }
             crate::plan::Step::Filename(name) => {
@@ -298,6 +314,18 @@ mod tests {
             assert_eq!(namespace, "root");
             assert_eq!(command_name, "test");
             Command0::from(|| -> String { "Hello".into() }).execute(state, arguments, context)
+        }
+        
+        fn new_execute(
+            &self,
+            realm: &str,
+            namespace: &str,
+            command_name: &str,
+            state: &State<Value>,
+            arguments: &mut NewCommandArguments,
+            context: Context<ER, E>,
+        ) -> Result<Value, Error> {
+            todo!()
         }
     }
     #[test]

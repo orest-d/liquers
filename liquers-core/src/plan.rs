@@ -9,7 +9,7 @@ use nom::Err;
 use serde_json::Value;
 
 use crate::command_metadata::{
-    self, ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry, DefaultValue,
+    self, ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry, CommandParameterValue,
     EnumArgumentType,
 };
 use crate::error::{Error, ErrorType};
@@ -26,12 +26,20 @@ pub enum Step {
     GetNamedResource(Key),
     GetNamedResourceMetadata(Key),
     Evaluate(Query),
+    //TODO: PVR
     Action {
         realm: String,
         ns: String,
         action_name: String,
         position: Position,
         parameters: ResolvedParameters,
+    },
+    NewAction {
+        realm: String,
+        ns: String,
+        action_name: String,
+        position: Position,
+        parameters: ResolvedParameterValues,
     },
     Filename(ResourceName),
     Info(String),
@@ -100,9 +108,9 @@ impl Display for ParameterValue {
 impl ParameterValue {
     pub fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
         match &arginfo.default {
-            DefaultValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
-            DefaultValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
-            DefaultValue::NoDefault => {
+            CommandParameterValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
+            CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
+            CommandParameterValue::None => {
                 if arginfo.injected {
                     ParameterValue::Injected
                 } else {
@@ -190,9 +198,9 @@ impl ParameterValue {
             }
             ArgumentType::Enum(ref e) => {
                 match e.expand_alias(s) {
-                    DefaultValue::Value(x) => {Ok(ParameterValue::ParameterValue(x.clone(), pos.to_owned()))},
-                    DefaultValue::Query(q) => {Ok(ParameterValue::EnumLink(q.clone(), pos.to_owned()))},
-                    DefaultValue::NoDefault => {
+                    CommandParameterValue::Value(x) => {Ok(ParameterValue::ParameterValue(x.clone(), pos.to_owned()))},
+                    CommandParameterValue::Query(q) => {Ok(ParameterValue::EnumLink(q.clone(), pos.to_owned()))},
+                    CommandParameterValue::None => {
                         if e.others_allowed {
                             Ok(ParameterValue::ParameterValue(Value::String(s.to_owned()), pos.to_owned()))
                         } else {
@@ -315,7 +323,7 @@ impl ParameterValue {
     }
 }
 
-//TODO: Parameter should be replaced by ParameterValue
+//TODO: PVR
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Parameter {
     pub value: Value,
@@ -353,7 +361,7 @@ pub struct ResolvedParameters {
     pub links: Vec<(usize, Query)>,
 }
 
-//TODO: ResolvedParameters should be replaced by ResolvedParameterValues
+//TODO: PVR
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
 
@@ -562,7 +570,7 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
-    // TODO: this is mixing action parameters with defaults from command metadata - faulty logic
+    // TODO: PVR this is mixing action parameters with defaults from command metadata - faulty logic
     /// Get value from an action parameter, handle links and defaults
     fn pop_action_parameter(
         &mut self,
@@ -582,14 +590,14 @@ impl<'c> PlanBuilder<'c> {
                 Ok((None, false))
             }
             None => match &arginfo.default {
-                DefaultValue::Value(v) => Ok((Some(v.clone()), true)),
-                DefaultValue::Query(q) => {
+                CommandParameterValue::Value(v) => Ok((Some(v.clone()), true)),
+                CommandParameterValue::Query(q) => {
                     self.resolved_parameters
                         .links
                         .push((self.resolved_parameters.parameters.len(), q.clone()));
                     Ok((None, true))
                 }
-                DefaultValue::NoDefault => Err(Error::missing_argument(
+                CommandParameterValue::None => Err(Error::missing_argument(
                     self.arginfo_number,
                     &arginfo.name,
                     &action_request.position,
@@ -673,15 +681,15 @@ impl<'c> PlanBuilder<'c> {
             ));
         }
         match &arginfo.default{
-            DefaultValue::Value(v) => {
+            CommandParameterValue::Value(v) => {
                 p.value = v.clone();
                 p.default = true;
             }
-            DefaultValue::Query(q) => {
+            CommandParameterValue::Query(q) => {
                 p.link = Some(q.clone());
                 p.default = true;
             }
-            DefaultValue::NoDefault => {
+            CommandParameterValue::None => {
                 p.default = true;
             }
         }

@@ -23,7 +23,7 @@ pub struct CommandArguments {
     pub argument_number: usize,
 }
 
-//TODO: Rename and replace CommandArguments
+//TODO: PVR Rename and replace CommandArguments
 pub struct NewCommandArguments {
     pub parameters: ResolvedParameterValues,
     pub action_position: Position,
@@ -135,6 +135,17 @@ pub trait Command<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
         arguments: &mut CommandArguments,
         context: Context<ER, E>,
     ) -> Result<V, Error>;
+
+    fn new_execute(
+        &self,
+        state: &State<V>,
+        arguments: &mut NewCommandArguments,
+        context: Context<ER, E>,
+    ) -> Result<V, Error> {
+        Err(Error::not_supported(
+            "new_execute not implemented".to_owned(),
+        ))
+    }
 
     /// Returns the default metadata of the command
     /// This may be modified or overriden inside the command registry
@@ -421,8 +432,7 @@ impl FromParameter<String> for String {
     }
 }
 
-
-//TODO: Temporary solution, remove FromParameter
+//TODO: PVR Temporary solution, remove FromParameter
 /*
 impl<E: Environment> FromParameterValue<String, E> for String {
     fn from_parameter_value(
@@ -487,12 +497,36 @@ macro_rules! impl_from_parameter_value {
     };
 }
 
-impl_from_parameter_value!(String, (|p:&serde_json::Value| p.as_str().map(|s| s.to_owned())), try_into_string);
-impl_from_parameter_value!(i64, |p:&serde_json::Value| p.as_i64(), try_into_i64);
-impl_from_parameter_value!(f64, |p:&serde_json::Value| p.as_f64(), try_into_f64);
-impl_from_parameter_value!(Option<i64>, |p:&serde_json::Value| {if p.is_null() {Some(None)} else {p.as_i64().map(Some)}}, try_into_i64_option);
-impl_from_parameter_value!(Option<f64>, |p:&serde_json::Value| {if p.is_null() {Some(None)} else {p.as_f64().map(Some)}}, try_into_f64_option);
-impl_from_parameter_value!(bool, |p:&serde_json::Value| p.as_bool(), try_into_bool);
+impl_from_parameter_value!(
+    String,
+    (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned())),
+    try_into_string
+);
+impl_from_parameter_value!(i64, |p: &serde_json::Value| p.as_i64(), try_into_i64);
+impl_from_parameter_value!(f64, |p: &serde_json::Value| p.as_f64(), try_into_f64);
+impl_from_parameter_value!(
+    Option<i64>,
+    |p: &serde_json::Value| {
+        if p.is_null() {
+            Some(None)
+        } else {
+            p.as_i64().map(Some)
+        }
+    },
+    try_into_i64_option
+);
+impl_from_parameter_value!(
+    Option<f64>,
+    |p: &serde_json::Value| {
+        if p.is_null() {
+            Some(None)
+        } else {
+            p.as_f64().map(Some)
+        }
+    },
+    try_into_f64_option
+);
+impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_bool);
 
 pub trait FromCommandArguments<T, ER: EnvRef<E>, E: Environment> {
     fn from_arguments(args: &mut CommandArguments, context: &Context<ER, E>) -> Result<T, Error>;
@@ -526,6 +560,15 @@ pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
         arguments: &mut CommandArguments,
         context: Context<ER, E>,
     ) -> Result<V, Error>;
+    fn new_execute(
+        &self,
+        realm: &str,
+        namespace: &str,
+        command_name: &str,
+        state: &State<V>,
+        arguments: &mut NewCommandArguments,
+        context: Context<ER, E>,
+    ) -> Result<V, Error>;
 }
 
 impl<ER: EnvRef<E>, E: Environment, V: ValueInterface> CommandExecutor<ER, E, V>
@@ -543,6 +586,27 @@ impl<ER: EnvRef<E>, E: Environment, V: ValueInterface> CommandExecutor<ER, E, V>
         let key = CommandKey::new(realm, namespace, command_name);
         if let Some(command) = self.get(&key) {
             command.execute(state, arguments, context)
+        } else {
+            Err(Error::unknown_command_executor(
+                realm,
+                namespace,
+                command_name,
+                &arguments.action_position,
+            ))
+        }
+    }
+    fn new_execute(
+        &self,
+        realm: &str,
+        namespace: &str,
+        command_name: &str,
+        state: &State<V>,
+        arguments: &mut NewCommandArguments,
+        context: Context<ER, E>,
+    ) -> Result<V, Error> {
+        let key = CommandKey::new(realm, namespace, command_name);
+        if let Some(command) = self.get(&key) {
+            command.new_execute(state, arguments, context)
         } else {
             Err(Error::unknown_command_executor(
                 realm,
@@ -637,9 +701,31 @@ impl<ER: EnvRef<E>, E: Environment, V: ValueInterface> CommandExecutor<ER, E, V>
             ))
         }
     }
+    
+    fn new_execute(
+        &self,
+        realm: &str,
+        namespace: &str,
+        command_name: &str,
+        state: &State<V>,
+        arguments: &mut NewCommandArguments,
+        context: Context<ER, E>,
+    ) -> Result<V, Error> {
+        let key = CommandKey::new(realm, namespace, command_name);
+        if let Some(command) = self.executors.get(&key) {
+            command.new_execute(state, arguments, context)
+        } else {
+            Err(Error::unknown_command_executor(
+                realm,
+                namespace,
+                command_name,
+                &arguments.action_position,
+            ))
+        }
+    }
 }
 
-// TODO: Replace CommandRegistry by the NewCommandRegistry
+// TODO: PVR Replace CommandRegistry by the NewCommandRegistry
 pub struct NewCommandRegistry<ER, E, V: ValueInterface>
 where
     V: ValueInterface,
@@ -649,6 +735,11 @@ where
     executors: HashMap<
         CommandKey,
         Box<dyn Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>>,
+    >,
+    // TODO: PVR
+    new_executors: HashMap<
+        CommandKey,
+        Box<dyn Fn(&State<V>, &mut NewCommandArguments, Context<ER, E>) -> Result<V, Error>>,
     >,
     pub command_metadata_registry: CommandMetadataRegistry,
 }
@@ -663,6 +754,7 @@ where
     pub fn new() -> Self {
         NewCommandRegistry {
             executors: HashMap::new(),
+            new_executors: HashMap::new(),
             command_metadata_registry: CommandMetadataRegistry::new(),
         }
     }
@@ -697,6 +789,28 @@ where
     ) -> Result<V, Error> {
         let key = CommandKey::new(realm, namespace, command_name);
         if let Some(command) = self.executors.get(&key) {
+            command(state, arguments, context)
+        } else {
+            Err(Error::unknown_command_executor(
+                realm,
+                namespace,
+                command_name,
+                &arguments.action_position,
+            ))
+        }
+    }
+    // TODO: PVR
+    fn new_execute(
+        &self,
+        realm: &str,
+        namespace: &str,
+        command_name: &str,
+        state: &State<V>,
+        arguments: &mut NewCommandArguments,
+        context: Context<ER, E>,
+    ) -> Result<V, Error> {
+        let key = CommandKey::new(realm, namespace, command_name);
+        if let Some(command) = self.new_executors.get(&key) {
             command(state, arguments, context)
         } else {
             Err(Error::unknown_command_executor(
@@ -820,6 +934,18 @@ mod tests {
             assert_eq!(command_name, "test");
             assert!(state.data.is_none());
             Command0::from(|| -> String { "Hello".into() }).execute(state, arguments, context)
+        }
+        
+        fn new_execute(
+            &self,
+            realm: &str,
+            namespace: &str,
+            command_name: &str,
+            state: &State<Value>,
+            arguments: &mut NewCommandArguments,
+            context: Context<StatEnvRef<NoInjection>, NoInjection>,
+        ) -> Result<Value, Error> {
+            todo!()
         }
     }
     #[test]

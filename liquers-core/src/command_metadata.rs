@@ -36,12 +36,11 @@ impl CommandRegistryIssue {
     }
 }
 
-// TODO: consider link as value for enum argument
 /// Single alternative of an enum argument, see EnumArgument
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EnumArgumentAlternative {
-    pub name: String,
-    pub value: DefaultValue,
+    pub alias: String,
+    pub value: CommandParameterValue,
 }
 
 /// Type of an enum argument, see EnumArgument
@@ -93,10 +92,10 @@ impl EnumArgument {
             value_type: EnumArgumentType::Any,
         }
     }
-    pub fn with_value(&mut self, name: &str, value: Value) -> &mut Self {
+    pub fn with_value(&mut self, alias: &str, value: Value) -> &mut Self {
         self.values.push(EnumArgumentAlternative {
-            name: name.to_string(),
-            value: DefaultValue::Value(value),
+            alias: alias.to_string(),
+            value: CommandParameterValue::Value(value),
         });
         self
     }
@@ -109,7 +108,7 @@ impl EnumArgument {
         self
     }
 
-    // TODO: This probably should be removed due to its lack of proper link support
+    // TODO: PVR This probably should be removed due to its lack of proper link support
     /// Convert name of an enum alternative to its value
     /// If the name is not found in the alternatives (and others_allowed is true), then the name is returned as a string value
     /// Warning: if enum value is a link, None is returned
@@ -117,14 +116,14 @@ impl EnumArgument {
     /// for links
     pub fn name_to_value(&self, name: &str) -> Option<Value> {
         match self.expand_alias(name){
-            DefaultValue::Value(x) => {return Some(x.clone())},
-            DefaultValue::Query(_) => {return None;},
-            DefaultValue::NoDefault => {},
+            CommandParameterValue::Value(x) => {return Some(x.clone())},
+            CommandParameterValue::Query(_) => {return None;},
+            CommandParameterValue::None => {},
         }
         for alternative in &self.values {
-            if alternative.name == name {
+            if alternative.alias == name {
                 match &alternative.value {
-                    DefaultValue::Value(value) => return Some(value.clone()),
+                    CommandParameterValue::Value(value) => return Some(value.clone()),
                     _ => return None,
                 }
             }
@@ -134,16 +133,15 @@ impl EnumArgument {
         }
         None
     }
-    // TODO: alias would be better then name
     /// Convert alias of an enum alternative
     /// If the name is not found in the alternatives, then DefaultValue::NoDefault is returned
-    pub fn expand_alias(&self, name: &str) -> DefaultValue {
+    pub fn expand_alias(&self, alias: &str) -> CommandParameterValue {
         for alternative in &self.values {
-            if alternative.name == name {
+            if alternative.alias == alias {
                 return alternative.value.clone();
             }
         }
-        DefaultValue::NoDefault
+        CommandParameterValue::None
     }
 }
 
@@ -203,46 +201,47 @@ impl Default for ArgumentGUIInfo {
     }
 }
 
+// TODO: maybe Template?
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum DefaultValue {
+pub enum CommandParameterValue {
     Value(Value),
     Query(Query),
-    NoDefault,
+    None,
 }
 
-impl DefaultValue {
+impl CommandParameterValue {
     fn new() -> Self {
-        DefaultValue::NoDefault
+        CommandParameterValue::None
     }
     fn null() -> Self {
-        DefaultValue::Value(Value::Null)
+        CommandParameterValue::Value(Value::Null)
     }
     fn is_null(&self) -> bool {
         match self {
-            DefaultValue::Value(value) => value.is_null(),
+            CommandParameterValue::Value(value) => value.is_null(),
             _ => false,
         }
     }
     fn from_value(value: Value) -> Self {
-        DefaultValue::Value(value)
+        CommandParameterValue::Value(value)
     }
     fn from_query(query: Query) -> Self {
-        DefaultValue::Query(query)
+        CommandParameterValue::Query(query)
     }
     fn from_string(value: &str) -> Self {
-        DefaultValue::Value(Value::String(value.to_string()))
+        CommandParameterValue::Value(Value::String(value.to_string()))
     }
     fn from_integer(value: i64) -> Self {
-        DefaultValue::Value(Value::Number(serde_json::Number::from(value)))
+        CommandParameterValue::Value(Value::Number(serde_json::Number::from(value)))
     }
     fn from_float(value: f64) -> Self {
-        DefaultValue::Value(Value::Number(serde_json::Number::from_f64(value).unwrap()))
+        CommandParameterValue::Value(Value::Number(serde_json::Number::from_f64(value).unwrap()))
     }
 }
 
-impl Default for DefaultValue {
+impl Default for CommandParameterValue {
     fn default() -> Self {
-        DefaultValue::NoDefault
+        CommandParameterValue::None
     }
 }
 
@@ -250,7 +249,7 @@ impl Default for DefaultValue {
 pub struct ArgumentInfo {
     pub name: String,
     pub label: String,
-    pub default: DefaultValue,
+    pub default: CommandParameterValue,
     pub argument_type: ArgumentType,
     pub multiple: bool,
     pub injected: bool,
@@ -262,7 +261,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
-            default: DefaultValue::NoDefault,
+            default: CommandParameterValue::None,
             argument_type: ArgumentType::Any,
             multiple: false,
             injected: false,
@@ -278,7 +277,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
-            default: DefaultValue::NoDefault,
+            default: CommandParameterValue::None,
             argument_type: ArgumentType::Any,
             multiple: false,
             injected: false,
@@ -289,7 +288,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
-            default: DefaultValue::NoDefault,
+            default: CommandParameterValue::None,
             argument_type: ArgumentType::String,
             multiple: false,
             injected: false,
@@ -301,9 +300,9 @@ impl ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
             default: if option {
-                DefaultValue::null()
+                CommandParameterValue::null()
             } else {
-                DefaultValue::NoDefault
+                CommandParameterValue::None
             },
             argument_type: if option {
                 ArgumentType::IntegerOption
@@ -320,9 +319,9 @@ impl ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
             default: if option {
-                DefaultValue::null()
+                CommandParameterValue::null()
             } else {
-                DefaultValue::NoDefault
+                CommandParameterValue::None
             },
             argument_type: if option {
                 ArgumentType::FloatOption
@@ -338,7 +337,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
-            default: DefaultValue::NoDefault,
+            default: CommandParameterValue::None,
             argument_type: ArgumentType::Boolean,
             multiple: false,
             injected: false,
@@ -346,19 +345,19 @@ impl ArgumentInfo {
         }
     }
     pub fn with_default_none(&mut self) -> &mut Self {
-        self.default = DefaultValue::null();
+        self.default = CommandParameterValue::null();
         self
     }
     pub fn with_default(&mut self, value: &str) -> &mut Self {
-        self.default = DefaultValue::from_string(value);
+        self.default = CommandParameterValue::from_string(value);
         self
     }
     pub fn true_by_default(&mut self) -> &mut Self {
-        self.default = DefaultValue::from_value(Value::Bool(true));
+        self.default = CommandParameterValue::from_value(Value::Bool(true));
         self
     }
     pub fn false_by_default(&mut self) -> &mut Self {
-        self.default = DefaultValue::from_value(Value::Bool(false));
+        self.default = CommandParameterValue::from_value(Value::Bool(false));
         self
     }
 
