@@ -889,11 +889,11 @@ mod tests {
         let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
         assert_eq!(pv.value(), Some(Value::String("testarg".to_string())));
 
-        let mut arginfo = ArgumentInfo::integer_argument("intarg", false);
+        let arginfo = ArgumentInfo::integer_argument("intarg", false);
         let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
         assert_eq!(pv.value(), Some(Value::Number(123.into())));
 
-        let mut arginfo = ArgumentInfo::integer_argument("intarg2", true);
+        let arginfo = ArgumentInfo::integer_argument("intarg2", true);
         let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
         assert_eq!(pv.value(), Some(Value::Null));
 

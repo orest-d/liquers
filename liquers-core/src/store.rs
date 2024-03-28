@@ -614,7 +614,7 @@ mod tests {
         assert!(store.is_dir(&parse_key("a/b").unwrap()));
         assert_eq!(store.keys().unwrap().len(), 1);
 
-        let (data2, metadata2) = store.get(&key).unwrap();
+        let (data2, _metadata2) = store.get(&key).unwrap();
         assert_eq!(data, data2);
         store.remove(&key).unwrap();
         assert!(!store.contains(&key));

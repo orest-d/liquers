@@ -8,9 +8,9 @@ use std::{
 use crate::{
     cache::{Cache, NoCache},
     command_metadata::CommandMetadataRegistry,
-    commands::{CommandExecutor, CommandRegistry},
+    commands::{CommandExecutor, CommandRegistry, NewCommandRegistry},
     error::Error,
-    metadata::{MetadataRecord},
+    metadata::MetadataRecord,
     query::{Query, TryToQuery},
     state::State,
     store::{NoStore, Store},
@@ -179,14 +179,14 @@ impl<ER: EnvRef<E>, E: Environment> Context<ER, E>{
 pub struct SimpleEnvironment<V: ValueInterface> {
     store: Arc<Mutex<Box<dyn Store>>>,
     cache: Arc<Mutex<Box<dyn Cache<V>>>>,
-    command_registry: CommandRegistry<ArcEnvRef<Self>, Self, V>,
+    command_registry: NewCommandRegistry<ArcEnvRef<Self>, Self, V>,
 }
 
 impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
     pub fn new() -> Self {
         SimpleEnvironment {
             store: Arc::new(Mutex::new(Box::new(NoStore))),
-            command_registry: CommandRegistry::new(),
+            command_registry: NewCommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
         }
     }
@@ -205,7 +205,7 @@ impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
 
 impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type Value = V;
-    type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, V>;
+    type CommandExecutor = NewCommandRegistry<Self::EnvironmentReference, Self, V>;
     type EnvironmentReference = ArcEnvRef<Self>;
     type Context = Context<Self::EnvironmentReference, Self>;
 

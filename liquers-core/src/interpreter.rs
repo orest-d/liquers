@@ -182,6 +182,7 @@ mod tests {
     use crate::command_metadata::ArgumentInfo;
     use crate::command_metadata::CommandMetadata;
     use crate::command_metadata::CommandMetadataRegistry;
+
     use crate::commands::*;
     use crate::context;
     use crate::context::SimpleEnvironment;
@@ -329,8 +330,13 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.get_mut_command_metadata_registry()
             .add_command(&CommandMetadata::new("test"));
-        env.get_mut_command_executor()
-            .register_command("test", Command0::from(|| "Hello".to_string()))?;
+        fn test()->Result<String,Error>{
+            Ok("Hello".to_string())
+        }
+        let cr = env.get_mut_command_executor();
+        register_command!(cr, test());
+        //env.get_mut_command_executor()
+        //    .register_command("test", Command0::from(|| "Hello".to_string()))?;
         let envref = env.to_ref();
 
         let mut pi = PlanInterpreter::new(envref);
@@ -345,16 +351,15 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         {
             let mut cr = env.get_mut_command_executor();
-            cr.register_command("hello", Command0::from(|| "Hello".to_string()))?;
-            cr.register_command(
-                "greet",
-                Command2::from(|state: &State<Value>, who: String| -> String {
-                    let greeting = state.data.try_into_string().unwrap();
-                    format!("{} {}!", greeting, who)
-                }),
-            )?
-            .with_state_argument(ArgumentInfo::string_argument("greeting"))
-            .with_argument(ArgumentInfo::string_argument("who"));
+            fn hello()->Result<String,Error>{
+                Ok("Hello".to_string())
+            }
+            fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
+                let greeting = state.data.try_into_string().unwrap();
+                Ok(format!("{} {}!", greeting, who))
+            }
+            register_command!(cr, hello());
+            register_command!(cr, greet(state, who:String));
         }
 
         let mut pi = PlanInterpreter::new(env.to_ref());
@@ -492,7 +497,12 @@ mod tests {
                     &Metadata::new(),
                 )
                 .unwrap();
-            let mut cr = env.get_mut_command_executor();
+            let cr = env.get_mut_command_executor();
+            fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
+                let greeting = state.data.try_into_string().unwrap();
+                Ok(format!("{} {}!", greeting, who))
+            }
+            /*
             cr.register_command(
                 "greet",
                 Command2::from(|state: &State<Value>, who: String| -> String {
@@ -502,6 +512,7 @@ mod tests {
             )?
             .with_state_argument(ArgumentInfo::string_argument("greeting"))
             .with_argument(ArgumentInfo::string_argument("who"));
+            */
         }
 
         let mut pi = PlanInterpreter::new(env.to_ref());

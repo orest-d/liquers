@@ -108,7 +108,7 @@ impl NewCommandArguments {
         }
     }
 
-    pub fn get<T: FromParameterValue<T, E>, ER: EnvRef<E>, E: Environment>(
+    pub fn get<T: FromParameterValue<T, E>, E: Environment>(
         &mut self,
         context: &impl ContextInterface<E>,
     ) -> Result<T, Error> {
@@ -864,20 +864,26 @@ macro_rules! command_wrapper_typed {
 }
 
 macro_rules! command_wrapper_parameter_name {
-    ($cxpar:ident, context) => {
+    ($cxpar:ident, $statepar:ident, context) => {
         $cxpar
     };
-    ($cxpar:ident, $argname:ident) => {
+    ($cxpar:ident, $statepar:ident, state) => {
+        $statepar
+    };
+    ($cxpar:ident, $statepar:ident, $argname:ident) => {
         $argname
     };
 }
 
 macro_rules! command_wrapper_parameter_assignment {
-    ($cxpar:ident, $arguments:ident, $context:ident, context) => {
-        let command_wrapper_parameter_name!($cxpar, context) = $context;
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, context) => {
+        let command_wrapper_parameter_name!($cxpar, $statepar, context) = $context;
     };
-    ($cxpar:ident, $arguments:ident, $context:ident, $argname:ident:$argtype:ty) => {
-        let command_wrapper_parameter_name!($cxpar, $argname): $argtype =
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, state) => {
+        let command_wrapper_parameter_name!($cxpar, $statepar, state) = $state;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
+        let command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
             $arguments.get(&$context)?;
     };
 }
@@ -888,15 +894,16 @@ macro_rules! command_wrapper {
             //stringify!(
             |state, arguments, context|{
                 let cx_wrapper_parameter = 0;
+                let state_wrapper_parameter = 0;
                 $(
-                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, arguments, context, $argname$(:$argtype)?);
+                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, state_wrapper_parameter, arguments, state, context, $argname$(:$argtype)?);
                 )*
                 if arguments.all_parameters_used(){
-                    $name($(command_wrapper_parameter_name!(cx_wrapper_parameter, $argname)),*)
+                    Ok($name($(command_wrapper_parameter_name!(cx_wrapper_parameter, state_wrapper_parameter, $argname)),*)?.into())
                 }
                 else{
                         Err(Error::new(
-                            ErrorType::TooManyParameters,
+                            crate::error::ErrorType::TooManyParameters,
                             format!("Too many parameters: {}; {} excess parameters found", arguments.len(), arguments.excess_parameters()),
                         )
                         .with_position(&arguments.parameter_position()))
@@ -906,15 +913,20 @@ macro_rules! command_wrapper {
         };
 }
 
+
+#[macro_export]
 macro_rules! register_command {
     ($cr:ident, $name:ident ($($argname:ident$(:$argtype:ty)?),*)) => {
         {
         let reg_command_metadata = $cr.register_command(stringify!($name), command_wrapper!($name($($argname$(:$argtype)?),*)))?
         .with_name(stringify!($name));
         $(
-            register_command!(@arg reg_command_metadata $argname$(:$argtype)?);
+            register_command!(@arg reg_command_metadata $argname $(:$argtype)?);
         )*
     }
+    };
+    (@arg $cm:ident state) =>{
+        $cm.with_state_argument(crate::command_metadata::ArgumentInfo::argument("state"));
     };
     (@arg $cm:ident context) =>{
         $cm.with_argument(crate::command_metadata::ArgumentInfo::argument("context").set_injected().clone());

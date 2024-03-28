@@ -4,6 +4,7 @@ extern crate serde_derive;
 
 pub mod cache;
 pub mod command_metadata;
+#[macro_use]
 pub mod commands;
 pub mod context;
 pub mod error;
