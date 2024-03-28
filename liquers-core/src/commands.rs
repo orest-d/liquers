@@ -119,6 +119,23 @@ impl NewCommandArguments {
     pub fn all_parameters_used(&self) -> bool {
         self.argument_number == self.parameters.0.len()
     }
+    /// Returns the number of parameters that have not been used
+    pub fn excess_parameters(&self) -> usize {
+        self.parameters.len() - self.argument_number
+    }
+    pub fn parameter_position(&self) -> Position {
+        if let Some(p) = self.parameters.0.get(self.argument_number) {
+            let pos = p.position();
+            if pos.is_unknown() {
+                self.action_position.clone()
+            } else {
+                pos
+            }
+        } else {
+            self.action_position.clone()
+        }
+    }
+
 }
 
 /// Command trait
@@ -761,13 +778,13 @@ where
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error> + 'static,
+        F: Fn(&State<V>, &mut NewCommandArguments, Context<ER, E>) -> Result<V, Error> + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
         self.command_metadata_registry
             .add_command(&command_metadata);
-        self.executors.insert(key.clone(), Box::new(f));
+        self.new_executors.insert(key.clone(), Box::new(f));
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
 }
@@ -1085,21 +1102,21 @@ mod tests {
         let envref = StatEnvRef(injection);
         let state = State::new();
         let mut context: Context<StatEnvRef<NoInjection>, NoInjection> = Context::new(envref);
-        let mut ca = CommandArguments::new(ResolvedParameters::new());
+        let mut ca = NewCommandArguments::new(ResolvedParameterValues::new());
 
         let s = cr
-            .execute("", "", "test1a", &state, &mut ca, context.clone_context())
+            .new_execute("", "", "test1a", &state, &mut ca, context.clone_context())
             .unwrap();
         assert_eq!(s.try_into_string()?, "Hello1");
 
         let s = cr
-            .execute("", "", "test1", &state, &mut ca, context.clone_context())
+            .new_execute("", "", "test1", &state, &mut ca, context.clone_context())
             .unwrap();
         assert_eq!(s.try_into_string()?, "Hello1");
         assert_eq!(context.get_metadata().log.len(), 0);
 
         let s = cr
-            .execute("", "", "test2", &state, &mut ca, context.clone_context())
+            .new_execute("", "", "test2", &state, &mut ca, context.clone_context())
             .unwrap();
 
         //        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");

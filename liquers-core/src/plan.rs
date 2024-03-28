@@ -394,6 +394,9 @@ impl ResolvedParameterValues {
     pub fn clear(&mut self) {
         self.0.clear();
     }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 pub struct PlanBuilder<'c> {
