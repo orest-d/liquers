@@ -24,6 +24,8 @@ pub struct CommandArguments {
 }
 
 //TODO: PVR Rename and replace CommandArguments
+/// Encapsulates the action parameters, that are passed to the command
+/// when it is executed.
 pub struct NewCommandArguments {
     pub parameters: ResolvedParameterValues,
     pub action_position: Position,
@@ -57,12 +59,14 @@ impl CommandArguments {
             ))
         }
     }
+    /// Returns the next parameter as a value of type T
     pub fn get<T: FromCommandArguments<T, ER, E>, ER: EnvRef<E>, E: Environment>(
         &mut self,
         context: &Context<ER, E>,
     ) -> Result<T, Error> {
         T::from_arguments(self, context)
     }
+
     /// Returns true if all parameters have been used
     /// This is checked during the command execution
     pub fn all_parameters_used(&self) -> bool {
@@ -112,8 +116,26 @@ impl NewCommandArguments {
         &mut self,
         context: &impl ContextInterface<E>,
     ) -> Result<T, Error> {
-        T::from_parameter_value(self.pop_parameter()?, context)
+        let p = self.pop_parameter()?;
+        if p.is_injected(){
+            return Err(Error::general_error("Inconsistent parameter type - injected found, value expected".to_owned()));
+        }
+        T::from_parameter_value(p, context)
     }
+
+    /// Returns the injected parameter as a value of type T
+    pub fn get_injected<T: InjectedFromContext<T, E>, E: Environment>(
+        &mut self,
+        name:&str,
+        context: &impl ContextInterface<E>,
+    ) -> Result<T, Error> {
+        let p = self.pop_parameter()?;
+        if !p.is_injected(){
+            return Err(Error::general_error("Inconsistent parameter type - value found, injected expected".to_owned()));
+        }
+        T::from_context(name, context)
+    }
+
     /// Returns true if all parameters have been used
     /// This is checked during the command execution
     pub fn all_parameters_used(&self) -> bool {
@@ -547,7 +569,10 @@ impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_b
 
 pub trait FromCommandArguments<T, ER: EnvRef<E>, E: Environment> {
     fn from_arguments(args: &mut CommandArguments, context: &Context<ER, E>) -> Result<T, Error>;
-    fn is_injected() -> bool;
+}
+
+pub trait InjectedFromContext<T, E: Environment> {
+    fn from_context(name:&str, context: &impl ContextInterface<E>) -> Result<T, Error>;
 }
 
 impl<T, ER: EnvRef<E>, E: Environment> FromCommandArguments<T, ER, E> for T
@@ -560,9 +585,6 @@ where
         _context: &Context<ER, E>,
     ) -> Result<T, Error> {
         T::from_parameter(args.get_parameter()?)
-    }
-    fn is_injected() -> bool {
-        false
     }
 }
 
@@ -880,7 +902,8 @@ macro_rules! command_wrapper_parameter_assignment {
         let command_wrapper_parameter_name!($cxpar, $statepar, context) = $context;
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, state) => {
-        let command_wrapper_parameter_name!($cxpar, $statepar, state) = $state;
+        //let command_wrapper_parameter_name!($cxpar, $statepar, state) = $state;
+        ;
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
         let command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
@@ -894,12 +917,12 @@ macro_rules! command_wrapper {
             //stringify!(
             |state, arguments, context|{
                 let cx_wrapper_parameter = 0;
-                let state_wrapper_parameter = 0;
+                //let state_wrapper_parameter = 0;
                 $(
-                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, state_wrapper_parameter, arguments, state, context, $argname$(:$argtype)?);
+                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, state, arguments, state, context, $argname$(:$argtype)?);
                 )*
                 if arguments.all_parameters_used(){
-                    Ok($name($(command_wrapper_parameter_name!(cx_wrapper_parameter, state_wrapper_parameter, $argname)),*)?.into())
+                    Ok($name($(command_wrapper_parameter_name!(cx_wrapper_parameter, state, $argname)),*)?.into())
                 }
                 else{
                         Err(Error::new(
@@ -916,7 +939,7 @@ macro_rules! command_wrapper {
 
 #[macro_export]
 macro_rules! register_command {
-    ($cr:ident, $name:ident ($($argname:ident$(:$argtype:ty)?),*)) => {
+    ($cr:ident, $name:ident ($( $argname:ident$(:$argtype:ty)?),*)) => {
         {
         let reg_command_metadata = $cr.register_command(stringify!($name), command_wrapper!($name($($argname$(:$argtype)?),*)))?
         .with_name(stringify!($name));

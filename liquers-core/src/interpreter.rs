@@ -2,7 +2,7 @@ use crate::commands::{CommandArguments, CommandExecutor, NewCommandArguments};
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::Error;
 use crate::plan::{Plan, PlanBuilder, Step};
-use crate::query::{TryToQuery};
+use crate::query::TryToQuery;
 use crate::state::State;
 use crate::value::ValueInterface;
 
@@ -29,8 +29,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         self
     }
 
-    pub fn with_query<Q:TryToQuery>(&mut self, query: Q) -> Result<&mut Self, Error>
-    {
+    pub fn with_query<Q: TryToQuery>(&mut self, query: Q) -> Result<&mut Self, Error> {
         let query = query.try_to_query()?;
         let cmr = self.environment.get().get_command_metadata_registry();
         println!("Query: {}", query);
@@ -43,8 +42,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         Ok(self.with_plan(plan))
     }
 
-    pub fn evaluate<Q:TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> 
-    {
+    pub fn evaluate<Q: TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> {
         self.with_query(query)?;
         self.run()?;
         self.state
@@ -145,11 +143,18 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                 arguments.action_position = position.clone();
 
                 let ce = self.environment.get().get_command_executor();
+                let result = ce.new_execute(
+                    realm,
+                    ns,
+                    action_name,
+                    &input_state,
+                    &mut arguments,
+                    context.clone_context(),
+                )?;
                 let state = State::new()
-                    //.with_data(result)
+                    .with_data(result)
                     .with_metadata(context.get_metadata().into());
                 /// TODO - reset metadata ?
-                println!("New action: {} {} {} - not implemented", realm, ns, action_name);
                 return Ok(state);
             }
             crate::plan::Step::Filename(name) => {
@@ -173,6 +178,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::fmt::format;
     use std::rc::Rc;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -197,7 +203,7 @@ mod tests {
     struct InjectedVariable(String);
     struct InjectionTest {
         variable: InjectedVariable,
-        cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
+        cr: NewCommandRegistry<StatEnvRef<Self>, Self, Value>,
         store: Arc<Mutex<Box<dyn crate::store::Store>>>,
     }
 
@@ -209,10 +215,10 @@ mod tests {
             &mut self.cr.command_metadata_registry
         }
         type Value = Value;
-        type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, Value>;
+        type CommandExecutor = NewCommandRegistry<Self::EnvironmentReference, Self, Value>;
         type EnvironmentReference = StatEnvRef<Self>;
         type Context = context::Context<Self::EnvironmentReference, Self>;
-        
+
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &self.cr
         }
@@ -279,7 +285,6 @@ mod tests {
             &mut self.cr.command_metadata_registry
         }
 
-
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &self.cr
         }
@@ -312,7 +317,7 @@ mod tests {
             assert_eq!(command_name, "test");
             Command0::from(|| -> String { "Hello".into() }).execute(state, arguments, context)
         }
-        
+
         fn new_execute(
             &self,
             realm: &str,
@@ -330,7 +335,7 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.get_mut_command_metadata_registry()
             .add_command(&CommandMetadata::new("test"));
-        fn test()->Result<String,Error>{
+        fn test() -> Result<String, Error> {
             Ok("Hello".to_string())
         }
         let cr = env.get_mut_command_executor();
@@ -351,7 +356,7 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         {
             let mut cr = env.get_mut_command_executor();
-            fn hello()->Result<String,Error>{
+            fn hello() -> Result<String, Error> {
                 Ok("Hello".to_string())
             }
             fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
@@ -379,8 +384,9 @@ mod tests {
 
     #[test]
     fn test_interpreter_with_value_injection() -> Result<(), Error> {
-        let mut cr: CommandRegistry<StatEnvRef<InjectionTest>, InjectionTest, Value> =
-            CommandRegistry::new();
+        let mut cr: NewCommandRegistry<StatEnvRef<InjectionTest>, InjectionTest, Value> =
+            NewCommandRegistry::new();
+        /*
         impl FromCommandArguments<InjectedVariable, StatEnvRef<InjectionTest>, InjectionTest>
             for InjectedVariable
         {
@@ -395,7 +401,47 @@ mod tests {
                 true
             }
         }
+        */
+        impl InjectedFromContext<InjectedVariable, InjectionTest> for InjectedVariable {
+            fn from_context(
+                _name: &str,
+                context: &impl ContextInterface<InjectionTest>,
+            ) -> Result<InjectedVariable, Error> {
+                Ok(context.get_environment().variable.to_owned())
+            }
+        }
 
+        fn injected(state: &State<Value>, what: InjectedVariable) -> Result<String, Error> {
+            Ok(format!("Hello {}", what.0))
+        }
+        {
+            let reg_command_metadata = cr
+                .register_command("injected", |state, arguments, context| {
+                    let cx_wrapper_parameter = 0;
+
+                    let what: InjectedVariable = arguments.get_injected("what", &context)?;
+                    if arguments.all_parameters_used() {
+                        Ok(injected(state, what)?.into())
+                    } else {
+                        Err(Error::new(
+                            crate::error::ErrorType::TooManyParameters,
+                            format!(
+                                "Too many parameters: {}; {} excess parameters found",
+                                arguments.len(),
+                                arguments.excess_parameters()
+                            ),
+                        )
+                        .with_position(&arguments.parameter_position()))
+                    }
+                })?
+                .with_name(stringify!(injected));
+            reg_command_metadata
+                .with_state_argument(crate::command_metadata::ArgumentInfo::argument("state"));
+            reg_command_metadata
+                .with_argument(crate::command_metadata::ArgumentInfo::argument("what").set_injected());
+        };
+        //register_command!(cr, injected(state, what:InjectedVariable));
+        /*
         cr.register_command(
             "injected",
             Command2::from(|_state: &State<Value>, what: InjectedVariable| {
@@ -403,7 +449,7 @@ mod tests {
             }),
         )?
         .with_state_argument(ArgumentInfo::string_argument("nothing"));
-
+        */
         let cmr = cr.command_metadata_registry.clone();
 
         let env = Box::leak(Box::new(InjectionTest {
@@ -441,10 +487,6 @@ mod tests {
                 context: &Context<StatEnvRef<MutableInjectionTest>, MutableInjectionTest>,
             ) -> Result<Rc<RefCell<InjectedVariable>>, Error> {
                 Ok(context.get_environment().variable.clone())
-            }
-
-            fn is_injected() -> bool {
-                true
             }
         }
 

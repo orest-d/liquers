@@ -267,7 +267,7 @@ impl ParameterValue {
             },
             None => {
                 Self::from_arginfo(arginfo).to_result(
-                    ||format!("Missing argument {}", arginfo.name), &param.position)
+                    ||format!("Missing argument '{}'", arginfo.name), &param.position)
             }
         }
     }
@@ -511,6 +511,7 @@ impl<'c> PlanBuilder<'c> {
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         let command_metadata = self.get_command_metadata(query, action_request)?;
+        /*
         self.get_parameters(&command_metadata, action_request)?;
         self.plan.steps.push(Step::Action {
             realm: command_metadata.realm.clone(),
@@ -519,8 +520,9 @@ impl<'c> PlanBuilder<'c> {
             position: action_request.position.clone(),
             parameters: self.resolved_parameters.clone(),
         });
+        */
         //TODO: PVR !!!
-        /*
+        
         self.plan.steps.push(Step::NewAction {
             realm: command_metadata.realm.clone(),
             ns: command_metadata.namespace.clone(),
@@ -528,7 +530,7 @@ impl<'c> PlanBuilder<'c> {
             position: action_request.position.clone(),
             parameters: ResolvedParameterValues::from_action(action_request, &command_metadata)?
         });
-        */
+        
         Ok(())
     }
 

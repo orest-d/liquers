@@ -371,8 +371,7 @@ impl ArgumentInfo {
         self.label = label.to_string();
         self
     }
-    //TODO: should return self
-    pub fn set_injected(&mut self) -> &mut Self {
+    pub fn set_injected(mut self) -> Self {
         self.injected = true;
         self
     }
