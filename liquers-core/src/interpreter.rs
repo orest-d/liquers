@@ -268,13 +268,13 @@ mod tests {
 
     struct MutableInjectionTest {
         variable: Rc<RefCell<InjectedVariable>>,
-        cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
+        cr: NewCommandRegistry<StatEnvRef<Self>, Self, Value>,
         store: Arc<Mutex<Box<dyn crate::store::Store>>>,
     }
 
     impl Environment for MutableInjectionTest {
         type Value = Value;
-        type CommandExecutor = CommandRegistry<StatEnvRef<Self>, Self, Value>;
+        type CommandExecutor = NewCommandRegistry<StatEnvRef<Self>, Self, Value>;
         type EnvironmentReference = StatEnvRef<Self>;
         type Context = context::Context<Self::EnvironmentReference, Self>;
 
@@ -386,22 +386,6 @@ mod tests {
     fn test_interpreter_with_value_injection() -> Result<(), Error> {
         let mut cr: NewCommandRegistry<StatEnvRef<InjectionTest>, InjectionTest, Value> =
             NewCommandRegistry::new();
-        /*
-        impl FromCommandArguments<InjectedVariable, StatEnvRef<InjectionTest>, InjectionTest>
-            for InjectedVariable
-        {
-            fn from_arguments(
-                args: &mut CommandArguments,
-                context: &Context<StatEnvRef<InjectionTest>, InjectionTest>,
-            ) -> Result<InjectedVariable, Error> {
-                Ok(context.get_environment().variable.to_owned())
-            }
-
-            fn is_injected() -> bool {
-                true
-            }
-        }
-        */
         impl InjectedFromContext<InjectedVariable, InjectionTest> for InjectedVariable {
             fn from_context(
                 _name: &str,
@@ -414,42 +398,8 @@ mod tests {
         fn injected(state: &State<Value>, what: InjectedVariable) -> Result<String, Error> {
             Ok(format!("Hello {}", what.0))
         }
-        {
-            let reg_command_metadata = cr
-                .register_command("injected", |state, arguments, context| {
-                    let cx_wrapper_parameter = 0;
+        register_command!(cr, injected(state, injected what:InjectedVariable));
 
-                    let what: InjectedVariable = arguments.get_injected("what", &context)?;
-                    if arguments.all_parameters_used() {
-                        Ok(injected(state, what)?.into())
-                    } else {
-                        Err(Error::new(
-                            crate::error::ErrorType::TooManyParameters,
-                            format!(
-                                "Too many parameters: {}; {} excess parameters found",
-                                arguments.len(),
-                                arguments.excess_parameters()
-                            ),
-                        )
-                        .with_position(&arguments.parameter_position()))
-                    }
-                })?
-                .with_name(stringify!(injected));
-            reg_command_metadata
-                .with_state_argument(crate::command_metadata::ArgumentInfo::argument("state"));
-            reg_command_metadata
-                .with_argument(crate::command_metadata::ArgumentInfo::argument("what").set_injected());
-        };
-        //register_command!(cr, injected(state, what:InjectedVariable));
-        /*
-        cr.register_command(
-            "injected",
-            Command2::from(|_state: &State<Value>, what: InjectedVariable| {
-                format!("Hello {}", what.0)
-            }),
-        )?
-        .with_state_argument(ArgumentInfo::string_argument("nothing"));
-        */
         let cmr = cr.command_metadata_registry.clone();
 
         let env = Box::leak(Box::new(InjectionTest {
@@ -473,8 +423,9 @@ mod tests {
     }
     #[test]
     fn test_interpreter_with_mutable_injection() -> Result<(), Error> {
-        let mut cr: CommandRegistry<StatEnvRef<MutableInjectionTest>, MutableInjectionTest, Value> =
-            CommandRegistry::new();
+        let mut cr: NewCommandRegistry<StatEnvRef<MutableInjectionTest>, MutableInjectionTest, Value> =
+            NewCommandRegistry::new();
+            /* 
         impl<'v>
             FromCommandArguments<
                 Rc<RefCell<InjectedVariable>>,
@@ -489,27 +440,77 @@ mod tests {
                 Ok(context.get_environment().variable.clone())
             }
         }
+        */
+        impl InjectedFromContext<Rc<RefCell<InjectedVariable>>, MutableInjectionTest> for Rc<RefCell<InjectedVariable>> {
+            fn from_context(
+                _name: &str,
+                context: &impl ContextInterface<MutableInjectionTest>,
+            ) -> Result<Rc<RefCell<InjectedVariable>>, Error> {
+                Ok(context.get_environment().variable.clone())
+            }
+        }
 
-        cr.register_command(
-            "injected",
-            Command2::from(
-                |_state: &State<Value>, what: Rc<RefCell<InjectedVariable>>| {
-                    let res = format!("Hello {}", what.borrow().0);
-                    what.borrow_mut().0 = "changed".to_owned();
-                    res
-                },
-            ),
-        )?
-        .with_state_argument(ArgumentInfo::string_argument("nothing"));
+        /*
+                cr.register_command(
+                    "injected",
+                    Command2::from(
+                        |_state: &State<Value>, what: Rc<RefCell<InjectedVariable>>| {
+                            let res = format!("Hello {}", what.borrow().0);
+                            what.borrow_mut().0 = "changed".to_owned();
+                            res
+                        },
+                    ),
+                )?
+                .with_state_argument(ArgumentInfo::string_argument("nothing"));
+        */
+        fn injected(
+            state: &State<Value>,
+            what: Rc<RefCell<InjectedVariable>>,
+        ) -> Result<String, Error> {
+            let res = format!("Hello {}", what.borrow().0);
+            what.borrow_mut().0 = "changed".to_owned();
+            Ok(res)
+        }
+        register_command!(cr, injected(state, injected what:Rc<RefCell<InjectedVariable>>));
 
-        let injection = Box::leak(Box::new(MutableInjectionTest {
+        /*
+        {
+            let reg_command_metadata = cr
+                .register_command("injected", |state, arguments, context| {
+                    let cx_wrapper_parameter = 0;
+                    let what: Rc<RefCell<InjectedVariable>> =
+                        arguments.get_injected("what", &context)?;
+                    if arguments.all_parameters_used() {
+                        Ok(injected(state, what)?.into())
+                    } else {
+                        Err(Error::new(
+                            crate::error::ErrorType::TooManyParameters,
+                            format!(
+                                "Too many parameters: {}; {} excess parameters found",
+                                arguments.len(),
+                                arguments.excess_parameters()
+                            ),
+                        )
+                        .with_position(&arguments.parameter_position()))
+                    }
+                })?
+                .with_name("injected");
+            reg_command_metadata
+                .with_state_argument(crate::command_metadata::ArgumentInfo::argument("state"));
+            reg_command_metadata.with_argument(
+                crate::command_metadata::ArgumentInfo::argument("what").set_injected(),
+            );
+        };
+        */
+
+        let env = Box::leak(Box::new(MutableInjectionTest {
             variable: Rc::new(RefCell::new(InjectedVariable(
                 "injected string".to_string(),
             ))),
             cr: cr,
             store: Arc::new(Mutex::new(Box::new(crate::store::NoStore))),
         }));
-        let envref = StatEnvRef(injection);
+        let envref = StatEnvRef(env);
         let mut pi = PlanInterpreter::new(envref);
         pi.with_query("injected")?;
         println!(
@@ -544,6 +545,7 @@ mod tests {
                 let greeting = state.data.try_into_string().unwrap();
                 Ok(format!("{} {}!", greeting, who))
             }
+            register_command!(cr, greet(state, who:String));
             /*
             cr.register_command(
                 "greet",

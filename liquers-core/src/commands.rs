@@ -892,6 +892,9 @@ macro_rules! command_wrapper_parameter_name {
     ($cxpar:ident, $statepar:ident, state) => {
         $statepar
     };
+    ($cxpar:ident, $statepar:ident, injected $argname:ident) => {
+        $argname
+    };
     ($cxpar:ident, $statepar:ident, $argname:ident) => {
         $argname
     };
@@ -905,6 +908,10 @@ macro_rules! command_wrapper_parameter_assignment {
         //let command_wrapper_parameter_name!($cxpar, $statepar, state) = $state;
         ;
     };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, injected $argname:ident:$argtype:ty) => {
+        let command_wrapper_parameter_name!($cxpar, $statepar, injected $argname): $argtype =
+            $arguments.get_injected(stringify!($argname), &$context)?;
+    };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
         let command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
             $arguments.get(&$context)?;
@@ -913,16 +920,16 @@ macro_rules! command_wrapper_parameter_assignment {
 
 macro_rules! command_wrapper {
     ($name:ident
-        ($($argname:ident$(:$argtype:ty)?),*)) => {
+        ($($argname:ident $($argname2:ident)? $(:$argtype:ty)?),*)) => {
             //stringify!(
             |state, arguments, context|{
                 let cx_wrapper_parameter = 0;
                 //let state_wrapper_parameter = 0;
                 $(
-                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, state, arguments, state, context, $argname$(:$argtype)?);
+                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, state, arguments, state, context, $argname $($argname2)? $(:$argtype)?);
                 )*
                 if arguments.all_parameters_used(){
-                    Ok($name($(command_wrapper_parameter_name!(cx_wrapper_parameter, state, $argname)),*)?.into())
+                    Ok($name($(command_wrapper_parameter_name!(cx_wrapper_parameter, state, $argname $($argname2)?)),*)?.into())
                 }
                 else{
                         Err(Error::new(
@@ -939,12 +946,12 @@ macro_rules! command_wrapper {
 
 #[macro_export]
 macro_rules! register_command {
-    ($cr:ident, $name:ident ($( $argname:ident$(:$argtype:ty)?),*)) => {
+    ($cr:ident, $name:ident ($( $argname:ident $($argname2:ident)? $(:$argtype:ty)?),*)) => {
         {
-        let reg_command_metadata = $cr.register_command(stringify!($name), command_wrapper!($name($($argname$(:$argtype)?),*)))?
+        let reg_command_metadata = $cr.register_command(stringify!($name), command_wrapper!($name($($argname $($argname2)? $(:$argtype)?),*)))?
         .with_name(stringify!($name));
         $(
-            register_command!(@arg reg_command_metadata $argname $(:$argtype)?);
+            register_command!(@arg reg_command_metadata $argname $($argname2)? $(:$argtype)?);
         )*
     }
     };
@@ -952,12 +959,18 @@ macro_rules! register_command {
         $cm.with_state_argument(crate::command_metadata::ArgumentInfo::argument("state"));
     };
     (@arg $cm:ident context) =>{
-        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument("context").set_injected().clone());
+        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument("context").set_injected());
+    };
+    (@arg $cm:ident injected $argname:ident:String) =>{
+        $cm.with_argument(crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_injected());
     };
     (@arg $cm:ident $argname:ident:String) =>{
         $cm.with_argument(crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
     };
-    (@arg $cm:ident $argname:ident:$argtype:ty) =>{
+    (@arg $cm:ident injected $argname:ident:$argtype:ty) =>{
+        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_injected());
+     };
+     (@arg $cm:ident $argname:ident:$argtype:ty) =>{
        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument(stringify!($argname)));
     };
 
