@@ -324,6 +324,7 @@ impl ParameterValue {
 }
 
 //TODO: PVR
+ 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Parameter {
     pub value: Value,
@@ -355,6 +356,7 @@ impl Default for Parameter {
     }
 }
 
+//TODO: PVR
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameters {
     pub parameters: Vec<Parameter>,
@@ -679,6 +681,7 @@ impl<'c> PlanBuilder<'c> {
     ) -> Result<(), Error> {
         self.arginfo_number = 0;
         self.parameter_number = 0;
+        // TODO: PVR
         self.resolved_parameters = ResolvedParameters::new();
         for (i, a) in command_metadata.arguments.iter().enumerate() {
             if a.injected {
@@ -703,6 +706,7 @@ impl<'c> PlanBuilder<'c> {
         arginfo: &ArgumentInfo,
         parameters: &mut ActionParameterIterator,
     ) -> Result<Parameter, Error> {
+        //TODO: PVR
         let mut p = Parameter::default();
         if arginfo.injected {
             p.injected = true;

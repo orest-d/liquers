@@ -8,7 +8,7 @@ use std::{
 use crate::{
     cache::{Cache, NoCache},
     command_metadata::CommandMetadataRegistry,
-    commands::{CommandExecutor, CommandRegistry, NewCommandRegistry},
+    commands::{CommandExecutor, NewCommandRegistry},
     error::Error,
     metadata::MetadataRecord,
     query::{Query, TryToQuery},
