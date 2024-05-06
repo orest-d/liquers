@@ -107,6 +107,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
             crate::plan::Step::GetNamedResource(_) => todo!(),
             crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
             crate::plan::Step::Evaluate(_) => todo!(),
+            /*
             crate::plan::Step::Action {
                 realm,
                 ns,
@@ -135,6 +136,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                 return Ok(state);
                 */
             }
+            */
             crate::plan::Step::NewAction {
                 realm,
                 ns,

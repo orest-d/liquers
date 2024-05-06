@@ -27,6 +27,7 @@ pub enum Step {
     GetNamedResourceMetadata(Key),
     Evaluate(Query),
     //TODO: PVR
+    /*
     Action {
         realm: String,
         ns: String,
@@ -34,6 +35,7 @@ pub enum Step {
         position: Position,
         parameters: ResolvedParameters,
     },
+    */
     NewAction {
         realm: String,
         ns: String,
@@ -324,7 +326,7 @@ impl ParameterValue {
 }
 
 //TODO: PVR
- 
+ /*
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Parameter {
     pub value: Value,
@@ -355,8 +357,9 @@ impl Default for Parameter {
         }
     }
 }
-
+*/
 //TODO: PVR
+/*
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameters {
     pub parameters: Vec<Parameter>,
@@ -376,7 +379,7 @@ impl ResolvedParameters {
         self.links.clear();
     }
 }
-
+*/
 //TODO: PVR
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
@@ -404,8 +407,11 @@ impl ResolvedParameterValues {
 pub struct PlanBuilder<'c> {
     query: Query,
     command_registry: &'c CommandMetadataRegistry,
-    resolved_parameters: ResolvedParameters,
+    //TODO: PVR
+    //resolved_parameters: ResolvedParameters,
+    //TODO: PVR
     parameter_number: usize,
+    //TODO: PVR
     arginfo_number: usize,
     plan: Plan,
 }
@@ -446,8 +452,10 @@ impl<'c> PlanBuilder<'c> {
         PlanBuilder {
             query,
             command_registry,
-            resolved_parameters: ResolvedParameters::new(),
+            //resolved_parameters: ResolvedParameters::new(),
+            //TODO: PVR
             parameter_number: 0,
+            //TODO: PVR
             arginfo_number: 0,
             plan: Plan::new(),
         }
@@ -605,6 +613,7 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    /*
     // TODO: PVR this is mixing action parameters with defaults from command metadata - faulty logic
     /// Get value from an action parameter, handle links and defaults
     fn pop_action_parameter(
@@ -640,7 +649,9 @@ impl<'c> PlanBuilder<'c> {
             },
         }
     }
+    */
 
+    /*
     /// Pop single command parameter value
     /// Note that this is different from action parameter.
     /// A command parameter can represent to several action parameters
@@ -674,6 +685,8 @@ impl<'c> PlanBuilder<'c> {
             ))),
         }
     }
+    */
+    /*
     fn get_parameters(
         &mut self,
         command_metadata: &CommandMetadata,
@@ -700,7 +713,8 @@ impl<'c> PlanBuilder<'c> {
         }
         Ok(())
     }
-
+    */
+    /*
     fn get_argument(
         &self,
         arginfo: &ArgumentInfo,
@@ -805,6 +819,7 @@ impl<'c> PlanBuilder<'c> {
         */
         Ok(p)
     }
+    */
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

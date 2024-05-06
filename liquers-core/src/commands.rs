@@ -10,7 +10,7 @@ use nom::Err;
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::{Error, ErrorType};
-use crate::plan::{Parameter, ParameterValue, ResolvedParameterValues, ResolvedParameters};
+use crate::plan::{ParameterValue, ResolvedParameterValues};
 use crate::query::Position;
 use crate::state::State;
 use crate::value::ValueInterface;
