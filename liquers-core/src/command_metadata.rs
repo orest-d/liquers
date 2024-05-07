@@ -177,6 +177,12 @@ impl Default for ArgumentGUIInfo {
 }
 
 // TODO: maybe Template?
+/// CommandParameterValue represents a value of a command parameter.
+/// This is used to represent a default value of an argument
+/// defined in the CommandMetadata.
+/// In Plan building phase, the CommandParameterValue is used to fill the default values
+/// where needed when creating the ResolvedParameterValues for an Action.
+/// CommandParameterValue can be a JSON Value, a Query or None.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CommandParameterValue {
     Value(Value),
@@ -319,30 +325,24 @@ impl ArgumentInfo {
             gui_info: ArgumentGUIInfo::Checkbox,
         }
     }
-    //TODO: should return self
-    pub fn with_default_none(&mut self) -> &mut Self {
+    pub fn with_default_none(mut self) -> Self {
         self.default = CommandParameterValue::null();
         self
     }
-    //TODO: should be into Value
-    //TODO: should return self
-    pub fn with_default<T:Into<Value>>(&mut self, value: T) -> &mut Self {
+    pub fn with_default<T:Into<Value>>(mut self, value: T) -> Self {
         self.default = CommandParameterValue::from_value(value.into());
         self
     }
-    //TODO: should return self
-    pub fn true_by_default(&mut self) -> &mut Self {
+    pub fn true_by_default(mut self) -> Self {
         self.default = CommandParameterValue::from_value(Value::Bool(true));
         self
     }
-    //TODO: should return self
-    pub fn false_by_default(&mut self) -> &mut Self {
+    pub fn false_by_default(mut self) -> Self {
         self.default = CommandParameterValue::from_value(Value::Bool(false));
         self
     }
 
-    //TODO: should return self
-    pub fn with_label(&mut self, label: &str) -> &mut Self {
+    pub fn with_label(mut self, label: &str) -> Self {
         self.label = label.to_string();
         self
     }
@@ -350,8 +350,7 @@ impl ArgumentInfo {
         self.injected = true;
         self
     }
-    //TODO: should return self
-    pub fn set_multiple(&mut self) -> &mut Self {
+    pub fn set_multiple(mut self) -> Self {
         self.multiple = true;
         self
     }
