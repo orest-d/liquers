@@ -108,31 +108,6 @@ impl EnumArgument {
         self
     }
 
-    // TODO: PVR This probably should be removed due to its lack of proper link support
-    /// Convert name of an enum alternative to its value
-    /// If the name is not found in the alternatives (and others_allowed is true), then the name is returned as a string value
-    /// Warning: if enum value is a link, None is returned
-    /// This allows simple extraction of enum values from parameter values, but it is not suitable
-    /// for links
-    pub fn name_to_value(&self, name: &str) -> Option<Value> {
-        match self.expand_alias(name){
-            CommandParameterValue::Value(x) => {return Some(x.clone())},
-            CommandParameterValue::Query(_) => {return None;},
-            CommandParameterValue::None => {},
-        }
-        for alternative in &self.values {
-            if alternative.alias == name {
-                match &alternative.value {
-                    CommandParameterValue::Value(value) => return Some(value.clone()),
-                    _ => return None,
-                }
-            }
-        }
-        if self.others_allowed {
-            return Some(Value::String(name.to_owned()));
-        }
-        None
-    }
     /// Convert alias of an enum alternative
     /// If the name is not found in the alternatives, then DefaultValue::NoDefault is returned
     pub fn expand_alias(&self, alias: &str) -> CommandParameterValue {

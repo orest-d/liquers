@@ -1,4 +1,4 @@
-use crate::commands::{CommandExecutor, NewCommandArguments};
+use crate::commands::{CommandExecutor, CommandArguments};
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::Error;
 use crate::plan::{Plan, PlanBuilder, Step};
@@ -32,11 +32,13 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     pub fn with_query<Q: TryToQuery>(&mut self, query: Q) -> Result<&mut Self, Error> {
         let query = query.try_to_query()?;
         let cmr = self.environment.get().get_command_metadata_registry();
-        println!("Query: {}", query);
+        //println!("Query: {}", query);
+        /*
         println!(
             "Command registry:\n{}\n",
             serde_yaml::to_string(cmr).unwrap()
         );
+        */
         let mut pb = PlanBuilder::new(query, cmr);
         let plan = pb.build()?;
         Ok(self.with_plan(plan))
@@ -107,7 +109,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
             crate::plan::Step::GetNamedResource(_) => todo!(),
             crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
             crate::plan::Step::Evaluate(_) => todo!(),
-            /*
             crate::plan::Step::Action {
                 realm,
                 ns,
@@ -115,40 +116,11 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                 position,
                 parameters,
             } => {
-                panic!("PVR - To be removed");
-                /*
                 let mut arguments = CommandArguments::new(parameters.clone());
                 arguments.action_position = position.clone();
 
                 let ce = self.environment.get().get_command_executor();
                 let result = ce.execute(
-                    &realm,
-                    ns,
-                    &action_name,
-                    &input_state,
-                    &mut arguments,
-                    context.clone_context(),
-                )?;
-                let state = State::new()
-                    .with_data(result)
-                    .with_metadata(context.get_metadata().into());
-                /// TODO - reset metadata ?
-                return Ok(state);
-                */
-            }
-            */
-            crate::plan::Step::NewAction {
-                realm,
-                ns,
-                action_name,
-                position,
-                parameters,
-            } => {
-                let mut arguments = NewCommandArguments::new(parameters.clone());
-                arguments.action_position = position.clone();
-
-                let ce = self.environment.get().get_command_executor();
-                let result = ce.new_execute(
                     realm,
                     ns,
                     action_name,
@@ -208,7 +180,7 @@ mod tests {
     struct InjectedVariable(String);
     struct InjectionTest {
         variable: InjectedVariable,
-        cr: NewCommandRegistry<StatEnvRef<Self>, Self, Value>,
+        cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
         store: Arc<Mutex<Box<dyn crate::store::Store>>>,
     }
 
@@ -220,7 +192,7 @@ mod tests {
             &mut self.cr.command_metadata_registry
         }
         type Value = Value;
-        type CommandExecutor = NewCommandRegistry<Self::EnvironmentReference, Self, Value>;
+        type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, Value>;
         type EnvironmentReference = StatEnvRef<Self>;
         type Context = context::Context<Self::EnvironmentReference, Self>;
 
@@ -273,13 +245,13 @@ mod tests {
 
     struct MutableInjectionTest {
         variable: Rc<RefCell<InjectedVariable>>,
-        cr: NewCommandRegistry<StatEnvRef<Self>, Self, Value>,
+        cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
         store: Arc<Mutex<Box<dyn crate::store::Store>>>,
     }
 
     impl Environment for MutableInjectionTest {
         type Value = Value;
-        type CommandExecutor = NewCommandRegistry<StatEnvRef<Self>, Self, Value>;
+        type CommandExecutor = CommandRegistry<StatEnvRef<Self>, Self, Value>;
         type EnvironmentReference = StatEnvRef<Self>;
         type Context = context::Context<Self::EnvironmentReference, Self>;
 
@@ -308,7 +280,6 @@ mod tests {
     }
 
     impl<ER: EnvRef<E>, E: Environment> CommandExecutor<ER, E, Value> for TestExecutor {
-        /*
         fn execute(
             &self,
             realm: &str,
@@ -316,21 +287,6 @@ mod tests {
             command_name: &str,
             state: &State<Value>,
             arguments: &mut CommandArguments,
-            context: context::Context<ER, E>,
-        ) -> Result<Value, Error> {
-            assert_eq!(realm, "");
-            assert_eq!(namespace, "root");
-            assert_eq!(command_name, "test");
-            Command0::from(|| -> String { "Hello".into() }).execute(state, arguments, context)
-        }
-*/
-        fn new_execute(
-            &self,
-            realm: &str,
-            namespace: &str,
-            command_name: &str,
-            state: &State<Value>,
-            arguments: &mut NewCommandArguments,
             context: Context<ER, E>,
         ) -> Result<Value, Error> {
             todo!()
@@ -346,8 +302,6 @@ mod tests {
         }
         let cr = env.get_mut_command_executor();
         register_command!(cr, test());
-        //env.get_mut_command_executor()
-        //    .register_command("test", Command0::from(|| "Hello".to_string()))?;
         let envref = env.to_ref();
 
         let mut pi = PlanInterpreter::new(envref);
@@ -390,8 +344,8 @@ mod tests {
 
     #[test]
     fn test_interpreter_with_value_injection() -> Result<(), Error> {
-        let mut cr: NewCommandRegistry<StatEnvRef<InjectionTest>, InjectionTest, Value> =
-            NewCommandRegistry::new();
+        let mut cr: CommandRegistry<StatEnvRef<InjectionTest>, InjectionTest, Value> =
+            CommandRegistry::new();
         impl InjectedFromContext<InjectedVariable, InjectionTest> for InjectedVariable {
             fn from_context(
                 _name: &str,
@@ -429,8 +383,8 @@ mod tests {
     }
     #[test]
     fn test_interpreter_with_mutable_injection() -> Result<(), Error> {
-        let mut cr: NewCommandRegistry<StatEnvRef<MutableInjectionTest>, MutableInjectionTest, Value> =
-            NewCommandRegistry::new();
+        let mut cr: CommandRegistry<StatEnvRef<MutableInjectionTest>, MutableInjectionTest, Value> =
+            CommandRegistry::new();
         impl InjectedFromContext<Rc<RefCell<InjectedVariable>>, MutableInjectionTest> for Rc<RefCell<InjectedVariable>> {
             fn from_context(
                 _name: &str,

@@ -26,17 +26,7 @@ pub enum Step {
     GetNamedResource(Key),
     GetNamedResourceMetadata(Key),
     Evaluate(Query),
-    //TODO: PVR
-    /*
     Action {
-        realm: String,
-        ns: String,
-        action_name: String,
-        position: Position,
-        parameters: ResolvedParameters,
-    },
-    */
-    NewAction {
         realm: String,
         ns: String,
         action_name: String,
@@ -325,62 +315,11 @@ impl ParameterValue {
     }
 }
 
-//TODO: PVR
- /*
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Parameter {
-    pub value: Value,
-    pub link: Option<Query>,
-    pub injected: bool,
-    pub position: Position,
-    pub default: bool,
-}
-
-impl Parameter {}
-impl Display for Parameter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(ref link) = self.link {
-            write!(f, "Link:{} ({})", link.encode(), self.position)
-        } else {
-            write!(f, "Value:{} ({})", self.value, self.position)
-        }
-    }
-}
-impl Default for Parameter {
-    fn default() -> Self {
-        Parameter {
-            value: Value::Null,
-            position: Position::unknown(),
-            link: None,
-            injected: false,
-            default: false,
-        }
-    }
-}
-*/
-//TODO: PVR
-/*
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ResolvedParameters {
-    pub parameters: Vec<Parameter>,
-    pub links: Vec<(usize, Query)>,
-}
-
-
-impl ResolvedParameters {
-    pub fn new() -> Self {
-        ResolvedParameters {
-            parameters: Vec::new(),
-            links: Vec::new(),
-        }
-    }
-    pub fn clear(&mut self) {
-        self.parameters.clear();
-        self.links.clear();
-    }
-}
-*/
-//TODO: PVR
+/// ResolvedParameterValues contains the resolved values of all command parameters.
+/// It is used in a Plan to define (resolved) parameters of an action.
+/// Injected parameter values are (of course) not included in ResolvedParameterValues,
+/// but they are marked with an Injected parameter value placeholder.
+/// ResolvedParameterValues is created from an ActionRequest and CommandMetadata. 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
 impl ResolvedParameterValues {
@@ -407,12 +346,6 @@ impl ResolvedParameterValues {
 pub struct PlanBuilder<'c> {
     query: Query,
     command_registry: &'c CommandMetadataRegistry,
-    //TODO: PVR
-    //resolved_parameters: ResolvedParameters,
-    //TODO: PVR
-    parameter_number: usize,
-    //TODO: PVR
-    arginfo_number: usize,
     plan: Plan,
 }
 
@@ -452,11 +385,6 @@ impl<'c> PlanBuilder<'c> {
         PlanBuilder {
             query,
             command_registry,
-            //resolved_parameters: ResolvedParameters::new(),
-            //TODO: PVR
-            parameter_number: 0,
-            //TODO: PVR
-            arginfo_number: 0,
             plan: Plan::new(),
         }
     }
@@ -521,19 +449,8 @@ impl<'c> PlanBuilder<'c> {
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         let command_metadata = self.get_command_metadata(query, action_request)?;
-        /*
-        self.get_parameters(&command_metadata, action_request)?;
-        self.plan.steps.push(Step::Action {
-            realm: command_metadata.realm.clone(),
-            ns: command_metadata.namespace.clone(),
-            action_name: action_request.name.clone(),
-            position: action_request.position.clone(),
-            parameters: self.resolved_parameters.clone(),
-        });
-        */
-        //TODO: PVR !!!
         
-        self.plan.steps.push(Step::NewAction {
+        self.plan.steps.push(Step::Action {
             realm: command_metadata.realm.clone(),
             ns: command_metadata.namespace.clone(),
             action_name: action_request.name.clone(),
@@ -545,18 +462,18 @@ impl<'c> PlanBuilder<'c> {
     }
 
     fn process_query(&mut self, query: &Query) -> Result<(), Error> {
-        println!("process query {}", query);
+        //println!("process query {}", query);
         if query.is_empty() || query.is_ns() {
             println!("empty or ns");
             return Ok(());
         }
         if let Some(rq) = query.resource_query() {
-            println!("RESOURCE {}", rq);
+            //println!("RESOURCE {}", rq);
             self.process_resource_query(&rq)?;
             return Ok(());
         }
         if let Some(transform) = query.transform_query() {
-            println!("TRANSFORM {}", &transform);
+            //println!("TRANSFORM {}", &transform);
             if let Some(action) = transform.action() {
                 println!("ACTION {}", &action);
                 let mut query = query.clone();
@@ -565,7 +482,7 @@ impl<'c> PlanBuilder<'c> {
                 return Ok(());
             }
             if transform.is_filename() {
-                println!("FILENAME {}", &transform);
+                //println!("FILENAME {}", &transform);
                 self.plan
                     .steps
                     .push(Step::Filename(transform.filename.unwrap().clone()));
@@ -575,8 +492,8 @@ impl<'c> PlanBuilder<'c> {
         }
 
         let (p, q) = query.predecessor();
-        println!("PREDECESOR: {:?}", &p);
-        println!("REMAINDER:  {:?}", &q);
+        //println!("PREDECESOR: {:?}", &p);
+        //println!("REMAINDER:  {:?}", &q);
 
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
@@ -612,214 +529,6 @@ impl<'c> PlanBuilder<'c> {
         }
         Ok(())
     }
-
-    /*
-    // TODO: PVR this is mixing action parameters with defaults from command metadata - faulty logic
-    /// Get value from an action parameter, handle links and defaults
-    fn pop_action_parameter(
-        &mut self,
-        arginfo: &ArgumentInfo,
-        action_request: &ActionRequest,
-    ) -> Result<(Option<Value>, bool), Error> {
-        match action_request.parameters.get(self.parameter_number) {
-            Some(ActionParameter::String(v, _)) => {
-                self.parameter_number += 1;
-                Ok((Some(Value::String(v.to_owned())), false))
-            }
-            Some(ActionParameter::Link(q, _)) => {
-                self.resolved_parameters
-                    .links
-                    .push((self.resolved_parameters.parameters.len(), q.clone()));
-                self.parameter_number += 1;
-                Ok((None, false))
-            }
-            None => match &arginfo.default {
-                CommandParameterValue::Value(v) => Ok((Some(v.clone()), true)),
-                CommandParameterValue::Query(q) => {
-                    self.resolved_parameters
-                        .links
-                        .push((self.resolved_parameters.parameters.len(), q.clone()));
-                    Ok((None, true))
-                }
-                CommandParameterValue::None => Err(Error::missing_argument(
-                    self.arginfo_number,
-                    &arginfo.name,
-                    &action_request.position,
-                )),
-            },
-        }
-    }
-    */
-
-    /*
-    /// Pop single command parameter value
-    /// Note that this is different from action parameter.
-    /// A command parameter can represent to several action parameters
-    /// or it can be filled with default value from command metadata.
-    fn pop_value(
-        &mut self,
-        arginfo: &ArgumentInfo,
-        action_request: &ActionRequest,
-    ) -> Result<Value, Error> {
-        match (
-            &arginfo.argument_type,
-            self.pop_action_parameter(arginfo, action_request)?,
-        ) {
-            (_, (None, is_default)) => Ok(Value::Null),
-            (ArgumentType::String, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::Integer, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::IntegerOption, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::Float, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::FloatOption, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::Boolean, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::Enum(e), (Some(x), is_default)) => {
-                if let Some(xx) = e.name_to_value(&x.to_string()) { //TODO: name_to_value should be removed
-                    Ok(xx)
-                } else {
-                    Err(Error::conversion_error(x, &e.name))
-                }
-            }
-            (ArgumentType::Any, (Some(x), is_default)) => Ok(x),
-            (ArgumentType::None, (Some(_), _)) => Err(Error::not_supported(format!(
-                "None not supported as argument type"
-            ))),
-        }
-    }
-    */
-    /*
-    fn get_parameters(
-        &mut self,
-        command_metadata: &CommandMetadata,
-        action_request: &ActionRequest,
-    ) -> Result<(), Error> {
-        self.arginfo_number = 0;
-        self.parameter_number = 0;
-        // TODO: PVR
-        self.resolved_parameters = ResolvedParameters::new();
-        for (i, a) in command_metadata.arguments.iter().enumerate() {
-            if a.injected {
-                continue;
-            }
-            self.arginfo_number = i;
-            let value = self.pop_value(a, action_request)?;
-            self.resolved_parameters.parameters.push(Parameter {
-                value: value,
-                link: None,
-                injected: false,
-                position: Position::unknown(), //TODO: Get the position from ActionParameter
-                //action_request.parameters[self.parameter_number].position(),
-                default: false, //TODO: set default properly
-            });
-        }
-        Ok(())
-    }
-    */
-    /*
-    fn get_argument(
-        &self,
-        arginfo: &ArgumentInfo,
-        parameters: &mut ActionParameterIterator,
-    ) -> Result<Parameter, Error> {
-        //TODO: PVR
-        let mut p = Parameter::default();
-        if arginfo.injected {
-            p.injected = true;
-            return Ok(p);
-        }
-        if arginfo.multiple {
-            return Err(Error::not_supported(
-                "Multiple perameters per argument not supported yet".to_string(),
-            ));
-        }
-        match &arginfo.default{
-            CommandParameterValue::Value(v) => {
-                p.value = v.clone();
-                p.default = true;
-            }
-            CommandParameterValue::Query(q) => {
-                p.link = Some(q.clone());
-                p.default = true;
-            }
-            CommandParameterValue::None => {
-                p.default = true;
-            }
-        }
-        /* 
-        match parameters.next() {
-            Some(ActionParameter::String(s, pos)) => match arginfo.argument_type {
-                ArgumentType::String => {
-                    p.value = Value::String(s.clone());
-                    p.position = pos;
-                }
-                ArgumentType::Integer => {
-                    if s.is_empty(){
-                        p.value = 
-                    }
-                    let n = s
-                        .parse::<i64>()
-                        .map_err(|e| Error::conversion_error_at_position(s, "integer", pos))?;
-                    p.value = n.into();
-                    p.position = pos;
-                }
-                ArgumentType::IntegerOption => {
-                    p.value = Value::Number(serde_json::Number::from(s.parse::<i64>().unwrap()));
-                    p.position = pos;
-                }
-                ArgumentType::Float => {
-                    p.value = Value::Number(
-                        serde_json::Number::from_f64(s.parse::<f64>().unwrap()).unwrap(),
-                    );
-                    p.position = pos;
-                }
-                ArgumentType::FloatOption => {
-                    p.value = Value::Number(
-                        serde_json::Number::from_f64(s.parse::<f64>().unwrap()).unwrap(),
-                    );
-                    p.position = pos;
-                }
-                ArgumentType::Boolean => {
-                    p.value = Value::Bool(s.parse::<bool>().unwrap());
-                    p.position = pos;
-                }
-                ArgumentType::Enum(ref e) => {
-                    if let Some(v) = e.name_to_value(s.clone()) {
-                        p.value = v;
-                        p.position = pos;
-                    } else {
-                        return Err(Error::conversion_error(s.clone(), &e.name));
-                    }
-                }
-                ArgumentType::Any => {
-                    p.value = Value::String(s.clone());
-                    p.position = pos;
-                }
-                ArgumentType::None => {
-                    return Err(Error::not_supported(
-                        "None not supported as argument type".to_string(),
-                    ));
-                }
-            },
-            Some(ActionParameter::Link(q, pos)) => {
-                p.link = Some(q.clone());
-                p.position = pos;
-            }
-            None => {
-                if let DefaultValue::Value(v) = &arginfo.default {
-                    p.value = v.clone();
-                    p.default = true;
-                } else {
-                    return Err(Error::missing_argument(
-                        self.arginfo_number,
-                        &arginfo.name,
-                        &arginfo.position,
-                    ));
-                }
-            }
-        }
-        */
-        Ok(p)
-    }
-    */
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
