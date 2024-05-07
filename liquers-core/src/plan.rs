@@ -414,7 +414,9 @@ impl<'a> Iterator for ActionParameterIterator<'a> {
     }
 }
 
-// TODO: support cache and volatile flags
+// TODO: support cache
+// TODO: support volatile flags
+// TODO: support inline flag
 impl<'c> PlanBuilder<'c> {
     pub fn new(query: Query, command_registry: &'c CommandMetadataRegistry) -> Self {
         PlanBuilder {
