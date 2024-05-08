@@ -61,11 +61,20 @@ pub trait Store {
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> {
         Err(StoreError::KeyNotFound(key.to_owned()))
     }
+//TODO: implement async Store
+    /*
+#[cfg(feature="async_store")]
+/// Get data and metadata asynchronously
+async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> {
+    self.get(self, key)
+}
+*/
 
     /// Get data as bytes
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, StoreError> {
         Err(StoreError::KeyNotFound(key.to_owned()))
     }
+
 
     /// Get metadata
     fn get_metadata(&self, key: &Key) -> Result<Metadata, StoreError> {
@@ -619,4 +628,5 @@ mod tests {
         store.remove(&key).unwrap();
         assert!(!store.contains(&key));
     }
+
 }

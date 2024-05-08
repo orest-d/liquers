@@ -285,7 +285,9 @@ impl MetadataRecord {
     }
     pub fn with_filename(&mut self, filename: String) -> &mut Self {
         self.filename = Some(filename);
-        //TODO: set media_type from filename extension
+        self.media_type = crate::media_type::file_extension_to_media_type(
+            self.extension().unwrap_or("".to_string()).as_str()
+        ).to_owned();
         self
     }
     pub fn clean_log(&mut self) -> &mut Self {

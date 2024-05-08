@@ -22,9 +22,13 @@ use crate::value::ValueInterface;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Step {
     GetResource(Key),
+    // TODO: support get resource metadata
+    // TODO: support get resource raw and resolved
     GetResourceMetadata(Key),
+    // TODO: support named resources
     GetNamedResource(Key),
     GetNamedResourceMetadata(Key),
+    //TODO: support Evaluate?
     Evaluate(Query),
     Action {
         realm: String,
@@ -37,6 +41,7 @@ pub enum Step {
     Info(String),
     Warning(String),
     Error(String),
+    // TODO: support Plan
     Plan(Plan),
 }
 
