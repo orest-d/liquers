@@ -1,22 +1,11 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use thiserror::Error;
 
 use crate::metadata::{Metadata, MetadataRecord};
 use crate::query::Key;
+use crate::error::Error;
 
-#[derive(Error, Debug)]
-pub enum StoreError {
-    #[error("Key not found: {0}")]
-    KeyNotFound(Key),
-    #[error("Key {0} not supported by store {1}")]
-    KeyNotSupported(Key, String),
-    #[error("Error reading key {0}, store {1}")]
-    KeyReadError(Key, String),
-    #[error("Error writing key {0}, store {1}")]
-    KeyWriteError(Key, String),
-}
 
 pub trait Store {
     /// Get store name
@@ -58,75 +47,77 @@ pub trait Store {
     }
 
     /// Get data and metadata
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> {
-        Err(StoreError::KeyNotFound(key.to_owned()))
+    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        Err(Error::key_not_found(key))
     }
 //TODO: implement async Store
     /*
 #[cfg(feature="async_store")]
 /// Get data and metadata asynchronously
-async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> {
+async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
     self.get(self, key)
 }
 */
 
     /// Get data as bytes
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, StoreError> {
-        Err(StoreError::KeyNotFound(key.to_owned()))
+    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        Err(Error::key_not_found(key))
     }
 
 
     /// Get metadata
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, StoreError> {
-        Err(StoreError::KeyNotFound(key.to_owned()))
+    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        Err(Error::key_not_found(key))
     }
 
     /// Store data and metadata.
-    fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), StoreError> {
-        Err(StoreError::KeyNotSupported(
-            key.to_owned(),
-            self.store_name(),
+    fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        Err(Error::key_not_supported(
+            key,
+            &self.store_name()
         ))
     }
 
     /// Store metadata only
-    fn set_metadata(&mut self, key: &Key, _metadata: &Metadata) -> Result<(), StoreError> {
-        Err(StoreError::KeyNotSupported(
-            key.to_owned(),
-            self.store_name(),
+    fn set_metadata(&mut self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        Err(Error::key_not_supported(
+            key,
+            &self.store_name(),
         ))
     }
 
     /// Remove data and metadata associated with the key
-    fn remove(&mut self, key: &Key) -> Result<(), StoreError> {
-        Err(StoreError::KeyNotSupported(
-            key.to_owned(),
-            self.store_name(),
+    fn remove(&mut self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(
+            key,
+            &self.store_name(),
         ))
     }
 
     /// Remove directory.
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
-    fn removedir(&mut self, key: &Key) -> Result<(), StoreError> {
-        Err(StoreError::KeyNotSupported(
-            key.to_owned(),
-            self.store_name(),
+    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(
+            key,
+            &self.store_name(),
         ))
     }
 
+    //TODO: should return a Result
     /// Returns true if store contains the key.
     fn contains(&self, _key: &Key) -> bool {
         false
     }
 
+    //TODO: should return a Result
     /// Returns true if key points to a directory.
     fn is_dir(&self, _key: &Key) -> bool {
         false
     }
 
     /// List or iterator of all keys
-    fn keys(&self) -> Result<Vec<Key>, StoreError> {
+    fn keys(&self) -> Result<Vec<Key>, Error> {
         let mut keys = self.listdir_keys_deep(&self.key_prefix())?;
         keys.push(self.key_prefix().to_owned());
         Ok(keys)
@@ -135,14 +126,14 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> 
     /// Return names inside a directory specified by key.
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
-    fn listdir(&self, _key: &Key) -> Result<Vec<String>, StoreError> {
+    fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
 
     /// Return keys inside a directory specified by key.
     /// Only keys present directly in the directory are returned,
     /// subdirectories are not traversed.
-    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, StoreError> {
+    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let names = self.listdir(key)?;
         Ok(names.iter().map(|x| key.join(x)).collect())
     }
@@ -150,7 +141,7 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> 
     /// Return keys inside a directory specified by key.
     /// Keys directly in the directory are returned,
     /// as well as in all the subdirectories.
-    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, StoreError> {
+    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
@@ -163,10 +154,10 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> 
     }
 
     /// Make a directory
-    fn makedir(&self, key: &Key) -> Result<(), StoreError> {
-        Err(StoreError::KeyNotSupported(
-            key.to_owned(),
-            self.store_name(),
+    fn makedir(&self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(
+            key,
+            &self.store_name(),
         ))
     }
 
@@ -296,7 +287,7 @@ impl Store for FileStore {
     ) -> Metadata {
         metadata
     }
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> {
+    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         let data = self.get_bytes(key)?;
         match self.get_metadata(key) {
             Ok(metadata) => Ok((data, metadata)),
@@ -304,86 +295,87 @@ impl Store for FileStore {
         }
     }
 
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, StoreError> {
+    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
         let path = self.key_to_path(key);
         if path.exists() {
             let mut file = File::open(path)
-                .map_err(|_| StoreError::KeyReadError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
-                .map_err(|_| StoreError::KeyReadError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             Ok(buffer)
         } else {
-            Err(StoreError::KeyNotFound(key.to_owned()))
+            Err(Error::key_not_found(key))
         }
     }
 
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, StoreError> {
+    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let path = self.key_to_path_metadata(key);
         if path.exists() {
             let mut file = File::open(path)
-                .map_err(|_| StoreError::KeyReadError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
-                .map_err(|_| StoreError::KeyReadError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
                 return Ok(Metadata::MetadataRecord(metadata));
             }
             if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
                 return Ok(Metadata::LegacyMetadata(metadata));
             }
-            Err(StoreError::KeyReadError(key.to_owned(), self.store_name()))
+            Err(Error::key_read_error(key, &self.store_name(), "Metadata parsing error"))
         } else {
-            Err(StoreError::KeyNotFound(key.to_owned()))
+            Err(Error::key_not_found(key))
         }
     }
 
-    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), StoreError> {
+    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path(key);
         let mut file = File::create(path)
-            .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         file.write_all(data)
-            .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         self.set_metadata(key, metadata)?;
         Ok(())
     }
 
-    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), StoreError> {
+    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path_metadata(key);
         let file = File::create(path)
-            .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         match metadata {
             Metadata::MetadataRecord(metadata) => serde_json::to_writer_pretty(file, metadata)
-                .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?,
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
             Metadata::LegacyMetadata(metadata) => serde_json::to_writer_pretty(file, metadata)
-                .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?,
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
         };
         Ok(())
     }
 
-    fn remove(&mut self, key: &Key) -> Result<(), StoreError> {
+    fn remove(&mut self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         if path.exists() {
             std::fs::remove_file(path)
-                .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         }
         let matadata_path = self.key_to_path_metadata(key);
         if matadata_path.exists() {
             std::fs::remove_file(matadata_path)
-                .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         }
         Ok(())
     }
 
-    fn removedir(&mut self, key: &Key) -> Result<(), StoreError> {
+    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         if path.exists() {
             std::fs::remove_dir_all(path)
-                .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         }
         Ok(())
     }
 
+    //TODO: use Result
     fn contains(&self, key: &Key) -> bool {
         let path = self.key_to_path(key);
         if path.exists() {
@@ -396,6 +388,7 @@ impl Store for FileStore {
         false
     }
 
+    //TODO: use Result
     fn is_dir(&self, key: &Key) -> bool {
         let path = self.key_to_path(key);
         if path.exists() {
@@ -404,12 +397,12 @@ impl Store for FileStore {
         false
     }
 
-    fn listdir(&self, key: &Key) -> Result<Vec<String>, StoreError> {
+    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let path = self.key_to_path(key);
         if path.exists() {
             let dir = path
                 .read_dir()
-                .map_err(|_| StoreError::KeyReadError(key.to_owned(), self.store_name()))?;
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             let names = dir
                 .flat_map(|entry| {
                     entry
@@ -420,13 +413,13 @@ impl Store for FileStore {
                 .collect();
             return Ok(names);
         }
-        Err(StoreError::KeyNotFound(key.to_owned()))
+        Err(Error::key_not_found(key))
     }
 
-    fn makedir(&self, key: &Key) -> Result<(), StoreError> {
+    fn makedir(&self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         std::fs::create_dir_all(path)
-            .map_err(|_| StoreError::KeyWriteError(key.to_owned(), self.store_name()))?;
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         Ok(())
     }
 
@@ -482,49 +475,49 @@ impl Store for MemoryStore {
         metadata
     }
 
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), StoreError> {
+    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         match self.data.get(key) {
             Some((data, metadata)) => Ok((data.to_owned(), metadata.to_owned())),
-            None => Err(StoreError::KeyNotFound(key.to_owned())),
+            None => Err(Error::key_not_found(key)),
         }
     }
 
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, StoreError> {
+    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
         match self.data.get(key) {
             Some((data, _)) => Ok(data.to_owned()),
-            None => Err(StoreError::KeyNotFound(key.to_owned())),
+            None => Err(Error::key_not_found(key)),
         }
     }
 
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, StoreError> {
+    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         match self.data.get(key) {
             Some((_, metadata)) => Ok(metadata.to_owned()),
-            None => Err(StoreError::KeyNotFound(key.to_owned())),
+            None => Err(Error::key_not_found(key)),
         }
     }
 
-    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), StoreError> {
+    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         self.data
             .insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
         Ok(())
     }
 
-    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), StoreError> {
+    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         if let Some((data, _)) = self.data.get(key) {
             self.data
                 .insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
             Ok(())
         } else {
-            Err(StoreError::KeyNotFound(key.to_owned()))
+            Err(Error::key_not_found(key))
         }
     }
 
-    fn remove(&mut self, key: &Key) -> Result<(), StoreError> {
+    fn remove(&mut self, key: &Key) -> Result<(), Error> {
         self.data.remove(key);
         Ok(())
     }
 
-    fn removedir(&mut self, key: &Key) -> Result<(), StoreError> {
+    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
         let keys = self
             .data
             .keys()
@@ -556,17 +549,17 @@ impl Store for MemoryStore {
         false
     }
 
-    fn keys(&self) -> Result<Vec<Key>, StoreError> {
+    fn keys(&self) -> Result<Vec<Key>, Error> {
         let keys = self.data.keys().cloned().collect::<Vec<_>>();
         Ok(keys)
     }
 
-    fn listdir(&self, key: &Key) -> Result<Vec<String>, StoreError> {
+    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let keys = self.listdir_keys(key)?;
         Ok(keys.iter().map(|x| x.to_string()).collect())
     }
 
-    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, StoreError> {
+    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let n = key.len() + 1;
         let keys = self
             .data
@@ -577,7 +570,7 @@ impl Store for MemoryStore {
         Ok(keys)
     }
 
-    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, StoreError> {
+    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let keys = self
             .data
             .keys()
@@ -587,7 +580,7 @@ impl Store for MemoryStore {
         Ok(keys)
     }
 
-    fn makedir(&self, _key: &Key) -> Result<(), StoreError> {
+    fn makedir(&self, _key: &Key) -> Result<(), Error> {
         // TODO: implement correct makedir
         Ok(())
     }

@@ -1,6 +1,7 @@
 use itertools::Itertools;
 
 use crate::query::ActionRequest;
+use crate::query::Key;
 use crate::query::Position;
 use std::error;
 use std::fmt;
@@ -21,6 +22,10 @@ pub enum ErrorType {
     UnknownCommand,
     NotSupported,
     NotAvailable,
+    KeyNotFound,
+    KeyNotSupported,
+    KeyReadError,
+    KeyWriteError,    
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -29,6 +34,7 @@ pub struct Error {
     pub message: String,
     pub position: Position,
     pub query: Option<String>,
+    pub key: Option<String>,
 }
 
 impl Error {
@@ -38,6 +44,7 @@ impl Error {
             message: message,
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
     pub fn with_position(mut self, position: &Position) -> Self {
@@ -46,6 +53,10 @@ impl Error {
     }
     pub fn with_query(mut self, query: &crate::query::Query) -> Self {
         self.query = Some(query.encode());
+        self
+    }
+    pub fn with_key(mut self, key: &crate::query::Key) -> Self {
+        self.query = Some(key.encode());
         self
     }
     /// Constructs an error with the `NotAvailable` error type.
@@ -57,6 +68,7 @@ impl Error {
             message: "Not available".to_string(),
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
     /// Returns true if the requested item is not available.
@@ -71,6 +83,7 @@ impl Error {
             message: "Cache not supported".to_string(),
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
     pub fn not_supported(message: String) -> Self {
@@ -79,6 +92,7 @@ impl Error {
             message: message,
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
     pub fn action_not_registered(action: &ActionRequest, namespaces: &Vec<String>) -> Self {
@@ -91,6 +105,7 @@ impl Error {
             ),
             position: action.position.clone(),
             query: None,
+            key: None,
         }
     }
     pub fn missing_argument(i: usize, name: &str, position: &Position) -> Self {
@@ -99,6 +114,7 @@ impl Error {
             message: format!("Missing argument #{}:{}", i, name),
             position: position.clone(),
             query: None,
+            key: None,
         }
     }
     pub fn conversion_error<W: Display, T: Display>(what: W, to: T) -> Self {
@@ -107,6 +123,7 @@ impl Error {
             message: format!("Can't convert '{}' to {}", what, to),
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
     pub fn conversion_error_with_message<W: Display, T: Display>(
@@ -119,6 +136,7 @@ impl Error {
             message: format!("Can't convert '{}' to {}: {}", what, to, message),
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
     pub fn conversion_error_at_position<W: Display, T: Display>(
@@ -131,6 +149,7 @@ impl Error {
             message: format!("Can't convert '{}' to {}", what, to),
             position: position.clone(),
             query: None,
+            key: None,
         }
     }
     pub fn key_parse_error(key: &str, err: &str, position: &Position) -> Self {
@@ -139,6 +158,7 @@ impl Error {
             message: format!("Can't parse key '{}': {}", key, err),
             position: position.clone(),
             query: None,
+            key: None,
         }
     }
     pub fn query_parse_error(query: &str, err: &str, position: &Position) -> Self {
@@ -147,6 +167,7 @@ impl Error {
             message: format!("Can't parse query '{}': {}", query, err),
             position: position.clone(),
             query: None,
+            key: None,
         }
     }
     pub fn general_error(message: String) -> Self {
@@ -155,6 +176,7 @@ impl Error {
             message: message,
             position: Position::unknown(),
             query: None,
+            key: None,
         }
     }
 
@@ -172,6 +194,43 @@ impl Error {
             ),
             position: action_position.clone(),
             query: None,
+            key: None,
+        }
+    }
+    pub fn key_not_found(key: &Key) -> Self {
+        Error {
+            error_type: ErrorType::KeyNotFound,
+            message: format!("Key not found: '{}'", key),
+            position: Position::unknown(),
+            query: None,
+            key: None,
+        }
+    }
+    pub fn key_not_supported(key: &Key, store_name:&str) -> Self {
+        Error {
+            error_type: ErrorType::KeyNotSupported,
+            message: format!("Key '{}' not supported by store {}", key, store_name),
+            position: Position::unknown(),
+            query: None,
+            key: Some(key.encode()),
+        }
+    }
+    pub fn key_read_error(key: &Key, store_name:&str, message: &(impl Display + ?Sized)) -> Self {
+        Error {
+            error_type: ErrorType::KeyReadError,
+            message: format!("Key '{}' read error by store {}: {}", key, store_name, message),
+            position: Position::unknown(),
+            query: None,
+            key: Some(key.encode()),
+        }
+    }
+    pub fn key_write_error(key: &Key, store_name:&str, message: &(impl Display + ?Sized)) -> Self {
+        Error {
+            error_type: ErrorType::KeyWriteError,
+            message: format!("Key '{}' write error by store {}: {}", key, store_name, message),
+            position: Position::unknown(),
+            query: None,
+            key: Some(key.encode()),
         }
     }
 }
