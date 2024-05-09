@@ -328,14 +328,14 @@ macro_rules! command_wrapper {
                 let cx_wrapper_parameter = 0;
                 //let state_wrapper_parameter = 0;
                 $(
-                    command_wrapper_parameter_assignment!(cx_wrapper_parameter, state, arguments, state, context, $argname $($argname2)? $(:$argtype)?);
+                    $crate::command_wrapper_parameter_assignment!(cx_wrapper_parameter, state, arguments, state, context, $argname $($argname2)? $(:$argtype)?);
                 )*
                 if arguments.all_parameters_used(){
-                    Ok($name($(command_wrapper_parameter_name!(cx_wrapper_parameter, state, $argname $($argname2)?)),*)?.into())
+                    Ok($name($($crate::command_wrapper_parameter_name!(cx_wrapper_parameter, state, $argname $($argname2)?)),*)?.into())
                 }
                 else{
-                        Err(Error::new(
-                            crate::error::ErrorType::TooManyParameters,
+                        Err($crate::error::Error::new(
+                            $crate::error::ErrorType::TooManyParameters,
                             format!("Too many parameters: {}; {} excess parameters found", arguments.len(), arguments.excess_parameters()),
                         )
                         .with_position(&arguments.parameter_position()))
@@ -345,15 +345,15 @@ macro_rules! command_wrapper {
         };
 }
 
-
+//TODO: make sure that the macro export is done correctly
 #[macro_export]
 macro_rules! register_command {
     ($cr:ident, $name:ident ($( $argname:ident $($argname2:ident)? $(:$argtype:ty)?),*)) => {
         {
-        let reg_command_metadata = $cr.register_command(stringify!($name), command_wrapper!($name($($argname $($argname2)? $(:$argtype)?),*)))?
+        let reg_command_metadata = $cr.register_command(stringify!($name), $crate::command_wrapper!($name($($argname $($argname2)? $(:$argtype)?),*)))?
         .with_name(stringify!($name));
         $(
-            register_command!(@arg reg_command_metadata $argname $($argname2)? $(:$argtype)?);
+            $crate::register_command!(@arg reg_command_metadata $argname $($argname2)? $(:$argtype)?);
         )*
     }
     };
