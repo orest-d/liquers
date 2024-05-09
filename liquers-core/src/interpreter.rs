@@ -152,6 +152,155 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     }
 }
 
+
+#[cfg(feature = "async_store")]
+pub struct AsyncPlanInterpreter<ER: EnvRef<E>, E: Environment> {
+    plan: Option<Plan>,
+    environment: ER,
+    step_number: usize,
+    state: Option<State<E::Value>>,
+}
+
+#[cfg(feature = "async_store")]
+impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpreter<ER, E> {
+    pub fn new(environment: ER) -> Self {
+        AsyncPlanInterpreter {
+            plan: None,
+            environment,
+            step_number: 0,
+            state: None,
+        }
+    }
+    pub fn with_plan(&mut self, plan: Plan) -> &mut Self {
+        println!("with plan {:?}", plan);
+        self.plan = Some(plan);
+        self.step_number = 0;
+        self
+    }
+
+    pub fn with_query<Q: TryToQuery>(&mut self, query: Q) -> Result<&mut Self, Error> {
+        let query = query.try_to_query()?;
+        let cmr = self.environment.get().get_command_metadata_registry();
+        //println!("Query: {}", query);
+        /*
+        println!(
+            "Command registry:\n{}\n",
+            serde_yaml::to_string(cmr).unwrap()
+        );
+        */
+        let mut pb = PlanBuilder::new(query, cmr);
+        let plan = pb.build()?;
+        Ok(self.with_plan(plan))
+    }
+
+    pub async fn evaluate<Q: TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> {
+        self.with_query(query)?;
+        self.run().await?;
+        self.state
+            .take()
+            .ok_or(Error::general_error("No state".to_string()))
+    }
+
+    pub async fn run(&mut self) -> Result<(), Error> {
+        let context = self.environment.new_context();
+        if self.plan.is_none() {
+            return Err(Error::general_error("No plan".to_string()));
+        }
+        for i in 0..self.len() {
+            let input_state = self.state.take().unwrap_or(self.initial_state());
+            let step = self.get_step(i)?;
+            let output_state = self.do_step(&step, input_state, context.clone_context()).await?;
+            self.state = Some(output_state);
+        }
+        Ok(())
+    }
+    pub fn initial_state(&self) -> State<<E as Environment>::Value> {
+        State::new()
+    }
+    pub fn len(&self) -> usize {
+        if let Some(plan) = &self.plan {
+            return plan.steps.len();
+        }
+        0
+    }
+    pub fn get_step(&self, i: usize) -> Result<&Step, Error> {
+        if let Some(plan) = &self.plan {
+            if let Some(step) = plan.steps.get(i) {
+                return Ok(step);
+            } else {
+                return Err(Error::general_error(format!(
+                    "Step {} requested, plan has {} steps",
+                    i,
+                    plan.steps.len()
+                )));
+            }
+        }
+        Err(Error::general_error("No plan".to_string()))
+    }
+    pub async fn do_step(
+        &self,
+        step: &Step,
+        input_state: State<<E as Environment>::Value>,
+        context: Context<ER, E>,
+    ) -> Result<State<<E as Environment>::Value>, Error> {
+        match step {
+            crate::plan::Step::GetResource(key) => {
+                let store = self.environment.get_async_store();
+                let (data, metadata) = store
+                    .lock()
+                    .unwrap()
+                    .async_get(&key).await
+                    .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
+                let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
+                return Ok(State::new().with_data(value).with_metadata(metadata));
+            }
+            crate::plan::Step::GetResourceMetadata(_) => todo!(),
+            crate::plan::Step::GetNamedResource(_) => todo!(),
+            crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
+            crate::plan::Step::Evaluate(_) => todo!(),
+            crate::plan::Step::Action {
+                realm,
+                ns,
+                action_name,
+                position,
+                parameters,
+            } => {
+                let mut arguments = CommandArguments::new(parameters.clone());
+                arguments.action_position = position.clone();
+
+                let ce = self.environment.get().get_command_executor();
+                let result = ce.execute(
+                    realm,
+                    ns,
+                    action_name,
+                    &input_state,
+                    &mut arguments,
+                    context.clone_context(),
+                )?;
+                let state = State::new()
+                    .with_data(result)
+                    .with_metadata(context.get_metadata().into());
+                /// TODO - reset metadata ?
+                return Ok(state);
+            }
+            crate::plan::Step::Filename(name) => {
+                context.set_filename(name.name.clone());
+            }
+            crate::plan::Step::Info(m) => {
+                context.info(&m);
+            }
+            crate::plan::Step::Warning(m) => {
+                context.warning(&m);
+            }
+            crate::plan::Step::Error(m) => {
+                context.error(&m);
+            }
+            crate::plan::Step::Plan(_) => todo!(),
+        }
+        Ok(input_state)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;

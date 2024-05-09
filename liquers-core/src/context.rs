@@ -45,6 +45,10 @@ pub trait EnvRef<E: Environment>: Sized {
     fn new_context(&self) -> Context<Self, E> {
         Context::new(self.get_ref())
     }
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>>{
+        self.get().get_async_store()    
+    }
 }
 
 impl<E: Environment> Clone for ArcEnvRef<E> {
