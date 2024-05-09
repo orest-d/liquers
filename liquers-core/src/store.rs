@@ -2,6 +2,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+use async_trait::async_trait;
+
 use crate::metadata::{Metadata, MetadataRecord};
 use crate::query::Key;
 use crate::error::Error;
@@ -217,9 +219,40 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
     */
 }
 
+#[cfg(feature = "async_store")]
+#[async_trait]
+pub trait AsyncStore{
+    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>;
+}
+
+#[cfg(feature = "async_store")]
+pub struct AsyncStoreWrapper<T: Store>(T);
+
+#[cfg(feature = "async_store")]
+#[async_trait]
+impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
+    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.0.get(key)
+    }
+}
+
+/// Trivial store unable to store anything.
+/// Used e.g. in the environment as a default value when the store is not available.
 pub struct NoStore;
 
 impl Store for NoStore {}
+
+/// Trivial store unable to store anything.
+/// Used e.g. in the environment as a default value when the store is not available.
+pub struct NoAsyncStore;
+
+#[cfg(feature = "async_store")]
+#[async_trait]
+impl AsyncStore for NoAsyncStore {
+    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        Err(Error::key_not_found(key))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct FileStore {

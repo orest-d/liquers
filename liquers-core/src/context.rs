@@ -32,6 +32,8 @@ pub trait Environment: Sized {
     fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor;
     fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>;
     fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>;
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>>;
 }
 
 pub trait EnvRef<E: Environment>: Sized {
@@ -178,6 +180,8 @@ impl<ER: EnvRef<E>, E: Environment> Context<ER, E>{
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct SimpleEnvironment<V: ValueInterface> {
     store: Arc<Mutex<Box<dyn Store>>>,
+    #[cfg(feature = "async_store")]
+    async_store: Arc<Mutex<Box<dyn crate::store::AsyncStore>>>,
     cache: Arc<Mutex<Box<dyn Cache<V>>>>,
     command_registry: CommandRegistry<ArcEnvRef<Self>, Self, V>,
 }
@@ -188,10 +192,17 @@ impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
             store: Arc::new(Mutex::new(Box::new(NoStore))),
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
+            #[cfg(feature = "async_store")]
+            async_store: Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore))),
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::new(Mutex::new(store));
+        self
+    }
+    #[cfg(feature = "async_store")]
+    pub fn with_async_store(&mut self, store:Box<dyn crate::store::AsyncStore>) -> &mut Self {
+        self.async_store = Arc::new(Mutex::new(store));
         self
     }
     pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
@@ -230,6 +241,11 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>> {
         self.cache.clone()
     }
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
+        self.async_store.clone()
+    }
+    
 }
 
 mod tests {

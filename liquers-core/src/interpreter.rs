@@ -211,6 +211,10 @@ mod tests {
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
+        #[cfg(feature = "async_store")]
+        fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
+            Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
+        }
     }
 
     impl Environment for NoInjection {
@@ -240,6 +244,11 @@ mod tests {
 
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
+        }
+        
+        #[cfg(feature = "async_store")]
+        fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
+            Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
         }
     }
 
@@ -276,6 +285,11 @@ mod tests {
 
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
+        }
+        
+        #[cfg(feature = "async_store")]
+        fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
+            Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
         }
     }
 
