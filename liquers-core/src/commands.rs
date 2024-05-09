@@ -303,18 +303,18 @@ macro_rules! command_wrapper_parameter_name {
 #[macro_export]
 macro_rules! command_wrapper_parameter_assignment {
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, context) => {
-        let command_wrapper_parameter_name!($cxpar, $statepar, context) = $context;
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, context) = $context;
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, state) => {
         //let command_wrapper_parameter_name!($cxpar, $statepar, state) = $state;
         ;
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, injected $argname:ident:$argtype:ty) => {
-        let command_wrapper_parameter_name!($cxpar, $statepar, injected $argname): $argtype =
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, injected $argname): $argtype =
             $arguments.get_injected(stringify!($argname), &$context)?;
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
-        let command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
             $arguments.get(&$context)?;
     };
 }
