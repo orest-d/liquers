@@ -226,7 +226,7 @@ pub trait AsyncStore{
 }
 
 #[cfg(feature = "async_store")]
-pub struct AsyncStoreWrapper<T: Store>(T);
+pub struct AsyncStoreWrapper<T: Store>(pub T);
 
 #[cfg(feature = "async_store")]
 #[async_trait]

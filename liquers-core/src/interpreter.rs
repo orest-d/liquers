@@ -1,4 +1,4 @@
-use crate::commands::{CommandExecutor, CommandArguments};
+use crate::commands::{CommandArguments, CommandExecutor};
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::Error;
 use crate::plan::{Plan, PlanBuilder, Step};
@@ -152,7 +152,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
     }
 }
 
-
 #[cfg(feature = "async_store")]
 pub struct AsyncPlanInterpreter<ER: EnvRef<E>, E: Environment> {
     plan: Option<Plan>,
@@ -209,7 +208,9 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
         for i in 0..self.len() {
             let input_state = self.state.take().unwrap_or(self.initial_state());
             let step = self.get_step(i)?;
-            let output_state = self.do_step(&step, input_state, context.clone_context()).await?;
+            let output_state = self
+                .do_step(&step, input_state, context.clone_context())
+                .await?;
             self.state = Some(output_state);
         }
         Ok(())
@@ -249,7 +250,8 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
                 let (data, metadata) = store
                     .lock()
                     .unwrap()
-                    .async_get(&key).await
+                    .async_get(&key)
+                    .await
                     .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
@@ -394,7 +396,7 @@ mod tests {
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
-        
+
         #[cfg(feature = "async_store")]
         fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
             Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
@@ -435,7 +437,7 @@ mod tests {
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
-        
+
         #[cfg(feature = "async_store")]
         fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
             Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
@@ -548,7 +550,9 @@ mod tests {
     fn test_interpreter_with_mutable_injection() -> Result<(), Error> {
         let mut cr: CommandRegistry<StatEnvRef<MutableInjectionTest>, MutableInjectionTest, Value> =
             CommandRegistry::new();
-        impl InjectedFromContext<Rc<RefCell<InjectedVariable>>, MutableInjectionTest> for Rc<RefCell<InjectedVariable>> {
+        impl InjectedFromContext<Rc<RefCell<InjectedVariable>>, MutableInjectionTest>
+            for Rc<RefCell<InjectedVariable>>
+        {
             fn from_context(
                 _name: &str,
                 context: &impl ContextInterface<MutableInjectionTest>,
@@ -620,6 +624,43 @@ mod tests {
             serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
         );
         pi.run()?;
+        assert_eq!(
+            pi.state.as_ref().unwrap().data.try_into_string()?,
+            "Hello TEXT world!"
+        );
+        Ok(())
+    }
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_async_resource_interpreter() -> Result<(), Error> {
+        use crate::store::*;
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let mut store = MemoryStore::new(&Key::new());
+        store.set(
+            &parse_key("hello.txt").unwrap(),
+            "Hello TEXT".as_bytes(),
+            &Metadata::new(),
+        )?;
+
+        env.with_async_store(Box::new(crate::store::AsyncStoreWrapper(store)));
+        {
+            let cr = env.get_mut_command_executor();
+            fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
+                let greeting = state.data.try_into_string().unwrap();
+                Ok(format!("{} {}!", greeting, who))
+            }
+            register_command!(cr, greet(state, who:String));
+        }
+
+        let mut pi = AsyncPlanInterpreter::new(env.to_ref());
+        pi.with_query("hello.txt/-/greet-world").unwrap();
+        //println!("{:?}", pi.plan);
+        println!(
+            "############################ PLAN ############################\n{}\n",
+            serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
+        );
+        pi.run().await?;
         assert_eq!(
             pi.state.as_ref().unwrap().data.try_into_string()?,
             "Hello TEXT world!"
