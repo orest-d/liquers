@@ -260,6 +260,7 @@ where
     }
 }
 
+#[macro_export]
 macro_rules! command_wrapper_typed {
     ($name:ident
         ($($argname:ident:$argtype:ty),*)<$V:ty, $ER:ty, $E:ty>) => {
@@ -283,6 +284,7 @@ macro_rules! command_wrapper_typed {
         };
 }
 
+#[macro_export]
 macro_rules! command_wrapper_parameter_name {
     ($cxpar:ident, $statepar:ident, context) => {
         $cxpar
@@ -298,6 +300,7 @@ macro_rules! command_wrapper_parameter_name {
     };
 }
 
+#[macro_export]
 macro_rules! command_wrapper_parameter_assignment {
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, context) => {
         let command_wrapper_parameter_name!($cxpar, $statepar, context) = $context;
@@ -316,6 +319,7 @@ macro_rules! command_wrapper_parameter_assignment {
     };
 }
 
+#[macro_export]
 macro_rules! command_wrapper {
     ($name:ident
         ($($argname:ident $($argname2:ident)? $(:$argtype:ty)?),*)) => {
