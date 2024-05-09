@@ -51,7 +51,7 @@ pub trait Store {
         Err(Error::key_not_found(key))
     }
 //TODO: implement async Store
-    /*
+/*     
 #[cfg(feature="async_store")]
 /// Get data and metadata asynchronously
 async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
@@ -104,16 +104,14 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         ))
     }
 
-    //TODO: should return a Result
     /// Returns true if store contains the key.
-    fn contains(&self, _key: &Key) -> bool {
-        false
+    fn contains(&self, _key: &Key) -> Result<bool, Error> {
+        Ok(false)
     }
 
-    //TODO: should return a Result
     /// Returns true if key points to a directory.
-    fn is_dir(&self, _key: &Key) -> bool {
-        false
+    fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+        Ok(false)
     }
 
     /// List or iterator of all keys
@@ -145,7 +143,7 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(&key) {
+            if self.is_dir(&key)? {
                 let sub = self.listdir_keys_deep(&sub_key)?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -375,26 +373,24 @@ impl Store for FileStore {
         Ok(())
     }
 
-    //TODO: use Result
-    fn contains(&self, key: &Key) -> bool {
+    fn contains(&self, key: &Key) -> Result<bool, Error> {
         let path = self.key_to_path(key);
         if path.exists() {
-            return true;
+            return Ok(true);
         }
         let metadata_path = self.key_to_path_metadata(key);
         if metadata_path.exists() {
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
-    //TODO: use Result
-    fn is_dir(&self, key: &Key) -> bool {
+    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let path = self.key_to_path(key);
         if path.exists() {
-            return path.is_dir();
+            return Ok(path.is_dir());
         }
-        false
+        Ok(false)
     }
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
@@ -530,11 +526,11 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    fn contains(&self, key: &Key) -> bool {
-        self.data.contains_key(key)
+    fn contains(&self, key: &Key) -> Result<bool, Error> {
+        Ok(self.data.contains_key(key))
     }
 
-    fn is_dir(&self, key: &Key) -> bool {
+    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let keys = self
             .data
             .keys()
@@ -543,10 +539,10 @@ impl Store for MemoryStore {
             .collect::<Vec<_>>();
         for k in keys {
             if k.len() > key.len() {
-                return true;
+                return Ok(true);
             }
         }
-        false
+        Ok(false)
     }
 
     fn keys(&self) -> Result<Vec<Key>, Error> {
@@ -600,26 +596,27 @@ mod tests {
     use crate::parse::parse_key;
 
     #[test]
-    fn test_simple_store() {
+    fn test_simple_store() -> Result<(), Error>{
         let mut store = MemoryStore::new(&Key::new());
         let key = parse_key("a/b/c").unwrap();
         let data = b"test data".to_vec();
         let metadata = Metadata::MetadataRecord(MetadataRecord::new());
 
-        assert!(!store.contains(&key));
+        assert!(!store.contains(&key)?);
         assert!(store.keys().unwrap().is_empty());
-        assert!(!store.is_dir(&parse_key("a/b").unwrap()));
+        assert!(!store.is_dir(&parse_key("a/b")?)?);
 
-        store.set(&key, &data, &metadata).unwrap();
-        assert!(store.contains(&key));
-        assert!(store.keys().unwrap().contains(&key));
-        assert!(store.is_dir(&parse_key("a/b").unwrap()));
+        store.set(&key, &data, &metadata)?;
+        assert!(store.contains(&key)?);
+        assert!(store.keys()?.contains(&key));
+        assert!(store.is_dir(&parse_key("a/b")?)?);
         assert_eq!(store.keys().unwrap().len(), 1);
 
         let (data2, _metadata2) = store.get(&key).unwrap();
         assert_eq!(data, data2);
         store.remove(&key).unwrap();
-        assert!(!store.contains(&key));
+        assert!(!store.contains(&key)?);
+        Ok(())
     }
 
 }

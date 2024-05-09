@@ -642,7 +642,7 @@ mod tests {
 
     #[test]
     fn test_string_parameter_value() {
-        let mut arginfo = ArgumentInfo::string_argument("test").with_default("default");
+        let arginfo = ArgumentInfo::string_argument("test").with_default("default");
         let pv = ParameterValue::from_arginfo(&arginfo);
         assert_eq!(pv.value(), Some(Value::String("default".to_string())));
         let pv = ParameterValue::from_string(&arginfo, "testarg", &Position::unknown()).unwrap();
@@ -652,7 +652,7 @@ mod tests {
     }
     #[test]
     fn test_pop_parameter_value() -> Result<(), Error> {
-        let mut arginfo = ArgumentInfo::string_argument("test").with_default("default");
+        let arginfo = ArgumentInfo::string_argument("test").with_default("default");
         let action = parse_query("hello-testarg-123")?.action().unwrap();
         let mut param = ActionParameterIterator::new(&action);
 
@@ -668,7 +668,7 @@ mod tests {
         assert_eq!(pv.value(), Some(Value::Null));
 
         let mut param = ActionParameterIterator::new(&action);
-        let mut arginfo = ArgumentInfo::string_argument("test").set_multiple();
+        let arginfo = ArgumentInfo::string_argument("test").set_multiple();
         let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
         assert_eq!(
             pv.value(),

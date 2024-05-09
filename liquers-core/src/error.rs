@@ -33,6 +33,7 @@ pub struct Error {
     pub error_type: ErrorType,
     pub message: String,
     pub position: Position,
+    // TODO: deal with the query and key positions not starting at 0
     pub query: Option<String>,
     pub key: Option<String>,
 }
