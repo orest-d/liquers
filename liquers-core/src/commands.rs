@@ -358,22 +358,22 @@ macro_rules! register_command {
     }
     };
     (@arg $cm:ident state) =>{
-        $cm.with_state_argument(crate::command_metadata::ArgumentInfo::argument("state"));
+        $cm.with_state_argument($crate::command_metadata::ArgumentInfo::argument("state"));
     };
     (@arg $cm:ident context) =>{
-        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument("context").set_injected());
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::argument("context").set_injected());
     };
     (@arg $cm:ident injected $argname:ident:String) =>{
-        $cm.with_argument(crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_injected());
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_injected());
     };
     (@arg $cm:ident $argname:ident:String) =>{
-        $cm.with_argument(crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
     };
     (@arg $cm:ident injected $argname:ident:$argtype:ty) =>{
-        $cm.with_argument(crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_injected());
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_injected());
      };
      (@arg $cm:ident $argname:ident:$argtype:ty) =>{
-       $cm.with_argument(crate::command_metadata::ArgumentInfo::argument(stringify!($argname)));
+       $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)));
     };
 
 }
