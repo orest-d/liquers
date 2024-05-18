@@ -249,6 +249,9 @@ impl MetadataRecord {
     /// Set the query of the MetadataRecord
     pub fn with_query(&mut self, query: Query) -> &mut Self {
         self.query = query;
+        if let Some(filename) = self.query.filename().as_ref() {
+            self.with_filename(filename.name.clone());
+        }
         self
     }
     /*
@@ -260,6 +263,9 @@ impl MetadataRecord {
     */
     pub fn with_key(&mut self, key: Key) -> &mut Self {
         self.key = Some(key);
+        if let Some(filename) = self.key.as_ref().unwrap().filename() {
+            self.with_filename(filename.name.clone());
+        }
         self
     }
     pub fn with_status(&mut self, status: Status) -> &mut Self {

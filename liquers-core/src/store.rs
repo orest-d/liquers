@@ -220,7 +220,7 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[async_trait(?Send)]
 pub trait AsyncStore{
     async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>;
 }
@@ -229,7 +229,7 @@ pub trait AsyncStore{
 pub struct AsyncStoreWrapper<T: Store>(pub T);
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[async_trait(?Send)]
 impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
     async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         self.0.get(key)
@@ -247,7 +247,7 @@ impl Store for NoStore {}
 pub struct NoAsyncStore;
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[async_trait(?Send)]
 impl AsyncStore for NoAsyncStore {
     async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
