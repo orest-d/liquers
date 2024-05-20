@@ -9,8 +9,7 @@ use nom::Err;
 use serde_json::Value;
 
 use crate::command_metadata::{
-    self, ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry,
-    CommandParameterValue, EnumArgumentType,
+    self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry, CommandParameterValue, EnumArgumentType
 };
 use crate::error::{Error, ErrorType};
 use crate::query::{
@@ -114,6 +113,13 @@ impl ParameterValue {
                     ParameterValue::None
                 }
             }
+        }
+    }
+    pub fn from_command_parameter_value(cpv: &CommandParameterValue) -> Self {
+        match cpv {
+            CommandParameterValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
+            CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
+            CommandParameterValue::None => ParameterValue::None,
         }
     }
 
@@ -363,18 +369,34 @@ impl ResolvedParameterValues {
     pub fn new() -> Self {
         ResolvedParameterValues(Vec::new())
     }
-    pub fn from_action(
+    /// Create ResolvedParameterValues from an ActionRequest.
+    /// The command metadata is used to determine the default values of the parameters.
+    /// Additional source of parameters are the head_parameters,
+    /// filling the parameter slots at the beginning of the parameter list.
+    /// The head_parameters are used for an alias command.
+    pub fn from_action_extended(
         action_request: &ActionRequest,
         command_metadata: &CommandMetadata,
+        head_parameters: &[CommandParameterValue],
     ) -> Result<Self, Error> {
         let mut parameters = ActionParameterIterator::new(action_request);
-        let mut values = Vec::new();
+        let mut values = head_parameters
+            .iter()
+            .map(|x| ParameterValue::from_command_parameter_value(x))
+            .collect_vec();
         for a in command_metadata.arguments.iter() {
             let pv = ParameterValue::pop_value(a, &mut parameters)?;
             values.push(pv);
         }
         Ok(ResolvedParameterValues(values))
     }
+    pub fn from_action(
+        action_request: &ActionRequest,
+        command_metadata: &CommandMetadata,
+    ) -> Result<Self, Error> {
+        Self::from_action_extended(action_request, command_metadata, &[])
+    }
+
     pub fn clear(&mut self) {
         self.0.clear();
     }
@@ -491,14 +513,30 @@ impl<'c> PlanBuilder<'c> {
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         let command_metadata = self.get_command_metadata(query, action_request)?;
+        
+        match &command_metadata.definition {
+            command_metadata::CommandDefinition::Registered => {
+                self.plan.steps.push(Step::Action {
+                    realm: command_metadata.realm.clone(),
+                    ns: command_metadata.namespace.clone(),
+                    action_name: action_request.name.clone(),
+                    position: action_request.position.clone(),
+                    parameters: ResolvedParameterValues::from_action(action_request, &command_metadata)?,
+                });        
+            },
+            command_metadata::CommandDefinition::Alias { command, head_parameters } => {
+                let original_key = command_metadata.key();
+                self.plan.steps.push(Step::Info(format!("Alias command {} to {}", original_key , &command)));
+                self.plan.steps.push(Step::Action {
+                    realm: command.realm.clone(),
+                    ns: command.namespace.clone(),
+                    action_name: command.name.clone(),
+                    position: action_request.position.clone(),
+                    parameters: ResolvedParameterValues::from_action_extended(action_request, &command_metadata, &head_parameters)?,
+                });        
 
-        self.plan.steps.push(Step::Action {
-            realm: command_metadata.realm.clone(),
-            ns: command_metadata.namespace.clone(),
-            action_name: action_request.name.clone(),
-            position: action_request.position.clone(),
-            parameters: ResolvedParameterValues::from_action(action_request, &command_metadata)?,
-        });
+            },
+        }
 
         Ok(())
     }

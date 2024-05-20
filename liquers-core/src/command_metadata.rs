@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
+use std::fmt::Display;
+
 use crate::error::Error;
 use crate::query::{ActionParameter, Query};
 use serde::{Deserialize, Serialize};
@@ -396,6 +398,13 @@ impl From<&CommandKey> for CommandKey {
 }
 */
 
+impl Display for CommandKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        //TODO: not sure yet what this should be
+        write!(f, "{}-{}-{}", self.realm, self.namespace, self.name)
+    }
+}
+
 impl From<&CommandMetadata> for CommandKey {
     fn from(command: &CommandMetadata) -> Self {
         CommandKey::new(&command.realm, &command.namespace, command.name.as_str())
@@ -404,7 +413,8 @@ impl From<&CommandMetadata> for CommandKey {
 
 impl From<&CommandKey> for String {
     fn from(key: &CommandKey) -> Self {
-        format!("-p-cmd-{}-{}-{}", key.realm, key.namespace, key.name)
+        //TODO: not sure yet what this should be
+        format!("{}-{}-{}", key.realm, key.namespace, key.name)
     }
 }
 
@@ -424,6 +434,22 @@ impl From<&str> for CommandKey {
             namespace: "".to_string(),
             name: name.to_string(),
         }
+    }
+}
+
+// TODO: continue here
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum CommandDefinition {
+    Registered,
+    Alias{
+        command: CommandKey,
+        head_parameters: Vec<CommandParameterValue>,
+    },    
+}
+
+impl Default for CommandDefinition {
+    fn default() -> Self {
+        CommandDefinition::Registered
     }
 }
 
@@ -448,6 +474,7 @@ pub struct CommandMetadata {
     pub realm: String,
     pub namespace: String,
     pub name: String,
+    //TODO: remove module
     pub module: String,
     pub doc: String,
     //TODO: state argument should be optional
@@ -455,6 +482,7 @@ pub struct CommandMetadata {
     pub arguments: Vec<ArgumentInfo>,
     pub cache: bool,
     pub volatile: bool,
+    pub definition: CommandDefinition,
 }
 
 impl CommandMetadata {
@@ -469,6 +497,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            definition: CommandDefinition::Registered,
         }
     }
     pub fn from_key(key: CommandKey) -> Self {
@@ -482,7 +511,11 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            definition: CommandDefinition::Registered,
         }
+    }
+    pub fn key(&self) -> CommandKey {
+        CommandKey::new(&self.realm, &self.namespace, &self.name)
     }
     pub fn check(&self) -> Vec<CommandRegistryIssue> {
         let mut issues = Vec::new();
