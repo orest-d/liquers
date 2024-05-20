@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 pub mod parse;
+pub mod store;
+pub mod metadata;
 use crate::parse::*;
 
 /// Formats the sum of two numbers as string.
@@ -23,6 +25,10 @@ fn liquers_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::parse::parse, m)?)?;
     m.add_function(wrap_pyfunction!(crate::parse::parse_key, m)?)?;
 
+    m.add_class::<crate::metadata::Metadata>()?;
+
+    m.add_class::<crate::store::Store>()?;
+    m.add_function(wrap_pyfunction!(crate::store::local_filesystem_store, m)?)?;
 
 
 
