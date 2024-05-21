@@ -1,13 +1,15 @@
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyException, prelude::*};
 pub mod parse;
 pub mod store;
 pub mod metadata;
 pub mod cache;
+pub mod error;
 use crate::parse::*;
+use crate::error::Error;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn liquers_py(_py: Python, m: &PyModule) -> PyResult<()> {
+fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;
@@ -27,6 +29,9 @@ fn liquers_py(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::cache::Cache>()?;
     m.add_function(wrap_pyfunction!(crate::cache::memory_cache, m)?)?;
+
+    m.add_class::<crate::error::ErrorType>()?;
+    m.add_class::<crate::error::Error>()?;
 
     Ok(())
 }

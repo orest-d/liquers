@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 #[pyclass]
 #[derive(Clone)]
-pub struct Position(liquers_core::query::Position);
+pub struct Position(pub liquers_core::query::Position);
 
 #[pymethods]
 impl Position {
