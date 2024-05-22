@@ -1,9 +1,14 @@
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+
 use pyo3::{exceptions::PyException, prelude::*};
 pub mod parse;
 pub mod store;
 pub mod metadata;
 pub mod cache;
 pub mod error;
+pub mod value;
 use crate::parse::*;
 use crate::error::Error;
 
@@ -32,6 +37,8 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::error::ErrorType>()?;
     m.add_class::<crate::error::Error>()?;
+
+    m.add_class::<crate::value::Value>()?;
 
     Ok(())
 }
