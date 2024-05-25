@@ -20,7 +20,7 @@ use crate::query::Query;
 /// Store uses Key as a key, while Cache uses a Query.
 /// Primary use of Cache is accelerating the evaluation of queries and making short-lived results available via web API.
 /// Binary cache interface is enough to implement the cache web API.
-pub trait BinCache {
+pub trait BinCache:Send {
     /// Clean the cache
     /// Empties all the data in the cache
     fn clear(&mut self);

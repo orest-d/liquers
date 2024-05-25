@@ -1,12 +1,22 @@
+use std::sync::{Arc, Mutex};
+
+
+use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::ArcEnvRef, store::{AsyncStore, NoAsyncStore, Store}};
 use pyo3::{exceptions::PyException, prelude::*};
 
+use crate::value::Value;
 
-/*
+type EnvRef = liquers_core::context::ArcEnvRef<Environment>;
+
 pub struct Environment {
     store: Arc<Mutex<Box<dyn Store>>>,
     cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
-    command_registry: CommandRegistry<ArcEnvRef<Self>, Self, V>,
+    command_registry: CommandRegistry<EnvRef, Self, Value>,
+    #[cfg(feature = "async_store")]
+    async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
 }
+
+ 
 impl Environment {
     pub fn new() -> Self {
         Environment {
@@ -14,7 +24,7 @@ impl Environment {
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             #[cfg(feature = "async_store")]
-            async_store: Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore))),
+            async_store: Arc::new(Mutex::new(Box::new(NoAsyncStore))),
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
@@ -22,23 +32,21 @@ impl Environment {
         self
     }
     #[cfg(feature = "async_store")]
-    pub fn with_async_store(&mut self, store:Box<dyn crate::store::AsyncStore>) -> &mut Self {
+    pub fn with_async_store(&mut self, store:Box<dyn AsyncStore>) -> &mut Self {
         self.async_store = Arc::new(Mutex::new(store));
         self
     }
-    pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
+    pub fn with_cache(&mut self, cache: Box<dyn Cache<Value>>) -> &mut Self {
         self.cache = Arc::new(Mutex::new(cache));
         self
     }
-    pub fn to_ref(self) -> ArcEnvRef<Self> {
-        ArcEnvRef(Arc::new(self))
-    }
 }
 
+
 impl liquers_core::context::Environment for Environment {
-    type Value = crate::value::Value;
+    type Value = Value;
     type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, Self::Value>;
-    type EnvironmentReference = PyEnvRef;
+    type EnvironmentReference = EnvRef;
     type Context = liquers_core::context::Context<Self::EnvironmentReference, Self>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
@@ -63,13 +71,13 @@ impl liquers_core::context::Environment for Environment {
         self.cache.clone()
     }
     #[cfg(feature = "async_store")]
-    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
+    fn get_async_store(&self) -> Arc<Mutex<Box<dyn liquers_core::store::AsyncStore>>> {
         self.async_store.clone()
     }
     
 }
 
-
+/*
 pub struct PyEnvRef<E: Environment>(pub Rc<E>);
 
 impl<E: Environment> EnvRef<E> for RcEnvRef<E> {

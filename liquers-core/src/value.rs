@@ -30,7 +30,7 @@ pub enum Value {
 /// ValueInterface is a trait that must be implemented by the value type.
 /// This is a central trait that defines the minimum set of operations
 /// that must be supported by the value type.
-pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSerializer {
+pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send {
     /// Empty value
     fn none() -> Self;
 

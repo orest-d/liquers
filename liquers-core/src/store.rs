@@ -9,7 +9,7 @@ use crate::query::Key;
 use crate::error::Error;
 
 
-pub trait Store {
+pub trait Store : Send{
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())

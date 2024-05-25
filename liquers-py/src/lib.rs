@@ -13,6 +13,7 @@ pub mod state;
 pub mod command_metadata;
 pub mod commands;
 pub mod context;
+pub mod plan;
 use crate::parse::*;
 use crate::error::Error;
 
@@ -45,10 +46,15 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<crate::value::Value>()?;
 
     m.add_class::<crate::command_metadata::ArgumentInfo>()?;
+    m.add_class::<crate::command_metadata::CommandMetadata>()?;
+    m.add_class::<crate::command_metadata::CommandMetadataRegistry>()?;
 
     m.add_class::<crate::commands::CommandArguments>()?;
 
     m.add_class::<crate::state::State>()?;
+
+    m.add_class::<crate::plan::Plan>()?;
+    m.add_function(wrap_pyfunction!(crate::plan::build_plan, m)?)?;
 
     Ok(())
 }
