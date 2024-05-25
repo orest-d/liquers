@@ -5,7 +5,7 @@ use pyo3::{exceptions::PyException, prelude::*};
 
 
 #[pyclass]
-pub struct State(liquers_core::state::State<crate::value::Value>);
+pub struct State(pub liquers_core::state::State<crate::value::Value>);
 
 #[pymethods]
 impl State {

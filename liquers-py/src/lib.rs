@@ -14,6 +14,7 @@ pub mod command_metadata;
 pub mod commands;
 pub mod context;
 pub mod plan;
+pub mod interpreter;
 use crate::parse::*;
 use crate::error::Error;
 
@@ -55,6 +56,8 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::plan::Plan>()?;
     m.add_function(wrap_pyfunction!(crate::plan::build_plan, m)?)?;
+
+    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate, m)?)?;
 
     Ok(())
 }

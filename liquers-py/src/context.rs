@@ -6,7 +6,7 @@ use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::value::Value;
 
-type EnvRef = liquers_core::context::ArcEnvRef<Environment>;
+pub type EnvRef = liquers_core::context::ArcEnvRef<Environment>;
 
 pub struct Environment {
     store: Arc<Mutex<Box<dyn Store>>>,
@@ -39,6 +39,9 @@ impl Environment {
     pub fn with_cache(&mut self, cache: Box<dyn Cache<Value>>) -> &mut Self {
         self.cache = Arc::new(Mutex::new(cache));
         self
+    }
+    pub fn to_ref(self)->EnvRef{
+        liquers_core::context::ArcEnvRef(Arc::new(self))
     }
 }
 
