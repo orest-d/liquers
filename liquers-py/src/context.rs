@@ -2,17 +2,32 @@ use std::sync::{Arc, Mutex};
 
 
 use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::ArcEnvRef, store::{AsyncStore, NoAsyncStore, Store}};
+use once_cell::sync::{Lazy, OnceCell};
 use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::value::Value;
 
-pub type EnvRef = liquers_core::context::ArcEnvRef<Environment>;
+pub type EnvRefDef = liquers_core::context::ArcEnvRef<Environment>;
+
+/*
+#[pyclass]
+pub struct EnvRef(pub EnvRefDef);
+
+#[pymethods]
+impl EnvRef{
+    #[new]
+    fn new()->Self{
+        let envref = liquers_core::context::ArcEnvRef(Arc::new(Environment::new()));
+        EnvRef(envref)
+    }
+}
+*/
 
 #[pyclass]
 pub struct Environment {
-    store: Arc<Mutex<Box<dyn Store>>>,
-    cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
-    command_registry: CommandRegistry<EnvRef, Self, Value>,
+    pub store: Arc<Mutex<Box<dyn Store>>>,
+    pub cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
+    pub command_registry: CommandRegistry<EnvRefDef, Self, Value>,
     //#[cfg(feature = "async_store")]
     //async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
 }
@@ -53,7 +68,7 @@ impl Environment {
 impl liquers_core::context::Environment for Environment {
     type Value = Value;
     type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, Self::Value>;
-    type EnvironmentReference = EnvRef;
+    type EnvironmentReference = EnvRefDef;
     type Context = liquers_core::context::Context<Self::EnvironmentReference, Self>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
@@ -84,6 +99,26 @@ impl liquers_core::context::Environment for Environment {
     }
     
 }
+
+/*
+static ENVREF:Lazy<EnvRef> = Lazy::new(||{
+    liquers_core::context::ArcEnvRef(Arc::new(Environment::new()))
+});
+*/
+
+/*
+fn get_envref() -> Arc<Mutex<EnvRef>> {
+    static INSTANCE: OnceCell<Arc<Mutex<EnvRef>>> = OnceCell::new();
+    let envref = INSTANCE.get_or_init(|| {
+        Arc::new(
+            Mutex::new(
+                liquers_core::context::ArcEnvRef(Arc::new(Environment::new()))
+            )
+        )
+    });
+    envref.clone()
+}
+*/
 
 /*
 pub struct PyEnvRef<E: Environment>(pub Rc<E>);

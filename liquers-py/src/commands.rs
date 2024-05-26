@@ -1,4 +1,8 @@
-use pyo3::{exceptions::PyException, prelude::*};
+use liquers_core::{register_command, value::ValueInterface};
+use pyo3::prelude::*;
+
+use crate::value::Value;
+use crate::error::Error;
 
 #[pyclass]
 pub struct CommandArguments(liquers_core::commands::CommandArguments);
@@ -17,18 +21,28 @@ impl CommandArguments {
 #[pyclass]
 pub struct CommandRegistry(
     pub  liquers_core::commands::CommandRegistry<
-        crate::context::EnvRef,
+        crate::context::EnvRefDef,
         crate::context::Environment,
         crate::value::Value,
     >,
 );
 
+fn hello()->Result<Value,Error>{
+    Ok(Value::from_string("Hello!".to_string()))
+}
+
+pub fn register_commands(cr:&mut CommandRegistry) -> Result<(),liquers_core::error::Error>{
+    let cr = &mut cr.0;
+    register_command!(cr, hello());
+    Ok(())
+}
 #[pymethods]
 impl CommandRegistry {
     #[new]
-    fn new() -> Self {
-        let cr = 
-        liquers_core::commands::CommandRegistry::new();
-        CommandRegistry(cr)
+    pub fn new() -> PyResult<Self> {
+        let mut cr = liquers_core::commands::CommandRegistry::new();
+        let mut cr = CommandRegistry(cr);
+        register_commands(&mut cr).map_err(|e| Error(e))?;
+        Ok(cr)
     }
 }

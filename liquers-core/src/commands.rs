@@ -220,7 +220,7 @@ where
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error> + Send + 'static,
+        F: (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Send + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
