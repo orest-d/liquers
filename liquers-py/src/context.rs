@@ -8,25 +8,28 @@ use crate::value::Value;
 
 pub type EnvRef = liquers_core::context::ArcEnvRef<Environment>;
 
+#[pyclass]
 pub struct Environment {
     store: Arc<Mutex<Box<dyn Store>>>,
     cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
     command_registry: CommandRegistry<EnvRef, Self, Value>,
-    #[cfg(feature = "async_store")]
-    async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
+    //#[cfg(feature = "async_store")]
+    //async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
 }
 
- 
+#[pymethods]
 impl Environment {
+    #[new]
     pub fn new() -> Self {
         Environment {
             store: Arc::new(Mutex::new(Box::new(liquers_core::store::NoStore))),
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
-            #[cfg(feature = "async_store")]
-            async_store: Arc::new(Mutex::new(Box::new(NoAsyncStore))),
+            //#[cfg(feature = "async_store")]
+            //async_store: Arc::new(Mutex::new(Box::new(NoAsyncStore))),
         }
     }
+    /*
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::new(Mutex::new(store));
         self
@@ -43,6 +46,7 @@ impl Environment {
     pub fn to_ref(self)->EnvRef{
         liquers_core::context::ArcEnvRef(Arc::new(self))
     }
+    */
 }
 
 
@@ -75,7 +79,8 @@ impl liquers_core::context::Environment for Environment {
     }
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Mutex<Box<dyn liquers_core::store::AsyncStore>>> {
-        self.async_store.clone()
+        //self.async_store.clone()
+        Arc::new(Mutex::new(Box::new(NoAsyncStore)))
     }
     
 }
