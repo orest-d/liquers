@@ -48,6 +48,7 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::command_metadata::ArgumentInfo>()?;
     m.add_class::<crate::command_metadata::CommandMetadata>()?;
+    m.add_class::<crate::command_metadata::CommandKey>()?;
     m.add_class::<crate::command_metadata::CommandMetadataRegistry>()?;
 
     m.add_class::<crate::commands::CommandArguments>()?;

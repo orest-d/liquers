@@ -1,3 +1,4 @@
+use liquers_core::state::State;
 use liquers_core::{register_command, value::ValueInterface};
 use pyo3::prelude::*;
 
@@ -28,14 +29,22 @@ pub struct CommandRegistry(
 );
 
 fn hello()->Result<Value,Error>{
-    Ok(Value::from_string("Hello!".to_string()))
+    Ok(Value::from_string("Hello".to_string()))
+}
+
+fn greet(state:&State<Value>, who:String)->Result<Value,Error>{
+    let s = state.data.try_into_string()?;
+
+    Ok(Value::from_string(format!("{}, {}!", s, who)))
 }
 
 pub fn register_commands(cr:&mut CommandRegistry) -> Result<(),liquers_core::error::Error>{
     let cr = &mut cr.0;
     register_command!(cr, hello());
+    register_command!(cr, greet(state, who:String));
     Ok(())
 }
+
 #[pymethods]
 impl CommandRegistry {
     #[new]

@@ -1,6 +1,42 @@
 use pyo3::{exceptions::PyException, prelude::*};
 
 #[pyclass]
+pub struct CommandKey(pub liquers_core::command_metadata::CommandKey);
+
+#[pymethods]
+impl CommandKey{
+    #[new]
+    fn new(realm:&str, namespace:&str, name:&str)->Self{
+        CommandKey(
+            liquers_core::command_metadata::CommandKey::new(realm, namespace, name)
+        )
+    }
+
+    #[getter]
+    fn realm(&self)->String{
+        self.0.realm.clone()
+    }
+
+    #[getter]
+    fn namespace(&self)->String{
+        self.0.namespace.clone()
+    }
+
+    #[getter]
+    fn name(&self)->String{
+        self.0.name.clone()
+    }
+
+    fn __str__(&self)->String{
+        format!("{}",self.0)
+    }
+
+    fn __repr__(&self)->String{
+        format!("{:?}",self.0)
+    }
+}
+
+#[pyclass]
 pub struct ArgumentInfo(liquers_core::command_metadata::ArgumentInfo);
 
 #[pymethods]
