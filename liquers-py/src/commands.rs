@@ -38,10 +38,24 @@ fn greet(state:&State<Value>, who:String)->Result<Value,Error>{
     Ok(Value::from_string(format!("{}, {}!", s, who)))
 }
 
+fn pyprint(state:&State<Value>)->Result<Value,Error>{
+    let s = state.data.try_into_string()?;
+    Python::with_gil(|py| {
+        let builtins = PyModule::import_bound(py, "builtins")?;
+        builtins
+            .getattr("print")?
+            .call1(("PRINT <",&s,">"))?;
+        Ok(())
+    }).map_err(|e:PyErr| liquers_core::error::Error::general_error(format!("Python exception: {e}")))?;
+
+    Ok(Value::none())
+}
+
 pub fn register_commands(cr:&mut CommandRegistry) -> Result<(),liquers_core::error::Error>{
     let cr = &mut cr.0;
     register_command!(cr, hello());
     register_command!(cr, greet(state, who:String));
+    register_command!(cr, pyprint(state));
     Ok(())
 }
 
