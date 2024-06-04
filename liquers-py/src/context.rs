@@ -1,13 +1,14 @@
 use std::sync::{Arc, Mutex};
 
 
-use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::ArcEnvRef, store::{AsyncStore, NoAsyncStore, Store}};
+use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{ArcEnvRef, ContextInterface}, store::{AsyncStore, NoAsyncStore, Store}};
 use once_cell::sync::{Lazy, OnceCell};
 use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::value::Value;
 
 pub type EnvRefDef = liquers_core::context::ArcEnvRef<Environment>;
+pub type ContextType = liquers_core::context::Context<EnvRefDef, Environment>;
 
 /*
 #[pyclass]
@@ -99,6 +100,18 @@ impl liquers_core::context::Environment for Environment {
     }
     
 }
+
+/* 
+#[pyclass]
+pub struct Context(pub liquers_core::context::Context<EnvRefDef, Environment>);
+
+#[pymethods]
+impl Context {
+    fn info(&self, message:&str) {
+        self.0.info(message);
+    }
+}
+*/
 
 /*
 static ENVREF:Lazy<EnvRef> = Lazy::new(||{
