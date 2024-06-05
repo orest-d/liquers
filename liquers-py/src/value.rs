@@ -1,6 +1,9 @@
 use serde_json;
 
-use liquers_core::{error::ErrorType, value::DefaultValueSerializer, value::ValueInterface};
+use liquers_core::{
+    error::ErrorType,
+    value::{self, DefaultValueSerializer, ValueInterface},
+};
 use pyo3::prelude::*;
 
 use liquers_core::error::Error;
@@ -8,6 +11,7 @@ use std::{
     borrow::Cow,
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
+    fmt::format,
     result::Result,
 };
 
@@ -50,13 +54,48 @@ impl Value {
             }
         })
     }
-    pub fn __str__(&self) -> String {
-        self.try_into_string().unwrap_or_else(|_| format!("{:?}", self))
+    pub fn __str__(&self) -> PyResult<String> {
+        match self {
+            Value::None {} => Ok("None".into()),
+            Value::Bool { value } => {
+                if *value {
+                    Ok("True".into())
+                } else {
+                    Ok("False".into())
+                }
+            }
+            Value::I32 { value } => Ok(format!("{value}")),
+            Value::I64 { value } => Ok(format!("{value}")),
+            Value::F64 { value } => Ok(format!("{value}")),
+            Value::Text { value } => Ok(value.to_owned()),
+            Value::Array { value } => Ok(format!(
+                "[{}]",
+                value
+                    .iter()
+                    .map(|x| x.__str__().unwrap_or("?".into()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Value::Object { value } => Ok(format!(
+                "{{{}}}",
+                value
+                    .iter()
+                    .map(|(k, v)| format!("\"{}\":{}", k.escape_unicode(), v.__str__().unwrap_or("?".into())))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Value::Bytes { value } => Ok(format!("{:?}", value)),
+            Value::Py { value } => {
+                Python::with_gil(|py| {
+                    Ok(value.bind(py).str()?.to_string())
+                })
+
+            },
+        }
     }
     pub fn __repr__(&self) -> String {
         format!("{:?}", self)
     }
-    
 }
 
 impl ValueInterface for Value {
