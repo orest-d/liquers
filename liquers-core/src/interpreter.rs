@@ -250,7 +250,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
                 let (data, metadata) = store
                     .lock()
                     .unwrap()
-                    .async_get(&key)
+                    .get(&key)
                     .await
                     .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);

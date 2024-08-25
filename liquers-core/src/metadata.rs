@@ -314,6 +314,7 @@ impl MetadataRecord {
     }
     pub fn error(&mut self, message: &str) -> &mut Self {
         self.add_log_entry(LogEntry::error(message.to_owned()));
+        self.with_status(Status::Error);
         self
     }
     pub fn type_identifier(&self) -> String {
@@ -402,6 +403,21 @@ impl Metadata {
                 Ok(v) => Ok(Metadata::LegacyMetadata(v)),
                 Err(e) => Err(e),
             },
+        }
+    }
+
+    /// Check if there was an error
+    pub fn is_error(&self) -> Result<bool, Error>{
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(e) = o.get("is_error") {
+                    return e.as_bool().ok_or(Error::general_error("is_error not a boolean in legacy metadata".to_owned()));
+                }
+                return Err(Error::general_error("is_error not available in legacy metadata".to_owned()));
+            }
+            Metadata::MetadataRecord(m) => Ok(m.is_error),
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {return Err(Error::general_error("legacy metadata is null, thus is_error is not available".to_owned()));},
+            _ => {return Err(Error::general_error("legacy metadata is not an object, thus is_error is not available".to_owned()));}
         }
     }
 

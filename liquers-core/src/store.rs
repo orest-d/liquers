@@ -4,12 +4,11 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 
+use crate::error::Error;
 use crate::metadata::{Metadata, MetadataRecord};
 use crate::query::Key;
-use crate::error::Error;
 
-
-pub trait Store : Send{
+pub trait Store: Send {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -52,20 +51,19 @@ pub trait Store : Send{
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
     }
-//TODO: implement async Store
-/*     
-#[cfg(feature="async_store")]
-/// Get data and metadata asynchronously
-async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-    self.get(self, key)
-}
-*/
+    //TODO: implement async Store
+    /*
+    #[cfg(feature="async_store")]
+    /// Get data and metadata asynchronously
+    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.get(self, key)
+    }
+    */
 
     /// Get data as bytes
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
         Err(Error::key_not_found(key))
     }
-
 
     /// Get metadata
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
@@ -74,36 +72,24 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
 
     /// Store data and metadata.
     fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
-        Err(Error::key_not_supported(
-            key,
-            &self.store_name()
-        ))
+        Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Store metadata only
     fn set_metadata(&mut self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
-        Err(Error::key_not_supported(
-            key,
-            &self.store_name(),
-        ))
+        Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove data and metadata associated with the key
     fn remove(&mut self, key: &Key) -> Result<(), Error> {
-        Err(Error::key_not_supported(
-            key,
-            &self.store_name(),
-        ))
+        Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove directory.
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
     fn removedir(&mut self, key: &Key) -> Result<(), Error> {
-        Err(Error::key_not_supported(
-            key,
-            &self.store_name(),
-        ))
+        Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Returns true if store contains the key.
@@ -155,10 +141,7 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
 
     /// Make a directory
     fn makedir(&self, key: &Key) -> Result<(), Error> {
-        Err(Error::key_not_supported(
-            key,
-            &self.store_name(),
-        ))
+        Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     // TODO: implement openbin
@@ -221,8 +204,147 @@ async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
 
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
-pub trait AsyncStore{
-    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>;
+pub trait AsyncStore {
+    /// Get store name
+    fn store_name(&self) -> String {
+        format!("{} Store", self.key_prefix())
+    }
+
+    /// Key prefix common to all keys in this store.
+    fn key_prefix(&self) -> Key {
+        Key::new()
+    }
+
+    /// Create default metadata object for a given key
+    fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
+        MetadataRecord::new()
+    }
+
+    /// Finalize metadata before storing - when data is available
+    /// This can't be a directory
+    fn finalize_metadata(
+        &self,
+        metadata: Metadata,
+        _key: &Key,
+        _data: &[u8],
+        _update: bool,
+    ) -> Metadata {
+        metadata
+    }
+
+    /// Finalize metadata before storing - when data is not available
+    fn finalize_metadata_empty(
+        &self,
+        metadata: Metadata,
+        _key: &Key,
+        _is_dir: bool,
+        _update: bool,
+    ) -> Metadata {
+        metadata
+    }
+
+    /// Get data asynchronously
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>;
+
+    /// Get data as bytes
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.get(key).await.map(|(data, _)| data)
+    }
+
+    /// Get metadata
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.get(key).await.map(|(_, metadata)| metadata)
+    }
+
+    /// Store data and metadata.
+    async fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        Err(Error::key_not_supported(key, &self.store_name()))
+    }
+
+    /// Store metadata only
+    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let data = self.get_bytes(key).await?;
+        self.set(key, &data, metadata).await
+    }
+
+    /// Remove data and metadata associated with the key
+    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(key, &self.store_name()))
+    }
+
+    /// Remove directory.
+    /// The key must be a directory.
+    /// It depends on the underlying store whether the directory must be empty.    
+    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(key, &self.store_name()))
+    }
+
+    /// Returns true if store contains the key.
+    async fn contains(&self, _key: &Key) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    /// Returns true if key points to a directory.
+    async fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    /// List or iterator of all keys
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        let mut keys = self.listdir_keys_deep(&self.key_prefix()).await?;
+        keys.push(self.key_prefix().to_owned());
+        Ok(keys)
+    }
+
+    /// Return names inside a directory specified by key.
+    /// To get a key, names need to be joined with the key (key/name).
+    /// Complete keys can be obtained with the listdir_keys method.
+    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
+
+    /// Return keys inside a directory specified by key.
+    /// Only keys present directly in the directory are returned,
+    /// subdirectories are not traversed.
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let names = self.listdir(key).await?;
+        Ok(names.iter().map(|x| key.join(x)).collect())
+    }
+
+    /// Return keys inside a directory specified by key.
+    /// Keys directly in the directory are returned,
+    /// as well as in all the subdirectories.
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let keys = self.listdir_keys(key).await?;
+        let mut keys_deep = keys.clone();
+        for sub_key in keys {
+            if self.is_dir(&key).await? {
+                let sub = self.listdir_keys_deep(&sub_key).await?;
+                keys_deep.extend(sub.into_iter());
+            }
+        }
+        Ok(keys_deep)
+    }
+
+    /// Make a directory
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(key, &self.store_name()))
+    }
+
+    // TODO: implement openbin
+    /*
+    def openbin(self, key, mode="r", buffering=-1):
+        """Return a file handle.
+        This is not necessarily always well supported, but it is required to support PyFilesystem2."""
+        raise KeyNotSupportedStoreException(key=key, store=self)
+    */
+
+    /// Returns true when this store supports the supplied key.
+    /// This allows layering Stores, e.g. by with_overlay, with_fallback
+    /// and store selectively certain data (keys) in certain stores.
+    fn is_supported(&self, _key: &Key) -> bool {
+        false
+    }
 }
 
 #[cfg(feature = "async_store")]
@@ -231,9 +353,138 @@ pub struct AsyncStoreWrapper<T: Store>(pub T);
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
 impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
-    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+    /// Get store name
+    fn store_name(&self) -> String {
+        self.0.store_name()
+    }
+
+    /// Key prefix common to all keys in this store.
+    fn key_prefix(&self) -> Key {
+        self.0.key_prefix()
+    }
+
+    /// Create default metadata object for a given key
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        self.0.default_metadata(key, is_dir)
+    }
+
+    /// Finalize metadata before storing - when data is available
+    /// This can't be a directory
+    fn finalize_metadata(
+        &self,
+        metadata: Metadata,
+        key: &Key,
+        data: &[u8],
+        update: bool,
+    ) -> Metadata {
+        self.0.finalize_metadata(metadata, key, data, update)
+    }
+
+    /// Finalize metadata before storing - when data is not available
+    fn finalize_metadata_empty(
+        &self,
+        metadata: Metadata,
+        key: &Key,
+        is_dir: bool,
+        update: bool,
+    ) -> Metadata {
+        self.0.finalize_metadata_empty(metadata, key, is_dir, update)
+    }
+
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         self.0.get(key)
     }
+
+
+    /// Get data as bytes
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.0.get_bytes(key)
+    }
+
+    /// Get metadata
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.0.get_metadata(key)
+    }
+
+    /// Store data and metadata.
+    async fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.0.set(key, data, metadata)
+    }
+
+    /// Store metadata only
+    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.0.set_metadata(key, metadata)
+    }
+
+    /// Remove data and metadata associated with the key
+    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
+        self.0.remove(key)
+    }
+
+    /// Remove directory.
+    /// The key must be a directory.
+    /// It depends on the underlying store whether the directory must be empty.    
+    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+        self.0.removedir(key)
+    }
+
+    /// Returns true if store contains the key.
+    async fn contains(&self, _key: &Key) -> Result<bool, Error> {
+        self.0.contains(_key)
+    }
+
+    /// Returns true if key points to a directory.
+    async fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+        self.0.is_dir(_key)
+    }
+
+    /// List or iterator of all keys
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        self.0.keys()
+    }
+
+    /// Return names inside a directory specified by key.
+    /// To get a key, names need to be joined with the key (key/name).
+    /// Complete keys can be obtained with the listdir_keys method.
+    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
+        self.0.listdir(_key)
+    }
+
+    /// Return keys inside a directory specified by key.
+    /// Only keys present directly in the directory are returned,
+    /// subdirectories are not traversed.
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.0.listdir_keys(key)
+    }
+
+    /// Return keys inside a directory specified by key.
+    /// Keys directly in the directory are returned,
+    /// as well as in all the subdirectories.
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.0.listdir_keys_deep(key)
+    }
+
+    /// Make a directory
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        Err(Error::key_not_supported(key, &self.store_name()))
+    }
+
+    // TODO: implement openbin
+    /*
+    def openbin(self, key, mode="r", buffering=-1):
+        """Return a file handle.
+        This is not necessarily always well supported, but it is required to support PyFilesystem2."""
+        raise KeyNotSupportedStoreException(key=key, store=self)
+    */
+
+    /// Returns true when this store supports the supplied key.
+    /// This allows layering Stores, e.g. by with_overlay, with_fallback
+    /// and store selectively certain data (keys) in certain stores.
+    fn is_supported(&self, _key: &Key) -> bool {
+        false
+    }
+
+
 }
 
 /// Trivial store unable to store anything.
@@ -249,7 +500,7 @@ pub struct NoAsyncStore;
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
 impl AsyncStore for NoAsyncStore {
-    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
     }
 }
@@ -329,8 +580,8 @@ impl Store for FileStore {
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
         let path = self.key_to_path(key);
         if path.exists() {
-            let mut file = File::open(path)
-                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
+            let mut file =
+                File::open(path).map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
                 .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
@@ -343,8 +594,8 @@ impl Store for FileStore {
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let path = self.key_to_path_metadata(key);
         if path.exists() {
-            let mut file = File::open(path)
-                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
+            let mut file =
+                File::open(path).map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
                 .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
@@ -354,7 +605,11 @@ impl Store for FileStore {
             if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
                 return Ok(Metadata::LegacyMetadata(metadata));
             }
-            Err(Error::key_read_error(key, &self.store_name(), "Metadata parsing error"))
+            Err(Error::key_read_error(
+                key,
+                &self.store_name(),
+                "Metadata parsing error",
+            ))
         } else {
             Err(Error::key_not_found(key))
         }
@@ -362,8 +617,8 @@ impl Store for FileStore {
 
     fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path(key);
-        let mut file = File::create(path)
-            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        let mut file =
+            File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         file.write_all(data)
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         self.set_metadata(key, metadata)?;
@@ -372,8 +627,8 @@ impl Store for FileStore {
 
     fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path_metadata(key);
-        let file = File::create(path)
-            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        let file =
+            File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         match metadata {
             Metadata::MetadataRecord(metadata) => serde_json::to_writer_pretty(file, metadata)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
@@ -629,7 +884,7 @@ mod tests {
     use crate::parse::parse_key;
 
     #[test]
-    fn test_simple_store() -> Result<(), Error>{
+    fn test_simple_store() -> Result<(), Error> {
         let mut store = MemoryStore::new(&Key::new());
         let key = parse_key("a/b/c").unwrap();
         let data = b"test data".to_vec();
@@ -651,5 +906,4 @@ mod tests {
         assert!(!store.contains(&key)?);
         Ok(())
     }
-
 }
