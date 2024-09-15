@@ -25,7 +25,8 @@ pub enum ErrorType {
     KeyNotFound,
     KeyNotSupported,
     KeyReadError,
-    KeyWriteError,    
+    KeyWriteError,
+    UnexpectedError,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -174,6 +175,15 @@ impl Error {
     pub fn general_error(message: String) -> Self {
         Error {
             error_type: ErrorType::General,
+            message: message,
+            position: Position::unknown(),
+            query: None,
+            key: None,
+        }
+    }
+    pub fn unexpected_error(message: String) -> Self {
+        Error {
+            error_type: ErrorType::UnexpectedError,
             message: message,
             position: Position::unknown(),
             query: None,

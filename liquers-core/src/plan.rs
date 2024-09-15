@@ -65,6 +65,7 @@ impl Step {
 /// - JSON value - directly containing the parameter value. To keep things simple, it is represented as a serde_json::Value.
 /// - Link - a query that will be executed to get the parameter value. The query is resolved before the command is executed.
 /// - Injected - the parameter value is injected by the environment.
+/// - Multiple parameters - a vector of parameter values. This is used for vector arguments - i.e. when ArgumentInfo::multiple is set.
 /// - None - the parameter value is not set. This is a temporary state. Plan should never contain a parameter with None value.
 ///
 /// Parameter can be obtained from several sources:
@@ -83,6 +84,7 @@ pub enum ParameterValue {
     ParameterValue(Value, Position),
     ParameterLink(Query, Position),
     EnumLink(Query, Position),
+    MultipleParameters(Vec<ParameterValue>),
     Injected,
     None,
 }
@@ -95,6 +97,9 @@ impl Display for ParameterValue {
             ParameterValue::ParameterValue(v, _) => write!(f, "value:{}", v),
             ParameterValue::ParameterLink(q, _) => write!(f, "link:{}", q.encode()),
             ParameterValue::EnumLink(q, _) => write!(f, "enum link:{}", q.encode()),
+            ParameterValue::MultipleParameters(v) => {
+                write!(f, "multiple:{}", v.iter().map(|x| format!("{}",x)).join(","))
+            }   
             ParameterValue::Injected => write!(f, "injected value"),
             ParameterValue::None => write!(f, "None"),
         }
@@ -103,14 +108,33 @@ impl Display for ParameterValue {
 
 impl ParameterValue {
     pub fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
-        match &arginfo.default {
-            CommandParameterValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
-            CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
-            CommandParameterValue::None => {
-                if arginfo.injected {
-                    ParameterValue::Injected
-                } else {
-                    ParameterValue::None
+        if arginfo.multiple {
+            let mut values = Vec::new();
+                match &arginfo.default {
+                    CommandParameterValue::Value(v) => {
+                        match v {
+                            Value::Array(a) => {
+                                for x in a {
+                                    values.push(ParameterValue::DefaultValue(x.clone()));
+                                }
+                            }
+                            _ => values.push(ParameterValue::DefaultValue(v.clone()))
+                        }
+                    },
+                    CommandParameterValue::Query(q) => values.push(ParameterValue::DefaultLink(q.clone())),
+                    CommandParameterValue::None => (),
+                }
+            ParameterValue::MultipleParameters(values)
+        } else {
+            match &arginfo.default {
+                CommandParameterValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
+                CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
+                CommandParameterValue::None => {
+                    if arginfo.injected {
+                        ParameterValue::Injected
+                    } else {
+                        ParameterValue::None
+                    }
                 }
             }
         }
@@ -265,36 +289,41 @@ impl ParameterValue {
         if arginfo.injected {
             return Ok(p);
         }
-        if arginfo.multiple {
+        
+        if arginfo.multiple { 
             let mut values = Vec::new();
             let values_pos = param.position.clone();
             for x in &mut *param {
                 match x {
                     ActionParameter::String(s, pos) => {
                         let pv = Self::from_string(arginfo, s, pos)?;
-                        if let Some(v) = pv.value() {
-                            values.push(v);
-                        } else {
-                            return Err(Error::not_supported(format!(
-                                "Only values are supported inside vector argument, found {}.",
-                                &pv
-                            ))
-                            .with_position(pos));
+                        match pv {
+                            ParameterValue::ParameterValue(_, _) => values.push(pv),
+                            ParameterValue::DefaultValue(_) => values.push(pv),
+                            ParameterValue::DefaultLink(_) => values.push(pv),
+                            ParameterValue::ParameterLink(_, _) => values.push(pv),
+                            ParameterValue::EnumLink(_, _) => values.push(pv),
+                            ParameterValue::MultipleParameters(_) => return Err(Error::unexpected_error(
+                                "Multiple parameters not supported inside vector argument".to_string(),
+                            ).with_position(pos)),
+                            ParameterValue::Injected => return Err(Error::unexpected_error(
+                                "Injected value not supported inside vector argument".to_string(),
+                            ).with_position(pos)),
+                            ParameterValue::None => return Err(Error::unexpected_error(
+                                "None value not supported inside vector argument".to_string(),
+                            ).with_position(pos)),
                         }
                     }
                     ActionParameter::Link(q, pos) => {
-                        return Err(Error::not_supported(
-                            "Link not supported in vector argument".to_string(),
-                        )
-                        .with_position(&param.position));
+                        values.push(ParameterValue::ParameterLink(q.clone(), pos.clone()));
                     }
                 }
             }
-            return Ok(ParameterValue::ParameterValue(
-                Value::Array(values),
-                values_pos,
-            ));
+            return Ok(ParameterValue::MultipleParameters(
+                values,
+            ));            
         }
+        
         match param.next() {
             Some(ActionParameter::String(s, pos)) => Self::from_string(arginfo, s, pos),
             Some(ActionParameter::Link(q, pos)) => {
@@ -333,10 +362,16 @@ impl ParameterValue {
             _ => false,
         }
     }
+    pub fn is_multiple(&self) -> bool {
+        match self {
+            ParameterValue::MultipleParameters(_) => true,
+            _ => false,
+        }
+    }
     pub fn value(&self) -> Option<Value> {
         match self {
             ParameterValue::DefaultValue(v) => Some(v.clone()),
-            ParameterValue::ParameterValue(v, _) => Some(v.clone()),
+            ParameterValue::ParameterValue(v, _) => Some(v.clone()),            
             _ => None,
         }
     }
@@ -345,6 +380,12 @@ impl ParameterValue {
             ParameterValue::DefaultLink(q) => Some(q.clone()),
             ParameterValue::ParameterLink(q, _) => Some(q.clone()),
             ParameterValue::EnumLink(q, _) => Some(q.clone()),
+            _ => None,
+        }
+    }
+    pub fn multiple(&self) -> Option<Vec<ParameterValue>> {
+        match self {
+            ParameterValue::MultipleParameters(v) => Some(v.clone()),
             _ => None,
         }
     }
@@ -708,13 +749,10 @@ mod tests {
         let mut param = ActionParameterIterator::new(&action);
         let arginfo = ArgumentInfo::string_argument("test").set_multiple();
         let pv = ParameterValue::pop_value(&arginfo, &mut param)?;
-        assert_eq!(
-            pv.value(),
-            Some(Value::Array(vec![
-                Value::String("testarg".to_string()),
-                Value::String("123".to_string())
-            ]))
-        );
+        let pv = pv.multiple().unwrap();
+        assert_eq!(pv.len(), 2);
+        assert_eq!(pv[0].value(), Some(Value::String("testarg".to_string())));
+        assert_eq!(pv[1].value(), Some(Value::String("123".to_string())));
 
         Ok(())
     }
