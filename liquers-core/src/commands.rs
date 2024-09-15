@@ -11,7 +11,7 @@ use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadata
 use crate::context::{Context, ContextInterface, EnvRef, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
-use crate::query::Position;
+use crate::query::{Position, Query};
 use crate::state::State;
 use crate::value::ValueInterface;
 
@@ -132,8 +132,8 @@ macro_rules! impl_from_parameter_value {
                     } else {
                         return Err(Error::conversion_error_with_message(
                             param,
-                            "string",
-                            "String parameter value expected",
+                            stringify!($t),
+                            "String or link parameter value expected",
                         )); // TODO: check none
                     }
                 }
@@ -173,6 +173,43 @@ impl_from_parameter_value!(
 );
 impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_bool);
 
+impl<E: Environment> FromParameterValue<Vec<String>, E> for Vec<String> {
+    fn from_parameter_value(
+        param: &ParameterValue,
+        context: &impl ContextInterface<E>,
+    ) -> Result<Vec<String>, Error> {
+        fn from_json_value(p: &serde_json::Value) -> Result<Vec<String>, Error> {
+            match p {
+                serde_json::Value::Null => Ok(vec!["".to_owned()]),
+                serde_json::Value::Bool(b) => Ok(vec![if *b {"true".to_owned()} else {"false".to_owned()}]),
+                serde_json::Value::Number(n) => Ok(vec![n.to_string()]),
+                serde_json::Value::String(s) => Ok(vec![s.to_owned()]),
+                serde_json::Value::Array(a) => Ok(a.iter().map(|v| v.to_string()).collect()),
+                serde_json::Value::Object(o) => Err(Error::conversion_error_with_message(
+                    "Object",
+                    "Vec<String>",
+                    "Array of strings expected",
+                )),
+            }
+        }
+        let from_link = |link:&Query| -> Result<Vec<String>, Error> {
+            let state = context.evaluate_dependency(link)?;
+            from_json_value(&(state.data.try_into_json_value()?))
+        };
+        match param{
+            ParameterValue::DefaultValue(v) => return from_json_value(v),
+            ParameterValue::DefaultLink(link) => return from_link(link),
+            ParameterValue::ParameterValue(v, _) => return from_json_value(v),
+            ParameterValue::ParameterLink(link, _) =>  return from_link(link),
+            ParameterValue::EnumLink(link, _) => return from_link(link),
+            ParameterValue::MultipleParameters(p) => {
+                return p.iter().map(|pp| String::from_parameter_value(pp, context)).collect();
+            }
+            ParameterValue::Injected => return Err(Error::general_error("Injected parameter not allowed".to_owned())),
+            ParameterValue::None => return Err(Error::general_error("None parameter not allowed".to_owned())),
+        }
+    }
+}
 
 pub trait InjectedFromContext<T, E: Environment> {
     fn from_context(name:&str, context: &impl ContextInterface<E>) -> Result<T, Error>;
@@ -295,6 +332,9 @@ macro_rules! command_wrapper_parameter_name {
     ($cxpar:ident, $statepar:ident, injected $argname:ident) => {
         $argname
     };
+    ($cxpar:ident, $statepar:ident, multiple $argname:ident) => {
+        $argname
+    };
     ($cxpar:ident, $statepar:ident, $argname:ident) => {
         $argname
     };
@@ -315,6 +355,10 @@ macro_rules! command_wrapper_parameter_assignment {
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
         let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
+            $arguments.get(&$context)?;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, multiple $argname:ident:$argtype:ty) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): std::vec::Vec<$argtype> =
             $arguments.get(&$context)?;
     };
 }
@@ -368,6 +412,15 @@ macro_rules! register_command {
     };
     (@arg $cm:ident $argname:ident:String) =>{
         $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
+    };
+    (@arg $cm:ident multiple $argname:ident:$argtype:ty) =>{
+        if stringify!($argtype) == "String" {
+            println!("multiple String arguments: {}", stringify!($argname));
+            $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_multiple());
+        }
+        else{
+            $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_multiple());
+        }
     };
     (@arg $cm:ident injected $argname:ident:$argtype:ty) =>{
         $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_injected());

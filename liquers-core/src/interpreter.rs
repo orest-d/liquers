@@ -508,6 +508,49 @@ mod tests {
     }
 
     #[test]
+    fn test_hello_world_multiple_interpreter() -> Result<(), Error> {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        {
+            let mut cr = env.get_mut_command_executor();
+            fn hello() -> Result<String, Error> {
+                Ok("Hello".to_string())
+            }
+            fn greet(state: &State<Value>, who: Vec<String>) -> Result<String, Error> {
+                let greeting = state.data.try_into_string().unwrap();
+                Ok(format!("{} {}!", greeting, who.join(" ")))
+            }
+            register_command!(cr, hello());
+            register_command!(cr, greet(state, multiple who:String));
+            /*
+            for x in cr.command_metadata_registry.get_mut("greet").unwrap().arguments.iter_mut(){
+                //x.multiple = true;
+                println!("{:?}", x);
+            }
+            */
+        }
+
+        /*
+        println!(
+            "############################ COMMANDS ############################\n{}\n",
+            serde_yaml::to_string(env.get_command_metadata_registry()).unwrap()
+        );
+        */
+        let mut pi = PlanInterpreter::new(env.to_ref());
+        pi.with_query("hello/greet-world-and-sun").unwrap();
+        //println!("{:?}", pi.plan);
+        println!(
+            "############################ PLAN ############################\n{}\n",
+            serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
+        );
+        pi.run()?;
+        assert_eq!(
+            pi.state.as_ref().unwrap().data.try_into_string()?,
+            "Hello world and sun!"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_interpreter_with_value_injection() -> Result<(), Error> {
         let mut cr: CommandRegistry<StatEnvRef<InjectionTest>, InjectionTest, Value> =
             CommandRegistry::new();
