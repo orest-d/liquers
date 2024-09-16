@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![allow(warnings)]
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -172,7 +173,7 @@ impl_from_parameter_value!(
     try_into_f64_option
 );
 impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_bool);
-
+/* 
 impl<E: Environment> FromParameterValue<Vec<String>, E> for Vec<String> {
     fn from_parameter_value(
         param: &ParameterValue,
@@ -208,6 +209,74 @@ impl<E: Environment> FromParameterValue<Vec<String>, E> for Vec<String> {
             ParameterValue::Injected => return Err(Error::general_error("Injected parameter not allowed".to_owned())),
             ParameterValue::None => return Err(Error::general_error("None parameter not allowed".to_owned())),
         }
+    }
+}
+*/
+
+/*
+impl<E: Environment> FromParameterValue<E::Value, E> for E::Value {
+    fn from_parameter_value(
+        param: &ParameterValue,
+        context: &impl ContextInterface<E>,
+    ) -> Result<E::Value, Error> {
+        Ok(E::Value::none())
+    }
+}
+*/
+
+impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
+    fn from_parameter_value(
+        param: &ParameterValue,
+        context: &impl ContextInterface<E>,
+    ) -> Result<Vec<E::Value>, Error> {
+        fn from_json_value<T:ValueInterface>(p: &serde_json::Value) -> Result<Vec<T>, Error> {
+            match p {
+                serde_json::Value::Array(a) => {
+                    let mut v = Vec::new();
+                    for e in a.iter(){
+                        v.push(T::try_from_json_value(e)?);
+                    }
+                    Ok(v)
+                },
+                _ => Ok(vec![T::try_from_json_value(p)?]),
+            }
+        }
+        let from_link = |link:&Query| -> Result<E::Value, Error> {
+            let state = context.evaluate_dependency(link)?;
+            if state.is_error()?{
+                return Err(Error::general_error("Error in link".to_owned()).with_query(link));
+            }
+            Ok((*state.data).clone())
+        };
+        
+        match param{
+            ParameterValue::DefaultValue(v) => return from_json_value(v),
+            ParameterValue::DefaultLink(link) => return Ok(vec![from_link(link)?]),
+            ParameterValue::ParameterValue(v, pos) => return from_json_value(v).map_err(|e| e.with_position(pos)),
+            ParameterValue::ParameterLink(link, pos) =>  return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?]),
+            ParameterValue::EnumLink(link, pos) => return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?]),
+            ParameterValue::MultipleParameters(p) => {
+                let mut v = Vec::new();
+                for pp in p.iter(){
+                    v.push(
+                        match pp{
+                            ParameterValue::DefaultValue(value) => E::Value::try_from_json_value(value)?,
+                            ParameterValue::DefaultLink(query) => from_link(query)?,
+                            ParameterValue::ParameterValue(value, position) => E::Value::try_from_json_value(value).map_err(|e| e.with_position(position))?,
+                            ParameterValue::ParameterLink(query, position) => from_link(query).map_err(|e| e.with_position(position))?,
+                            ParameterValue::EnumLink(query, position) => from_link(query).map_err(|e| e.with_position(position))?,
+                            ParameterValue::MultipleParameters(vec) => return Err(Error::unexpected_error("Nested multiple parameters not allowed".to_owned())),
+                            ParameterValue::Injected => return Err(Error::unexpected_error("Injected parameter not allowed inside multi-parameter".to_owned())),
+                            ParameterValue::None => return Err(Error::unexpected_error("None parameter not allowed inside multi-parameter".to_owned())),
+                        }    
+                    );
+                }
+                Ok(v)
+            }
+            ParameterValue::Injected => return Err(Error::general_error("Injected parameter not allowed".to_owned())),
+            ParameterValue::None => return Err(Error::general_error("None parameter not allowed".to_owned())),
+        }
+        //Ok(vec![E::Value::none()])
     }
 }
 
@@ -297,6 +366,7 @@ where
     }
 }
 
+/*
 #[macro_export]
 macro_rules! command_wrapper_typed {
     ($name:ident
@@ -320,6 +390,7 @@ macro_rules! command_wrapper_typed {
         //)
         };
 }
+*/
 
 #[macro_export]
 macro_rules! command_wrapper_parameter_name {
@@ -355,6 +426,10 @@ macro_rules! command_wrapper_parameter_assignment {
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
         let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
+            $arguments.get(&$context)?;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, multiple $argname:ident:$argtype:ty) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): std::vec::Vec<$argtype> =
             $arguments.get(&$context)?;
     };
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, multiple $argname:ident:$argtype:ty) => {
@@ -414,6 +489,7 @@ macro_rules! register_command {
         $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
     };
     (@arg $cm:ident multiple $argname:ident:$argtype:ty) =>{
+        /*
         if stringify!($argtype) == "String" {
             println!("multiple String arguments: {}", stringify!($argname));
             $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_multiple());
@@ -421,6 +497,9 @@ macro_rules! register_command {
         else{
             $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_multiple());
         }
+        */
+        println!("multiple Any arguments: {}", stringify!($argname));
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_multiple());
     };
     (@arg $cm:ident injected $argname:ident:$argtype:ty) =>{
         $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_injected());

@@ -45,6 +45,9 @@ impl<V: ValueInterface> State<V> {
     pub fn is_empty(&self) -> bool {
         (*self.data).is_none()
     }
+    pub fn is_error(&self) -> Result<bool, crate::error::Error> {
+        (*self.metadata).is_error()
+    }
 }
 
 impl<V: ValueInterface> Default for State<V> {

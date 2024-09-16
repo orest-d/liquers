@@ -515,12 +515,12 @@ mod tests {
             fn hello() -> Result<String, Error> {
                 Ok("Hello".to_string())
             }
-            fn greet(state: &State<Value>, who: Vec<String>) -> Result<String, Error> {
+            fn greet(state: &State<Value>, who: Vec<Value>) -> Result<String, Error> {
                 let greeting = state.data.try_into_string().unwrap();
-                Ok(format!("{} {}!", greeting, who.join(" ")))
+                Ok(format!("{} {}!", greeting, who.iter().map(|x| x.try_into_string().unwrap_or("?".to_string())).collect::<Vec<String>>().join(" ")))
             }
             register_command!(cr, hello());
-            register_command!(cr, greet(state, multiple who:String));
+            register_command!(cr, greet(state, multiple who:Value));
             /*
             for x in cr.command_metadata_registry.get_mut("greet").unwrap().arguments.iter_mut(){
                 //x.multiple = true;
