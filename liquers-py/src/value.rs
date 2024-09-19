@@ -80,7 +80,7 @@ impl Value {
                 "{{{}}}",
                 value
                     .iter()
-                    .map(|(k, v)| format!("\"{}\":{}", k.escape_unicode(), v.__str__().unwrap_or("?".into())))
+                    .map(|(k, v)| format!("\"{}\":{}", k.escape_default(), v.__str__().unwrap_or("?".into())))
                     .collect::<Vec<_>>()
                     .join(", ")
             )),
@@ -89,12 +89,46 @@ impl Value {
                 Python::with_gil(|py| {
                     Ok(value.bind(py).str()?.to_string())
                 })
-
             },
         }
     }
-    pub fn __repr__(&self) -> String {
-        format!("{:?}", self)
+    pub fn __repr__(&self) -> PyResult<String> {
+        match self {
+            Value::None {} => Ok("None".into()),
+            Value::Bool { value } => {
+                if *value {
+                    Ok("True".into())
+                } else {
+                    Ok("False".into())
+                }
+            }
+            Value::I32 { value } => Ok(format!("{value}")),
+            Value::I64 { value } => Ok(format!("{value}")),
+            Value::F64 { value } => Ok(format!("{value}")),
+            Value::Text { value } => Ok(format!("\"{}\"",value.escape_default())),
+            Value::Array { value } => Ok(format!(
+                "[{}]",
+                value
+                    .iter()
+                    .map(|x| x.__repr__().unwrap_or("?".into()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Value::Object { value } => Ok(format!(
+                "{{{}}}",
+                value
+                    .iter()
+                    .map(|(k, v)| format!("\"{}\":{}", k.escape_default(), v.__repr__().unwrap_or("?".into())))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Value::Bytes { value } => Ok(format!("{:?}", value)),
+            Value::Py { value } => {
+                Python::with_gil(|py| {
+                    Ok(value.bind(py).repr()?.to_string())
+                })
+            },
+        }
     }
 }
 

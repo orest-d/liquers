@@ -125,7 +125,7 @@ fn pycall(
     }
 
     let s = state.data.try_into_string()?;
-    Python::with_gil(|py| {
+    let res = Python::with_gil(|py| {
         let m = if module == "builtins" || module == ""{
             PyModule::import(py, "builtins")?
         } else {
@@ -141,6 +141,7 @@ fn pycall(
                 liquers_core::plan::ParameterValue::EnumLink(_, _) => todo!(),
                 liquers_core::plan::ParameterValue::Injected => todo!(),
                 liquers_core::plan::ParameterValue::None => todo!(),
+                liquers_core::plan::ParameterValue::MultipleParameters(vec) => todo!(),
             }
         }
         let argv_pytuple = PyTuple::new_bound(py, argv);
@@ -149,13 +150,12 @@ fn pycall(
         let res = f.call1(argv_pytuple)?;
         //let builtins = PyModule::import_bound(py, "builtins")?;
         //builtins.getattr("print")?.call1(("PRINT <", &s, ">"))?;
-        return Ok(Value::Py { value: res.into() });
+        Ok(Value::Py { value: res.into() })
     })
     .map_err(|e: PyErr| {
         liquers_core::error::Error::general_error(format!("Python exception: {e}"))
     })?;
-
-    Ok(Value::none())
+    Ok(res)
 }
 
 pub fn register_commands(cr: &mut CommandRegistry) -> Result<(), liquers_core::error::Error> {
