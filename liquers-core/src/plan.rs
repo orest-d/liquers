@@ -85,7 +85,7 @@ pub enum ParameterValue {
     ParameterLink(Query, Position),
     EnumLink(Query, Position),
     MultipleParameters(Vec<ParameterValue>),
-    Injected,
+    Injected(String),
     None,
 }
 
@@ -100,7 +100,7 @@ impl Display for ParameterValue {
             ParameterValue::MultipleParameters(v) => {
                 write!(f, "multiple:{}", v.iter().map(|x| format!("{}",x)).join(","))
             }   
-            ParameterValue::Injected => write!(f, "injected value"),
+            ParameterValue::Injected(name) => write!(f, "injected '{}'", name),
             ParameterValue::None => write!(f, "None"),
         }
     }
@@ -131,7 +131,7 @@ impl ParameterValue {
                 CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
                 CommandParameterValue::None => {
                     if arginfo.injected {
-                        ParameterValue::Injected
+                        ParameterValue::Injected(arginfo.name.clone())
                     } else {
                         ParameterValue::None
                     }
@@ -306,8 +306,8 @@ impl ParameterValue {
                             ParameterValue::MultipleParameters(_) => return Err(Error::unexpected_error(
                                 "Multiple parameters not supported inside vector argument".to_string(),
                             ).with_position(pos)),
-                            ParameterValue::Injected => return Err(Error::unexpected_error(
-                                "Injected value not supported inside vector argument".to_string(),
+                            ParameterValue::Injected(name) => return Err(Error::unexpected_error(
+                                format!("Injected values ({name}) not supported inside vector argument"),
                             ).with_position(pos)),
                             ParameterValue::None => return Err(Error::unexpected_error(
                                 "None value not supported inside vector argument".to_string(),
@@ -358,7 +358,7 @@ impl ParameterValue {
     }
     pub fn is_injected(&self) -> bool {
         match self {
-            ParameterValue::Injected => true,
+            ParameterValue::Injected(_) => true,
             _ => false,
         }
     }

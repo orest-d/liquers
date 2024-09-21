@@ -266,14 +266,14 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
                             ParameterValue::ParameterLink(query, position) => from_link(query).map_err(|e| e.with_position(position))?,
                             ParameterValue::EnumLink(query, position) => from_link(query).map_err(|e| e.with_position(position))?,
                             ParameterValue::MultipleParameters(vec) => return Err(Error::unexpected_error("Nested multiple parameters not allowed".to_owned())),
-                            ParameterValue::Injected => return Err(Error::unexpected_error("Injected parameter not allowed inside multi-parameter".to_owned())),
+                            ParameterValue::Injected(name) => return Err(Error::unexpected_error(format!("Injected parameters ({name}) not allowed inside multi-parameter"))),
                             ParameterValue::None => return Err(Error::unexpected_error("None parameter not allowed inside multi-parameter".to_owned())),
                         }    
                     );
                 }
                 Ok(v)
             }
-            ParameterValue::Injected => return Err(Error::general_error("Injected parameter not allowed".to_owned())),
+            ParameterValue::Injected(name) => return Err(Error::general_error(format!("Injected parameters ({name}) not allowed"))),
             ParameterValue::None => return Err(Error::general_error("None parameter not allowed".to_owned())),
         }
         //Ok(vec![E::Value::none()])
