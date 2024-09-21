@@ -101,8 +101,8 @@ impl liquers_core::context::Environment for Environment {
     
 }
 
-/* 
-#[pyclass]
+
+#[pyclass(unsendable)]
 pub struct Context(pub liquers_core::context::Context<EnvRefDef, Environment>);
 
 #[pymethods]
@@ -111,7 +111,7 @@ impl Context {
         self.0.info(message);
     }
 }
-*/
+
 
 /*
 static ENVREF:Lazy<EnvRef> = Lazy::new(||{

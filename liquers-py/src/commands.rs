@@ -104,7 +104,16 @@ fn parameter2py(
         liquers_core::plan::ParameterValue::ParameterValue(x, pos) => json2py(py, x),
         liquers_core::plan::ParameterValue::ParameterLink(_, _) => todo!(),
         liquers_core::plan::ParameterValue::EnumLink(_, _) => todo!(),
-        liquers_core::plan::ParameterValue::Injected => todo!(),
+        liquers_core::plan::ParameterValue::Injected(name) => {
+            if name=="context"{
+                Ok(crate::context::Context(context.clone_context()).into_py(py))
+            }
+            else{
+                Err(PyErr::new::<PyException, _>(
+                    format!("Injected parameter '{name}' is not supported"),
+                ))
+            }
+        },
         liquers_core::plan::ParameterValue::None => todo!(),
         liquers_core::plan::ParameterValue::MultipleParameters(vec) => todo!(),
     }
