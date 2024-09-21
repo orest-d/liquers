@@ -27,6 +27,7 @@ pub enum ErrorType {
     KeyReadError,
     KeyWriteError,
     UnexpectedError,
+    ExecutionError,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -242,6 +243,15 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),
+        }
+    }
+    pub fn execution_error(message: String) -> Self {
+        Error {
+            error_type: ErrorType::ExecutionError,
+            message: message,
+            position: Position::unknown(),
+            query: None,
+            key: None,
         }
     }
 }

@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
 use crate::error::Error;
-use crate::value::Value;
+use crate::value::{value_to_pyobject, Value};
 
 #[pyclass]
 pub struct CommandArguments(liquers_core::commands::CommandArguments);
@@ -56,35 +56,57 @@ fn pyprint(state: &State<Value>) -> Result<Value, Error> {
 }
 
 fn json2py(py: Python, json: &serde_json::Value) -> PyResult<PyObject> {
-    match json{
+    match json {
         serde_json::Value::Null => Ok(py.None()),
         serde_json::Value::Bool(x) => Ok(x.into_py(py)),
         serde_json::Value::Number(x) => {
-            if x.is_i64(){
+            if x.is_i64() {
                 Ok(x.as_i64().unwrap().into_py(py))
-            } else if x.is_u64(){
+            } else if x.is_u64() {
                 Ok(x.as_u64().unwrap().into_py(py))
-            } else if x.is_f64(){
+            } else if x.is_f64() {
                 Ok(x.as_f64().unwrap().into_py(py))
             } else {
-                Err(PyErr::new::<PyException, _>("Number is not i64, u64 or f64"))
+                Err(PyErr::new::<PyException, _>(
+                    "Number is not i64, u64 or f64",
+                ))
             }
-        },
+        }
         serde_json::Value::String(x) => Ok(x.into_py(py)),
         serde_json::Value::Array(v) => {
             let list = PyList::empty_bound(py);
-            for x in v.iter(){
+            for x in v.iter() {
                 list.append(json2py(py, x)?)?;
             }
             Ok(list.into())
         }
         serde_json::Value::Object(o) => {
             let dict = PyDict::new_bound(py);
-            for (k,v) in o.iter(){
+            for (k, v) in o.iter() {
                 dict.set_item(k, json2py(py, v)?)?;
             }
             Ok(dict.into())
-        },
+        }
+    }
+}
+
+fn parameter2py(
+    py: Python,
+    p: &liquers_core::plan::ParameterValue,
+    context: &liquers_core::context::Context<
+        crate::context::EnvRefDef,
+        crate::context::Environment,
+    >,
+) -> PyResult<PyObject> {
+    match p {
+        liquers_core::plan::ParameterValue::DefaultValue(x) => json2py(py, x),
+        liquers_core::plan::ParameterValue::DefaultLink(_) => todo!(),
+        liquers_core::plan::ParameterValue::ParameterValue(x, pos) => json2py(py, x),
+        liquers_core::plan::ParameterValue::ParameterLink(_, _) => todo!(),
+        liquers_core::plan::ParameterValue::EnumLink(_, _) => todo!(),
+        liquers_core::plan::ParameterValue::Injected => todo!(),
+        liquers_core::plan::ParameterValue::None => todo!(),
+        liquers_core::plan::ParameterValue::MultipleParameters(vec) => todo!(),
     }
 }
 
@@ -98,50 +120,35 @@ fn pycall(
     //let context_par = arg.pop_parameter()?;
     let module: String = arg.get(&context)?;
     let function: String = arg.get(&context)?;
-    //let pass_state: String = arg.get(&context)?;
-    /*
-    let argv_par = arg.pop_parameter()?;
-    let argv = argv_par
-        .value()
-        .map(|x| x.as_array().map(|xx| 
-            xx.iter().map(|xxx| 
-                match xxx {
-                    serde_json::Value::Null => format!("null"),
-                    serde_json::Value::Bool(x) => format!("{x}"),
-                    serde_json::Value::Number(x) => format!("{x}"),
-                    serde_json::Value::String(x) => x.to_string(),
-                    serde_json::Value::Array(x) => format!("{x:?}"),
-                    serde_json::Value::Object(x) => format!("{x:?}"),
-                }
-            ).collect::<Vec<String>>()))
-        .flatten()
-        .ok_or_else(|| {
-            liquers_core::error::Error::general_error(format!("pycall argv is not an array"))
-        })?;
-    */
     println!("pycall {}.{}", module, function);
     for arg in arg.parameters.0.iter() {
         println!("arg: {:?}", arg);
     }
 
-    let s = state.data.try_into_string()?;
+    let state_value =Python::with_gil(|py| {value_to_pyobject(&(*state.data),py)})?;
+
+    //let s = state.data.try_into_string()?;
     let res = Python::with_gil(|py| {
-        let m = if module == "builtins" || module == ""{
+        let m = if module == "builtins" || module == "" {
             PyModule::import(py, "builtins")?
         } else {
             PyModule::import(py, &*module)?
         };
-        let mut argv:Vec<PyObject> = Vec::new();
-        for (i,a) in arg.parameters.0.iter().enumerate().skip(2) {
-            match a{
-                liquers_core::plan::ParameterValue::DefaultValue(x) => argv.push(json2py(py, x)?),
-                liquers_core::plan::ParameterValue::DefaultLink(_) => todo!(),
-                liquers_core::plan::ParameterValue::ParameterValue(x, pos) => argv.push(json2py(py, x)?),
-                liquers_core::plan::ParameterValue::ParameterLink(_, _) => todo!(),
-                liquers_core::plan::ParameterValue::EnumLink(_, _) => todo!(),
-                liquers_core::plan::ParameterValue::Injected => todo!(),
-                liquers_core::plan::ParameterValue::None => todo!(),
-                liquers_core::plan::ParameterValue::MultipleParameters(vec) => todo!(),
+        let mut argv: Vec<PyObject> = Vec::new();
+
+        
+        
+        argv.push(state_value);
+        for (i, a) in arg.parameters.0.iter().enumerate().skip(2) {
+            match a {
+                liquers_core::plan::ParameterValue::MultipleParameters(vec) => {
+                    for p in vec.iter() {
+                        argv.push(parameter2py(py, p, &context)?);
+                    }
+                },
+                _ => {
+                    argv.push(parameter2py(py, a, &context)?);
+                }
             }
         }
         let argv_pytuple = PyTuple::new_bound(py, argv);

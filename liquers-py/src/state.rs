@@ -20,12 +20,23 @@ impl State {
         self.0.metadata.is_error().map_err(|e| crate::error::Error(e).into())
     }
 
-    pub fn get(&self) -> PyResult<Value>{
+    pub fn get_value(&self) -> PyResult<Value>{
         if self.is_error()?{
             Err(PyException::new_err("ERROR".to_string()))
         }
         else{
             Ok((*self.0.data).clone())
+        }
+    }
+
+    pub fn get(&self) -> PyResult<PyObject>{
+        if self.is_error()?{
+            Err(PyException::new_err("ERROR".to_string()))
+        }
+        else{
+            Python::with_gil(|py|{
+                (*self.0.data).as_pyobject(py)
+            })
         }
     }
 

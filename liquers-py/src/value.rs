@@ -4,7 +4,10 @@ use liquers_core::{
     error::ErrorType,
     value::{self, DefaultValueSerializer, ValueInterface},
 };
-use pyo3::prelude::*;
+use pyo3::{
+    prelude::*,
+    types::{PyDict, PyList},
+};
 
 use liquers_core::error::Error;
 use std::{
@@ -54,6 +57,9 @@ impl Value {
             }
         })
     }
+    pub fn as_pyobject(&self, py: Python) -> PyResult<PyObject> {
+        Ok(value_to_pyobject(self, py).map_err(|e| crate::error::Error::from(e))?)
+    }
     pub fn __str__(&self) -> PyResult<String> {
         match self {
             Value::None {} => Ok("None".into()),
@@ -80,16 +86,16 @@ impl Value {
                 "{{{}}}",
                 value
                     .iter()
-                    .map(|(k, v)| format!("\"{}\":{}", k.escape_default(), v.__str__().unwrap_or("?".into())))
+                    .map(|(k, v)| format!(
+                        "\"{}\":{}",
+                        k.escape_default(),
+                        v.__str__().unwrap_or("?".into())
+                    ))
                     .collect::<Vec<_>>()
                     .join(", ")
             )),
             Value::Bytes { value } => Ok(format!("{:?}", value)),
-            Value::Py { value } => {
-                Python::with_gil(|py| {
-                    Ok(value.bind(py).str()?.to_string())
-                })
-            },
+            Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).str()?.to_string())),
         }
     }
     pub fn __repr__(&self) -> PyResult<String> {
@@ -105,7 +111,7 @@ impl Value {
             Value::I32 { value } => Ok(format!("{value}")),
             Value::I64 { value } => Ok(format!("{value}")),
             Value::F64 { value } => Ok(format!("{value}")),
-            Value::Text { value } => Ok(format!("\"{}\"",value.escape_default())),
+            Value::Text { value } => Ok(format!("\"{}\"", value.escape_default())),
             Value::Array { value } => Ok(format!(
                 "[{}]",
                 value
@@ -118,17 +124,53 @@ impl Value {
                 "{{{}}}",
                 value
                     .iter()
-                    .map(|(k, v)| format!("\"{}\":{}", k.escape_default(), v.__repr__().unwrap_or("?".into())))
+                    .map(|(k, v)| format!(
+                        "\"{}\":{}",
+                        k.escape_default(),
+                        v.__repr__().unwrap_or("?".into())
+                    ))
                     .collect::<Vec<_>>()
                     .join(", ")
             )),
             Value::Bytes { value } => Ok(format!("{:?}", value)),
-            Value::Py { value } => {
-                Python::with_gil(|py| {
-                    Ok(value.bind(py).repr()?.to_string())
-                })
-            },
+            Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).repr()?.to_string())),
         }
+    }
+}
+
+pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core::error::Error> {
+    match v {
+        Value::None {} => Ok(py.None()),
+        Value::Bool { value } => Ok(value.to_object(py)),
+        Value::I32 { value } => Ok(value.to_object(py)),
+        Value::I64 { value } => Ok(value.to_object(py)),
+        Value::F64 { value } => Ok(value.to_object(py)),
+        Value::Text { value } => Ok(value.to_object(py)),
+        Value::Array { value } => {
+            let list = PyList::empty_bound(py);
+            for x in value {
+                list.append(value_to_pyobject(x, py)?).map_err(|e| {
+                    liquers_core::error::Error::execution_error(format!(
+                        "Error appending to python list: {e}"
+                    ))
+                })?;
+            }
+            Ok(list.into())
+        }
+        Value::Object { value } => {
+            let dict = PyDict::new_bound(py);
+            for (k, v) in value {
+                let x = value_to_pyobject(v, py)?;
+                dict.set_item(k, x).map_err(|e| {
+                    liquers_core::error::Error::execution_error(format!(
+                        "Error setting item '{k}' in python dictionary: {e}"
+                    ))
+                })?;
+            }
+            Ok(dict.into())
+        }
+        Value::Bytes { value } => Ok(value.to_object(py)),
+        Value::Py { value } => Ok(value.clone_ref(py)),
     }
 }
 
@@ -152,6 +194,7 @@ impl ValueInterface for Value {
 
     fn try_into_string(&self) -> Result<String, Error> {
         match self {
+            Value::None {} => Ok("None".to_owned()),
             Value::I32 { value: n } => Ok(format!("{n}")),
             Value::I64 { value: n } => Ok(format!("{n}")),
             Value::F64 { value: n } => Ok(format!("{n}")),

@@ -23,6 +23,7 @@ pub enum ErrorType {
     KeyReadError,
     KeyWriteError,
     UnexpectedError,
+    ExecutionError,
 }
 
 impl From<ErrorType> for liquers_core::error::ErrorType {
@@ -48,6 +49,7 @@ impl From<ErrorType> for liquers_core::error::ErrorType {
             ErrorType::KeyReadError => liquers_core::error::ErrorType::KeyReadError,
             ErrorType::KeyWriteError => liquers_core::error::ErrorType::KeyWriteError,
             ErrorType::UnexpectedError => liquers_core::error::ErrorType::UnexpectedError,
+            ErrorType::ExecutionError => liquers_core::error::ErrorType::ExecutionError,
         }
     }
 }
@@ -75,6 +77,7 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
             liquers_core::error::ErrorType::KeyReadError => ErrorType::KeyReadError,
             liquers_core::error::ErrorType::KeyWriteError => ErrorType::KeyWriteError,
             liquers_core::error::ErrorType::UnexpectedError => ErrorType::UnexpectedError,
+            liquers_core::error::ErrorType::ExecutionError => ErrorType::ExecutionError,
         }
     }
 }
