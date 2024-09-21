@@ -120,12 +120,26 @@ fn pycall(
     //let context_par = arg.pop_parameter()?;
     let module: String = arg.get(&context)?;
     let function: String = arg.get(&context)?;
-    println!("pycall {}.{}", module, function);
-    for arg in arg.parameters.0.iter() {
-        println!("arg: {:?}", arg);
-    }
+    let pass_state: String = arg.get(&context)?;
 
-    let state_value =Python::with_gil(|py| {value_to_pyobject(&(*state.data),py)})?;
+    let state_value: Option<PyObject> = if pass_state == "no" {
+        None
+    } else if pass_state == "pyobject" {
+        Some(Python::with_gil(|py| {
+            value_to_pyobject(&(*state.data), py)
+        })?)
+    } else if pass_state == "state" {
+        Some(Python::with_gil(|py| {
+            crate::state::State(state.clone()).into_py(py)
+        }))
+    } else if pass_state == "value" {
+        let data = (&*state.data).clone();
+        Some(Python::with_gil(|py| data.into_py(py)))
+    } else {
+        return Err(liquers_core::error::Error::unexpected_error(format!(
+            "Invalid pass_state in pycall: '{pass_state}'"
+        )));
+    };
 
     //let s = state.data.try_into_string()?;
     let res = Python::with_gil(|py| {
@@ -136,16 +150,16 @@ fn pycall(
         };
         let mut argv: Vec<PyObject> = Vec::new();
 
-        
-        
-        argv.push(state_value);
-        for (i, a) in arg.parameters.0.iter().enumerate().skip(2) {
+        if let Some(sv) = state_value {
+            argv.push(sv);
+        }
+        for (i, a) in arg.parameters.0.iter().enumerate().skip(3) {
             match a {
                 liquers_core::plan::ParameterValue::MultipleParameters(vec) => {
                     for p in vec.iter() {
                         argv.push(parameter2py(py, p, &context)?);
                     }
-                },
+                }
                 _ => {
                     argv.push(parameter2py(py, a, &context)?);
                 }
@@ -185,6 +199,17 @@ pub fn register_commands(cr: &mut CommandRegistry) -> Result<(), liquers_core::e
             .with_argument(liquers_core::command_metadata::ArgumentInfo::string_argument("module"));
         reg_command_metadata.with_argument(
             liquers_core::command_metadata::ArgumentInfo::string_argument("function"),
+        );
+        reg_command_metadata.with_argument(
+            liquers_core::command_metadata::ArgumentInfo::argument("pass_state")
+                .with_default("pyobject")
+                .with_type(liquers_core::command_metadata::ArgumentType::Enum(
+                    liquers_core::command_metadata::EnumArgument::new("PassState")
+                        .with_alternative("no")
+                        .with_alternative("pyobject")
+                        .with_alternative("value")
+                        .with_alternative("state"),
+                )),
         );
         reg_command_metadata.with_argument(
             liquers_core::command_metadata::ArgumentInfo::argument("argv").set_multiple(),

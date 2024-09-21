@@ -254,7 +254,7 @@ impl ParameterValue {
                         Err(Error::conversion_error_with_message(
                             s.to_owned(),
                             &e.name,
-                            &format!("Undefined enum {}", e.name),
+                            &format!("Undefined enum {} in argument {}", e.name, arginfo.name),
                         )
                         .with_position(&pos))
                     }

@@ -94,18 +94,45 @@ impl EnumArgument {
             value_type: EnumArgumentType::Any,
         }
     }
-    pub fn with_value(&mut self, alias: &str, value: Value) -> &mut Self {
+    pub fn with_string_value(mut self, alias: &str, value: &str) -> Self {
+        self.value_type = EnumArgumentType::String;
         self.values.push(EnumArgumentAlternative {
             alias: alias.to_string(),
-            value: CommandParameterValue::Value(value),
+            value: CommandParameterValue::Value(Value::String(value.to_string())),
         });
         self
     }
-    pub fn with_value_type(&mut self, value_type: EnumArgumentType) -> &mut Self {
+    pub fn with_alternative(mut self, alias: &str) -> Self {
+        self.with_string_value(alias, alias)
+    }
+    pub fn with_int_value(mut self, alias: &str, value: i32) -> Self {
+        self.value_type = EnumArgumentType::Integer;
+        self.values.push(EnumArgumentAlternative {
+            alias: alias.to_string(),
+            value: CommandParameterValue::Value(Value::Number(serde_json::Number::from(value))),
+        });
+        self
+    }
+    pub fn with_value<T:Into<Value>>(mut self, alias: &str, value: T) -> Self {
+        self.values.push(EnumArgumentAlternative {
+            alias: alias.to_string(),
+            value: CommandParameterValue::from_value(value.into())
+        });
+        self
+    }
+
+    pub fn with_link(mut self, alias: &str, query: Query) -> Self {
+        self.values.push(EnumArgumentAlternative {
+            alias: alias.to_string(),
+            value: CommandParameterValue::Query(query),
+        });
+        self
+    }
+    pub fn with_value_type(mut self, value_type: EnumArgumentType) -> Self {
         self.value_type = value_type;
         self
     }
-    pub fn with_others_allowed(&mut self) -> &mut Self {
+    pub fn with_others_allowed(mut self) -> Self {
         self.others_allowed = true;
         self
     }
@@ -331,15 +358,21 @@ impl ArgumentInfo {
         self.default = CommandParameterValue::null();
         self
     }
+    pub fn with_type(mut self, argtype:ArgumentType) -> Self {
+        self.argument_type = argtype;
+        self
+    }
     pub fn with_default<T:Into<Value>>(mut self, value: T) -> Self {
         self.default = CommandParameterValue::from_value(value.into());
         self
     }
     pub fn true_by_default(mut self) -> Self {
+        self=self.with_type(ArgumentType::Boolean);
         self.default = CommandParameterValue::from_value(Value::Bool(true));
         self
     }
     pub fn false_by_default(mut self) -> Self {
+        self=self.with_type(ArgumentType::Boolean);
         self.default = CommandParameterValue::from_value(Value::Bool(false));
         self
     }
