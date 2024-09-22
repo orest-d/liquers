@@ -45,6 +45,17 @@ impl Environment {
             //async_store: Arc::new(Mutex::new(Box::new(NoAsyncStore))),
         }
     }
+
+    #[getter]
+    pub fn get_cmr(&self) -> crate::command_metadata::CommandMetadataRegistry {
+        crate::command_metadata::CommandMetadataRegistry(self.command_registry.command_metadata_registry.clone())
+    }
+
+    #[setter]
+    pub fn set_cmr(&mut self, cmr:&crate::command_metadata::CommandMetadataRegistry){
+        self.command_registry.command_metadata_registry = cmr.0.clone();
+    }
+
     /*
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::new(Mutex::new(store));

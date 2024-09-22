@@ -54,7 +54,8 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<crate::commands::CommandArguments>()?;
     m.add_class::<crate::commands::CommandRegistry>()?;
 
-    //m.add_class::<crate::context::Context>()?;
+    m.add_class::<crate::context::Environment>()?;
+    m.add_class::<crate::context::Context>()?;
 
     m.add_class::<crate::state::State>()?;
 
@@ -62,6 +63,7 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::plan::build_plan, m)?)?;
 
     m.add_function(wrap_pyfunction!(crate::interpreter::evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate_with_cmr, m)?)?;
 
     Ok(())
 }

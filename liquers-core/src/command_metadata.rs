@@ -619,6 +619,7 @@ impl CommandMetadataRegistry {
             commands: Vec::new(),
         }
     }
+
     pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
         self.commands.push(command.to_owned());
         self
