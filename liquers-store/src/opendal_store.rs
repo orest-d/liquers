@@ -25,6 +25,9 @@ impl OpenDALStore {
     fn map_read_error<T>(&self, key:&Key, res:opendal::Result<T>)->Result<T, liquers_core::error::Error> {
         res.map_err(|e| liquers_core::error::Error::key_read_error(key, &self.store_name(), &format!("{e} (OpenDAL Read Error)")))
     }
+    fn map_write_error<T>(&self, key:&Key, res:opendal::Result<T>)->Result<T, liquers_core::error::Error> {
+        res.map_err(|e| liquers_core::error::Error::key_write_error(key, &self.store_name(), &format!("{e} (OpenDAL Write Error)")))
+    }
 
 }
 
@@ -92,16 +95,38 @@ impl Store for OpenDALStore {
         }
     }
     
-    fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
-        todo!()
+    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
+        //TODO: create_dir
+        let path = self.key_to_path(key);
+        let buffer = Buffer::from_iter(data.iter().copied());
+        self.map_write_error(key, self.op.write(&path, buffer))?;
+        self.set_metadata(key, metadata)?;
+        Ok(())
     }
     
-    fn set_metadata(&mut self, key: &Key, _metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
-        todo!()
+    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
+        //TODO: create_dir
+        let path = self.key_to_path_metadata(key);
+        let mut file = self.map_write_error(key, self.op.writer(&path))?.into_std_write();
+        match metadata {
+            Metadata::MetadataRecord(metadata) => serde_json::to_writer_pretty(file, metadata)
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
+            Metadata::LegacyMetadata(metadata) => serde_json::to_writer_pretty(file, metadata)
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
+        };
+        Ok(())
     }
     
     fn remove(&mut self, key: &Key) -> Result<(), liquers_core::error::Error> {
-        todo!()
+        let path = self.key_to_path(key);
+        if self.map_read_error(key, self.op.exists(&path))? {
+            self.map_write_error(key, self.op.delete(&path))?;
+        }
+        let matadata_path = self.key_to_path_metadata(key);
+        if self.map_read_error(key, self.op.exists(&matadata_path))? {
+            self.map_write_error(key, self.op.delete(&matadata_path))?;
+        }
+        Ok(())
     }
     
     fn removedir(&mut self, key: &Key) -> Result<(), liquers_core::error::Error> {
