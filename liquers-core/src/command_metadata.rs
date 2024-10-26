@@ -399,6 +399,8 @@ pub struct CommandKey {
     pub realm: String,
     pub namespace: String,
     pub name: String,
+    // TODO: specialization by type and type group
+    // TODO: other possibilities? (e.g. version)
 }
 
 impl CommandKey {
@@ -670,6 +672,7 @@ impl CommandMetadataRegistry {
         }
         None
     }
+    //TODO: implement command specialization by type
     pub fn find_command_in_namespaces(
         &self,
         realm: &str,

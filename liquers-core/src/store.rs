@@ -707,6 +707,9 @@ impl Store for FileStore {
 
     fn is_supported(&self, key: &Key) -> bool {
         key.has_key_prefix(&self.prefix)
+            && (!key
+                .filename()
+                .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
     }
 }
 
@@ -875,7 +878,7 @@ impl Store for MemoryStore {
 /// Store that routes requests to multiple stores.
 /// Ideally there should only be one router in the system, therefore the StoreRouter has no key prefix (key prefix is empty).
 /// Stores are evaluated in sequence until the first store that supports the key is found - i.e. prefix is matching and is_supported returns true.
-struct StoreRouter {
+pub struct StoreRouter {
     stores: Vec<Box<dyn Store>>,
 }
 
@@ -1001,7 +1004,8 @@ impl Store for StoreRouter {
             if key.has_key_prefix(&store.key_prefix()) {
                 return store.is_dir(key);
             }
-            if store.key_prefix().has_key_prefix(key) { // key is a prefix of store prefix, but smaller - hence it is a directory
+            if store.key_prefix().has_key_prefix(key) {
+                // key is a prefix of store prefix, but smaller - hence it is a directory
                 return Ok(true);
             }
         }
@@ -1024,7 +1028,8 @@ impl Store for StoreRouter {
                 let names = store.listdir(&key)?;
                 list.extend(names);
             }
-            if store.key_prefix().has_key_prefix(key) { // key is a prefix of store prefix, but smaller - hence it is a directory
+            if store.key_prefix().has_key_prefix(key) {
+                // key is a prefix of store prefix, but smaller - hence it is a directory
                 list.push(store.key_prefix()[key.len()].to_string());
             }
         }
@@ -1050,14 +1055,259 @@ impl Store for StoreRouter {
     }
 
     fn makedir(&self, key: &Key) -> Result<(), Error> {
-        self.find_store(key)
-            .map_or(Err(Error::key_not_supported(key, "store router")), |store| {
-                store.makedir(key)
-            })
+        self.find_store(key).map_or(
+            Err(Error::key_not_supported(key, "store router")),
+            |store| store.makedir(key),
+        )
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        self.find_store(key).map_or(false, |store| store.is_supported(key))
+        self.find_store(key)
+            .map_or(false, |store| store.is_supported(key))
+    }
+}
+
+/// Asunchronous store that routes requests to multiple (asynchronous) stores.
+#[cfg(feature = "async_store")]
+pub struct AsyncStoreRouter {
+    stores: Vec<Box<dyn AsyncStore>>,
+}
+
+#[cfg(feature = "async_store")]
+impl AsyncStoreRouter {
+    pub fn new() -> StoreRouter {
+        StoreRouter { stores: Vec::new() }
+    }
+
+    pub fn add_store(&mut self, store: Box<dyn AsyncStore>) {
+        self.stores.push(store);
+    }
+
+    pub fn find_store(&self, key: &Key) -> Option<&dyn AsyncStore> {
+        for store in &self.stores {
+            if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
+                return Some(store.as_ref());
+            }
+        }
+        None
+    }
+
+    pub fn find_store_mut(&mut self, key: &Key) -> Option<&mut dyn AsyncStore> {
+        for store in &mut self.stores {
+            if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
+                return Some(store.as_mut());
+            }
+        }
+        None
+    }
+}
+
+#[async_trait(?Send)]
+#[cfg(feature = "async_store")]
+impl AsyncStore for AsyncStoreRouter {
+    fn store_name(&self) -> String {
+        std::format!("Store router")
+    }
+
+    fn key_prefix(&self) -> Key {
+        Key::new()
+    }
+
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        self.find_store(key).map_or(MetadataRecord::new(), |store| {
+            store.default_metadata(key, is_dir)
+        })
+    }
+
+    fn finalize_metadata(
+        &self,
+        metadata: Metadata,
+        key: &Key,
+        data: &[u8],
+        update: bool,
+    ) -> Metadata {
+        self.find_store(key).map_or(metadata.clone(), |store| {
+            store.finalize_metadata(metadata, key, data, update)
+        })
+    }
+
+    fn finalize_metadata_empty(
+        &self,
+        metadata: Metadata,
+        key: &Key,
+        is_dir: bool,
+        update: bool,
+    ) -> Metadata {
+        self.find_store(key).map_or(metadata.clone(), |store| {
+            store.finalize_metadata_empty(metadata, key, is_dir, update)
+        })
+    }
+
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        if let Some(store) = self.find_store(key) {
+            store.get(key).await
+        } else {
+            Err(Error::key_not_found(key))
+        }
+    }
+
+    /// Get data as bytes
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        if let Some(store) = self.find_store(key) {
+            store.get_bytes(key).await
+        } else {
+            Err(Error::key_not_found(key))
+        }
+    }
+
+    /// Get metadata
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        if let Some(store) = self.find_store(key) {
+            store.get_metadata(key).await
+        } else {
+            Err(Error::key_not_found(key))
+        }
+    }
+
+    /// Store data and metadata.
+    async fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        if let Some(store) = self.find_store_mut(key) {
+            store.set(key, _data, _metadata).await
+        } else {
+            Err(Error::key_not_supported(key, "store router"))
+        }
+    }
+
+    /// Store metadata only
+    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        if let Some(store) = self.find_store_mut(key) {
+            store.set_metadata(key, metadata).await
+        } else {
+            Err(Error::key_not_supported(key, "store router"))
+        }
+    }
+
+    /// Remove data and metadata associated with the key
+    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
+        if let Some(store) = self.find_store_mut(key) {
+            store.remove(key).await
+        } else {
+            Err(Error::key_not_supported(key, "store router"))
+        }
+    }
+
+    /// Remove directory.
+    /// The key must be a directory.
+    /// It depends on the underlying store whether the directory must be empty.    
+    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+        if let Some(store) = self.find_store_mut(key) {
+            store.removedir(key).await
+        } else {
+            Err(Error::key_not_supported(key, "store router"))
+        }
+    }
+
+    /// Returns true if store contains the key.
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        if let Some(store) = self.find_store(key) {
+            store.contains(key).await
+        } else {
+            Err(Error::key_not_supported(key, "store router"))
+        }
+    }
+
+    /// Returns true if key points to a directory.
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        for store in &self.stores {
+            if key.has_key_prefix(&store.key_prefix()) {
+                return store.is_dir(key).await;
+            }
+            if store.key_prefix().has_key_prefix(key) {
+                // key is a prefix of store prefix, but smaller - hence it is a directory
+                return Ok(true);
+            }
+        }
+        if key.is_empty() {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// List or iterator of all keys
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        let mut keys = self.listdir_keys_deep(&self.key_prefix()).await?;
+        keys.push(self.key_prefix().to_owned());
+        Ok(keys)
+    }
+
+    /// Return names inside a directory specified by key.
+    /// To get a key, names need to be joined with the key (key/name).
+    /// Complete keys can be obtained with the listdir_keys method.
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let mut list = Vec::new();
+        for store in &self.stores {
+            if key.has_key_prefix(&store.key_prefix()) {
+                let names = store.listdir(&key).await?;
+                list.extend(names);
+            }
+            if store.key_prefix().has_key_prefix(key) {
+                // key is a prefix of store prefix, but smaller - hence it is a directory
+                list.push(store.key_prefix()[key.len()].to_string());
+            }
+        }
+
+        Ok(list)
+    }
+
+    /// Return keys inside a directory specified by key.
+    /// Only keys present directly in the directory are returned,
+    /// subdirectories are not traversed.
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let names = self.listdir(key).await?;
+        Ok(names.iter().map(|x| key.join(x)).collect())
+    }
+
+    /// Return keys inside a directory specified by key.
+    /// Keys directly in the directory are returned,
+    /// as well as in all the subdirectories.
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let keys = self.listdir_keys(key).await?;
+        let mut keys_deep = keys.clone();
+        for sub_key in keys {
+            if self.is_dir(&key).await? {
+                let sub = self.listdir_keys_deep(&sub_key).await?;
+                keys_deep.extend(sub.into_iter());
+            }
+        }
+        Ok(keys_deep)
+    }
+
+    /// Make a directory
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        if let Some(store) = self.find_store(key) {
+            store.makedir(key).await
+        } else {
+            Err(Error::key_not_supported(key, "store router"))
+        }
+    }
+
+    // TODO: implement openbin
+    /*
+    def openbin(self, key, mode="r", buffering=-1):
+        """Return a file handle.
+        This is not necessarily always well supported, but it is required to support PyFilesystem2."""
+        raise KeyNotSupportedStoreException(key=key, store=self)
+    */
+
+    /// Returns true when this store supports the supplied key.
+    /// This allows layering Stores, e.g. by with_overlay, with_fallback
+    /// and store selectively certain data (keys) in certain stores.
+    fn is_supported(&self, _key: &Key) -> bool {
+        if let Some(store) = self.find_store(_key) {
+            store.is_supported(_key)
+        } else {
+            false
+        }
     }
 }
 

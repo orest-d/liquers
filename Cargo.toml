@@ -1,2 +1,2 @@
 [workspace]
-members=["liquers-core", "liquers-py"]
+members=["liquers-core", "liquers-py", "liquers-store"]

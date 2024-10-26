@@ -50,6 +50,24 @@ impl Error {
             key: None,
         }
     }
+
+    pub fn from_error<E:Display>(error_type:ErrorType, error: E) -> Self {
+        Error {
+            error_type: error_type,
+            message: error.to_string(),
+            position: Position::unknown(),
+            query: None,
+            key: None,
+        }
+    }
+
+    pub fn from_result<T,E:Display>(error_type:ErrorType, result: Result<T,E>) -> Result<T,Self> {
+        match result {
+            Ok(value) => Ok(value),
+            Err(e) => Err(Error::from_error(error_type, e))
+        }
+    }
+    
     pub fn with_position(mut self, position: &Position) -> Self {
         self.position = position.clone();
         self
