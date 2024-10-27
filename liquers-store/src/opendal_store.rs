@@ -1,4 +1,6 @@
 
+use std::collections::BTreeSet;
+
 use liquers_core::{error::Error, metadata::{Metadata, MetadataRecord}, query::Key, store::Store};
 use opendal::{BlockingOperator, Operator, Buffer};
 use bytes::Buf;
@@ -107,7 +109,7 @@ impl Store for OpenDALStore {
     fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
         //TODO: create_dir
         let path = self.key_to_path_metadata(key);
-        let mut file = self.map_write_error(key, self.op.writer(&path))?.into_std_write();
+        let file = self.map_write_error(key, self.op.writer(&path))?.into_std_write();
         match metadata {
             Metadata::MetadataRecord(metadata) => serde_json::to_writer_pretty(file, metadata)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
@@ -130,15 +132,26 @@ impl Store for OpenDALStore {
     }
     
     fn removedir(&mut self, key: &Key) -> Result<(), liquers_core::error::Error> {
-        todo!()
+        let path = self.key_to_path(key);
+        self.map_write_error(key, self.op.remove_all(&path))
     }
     
-    fn contains(&self, _key: &Key) -> Result<bool, liquers_core::error::Error> {
-        todo!()
+    fn contains(&self, key: &Key) -> Result<bool, liquers_core::error::Error> {
+        let path = self.key_to_path(key);
+        if self.map_read_error(key, self.op.exists(&path))? {
+            return Ok(true);
+        }
+        let metadata_path = self.key_to_path_metadata(key);
+        if self.map_read_error(key, self.op.exists(&metadata_path))? {
+            return Ok(true);
+        }
+        Ok(false)
     }
     
-    fn is_dir(&self, _key: &Key) -> Result<bool, liquers_core::error::Error> {
-        todo!()
+    fn is_dir(&self, key: &Key) -> Result<bool, liquers_core::error::Error> {
+        let path = self.key_to_path(key);
+        let stat = self.map_read_error(key, self.op.stat(&path))?;
+        Ok(stat.is_dir())
     }
     
     fn keys(&self) -> Result<Vec<Key>, liquers_core::error::Error> {
@@ -147,8 +160,18 @@ impl Store for OpenDALStore {
         Ok(keys)
     }
     
-    fn listdir(&self, _key: &Key) -> Result<Vec<String>, liquers_core::error::Error> {
-        todo!()
+    fn listdir(&self, key: &Key) -> Result<Vec<String>, liquers_core::error::Error> {
+        let mut list = BTreeSet::new();
+        let path = self.key_to_path(key);
+        let entries = self.map_read_error(key, self.op.list(&path))?;
+        for entry in entries {
+            let mut name = entry.name().to_string();
+            if name.ends_with(Self::METADATA) {
+                name = name.trim_end_matches(Self::METADATA).to_string();
+            }            
+            list.insert(name);
+        }
+        Ok(list.into_iter().collect())
     }
     
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, liquers_core::error::Error> {
@@ -169,7 +192,8 @@ impl Store for OpenDALStore {
     }
     
     fn makedir(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
-        todo!()
+        let path = format!("{}/",self.key_to_path(key));
+        self.map_write_error(key, self.op.create_dir(&path))
     }
     
     fn is_supported(&self, key: &Key) -> bool {
@@ -178,6 +202,4 @@ impl Store for OpenDALStore {
                 .filename()
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
     }
-
-
 }
