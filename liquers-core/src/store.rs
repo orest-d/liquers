@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::pin::Pin;
 
 use async_trait::async_trait;
 
@@ -8,7 +9,7 @@ use crate::error::Error;
 use crate::metadata::{Metadata, MetadataRecord};
 use crate::query::Key;
 
-pub trait Store: Send {
+pub trait Store: Send{
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -204,7 +205,7 @@ pub trait Store: Send {
 
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
-pub trait AsyncStore {
+pub trait AsyncStore: Send + Sync{
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -262,10 +263,7 @@ pub trait AsyncStore {
     }
 
     /// Store metadata only
-    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        let data = self.get_bytes(key).await?;
-        self.set(key, &data, metadata).await
-    }
+    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error>;
 
     /// Remove data and metadata associated with the key
     async fn remove(&mut self, key: &Key) -> Result<(), Error> {
@@ -349,6 +347,12 @@ pub trait AsyncStore {
 
 #[cfg(feature = "async_store")]
 pub struct AsyncStoreWrapper<T: Store>(pub T);
+
+impl<T:Store + Clone> Clone for AsyncStoreWrapper<T> {
+    fn clone(&self) -> Self {
+        AsyncStoreWrapper(self.0.clone())
+    }
+}
 
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
@@ -489,17 +493,33 @@ impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
 /// Used e.g. in the environment as a default value when the store is not available.
 pub struct NoStore;
 
+impl Clone for NoStore {
+    fn clone(&self) -> Self {
+        NoStore
+    }
+}
+
 impl Store for NoStore {}
 
 /// Trivial store unable to store anything.
 /// Used e.g. in the environment as a default value when the store is not available.
 pub struct NoAsyncStore;
 
+impl Clone for NoAsyncStore {
+    fn clone(&self) -> Self {
+        NoAsyncStore
+    }
+}
+
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
 impl AsyncStore for NoAsyncStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
+    }
+
+    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        Err(Error::key_not_supported(key, "NoAsyncStore"))
     }
 }
 
@@ -1083,19 +1103,19 @@ impl AsyncStoreRouter {
         self.stores.push(store);
     }
 
-    pub fn find_store(&self, key: &Key) -> Option<&dyn AsyncStore> {
+    fn find_store(&self, key: &Key) -> Option<&Box<dyn AsyncStore>> {
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
-                return Some(store.as_ref());
+                return Some(store);
             }
         }
         None
     }
 
-    pub fn find_store_mut(&mut self, key: &Key) -> Option<&mut dyn AsyncStore> {
+    fn find_store_mut(&mut self, key: &Key) -> Option<&mut Box<dyn AsyncStore>> {
         for store in &mut self.stores {
             if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
-                return Some(store.as_mut());
+                return Some(store);
             }
         }
         None
@@ -1170,9 +1190,9 @@ impl AsyncStore for AsyncStoreRouter {
     }
 
     /// Store data and metadata.
-    async fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+    async fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         if let Some(store) = self.find_store_mut(key) {
-            store.set(key, _data, _metadata).await
+            store.set(key, data, metadata).await
         } else {
             Err(Error::key_not_supported(key, "store router"))
         }
