@@ -99,7 +99,7 @@ impl Store for OpenDALStore {
         }
     }
     
-    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
+    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
         //TODO: create_dir
         let path = self.key_to_path(key);
         let buffer = Buffer::from_iter(data.iter().copied());
@@ -108,7 +108,7 @@ impl Store for OpenDALStore {
         Ok(())
     }
     
-    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
+    fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
         //TODO: create_dir
         let path = self.key_to_path_metadata(key);
         let file = self.map_write_error(key, self.op.writer(&path))?.into_std_write();
@@ -121,7 +121,7 @@ impl Store for OpenDALStore {
         Ok(())
     }
     
-    fn remove(&mut self, key: &Key) -> Result<(), liquers_core::error::Error> {
+    fn remove(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         let path = self.key_to_path(key);
         if self.map_read_error(key, self.op.exists(&path))? {
             self.map_write_error(key, self.op.delete(&path))?;
@@ -136,7 +136,7 @@ impl Store for OpenDALStore {
     /// Remove directory.
     /// The key must be a directory.
     /// Files are not removed recursively.
-    fn removedir(&mut self, key: &Key) -> Result<(), liquers_core::error::Error> {
+    fn removedir(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         let path = self.key_to_path(key);
         self.map_write_error(key, self.op.remove_all(&path))
     }

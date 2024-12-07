@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 
@@ -9,7 +10,7 @@ use crate::error::Error;
 use crate::metadata::{Metadata, MetadataRecord};
 use crate::query::Key;
 
-pub trait Store: Send{
+pub trait Store: Send {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -72,24 +73,24 @@ pub trait Store: Send{
     }
 
     /// Store data and metadata.
-    fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+    fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Store metadata only
-    fn set_metadata(&mut self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+    fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove data and metadata associated with the key
-    fn remove(&mut self, key: &Key) -> Result<(), Error> {
+    fn remove(&self, key: &Key) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove directory.
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
-    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+    fn removedir(&self, key: &Key) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -205,7 +206,7 @@ pub trait Store: Send{
 
 #[cfg(feature = "async_store")]
 #[async_trait(?Send)]
-pub trait AsyncStore: Send + Sync{
+pub trait AsyncStore: Send + Sync {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -348,7 +349,7 @@ pub trait AsyncStore: Send + Sync{
 #[cfg(feature = "async_store")]
 pub struct AsyncStoreWrapper<T: Store>(pub T);
 
-impl<T:Store + Clone> Clone for AsyncStoreWrapper<T> {
+impl<T: Store + Clone> Clone for AsyncStoreWrapper<T> {
     fn clone(&self) -> Self {
         AsyncStoreWrapper(self.0.clone())
     }
@@ -633,7 +634,7 @@ impl Store for FileStore {
         }
     }
 
-    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path(key);
         let mut file =
             File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
@@ -643,7 +644,7 @@ impl Store for FileStore {
         Ok(())
     }
 
-    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+    fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path_metadata(key);
         let file =
             File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
@@ -656,7 +657,7 @@ impl Store for FileStore {
         Ok(())
     }
 
-    fn remove(&mut self, key: &Key) -> Result<(), Error> {
+    fn remove(&self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         if path.exists() {
             std::fs::remove_file(path)
@@ -670,7 +671,7 @@ impl Store for FileStore {
         Ok(())
     }
 
-    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+    fn removedir(&self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         if path.exists() {
             std::fs::remove_dir_all(path)
@@ -734,14 +735,14 @@ impl Store for FileStore {
 }
 
 pub struct MemoryStore {
-    data: std::collections::HashMap<Key, (Vec<u8>, Metadata)>,
+    data: Arc<RwLock<std::collections::HashMap<Key, (Vec<u8>, Metadata)>>>,
     prefix: Key,
 }
 
 impl MemoryStore {
     pub fn new(prefix: &Key) -> MemoryStore {
         MemoryStore {
-            data: std::collections::HashMap::new(),
+            data: Arc::new(RwLock::new(std::collections::HashMap::new())),
             prefix: prefix.to_owned(),
         }
     }
@@ -781,67 +782,70 @@ impl Store for MemoryStore {
     }
 
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        match self.data.get(key) {
+        let mem = self.data.read().unwrap();
+        match mem.get(key) {
             Some((data, metadata)) => Ok((data.to_owned(), metadata.to_owned())),
             None => Err(Error::key_not_found(key)),
         }
     }
 
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        match self.data.get(key) {
+        let mem = self.data.read().unwrap();
+        match mem.get(key) {
             Some((data, _)) => Ok(data.to_owned()),
             None => Err(Error::key_not_found(key)),
         }
     }
 
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        match self.data.get(key) {
+        let mem = self.data.read().unwrap();
+        match mem.get(key) {
             Some((_, metadata)) => Ok(metadata.to_owned()),
             None => Err(Error::key_not_found(key)),
         }
     }
 
-    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        self.data
-            .insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
+    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let mut mem = self.data.write().unwrap();
+
+        mem.insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
         Ok(())
     }
 
-    fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        if let Some((data, _)) = self.data.get(key) {
-            self.data
-                .insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
-            Ok(())
-        } else {
-            Err(Error::key_not_found(key))
-        }
-    }
-
-    fn remove(&mut self, key: &Key) -> Result<(), Error> {
-        self.data.remove(key);
+    fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let res = self.get(key)?;
+        let mut mem = self.data.write().unwrap();
+        mem.insert(key.to_owned(), (res.0, metadata.to_owned()));
         Ok(())
     }
 
-    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
-        let keys = self
-            .data
+    fn remove(&self, key: &Key) -> Result<(), Error> {
+        let mut mem = self.data.write().unwrap();
+        mem.remove(key);
+        Ok(())
+    }
+
+    fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let mut mem = self.data.write().unwrap();
+        let keys = mem
             .keys()
             .filter(|k| k.has_key_prefix(key))
             .cloned()
             .collect::<Vec<_>>();
         for k in keys {
-            self.data.remove(&k);
+            mem.remove(&k);
         }
         Ok(())
     }
 
     fn contains(&self, key: &Key) -> Result<bool, Error> {
-        Ok(self.data.contains_key(key))
+        let mem = self.data.read().unwrap();
+        Ok(mem.contains_key(key))
     }
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let keys = self
-            .data
+        let mem = self.data.read().unwrap();
+        let keys = mem
             .keys()
             .filter(|k| k.has_key_prefix(key))
             .cloned()
@@ -855,7 +859,8 @@ impl Store for MemoryStore {
     }
 
     fn keys(&self) -> Result<Vec<Key>, Error> {
-        let keys = self.data.keys().cloned().collect::<Vec<_>>();
+        let mem = self.data.read().unwrap();
+        let keys = mem.keys().cloned().collect::<Vec<_>>();
         Ok(keys)
     }
 
@@ -865,9 +870,9 @@ impl Store for MemoryStore {
     }
 
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let mem = self.data.read().unwrap();
         let n = key.len() + 1;
-        let keys = self
-            .data
+        let keys = mem
             .keys()
             .filter(|k| k.has_key_prefix(key) && k.len() == n)
             .cloned()
@@ -876,8 +881,8 @@ impl Store for MemoryStore {
     }
 
     fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let keys = self
-            .data
+        let mem = self.data.read().unwrap();
+        let keys = mem
             .keys()
             .filter(|k| k.has_key_prefix(key))
             .cloned()
@@ -986,29 +991,29 @@ impl Store for StoreRouter {
             })
     }
 
-    fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        self.find_store_mut(key).map_or(
+    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.set(key, data, metadata),
         )
     }
 
-    fn set_metadata(&mut self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
-        self.find_store_mut(key).map_or(
+    fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.set_metadata(key, _metadata),
         )
     }
 
-    fn remove(&mut self, key: &Key) -> Result<(), Error> {
-        self.find_store_mut(key).map_or(
+    fn remove(&self, key: &Key) -> Result<(), Error> {
+        self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.remove(key),
         )
     }
 
-    fn removedir(&mut self, key: &Key) -> Result<(), Error> {
-        self.find_store_mut(key).map_or(
+    fn removedir(&self, key: &Key) -> Result<(), Error> {
+        self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.removedir(key),
         )
