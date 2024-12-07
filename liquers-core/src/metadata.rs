@@ -350,6 +350,15 @@ impl MetadataRecord {
             self.filename = Some(format!("file.{}", extension));
         }
     }
+    pub fn get_media_type(&self) -> String {
+        if self.media_type.is_empty() {
+            if let Some(extension) = self.extension() {
+                return crate::media_type::file_extension_to_media_type(extension.as_str()).to_owned();
+            }
+            return "application/octet-stream".to_string();
+        }
+        self.media_type.to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -439,7 +448,7 @@ impl Metadata {
                 }
                 return "application/octet-stream".to_string();
             }
-            Metadata::MetadataRecord(m) => m.media_type.to_string(),
+            Metadata::MetadataRecord(m) => m.get_media_type(),
             _ => "application/octet-stream".to_string(),
         }
     }

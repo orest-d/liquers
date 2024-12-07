@@ -22,8 +22,10 @@ pub trait Store: Send {
     }
 
     /// Create default metadata object for a given key
-    fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
-        MetadataRecord::new()
+    fn default_metadata(&self, key: &Key, _is_dir: bool) -> MetadataRecord {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(key.to_owned());
+        metadata
     }
 
     /// Finalize metadata before storing - when data is available
@@ -566,7 +568,9 @@ impl Store for FileStore {
     }
 
     fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
-        MetadataRecord::new()
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(_key.to_owned());
+        metadata
     }
 
     fn finalize_metadata(
@@ -619,6 +623,7 @@ impl Store for FileStore {
             file.read_to_end(&mut buffer)
                 .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
+                // TODO: fix metadata, e.g. add the key
                 return Ok(Metadata::MetadataRecord(metadata));
             }
             if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
