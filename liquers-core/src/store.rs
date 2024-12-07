@@ -259,22 +259,22 @@ pub trait AsyncStore: Send + Sync {
     }
 
     /// Store data and metadata.
-    async fn set(&mut self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+    async fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Store metadata only
-    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error>;
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error>;
 
     /// Remove data and metadata associated with the key
-    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove directory.
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
-    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -412,24 +412,24 @@ impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
     }
 
     /// Store data and metadata.
-    async fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         self.0.set(key, data, metadata)
     }
 
     /// Store metadata only
-    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         self.0.set_metadata(key, metadata)
     }
 
     /// Remove data and metadata associated with the key
-    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
         self.0.remove(key)
     }
 
     /// Remove directory.
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
-    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
         self.0.removedir(key)
     }
 
@@ -519,7 +519,7 @@ impl AsyncStore for NoAsyncStore {
         Err(Error::key_not_found(key))
     }
 
-    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         Err(Error::key_not_supported(key, "NoAsyncStore"))
     }
 }
@@ -1195,8 +1195,8 @@ impl AsyncStore for AsyncStoreRouter {
     }
 
     /// Store data and metadata.
-    async fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        if let Some(store) = self.find_store_mut(key) {
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        if let Some(store) = self.find_store(key) {
             store.set(key, data, metadata).await
         } else {
             Err(Error::key_not_supported(key, "store router"))
@@ -1204,8 +1204,8 @@ impl AsyncStore for AsyncStoreRouter {
     }
 
     /// Store metadata only
-    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        if let Some(store) = self.find_store_mut(key) {
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        if let Some(store) = self.find_store(key) {
             store.set_metadata(key, metadata).await
         } else {
             Err(Error::key_not_supported(key, "store router"))
@@ -1213,8 +1213,8 @@ impl AsyncStore for AsyncStoreRouter {
     }
 
     /// Remove data and metadata associated with the key
-    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
-        if let Some(store) = self.find_store_mut(key) {
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        if let Some(store) = self.find_store(key) {
             store.remove(key).await
         } else {
             Err(Error::key_not_supported(key, "store router"))
@@ -1224,8 +1224,8 @@ impl AsyncStore for AsyncStoreRouter {
     /// Remove directory.
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
-    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
-        if let Some(store) = self.find_store_mut(key) {
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        if let Some(store) = self.find_store(key) {
             store.removedir(key).await
         } else {
             Err(Error::key_not_supported(key, "store router"))

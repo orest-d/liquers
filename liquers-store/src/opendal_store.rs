@@ -315,7 +315,7 @@ impl AsyncStore for AsyncOpenDALStore{
     }
 
     /// Store data and metadata.
-    async fn set(&mut self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         //TODO: create_dir
         let path = self.key_to_path(key);
         let buffer = Buffer::from_iter(data.iter().copied());
@@ -325,7 +325,7 @@ impl AsyncStore for AsyncOpenDALStore{
     }
 
     /// Store metadata only
-    async fn set_metadata(&mut self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         //TODO: create_dir
         let metadata_str = match metadata {
             Metadata::MetadataRecord(metadata) => serde_json::to_string_pretty(metadata)
@@ -338,7 +338,7 @@ impl AsyncStore for AsyncOpenDALStore{
     }
 
     /// Remove data and metadata associated with the key
-    async fn remove(&mut self, key: &Key) -> Result<(), Error> {
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         if self.map_read_error(key, self.op.exists(&path).await)? {
             self.map_write_error(key, self.op.delete(&path).await)?;
@@ -353,7 +353,7 @@ impl AsyncStore for AsyncOpenDALStore{
     /// Remove directory.
     /// The key must be a directory.
     /// Files are not removed recursively.
-    async fn removedir(&mut self, key: &Key) -> Result<(), Error> {
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
         let path = self.key_to_path(key);
         self.map_write_error(key, self.op.remove_all(&path).await)
     }
