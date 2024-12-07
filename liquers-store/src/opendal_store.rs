@@ -240,7 +240,7 @@ impl AsyncOpenDALStore {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncStore for AsyncOpenDALStore{
     /// Get store name
     fn store_name(&self) -> String {

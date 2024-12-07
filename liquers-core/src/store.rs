@@ -205,7 +205,7 @@ pub trait Store: Send {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncStore: Send + Sync {
     /// Get store name
     fn store_name(&self) -> String {
@@ -356,7 +356,7 @@ impl<T: Store + Clone> Clone for AsyncStoreWrapper<T> {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait(?Send)]
+#[async_trait]
 impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
     /// Get store name
     fn store_name(&self) -> String {
@@ -513,7 +513,7 @@ impl Clone for NoAsyncStore {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncStore for NoAsyncStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
@@ -1127,7 +1127,7 @@ impl AsyncStoreRouter {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 #[cfg(feature = "async_store")]
 impl AsyncStore for AsyncStoreRouter {
     fn store_name(&self) -> String {
