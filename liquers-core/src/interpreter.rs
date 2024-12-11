@@ -98,8 +98,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_store();
                 let (data, metadata) = store
-                    .lock()
-                    .unwrap()
                     .get(&key)
                     .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
@@ -330,7 +328,7 @@ mod tests {
     struct InjectionTest {
         variable: InjectedVariable,
         cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
-        store: Arc<Mutex<Box<dyn crate::store::Store>>>,
+        store: Arc<Box<dyn crate::store::Store>>,
     }
 
     impl Environment for InjectionTest {
@@ -353,7 +351,7 @@ mod tests {
             &mut self.cr
         }
 
-        fn get_store(&self) -> Arc<Mutex<Box<dyn crate::store::Store>>> {
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             self.store.clone()
         }
 
@@ -387,7 +385,7 @@ mod tests {
             panic!("NoInjection has non-mutable command executor")
         }
 
-        fn get_store(&self) -> Arc<Mutex<Box<dyn crate::store::Store>>> {
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             panic!("NoInjection has no store")
         }
 
@@ -404,7 +402,7 @@ mod tests {
     struct MutableInjectionTest {
         variable: Rc<RefCell<InjectedVariable>>,
         cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
-        store: Arc<Mutex<Box<dyn crate::store::Store>>>,
+        store: Arc<Box<dyn crate::store::Store>>,
     }
 
     impl Environment for MutableInjectionTest {
@@ -428,7 +426,7 @@ mod tests {
             &mut self.cr
         }
 
-        fn get_store(&self) -> std::sync::Arc<std::sync::Mutex<Box<dyn crate::store::Store>>> {
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             self.store.clone()
         }
 
@@ -571,7 +569,7 @@ mod tests {
         let env = Box::leak(Box::new(InjectionTest {
             variable: InjectedVariable("injected string".to_string()),
             cr: cr,
-            store: Arc::new(Mutex::new(Box::new(crate::store::NoStore))),
+            store: Arc::new(Box::new(crate::store::NoStore)),
         }));
         let envref = StatEnvRef(env);
         let mut pi = PlanInterpreter::new(envref);
@@ -617,7 +615,7 @@ mod tests {
                 "injected string".to_string(),
             ))),
             cr: cr,
-            store: Arc::new(Mutex::new(Box::new(crate::store::NoStore))),
+            store: Arc::new(Box::new(crate::store::NoStore)),
         }));
         let envref = StatEnvRef(env);
         let mut pi = PlanInterpreter::new(envref);
@@ -641,7 +639,6 @@ mod tests {
         env.with_store(Box::new(crate::store::MemoryStore::new(&Key::new())));
         {
             let store = env.get_store();
-            let mut store = store.lock().unwrap();
             store
                 .set(
                     &parse_key("hello.txt").unwrap(),

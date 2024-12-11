@@ -30,7 +30,7 @@ pub trait Environment: Sized {
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
     fn get_command_executor(&self) -> &Self::CommandExecutor;
     fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor;
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>;
+    fn get_store(&self) -> Arc<Box<dyn Store>>;
     fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>;
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
@@ -39,7 +39,7 @@ pub trait Environment: Sized {
 pub trait EnvRef<E: Environment>: Sized {
     fn get(&self) -> &E;
     fn get_ref(&self) -> Self;
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
+    fn get_store(&self) -> Arc<Box<dyn Store>> {
         self.get().get_store()
     }
     fn new_context(&self) -> Context<Self, E> {
@@ -116,7 +116,7 @@ pub trait ContextInterface<E: Environment>{
     fn get_environment(&self) -> &E;
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
     fn get_command_executor(&self) -> &E::CommandExecutor;
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>;
+    fn get_store(&self) -> Arc<Box<dyn Store>>;
     fn get_metadata(&self) -> MetadataRecord;
     fn set_filename(&self, filename: String);
     fn debug(&self, message: &str);
@@ -140,7 +140,7 @@ impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::Enviro
     fn get_command_executor(&self) -> &E::CommandExecutor {
         self.envref.get().get_command_executor()
     }
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
+    fn get_store(&self) -> Arc<Box<dyn Store>> {
         self.envref.get().get_store()
     }
     fn get_metadata(&self) -> MetadataRecord {
@@ -183,7 +183,7 @@ impl<ER: EnvRef<E>, E: Environment> Context<ER, E>{
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct SimpleEnvironment<V: ValueInterface> {
-    store: Arc<Mutex<Box<dyn Store>>>,
+    store: Arc<Box<dyn Store>>,
     #[cfg(feature = "async_store")]
     async_store: Arc<Box<dyn crate::store::AsyncStore>>,
     cache: Arc<Mutex<Box<dyn Cache<V>>>>,
@@ -193,7 +193,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
 impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
     pub fn new() -> Self {
         SimpleEnvironment {
-            store: Arc::new(Mutex::new(Box::new(NoStore))),
+            store: Arc::new(Box::new(NoStore)),
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             #[cfg(feature = "async_store")]
@@ -201,7 +201,7 @@ impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::new(Mutex::new(store));
+        self.store = Arc::new(store);
         self
     }
     #[cfg(feature = "async_store")]
@@ -238,7 +238,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
         &mut self.command_registry
     }
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
+    fn get_store(&self) -> Arc<Box<dyn Store>> {
         self.store.clone()
     }
 
