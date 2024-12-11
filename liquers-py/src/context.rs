@@ -26,7 +26,7 @@ impl EnvRef{
 
 #[pyclass]
 pub struct Environment {
-    pub store: Arc<Mutex<Box<dyn Store>>>,
+    pub store: Arc<Box<dyn Store>>,
     pub cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
     pub command_registry: CommandRegistry<EnvRefDef, Self, Value>,
     //#[cfg(feature = "async_store")]
@@ -38,7 +38,7 @@ impl Environment {
     #[new]
     pub fn new() -> Self {
         Environment {
-            store: Arc::new(Mutex::new(Box::new(liquers_core::store::NoStore))),
+            store: Arc::new(Box::new(liquers_core::store::NoStore)),
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             //#[cfg(feature = "async_store")]
@@ -97,7 +97,7 @@ impl liquers_core::context::Environment for Environment {
     fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
         &mut self.command_registry
     }
-    fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>> {
+    fn get_store(&self) -> Arc<Box<dyn Store>> {
         self.store.clone()
     }
 
@@ -105,9 +105,9 @@ impl liquers_core::context::Environment for Environment {
         self.cache.clone()
     }
     #[cfg(feature = "async_store")]
-    fn get_async_store(&self) -> Arc<Mutex<Box<dyn liquers_core::store::AsyncStore>>> {
+    fn get_async_store(&self) -> Arc<Box<dyn liquers_core::store::AsyncStore>> {
         //self.async_store.clone()
-        Arc::new(Mutex::new(Box::new(NoAsyncStore)))
+        Arc::new(Box::new(NoAsyncStore))
     }
     
 }

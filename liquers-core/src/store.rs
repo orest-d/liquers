@@ -10,7 +10,7 @@ use crate::error::Error;
 use crate::metadata::{Metadata, MetadataRecord};
 use crate::query::Key;
 
-pub trait Store: Send {
+pub trait Store: Send + Sync {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
