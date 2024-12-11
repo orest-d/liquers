@@ -1,4 +1,7 @@
 use std::sync::{Arc};
+mod environment;
+use crate::environment::ServerEnvironment;
+use liquers_core::value::Value;
 use tokio::sync::{RwLock};
 
 use axum::http::{header, StatusCode};
@@ -91,6 +94,7 @@ async fn main() {
     //let hashmaptest: Arc<HashMap<String, String>> = Arc::new(HashMap::new());
     // build our application with a single route
 
+    let env:ServerEnvironment<Value> = ServerEnvironment::new();
     let store:Arc<Box<dyn AsyncStore>> = Arc::new(Box::new(AsyncStoreWrapper(FileStore::new(".", &Key::new()))));
 
     let app = Router::new()
