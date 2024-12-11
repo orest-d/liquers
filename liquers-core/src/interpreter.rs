@@ -248,8 +248,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_async_store();
                 let (data, metadata) = store
-                    .lock()
-                    .unwrap()
                     .get(&key)
                     .await
                     .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
@@ -363,9 +361,9 @@ mod tests {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
         #[cfg(feature = "async_store")]
-        fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
-            Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
-        }
+        fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+                    Arc::new(Box::new(crate::store::NoAsyncStore))
+                }
     }
 
     impl Environment for NoInjection {
@@ -398,8 +396,8 @@ mod tests {
         }
 
         #[cfg(feature = "async_store")]
-        fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
-            Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
+        fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+            Arc::new(Box::new(crate::store::NoAsyncStore))
         }
     }
 
@@ -439,8 +437,8 @@ mod tests {
         }
 
         #[cfg(feature = "async_store")]
-        fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
-            Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore)))
+        fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+            Arc::new(Box::new(crate::store::NoAsyncStore))
         }
     }
 

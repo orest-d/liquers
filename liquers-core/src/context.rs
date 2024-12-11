@@ -33,7 +33,7 @@ pub trait Environment: Sized {
     fn get_store(&self) -> Arc<Mutex<Box<dyn Store>>>;
     fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>;
     #[cfg(feature = "async_store")]
-    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>>;
+    fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
 }
 
 pub trait EnvRef<E: Environment>: Sized {
@@ -46,7 +46,7 @@ pub trait EnvRef<E: Environment>: Sized {
         Context::new(self.get_ref())
     }
     #[cfg(feature = "async_store")]
-    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>>{
+    fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>{
         self.get().get_async_store()    
     }
 }
@@ -185,7 +185,7 @@ impl<ER: EnvRef<E>, E: Environment> Context<ER, E>{
 pub struct SimpleEnvironment<V: ValueInterface> {
     store: Arc<Mutex<Box<dyn Store>>>,
     #[cfg(feature = "async_store")]
-    async_store: Arc<Mutex<Box<dyn crate::store::AsyncStore>>>,
+    async_store: Arc<Box<dyn crate::store::AsyncStore>>,
     cache: Arc<Mutex<Box<dyn Cache<V>>>>,
     command_registry: CommandRegistry<ArcEnvRef<Self>, Self, V>,
 }
@@ -197,7 +197,7 @@ impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             #[cfg(feature = "async_store")]
-            async_store: Arc::new(Mutex::new(Box::new(crate::store::NoAsyncStore))),
+            async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
@@ -206,7 +206,7 @@ impl<V: ValueInterface + 'static> SimpleEnvironment<V> {
     }
     #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store:Box<dyn crate::store::AsyncStore>) -> &mut Self {
-        self.async_store = Arc::new(Mutex::new(store));
+        self.async_store = Arc::new(store);
         self
     }
     pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
@@ -246,7 +246,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         self.cache.clone()
     }
     #[cfg(feature = "async_store")]
-    fn get_async_store(&self) -> Arc<Mutex<Box<dyn crate::store::AsyncStore>>> {
+    fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
         self.async_store.clone()
     }
     
