@@ -400,7 +400,7 @@ mod tests {
     }
 
     struct MutableInjectionTest {
-        variable: Rc<RefCell<InjectedVariable>>,
+        variable: Arc<Mutex<InjectedVariable>>,
         cr: CommandRegistry<StatEnvRef<Self>, Self, Value>,
         store: Arc<Box<dyn crate::store::Store>>,
     }
@@ -589,29 +589,29 @@ mod tests {
     fn test_interpreter_with_mutable_injection() -> Result<(), Error> {
         let mut cr: CommandRegistry<StatEnvRef<MutableInjectionTest>, MutableInjectionTest, Value> =
             CommandRegistry::new();
-        impl InjectedFromContext<Rc<RefCell<InjectedVariable>>, MutableInjectionTest>
-            for Rc<RefCell<InjectedVariable>>
+        impl InjectedFromContext<Arc<Mutex<InjectedVariable>>, MutableInjectionTest>
+            for Arc<Mutex<InjectedVariable>>
         {
             fn from_context(
                 _name: &str,
                 context: &impl ContextInterface<MutableInjectionTest>,
-            ) -> Result<Rc<RefCell<InjectedVariable>>, Error> {
+            ) -> Result<Arc<Mutex<InjectedVariable>>, Error> {
                 Ok(context.get_environment().variable.clone())
             }
         }
 
         fn injected(
             state: &State<Value>,
-            what: Rc<RefCell<InjectedVariable>>,
+            what: Arc<Mutex<InjectedVariable>>,
         ) -> Result<String, Error> {
-            let res = format!("Hello {}", what.borrow().0);
-            what.borrow_mut().0 = "changed".to_owned();
+            let res = format!("Hello {}", what.lock().unwrap().0);
+            (*what.lock().unwrap()).0 = "changed".to_owned();
             Ok(res)
         }
-        register_command!(cr, injected(state, injected what:Rc<RefCell<InjectedVariable>>));
+        register_command!(cr, injected(state, injected what:Arc<Mutex<InjectedVariable>>));
 
         let env = Box::leak(Box::new(MutableInjectionTest {
-            variable: Rc::new(RefCell::new(InjectedVariable(
+            variable: Arc::new(Mutex::new(InjectedVariable(
                 "injected string".to_string(),
             ))),
             cr: cr,
@@ -629,7 +629,7 @@ mod tests {
             pi.state.as_ref().unwrap().data.try_into_string()?,
             "Hello injected string"
         );
-        assert_eq!(pi.environment.get().variable.borrow().0, "changed");
+        assert_eq!(pi.environment.get().variable.lock().unwrap().0, "changed");
         Ok(())
     }
 

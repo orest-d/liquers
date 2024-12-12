@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::{Arc, RwLock};
 
 use nom::Err;
 
@@ -285,7 +286,8 @@ pub trait InjectedFromContext<T, E: Environment> {
 }
 
 // TODO: Use CommandKey instead of realm, namespace, command_name
-pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
+pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface>//: Sync + Send 
+{
     fn execute(
         &self,
         realm: &str,
@@ -305,7 +307,7 @@ where
 {
     executors: HashMap<
         CommandKey,
-        Box<dyn (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Send + 'static>,
+        Arc<Box<dyn (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Send + Sync + 'static>>,
     >,
     pub command_metadata_registry: CommandMetadataRegistry,
 }
@@ -326,13 +328,13 @@ where
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Send + 'static,
+        F: (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Sync + Send + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
         self.command_metadata_registry
             .add_command(&command_metadata);
-        self.executors.insert(key.clone(), Box::new(f));
+        self.executors.insert(key.clone(), Arc::new(Box::new(f)));
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
 }

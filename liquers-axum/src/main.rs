@@ -1,6 +1,7 @@
 use std::sync::{Arc};
 mod environment;
 use crate::environment::ServerEnvironment;
+use liquers_core::context::Environment;
 use liquers_core::value::Value;
 use tokio::sync::{RwLock};
 
@@ -65,8 +66,9 @@ impl IntoResponse for DataResultWrapper {
 
 
 #[axum::debug_handler]
-async fn test(Path(query): Path<String>, State(store): State<Arc<Box<dyn AsyncStore>>>) -> Response<Body> {
+async fn test(Path(query): Path<String>, State(env): State<Arc<RwLock<ServerEnvironment<Value>>>>) -> Response<Body> {
 
+    let store = env.read().await.get_async_store();
     match parse_key(&query){
         Ok(key) => {
             match store.get(&key).await{
@@ -94,8 +96,11 @@ async fn main() {
     //let hashmaptest: Arc<HashMap<String, String>> = Arc::new(HashMap::new());
     // build our application with a single route
 
-    let env:ServerEnvironment<Value> = ServerEnvironment::new();
-    let store:Arc<Box<dyn AsyncStore>> = Arc::new(Box::new(AsyncStoreWrapper(FileStore::new(".", &Key::new()))));
+    let mut env:ServerEnvironment<Value> = ServerEnvironment::new();
+    env.with_async_store(Box::new(AsyncStoreWrapper(FileStore::new(".", &Key::new()))));
+    let state: Arc<RwLock<ServerEnvironment<Value>>> =Arc::new(RwLock::new(env));
+
+//    let store:Arc<Box<dyn AsyncStore>> = Arc::new(Box::new(AsyncStoreWrapper(FileStore::new(".", &Key::new()))));
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
@@ -104,7 +109,7 @@ async fn main() {
         .route("/liquer/store/data/*query", get(test))
         //.route("/liquer/web/*query", get(web_store_get))
         //.route("/liquer/store/upload/*query", get(store_upload_get))
-        .with_state(store);
+        .with_state(state);
 
     // run it with hyper on localhost:3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

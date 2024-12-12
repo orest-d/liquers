@@ -17,7 +17,7 @@ use crate::{
     value::ValueInterface,
 };
 
-pub trait Environment: Sized {
+pub trait Environment: Sized + Sync + Send {
     type Value: ValueInterface;
     type EnvironmentReference: EnvRef<Self>;
     type CommandExecutor: CommandExecutor<Self::EnvironmentReference, Self, Self::Value>;
