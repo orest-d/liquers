@@ -1,8 +1,5 @@
 use std::{
-    cell::RefCell,
-    marker::PhantomData,
-    rc::Rc,
-    sync::{Arc, Mutex},
+    cell::RefCell, marker::PhantomData, rc::Rc, sync::{Arc, Mutex}
 };
 
 use crate::{
@@ -10,8 +7,8 @@ use crate::{
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     error::Error,
-    metadata::MetadataRecord,
-    query::{Query, TryToQuery},
+    metadata::{Metadata, MetadataRecord},
+    query::{Key, Query, TryToQuery},
     state::State,
     store::{NoStore, Store},
     value::ValueInterface,
@@ -34,6 +31,14 @@ pub trait Environment: Sized + Sync + Send {
     fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>;
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
+    
+
+    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.get_store().get_bytes(key)
+    }
+    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.get_store().get_metadata(key)
+    }
 }
 
 pub trait EnvRef<E: Environment>: Sized {

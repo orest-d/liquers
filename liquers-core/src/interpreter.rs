@@ -152,10 +152,10 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
 
 #[cfg(feature = "async_store")]
 pub struct AsyncPlanInterpreter<ER: EnvRef<E>, E: Environment> {
-    plan: Option<Plan>,
+    pub plan: Option<Plan>,
     environment: ER,
     step_number: usize,
-    state: Option<State<E::Value>>,
+    pub state: Option<State<E::Value>>,
 }
 
 #[cfg(feature = "async_store")]
