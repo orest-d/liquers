@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 
 use crate::error::Error;
-use crate::metadata::{Metadata, MetadataRecord};
+use crate::metadata::{self, Metadata, MetadataRecord};
 use crate::query::Key;
 
 pub trait Store: Send + Sync {
@@ -635,7 +635,13 @@ impl Store for FileStore {
                 "Metadata parsing error",
             ))
         } else {
-            Err(Error::key_not_found(key))
+            let path = self.key_to_path(key);
+            if path.exists() {
+                let metadata = self.default_metadata(key, path.is_dir());   
+                Ok(Metadata::MetadataRecord(metadata))
+            } else {   
+                Err(Error::key_not_found(key))
+            }
         }
     }
 

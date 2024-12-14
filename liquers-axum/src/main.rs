@@ -42,9 +42,20 @@ async fn main() {
         //.route("/liquer/q/*query", get(evaluate_query))
         //.route("/liquer/submit/*query", get(submit_query))
         .route("/liquer/store/data/*query", get(crate::store_handlers::store_data_handler))
+        //.route("/liquer/store/data/*query", post(crate::store_handlers::store_data_post_handler))
         .route("/liquer/store/metadata/*query", get(crate::store_handlers::store_metadata_handler))
-        //.route("/liquer/web/*query", get(web_store_get))
-        //.route("/liquer/store/upload/*query", get(store_upload_get))
+        //.route("/liquer/store/metadata/*query", post(crate::store_handlers::store_metadata_post_handler))
+        .route("/liquer/store/upload/*query", get(crate::store_handlers::upload_handler))
+        //.route("/liquer/store/upload/*query", post(crate::store_handlers::upload_post_handler))
+        // /api/stored_metadata/QUERY (GET) ?
+        .route("/liquer/store/upload/*query", get(crate::store_handlers::upload_handler))
+        .route("/liquer/store/remove/*query", get(crate::store_handlers::remove_handler))
+        .route("/liquer/store/removedir/*query", get(crate::store_handlers::remove_handler))
+        .route("/liquer/store/contains/*query", get(crate::store_handlers::remove_handler))
+        .route("/liquer/store/is_dir/*query", get(crate::store_handlers::is_dir_handler))
+        .route("/liquer/store/keys", get(crate::store_handlers::keys_handler))
+        .route("/liquer/store/listdir/*query", get(crate::store_handlers::listdir_handler)) // TODO: support listdir_keys and listdir_keys_deep
+        .route("/liquer/store/makedir/*query", get(crate::store_handlers::makedir_handler))
         .with_state(state);
 
     // run it with hyper on localhost:3000

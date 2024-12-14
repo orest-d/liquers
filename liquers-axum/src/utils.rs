@@ -44,3 +44,32 @@ impl IntoResponse for DataResultWrapper {
         }
     }
 }
+
+/* 
+pub struct StoreResultWrapper<T>(pub Result<T, liquers_core::error::Error>);
+
+impl StoreResultWrapper<T> {
+    fn to_json(&self, key:&str) -> String {
+        match self.0 {
+            Ok(data) => serde_json::to_string(&data).unwrap(),
+            Err(e) => serde_json::to_string(&e).unwrap(),
+        }
+    }
+}
+
+impl<T> From<Result<T, liquers_core::error::Error> > for StoreResultWrapper<T> {
+    fn from(r: Result<T, liquers_core::error::Error>) -> Self {
+        StoreResultWrapper(r)
+    }
+ 
+
+impl<T> IntoResponse for StoreResultWrapper<T> where T: IntoResponse {
+    fn into_response(self) -> Response<Body> {
+        match self.0 {
+            Ok(data) => data.into_response(),
+            Err(e) => CoreError(e).into_response(),
+        }
+    }
+}
+
+*/
