@@ -6,26 +6,20 @@ use axum::{
     http::{header, Response, StatusCode},
     response::IntoResponse,
 };
-use liquers_core::{
-    context::Environment,
-    metadata::{Metadata, MetadataRecord},
-    parse::parse_key, value::Value,
-};
-use tokio::sync::RwLock;
+use liquers_core::value::Value;
 
-use crate::{
-    environment::{async_evaluate, ServerEnvironment, SharedEnvironment},
-    utils::{CoreError, DataResultWrapper},
-};
+
 
 
 /*
 #[axum::debug_handler]
 pub async fn evaluate_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let envref = env.read().await.to_ref();
+    
+    let env_access = env.read().await;
+    let envref = (*env_access).to_ref();
     match async_evaluate::<ServerEnvironment<Value>,_>(envref, query).await{
         Ok(state) => {
             default_value_response(&state.data)

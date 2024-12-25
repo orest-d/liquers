@@ -14,14 +14,14 @@ use liquers_core::{
 use tokio::sync::RwLock;
 
 use crate::{
-    environment::SharedEnvironment,
+    environment::ServerEnvRef,
     utils::{CoreError, DataResultWrapper},
 };
 
 #[axum::debug_handler]
 pub async fn store_data_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -33,7 +33,7 @@ pub async fn store_data_handler(
 #[axum::debug_handler]
 pub async fn web_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -46,7 +46,7 @@ pub async fn web_handler(
 #[axum::debug_handler]
 pub async fn store_metadata_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -104,7 +104,7 @@ pub async fn upload_handler(
 #[axum::debug_handler]
 pub async fn remove_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -124,7 +124,7 @@ pub async fn remove_handler(
 #[axum::debug_handler]
 pub async fn removedir_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -144,7 +144,7 @@ pub async fn removedir_handler(
 #[axum::debug_handler]
 pub async fn contains_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -164,7 +164,7 @@ pub async fn contains_handler(
 #[axum::debug_handler]
 pub async fn is_dir_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -182,7 +182,7 @@ pub async fn is_dir_handler(
 }
 
 #[axum::debug_handler]
-pub async fn keys_handler(State(env): State<SharedEnvironment>) -> Response<Body> {
+pub async fn keys_handler(State(env): State<ServerEnvRef>) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match store.keys().await {
         // TODO: convert store output to JSON
@@ -198,7 +198,7 @@ pub async fn keys_handler(State(env): State<SharedEnvironment>) -> Response<Body
 #[axum::debug_handler]
 pub async fn listdir_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {
@@ -218,7 +218,7 @@ pub async fn listdir_handler(
 #[axum::debug_handler]
 pub async fn makedir_handler(
     Path(query): Path<String>,
-    State(env): State<SharedEnvironment>,
+    State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     let store = env.read().await.get_async_store();
     match parse_key(&query) {

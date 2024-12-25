@@ -47,10 +47,6 @@ async fn main() {
         //.route("/liquer/store/upload/*query", post(crate::store_handlers::upload_post_handler))
         // /api/stored_metadata/QUERY (GET) ?
         .route(
-            "/liquer/store/upload/*query",
-            get(crate::store_handlers::upload_handler),
-        )
-        .route(
             "/liquer/store/remove/*query",
             get(crate::store_handlers::remove_handler),
         )

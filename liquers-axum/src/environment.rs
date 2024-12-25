@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use liquers_core::{
-    cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{ArcEnvRef, Context, Environment}, error::Error, interpreter::AsyncPlanInterpreter, query::{self, TryToQuery}, state::State, store::{AsyncStore, NoAsyncStore, NoStore, Store}, value::ValueInterface
+    cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{ArcEnvRef, Context, EnvRef, Environment}, error::Error, interpreter::AsyncPlanInterpreter, query::{self, TryToQuery}, state::State, store::{AsyncStore, NoAsyncStore, NoStore, Store}, value::ValueInterface
 };
 use tokio::sync::RwLock;
 
@@ -17,7 +17,16 @@ pub struct ServerEnvironment<V: ValueInterface> {
 
 pub type ServerValue = liquers_core::value::Value;
 pub type ServerEnvironmentType = ServerEnvironment<ServerValue>;
-pub type SharedEnvironment = Arc<RwLock<ServerEnvironment<ServerValue>>>;
+pub type ServerEnvRef = Arc<RwLock<ServerEnvironment<ServerValue>>>;
+
+impl EnvRef<ServerEnvironmentType> for ServerEnvRef {
+    fn get(&self) -> &ServerEnvironmentType {
+        panic!("Not implemented - probably flawed design");
+    }
+    fn get_ref(&self) -> Self {
+        self.clone()
+    }
+}
 
 impl<V: ValueInterface + 'static> ServerEnvironment<V> {
     pub fn new() -> Self {
@@ -41,9 +50,6 @@ impl<V: ValueInterface + 'static> ServerEnvironment<V> {
     pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
         self.cache = Arc::new(Mutex::new(cache));
         self
-    }
-    pub fn to_ref(self) -> ArcEnvRef<Self> {
-        ArcEnvRef(Arc::new(self))
     }
 }
 

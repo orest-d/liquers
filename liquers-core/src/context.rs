@@ -109,7 +109,7 @@ impl<E: Environment> EnvRef<E> for ArcEnvRef<E> {
 
 pub struct Context<ER: EnvRef<E>, E: Environment> {
     envref: ER,
-    metadata: Rc<RefCell<MetadataRecord>>,
+    metadata: Arc<Mutex<MetadataRecord>>,  // TODO: Maybe direct ownership is better
     environment: PhantomData<E>,
 }
 
@@ -149,22 +149,22 @@ impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::Enviro
         self.envref.get().get_store()
     }
     fn get_metadata(&self) -> MetadataRecord {
-        self.metadata.borrow().clone()
+        self.metadata.lock().unwrap().clone()
     }
     fn set_filename(&self, filename: String) {
-        self.metadata.borrow_mut().with_filename(filename);
+        self.metadata.lock().unwrap().with_filename(filename);
     }
     fn debug(&self, message: &str) {
-        self.metadata.borrow_mut().debug(message);
+        self.metadata.lock().unwrap().debug(message);
     }
     fn info(&self, message: &str) {
-        self.metadata.borrow_mut().info(message);
+        self.metadata.lock().unwrap().info(message);
     }
     fn warning(&self, message: &str) {
-        self.metadata.borrow_mut().warning(message);
+        self.metadata.lock().unwrap().warning(message);
     }
     fn error(&self, message: &str) {
-        self.metadata.borrow_mut().error(message);
+        self.metadata.lock().unwrap().error(message);
     }
     fn clone_context(&self) -> Self {
         Context {
@@ -179,7 +179,7 @@ impl<ER: EnvRef<E>, E: Environment> Context<ER, E>{
     pub fn new(environment: ER) -> Self {
         Context {
             envref: environment,
-            metadata: Rc::new(RefCell::new(MetadataRecord::new())),
+            metadata: Arc::new(Mutex::new(MetadataRecord::new())),
             environment: PhantomData::default(),
         }
     }
