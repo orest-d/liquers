@@ -1,5 +1,11 @@
-use crate::commands::{CommandArguments, CommandExecutor};
-use crate::context::{Context, ContextInterface, EnvRef, Environment};
+use async_trait::async_trait;
+
+use crate::command_metadata::CommandKey;
+use crate::commands::{CommandArguments, CommandExecutor, NGCommandArguments, NGCommandExecutor};
+use crate::context::{
+    ActionContext, Context, ContextInterface, EnvRef, Environment, NGContext, NGEnvRef,
+    NGEnvironment,
+};
 use crate::error::Error;
 use crate::plan::{Plan, PlanBuilder, Step};
 use crate::query::TryToQuery;
@@ -299,6 +305,156 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
     }
 }
 
+pub struct NGPlanInterpreter<E: NGEnvironment> {
+    plan: Option<Plan>,
+    environment: NGEnvRef<E>,
+    step_number: usize,
+    state: Option<State<E::Value>>,
+}
+
+#[cfg(feature = "async_store")]
+impl<E: NGEnvironment> NGPlanInterpreter<E> {
+    pub fn new(environment: NGEnvRef<E>) -> Self {
+        NGPlanInterpreter {
+            plan: None,
+            environment,
+            step_number: 0,
+            state: None,
+        }
+    }
+    pub fn with_plan(&mut self, plan: Plan) -> &mut Self {
+        println!("with plan {:?}", plan);
+        self.plan = Some(plan);
+        self.step_number = 0;
+        self
+    }
+
+    pub async fn set_query<Q: TryToQuery>(&mut self, query: Q) -> Result<(), Error> {
+        let query = query.try_to_query()?;
+        let plan = {
+            let env = self.environment.0.read().await;
+            let cmr = env.get_command_metadata_registry();
+            let mut pb = PlanBuilder::new(query, cmr);
+            pb.build()?
+        };
+        self.with_plan(plan);
+        Ok(())
+    }
+
+    pub async fn evaluate<Q: TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> {
+        self.set_query(query).await?;
+        self.run().await?;
+        self.state
+            .take()
+            .ok_or(Error::general_error("No state".to_string()))
+    }
+
+    pub async fn run(&mut self) -> Result<(), Error> {
+        let context = NGContext::new(self.environment.clone()).await;
+        if self.plan.is_none() {
+            return Err(Error::general_error("No plan".to_string()));
+        }
+        for i in 0..self.len() {
+            let input_state = self.state.take().unwrap_or(self.initial_state());
+            let step = self.get_step(i)?;
+            let output_state = self
+                .do_step(&step, input_state, context.clone_context())
+                .await?;
+            self.state = Some(output_state);
+        }
+        Ok(())
+    }
+    pub fn initial_state(&self) -> State<<E as NGEnvironment>::Value> {
+        State::new()
+    }
+    pub fn len(&self) -> usize {
+        if let Some(plan) = &self.plan {
+            return plan.steps.len();
+        }
+        0
+    }
+    pub fn get_step(&self, i: usize) -> Result<&Step, Error> {
+        if let Some(plan) = &self.plan {
+            if let Some(step) = plan.steps.get(i) {
+                return Ok(step);
+            } else {
+                return Err(Error::general_error(format!(
+                    "Step {} requested, plan has {} steps",
+                    i,
+                    plan.steps.len()
+                )));
+            }
+        }
+        Err(Error::general_error("No plan".to_string()))
+    }
+    pub async fn do_step(
+        &self,
+        step: &Step,
+        input_state: State<<E as NGEnvironment>::Value>,
+        context: NGContext<E>,
+    ) -> Result<State<<E as NGEnvironment>::Value>, Error> {
+        match step {
+            crate::plan::Step::GetResource(key) => {
+                let store = {
+                    let env = self.environment.0.read().await;
+                    env.get_async_store()
+                };
+                let (data, metadata) = store
+                    .get(&key)
+                    .await
+                    .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
+                let value = <<E as NGEnvironment>::Value as ValueInterface>::from_bytes(data);
+                return Ok(State::new().with_data(value).with_metadata(metadata));
+            }
+            crate::plan::Step::GetResourceMetadata(_) => todo!(),
+            crate::plan::Step::GetNamedResource(_) => todo!(),
+            crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
+            crate::plan::Step::Evaluate(_) => todo!(),
+            crate::plan::Step::Action {
+                realm,
+                ns,
+                action_name,
+                position,
+                parameters,
+            } => {
+                let mut arguments = NGCommandArguments::new(parameters.clone());
+                arguments.action_position = position.clone();
+
+                let result = {
+                    let env = self.environment.0.read().await;
+                    let ce = env.get_command_executor();
+                    ce.execute(
+                        &CommandKey::new(realm, ns, action_name),
+                        &input_state,
+                        &mut arguments,
+                        context.clone_context(),
+                    )?
+                };
+
+                let state = State::new()
+                    .with_data(result)
+                    .with_metadata(context.get_metadata().into());
+                /// TODO - reset metadata ?
+                return Ok(state);
+            }
+            crate::plan::Step::Filename(name) => {
+                context.set_filename(name.name.clone());
+            }
+            crate::plan::Step::Info(m) => {
+                context.info(&m);
+            }
+            crate::plan::Step::Warning(m) => {
+                context.warning(&m);
+            }
+            crate::plan::Step::Error(m) => {
+                context.error(&m);
+            }
+            crate::plan::Step::Plan(_) => todo!(),
+        }
+        Ok(input_state)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -360,8 +516,8 @@ mod tests {
         }
         #[cfg(feature = "async_store")]
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
-                    Arc::new(Box::new(crate::store::NoAsyncStore))
-                }
+            Arc::new(Box::new(crate::store::NoAsyncStore))
+        }
     }
 
     impl Environment for NoInjection {
@@ -513,7 +669,14 @@ mod tests {
             }
             fn greet(state: &State<Value>, who: Vec<Value>) -> Result<String, Error> {
                 let greeting = state.data.try_into_string().unwrap();
-                Ok(format!("{} {}!", greeting, who.iter().map(|x| x.try_into_string().unwrap_or("?".to_string())).collect::<Vec<String>>().join(" ")))
+                Ok(format!(
+                    "{} {}!",
+                    greeting,
+                    who.iter()
+                        .map(|x| x.try_into_string().unwrap_or("?".to_string()))
+                        .collect::<Vec<String>>()
+                        .join(" ")
+                ))
             }
             register_command!(cr, hello());
             register_command!(cr, greet(state, multiple who:Value));
@@ -611,9 +774,7 @@ mod tests {
         register_command!(cr, injected(state, injected what:Arc<Mutex<InjectedVariable>>));
 
         let env = Box::leak(Box::new(MutableInjectionTest {
-            variable: Arc::new(Mutex::new(InjectedVariable(
-                "injected string".to_string(),
-            ))),
+            variable: Arc::new(Mutex::new(InjectedVariable("injected string".to_string()))),
             cr: cr,
             store: Arc::new(Box::new(crate::store::NoStore)),
         }));

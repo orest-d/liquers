@@ -5,7 +5,7 @@ use std::{
 use crate::{
     cache::{Cache, NoCache},
     command_metadata::CommandMetadataRegistry,
-    commands::{CommandExecutor, CommandRegistry},
+    commands::{CommandExecutor, CommandRegistry, NGCommandExecutor},
     error::Error,
     metadata::{Metadata, MetadataRecord},
     query::{Key, Query, TryToQuery},
@@ -41,6 +41,31 @@ pub trait Environment: Sized + Sync + Send {
     }
 }
 
+pub trait NGEnvironment: Sized + Sync + Send {
+    type Value: ValueInterface;
+    type CommandExecutor: NGCommandExecutor<NGEnvRef<Self>, Self::Value, NGContext<Self>>;
+
+    fn evaluate(&mut self, _query: &Query) -> Result<State<Self::Value>, Error> {
+        Err(Error::not_supported("evaluate not implemented".to_string()))
+    }
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
+    fn get_command_executor(&self) -> &Self::CommandExecutor;
+    fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor;
+    fn get_store(&self) -> Arc<Box<dyn Store>>;
+    fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>;
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
+    
+
+    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.get_store().get_bytes(key)
+    }
+    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.get_store().get_metadata(key)
+    }
+}
+
 pub trait EnvRef<E: Environment>: Sized {
     fn get(&self) -> &E;
     fn get_ref(&self) -> Self;
@@ -54,6 +79,76 @@ pub trait EnvRef<E: Environment>: Sized {
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>{
         self.get().get_async_store()    
     }
+}
+
+pub struct NGEnvRef<E:NGEnvironment>(pub Arc<tokio::sync::RwLock<E>>);
+
+impl<E:NGEnvironment> Clone for NGEnvRef<E> {
+    fn clone(&self) -> Self {
+        NGEnvRef(self.0.clone())
+    }
+}
+
+pub struct NGContext<E:NGEnvironment>{
+    envref: NGEnvRef<E>,
+    store: Arc<Box<dyn Store>>,
+    metadata: Arc<Mutex<MetadataRecord>>,
+}
+
+
+impl <E:NGEnvironment> NGContext<E> {
+    pub async fn new(env: NGEnvRef<E>) -> Self {
+        let store = {
+            let env = env.0.read().await;
+            env.get_store()
+        };
+        NGContext {
+            envref: env,
+            store: store,
+            metadata: Arc::new(Mutex::new(MetadataRecord::new())),
+        }
+    }
+}
+
+impl<E:NGEnvironment> ActionContext<NGEnvRef<E>, E::Value> for NGContext<E>
+{
+    fn borrow_payload(&self) -> &NGEnvRef<E> {
+        &self.envref
+    }
+    fn clone_payload(&self) -> NGEnvRef<E> {
+        NGEnvRef(self.envref.0.clone())
+    }
+    fn evaluate_dependency<Q:TryToQuery>(&self, query: Q) -> Result<State<E::Value>, Error> {
+        todo!("implement evaluate_dependency")
+    }
+    fn get_store(&self) -> Arc<Box<dyn Store>> {
+        self.store.clone()
+    }
+    fn get_metadata(&self) -> MetadataRecord {
+        self.metadata.lock().unwrap().clone()
+    }
+    fn set_filename(&self, filename: String) {
+        self.metadata.lock().unwrap().with_filename(filename);
+    }
+    fn debug(&self, message: &str) {
+        self.metadata.lock().unwrap().debug(message);
+    }
+    fn info(&self, message: &str) {
+        self.metadata.lock().unwrap().info(message);
+    }
+    fn warning(&self, message: &str) {
+        self.metadata.lock().unwrap().warning(message);
+    }
+    fn error(&self, message: &str) {
+        self.metadata.lock().unwrap().error(message);
+    }
+    fn clone_context(&self) -> Self {
+        NGContext {
+            envref: self.clone_payload(),
+            store: self.store.clone(),
+            metadata: self.metadata.clone(),
+        }
+    }    
 }
 
 impl<E: Environment> Clone for ArcEnvRef<E> {
@@ -135,7 +230,6 @@ pub trait ActionContext<P, V: ValueInterface> {
     fn borrow_payload(&self) -> &P;
     fn clone_payload(&self) -> P;
     fn evaluate_dependency<Q:TryToQuery>(&self, query: Q) -> Result<State<V>, Error>;
-    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
     fn get_store(&self) -> Arc<Box<dyn Store>>;
     fn get_metadata(&self) -> MetadataRecord;
     fn set_filename(&self, filename: String);

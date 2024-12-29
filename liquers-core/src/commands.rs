@@ -1073,11 +1073,7 @@ mod tests {
         fn evaluate_dependency<Q:crate::query::TryToQuery>(&self, query: Q) -> Result<State<Value>, Error> {
             panic!("evaluate_dependency not needed")
         }
-    
-        fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
-            panic!("get_command_metadata_registry not needed")
-        }
-    
+        
         fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             Arc::new(Box::new(crate::store::NoStore))
         }
