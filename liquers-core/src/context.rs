@@ -131,6 +131,21 @@ pub trait ContextInterface<E: Environment>{
     fn clone_context(&self) -> Self;
 }
 
+pub trait ActionContext<P, V: ValueInterface> {
+    fn borrow_payload(&self) -> &P;
+    fn clone_payload(&self) -> P;
+    fn evaluate_dependency<Q:TryToQuery>(&self, query: Q) -> Result<State<V>, Error>;
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
+    fn get_store(&self) -> Arc<Box<dyn Store>>;
+    fn get_metadata(&self) -> MetadataRecord;
+    fn set_filename(&self, filename: String);
+    fn debug(&self, message: &str);
+    fn info(&self, message: &str);
+    fn warning(&self, message: &str);
+    fn error(&self, message: &str);
+    fn clone_context(&self) -> Self;
+}
+
 impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::EnvironmentReference, E>
 {
     fn get_environment(&self) -> &E {

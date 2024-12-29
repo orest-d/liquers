@@ -3,14 +3,14 @@
 #![allow(warnings)]
 
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{format, Debug};
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
-use crate::context::{Context, ContextInterface, EnvRef, Environment};
+use crate::context::{ActionContext, Context, ContextInterface, EnvRef, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
 use crate::query::{Position, Query};
@@ -19,11 +19,19 @@ use crate::value::ValueInterface;
 
 pub struct NoInjection;
 
-
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
 pub struct CommandArguments {
     pub parameters: ResolvedParameterValues,
+    pub action_position: Position,
+    pub argument_number: usize,
+}
+
+/// Encapsulates the action parameters, that are passed to the command
+/// when it is executed.
+pub struct NGCommandArguments<V: ValueInterface> {
+    pub parameters: ResolvedParameterValues,
+    pub links: Vec<Option<State<V>>>,
     pub action_position: Position,
     pub argument_number: usize,
 }
@@ -59,8 +67,10 @@ impl CommandArguments {
         context: &impl ContextInterface<E>,
     ) -> Result<T, Error> {
         let p = self.pop_parameter()?;
-        if p.is_injected(){
-            return Err(Error::general_error("Inconsistent parameter type - injected found, value expected".to_owned()));
+        if p.is_injected() {
+            return Err(Error::general_error(
+                "Inconsistent parameter type - injected found, value expected".to_owned(),
+            ));
         }
         T::from_parameter_value(p, context)
     }
@@ -68,12 +78,14 @@ impl CommandArguments {
     /// Returns the injected parameter as a value of type T
     pub fn get_injected<T: InjectedFromContext<T, E>, E: Environment>(
         &mut self,
-        name:&str,
+        name: &str,
         context: &impl ContextInterface<E>,
     ) -> Result<T, Error> {
         let p = self.pop_parameter()?;
-        if !p.is_injected(){
-            return Err(Error::general_error("Inconsistent parameter type - value found, injected expected".to_owned()));
+        if !p.is_injected() {
+            return Err(Error::general_error(
+                "Inconsistent parameter type - value found, injected expected".to_owned(),
+            ));
         }
         T::from_context(name, context)
     }
@@ -99,15 +111,123 @@ impl CommandArguments {
             self.action_position.clone()
         }
     }
-
 }
 
+impl<V: ValueInterface> NGCommandArguments<V> {
+    pub fn new(parameters: ResolvedParameterValues) -> Self {
+        NGCommandArguments {
+            parameters,
+            action_position: Position::unknown(),
+            argument_number: 0,
+            links: Vec::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.parameters.0.len()
+    }
+
+    pub fn pop_parameter(&mut self) -> Result<&ParameterValue, Error> {
+        if let Some(p) = self.parameters.0.get(self.argument_number) {
+            self.argument_number += 1;
+            Ok(p)
+        } else {
+            Err(Error::missing_argument(
+                self.argument_number,
+                "?",
+                &self.action_position,
+            ))
+        }
+    }
+
+    pub fn get<T: NGFromParameterValue<T>>(&mut self) -> Result<T, Error> {
+        let p = self.pop_parameter()?;
+        if p.is_link() {
+            return Err(Error::general_error(
+                "Inconsistent parameter type - link found, value expected".to_owned(),
+            ).with_position(&p.position().or(self.action_position.clone())));
+        }
+        if p.is_injected() {
+            return Err(Error::general_error(
+                "Inconsistent parameter type - injected found, value expected".to_owned(),
+            ).with_position(&self.action_position));
+        }
+        T::from_parameter_value(p)
+    }
+
+    pub fn get_state(&mut self) -> Result<State<V>, Error> {
+        let argnum=self.argument_number;
+        if let Some(link) = self.pop_parameter()?.link() {
+            let resolved = self.links.get(argnum);
+            match resolved {
+                Some(Some(state)) => Ok(state.clone()),
+                Some(None) => Err(Error::general_error(format!(
+                    "Unresolved link parameter {}: {}",
+                    argnum,
+                    link
+                )).with_position(&self.action_position)),
+                None => Err(Error::general_error(format!(
+                    "Unresolved link parameter {}: {} (resolved links too short: {})",
+                    argnum,
+                    link,
+                    self.links.len()
+                )).with_position(&self.action_position)),
+            }
+        }
+        else{
+            Err(Error::general_error(format!(
+                "Link parameter expected, value found, parameter {}",argnum
+            )).with_position(&self.action_position))
+        }
+    }
+
+    /// Returns the injected parameter as a value of type T
+    pub fn get_injected<P, T: NGInjectedFromContext<T, P, V>>(
+        &mut self,
+        name: &str,
+        context: &impl ActionContext<P, V>,
+    ) -> Result<T, Error> {
+        let p = self.pop_parameter()?;
+        if !p.is_injected() {
+            return Err(Error::general_error(
+                "Inconsistent parameter type - value found, injected expected".to_owned(),
+            ));
+        }
+        T::from_context(name, context)
+    }
+
+    /// Returns true if all parameters have been used
+    /// This is checked during the command execution
+    pub fn all_parameters_used(&self) -> bool {
+        self.argument_number == self.parameters.0.len()
+    }
+    /// Returns the number of parameters that have not been used
+    pub fn excess_parameters(&self) -> usize {
+        self.parameters.len() - self.argument_number
+    }
+    pub fn parameter_position(&self) -> Position {
+        if let Some(p) = self.parameters.0.get(self.argument_number) {
+            let pos = p.position();
+            if pos.is_unknown() {
+                self.action_position.clone()
+            } else {
+                pos
+            }
+        } else {
+            self.action_position.clone()
+        }
+    }
+}
 
 pub trait FromParameterValue<T, E: Environment> {
     fn from_parameter_value(
         param: &ParameterValue,
         context: &impl ContextInterface<E>,
     ) -> Result<T, Error>;
+}
+
+pub trait NGFromParameterValue<T> {
+    fn from_parameter_value(param: &ParameterValue) -> Result<T, Error>;
 }
 
 /// Macro to simplify the implementation of the FromParameterValue trait
@@ -144,6 +264,32 @@ macro_rules! impl_from_parameter_value {
     };
 }
 
+/// Macro to simplify the implementation of the FromParameterValue trait
+macro_rules! impl_ng_from_parameter_value {
+    ($t:ty, $jsonvalue_to_opt:expr, $stateval_to_res:ident) => {
+        impl NGFromParameterValue<$t> for $t {
+            fn from_parameter_value(param: &ParameterValue) -> Result<$t, Error> {
+                if let Some(ref p) = param.value() {
+                    $jsonvalue_to_opt(p).ok_or(
+                        Error::conversion_error_with_message(
+                            p,
+                            stringify!($t),
+                            concat!(stringify!($t), " parameter value expected"),
+                        )
+                        .with_position(&param.position()),
+                    )
+                } else {
+                    return Err(Error::conversion_error_with_message(
+                        param,
+                        stringify!($t),
+                        "Parameter value expected",
+                    ));
+                }
+            }
+        }
+    };
+}
+
 impl_from_parameter_value!(
     String,
     (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned())),
@@ -174,7 +320,7 @@ impl_from_parameter_value!(
     try_into_f64_option
 );
 impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_bool);
-/* 
+/*
 impl<E: Environment> FromParameterValue<Vec<String>, E> for Vec<String> {
     fn from_parameter_value(
         param: &ParameterValue,
@@ -230,64 +376,100 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
         param: &ParameterValue,
         context: &impl ContextInterface<E>,
     ) -> Result<Vec<E::Value>, Error> {
-        fn from_json_value<T:ValueInterface>(p: &serde_json::Value) -> Result<Vec<T>, Error> {
+        fn from_json_value<T: ValueInterface>(p: &serde_json::Value) -> Result<Vec<T>, Error> {
             match p {
                 serde_json::Value::Array(a) => {
                     let mut v = Vec::new();
-                    for e in a.iter(){
+                    for e in a.iter() {
                         v.push(T::try_from_json_value(e)?);
                     }
                     Ok(v)
-                },
+                }
                 _ => Ok(vec![T::try_from_json_value(p)?]),
             }
         }
-        let from_link = |link:&Query| -> Result<E::Value, Error> {
+        let from_link = |link: &Query| -> Result<E::Value, Error> {
             let state = context.evaluate_dependency(link)?;
-            if state.is_error()?{
+            if state.is_error()? {
                 return Err(Error::general_error("Error in link".to_owned()).with_query(link));
             }
             Ok((*state.data).clone())
         };
-        
-        match param{
+
+        match param {
             ParameterValue::DefaultValue(v) => return from_json_value(v),
             ParameterValue::DefaultLink(link) => return Ok(vec![from_link(link)?]),
-            ParameterValue::ParameterValue(v, pos) => return from_json_value(v).map_err(|e| e.with_position(pos)),
-            ParameterValue::ParameterLink(link, pos) =>  return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?]),
-            ParameterValue::EnumLink(link, pos) => return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?]),
+            ParameterValue::ParameterValue(v, pos) => {
+                return from_json_value(v).map_err(|e| e.with_position(pos))
+            }
+            ParameterValue::ParameterLink(link, pos) => {
+                return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?])
+            }
+            ParameterValue::EnumLink(link, pos) => {
+                return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?])
+            }
             ParameterValue::MultipleParameters(p) => {
                 let mut v = Vec::new();
-                for pp in p.iter(){
-                    v.push(
-                        match pp{
-                            ParameterValue::DefaultValue(value) => E::Value::try_from_json_value(value)?,
-                            ParameterValue::DefaultLink(query) => from_link(query)?,
-                            ParameterValue::ParameterValue(value, position) => E::Value::try_from_json_value(value).map_err(|e| e.with_position(position))?,
-                            ParameterValue::ParameterLink(query, position) => from_link(query).map_err(|e| e.with_position(position))?,
-                            ParameterValue::EnumLink(query, position) => from_link(query).map_err(|e| e.with_position(position))?,
-                            ParameterValue::MultipleParameters(vec) => return Err(Error::unexpected_error("Nested multiple parameters not allowed".to_owned())),
-                            ParameterValue::Injected(name) => return Err(Error::unexpected_error(format!("Injected parameters ({name}) not allowed inside multi-parameter"))),
-                            ParameterValue::None => return Err(Error::unexpected_error("None parameter not allowed inside multi-parameter".to_owned())),
-                        }    
-                    );
+                for pp in p.iter() {
+                    v.push(match pp {
+                        ParameterValue::DefaultValue(value) => {
+                            E::Value::try_from_json_value(value)?
+                        }
+                        ParameterValue::DefaultLink(query) => from_link(query)?,
+                        ParameterValue::ParameterValue(value, position) => {
+                            E::Value::try_from_json_value(value)
+                                .map_err(|e| e.with_position(position))?
+                        }
+                        ParameterValue::ParameterLink(query, position) => {
+                            from_link(query).map_err(|e| e.with_position(position))?
+                        }
+                        ParameterValue::EnumLink(query, position) => {
+                            from_link(query).map_err(|e| e.with_position(position))?
+                        }
+                        ParameterValue::MultipleParameters(vec) => {
+                            return Err(Error::unexpected_error(
+                                "Nested multiple parameters not allowed".to_owned(),
+                            ))
+                        }
+                        ParameterValue::Injected(name) => {
+                            return Err(Error::unexpected_error(format!(
+                                "Injected parameters ({name}) not allowed inside multi-parameter"
+                            )))
+                        }
+                        ParameterValue::None => {
+                            return Err(Error::unexpected_error(
+                                "None parameter not allowed inside multi-parameter".to_owned(),
+                            ))
+                        }
+                    });
                 }
                 Ok(v)
             }
-            ParameterValue::Injected(name) => return Err(Error::general_error(format!("Injected parameters ({name}) not allowed"))),
-            ParameterValue::None => return Err(Error::general_error("None parameter not allowed".to_owned())),
+            ParameterValue::Injected(name) => {
+                return Err(Error::general_error(format!(
+                    "Injected parameters ({name}) not allowed"
+                )))
+            }
+            ParameterValue::None => {
+                return Err(Error::general_error(
+                    "None parameter not allowed".to_owned(),
+                ))
+            }
         }
         //Ok(vec![E::Value::none()])
     }
 }
 
 pub trait InjectedFromContext<T, E: Environment> {
-    fn from_context(name:&str, context: &impl ContextInterface<E>) -> Result<T, Error>;
+    fn from_context(name: &str, context: &impl ContextInterface<E>) -> Result<T, Error>;
+}
+
+pub trait NGInjectedFromContext<T, P, V: ValueInterface> {
+    fn from_context(name: &str, context: &impl ActionContext<P, V>) -> Result<T, Error>;
 }
 
 // TODO: Use CommandKey instead of realm, namespace, command_name
-pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface>//: Sync + Send 
-{
+pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
     fn execute(
         &self,
         realm: &str,
@@ -307,7 +489,14 @@ where
 {
     executors: HashMap<
         CommandKey,
-        Arc<Box<dyn (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Send + Sync + 'static>>,
+        Arc<
+            Box<
+                dyn (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>)
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
     >,
     pub command_metadata_registry: CommandMetadataRegistry,
 }
@@ -328,7 +517,10 @@ where
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>) + Sync + Send + 'static,
+        F: (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>)
+            + Sync
+            + Send
+            + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
@@ -540,7 +732,10 @@ mod tests {
     #[test]
     fn test_command_arguments() {
         let mut rp = ResolvedParameterValues::new();
-        rp.0.push(ParameterValue::ParameterValue("Hello".into(), Position::unknown()));
+        rp.0.push(ParameterValue::ParameterValue(
+            "Hello".into(),
+            Position::unknown(),
+        ));
         let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
         let mut context = Context::new(envref);

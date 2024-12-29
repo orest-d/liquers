@@ -35,6 +35,13 @@ impl Position {
     pub fn is_unknown(&self) -> bool {
         self.line == 0
     }
+    pub fn or(self, other: Position) -> Position {
+        if self.is_unknown() {
+            other
+        } else {
+            self
+        }
+    }
 }
 
 impl Default for Position {
