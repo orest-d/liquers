@@ -140,19 +140,45 @@ impl<V: ValueInterface> NGCommandArguments<V> {
         }
     }
 
-    pub fn get<T: NGFromParameterValue<T>>(&mut self) -> Result<T, Error> {
-        let p = self.pop_parameter()?;
-        if p.is_link() {
-            return Err(Error::general_error(
-                "Inconsistent parameter type - link found, value expected".to_owned(),
-            ).with_position(&p.position().or(self.action_position.clone())));
+    pub fn get<T: NGFromParameterValue<T> + TryFrom<V, Error=Error> >(&mut self) -> Result<T, Error> {
+        let argnum=self.argument_number;
+        let p = self.pop_parameter()?.to_owned();
+        if let Some(link) = p.link() {            
+            let resolved = self.links.get(argnum);
+            return match resolved {
+                Some(Some(state)) => {
+                    let value = state.data.clone();
+                    return T::try_from((&*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
+/*             
+                    if let Ok(v) = value.try_into_json_value(){
+                        return T::from_parameter_value(&ParameterValue::ParameterValue(v, p.position().or(self.action_position.clone())))
+                    }
+                    return Err(Error::general_error(format!(
+                        "Failed to convert link parameter {}: {}",
+                        argnum,
+                        link
+                    )).with_position(&p.position().or(self.action_position.clone())));
+*/
+                },
+                Some(None) => Err(Error::general_error(format!(
+                    "Unresolved link parameter {}: {}",
+                    argnum,
+                    link
+                )).with_position(&self.action_position)),
+                None => Err(Error::general_error(format!(
+                    "Unresolved link parameter {}: {} (resolved links too short: {})",
+                    argnum,
+                    link,
+                    self.links.len()
+                )).with_position(&self.action_position)),
+            };
         }
         if p.is_injected() {
             return Err(Error::general_error(
                 "Inconsistent parameter type - injected found, value expected".to_owned(),
             ).with_position(&self.action_position));
         }
-        T::from_parameter_value(p)
+        T::from_parameter_value(&p)
     }
 
     pub fn get_state(&mut self) -> Result<State<V>, Error> {
@@ -266,7 +292,7 @@ macro_rules! impl_from_parameter_value {
 
 /// Macro to simplify the implementation of the FromParameterValue trait
 macro_rules! impl_ng_from_parameter_value {
-    ($t:ty, $jsonvalue_to_opt:expr, $stateval_to_res:ident) => {
+    ($t:ty, $jsonvalue_to_opt:expr) => {
         impl NGFromParameterValue<$t> for $t {
             fn from_parameter_value(param: &ParameterValue) -> Result<$t, Error> {
                 if let Some(ref p) = param.value() {
@@ -295,8 +321,14 @@ impl_from_parameter_value!(
     (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned())),
     try_into_string
 );
+impl_ng_from_parameter_value!(
+    String,
+    (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned()))
+);
 impl_from_parameter_value!(i64, |p: &serde_json::Value| p.as_i64(), try_into_i64);
+impl_ng_from_parameter_value!(i64, |p: &serde_json::Value| p.as_i64());
 impl_from_parameter_value!(f64, |p: &serde_json::Value| p.as_f64(), try_into_f64);
+impl_ng_from_parameter_value!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value!(
     Option<i64>,
     |p: &serde_json::Value| {
@@ -307,6 +339,16 @@ impl_from_parameter_value!(
         }
     },
     try_into_i64_option
+);
+impl_ng_from_parameter_value!(
+    Option<i64>,
+    |p: &serde_json::Value| {
+        if p.is_null() {
+            Some(None)
+        } else {
+            p.as_i64().map(Some)
+        }
+    }
 );
 impl_from_parameter_value!(
     Option<f64>,
@@ -319,7 +361,18 @@ impl_from_parameter_value!(
     },
     try_into_f64_option
 );
+impl_ng_from_parameter_value!(
+    Option<f64>,
+    |p: &serde_json::Value| {
+        if p.is_null() {
+            Some(None)
+        } else {
+            p.as_f64().map(Some)
+        }
+    }
+);
 impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_bool);
+impl_ng_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool());
 /*
 impl<E: Environment> FromParameterValue<Vec<String>, E> for Vec<String> {
     fn from_parameter_value(
@@ -460,6 +513,83 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
     }
 }
 
+impl<V:ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
+    fn from_parameter_value(
+        param: &ParameterValue
+    ) -> Result<Vec<V>, Error> {
+        fn from_json_value<T: ValueInterface>(p: &serde_json::Value) -> Result<Vec<T>, Error> {
+            match p {
+                serde_json::Value::Array(a) => {
+                    let mut v = Vec::new();
+                    for e in a.iter() {
+                        v.push(T::try_from_json_value(e)?);
+                    }
+                    Ok(v)
+                }
+                _ => Ok(vec![T::try_from_json_value(p)?]),
+            }
+        }
+
+        match param {
+            ParameterValue::DefaultValue(v) => return from_json_value(v),
+            ParameterValue::ParameterValue(v, pos) => {
+                return from_json_value(v).map_err(|e| e.with_position(pos))
+            }
+            ParameterValue::MultipleParameters(p) => {
+                let mut v = Vec::new();
+                for pp in p.iter() {
+                    v.push(match pp {
+                        ParameterValue::DefaultValue(value) => {
+                            V::try_from_json_value(value)?
+                        }
+                        ParameterValue::ParameterValue(value, position) => {
+                            V::try_from_json_value(value)
+                                .map_err(|e| e.with_position(position))?
+                        }
+                        ParameterValue::MultipleParameters(vec) => {
+                            return Err(Error::unexpected_error(
+                                "Nested multiple parameters not allowed".to_owned(),
+                            ))
+                        }
+                        ParameterValue::Injected(name) => {
+                            return Err(Error::unexpected_error(format!(
+                                "Injected parameters ({name}) not allowed inside multi-parameter"
+                            )))
+                        }
+                        ParameterValue::None => {
+                            return Err(Error::unexpected_error(
+                                "None parameter not allowed inside multi-parameter".to_owned(),
+                            ))
+                        }
+                        _ => {
+                            return Err(Error::unexpected_error(
+                                "Unexpected parameter type inside multi-parameter".to_owned(),
+                            ))
+                        }
+                    });
+                }
+                Ok(v)
+            }
+            ParameterValue::Injected(name) => {
+                return Err(Error::general_error(format!(
+                    "Injected parameters ({name}) not allowed"
+                )))
+            }
+            ParameterValue::None => {
+                return Err(Error::general_error(
+                    "None parameter not allowed".to_owned(),
+                ))
+            }
+            _ => {
+                return Err(Error::general_error(
+                    "Unexpected parameter type".to_owned(),
+                ))
+            }
+        }
+        //Ok(vec![E::Value::none()])
+    }
+}
+
 pub trait InjectedFromContext<T, E: Environment> {
     fn from_context(name: &str, context: &impl ContextInterface<E>) -> Result<T, Error>;
 }
@@ -478,6 +608,16 @@ pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
         state: &State<V>,
         arguments: &mut CommandArguments,
         context: Context<ER, E>,
+    ) -> Result<V, Error>;
+}
+
+pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V>> {
+    fn execute(
+        &self,
+        command_key: &CommandKey,
+        state: &State<V>,
+        arguments: &mut NGCommandArguments<V>,
+        context: C,
     ) -> Result<V, Error>;
 }
 
@@ -501,6 +641,23 @@ where
     pub command_metadata_registry: CommandMetadataRegistry,
 }
 
+pub struct NGCommandRegistry<P, V: ValueInterface, C:ActionContext<P,V>>
+{
+    executors: HashMap<
+        CommandKey,
+        Arc<
+            Box<
+                dyn (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> Result<V, Error>)
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
+    >,
+    pub command_metadata_registry: CommandMetadataRegistry,
+    payload: PhantomData<P>
+}
+
 impl<ER, E, V> CommandRegistry<ER, E, V>
 where
     V: ValueInterface,
@@ -518,6 +675,33 @@ where
     where
         K: Into<CommandKey>,
         F: (Fn(&State<V>, &mut CommandArguments, Context<ER, E>) -> Result<V, Error>)
+            + Sync
+            + Send
+            + 'static,
+    {
+        let key = key.into();
+        let command_metadata = CommandMetadata::from_key(key.clone());
+        self.command_metadata_registry
+            .add_command(&command_metadata);
+        self.executors.insert(key.clone(), Arc::new(Box::new(f)));
+        Ok(self.command_metadata_registry.get_mut(key).unwrap())
+    }
+}
+
+impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandRegistry<P, V, C>
+{
+    pub fn new() -> Self {
+        NGCommandRegistry {
+            //executors: HashMap::new(),
+            executors: HashMap::new(),
+            command_metadata_registry: CommandMetadataRegistry::new(),
+            payload: PhantomData::default()
+        }
+    }
+    pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
+    where
+        K: Into<CommandKey>,
+        F: (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> Result<V, Error>)
             + Sync
             + Send
             + 'static,
@@ -554,6 +738,28 @@ where
                 realm,
                 namespace,
                 command_name,
+                &arguments.action_position,
+            ))
+        }
+    }
+}
+
+impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
+{
+    fn execute(
+        &self,
+        key: &CommandKey,
+        state: &State<V>,
+        arguments: &mut NGCommandArguments<V>,
+        context: C,
+    ) -> Result<V, Error> {
+        if let Some(command) = self.executors.get(&key) {
+            command(state, arguments, context)
+        } else {
+            Err(Error::unknown_command_executor(
+                &key.realm,
+                &key.namespace,
+                &key.name,
                 &arguments.action_position,
             ))
         }
@@ -706,12 +912,13 @@ macro_rules! register_command {
 
 #[cfg(test)]
 mod tests {
-    use crate::context::StatEnvRef;
+    use crate::{context::StatEnvRef, metadata::MetadataRecord, query::Key};
 
     use super::*;
     use crate::{state, value::Value};
 
     struct TestExecutor;
+    struct NGTestExecutor;
     impl CommandExecutor<StatEnvRef<NoInjection>, NoInjection, Value> for TestExecutor {
         fn execute(
             &self,
@@ -725,6 +932,68 @@ mod tests {
             assert_eq!(realm, "");
             assert_eq!(namespace, "");
             assert_eq!(command_name, "test");
+            assert!(state.data.is_none());
+            Ok(Value::from_string("Hello".into()))
+        }
+    }
+    struct TrivialContext;
+    impl ActionContext<NoInjection, Value> for TrivialContext{
+        fn borrow_payload(&self) -> &NoInjection {
+            panic!("borrow_payload not needed")
+        }
+    
+        fn clone_payload(&self) -> NoInjection {
+            NoInjection
+        }
+    
+        fn evaluate_dependency<Q:crate::query::TryToQuery>(&self, query: Q) -> Result<State<Value>, Error> {
+            panic!("evaluate_dependency not needed")
+        }
+    
+        fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+            panic!("get_command_metadata_registry not needed")
+        }
+    
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
+            Arc::new(Box::new(crate::store::NoStore))
+        }
+    
+        fn get_metadata(&self) -> crate::metadata::MetadataRecord {
+            MetadataRecord::new()
+        }
+    
+        fn set_filename(&self, filename: String) {
+            
+        }
+    
+        fn debug(&self, message: &str) {
+        }
+    
+        fn info(&self, message: &str) {
+        }
+    
+        fn warning(&self, message: &str) {
+        }
+    
+        fn error(&self, message: &str) {
+        }
+    
+        fn clone_context(&self) -> Self {
+            TrivialContext
+        }
+    }
+
+    impl NGCommandExecutor<NoInjection, Value, TrivialContext> for NGTestExecutor {
+        fn execute(
+            &self,
+            key: &CommandKey,
+            state: &State<Value>,
+            arguments: &mut NGCommandArguments<Value>,
+            context: TrivialContext,
+        ) -> Result<Value, Error> {
+            assert_eq!(key.realm, "");
+            assert_eq!(key.namespace, "");
+            assert_eq!(key.name, "test");
             assert!(state.data.is_none());
             Ok(Value::from_string("Hello".into()))
         }
@@ -744,6 +1013,17 @@ mod tests {
         assert_eq!(s, "Hello");
     }
     #[test]
+    fn test_ng_command_arguments() {
+        let mut rp = ResolvedParameterValues::new();
+        rp.0.push(ParameterValue::ParameterValue(
+            "Hello".into(),
+            Position::unknown(),
+        ));
+        let mut ca: NGCommandArguments<Value> = NGCommandArguments::new(rp);
+        let s: String = ca.get().unwrap();
+        assert_eq!(s, "Hello");
+    }
+    #[test]
     fn test_command_executor() -> Result<(), Error> {
         let injection = Box::leak(Box::new(NoInjection));
         let envref = StatEnvRef(injection);
@@ -752,6 +1032,18 @@ mod tests {
         let state = State::new();
         let s = TestExecutor
             .execute("", "", "test", &state, &mut ca, context)
+            .unwrap();
+        assert_eq!(s.try_into_string()?, "Hello");
+        Ok(())
+    }
+
+    #[test]
+    fn test_ng_command_executor() -> Result<(), Error> {
+        let mut context = TrivialContext;
+        let mut ca = NGCommandArguments::new(ResolvedParameterValues::new());
+        let state = State::new();
+        let s = NGTestExecutor
+            .execute(&CommandKey::new("", "", "test"), &state, &mut ca, context)
             .unwrap();
         assert_eq!(s.try_into_string()?, "Hello");
         Ok(())
