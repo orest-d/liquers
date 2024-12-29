@@ -31,7 +31,7 @@ pub struct CommandArguments {
 /// when it is executed.
 pub struct NGCommandArguments<V: ValueInterface> {
     pub parameters: ResolvedParameterValues,
-    pub links: Vec<Option<State<V>>>,
+    pub values: Vec<Option<Arc<V>>>,
     pub action_position: Position,
     pub argument_number: usize,
 }
@@ -119,12 +119,30 @@ impl<V: ValueInterface> NGCommandArguments<V> {
             parameters,
             action_position: Position::unknown(),
             argument_number: 0,
-            links: Vec::new(),
+            values: Vec::new(),
         }
     }
 
     pub fn len(&self) -> usize {
         self.parameters.0.len()
+    }
+
+    pub fn pop_value(&mut self) -> Result<Option<Arc<V>>, Error> {
+        if let Some(v) = self.values.get(self.argument_number) {
+            self.argument_number += 1;
+            if let Some(v) = v {
+                Ok(Some(v.clone()))
+            }
+            else{
+                Ok(None)
+            }
+        } else {
+            Err(Error::missing_argument(
+                self.argument_number,
+                "?",
+                &self.action_position,
+            ))
+        }
     }
 
     pub fn pop_parameter(&mut self) -> Result<&ParameterValue, Error> {
@@ -144,11 +162,11 @@ impl<V: ValueInterface> NGCommandArguments<V> {
         let argnum=self.argument_number;
         let p = self.pop_parameter()?.to_owned();
         if let Some(link) = p.link() {            
-            let resolved = self.links.get(argnum);
+            let resolved = self.values.get(argnum);
             return match resolved {
-                Some(Some(state)) => {
-                    let value = state.data.clone();
-                    return T::try_from((&*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
+                Some(Some(v)) => {
+                    let value=v.clone();
+                    return T::try_from((*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
 /*             
                     if let Ok(v) = value.try_into_json_value(){
                         return T::from_parameter_value(&ParameterValue::ParameterValue(v, p.position().or(self.action_position.clone())))
@@ -169,7 +187,7 @@ impl<V: ValueInterface> NGCommandArguments<V> {
                     "Unresolved link parameter {}: {} (resolved links too short: {})",
                     argnum,
                     link,
-                    self.links.len()
+                    self.values.len()
                 )).with_position(&self.action_position)),
             };
         }
@@ -180,12 +198,15 @@ impl<V: ValueInterface> NGCommandArguments<V> {
         }
         T::from_parameter_value(&p)
     }
-
-    pub fn get_state(&mut self) -> Result<State<V>, Error> {
+// TODO: Implement get_value, use as a quicker way to get the value (any)
+    /*
+    pub fn get_value(&mut self) -> Result<Option<Arc<V>>, Error> {
         let argnum=self.argument_number;
-        if let Some(link) = self.pop_parameter()?.link() {
-            let resolved = self.links.get(argnum);
-            match resolved {
+        let p = self.pop_parameter()?.to_owned();
+        let value = self.values.get(argnum);
+
+        if let Some(link) = p.link() {
+            match value {
                 Some(Some(state)) => Ok(state.clone()),
                 Some(None) => Err(Error::general_error(format!(
                     "Unresolved link parameter {}: {}",
@@ -196,7 +217,7 @@ impl<V: ValueInterface> NGCommandArguments<V> {
                     "Unresolved link parameter {}: {} (resolved links too short: {})",
                     argnum,
                     link,
-                    self.links.len()
+                    self.values.len()
                 )).with_position(&self.action_position)),
             }
         }
@@ -206,6 +227,7 @@ impl<V: ValueInterface> NGCommandArguments<V> {
             )).with_position(&self.action_position))
         }
     }
+    */
 
     /// Returns the injected parameter as a value of type T
     pub fn get_injected<P, T: NGInjectedFromContext<T, P, V>>(
@@ -832,10 +854,41 @@ macro_rules! command_wrapper_parameter_assignment {
         let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): std::vec::Vec<$argtype> =
             $arguments.get(&$context)?;
     };
+    /*
     ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, multiple $argname:ident:$argtype:ty) => {
         let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): std::vec::Vec<$argtype> =
             $arguments.get(&$context)?;
     };
+    */
+}
+
+#[macro_export]
+macro_rules! ng_command_wrapper_parameter_assignment {
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, context) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, context) = $context;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, state) => {
+        //let command_wrapper_parameter_name!($cxpar, $statepar, state) = $state;
+        ;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, injected $argname:ident:$argtype:ty) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, injected $argname): $argtype =
+            $arguments.get_injected(stringify!($argname), &$context)?;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, $argname:ident:$argtype:ty) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): $argtype =
+            $arguments.get()?;
+    };
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, multiple $argname:ident:$argtype:ty) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): std::vec::Vec<$argtype> =
+            $arguments.get()?;
+    };
+    /*
+    ($cxpar:ident, $statepar:ident, $arguments:ident, $state:ident, $context:ident, multiple $argname:ident:$argtype:ty) => {
+        let $crate::command_wrapper_parameter_name!($cxpar, $statepar, $argname): std::vec::Vec<$argtype> =
+            $arguments.get(&$context)?;
+    };
+    */
 }
 
 #[macro_export]
@@ -864,6 +917,32 @@ macro_rules! command_wrapper {
         };
 }
 
+#[macro_export]
+macro_rules! ng_command_wrapper {
+    ($name:ident
+        ($($argname:ident $($argname2:ident)? $(:$argtype:ty)?),*)) => {
+            //stringify!(
+            |state, arguments, context|{
+                let cx_wrapper_parameter = 0;
+                //let state_wrapper_parameter = 0;
+                $(
+                    $crate::ng_command_wrapper_parameter_assignment!(cx_wrapper_parameter, state, arguments, state, context, $argname $($argname2)? $(:$argtype)?);
+                )*
+                if arguments.all_parameters_used(){
+                    Ok($name($($crate::command_wrapper_parameter_name!(cx_wrapper_parameter, state, $argname $($argname2)?)),*)?.into())
+                }
+                else{
+                        Err($crate::error::Error::new(
+                            $crate::error::ErrorType::TooManyParameters,
+                            format!("Too many parameters: {}; {} excess parameters found", arguments.len(), arguments.excess_parameters()),
+                        )
+                        .with_position(&arguments.parameter_position()))
+                }
+            }
+        //)
+        };
+}
+
 //TODO: make sure that the macro export is done correctly
 #[macro_export]
 macro_rules! register_command {
@@ -873,6 +952,51 @@ macro_rules! register_command {
         .with_name(stringify!($name));
         $(
             $crate::register_command!(@arg reg_command_metadata $argname $($argname2)? $(:$argtype)?);
+        )*
+    }
+    };
+    (@arg $cm:ident state) =>{
+        $cm.with_state_argument($crate::command_metadata::ArgumentInfo::argument("state"));
+    };
+    (@arg $cm:ident context) =>{
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::argument("context").set_injected());
+    };
+    (@arg $cm:ident injected $argname:ident:String) =>{
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_injected());
+    };
+    (@arg $cm:ident $argname:ident:String) =>{
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)));
+    };
+    (@arg $cm:ident multiple $argname:ident:$argtype:ty) =>{
+        /*
+        if stringify!($argtype) == "String" {
+            println!("multiple String arguments: {}", stringify!($argname));
+            $cm.with_argument($crate::command_metadata::ArgumentInfo::string_argument(stringify!($argname)).set_multiple());
+        }
+        else{
+            $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_multiple());
+        }
+        */
+        println!("multiple Any arguments: {}", stringify!($argname));
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_multiple());
+    };
+    (@arg $cm:ident injected $argname:ident:$argtype:ty) =>{
+        $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)).set_injected());
+     };
+     (@arg $cm:ident $argname:ident:$argtype:ty) =>{
+       $cm.with_argument($crate::command_metadata::ArgumentInfo::argument(stringify!($argname)));
+    };
+
+}
+
+#[macro_export]
+macro_rules! ng_register_command {
+    ($cr:ident, $name:ident ($( $argname:ident $($argname2:ident)? $(:$argtype:ty)?),*)) => {
+        {
+        let reg_command_metadata = $cr.register_command(stringify!($name), $crate::ng_command_wrapper!($name($($argname $($argname2)? $(:$argtype)?),*)))?
+        .with_name(stringify!($name));
+        $(
+            $crate::ng_register_command!(@arg reg_command_metadata $argname $($argname2)? $(:$argtype)?);
         )*
     }
     };
@@ -1099,4 +1223,52 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_ng_macro_wrapper() -> Result<(), Error> {
+        #![feature(trace_macros)]
+        //println!("Macro: {}", make_command_wrapper!(Test1, a:A, b:B));
+        //println!("Command wrapper: {}", command_wrapper!(xx-yy-zz(a:A, b:B)));
+        //trace_macros!(true);
+        fn test1() -> Result<Value, Error> {
+            Ok(Value::from_string("Hello1".into()))
+        }
+        fn test2(context: TrivialContext) -> Result<Value, Error> {
+            context.info("test2 called");
+            Ok(Value::from_string(format!("Hello2")))
+        }
+        let mut cr = NGCommandRegistry::<NoInjection, Value, TrivialContext>::new();
+        //cr.register_command("test1", command_wrapper1!(test1()<Value, StatEnvRef<NoInjection>, NoInjection>))?;
+        cr.register_command("test1a", ng_command_wrapper!(test1()))?;
+        ng_register_command!(cr, test1());
+        ng_register_command!(cr, test2(context));
+        serde_yaml::to_writer(std::io::stdout(), &cr.command_metadata_registry)
+            .expect("cr yaml error");
+
+        //trace_macros!(false);
+
+        let state = State::new();
+        let mut ca = NGCommandArguments::new(ResolvedParameterValues::new());
+
+        let s = cr
+            .execute(&CommandKey::new("", "", "test1a"), &state, &mut ca, TrivialContext)
+            .unwrap();
+        assert_eq!(s.try_into_string()?, "Hello1");
+
+        let s = cr
+            .execute(&CommandKey::new("", "", "test1"), &state, &mut ca, TrivialContext)
+            .unwrap();
+        assert_eq!(s.try_into_string()?, "Hello1");
+        //assert_eq!(context.get_metadata().log.len(), 0);
+
+        let s = cr
+            .execute(&CommandKey::new("", "", "test2"), &state, &mut ca, TrivialContext)
+            .unwrap();
+
+        //        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
+        //assert_eq!(context.get_metadata().log[0].message, "test2 called");
+
+        Ok(())
+    }
+
 }
