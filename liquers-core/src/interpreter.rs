@@ -520,6 +520,46 @@ mod tests {
         }
     }
 
+    struct NGInjectionTest {
+        variable: InjectedVariable,
+        cr: NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>,
+        store: Arc<Box<dyn crate::store::Store>>,
+    }
+  
+    impl NGEnvironment for NGInjectionTest{
+        type Value = Value;
+    
+        type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
+    
+        fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+            &self.cr.command_metadata_registry
+        }
+    
+        fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+            &mut self.cr.command_metadata_registry
+        }
+    
+        fn get_command_executor(&self) -> &Self::CommandExecutor {
+            &self.cr
+        }
+    
+        fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
+            &mut self.cr
+        }
+    
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
+            self.store.clone()
+        }
+    
+        fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
+            Arc::new(Mutex::new(Box::new(NoCache::new())))
+        }
+    
+        fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+            Arc::new(Box::new(crate::store::NoAsyncStore))
+        }
+    }
+
     impl Environment for NoInjection {
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             panic!("NoInjection has no command metadata registry")
@@ -561,6 +601,40 @@ mod tests {
         store: Arc<Box<dyn crate::store::Store>>,
     }
 
+    impl NGEnvironment for NGNoInjection{
+        type Value = Value;
+    
+        type CommandExecutor = NGTestExecutor;
+    
+        fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+            panic!("NGNoInjection has no command metadata registry")
+        }
+    
+        fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+            panic!("NGNoInjection has non-mutable command metadata registry")
+        }
+    
+        fn get_command_executor(&self) -> &Self::CommandExecutor {
+            &NGTestExecutor
+        }
+    
+        fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
+            panic!("NGNoInjection has non-mutable command executor")
+        }
+    
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
+            panic!("NGNoInjection has no store")
+        }
+    
+        fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
+            panic!("NGNoInjection has no cache")
+        }
+    
+        fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+            panic!("NGNoInjection has no async store")
+        }
+    }
+
     impl Environment for MutableInjectionTest {
         type Value = Value;
         type CommandExecutor = CommandRegistry<StatEnvRef<Self>, Self, Value>;
@@ -596,6 +670,46 @@ mod tests {
         }
     }
 
+    struct NGMutableInjectionTest {
+        variable: Arc<Mutex<InjectedVariable>>,
+        cr: NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>,
+        store: Arc<Box<dyn crate::store::Store>>,
+    }
+    
+    impl NGEnvironment for NGMutableInjectionTest{
+        type Value = Value;
+    
+        type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
+    
+        fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+            &self.cr.command_metadata_registry
+        }
+    
+        fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+            &mut self.cr.command_metadata_registry
+        }
+    
+        fn get_command_executor(&self) -> &Self::CommandExecutor {
+            &self.cr
+        }
+    
+        fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
+            &mut self.cr
+        }
+    
+        fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
+            self.store.clone()
+        }
+    
+        fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
+            Arc::new(Mutex::new(Box::new(NoCache::new())))
+        }
+    
+        fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+            Arc::new(Box::new(crate::store::NoAsyncStore))
+        }
+    }
+
     impl<ER: EnvRef<E>, E: Environment> CommandExecutor<ER, E, Value> for TestExecutor {
         fn execute(
             &self,
@@ -609,6 +723,21 @@ mod tests {
             todo!()
         }
     }
+
+    pub struct NGTestExecutor;
+
+    impl NGCommandExecutor<NGEnvRef<NGNoInjection>, Value, NGContext<NGNoInjection>> for NGTestExecutor {
+        fn execute(
+            &self,
+            key: &CommandKey,
+            state: &State<Value>,
+            arguments: &mut NGCommandArguments<Value>,
+            context: NGContext<NGNoInjection>,
+        ) -> Result<Value, Error> {
+            todo!()
+        }
+    }
+   
     #[test]
     fn test_plan_interpreter() -> Result<(), Error> {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -722,7 +851,7 @@ mod tests {
             }
         }
 
-        fn injected(state: &State<Value>, what: InjectedVariable) -> Result<String, Error> {
+        fn injected(_state: &State<Value>, what: InjectedVariable) -> Result<String, Error> {
             Ok(format!("Hello {}", what.0))
         }
         register_command!(cr, injected(state, injected what:InjectedVariable));
@@ -764,7 +893,7 @@ mod tests {
         }
 
         fn injected(
-            state: &State<Value>,
+            _state: &State<Value>,
             what: Arc<Mutex<InjectedVariable>>,
         ) -> Result<String, Error> {
             let res = format!("Hello {}", what.lock().unwrap().0);
@@ -835,7 +964,7 @@ mod tests {
         use crate::store::*;
 
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        let mut store = MemoryStore::new(&Key::new());
+        let store = MemoryStore::new(&Key::new());
         store.set(
             &parse_key("hello.txt").unwrap(),
             "Hello TEXT".as_bytes(),

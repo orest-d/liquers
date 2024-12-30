@@ -5,7 +5,7 @@ use std::{
 use crate::{
     cache::{Cache, NoCache},
     command_metadata::CommandMetadataRegistry,
-    commands::{CommandExecutor, CommandRegistry, NGCommandExecutor},
+    commands::{CommandExecutor, CommandRegistry, NGCommandExecutor, NGCommandRegistry},
     error::Error,
     metadata::{Metadata, MetadataRecord},
     query::{Key, Query, TryToQuery},
@@ -82,6 +82,12 @@ pub trait EnvRef<E: Environment>: Sized {
 }
 
 pub struct NGEnvRef<E:NGEnvironment>(pub Arc<tokio::sync::RwLock<E>>);
+
+impl<E:NGEnvironment> NGEnvRef<E> {
+    pub fn new(env: E) -> Self {
+        NGEnvRef(Arc::new(tokio::sync::RwLock::new(env)))
+    }
+}
 
 impl<E:NGEnvironment> Clone for NGEnvRef<E> {
     fn clone(&self) -> Self {
@@ -364,6 +370,78 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         self.async_store.clone()
     }
     
+}
+
+/// Simple environment with configurable store and cache
+/// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
+pub struct SimpleNGEnvironment<V: ValueInterface> {
+    store: Arc<Box<dyn Store>>,
+    #[cfg(feature = "async_store")]
+    async_store: Arc<Box<dyn crate::store::AsyncStore>>,
+    //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
+    command_registry: NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>,
+}
+
+impl<V:ValueInterface> SimpleNGEnvironment<V> {
+    pub fn new() -> Self {
+        SimpleNGEnvironment {
+            store: Arc::new(Box::new(NoStore)),
+            command_registry: NGCommandRegistry::new(),
+//            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
+            #[cfg(feature = "async_store")]
+            async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
+        }
+    }
+    pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
+        self.store = Arc::new(store);
+        self
+    }
+    #[cfg(feature = "async_store")]
+    pub fn with_async_store(&mut self, store:Box<dyn crate::store::AsyncStore>) -> &mut Self {
+        self.async_store = Arc::new(store);
+        self
+    }
+    pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
+        panic!("SimpleNGEnvironment does not support cache for now");
+    }
+    pub fn to_ref(self) -> NGEnvRef<Self> {
+        NGEnvRef::new(self)
+    }
+}
+
+impl <V:ValueInterface> NGEnvironment for SimpleNGEnvironment<V> {
+    type Value = V;
+    type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
+
+    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
+        &mut self.command_registry.command_metadata_registry
+    }
+
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+        &self.command_registry.command_metadata_registry
+    }
+
+    fn get_command_executor(&self) -> &Self::CommandExecutor {
+        &self.command_registry
+    }
+    fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
+        &mut self.command_registry
+    }
+    fn get_store(&self) -> Arc<Box<dyn Store>> {
+        self.store.clone()
+    }
+
+    fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>
+    {
+        panic!("SimpleNGEnvironment does not support cache for now");
+//        let cache = NoCache::<V>::new();
+//        Arc::new(Mutex::new(Box::new(cache)))
+    }
+
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+        self.async_store.clone()
+    }
 }
 
 mod tests {

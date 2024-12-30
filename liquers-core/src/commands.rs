@@ -18,6 +18,7 @@ use crate::state::State;
 use crate::value::ValueInterface;
 
 pub struct NoInjection;
+pub struct NGNoInjection;
 
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
