@@ -2,8 +2,10 @@ pub mod core_handlers;
 pub mod environment;
 pub mod store_handlers;
 pub mod utils;
+pub mod value;
 
 use crate::environment::ServerEnvironment;
+use core_handlers::evaluate_handler;
 use liquers_core::context::NGEnvRef;
 use liquers_core::value::Value;
 use std::sync::Arc;
@@ -29,7 +31,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        //.route("/liquer/q/*query", get(evaluate_query))
+        .route("/liquer/q/*query", get(evaluate_handler))
         //.route("/liquer/submit/*query", get(submit_query))
         .route(
             "/liquer/api/store/data/*query",

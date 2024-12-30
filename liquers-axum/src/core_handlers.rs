@@ -1,3 +1,4 @@
+use crate::value::default_value_response;
 use std::sync::Arc;
 
 use axum::{
@@ -8,23 +9,18 @@ use axum::{
 };
 use liquers_core::value::Value;
 
+use crate::{
+    environment::{async_evaluate, ServerEnvRef},
+    utils::CoreError,
+};
 
-
-
-/*
 #[axum::debug_handler]
 pub async fn evaluate_handler(
     Path(query): Path<String>,
-    State(env): State<ServerEnvRef>,
+    State(envref): State<ServerEnvRef>,
 ) -> Response<Body> {
-    
-    let env_access = env.read().await;
-    let envref = (*env_access).to_ref();
-    match async_evaluate::<ServerEnvironment<Value>,_>(envref, query).await{
-        Ok(state) => {
-            default_value_response(&state.data)
-        },
+    match async_evaluate(envref, query).await {
+        Ok(state) => default_value_response(&state.data),
         Err(e) => CoreError(e).into_response(),
     }
 }
-*/
