@@ -171,7 +171,7 @@ impl ParameterValue {
                 }
                 let n = s
                     .parse::<i64>()
-                    .map_err(|e| Error::conversion_error_at_position(s, "integer", pos))?;
+                    .map_err(|_e| Error::conversion_error_at_position(s, "integer", pos))?;
                 Ok(ParameterValue::ParameterValue(n.into(), pos.to_owned()))
             }
             ArgumentType::IntegerOption => {
@@ -185,7 +185,7 @@ impl ParameterValue {
                 }
                 let n = s
                     .parse::<i64>()
-                    .map_err(|e| Error::conversion_error_at_position(s, "integer", pos))?;
+                    .map_err(|_e| Error::conversion_error_at_position(s, "integer", pos))?;
                 Ok(ParameterValue::ParameterValue(n.into(), pos.to_owned()))
             }
             ArgumentType::Float => {
@@ -195,7 +195,7 @@ impl ParameterValue {
                 }
                 let x = s
                     .parse::<f64>()
-                    .map_err(|e| Error::conversion_error_at_position(s, "float", pos))?;
+                    .map_err(|_e| Error::conversion_error_at_position(s, "float", pos))?;
                 Ok(ParameterValue::ParameterValue(x.into(), pos.to_owned()))
             }
             ArgumentType::FloatOption => {
@@ -209,7 +209,7 @@ impl ParameterValue {
                 }
                 let x = s
                     .parse::<f64>()
-                    .map_err(|e| Error::conversion_error_at_position(s, "float", pos))?;
+                    .map_err(|_e| Error::conversion_error_at_position(s, "float", pos))?;
                 Ok(ParameterValue::ParameterValue(x.into(), pos.to_owned()))
             }
             ArgumentType::Boolean => {

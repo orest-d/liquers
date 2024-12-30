@@ -132,7 +132,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                     &mut arguments,
                     context.clone_context(),
                 )?;
-                let state = State::new()
+                let state = State::<E::Value>::new()
                     .with_data(result)
                     .with_metadata(context.get_metadata().into());
                 /// TODO - reset metadata ?
@@ -417,21 +417,42 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                 position,
                 parameters,
             } => {
-                let mut arguments = NGCommandArguments::new(parameters.clone());
+                let mut arguments = NGCommandArguments::<<E as NGEnvironment>::Value>::new(parameters.clone());
                 arguments.action_position = position.clone();
-
+                let envref = self.environment.clone();
                 let result = {
-                    let env = self.environment.0.read().await;
-                    let ce = env.get_command_executor();
-                    ce.execute(
-                        &CommandKey::new(realm, ns, action_name),
-                        &input_state,
-                        &mut arguments,
-                        context.clone_context(),
-                    )?
+                    #[cfg(not(feature = "tokio_exec"))]
+                    {
+                        let env = envref.0.read().await;
+                        let ce = env.get_command_executor();
+                        ce.execute(
+                            &CommandKey::new(realm, ns, action_name),
+                            &input_state,
+                            &mut arguments,
+                            context.clone_context(),
+                        )?
+                    }
+                    #[cfg(feature = "tokio_exec")]
+                    {
+                        let env = envref.0.read().await;
+                        let res = tokio::task::spawn_blocking(move || {
+                            let ce = env.get_command_executor();
+                            /*        
+                            let res = ce.execute(
+                                &CommandKey::new(realm, ns, action_name),
+                                &input_state,
+                                &mut arguments,
+                                context.clone_context(),
+                            );
+                            */
+                            tokio::sync::Mutex::new(Ok(E::Value::none()))
+                        }).await.map_err(|e| Error::general_error(format!("Tokio task error: {}", e)))?;
+                        let x  = (*(res.lock().await))?;
+                        x  
+                    }
                 };
 
-                let state = State::new()
+                let state = State::<<E as NGEnvironment>::Value>::new()
                     .with_data(result)
                     .with_metadata(context.get_metadata().into());
                 /// TODO - reset metadata ?
@@ -452,6 +473,9 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
             crate::plan::Step::Plan(_) => todo!(),
         }
         Ok(input_state)
+    }
+    pub fn take_state(&mut self) -> Option<State<E::Value>> {
+        self.state.take()
     }
 }
 
@@ -525,36 +549,36 @@ mod tests {
         cr: NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>,
         store: Arc<Box<dyn crate::store::Store>>,
     }
-  
-    impl NGEnvironment for NGInjectionTest{
+
+    impl NGEnvironment for NGInjectionTest {
         type Value = Value;
-    
+
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
-    
+
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
         }
-    
+
         fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
             &mut self.cr.command_metadata_registry
         }
-    
+
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &self.cr
         }
-    
+
         fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
             &mut self.cr
         }
-    
+
         fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             self.store.clone()
         }
-    
+
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
-    
+
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             Arc::new(Box::new(crate::store::NoAsyncStore))
         }
@@ -601,35 +625,35 @@ mod tests {
         store: Arc<Box<dyn crate::store::Store>>,
     }
 
-    impl NGEnvironment for NGNoInjection{
+    impl NGEnvironment for NGNoInjection {
         type Value = Value;
-    
+
         type CommandExecutor = NGTestExecutor;
-    
+
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             panic!("NGNoInjection has no command metadata registry")
         }
-    
+
         fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
             panic!("NGNoInjection has non-mutable command metadata registry")
         }
-    
+
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &NGTestExecutor
         }
-    
+
         fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
             panic!("NGNoInjection has non-mutable command executor")
         }
-    
+
         fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             panic!("NGNoInjection has no store")
         }
-    
+
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             panic!("NGNoInjection has no cache")
         }
-    
+
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             panic!("NGNoInjection has no async store")
         }
@@ -675,36 +699,36 @@ mod tests {
         cr: NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>,
         store: Arc<Box<dyn crate::store::Store>>,
     }
-    
-    impl NGEnvironment for NGMutableInjectionTest{
+
+    impl NGEnvironment for NGMutableInjectionTest {
         type Value = Value;
-    
+
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
-    
+
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
         }
-    
+
         fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
             &mut self.cr.command_metadata_registry
         }
-    
+
         fn get_command_executor(&self) -> &Self::CommandExecutor {
             &self.cr
         }
-    
+
         fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
             &mut self.cr
         }
-    
+
         fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             self.store.clone()
         }
-    
+
         fn get_cache(&self) -> Arc<Mutex<Box<dyn crate::cache::Cache<Self::Value>>>> {
             Arc::new(Mutex::new(Box::new(NoCache::new())))
         }
-    
+
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             Arc::new(Box::new(crate::store::NoAsyncStore))
         }
@@ -726,7 +750,9 @@ mod tests {
 
     pub struct NGTestExecutor;
 
-    impl NGCommandExecutor<NGEnvRef<NGNoInjection>, Value, NGContext<NGNoInjection>> for NGTestExecutor {
+    impl NGCommandExecutor<NGEnvRef<NGNoInjection>, Value, NGContext<NGNoInjection>>
+        for NGTestExecutor
+    {
         fn execute(
             &self,
             key: &CommandKey,
@@ -737,7 +763,7 @@ mod tests {
             todo!()
         }
     }
-   
+
     #[test]
     fn test_plan_interpreter() -> Result<(), Error> {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();

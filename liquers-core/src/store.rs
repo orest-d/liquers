@@ -1358,7 +1358,7 @@ mod tests {
 
     #[test]
     fn test_simple_store() -> Result<(), Error> {
-        let mut store = MemoryStore::new(&Key::new());
+        let store = MemoryStore::new(&Key::new());
         let key = parse_key("a/b/c").unwrap();
         let data = b"test data".to_vec();
         let metadata = Metadata::MetadataRecord(MetadataRecord::new());

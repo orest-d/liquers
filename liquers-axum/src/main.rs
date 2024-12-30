@@ -4,6 +4,7 @@ pub mod store_handlers;
 pub mod utils;
 
 use crate::environment::ServerEnvironment;
+use liquers_core::context::NGEnvRef;
 use liquers_core::value::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -22,7 +23,7 @@ async fn main() {
         ".",
         &Key::new(),
     ))));
-    let state: Arc<RwLock<ServerEnvironment<Value>>> = Arc::new(RwLock::new(env));
+    let state = NGEnvRef::new(env);
 
     //    let store:Arc<Box<dyn AsyncStore>> = Arc::new(Box::new(AsyncStoreWrapper(FileStore::new(".", &Key::new()))));
 
@@ -31,47 +32,47 @@ async fn main() {
         //.route("/liquer/q/*query", get(evaluate_query))
         //.route("/liquer/submit/*query", get(submit_query))
         .route(
-            "/liquer/store/data/*query",
+            "/liquer/api/store/data/*query",
             get(crate::store_handlers::store_data_handler),
         )
         //.route("/liquer/store/data/*query", post(crate::store_handlers::store_data_post_handler))
         .route(
-            "/liquer/store/metadata/*query",
+            "/liquer/api/store/metadata/*query",
             get(crate::store_handlers::store_metadata_handler),
         )
         //.route("/liquer/store/metadata/*query", post(crate::store_handlers::store_metadata_post_handler))
         .route(
-            "/liquer/store/upload/*query",
+            "/liquer/api/store/upload/*query",
             get(crate::store_handlers::upload_handler),
         )
         //.route("/liquer/store/upload/*query", post(crate::store_handlers::upload_post_handler))
         // /api/stored_metadata/QUERY (GET) ?
         .route(
-            "/liquer/store/remove/*query",
+            "/liquer/api/store/remove/*query",
             get(crate::store_handlers::remove_handler),
         )
         .route(
-            "/liquer/store/removedir/*query",
+            "/liquer/api/store/removedir/*query",
             get(crate::store_handlers::remove_handler),
         )
         .route(
-            "/liquer/store/contains/*query",
+            "/liquer/api/store/contains/*query",
             get(crate::store_handlers::remove_handler),
         )
         .route(
-            "/liquer/store/is_dir/*query",
+            "/liquer/api/store/is_dir/*query",
             get(crate::store_handlers::is_dir_handler),
         )
         .route(
-            "/liquer/store/keys",
+            "/liquer/api/store/keys",
             get(crate::store_handlers::keys_handler),
         )
         .route(
-            "/liquer/store/listdir/*query",
+            "/liquer/api/store/listdir/*query",
             get(crate::store_handlers::listdir_handler),
         ) // TODO: support listdir_keys and listdir_keys_deep
         .route(
-            "/liquer/store/makedir/*query",
+            "/liquer/api/store/makedir/*query",
             get(crate::store_handlers::makedir_handler),
         )
         .with_state(state);

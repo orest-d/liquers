@@ -7,7 +7,7 @@ use axum::{
     response::IntoResponse,
 };
 use liquers_core::{
-    context::Environment,
+    context::{Environment, NGEnvironment},
     metadata::{Metadata, MetadataRecord},
     parse::parse_key,
 };
@@ -23,7 +23,7 @@ pub async fn store_data_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => DataResultWrapper(store.get(&key).await).into_response(),
         Err(e) => CoreError(e).into_response(),
@@ -35,7 +35,7 @@ pub async fn web_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         // TODO: handle directory and nicer error
         Ok(key) => DataResultWrapper(store.get(&key).await).into_response(),
@@ -48,7 +48,7 @@ pub async fn store_metadata_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.get_metadata(&key).await {
             Ok(Metadata::MetadataRecord(metadata)) => Response::builder()
@@ -106,7 +106,7 @@ pub async fn remove_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.remove(&key).await {
             // TODO: convert store output to JSON
@@ -126,7 +126,7 @@ pub async fn removedir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.removedir(&key).await {
             // TODO: convert store output to JSON
@@ -146,7 +146,7 @@ pub async fn contains_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.contains(&key).await {
             // TODO: convert store output to JSON
@@ -166,7 +166,7 @@ pub async fn is_dir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.is_dir(&key).await {
             // TODO: convert store output to JSON
@@ -183,7 +183,7 @@ pub async fn is_dir_handler(
 
 #[axum::debug_handler]
 pub async fn keys_handler(State(env): State<ServerEnvRef>) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match store.keys().await {
         // TODO: convert store output to JSON
         Ok(_) => Response::builder()
@@ -200,7 +200,7 @@ pub async fn listdir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.listdir(&key).await {
             // TODO: convert store output to JSON
@@ -220,7 +220,7 @@ pub async fn makedir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.read().await.get_async_store();
+    let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.makedir(&key).await {
             // TODO: convert store output to JSON

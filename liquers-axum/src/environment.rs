@@ -1,7 +1,16 @@
 use std::sync::{Arc, Mutex};
 
 use liquers_core::{
-    cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{ArcEnvRef, Context, EnvRef, Environment}, error::Error, interpreter::AsyncPlanInterpreter, query::{self, TryToQuery}, state::State, store::{AsyncStore, NoAsyncStore, NoStore, Store}, value::ValueInterface
+    cache::{Cache, NoCache},
+    command_metadata::CommandMetadataRegistry,
+    commands::{CommandRegistry, NGCommandRegistry},
+    context::{ArcEnvRef, Context, EnvRef, Environment, NGContext, NGEnvRef, NGEnvironment},
+    error::Error,
+    interpreter::{AsyncPlanInterpreter, NGPlanInterpreter},
+    query::{self, TryToQuery},
+    state::State,
+    store::{AsyncStore, NoAsyncStore, NoStore, Store},
+    value::ValueInterface,
 };
 use tokio::sync::RwLock;
 
@@ -12,27 +21,18 @@ pub struct ServerEnvironment<V: ValueInterface> {
     #[cfg(feature = "async_store")]
     async_store: Arc<Box<dyn AsyncStore>>,
     cache: Arc<Mutex<Box<dyn Cache<V>>>>,
-    command_registry: CommandRegistry<ArcEnvRef<Self>, Self, V>,
+    command_registry: NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>,
 }
 
 pub type ServerValue = liquers_core::value::Value;
 pub type ServerEnvironmentType = ServerEnvironment<ServerValue>;
-pub type ServerEnvRef = Arc<RwLock<ServerEnvironment<ServerValue>>>;
-
-impl EnvRef<ServerEnvironmentType> for ServerEnvRef {
-    fn get(&self) -> &ServerEnvironmentType {
-        panic!("Not implemented - probably flawed design");
-    }
-    fn get_ref(&self) -> Self {
-        self.clone()
-    }
-}
+pub type ServerEnvRef = NGEnvRef<ServerEnvironmentType>;
 
 impl<V: ValueInterface + 'static> ServerEnvironment<V> {
     pub fn new() -> Self {
         ServerEnvironment {
             store: Arc::new(Box::new(NoStore)),
-            command_registry: CommandRegistry::new(),
+            command_registry: NGCommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(Box::new(NoAsyncStore)),
@@ -53,13 +53,13 @@ impl<V: ValueInterface + 'static> ServerEnvironment<V> {
     }
 }
 
-pub async fn async_evaluate<E: Environment, Q: TryToQuery>(
-    envref: <E as Environment>::EnvironmentReference,
+pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
+    envref: NGEnvRef<E>,
     query: Q,
-) -> Result<liquers_core::state::State<<E as Environment>::Value>, liquers_core::error::Error> {
-    let mut pi = AsyncPlanInterpreter::new(envref);
+) -> Result<liquers_core::state::State<<E as NGEnvironment>::Value>, liquers_core::error::Error> {
+    let mut pi = NGPlanInterpreter::new(envref);
     let query = query.try_to_query()?;
-    pi.with_query(&query)?;
+    pi.set_query(&query).await?;
     //println!("{:?}", pi.plan);
     /*
     println!(
@@ -68,20 +68,17 @@ pub async fn async_evaluate<E: Environment, Q: TryToQuery>(
     );
     */
     pi.run().await?;
-    let state = pi.state.take();
+    let state = pi.take_state();
     if let Some(state) = state {
         Ok(state)
-    }
-    else{
+    } else {
         Err(Error::general_error("No state returned".to_owned()).with_query(&query))
     }
 }
 
-impl<V: ValueInterface> Environment for ServerEnvironment<V> {
+impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
     type Value = V;
-    type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, V>;
-    type EnvironmentReference = ArcEnvRef<Self>;
-    type Context = Context<Self::EnvironmentReference, Self>;
+    type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry

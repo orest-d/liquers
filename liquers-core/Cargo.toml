@@ -10,6 +10,7 @@ crate-type = ["cdylib", "lib"]
 [features]
 default=["async_store"]
 async_store=["futures", "async-trait"]
+tokio_exec=["futures", "async-trait", "async_store"]
 
 [dependencies]
 itertools = "0.13.0"
@@ -22,7 +23,7 @@ serde_json = "1.0.104"
 serde_yaml = "0.9.25"
 thiserror = "1.0.44"
 chrono = "0.4.31"
-tokio = { version = "1.37.0", features = ["sync"] }
+tokio = { version = "1.37.0", features = ["sync", "rt"] }
 
 [dev-dependencies]
 tokio = {version="1.37.0", features = ["full"]}
