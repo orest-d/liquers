@@ -705,15 +705,12 @@ impl Store for FileStore {
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let path = self.key_to_path(key);
-        if path.exists() {
-            return Ok(path.is_dir());
-        }
-        Ok(false)
+        return Ok(path.is_dir());
     }
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let path = self.key_to_path(key);
-        if path.exists() {
+        if path.is_dir() {
             let dir = path
                 .read_dir()
                 .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
@@ -727,7 +724,14 @@ impl Store for FileStore {
                 .collect();
             return Ok(names);
         }
-        Err(Error::key_not_found(key))
+        else{
+            if path.exists() {
+                return Ok(vec![]);
+            }
+            else{
+                return Err(Error::key_not_found(key));
+            }   
+        }
     }
 
     fn makedir(&self, key: &Key) -> Result<(), Error> {

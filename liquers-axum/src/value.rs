@@ -7,6 +7,8 @@ use axum::{
 };
 use liquers_core::value::{Value, ValueInterface};
 
+use crate::utils::CoreError;
+
 pub struct ValueWrapper(pub Value);
 
 impl From<Value> for ValueWrapper {
@@ -15,7 +17,7 @@ impl From<Value> for ValueWrapper {
     }
 }
 
-pub fn json_respones(value: serde_json::Value) -> Response<Body> {
+pub fn json_response(value: serde_json::Value) -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
@@ -25,18 +27,34 @@ pub fn json_respones(value: serde_json::Value) -> Response<Body> {
 
 pub fn default_value_response(value: &Value) -> Response<Body> {
     match value {
-        Value::None => json_respones(value.try_into_json_value().unwrap()),
-        Value::Bool(b) => json_respones(value.try_into_json_value().unwrap()),
-        Value::I32(_) => json_respones(value.try_into_json_value().unwrap()),
-        Value::I64(_) => json_respones(value.try_into_json_value().unwrap()),
-        Value::F64(_) => json_respones(value.try_into_json_value().unwrap()),
+        Value::None => json_response(value.try_into_json_value().unwrap()),
+        Value::Bool(b) => json_response(value.try_into_json_value().unwrap()),
+        Value::I32(_) => json_response(value.try_into_json_value().unwrap()),
+        Value::I64(_) => json_response(value.try_into_json_value().unwrap()),
+        Value::F64(_) => json_response(value.try_into_json_value().unwrap()),
         Value::Text(txt) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/plain")
             .body(txt.to_string().into())
             .unwrap(),
-        Value::Array(vec) => todo!(),
-        Value::Object(btree_map) => todo!(),
-        Value::Bytes(vec) => todo!(),
+        Value::Array(vec) => {
+            match value.try_into_json_value(){
+                Ok(x) => json_response(x),
+                Err(e) => CoreError(e).into_response(),
+            }
+        },
+        Value::Object(_) => {
+            match value.try_into_json_value(){
+                Ok(x) => json_response(x),
+                Err(e) => CoreError(e).into_response(),
+            }
+        },
+        Value::Bytes(vec) => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(vec.to_vec().into())
+                .unwrap()
+        },
     }
 }

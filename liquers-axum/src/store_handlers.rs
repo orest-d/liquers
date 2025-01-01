@@ -5,18 +5,100 @@ use axum::{
     extract::{Path, State},
     http::{header, Response, StatusCode},
     response::IntoResponse,
+    Error,
 };
 use liquers_core::{
     context::{Environment, NGEnvironment},
     metadata::{Metadata, MetadataRecord},
     parse::parse_key,
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::{
     environment::ServerEnvRef,
     utils::{CoreError, DataResultWrapper},
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StoreResultStatus {
+    #[serde(rename = "OK")]
+    Ok,
+    #[serde(rename = "ERROR")]
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoreResult<T: Serialize> {
+    status: StoreResultStatus,
+    result: Option<T>,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    error: Option<liquers_core::error::Error>,
+}
+
+impl<T> StoreResult<T>
+where
+    T: Serialize,
+{
+    pub fn with_key(mut self, key: String) -> Self {
+        self.key = Some(key);
+        self
+    }
+}
+
+impl<T> From<Result<T, liquers_core::error::Error>> for StoreResult<T>
+where
+    T: Serialize,
+{
+    fn from(result: Result<T, liquers_core::error::Error>) -> Self {
+        match result {
+            Ok(x) => StoreResult {
+                status: StoreResultStatus::Ok,
+                result: Some(x),
+                message: "OK".to_string(),
+                query: None,
+                key: None,
+                error: None,
+            },
+            Err(e) => StoreResult {
+                status: StoreResultStatus::Error,
+                result: None,
+                message: e.to_string(),
+                query: e.query.clone(),
+                key: e.key.clone(),
+                error: Some(e),
+            },
+        }
+    }
+}
+
+impl<T> IntoResponse for StoreResult<T>
+where
+    T: Serialize,
+{
+    fn into_response(self) -> Response<Body> {
+        match serde_json::to_string_pretty(&self) {
+            Ok(json) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(json.into())
+                .unwrap(),
+            Err(e) => Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(header::CONTENT_TYPE, "text/plain")
+                .body(e.to_string().into())
+                .unwrap(),
+        }
+    }
+}
 
 #[axum::debug_handler]
 pub async fn store_data_handler(
@@ -108,15 +190,9 @@ pub async fn remove_handler(
 ) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
-        Ok(key) => match store.remove(&key).await {
-            // TODO: convert store output to JSON
-            Ok(_) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .body("OK".into())
-                .unwrap(),
-            Err(e) => CoreError(e).into_response(),
-        },
+        Ok(key) => StoreResult::from(store.remove(&key).await)
+            .with_key(key.encode())
+            .into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -128,15 +204,9 @@ pub async fn removedir_handler(
 ) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
-        Ok(key) => match store.removedir(&key).await {
-            // TODO: convert store output to JSON
-            Ok(_) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .body("OK".into())
-                .unwrap(),
-            Err(e) => CoreError(e).into_response(),
-        },
+        Ok(key) => StoreResult::from(store.removedir(&key).await)
+            .with_key(key.encode())
+            .into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -148,15 +218,9 @@ pub async fn contains_handler(
 ) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
-        Ok(key) => match store.contains(&key).await {
-            // TODO: convert store output to JSON
-            Ok(_) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .body("OK".into())
-                .unwrap(),
-            Err(e) => CoreError(e).into_response(),
-        },
+        Ok(key) => StoreResult::from(store.contains(&key).await)
+            .with_key(key.encode())
+            .into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -168,15 +232,9 @@ pub async fn is_dir_handler(
 ) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
-        Ok(key) => match store.is_dir(&key).await {
-            // TODO: convert store output to JSON
-            Ok(_) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .body("OK".into())
-                .unwrap(),
-            Err(e) => CoreError(e).into_response(),
-        },
+        Ok(key) => StoreResult::from(store.is_dir(&key).await)
+            .with_key(key.encode())
+            .into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -184,15 +242,10 @@ pub async fn is_dir_handler(
 #[axum::debug_handler]
 pub async fn keys_handler(State(env): State<ServerEnvRef>) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
-    match store.keys().await {
-        // TODO: convert store output to JSON
-        Ok(_) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/plain")
-            .body("OK".into())
-            .unwrap(),
-        Err(e) => CoreError(e).into_response(),
-    }
+    StoreResult::from(store.keys().await.map(|keys| keys.iter().map(|k| k.encode()).collect::<Vec<_>>()))
+        .with_key("".to_string())
+        .into_response()
+    .into_response()
 }
 
 #[axum::debug_handler]
@@ -202,15 +255,9 @@ pub async fn listdir_handler(
 ) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
-        Ok(key) => match store.listdir(&key).await {
-            // TODO: convert store output to JSON
-            Ok(_) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .body("OK".into())
-                .unwrap(),
-            Err(e) => CoreError(e).into_response(),
-        },
+        Ok(key) => StoreResult::from(store.listdir(&key).await)
+            .with_key(key.encode())
+            .into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -222,15 +269,9 @@ pub async fn makedir_handler(
 ) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
-        Ok(key) => match store.makedir(&key).await {
-            // TODO: convert store output to JSON
-            Ok(_) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/plain")
-                .body("OK".into())
-                .unwrap(),
-            Err(e) => CoreError(e).into_response(),
-        },
+        Ok(key) => StoreResult::from(store.makedir(&key).await)
+            .with_key(key.encode())
+            .into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
