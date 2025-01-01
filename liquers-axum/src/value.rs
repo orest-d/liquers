@@ -5,7 +5,7 @@ use axum::{
     http::{header, Response, StatusCode},
     response::IntoResponse,
 };
-use liquers_core::value::{Value, ValueInterface};
+use liquers_core::{media_type, value::{Value, ValueInterface}};
 
 use crate::utils::CoreError;
 
@@ -25,7 +25,7 @@ pub fn json_response(value: serde_json::Value) -> Response<Body> {
         .unwrap()
 }
 
-pub fn default_value_response(value: &Value) -> Response<Body> {
+pub fn default_value_response(value: &Value, media_type:Option<&str>) -> Response<Body> {
     match value {
         Value::None => json_response(value.try_into_json_value().unwrap()),
         Value::Bool(b) => json_response(value.try_into_json_value().unwrap()),
@@ -34,7 +34,7 @@ pub fn default_value_response(value: &Value) -> Response<Body> {
         Value::F64(_) => json_response(value.try_into_json_value().unwrap()),
         Value::Text(txt) => Response::builder()
             .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/plain")
+            .header(header::CONTENT_TYPE, media_type.unwrap_or("text/plain"))
             .body(txt.to_string().into())
             .unwrap(),
         Value::Array(vec) => {
@@ -52,7 +52,7 @@ pub fn default_value_response(value: &Value) -> Response<Body> {
         Value::Bytes(vec) => {
             Response::builder()
                 .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .header(header::CONTENT_TYPE, media_type.unwrap_or("application/octet-stream"))
                 .body(vec.to_vec().into())
                 .unwrap()
         },
