@@ -67,13 +67,7 @@ pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
         serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
     );
     */
-    pi.run().await?;
-    let state = pi.take_state();
-    if let Some(state) = state {
-        Ok(state)
-    } else {
-        Err(Error::general_error("No state returned".to_owned()).with_query(&query))
-    }
+    pi.run().await
 }
 
 impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
