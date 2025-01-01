@@ -11,6 +11,7 @@ use crate::plan::{Plan, PlanBuilder, Step};
 use crate::query::TryToQuery;
 use crate::state::State;
 use crate::value::ValueInterface;
+use futures::future::{BoxFuture, FutureExt};
 
 pub struct PlanInterpreter<ER: EnvRef<E>, E: Environment> {
     plan: Option<Plan>,
@@ -309,7 +310,7 @@ pub struct NGPlanInterpreter<E: NGEnvironment> {
     plan: Option<Plan>,
     environment: NGEnvRef<E>,
     step_number: usize,
-    state: Option<State<E::Value>>,
+    //state: Option<State<E::Value>>,
 }
 
 #[cfg(feature = "async_store")]
@@ -319,7 +320,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
             plan: None,
             environment,
             step_number: 0,
-            state: None,
+            //state: None,
         }
     }
     pub fn with_plan(&mut self, plan: Plan) -> &mut Self {
@@ -343,27 +344,29 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
 
     pub async fn evaluate<Q: TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> {
         self.set_query(query).await?;
-        self.run().await?;
-        self.state
-            .take()
-            .ok_or(Error::general_error("No state".to_string()))
+        self.run().await
     }
 
-    pub async fn run(&mut self) -> Result<(), Error> {
-        let context = NGContext::new(self.environment.clone()).await;
+    pub async fn apply(&mut self, context: NGContext<E>, input_state:State<<E as NGEnvironment>::Value>) -> Result<State<<E as NGEnvironment>::Value>, Error> {
+        //let context = NGContext::new(self.environment.clone()).await;
         if self.plan.is_none() {
             return Err(Error::general_error("No plan".to_string()));
         }
+        let mut state = input_state;
         for i in 0..self.len() {
-            let input_state = self.state.take().unwrap_or(self.initial_state());
             let step = self.get_step(i)?;
             let output_state = self
-                .do_step(&step, input_state, context.clone_context())
+                .do_step(&step, state, context.clone_context())
                 .await?;
-            self.state = Some(output_state);
+            state = output_state;
         }
-        Ok(())
+        Ok(state)
     }
+
+    pub async fn run(&mut self) -> Result<State<<E as NGEnvironment>::Value>, Error> {
+        self.apply(NGContext::new(self.environment.clone()).await, self.initial_state()).await
+    }
+
     pub fn initial_state(&self) -> State<<E as NGEnvironment>::Value> {
         State::new()
     }
@@ -409,7 +412,19 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
             crate::plan::Step::GetResourceMetadata(_) => todo!(),
             crate::plan::Step::GetNamedResource(_) => todo!(),
             crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
-            crate::plan::Step::Evaluate(_) => todo!(),
+            crate::plan::Step::Evaluate(q) => {
+                todo!()  //TODO: ! evaluate
+                /*
+                let query = q.clone();
+                let envref = self.environment.clone();
+                return async move {
+                    let context = NGContext::new(envref.clone()).await;
+                    let mut interpreter = Self::new(envref);
+                    interpreter.set_query(query).await?;
+                    interpreter.apply(context, self.initial_state()).await
+                }.boxed().await;
+                */
+            },
             crate::plan::Step::Action {
                 realm,
                 ns,
@@ -432,6 +447,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                             context.clone_context(),
                         )?
                     }
+                    // TODO: ! tokio_exec
                     #[cfg(feature = "tokio_exec")]
                     {
                         let env = envref.0.read().await;
@@ -473,9 +489,6 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
             crate::plan::Step::Plan(_) => todo!(),
         }
         Ok(input_state)
-    }
-    pub fn take_state(&mut self) -> Option<State<E::Value>> {
-        self.state.take()
     }
 }
 
