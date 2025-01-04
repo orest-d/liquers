@@ -414,7 +414,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
             crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
             crate::plan::Step::Evaluate(q) => {
                 todo!()  //TODO: ! evaluate
-                /*
+/*                 
                 let query = q.clone();
                 let envref = self.environment.clone();
                 return async move {
@@ -423,7 +423,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     interpreter.set_query(query).await?;
                     interpreter.apply(context, self.initial_state()).await
                 }.boxed().await;
-                */
+*/                
             },
             crate::plan::Step::Action {
                 realm,
@@ -450,21 +450,24 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     // TODO: ! tokio_exec
                     #[cfg(feature = "tokio_exec")]
                     {
-                        let env = envref.0.read().await;
+                        !todo!("Tokio exec");
+/*
+                        let ce = {
+                            let env = envref.0.read().await;
+                             env.get_command_executor()
+                        };
                         let res = tokio::task::spawn_blocking(move || {
-                            let ce = env.get_command_executor();
-                            /*        
                             let res = ce.execute(
                                 &CommandKey::new(realm, ns, action_name),
                                 &input_state,
                                 &mut arguments,
                                 context.clone_context(),
                             );
-                            */
                             tokio::sync::Mutex::new(Ok(E::Value::none()))
                         }).await.map_err(|e| Error::general_error(format!("Tokio task error: {}", e)))?;
                         let x  = (*(res.lock().await))?;
                         x  
+*/
                     }
                 };
 
@@ -793,7 +796,7 @@ mod tests {
         pi.with_query("test").unwrap();
         //println!("{:?}", pi.plan);
         pi.run()?;
-        assert_eq!(pi.state.as_ref().unwrap().data.try_into_string()?, "Hello");
+        assert_eq!(pi.state.as_ref().unwrap().try_into_string()?, "Hello");
         Ok(())
     }
     #[test]
@@ -805,7 +808,7 @@ mod tests {
                 Ok("Hello".to_string())
             }
             fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
-                let greeting = state.data.try_into_string().unwrap();
+                let greeting = state.try_into_string().unwrap();
                 Ok(format!("{} {}!", greeting, who))
             }
             register_command!(cr, hello());
@@ -821,7 +824,7 @@ mod tests {
         );
         pi.run()?;
         assert_eq!(
-            pi.state.as_ref().unwrap().data.try_into_string()?,
+            pi.state.as_ref().unwrap().try_into_string()?,
             "Hello world!"
         );
         Ok(())
@@ -836,7 +839,7 @@ mod tests {
                 Ok("Hello".to_string())
             }
             fn greet(state: &State<Value>, who: Vec<Value>) -> Result<String, Error> {
-                let greeting = state.data.try_into_string().unwrap();
+                let greeting = state.try_into_string().unwrap();
                 Ok(format!(
                     "{} {}!",
                     greeting,
@@ -871,7 +874,7 @@ mod tests {
         );
         pi.run()?;
         assert_eq!(
-            pi.state.as_ref().unwrap().data.try_into_string()?,
+            pi.state.as_ref().unwrap().try_into_string()?,
             "Hello world and sun!"
         );
         Ok(())
@@ -911,7 +914,7 @@ mod tests {
         );
         pi.run()?;
         assert_eq!(
-            pi.state.as_ref().unwrap().data.try_into_string()?,
+            pi.state.as_ref().unwrap().try_into_string()?,
             "Hello injected string"
         );
         Ok(())
@@ -955,7 +958,7 @@ mod tests {
         );
         pi.run()?;
         assert_eq!(
-            pi.state.as_ref().unwrap().data.try_into_string()?,
+            pi.state.as_ref().unwrap().try_into_string()?,
             "Hello injected string"
         );
         assert_eq!(pi.environment.get().variable.lock().unwrap().0, "changed");
@@ -977,7 +980,7 @@ mod tests {
                 .unwrap();
             let cr = env.get_mut_command_executor();
             fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
-                let greeting = state.data.try_into_string().unwrap();
+                let greeting = state.try_into_string().unwrap();
                 Ok(format!("{} {}!", greeting, who))
             }
             register_command!(cr, greet(state, who:String));
@@ -992,7 +995,7 @@ mod tests {
         );
         pi.run()?;
         assert_eq!(
-            pi.state.as_ref().unwrap().data.try_into_string()?,
+            pi.state.as_ref().unwrap().try_into_string()?,
             "Hello TEXT world!"
         );
         Ok(())
@@ -1014,7 +1017,7 @@ mod tests {
         {
             let cr = env.get_mut_command_executor();
             fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
-                let greeting = state.data.try_into_string().unwrap();
+                let greeting = state.try_into_string().unwrap();
                 Ok(format!("{} {}!", greeting, who))
             }
             register_command!(cr, greet(state, who:String));
@@ -1029,7 +1032,7 @@ mod tests {
         );
         pi.run().await?;
         assert_eq!(
-            pi.state.as_ref().unwrap().data.try_into_string()?,
+            pi.state.as_ref().unwrap().try_into_string()?,
             "Hello TEXT world!"
         );
         Ok(())

@@ -297,9 +297,10 @@ macro_rules! impl_from_parameter_value {
                         .with_position(&param.position()),
                     )
                 } else {
-                    if let Some(link) = param.link() {
+                    if let Some(link) = param.link().as_ref() {
                         let state = context.evaluate_dependency(link)?;
-                        return <E as Environment>::Value::$stateval_to_res(&*(state.data));
+                        return <E as Environment>::Value::$stateval_to_res(&*(state.read().unwrap()))
+                            .map_err(|e| e.with_query(link));
                     } else {
                         return Err(Error::conversion_error_with_message(
                             param,
@@ -469,7 +470,8 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
             if state.is_error()? {
                 return Err(Error::general_error("Error in link".to_owned()).with_query(link));
             }
-            Ok((*state.data).clone())
+            let data = state.data.read().unwrap();
+            Ok(data.clone())
         };
 
         match param {
@@ -634,7 +636,7 @@ pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
     ) -> Result<V, Error>;
 }
 
-pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V>> {
+pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V>>: Send + Sync {
     fn execute(
         &self,
         command_key: &CommandKey,
@@ -767,7 +769,7 @@ where
     }
 }
 
-impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
+impl<P: Send+Sync, V:ValueInterface, C:ActionContext<P,V>> NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
 {
     fn execute(
         &self,
@@ -1057,7 +1059,7 @@ mod tests {
             assert_eq!(realm, "");
             assert_eq!(namespace, "");
             assert_eq!(command_name, "test");
-            assert!(state.data.is_none());
+            assert!(state.is_none());
             Ok(Value::from_string("Hello".into()))
         }
     }
@@ -1115,7 +1117,7 @@ mod tests {
             assert_eq!(key.realm, "");
             assert_eq!(key.namespace, "");
             assert_eq!(key.name, "test");
-            assert!(state.data.is_none());
+            assert!(state.is_none());
             Ok(Value::from_string("Hello".into()))
         }
     }
