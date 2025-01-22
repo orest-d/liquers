@@ -79,11 +79,13 @@ impl Step {
 /// all other types are always injected. Note that any is a Environment::Value type.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ParameterValue {
-    DefaultValue(Value),
-    DefaultLink(Query),
-    ParameterValue(Value, Position),
-    ParameterLink(Query, Position),
-    EnumLink(Query, Position),
+    DefaultValue(String, Value),
+    DefaultLink(String, Query),
+    ParameterValue(String, Value, Position),
+    ParameterLink(String, Query, Position),
+    OverrideValue(String, Value),
+    OverrideLink(String, Query),
+    EnumLink(String, Query, Position),
     MultipleParameters(Vec<ParameterValue>),
     Injected(String),
     None,
@@ -92,15 +94,17 @@ pub enum ParameterValue {
 impl Display for ParameterValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParameterValue::DefaultValue(v) => write!(f, "default:{}", v),
-            ParameterValue::DefaultLink(q) => write!(f, "default link:{}", q.encode()),
-            ParameterValue::ParameterValue(v, _) => write!(f, "value:{}", v),
-            ParameterValue::ParameterLink(q, _) => write!(f, "link:{}", q.encode()),
-            ParameterValue::EnumLink(q, _) => write!(f, "enum link:{}", q.encode()),
+            ParameterValue::DefaultValue(name, v) => write!(f, "default {name}: {v}"),
+            ParameterValue::DefaultLink(name, q) => write!(f, "default link {}: {}", name, q.encode()),
+            ParameterValue::ParameterValue(name, v, _) => write!(f, "value {name}: {v}"),
+            ParameterValue::ParameterLink(name, q, _) => write!(f, "link {}: {}", name, q.encode()),
+            ParameterValue::OverrideValue(name, v) => write!(f, "override {name}: {v}"),
+            ParameterValue::OverrideLink(name, q) => write!(f, "override link {}: {}", name, q.encode()),
+            ParameterValue::EnumLink(name,q, _) => write!(f, "enum link {}: {}", name, q.encode()),
             ParameterValue::MultipleParameters(v) => {
                 write!(f, "multiple:{}", v.iter().map(|x| format!("{}",x)).join(","))
             }   
-            ParameterValue::Injected(name) => write!(f, "injected '{}'", name),
+            ParameterValue::Injected(name) => write!(f, "injected {}", name),
             ParameterValue::None => write!(f, "None"),
         }
     }
@@ -115,20 +119,20 @@ impl ParameterValue {
                         match v {
                             Value::Array(a) => {
                                 for x in a {
-                                    values.push(ParameterValue::DefaultValue(x.clone()));
+                                    values.push(ParameterValue::DefaultValue(arginfo.name.clone(), x.clone()));
                                 }
                             }
-                            _ => values.push(ParameterValue::DefaultValue(v.clone()))
+                            _ => values.push(ParameterValue::DefaultValue(arginfo.name.clone(), v.clone()))
                         }
                     },
-                    CommandParameterValue::Query(q) => values.push(ParameterValue::DefaultLink(q.clone())),
+                    CommandParameterValue::Query(q) => values.push(ParameterValue::DefaultLink(arginfo.name.clone(), q.clone())),
                     CommandParameterValue::None => (),
                 }
             ParameterValue::MultipleParameters(values)
         } else {
             match &arginfo.default {
-                CommandParameterValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
-                CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
+                CommandParameterValue::Value(x) => ParameterValue::DefaultValue(arginfo.name.clone(), x.clone()),
+                CommandParameterValue::Query(q) => ParameterValue::DefaultLink(arginfo.name.clone(),q.clone()),
                 CommandParameterValue::None => {
                     if arginfo.injected {
                         ParameterValue::Injected(arginfo.name.clone())
@@ -139,10 +143,10 @@ impl ParameterValue {
             }
         }
     }
-    pub fn from_command_parameter_value(cpv: &CommandParameterValue) -> Self {
+    pub fn from_command_parameter_value(name:&str, cpv: &CommandParameterValue) -> Self {
         match cpv {
-            CommandParameterValue::Value(x) => ParameterValue::DefaultValue(x.clone()),
-            CommandParameterValue::Query(q) => ParameterValue::DefaultLink(q.clone()),
+            CommandParameterValue::Value(x) => ParameterValue::DefaultValue(name.to_owned(), x.clone()), // TODO: pass name
+            CommandParameterValue::Query(q) => ParameterValue::DefaultLink(name.to_owned(),q.clone()),
             CommandParameterValue::None => ParameterValue::None,
         }
     }
@@ -159,6 +163,7 @@ impl ParameterValue {
     pub fn from_string(arginfo: &ArgumentInfo, s: &str, pos: &Position) -> Result<Self, Error> {
         match arginfo.argument_type {
             ArgumentType::String => Ok(ParameterValue::ParameterValue(
+                arginfo.name.clone(),
                 Value::String(s.to_owned()),
                 pos.to_owned(),
             )),
@@ -172,13 +177,13 @@ impl ParameterValue {
                 let n = s
                     .parse::<i64>()
                     .map_err(|_e| Error::conversion_error_at_position(s, "integer", pos))?;
-                Ok(ParameterValue::ParameterValue(n.into(), pos.to_owned()))
+                Ok(ParameterValue::ParameterValue(arginfo.name.clone(), n.into(), pos.to_owned()))
             }
             ArgumentType::IntegerOption => {
                 if s.is_empty() {
                     let res = Self::from_arginfo(arginfo);
                     if res.is_none() {
-                        return Ok(Self::ParameterValue(Value::Null, pos.to_owned()));
+                        return Ok(Self::ParameterValue(arginfo.name.clone(), Value::Null, pos.to_owned()));
                     } else {
                         return Ok(res);
                     }
@@ -186,7 +191,7 @@ impl ParameterValue {
                 let n = s
                     .parse::<i64>()
                     .map_err(|_e| Error::conversion_error_at_position(s, "integer", pos))?;
-                Ok(ParameterValue::ParameterValue(n.into(), pos.to_owned()))
+                Ok(ParameterValue::ParameterValue(arginfo.name.clone(), n.into(), pos.to_owned()))
             }
             ArgumentType::Float => {
                 if s.is_empty() {
@@ -196,13 +201,13 @@ impl ParameterValue {
                 let x = s
                     .parse::<f64>()
                     .map_err(|_e| Error::conversion_error_at_position(s, "float", pos))?;
-                Ok(ParameterValue::ParameterValue(x.into(), pos.to_owned()))
+                Ok(ParameterValue::ParameterValue(arginfo.name.clone(), x.into(), pos.to_owned()))
             }
             ArgumentType::FloatOption => {
                 if s.is_empty() {
                     let res = Self::from_arginfo(arginfo);
                     if res.is_none() {
-                        return Ok(Self::ParameterValue(Value::Null, pos.to_owned()));
+                        return Ok(Self::ParameterValue(arginfo.name.clone(), Value::Null, pos.to_owned()));
                     } else {
                         return Ok(res);
                     }
@@ -210,23 +215,25 @@ impl ParameterValue {
                 let x = s
                     .parse::<f64>()
                     .map_err(|_e| Error::conversion_error_at_position(s, "float", pos))?;
-                Ok(ParameterValue::ParameterValue(x.into(), pos.to_owned()))
+                Ok(ParameterValue::ParameterValue(arginfo.name.clone(), x.into(), pos.to_owned()))
             }
             ArgumentType::Boolean => {
                 if s.is_empty() {
                     let res = Self::from_arginfo(arginfo);
                     if res.is_none() {
-                        return Ok(Self::ParameterValue(Value::Bool(false), pos.to_owned()));
+                        return Ok(Self::ParameterValue(arginfo.name.clone(), Value::Bool(false), pos.to_owned()));
                     } else {
                         return Ok(res);
                     }
                 }
                 match s.to_lowercase().as_str() {
                     "true" | "t" | "yes" | "y" | "1" => Ok(ParameterValue::ParameterValue(
+                        arginfo.name.clone(),
                         Value::Bool(true),
                         pos.to_owned(),
                     )),
                     "false" | "f" | "no" | "n" | "0" => Ok(ParameterValue::ParameterValue(
+                        arginfo.name.clone(),
                         Value::Bool(false),
                         pos.to_owned(),
                     )),
@@ -239,14 +246,15 @@ impl ParameterValue {
             }
             ArgumentType::Enum(ref e) => match e.expand_alias(s) {
                 CommandParameterValue::Value(x) => {
-                    Ok(ParameterValue::ParameterValue(x.clone(), pos.to_owned()))
+                    Ok(ParameterValue::ParameterValue(arginfo.name.clone(), x.clone(), pos.to_owned()))
                 }
                 CommandParameterValue::Query(q) => {
-                    Ok(ParameterValue::EnumLink(q.clone(), pos.to_owned()))
+                    Ok(ParameterValue::EnumLink(arginfo.name.clone(), q.clone(), pos.to_owned()))
                 }
                 CommandParameterValue::None => {
                     if e.others_allowed {
                         Ok(ParameterValue::ParameterValue(
+                            arginfo.name.clone(),
                             Value::String(s.to_owned()),
                             pos.to_owned(),
                         ))
@@ -264,12 +272,13 @@ impl ParameterValue {
                 if s.is_empty() {
                     let res = Self::from_arginfo(arginfo);
                     if res.is_none() {
-                        return Ok(Self::ParameterValue(s.into(), pos.to_owned()));
+                        return Ok(Self::ParameterValue(arginfo.name.clone(), s.into(), pos.to_owned()));
                     } else {
                         return Ok(res);
                     }
                 } else {
                     Ok(ParameterValue::ParameterValue(
+                        arginfo.name.clone(),
                         Value::String(s.to_owned()),
                         pos.to_owned(),
                     ))
@@ -298,11 +307,13 @@ impl ParameterValue {
                     ActionParameter::String(s, pos) => {
                         let pv = Self::from_string(arginfo, s, pos)?;
                         match pv {
-                            ParameterValue::ParameterValue(_, _) => values.push(pv),
-                            ParameterValue::DefaultValue(_) => values.push(pv),
-                            ParameterValue::DefaultLink(_) => values.push(pv),
-                            ParameterValue::ParameterLink(_, _) => values.push(pv),
-                            ParameterValue::EnumLink(_, _) => values.push(pv),
+                            ParameterValue::ParameterValue(_, _, _) => values.push(pv),
+                            ParameterValue::DefaultValue(_,_) => values.push(pv),
+                            ParameterValue::OverrideValue(_,_) => values.push(pv),
+                            ParameterValue::DefaultLink(_, _) => values.push(pv),
+                            ParameterValue::ParameterLink(_, _, _) => values.push(pv),
+                            ParameterValue::OverrideLink(_, _) => values.push(pv),
+                            ParameterValue::EnumLink(_, _, _) => values.push(pv),
                             ParameterValue::MultipleParameters(_) => return Err(Error::unexpected_error(
                                 "Multiple parameters not supported inside vector argument".to_string(),
                             ).with_position(pos)),
@@ -315,7 +326,7 @@ impl ParameterValue {
                         }
                     }
                     ActionParameter::Link(q, pos) => {
-                        values.push(ParameterValue::ParameterLink(q.clone(), pos.clone()));
+                        values.push(ParameterValue::ParameterLink(arginfo.name.clone(), q.clone(), pos.clone()));
                     }
                 }
             }
@@ -327,7 +338,7 @@ impl ParameterValue {
         match param.next() {
             Some(ActionParameter::String(s, pos)) => Self::from_string(arginfo, s, pos),
             Some(ActionParameter::Link(q, pos)) => {
-                Ok(ParameterValue::ParameterLink(q.clone(), pos.clone()))
+                Ok(ParameterValue::ParameterLink(arginfo.name.clone(), q.clone(), pos.clone()))
             }
             None => Self::from_arginfo(arginfo).to_result(
                 || format!("Missing argument '{}'", arginfo.name),
@@ -337,8 +348,8 @@ impl ParameterValue {
     }
     pub fn is_default(&self) -> bool {
         match self {
-            ParameterValue::DefaultValue(_) => true,
-            ParameterValue::DefaultLink(_) => true,
+            ParameterValue::DefaultValue(_,_) => true,
+            ParameterValue::DefaultLink(_, _) => true,
             _ => false,
         }
     }
@@ -350,9 +361,10 @@ impl ParameterValue {
     }
     pub fn is_link(&self) -> bool {
         match self {
-            ParameterValue::DefaultLink(_) => true,
-            ParameterValue::ParameterLink(_, _) => true,
-            ParameterValue::EnumLink(_, _) => true,
+            ParameterValue::DefaultLink(_, _) => true,
+            ParameterValue::ParameterLink(_, _, _) => true,
+            ParameterValue::OverrideLink(_, _) => true,
+            ParameterValue::EnumLink(_, _, _) => true,
             _ => false,
         }
     }
@@ -368,18 +380,32 @@ impl ParameterValue {
             _ => false,
         }
     }
+    pub fn name(&self) -> Option<String> {
+        match self {
+            ParameterValue::DefaultValue(name, _) => Some(name.clone()),
+            ParameterValue::DefaultLink(name, _) => Some(name.clone()),
+            ParameterValue::ParameterValue(name, _, _) => Some(name.clone()),
+            ParameterValue::ParameterLink(name, _, _) => Some(name.clone()),
+            ParameterValue::OverrideValue(name, _) => Some(name.clone()),
+            ParameterValue::OverrideLink(name, _) => Some(name.clone()),
+            ParameterValue::EnumLink(name, _, _) => Some(name.clone()),
+            _ => None,
+        }
+    }
     pub fn value(&self) -> Option<Value> {
         match self {
-            ParameterValue::DefaultValue(v) => Some(v.clone()),
-            ParameterValue::ParameterValue(v, _) => Some(v.clone()),            
+            ParameterValue::DefaultValue(_,v) => Some(v.clone()),
+            ParameterValue::ParameterValue(_, v, _) => Some(v.clone()),            
+            ParameterValue::OverrideValue(_,v) => Some(v.clone()),
             _ => None,
         }
     }
     pub fn link(&self) -> Option<Query> {
         match self {
-            ParameterValue::DefaultLink(q) => Some(q.clone()),
-            ParameterValue::ParameterLink(q, _) => Some(q.clone()),
-            ParameterValue::EnumLink(q, _) => Some(q.clone()),
+            ParameterValue::DefaultLink(_, q) => Some(q.clone()),
+            ParameterValue::ParameterLink(_, q, _) => Some(q.clone()),
+            ParameterValue::OverrideLink(_, q) => Some(q.clone()),
+            ParameterValue::EnumLink(_, q, _) => Some(q.clone()),
             _ => None,
         }
     }
@@ -391,9 +417,9 @@ impl ParameterValue {
     }
     pub fn position(&self) -> Position {
         match self {
-            ParameterValue::ParameterValue(_, pos) => pos.clone(),
-            ParameterValue::ParameterLink(_, pos) => pos.clone(),
-            ParameterValue::EnumLink(_, pos) => pos.clone(),
+            ParameterValue::ParameterValue(_, _, pos) => pos.clone(),
+            ParameterValue::ParameterLink(_, _, pos) => pos.clone(),
+            ParameterValue::EnumLink(_, _, pos) => pos.clone(),
             _ => Position::unknown(),
         }
     }
@@ -422,8 +448,8 @@ impl ResolvedParameterValues {
     ) -> Result<Self, Error> {
         let mut parameters = ActionParameterIterator::new(action_request);
         let mut values = head_parameters
-            .iter()
-            .map(|x| ParameterValue::from_command_parameter_value(x))
+            .iter().zip(command_metadata.arguments.iter())
+            .map(|(x, arginfo)| ParameterValue::from_command_parameter_value(&arginfo.name, x))
             .collect_vec();
         for a in command_metadata.arguments.iter() {
             let pv = ParameterValue::pop_value(a, &mut parameters)?;
@@ -443,6 +469,31 @@ impl ResolvedParameterValues {
     }
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn override_value(&mut self, name: &str, value: Value) -> bool{
+        for pv in &mut self.0 {
+            if let Some(n) = pv.name() {
+                if n == name {
+                    *pv = ParameterValue::OverrideValue(n.clone(), value.clone());
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    pub fn override_link(&mut self, name: &str, query: Query) -> bool {
+        for pv in &mut self.0 {
+            if let Some(n) = pv.name() {
+                if n == name {
+                    *pv = ParameterValue::OverrideLink(n.clone(), query.clone());
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 

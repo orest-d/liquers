@@ -41,7 +41,7 @@ pub trait Environment: Sized + Sync + Send {
     }
 }
 
-pub trait NGEnvironment: Sized + Sync + Send {
+pub trait NGEnvironment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
     type CommandExecutor: NGCommandExecutor<NGEnvRef<Self>, Self::Value, NGContext<Self>>;
 
@@ -86,6 +86,10 @@ pub struct NGEnvRef<E:NGEnvironment>(pub Arc<tokio::sync::RwLock<E>>);
 impl<E:NGEnvironment> NGEnvRef<E> {
     pub fn new(env: E) -> Self {
         NGEnvRef(Arc::new(tokio::sync::RwLock::new(env)))
+    }
+    #[cfg(feature = "async_store")]
+    pub async fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>{
+        self.0.read().await.get_async_store()    
     }
 }
 

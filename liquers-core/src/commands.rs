@@ -475,33 +475,39 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
         };
 
         match param {
-            ParameterValue::DefaultValue(v) => return from_json_value(v),
-            ParameterValue::DefaultLink(link) => return Ok(vec![from_link(link)?]),
-            ParameterValue::ParameterValue(v, pos) => {
+            ParameterValue::DefaultValue(_, v) => return from_json_value(v),
+            ParameterValue::OverrideValue(_, v) => return from_json_value(v),
+            ParameterValue::DefaultLink(_, link) => return Ok(vec![from_link(link)?]),
+            ParameterValue::OverrideLink(_, link) => return Ok(vec![from_link(link)?]),
+            ParameterValue::ParameterValue(_, v, pos) => {
                 return from_json_value(v).map_err(|e| e.with_position(pos))
             }
-            ParameterValue::ParameterLink(link, pos) => {
+            ParameterValue::ParameterLink(_, link, pos) => {
                 return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?])
             }
-            ParameterValue::EnumLink(link, pos) => {
+            ParameterValue::EnumLink(_, link, pos) => {
                 return Ok(vec![from_link(link).map_err(|e| e.with_position(pos))?])
             }
             ParameterValue::MultipleParameters(p) => {
                 let mut v = Vec::new();
                 for pp in p.iter() {
                     v.push(match pp {
-                        ParameterValue::DefaultValue(value) => {
+                        ParameterValue::DefaultValue(_, value) => {
                             E::Value::try_from_json_value(value)?
                         }
-                        ParameterValue::DefaultLink(query) => from_link(query)?,
-                        ParameterValue::ParameterValue(value, position) => {
+                        ParameterValue::OverrideValue(_, value) => {
+                            E::Value::try_from_json_value(value)?
+                        }
+                        ParameterValue::DefaultLink(_, query) => from_link(query)?,
+                        ParameterValue::OverrideLink(_, query) => from_link(query)?,
+                        ParameterValue::ParameterValue(_, value, position) => {
                             E::Value::try_from_json_value(value)
                                 .map_err(|e| e.with_position(position))?
                         }
-                        ParameterValue::ParameterLink(query, position) => {
+                        ParameterValue::ParameterLink(_, query, position) => {
                             from_link(query).map_err(|e| e.with_position(position))?
                         }
-                        ParameterValue::EnumLink(query, position) => {
+                        ParameterValue::EnumLink(_, query, position) => {
                             from_link(query).map_err(|e| e.with_position(position))?
                         }
                         ParameterValue::MultipleParameters(vec) => {
@@ -556,18 +562,18 @@ impl<V:ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
         }
 
         match param {
-            ParameterValue::DefaultValue(v) => return from_json_value(v),
-            ParameterValue::ParameterValue(v, pos) => {
+            ParameterValue::DefaultValue(_, v) => return from_json_value(v),
+            ParameterValue::ParameterValue(_, v, pos) => {
                 return from_json_value(v).map_err(|e| e.with_position(pos))
             }
             ParameterValue::MultipleParameters(p) => {
                 let mut v = Vec::new();
                 for pp in p.iter() {
                     v.push(match pp {
-                        ParameterValue::DefaultValue(value) => {
+                        ParameterValue::DefaultValue(_, value) => {
                             V::try_from_json_value(value)?
                         }
-                        ParameterValue::ParameterValue(value, position) => {
+                        ParameterValue::ParameterValue(_, value, position) => {
                             V::try_from_json_value(value)
                                 .map_err(|e| e.with_position(position))?
                         }
@@ -1125,6 +1131,7 @@ mod tests {
     fn test_command_arguments() {
         let mut rp = ResolvedParameterValues::new();
         rp.0.push(ParameterValue::ParameterValue(
+            "arg".into(),
             "Hello".into(),
             Position::unknown(),
         ));
@@ -1139,6 +1146,7 @@ mod tests {
     fn test_ng_command_arguments() {
         let mut rp = ResolvedParameterValues::new();
         rp.0.push(ParameterValue::ParameterValue(
+            "arg".into(),
             "Hello".into(),
             Position::unknown(),
         ));
