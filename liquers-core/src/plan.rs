@@ -701,6 +701,14 @@ impl<'c> PlanBuilder<'c> {
         }
         Ok(())
     }
+    
+    pub fn override_value(&mut self, name: &str, value: Value) -> bool {
+        self.plan.override_value(name, value)
+    }
+
+    pub fn override_link(&mut self, name: &str, query: Query) -> bool {
+        self.plan.override_link(name, query)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -734,6 +742,35 @@ impl Plan {
     pub fn len(&self) -> usize {
         self.steps.len()
     }
+    /// Find index of the last action in the plan
+    fn last_action_index(&self)->Option<usize> {
+        for (i, s) in self.steps.iter().enumerate().rev() {
+            match s {
+                Step::Action {..} => return Some(i),
+                _ => (),
+            }
+        }
+        None
+    }
+    
+    pub fn override_value(&mut self, name: &str, value: Value) -> bool {
+        if let Some(i) = self.last_action_index() {
+            if let Step::Action { parameters, .. } = &mut self.steps[i] {
+                return parameters.override_value(name, value);
+            }
+        }
+        false
+    }
+
+    pub fn override_link(&mut self, name: &str, query: Query) -> bool {
+        if let Some(i) = self.last_action_index() {
+            if let Step::Action { parameters, .. } = &mut self.steps[i] {
+                return parameters.override_link(name, query);
+            }
+        }
+        false
+    }
+
 }
 
 #[cfg(test)]
@@ -755,6 +792,34 @@ mod tests {
         println!("plan: {:?}", plan);
         print!("");
         println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        print!("");
+        println!(
+            "command_registry.yaml:\n{}",
+            serde_yaml::to_string(&cr).unwrap()
+        );
+        print!("");
+        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        print!("");
+        println!(
+            "command_registry.json:\n{}",
+            serde_json::to_string(&cr).unwrap()
+        );
+        print!("");
+    }
+
+    #[test]
+    fn first_override() {
+        let mut cr = command_metadata::CommandMetadataRegistry::new();
+        cr.add_command(CommandMetadata::new("a").with_argument(ArgumentInfo::any_argument("b")));
+        let mut plan = PlanBuilder::new(parse_query("a-1").unwrap(), &cr)
+            .build()
+            .unwrap();
+        assert!(plan.override_value("b", Value::String("test".to_string())));
+        assert!(!plan.override_value("c", Value::String("test".to_string())));
+        println!("plan: {:?}", plan);
+        print!("");
+        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
         println!(
             "command_registry.yaml:\n{}",
