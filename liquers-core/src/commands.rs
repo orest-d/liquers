@@ -525,6 +525,11 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
                                 "None parameter not allowed inside multi-parameter".to_owned(),
                             ))
                         }
+                        ParameterValue::Placeholder(name) => {
+                            return Err(Error::unexpected_error(format!(
+                                "Placeholder parameters ({name}) not allowed inside multi-parameter"
+                            )))
+                        }
                     });
                 }
                 Ok(v)
@@ -538,6 +543,11 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
                 return Err(Error::general_error(
                     "None parameter not allowed".to_owned(),
                 ))
+            }
+            ParameterValue::Placeholder(name) => {
+                return Err(Error::general_error(format!(
+                    "Placeholder parameters ({name}) not allowed"
+                )))
             }
         }
         //Ok(vec![E::Value::none()])

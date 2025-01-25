@@ -3,7 +3,11 @@ use std::{collections::HashMap, hash::Hash};
 use serde_json::Value;
 
 use crate::{
-    command_metadata::CommandMetadataRegistry, error::Error, parse::parse_query, plan::{Plan, PlanBuilder}, query::{Query, ResourceName}
+    command_metadata::CommandMetadataRegistry,
+    error::Error,
+    parse::parse_query,
+    plan::{Plan, PlanBuilder},
+    query::{Query, ResourceName},
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -50,22 +54,31 @@ impl Recipe {
         )
     }
 
-    pub fn to_plan(&self, cmr:&CommandMetadataRegistry) -> Result<Plan, Error> {        
+    pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
-        let mut planbuilder = PlanBuilder::new(query.clone(), cmr);
+        let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
+        let mut plan = planbuilder.build()?;
+
         for (name, value) in &self.arguments {
-            if !(planbuilder.override_value(name, value.clone())) {
-                return Err(Error::general_error(format!("Argument {} not found in last action", name)).with_query(&query));
+            if !(plan.override_value(name, value.clone())) {
+                return Err(Error::general_error(format!(
+                    "Argument {} not found in last action",
+                    name
+                ))
+                .with_query(&query));
             }
         }
         for (name, link) in &self.links {
-            if !(planbuilder.override_link(name, parse_query(link)?)) {
-                return Err(Error::general_error(format!("Link {} not found in last action", name)).with_query(&query));
+            if !(plan.override_link(name, parse_query(link)?)) {
+                return Err(Error::general_error(format!(
+                    "Link {} not found in last action",
+                    name
+                ))
+                .with_query(&query));
             }
         }
-        planbuilder.build()
+        Ok(plan)
     }
-
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -74,19 +87,56 @@ pub struct RecipeList {
 }
 
 #[cfg(test)]
-mod test{
+mod test {
+    use crate::{command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry}, plan::{ParameterValue, Step}};
+
     #[test]
     fn empty_recipe() {
-        let recipe = super::Recipe::new("".to_string(), "title".to_string(), "description".to_string()).unwrap();
+        let recipe = super::Recipe::new(
+            "".to_string(),
+            "title".to_string(),
+            "description".to_string(),
+        )
+        .unwrap();
         assert_eq!(recipe.query, "".to_string());
         assert_eq!(recipe.title, "title".to_string());
         assert_eq!(recipe.description, "description".to_string());
         assert_eq!(recipe.arguments.len(), 0);
         assert_eq!(recipe.links.len(), 0);
-        let plan = recipe.to_plan(&super::CommandMetadataRegistry::new()).unwrap();
+        let plan = recipe
+            .to_plan(&super::CommandMetadataRegistry::new())
+            .unwrap();
         println!("plan: {:?}", &plan);
-        print!("");
+        println!("");
         println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
-        print!("");
+        println!("");
+    }
+    #[test]
+    fn recipe_with_parameter() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(CommandMetadata::new("a").with_argument(ArgumentInfo::any_argument("b")));
+        let recipe = super::Recipe::new(
+            "a".to_string(),
+            "title".to_string(),
+            "description".to_string(),
+        )
+        .unwrap()
+        .with_argument("b".to_string(), serde_json::json!("c"));
+        let plan = recipe.to_plan(&cr).unwrap();
+        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        println!("");
+        assert!(plan.len() == 1);
+        if let Step::Action { realm, ns, action_name, position, parameters } = &plan[0]{
+            assert!(action_name == "a");
+            assert!(parameters.0.len() == 1);
+            if let ParameterValue::OverrideValue(name, value) = &parameters.0[0] {
+                assert!(name == "b");
+                assert!(value == &serde_json::json!("c"));
+            } else {
+                assert!(false);
+            }
+        } else {
+            assert!(false);
+        }
     }
 }

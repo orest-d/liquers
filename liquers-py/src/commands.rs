@@ -36,13 +36,13 @@ fn hello() -> Result<Value, Error> {
 }
 
 fn greet(state: &State<Value>, who: String) -> Result<Value, Error> {
-    let s = state.data.try_into_string()?;
+    let s = state.try_into_string()?;
 
     Ok(Value::from_string(format!("{}, {}!", s, who)))
 }
 
 fn pyprint(state: &State<Value>) -> Result<Value, Error> {
-    let s = state.data.try_into_string()?;
+    let s = state.try_into_string()?;
     Python::with_gil(|py| {
         let builtins = PyModule::import_bound(py, "builtins")?;
         builtins.getattr("print")?.call1(("PRINT <", &s, ">"))?;
@@ -99,11 +99,13 @@ fn parameter2py(
     >,
 ) -> PyResult<PyObject> {
     match p {
-        liquers_core::plan::ParameterValue::DefaultValue(x) => json2py(py, x),
-        liquers_core::plan::ParameterValue::DefaultLink(_) => todo!(),
-        liquers_core::plan::ParameterValue::ParameterValue(x, pos) => json2py(py, x),
-        liquers_core::plan::ParameterValue::ParameterLink(_, _) => todo!(),
-        liquers_core::plan::ParameterValue::EnumLink(_, _) => todo!(),
+        liquers_core::plan::ParameterValue::DefaultValue(_, x) => json2py(py, x),
+        liquers_core::plan::ParameterValue::DefaultLink(_, _) => todo!(),
+        liquers_core::plan::ParameterValue::OverrideValue(_, x) => json2py(py, x),
+        liquers_core::plan::ParameterValue::OverrideLink(_, _) => todo!(),
+        liquers_core::plan::ParameterValue::ParameterValue(_, x, pos) => json2py(py, x),
+        liquers_core::plan::ParameterValue::ParameterLink(_, _, _) => todo!(),
+        liquers_core::plan::ParameterValue::EnumLink(_, _, _) => todo!(),
         liquers_core::plan::ParameterValue::Injected(name) => {
             if name=="context"{
                 Ok(crate::context::Context(context.clone_context()).into_py(py))
@@ -113,6 +115,11 @@ fn parameter2py(
                     format!("Injected parameter '{name}' is not supported"),
                 ))
             }
+        },
+        liquers_core::plan::ParameterValue::Placeholder(name) => {
+            Err(PyErr::new::<PyException, _>(
+                format!("Placeholder parameter '{name}' is not supported"),
+            ))
         },
         liquers_core::plan::ParameterValue::None => todo!(),
         liquers_core::plan::ParameterValue::MultipleParameters(vec) => todo!(),
