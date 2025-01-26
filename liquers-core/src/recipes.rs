@@ -3,11 +3,7 @@ use std::{collections::HashMap, hash::Hash};
 use serde_json::Value;
 
 use crate::{
-    command_metadata::CommandMetadataRegistry,
-    error::Error,
-    parse::parse_query,
-    plan::{Plan, PlanBuilder},
-    query::{Query, ResourceName},
+    command_metadata::CommandMetadataRegistry, context::{NGEnvRef, NGEnvironment}, error::Error, parse::parse_query, plan::{Plan, PlanBuilder}, query::{Key, Query, ResourceName}
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -81,9 +77,81 @@ impl Recipe {
     }
 }
 
+
+trait RecipeProvider {
+    async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error>;
+    async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error>;
+}
+
+struct DefaultRecipeProvider<E:NGEnvironment> {
+    envref:NGEnvRef<E>,
+}
+
+impl<E:NGEnvironment> DefaultRecipeProvider<E> {
+    pub fn new(envref:NGEnvRef<E>) -> Self {
+        DefaultRecipeProvider{envref}
+    }
+    pub async fn get_recipes(&self, key:&Key) -> Result<RecipeList, Error> {
+        self.envref.get_async_store().await.get_bytes(&key.join("recipes.yaml")).await.map_or(
+            Err(Error::general_error(format!("No recipes found for key {}", key))),
+            |bytes| serde_yaml::from_slice(&bytes).map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e))),
+        )
+    }
+}
+
+impl<E:NGEnvironment> RecipeProvider for DefaultRecipeProvider<E> {
+    async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error> {
+        let recipes = self.get_recipes(key).await?;
+        let mut assets = Vec::new();
+        for recipe in recipes.recipes {
+            if let Ok(filename) = recipe.filename(){
+                assets.push(filename);
+            }
+        }
+        Ok(assets)
+    }
+
+    async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error> {
+        if let Some(filename) = key.filename() {
+            let recipes = self.get_recipes(&key.parent()).await?;
+            let recipe = recipes.get(&filename.name).ok_or(Error::general_error(format!("No recipe found for key {}", key)).with_key(key))?;
+            let env = self.envref.0.read().await;
+            recipe.to_plan(env.get_command_metadata_registry()).map_err(|e| e.with_key(key))
+        }
+        else{
+            return Err(Error::general_error(format!("No filename in key '{}'", key)).with_key(key));
+        }
+    }    
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct RecipeList {
     pub recipes: Vec<Recipe>,
+}
+
+impl RecipeList {
+    pub fn new() -> Self {
+        RecipeList { recipes: Vec::new() }
+    }
+
+    pub fn add_recipe(&mut self, recipe: Recipe) {
+        self.recipes.push(recipe);
+    }
+
+    pub fn len(&self) -> usize {
+        self.recipes.len()
+    }
+
+    pub fn get(&self, name:&str) -> Option<&Recipe> {
+        self.recipes.iter().find(|r| {
+            if let Ok(filename) = r.filename(){
+                filename.name == name
+            }
+            else{
+                false
+            }
+        })
+    }
 }
 
 #[cfg(test)]
