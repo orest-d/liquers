@@ -58,8 +58,8 @@ impl<V: ValueInterface> State<V> {
             metadata: Arc::new(metadata),
         }
     }
-    pub fn as_bytes(&self, format:&str) -> Result<Vec<u8>, Error> {
-        self.data.read().unwrap().as_bytes(format)
+    pub fn as_bytes(&self) -> Result<Vec<u8>, Error> {
+        self.data.read().unwrap().as_bytes(&self.metadata.get_data_format())
     }
     pub fn is_none(&self) -> bool {
         self.data.read().unwrap().is_none()

@@ -117,16 +117,30 @@ impl Default for LogEntry {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MetadataRecord {
+    /// Log data
     pub log: Vec<LogEntry>,
+    /// Query constructing the value with which the metadata is associated with 
     #[serde(with = "query_format")]
     pub query: Query,
+    /// If value is an asset (e.g. a file in a store), the key is key of the asset
     #[serde(with = "option_key_format")]
     pub key: Option<Key>,
+    /// Status of the value
     pub status: Status,
+    /// Type identifier of the value
     pub type_identifier: String,
+    /// Data format of the value - format how the data was serialized.
+    /// Whenever possible, this is a filename extension. It may be different from the file extension though,
+    /// e.g. if the file extension is ambiguous.
+    /// Method get_data_format() returns the data format, using extension as a default.
+    pub data_format: Option<String>,
+    /// Last message from the log 
     pub message: String,
+    /// Indicates that the value failed to be created
     pub is_error: bool,
+    /// Media type of the value
     pub media_type: String,
+    /// Filename of the value
     pub filename: Option<String>,
 }
 
@@ -359,6 +373,19 @@ impl MetadataRecord {
         }
         self.media_type.to_string()
     }
+
+    /// Return data format
+    /// If data_format is not set, return extension
+    /// If extension is not set, return "bin"
+    pub fn get_data_format(&self) -> String {
+        if let Some(data_format) = &self.data_format {
+            return data_format.to_string();
+        }
+        if let Some(extension) = self.extension() {
+            return extension.to_string();
+        }
+        "bin".to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -566,6 +593,26 @@ impl Metadata {
             }
         }
     }
+
+    /// Return data format
+    /// If data_format is not set, return extension
+    /// If extension is not set, return "bin"
+    pub fn get_data_format(&self) -> String {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(data_format) = o.get("data_format") {
+                    return data_format.to_string();
+                }
+                if let Some(extension) = self.extension() {
+                    return extension.to_string();
+                }
+                return "bin".to_string();
+            }
+            Metadata::MetadataRecord(m) => m.get_data_format(),
+            _ => "bin".to_string(),
+        }
+    }
+
 }
 
 impl From<MetadataRecord> for Metadata {

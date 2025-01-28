@@ -239,10 +239,8 @@ impl<V: ValueInterface, BC: BinCache> Cache<V> for SerializingCache<V, BC> {
     }
 
     fn set(&mut self, state: State<V>) -> Result<(), Error> {
-        let extension = state.extension();
-        let b = state.as_bytes(&extension)?;
+        let b = state.as_bytes()?;
         let mut metadata = state.metadata.as_ref().clone();
-        metadata.set_extension(&extension)?;
         self.set_binary(&b, &metadata)?;
         Ok(())
     }

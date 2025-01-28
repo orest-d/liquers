@@ -78,12 +78,13 @@ impl Recipe {
 }
 
 
-trait RecipeProvider {
+pub trait AsyncRecipeProvider {
     async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error>;
     async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error>;
+    async fn recipe(&self, key:&Key) -> Result<Recipe, Error>;    
 }
 
-struct DefaultRecipeProvider<E:NGEnvironment> {
+pub struct DefaultRecipeProvider<E:NGEnvironment> {
     envref:NGEnvRef<E>,
 }
 
@@ -99,7 +100,7 @@ impl<E:NGEnvironment> DefaultRecipeProvider<E> {
     }
 }
 
-impl<E:NGEnvironment> RecipeProvider for DefaultRecipeProvider<E> {
+impl<E:NGEnvironment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
     async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error> {
         let recipes = self.get_recipes(key).await?;
         let mut assets = Vec::new();
@@ -117,6 +118,19 @@ impl<E:NGEnvironment> RecipeProvider for DefaultRecipeProvider<E> {
             let recipe = recipes.get(&filename.name).ok_or(Error::general_error(format!("No recipe found for key {}", key)).with_key(key))?;
             let env = self.envref.0.read().await;
             recipe.to_plan(env.get_command_metadata_registry()).map_err(|e| e.with_key(key))
+        }
+        else{
+            return Err(Error::general_error(format!("No filename in key '{}'", key)).with_key(key));
+        }
+    }
+    
+    async fn recipe(&self, key:&Key) -> Result<Recipe, Error> {
+        if let Some(filename) = key.filename() {
+            let recipes = self.get_recipes(&key.parent()).await?;
+            recipes.get(&filename.name).map_or(
+                Err(Error::general_error(format!("No recipe found for key {}", key)).with_key(key)),
+                |recipe| Ok(recipe.clone())
+            )
         }
         else{
             return Err(Error::general_error(format!("No filename in key '{}'", key)).with_key(key));

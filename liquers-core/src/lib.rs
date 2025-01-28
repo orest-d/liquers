@@ -18,3 +18,4 @@ pub mod store;
 pub mod value;
 pub mod media_type;
 pub mod recipes;
+pub mod assets;
