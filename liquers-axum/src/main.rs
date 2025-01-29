@@ -37,6 +37,10 @@ async fn main() {
             "/liquer/api/store/data/*query",
             get(crate::store_handlers::store_data_handler),
         )
+        .route(
+            "/liquer/api/assets/data/*query",
+            get(crate::store_handlers::assets_data_handler),
+        )
         //.route("/liquer/store/data/*query", post(crate::store_handlers::store_data_post_handler))
         .route(
             "/liquer/api/store/metadata/*query",
@@ -72,6 +76,10 @@ async fn main() {
         .route(
             "/liquer/api/store/listdir/*query",
             get(crate::store_handlers::listdir_handler),
+        ) // TODO: support listdir_keys and listdir_keys_deep
+        .route(
+            "/liquer/api/assets/listdir/*query",
+            get(crate::store_handlers::assets_listdir_handler),
         ) // TODO: support listdir_keys and listdir_keys_deep
         .route(
             "/liquer/api/store/makedir/*query",

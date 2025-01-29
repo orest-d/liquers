@@ -1,5 +1,6 @@
 use std::{collections::HashMap, hash::Hash};
 
+use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::{
@@ -78,7 +79,9 @@ impl Recipe {
 }
 
 
-pub trait AsyncRecipeProvider {
+#[async_trait]
+pub trait AsyncRecipeProvider: Send + Sync {
+    async fn has_recipes(&self, key:&Key) -> Result<bool, Error>;
     async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error>;
     async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error>;
     async fn recipe(&self, key:&Key) -> Result<Recipe, Error>;    
@@ -94,22 +97,28 @@ impl<E:NGEnvironment> DefaultRecipeProvider<E> {
     }
     pub async fn get_recipes(&self, key:&Key) -> Result<RecipeList, Error> {
         self.envref.get_async_store().await.get_bytes(&key.join("recipes.yaml")).await.map_or(
-            Err(Error::general_error(format!("No recipes found for key {}", key))),
+            Err(Error::general_error(format!("No recipes found for folder {}", key)).with_key(key)),
             |bytes| serde_yaml::from_slice(&bytes).map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e))),
         )
     }
 }
 
+#[async_trait]
 impl<E:NGEnvironment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
     async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error> {
-        let recipes = self.get_recipes(key).await?;
-        let mut assets = Vec::new();
-        for recipe in recipes.recipes {
-            if let Ok(filename) = recipe.filename(){
-                assets.push(filename);
+        if self.has_recipes(key).await? {
+            let recipes = self.get_recipes(key).await?;
+            let mut assets = Vec::new();
+            for recipe in recipes.recipes {
+                if let Ok(filename) = recipe.filename(){
+                    assets.push(filename);
+                }
             }
+            Ok(assets)
         }
-        Ok(assets)
+        else{
+            Ok(Vec::new())
+        }
     }
 
     async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error> {
@@ -135,7 +144,11 @@ impl<E:NGEnvironment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
         else{
             return Err(Error::general_error(format!("No filename in key '{}'", key)).with_key(key));
         }
-    }    
+    }
+
+    async fn has_recipes(&self, key:&Key) -> Result<bool, Error> {
+        self.envref.get_async_store().await.contains(&key.join("recipes.yaml")).await
+    } 
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -171,6 +184,8 @@ impl RecipeList {
 #[cfg(test)]
 mod test {
     use crate::{command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry}, plan::{ParameterValue, Step}};
+
+    use super::RecipeList;
 
     #[test]
     fn empty_recipe() {
@@ -220,5 +235,20 @@ mod test {
         } else {
             assert!(false);
         }
+    }
+
+    #[test]
+    fn recipefile() {
+        let recipe = super::Recipe::new(
+            "a".to_string(),
+            "test title".to_string(),
+            "test description".to_string(),
+        )
+        .unwrap()
+        .with_argument("b".to_string(), serde_json::json!("c"));
+        let mut recipelist = RecipeList::new();
+        recipelist.add_recipe(recipe);
+        println!("recipes.yaml:\n{}", serde_yaml::to_string(&recipelist).unwrap());
+
     }
 }

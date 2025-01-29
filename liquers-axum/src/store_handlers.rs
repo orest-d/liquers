@@ -8,15 +8,17 @@ use axum::{
     Error,
 };
 use liquers_core::{
+    assets::{AsyncAssets, DefaultAssets},
     context::{Environment, NGEnvironment},
     metadata::{Metadata, MetadataRecord},
     parse::parse_key,
+    recipes::DefaultRecipeProvider,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::{
-    environment::ServerEnvRef,
+    environment::{ServerEnvRef, ServerEnvironmentType},
     utils::{CoreError, DataResultWrapper},
 };
 
@@ -108,6 +110,17 @@ pub async fn store_data_handler(
     let store = env.0.read().await.get_async_store();
     match parse_key(&query) {
         Ok(key) => DataResultWrapper(store.get(&key).await).into_response(),
+        Err(e) => CoreError(e).into_response(),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn assets_data_handler(
+    Path(query): Path<String>,
+    State(env): State<ServerEnvRef>,
+) -> Response<Body> {
+    match parse_key(&query) {
+        Ok(key) => DataResultWrapper(default_assets(env.clone()).get(&key).await).into_response(),
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -242,9 +255,14 @@ pub async fn is_dir_handler(
 #[axum::debug_handler]
 pub async fn keys_handler(State(env): State<ServerEnvRef>) -> Response<Body> {
     let store = env.0.read().await.get_async_store();
-    StoreResult::from(store.keys().await.map(|keys| keys.iter().map(|k| k.encode()).collect::<Vec<_>>()))
-        .with_key("".to_string())
-        .into_response()
+    StoreResult::from(
+        store
+            .keys()
+            .await
+            .map(|keys| keys.iter().map(|k| k.encode()).collect::<Vec<_>>()),
+    )
+    .with_key("".to_string())
+    .into_response()
     .into_response()
 }
 
@@ -258,6 +276,27 @@ pub async fn listdir_handler(
         Ok(key) => StoreResult::from(store.listdir(&key).await)
             .with_key(key.encode())
             .into_response(),
+        Err(e) => CoreError(e).into_response(),
+    }
+}
+
+fn default_assets(env: ServerEnvRef) -> impl AsyncAssets<ServerEnvironmentType> {
+    DefaultAssets::new(env.clone(), DefaultRecipeProvider::new(env))
+}
+
+#[axum::debug_handler]
+pub async fn assets_listdir_handler(
+    Path(query): Path<String>,
+    State(env): State<ServerEnvRef>,
+) -> Response<Body> {
+    match parse_key(&query) {
+        Ok(key) => {
+
+            let dir_result = default_assets(env.clone()).listdir(&key).await;
+            StoreResult::from(dir_result)
+            .with_key(key.encode())
+            .into_response()
+        },
         Err(e) => CoreError(e).into_response(),
     }
 }
