@@ -487,6 +487,66 @@ fn query_parser(text: Span) -> IResult<Span, Query> {
         empty_query,
     ))(text)
 }
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum SimpleTemplateElement {
+    Text(String),
+    ExpandQuery(Query),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct SimpleTemplate(pub Vec<SimpleTemplateElement>);
+
+impl IntoIterator for SimpleTemplate {
+    type Item = SimpleTemplateElement;
+    type IntoIter = std::vec::IntoIter<SimpleTemplateElement>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl SimpleTemplate {
+    pub fn encode(&self) -> String {
+        self.0
+            .iter()
+            .map(|e| match e {
+                SimpleTemplateElement::Text(t) => t.clone(),
+                SimpleTemplateElement::ExpandQuery(q) => format!("${}$",q.encode()),
+            })
+            .collect()
+    }
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+fn tempate_text(text: Span) -> IResult<Span, SimpleTemplateElement> {
+    let (text, a) = take_while1(|c| c != '$')(text)?;
+    Ok((text, SimpleTemplateElement::Text(a.to_string())))
+}
+
+fn template_escape_expand(text: Span) -> IResult<Span, SimpleTemplateElement> {
+    let (text, _) = tag("$$")(text)?;
+    Ok((text, SimpleTemplateElement::Text("$".to_string())))
+}
+
+fn template_expand_query(text: Span) -> IResult<Span, SimpleTemplateElement> {
+    let (text, _) = tag("$")(text)?;
+    let (text, q) = query_parser(text)?;
+    let (text, _) = tag("$")(text)?;
+    Ok((text, SimpleTemplateElement::ExpandQuery(q)))
+}
+
+fn simple_template(text: Span) -> IResult<Span, SimpleTemplate> {
+    let (text, elements) = many0(alt((
+        template_escape_expand,
+        template_expand_query,
+        tempate_text,
+    )))(text)?;
+    Ok((text, SimpleTemplate(elements)))
+}
+
 /*
 fn parse_action(text:Span) ->IResult<Span, ActionRequest>{
     let position:Position = text.into();
@@ -532,6 +592,21 @@ pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
         ))
     } else {
         Ok(Key(path))
+    }
+}
+
+pub fn parse_simple_template<S: AsRef<str>>(template_text: S) -> Result<SimpleTemplate, Error> {
+    let (remainder, template) = simple_template(Span::new(template_text.as_ref())).map_err(|e| {
+        let em = format!("{}", e);
+        Error::general_error(format!("Error parsing template: {}", em))
+    })?;
+    if remainder.fragment().len() > 0 {
+        let position: Position = remainder.into();
+        Err(Error::general_error(
+            "Can't parse template completely".to_owned()).with_position(&position)
+        )
+    } else {
+        Ok(template)
     }
 }
 
@@ -998,6 +1073,23 @@ mod tests {
             assert!(false);
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn simple_template_parsing() -> Result<(), Error> {
+        let t = parse_simple_template("abc")?;
+        assert_eq!(t.0.len(), 1);
+        assert_eq!(t.0[0], SimpleTemplateElement::Text("abc".to_owned()));
+        let t = parse_simple_template("abc$def/ghi$")?;
+        assert_eq!(t.0.len(), 2);
+        assert_eq!(t.0[0], SimpleTemplateElement::Text("abc".to_owned()));
+        println!("Template: {:?}", t);
+        if let SimpleTemplateElement::ExpandQuery(q) = &t.0[1] {
+            assert_eq!(q.encode(), "def/ghi");
+        } else {
+            assert!(false);
+        }
         Ok(())
     }
 }

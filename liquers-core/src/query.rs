@@ -455,6 +455,22 @@ impl TransformQuerySegment {
         }
     }
 
+    pub fn position(&self) -> Position {
+        if let Some(header) = &self.header {
+            header.position.to_owned()
+        } else {
+            if self.query.is_empty() {
+                if let Some(filename) = &self.filename {
+                    filename.position.to_owned()
+                } else {
+                    Position::unknown()
+                }
+            } else {
+                self.query[0].position.to_owned()
+            }
+        }
+    }
+
     pub fn predecessor(&self) -> (Option<TransformQuerySegment>, Option<TransformQuerySegment>) {
         if let Some(filename) = &self.filename {
             (
@@ -879,6 +895,14 @@ impl QuerySegment {
         QuerySegment::Resource(ResourceQuerySegment::new())
     }
 
+    /// Return position of the query segment
+    pub fn position(&self) -> Position {
+        match self {
+            QuerySegment::Resource(rqs) => rqs.position(),
+            QuerySegment::Transform(tqs) => tqs.position(),
+        }
+    }
+
     /// Return name of the query segment
     pub fn name(&self) -> String {
         match self {
@@ -1094,6 +1118,15 @@ impl Query {
         }
     }
 
+    /// Return position of the query
+    pub fn position(&self) -> Position {
+        if self.segments.is_empty() {
+            Position::unknown()
+        } else {
+            self.segments[0].position()
+        }
+    }
+    
     /// Return filename if present, None otherwise.
     pub fn filename(&self) -> Option<ResourceName> {
         match self.segments.last() {
