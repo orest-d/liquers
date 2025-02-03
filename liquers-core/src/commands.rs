@@ -7,6 +7,7 @@ use std::fmt::{format, Debug};
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
+use async_trait::async_trait;
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
@@ -652,7 +653,8 @@ pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
     ) -> Result<V, Error>;
 }
 
-pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V>>: Send + Sync {
+#[async_trait]
+pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V> + Send + 'static>: Send + Sync {
     fn execute(
         &self,
         command_key: &CommandKey,
@@ -660,6 +662,16 @@ pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V>>: Send + 
         arguments: &mut NGCommandArguments<V>,
         context: C,
     ) -> Result<V, Error>;
+
+    async fn execute_async(
+        &self,
+        command_key: &CommandKey,
+        state: &State<V>,
+        arguments: &mut NGCommandArguments<V>,
+        context: C,
+    ) -> Result<V, Error> {
+        self.execute(command_key, state, arguments, context)
+    }
 }
 
 pub struct CommandRegistry<ER, E, V: ValueInterface>
@@ -689,6 +701,17 @@ pub struct NGCommandRegistry<P, V: ValueInterface, C:ActionContext<P,V>>
         Arc<
             Box<
                 dyn (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> Result<V, Error>)
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
+    >,
+    async_executors: HashMap<
+        CommandKey,
+        Arc<
+            Box<
+                dyn (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> std::pin::Pin<Box<dyn core::future::Future<Output=Result<V, Error>>>>)
                     + Send
                     + Sync
                     + 'static,
@@ -735,6 +758,7 @@ impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandRegistry<P, V, C>
         NGCommandRegistry {
             //executors: HashMap::new(),
             executors: HashMap::new(),
+            async_executors: HashMap::new(),
             command_metadata_registry: CommandMetadataRegistry::new(),
             payload: PhantomData::default()
         }
@@ -752,6 +776,31 @@ impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandRegistry<P, V, C>
         self.command_metadata_registry
             .add_command(&command_metadata);
         self.executors.insert(key.clone(), Arc::new(Box::new(f)));
+        Ok(self.command_metadata_registry.get_mut(key).unwrap())
+    }
+    pub fn register_async_command<K, F, R>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
+    where
+        K: Into<CommandKey>,
+        R: core::future::Future<Output=Result<V, Error>>,
+        F: (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> R)
+            + Sync
+            + Send
+            + 'static,
+    {
+        let key = key.into();
+        let command_metadata = CommandMetadata::from_key(key.clone());
+        self.command_metadata_registry
+            .add_command(&command_metadata);
+        /*
+        self.async_executors.insert(key.clone(), Arc::new(Box::new(|state, arguments, context| {
+            Box::pin(
+                async move {
+                    f(state, arguments, context).await
+                }
+            )
+        }
+        )));
+        */
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
 }
@@ -785,7 +834,7 @@ where
     }
 }
 
-impl<P: Send+Sync, V:ValueInterface, C:ActionContext<P,V>> NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
+impl<P: Send+Sync, V:ValueInterface, C:ActionContext<P,V> + Send + 'static> NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
 {
     fn execute(
         &self,
