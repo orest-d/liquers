@@ -134,8 +134,7 @@ impl<V: ValueInterface> NGCommandArguments<V> {
             self.argument_number += 1;
             if let Some(v) = v {
                 Ok(Some(v.clone()))
-            }
-            else{
+            } else {
                 Ok(None)
             }
         } else {
@@ -160,47 +159,51 @@ impl<V: ValueInterface> NGCommandArguments<V> {
         }
     }
 
-    pub fn get<T: NGFromParameterValue<T> + TryFrom<V, Error=Error> >(&mut self) -> Result<T, Error> {
-        let argnum=self.argument_number;
+    pub fn get<T: NGFromParameterValue<T> + TryFrom<V, Error = Error>>(
+        &mut self,
+    ) -> Result<T, Error> {
+        let argnum = self.argument_number;
         let p = self.pop_parameter()?.to_owned();
-        if let Some(link) = p.link() {            
+        if let Some(link) = p.link() {
             let resolved = self.values.get(argnum);
             return match resolved {
                 Some(Some(v)) => {
-                    let value=v.clone();
+                    let value = v.clone();
                     return T::try_from((*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
-/*             
-                    if let Ok(v) = value.try_into_json_value(){
-                        return T::from_parameter_value(&ParameterValue::ParameterValue(v, p.position().or(self.action_position.clone())))
-                    }
-                    return Err(Error::general_error(format!(
-                        "Failed to convert link parameter {}: {}",
-                        argnum,
-                        link
-                    )).with_position(&p.position().or(self.action_position.clone())));
-*/
-                },
+                                                          /*
+                                                                              if let Ok(v) = value.try_into_json_value(){
+                                                                                  return T::from_parameter_value(&ParameterValue::ParameterValue(v, p.position().or(self.action_position.clone())))
+                                                                              }
+                                                                              return Err(Error::general_error(format!(
+                                                                                  "Failed to convert link parameter {}: {}",
+                                                                                  argnum,
+                                                                                  link
+                                                                              )).with_position(&p.position().or(self.action_position.clone())));
+                                                          */
+                }
                 Some(None) => Err(Error::general_error(format!(
                     "Unresolved link parameter {}: {}",
-                    argnum,
-                    link
-                )).with_position(&self.action_position)),
+                    argnum, link
+                ))
+                .with_position(&self.action_position)),
                 None => Err(Error::general_error(format!(
                     "Unresolved link parameter {}: {} (resolved links too short: {})",
                     argnum,
                     link,
                     self.values.len()
-                )).with_position(&self.action_position)),
+                ))
+                .with_position(&self.action_position)),
             };
         }
         if p.is_injected() {
             return Err(Error::general_error(
                 "Inconsistent parameter type - injected found, value expected".to_owned(),
-            ).with_position(&self.action_position));
+            )
+            .with_position(&self.action_position));
         }
         T::from_parameter_value(&p)
     }
-// TODO: Implement get_value, use as a quicker way to get the value (any)
+    // TODO: Implement get_value, use as a quicker way to get the value (any)
     /*
     pub fn get_value(&mut self) -> Result<Option<Arc<V>>, Error> {
         let argnum=self.argument_number;
@@ -300,8 +303,10 @@ macro_rules! impl_from_parameter_value {
                 } else {
                     if let Some(link) = param.link().as_ref() {
                         let state = context.evaluate_dependency(link)?;
-                        return <E as Environment>::Value::$stateval_to_res(&*(state.read().unwrap()))
-                            .map_err(|e| e.with_query(link));
+                        return <E as Environment>::Value::$stateval_to_res(
+                            &*(state.read().unwrap()),
+                        )
+                        .map_err(|e| e.with_query(link));
                     } else {
                         return Err(Error::conversion_error_with_message(
                             param,
@@ -365,16 +370,13 @@ impl_from_parameter_value!(
     },
     try_into_i64_option
 );
-impl_ng_from_parameter_value!(
-    Option<i64>,
-    |p: &serde_json::Value| {
-        if p.is_null() {
-            Some(None)
-        } else {
-            p.as_i64().map(Some)
-        }
+impl_ng_from_parameter_value!(Option<i64>, |p: &serde_json::Value| {
+    if p.is_null() {
+        Some(None)
+    } else {
+        p.as_i64().map(Some)
     }
-);
+});
 impl_from_parameter_value!(
     Option<f64>,
     |p: &serde_json::Value| {
@@ -386,16 +388,13 @@ impl_from_parameter_value!(
     },
     try_into_f64_option
 );
-impl_ng_from_parameter_value!(
-    Option<f64>,
-    |p: &serde_json::Value| {
-        if p.is_null() {
-            Some(None)
-        } else {
-            p.as_f64().map(Some)
-        }
+impl_ng_from_parameter_value!(Option<f64>, |p: &serde_json::Value| {
+    if p.is_null() {
+        Some(None)
+    } else {
+        p.as_f64().map(Some)
     }
-);
+});
 impl_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool(), try_into_bool);
 impl_ng_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool());
 /*
@@ -555,10 +554,8 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
     }
 }
 
-impl<V:ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
-    fn from_parameter_value(
-        param: &ParameterValue
-    ) -> Result<Vec<V>, Error> {
+impl<V: ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
+    fn from_parameter_value(param: &ParameterValue) -> Result<Vec<V>, Error> {
         fn from_json_value<T: ValueInterface>(p: &serde_json::Value) -> Result<Vec<T>, Error> {
             match p {
                 serde_json::Value::Array(a) => {
@@ -581,12 +578,9 @@ impl<V:ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
                 let mut v = Vec::new();
                 for pp in p.iter() {
                     v.push(match pp {
-                        ParameterValue::DefaultValue(_, value) => {
-                            V::try_from_json_value(value)?
-                        }
+                        ParameterValue::DefaultValue(_, value) => V::try_from_json_value(value)?,
                         ParameterValue::ParameterValue(_, value, position) => {
-                            V::try_from_json_value(value)
-                                .map_err(|e| e.with_position(position))?
+                            V::try_from_json_value(value).map_err(|e| e.with_position(position))?
                         }
                         ParameterValue::MultipleParameters(vec) => {
                             return Err(Error::unexpected_error(
@@ -622,11 +616,7 @@ impl<V:ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
                     "None parameter not allowed".to_owned(),
                 ))
             }
-            _ => {
-                return Err(Error::general_error(
-                    "Unexpected parameter type".to_owned(),
-                ))
-            }
+            _ => return Err(Error::general_error("Unexpected parameter type".to_owned())),
         }
         //Ok(vec![E::Value::none()])
     }
@@ -654,7 +644,9 @@ pub trait CommandExecutor<ER: EnvRef<E>, E: Environment, V: ValueInterface> {
 }
 
 #[async_trait]
-pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V> + Send + 'static>: Send + Sync {
+pub trait NGCommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>:
+    Send + Sync
+{
     fn execute(
         &self,
         command_key: &CommandKey,
@@ -666,11 +658,11 @@ pub trait NGCommandExecutor<P, V: ValueInterface, C:ActionContext<P,V> + Send + 
     async fn execute_async(
         &self,
         command_key: &CommandKey,
-        state: &State<V>,
+        state: State<V>,
         arguments: &mut NGCommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
-        self.execute(command_key, state, arguments, context)
+        self.execute(command_key, &state, arguments, context)
     }
 }
 
@@ -694,8 +686,7 @@ where
     pub command_metadata_registry: CommandMetadataRegistry,
 }
 
-pub struct NGCommandRegistry<P, V: ValueInterface, C:ActionContext<P,V>>
-{
+pub struct NGCommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
     executors: HashMap<
         CommandKey,
         Arc<
@@ -710,16 +701,23 @@ pub struct NGCommandRegistry<P, V: ValueInterface, C:ActionContext<P,V>>
     async_executors: HashMap<
         CommandKey,
         Arc<
-            Box<
-                dyn (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> std::pin::Pin<Box<dyn core::future::Future<Output=Result<V, Error>>>>)
-                    + Send
-                    + Sync
-                    + 'static,
+            std::pin::Pin<
+                Box<
+                    dyn (Fn(
+                            State<V>,
+                            NGCommandArguments<V>,
+                            C,
+                        ) -> std::pin::Pin<
+                            Box<dyn core::future::Future<Output = Result<V, Error>>>,
+                        >) + Send
+                        + Sync
+                        + 'static,
+                >,
             >,
         >,
     >,
     pub command_metadata_registry: CommandMetadataRegistry,
-    payload: PhantomData<P>
+    payload: PhantomData<P>,
 }
 
 impl<ER, E, V> CommandRegistry<ER, E, V>
@@ -752,15 +750,14 @@ where
     }
 }
 
-impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandRegistry<P, V, C>
-{
+impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
     pub fn new() -> Self {
         NGCommandRegistry {
             //executors: HashMap::new(),
             executors: HashMap::new(),
             async_executors: HashMap::new(),
             command_metadata_registry: CommandMetadataRegistry::new(),
-            payload: PhantomData::default()
+            payload: PhantomData::default(),
         }
     }
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
@@ -778,11 +775,19 @@ impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandRegistry<P, V, C>
         self.executors.insert(key.clone(), Arc::new(Box::new(f)));
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
-    pub fn register_async_command<K, F, R>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
+    pub fn register_async_command<K, F>(
+        &mut self,
+        key: K,
+        f: F,
+    ) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        R: core::future::Future<Output=Result<V, Error>>,
-        F: (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> R)
+        F: (Fn(
+                State<V>,
+                NGCommandArguments<V>,
+                C,
+            )
+                -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<V, Error>>>>)
             + Sync
             + Send
             + 'static,
@@ -791,16 +796,23 @@ impl<P, V:ValueInterface, C:ActionContext<P,V>> NGCommandRegistry<P, V, C>
         let command_metadata = CommandMetadata::from_key(key.clone());
         self.command_metadata_registry
             .add_command(&command_metadata);
-        /*
-        self.async_executors.insert(key.clone(), Arc::new(Box::new(|state, arguments, context| {
-            Box::pin(
-                async move {
-                    f(state, arguments, context).await
-                }
-            )
-        }
-        )));
-        */
+
+        let bf: Arc<
+            std::pin::Pin<
+                Box<
+                    dyn (Fn(
+                            State<V>,
+                            NGCommandArguments<V>,
+                            C,
+                        ) -> std::pin::Pin<
+                            Box<dyn core::future::Future<Output = Result<V, Error>>>,
+                        >) + Send
+                        + Sync
+                        + 'static,
+                >,
+            >,
+        > = Arc::new(Box::pin(f));
+        self.async_executors.insert(key.clone(), bf.clone());
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
 }
@@ -834,7 +846,8 @@ where
     }
 }
 
-impl<P: Send+Sync, V:ValueInterface, C:ActionContext<P,V> + Send + 'static> NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
+impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
+    NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
 {
     fn execute(
         &self,
@@ -1129,43 +1142,40 @@ mod tests {
         }
     }
     struct TrivialContext;
-    impl ActionContext<NoInjection, Value> for TrivialContext{
+    impl ActionContext<NoInjection, Value> for TrivialContext {
         fn borrow_payload(&self) -> &NoInjection {
             panic!("borrow_payload not needed")
         }
-    
+
         fn clone_payload(&self) -> NoInjection {
             NoInjection
         }
-    
-        fn evaluate_dependency<Q:crate::query::TryToQuery>(&self, query: Q) -> Result<State<Value>, Error> {
+
+        fn evaluate_dependency<Q: crate::query::TryToQuery>(
+            &self,
+            query: Q,
+        ) -> Result<State<Value>, Error> {
             panic!("evaluate_dependency not needed")
         }
-        
+
         fn get_store(&self) -> Arc<Box<dyn crate::store::Store>> {
             Arc::new(Box::new(crate::store::NoStore))
         }
-    
+
         fn get_metadata(&self) -> crate::metadata::MetadataRecord {
             MetadataRecord::new()
         }
-    
-        fn set_filename(&self, filename: String) {
-            
-        }
-    
-        fn debug(&self, message: &str) {
-        }
-    
-        fn info(&self, message: &str) {
-        }
-    
-        fn warning(&self, message: &str) {
-        }
-    
-        fn error(&self, message: &str) {
-        }
-    
+
+        fn set_filename(&self, filename: String) {}
+
+        fn debug(&self, message: &str) {}
+
+        fn info(&self, message: &str) {}
+
+        fn warning(&self, message: &str) {}
+
+        fn error(&self, message: &str) {}
+
         fn clone_context(&self) -> Self {
             TrivialContext
         }
@@ -1317,18 +1327,33 @@ mod tests {
         let mut ca = NGCommandArguments::new(ResolvedParameterValues::new());
 
         let s = cr
-            .execute(&CommandKey::new("", "", "test1a"), &state, &mut ca, TrivialContext)
+            .execute(
+                &CommandKey::new("", "", "test1a"),
+                &state,
+                &mut ca,
+                TrivialContext,
+            )
             .unwrap();
         assert_eq!(s.try_into_string()?, "Hello1");
 
         let s = cr
-            .execute(&CommandKey::new("", "", "test1"), &state, &mut ca, TrivialContext)
+            .execute(
+                &CommandKey::new("", "", "test1"),
+                &state,
+                &mut ca,
+                TrivialContext,
+            )
             .unwrap();
         assert_eq!(s.try_into_string()?, "Hello1");
         //assert_eq!(context.get_metadata().log.len(), 0);
 
         let s = cr
-            .execute(&CommandKey::new("", "", "test2"), &state, &mut ca, TrivialContext)
+            .execute(
+                &CommandKey::new("", "", "test2"),
+                &state,
+                &mut ca,
+                TrivialContext,
+            )
             .unwrap();
 
         //        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
@@ -1336,5 +1361,4 @@ mod tests {
 
         Ok(())
     }
-
 }
