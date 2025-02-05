@@ -31,6 +31,7 @@ pub struct CommandArguments {
 
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
+#[derive(Debug, Clone)]
 pub struct NGCommandArguments<V: ValueInterface> {
     pub parameters: ResolvedParameterValues,
     pub values: Vec<Option<Arc<V>>>,
@@ -659,10 +660,10 @@ pub trait NGCommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send 
         &self,
         command_key: &CommandKey,
         state: State<V>,
-        arguments: &mut NGCommandArguments<V>,
+        mut arguments: NGCommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
-        self.execute(command_key, &state, arguments, context)
+        self.execute(command_key, &state, &mut arguments, context)
     }
 }
 
@@ -708,7 +709,7 @@ pub struct NGCommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
                             NGCommandArguments<V>,
                             C,
                         ) -> std::pin::Pin<
-                            Box<dyn core::future::Future<Output = Result<V, Error>>>,
+                            Box<dyn core::future::Future<Output = Result<V, Error>> + Send + Sync + 'static>,
                         >) + Send
                         + Sync
                         + 'static,
@@ -787,7 +788,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
                 NGCommandArguments<V>,
                 C,
             )
-                -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<V, Error>>>>)
+                -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<V, Error>> + Send + Sync + 'static>>)
             + Sync
             + Send
             + 'static,
@@ -805,7 +806,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
                             NGCommandArguments<V>,
                             C,
                         ) -> std::pin::Pin<
-                            Box<dyn core::future::Future<Output = Result<V, Error>>>,
+                            Box<dyn core::future::Future<Output = Result<V, Error>> + Send + Sync + 'static>,
                         >) + Send
                         + Sync
                         + 'static,
@@ -846,6 +847,7 @@ where
     }
 }
 
+#[async_trait]
 impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
     NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
 {
@@ -865,6 +867,21 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
                 &key.name,
                 &arguments.action_position,
             ))
+        }
+    }
+
+    async fn execute_async(
+        &self,
+        key: &CommandKey,
+        state: State<V>,
+        mut arguments: NGCommandArguments<V>,
+        context: C,
+    ) -> Result<V, Error> {
+        if let Some(command) = self.async_executors.get(&key) {
+            command(state, arguments, context).await
+        }
+        else{
+            self.execute(key, &state, &mut arguments, context)
         }
     }
 }

@@ -450,12 +450,21 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                         {
                             let env = envref.0.read().await;
                             let ce = env.get_command_executor();
+                            /*
                             ce.execute(
                                 &CommandKey::new(realm, ns, action_name),
                                 &input_state,
                                 &mut arguments,
                                 context.clone_context(),
                             )?
+                            */
+                            ce.execute_async(
+                                &CommandKey::new(realm, ns, action_name),
+                                input_state,
+                                arguments,
+                                context.clone_context(),                                
+                            )
+                            .await?
                         }
                         // TODO: ! tokio_exec
                         #[cfg(feature = "tokio_exec")]
@@ -502,10 +511,14 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                 crate::plan::Step::Plan(_) => todo!(),
             }
             Ok(input_state)
-        }.boxed()
+        }
+        .boxed()
     }
 
-    pub async fn evaluate_simple_template(&self, template: &SimpleTemplate) -> Result<String, Error> {
+    pub async fn evaluate_simple_template(
+        &self,
+        template: &SimpleTemplate,
+    ) -> Result<String, Error> {
         let mut result = String::new();
         for element in template.0.iter() {
             match element {
@@ -516,7 +529,9 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     let mut pi = Self::new(self.environment.clone());
                     let state = pi.evaluate(q.clone()).await?;
                     if state.is_error()? {
-                        return Err(Error::general_error("Error in template".to_string()).with_query(&q).with_position(&q.position()));
+                        return Err(Error::general_error("Error in template".to_string())
+                            .with_query(&q)
+                            .with_position(&q.position()));
                     }
                     result.push_str(&state.try_into_string()?);
                 }
@@ -524,7 +539,6 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
         }
         Ok(result)
     }
-
 }
 
 #[cfg(test)]
@@ -1100,10 +1114,7 @@ mod tests {
             serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
         );
         let state = pi.run().await?;
-        assert_eq!(
-            state.try_into_string()?,
-            "Hello TEXT world!"
-        );
+        assert_eq!(state.try_into_string()?, "Hello TEXT world!");
         Ok(())
     }
 
@@ -1131,14 +1142,60 @@ mod tests {
             ng_register_command!(cr, greet(state, who:String));
         }
 
-        let mut pi = NGPlanInterpreter::new(env.to_ref());        
+        let mut pi = NGPlanInterpreter::new(env.to_ref());
 
         let template = parse_simple_template("*** $-R/hello.txt/-/greet-world$ ***")?;
         let result = pi.evaluate_simple_template(&template).await?;
-        assert_eq!(
-            result,
-            "*** Hello TEXT world! ***"
-        );
+        assert_eq!(result, "*** Hello TEXT world! ***");
+        Ok(())
+    }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_template_command() -> Result<(), Error> {
+        use crate::{context::SimpleNGEnvironment, parse::parse_simple_template, store::*};
+
+        let mut env: SimpleNGEnvironment<Value> = SimpleNGEnvironment::new();
+        let store = MemoryStore::new(&Key::new());
+        store.set(
+            &parse_key("hello.txt").unwrap(),
+            "Hello TEXT".as_bytes(),
+            &Metadata::new(),
+        )?;
+
+        env.with_async_store(Box::new(crate::store::AsyncStoreWrapper(store)));
+        {
+            let cr = env.get_mut_command_executor();
+            fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
+                println!("GREET {:?}", state.data);
+                let greeting = state.try_into_string().unwrap();
+                Ok(format!("{} {}!", greeting, who))
+            }
+            ng_register_command!(cr, greet(state, who:String));
+
+            fn template(state:State<Value>, mut args: NGCommandArguments<Value>, context:NGContext<SimpleNGEnvironment<Value>>)
+            ->  std::pin::Pin<
+            Box<dyn core::future::Future<Output = Result<Value, Error>> + Send + Sync + 'static>,
+            >{
+                Box::pin(async move{
+                    
+                let template = state.try_into_string()?;
+                let template = parse_simple_template(template)?;
+                let envref = context.clone_payload();
+                //let result = NGPlanInterpreter::new(envref).evaluate_simple_template(&template).await?;
+                //Ok(Value::from_string(result))
+                Ok(Value::none())
+                })
+            }
+
+            cr.register_async_command("template", template);
+        }
+
+        let mut pi = NGPlanInterpreter::new(env.to_ref());
+
+        let template = parse_simple_template("*** $-R/hello.txt/-/greet-world$ ***")?;
+        let result = pi.evaluate_simple_template(&template).await?;
+        assert_eq!(result, "*** Hello TEXT world! ***");
         Ok(())
     }
 
