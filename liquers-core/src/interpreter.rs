@@ -345,7 +345,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
 
     pub async fn set_query<Q: TryToQuery>(&mut self, query: Q) -> Result<(), Error> {
         let plan = Self::make_plan(self.environment.clone(), query).await?;
-        self.set_plan(plan);
+        self.set_plan(plan).await;
         Ok(())
     }
 
