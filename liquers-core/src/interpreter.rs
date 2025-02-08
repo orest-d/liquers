@@ -568,6 +568,153 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
     }
 }
 
+pub mod ngi{
+    use futures::{future::BoxFuture, FutureExt};
+
+    use crate::{command_metadata::CommandKey, commands::{NGCommandArguments, NGCommandExecutor}, context::{ActionContext, NGContext, NGEnvRef, NGEnvironment}, error::Error, plan::{Plan, PlanBuilder, Step}, query::TryToQuery, state::State, value::ValueInterface};
+
+    pub async fn make_plan<E:NGEnvironment, Q: TryToQuery>(envref: NGEnvRef<E>, query: Q) -> Result<Plan, Error> {
+        let query = query.try_to_query()?;
+        let env = envref.0.read().await;
+        let cmr = env.get_command_metadata_registry();
+        let mut pb = PlanBuilder::new(query, cmr);
+        pb.build()
+    }
+
+    pub async fn apply_plan<E:NGEnvironment>(
+        plan: Plan,
+        envref: NGEnvRef<E>,
+        context: NGContext<E>,
+        input_state: State<<E as NGEnvironment>::Value>,
+    ) -> Result<State<<E as NGEnvironment>::Value>, Error> {
+        async move {
+            let mut state = input_state;
+            for i in 0..plan.len() {
+                let step = plan[i].clone();
+                let ctx = context.clone_context();
+                let envref_copy = envref.clone();
+                let output_state =
+                    async move { do_step(envref_copy, step, state, ctx).await }.await?;
+                state = output_state;
+            }
+            Ok(state)
+        }
+        .boxed()
+        .await
+    }
+
+    pub fn do_step<E:NGEnvironment>(
+        envref: NGEnvRef<E>,
+        step: Step,
+        input_state: State<<E as NGEnvironment>::Value>,
+        context: NGContext<E>,
+    ) -> BoxFuture<'static, Result<State<<E as NGEnvironment>::Value>, Error>> {
+        async move {
+            match step {
+                crate::plan::Step::GetResource(key) => {
+                    let store = envref.get_async_store().await;
+                    let (data, metadata) = store.get(&key).await?;
+                    let value = <<E as NGEnvironment>::Value as ValueInterface>::from_bytes(data);
+                    return Ok(State::new().with_data(value).with_metadata(metadata));
+                }
+                crate::plan::Step::GetResourceMetadata(_) => todo!(),
+                crate::plan::Step::GetNamedResource(_) => todo!(),
+                crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
+                crate::plan::Step::Evaluate(q) => {
+                    //                todo!()  //TODO: ! evaluate
+
+                    let query = q.clone();
+                    return async move {
+                        let context = NGContext::new(envref.clone()).await;
+                        let plan = make_plan(envref.clone(), query).await?;
+                        let input_state = State::<<E as NGEnvironment>::Value>::new();
+                        apply_plan(plan, envref.clone(), context, input_state).await
+                    }
+                    .boxed()
+                    .await;
+                }
+                crate::plan::Step::Action {
+                    ref realm,
+                    ref ns,
+                    ref action_name,
+                    position,
+                    parameters,
+                } => {
+                    let mut arguments =
+                        NGCommandArguments::<<E as NGEnvironment>::Value>::new(parameters.clone());
+                    arguments.action_position = position.clone();
+                    let result = {
+                        #[cfg(not(feature = "tokio_exec"))]
+                        {
+                            let env = envref.0.read().await;
+                            let ce = env.get_command_executor();
+                            /*
+                            ce.execute(
+                                &CommandKey::new(realm, ns, action_name),
+                                &input_state,
+                                &mut arguments,
+                                context.clone_context(),
+                            )?
+                            */
+                            ce.execute_async(
+                                &CommandKey::new(realm, ns, action_name),
+                                input_state,
+                                arguments,
+                                context.clone_context(),
+                            )
+                            .await?
+                        }
+                        // TODO: ! tokio_exec
+                        #[cfg(feature = "tokio_exec")]
+                        {
+                            !todo!("Tokio exec");
+                            /*
+                                                    let ce = {
+                                                        let env = envref.0.read().await;
+                                                         env.get_command_executor()
+                                                    };
+                                                    let res = tokio::task::spawn_blocking(move || {
+                                                        let res = ce.execute(
+                                                            &CommandKey::new(realm, ns, action_name),
+                                                            &input_state,
+                                                            &mut arguments,
+                                                            context.clone_context(),
+                                                        );
+                                                        tokio::sync::Mutex::new(Ok(E::Value::none()))
+                                                    }).await.map_err(|e| Error::general_error(format!("Tokio task error: {}", e)))?;
+                                                    let x  = (*(res.lock().await))?;
+                                                    x
+                            */
+                        }
+                    };
+
+                    let state = State::<<E as NGEnvironment>::Value>::new()
+                        .with_data(result)
+                        .with_metadata(context.get_metadata().into());
+                    /// TODO - reset metadata ?
+                    return Ok(state);
+                }
+                crate::plan::Step::Filename(name) => {
+                    context.set_filename(name.name.clone());
+                }
+                crate::plan::Step::Info(m) => {
+                    context.info(&m);
+                }
+                crate::plan::Step::Warning(m) => {
+                    context.warning(&m);
+                }
+                crate::plan::Step::Error(m) => {
+                    context.error(&m);
+                }
+                crate::plan::Step::Plan(_) => todo!(),
+            }
+            Ok(input_state)
+        }
+        .boxed()
+    }
+
+
+}
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
