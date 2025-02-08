@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use tokio::sync::Mutex;
 
 use crate::command_metadata::CommandKey;
 use crate::commands::{CommandArguments, CommandExecutor, NGCommandArguments, NGCommandExecutor};
@@ -308,7 +311,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
 }
 
 pub struct NGPlanInterpreter<E: NGEnvironment> {
-    plan: Option<Plan>,
+    plan: Arc<tokio::sync::Mutex<Option<Plan>>>,
     environment: NGEnvRef<E>,
     step_number: usize,
     //state: Option<State<E::Value>>,
@@ -318,33 +321,41 @@ pub struct NGPlanInterpreter<E: NGEnvironment> {
 impl<E: NGEnvironment> NGPlanInterpreter<E> {
     pub fn new(environment: NGEnvRef<E>) -> Self {
         NGPlanInterpreter {
-            plan: None,
+            plan: Arc::new(Mutex::new(None)),
             environment,
             step_number: 0,
             //state: None,
         }
     }
-    pub fn with_plan(&mut self, plan: Plan) -> &mut Self {
-        println!("with plan {:?}", plan);
-        self.plan = Some(plan);
+    
+    pub async fn set_plan(&mut self, plan: Plan) {
+        println!("set plan {:?}", plan);
+        let mut p = self.plan.lock().await;
+        *p = Some(plan);
         self.step_number = 0;
-        self
+    }
+    
+    pub async fn make_plan<Q: TryToQuery>(envref: NGEnvRef<E>, query: Q) -> Result<Plan, Error> {
+        let query = query.try_to_query()?;
+        let env = envref.0.read().await;
+        let cmr = env.get_command_metadata_registry();
+        let mut pb = PlanBuilder::new(query, cmr);
+        pb.build()
     }
 
     pub async fn set_query<Q: TryToQuery>(&mut self, query: Q) -> Result<(), Error> {
-        let query = query.try_to_query()?;
-        let plan = {
-            let env = self.environment.0.read().await;
-            let cmr = env.get_command_metadata_registry();
-            let mut pb = PlanBuilder::new(query, cmr);
-            pb.build()?
-        };
-        self.with_plan(plan);
+        let plan = Self::make_plan(self.environment.clone(), query).await?;
+        self.set_plan(plan);
         Ok(())
     }
 
-    pub async fn evaluate<Q: TryToQuery>(&mut self, query: Q) -> Result<State<E::Value>, Error> {
-        self.set_query(query).await?;
+    pub async fn evaluate<Q: TryToQuery>(
+        &mut self,
+        query: Q,
+    ) -> Result<State<E::Value>, Error>
+    {
+        let rquery = query.try_to_query();
+        self.set_query(rquery?).await?;
         self.run().await
     }
 
@@ -354,13 +365,14 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
         input_state: State<<E as NGEnvironment>::Value>,
     ) -> Result<State<<E as NGEnvironment>::Value>, Error> {
         //let context = NGContext::new(self.environment.clone()).await;
+        let rplan = self.plan.clone();
         async move {
-            if self.plan.is_none() {
-                Err(Error::general_error("No plan".to_string()))
-            } else {
+            let p = rplan.lock().await;
+            if let Some(plan) = (*p).clone() {
                 let mut state = input_state;
-                for i in 0..self.len() {
-                    let step = self.get_step(i)?.clone();
+                
+                for i in 0..plan.len() {
+                    let step = plan[i].clone();
                     let ctx = context.clone_context();
                     let envref = self.environment.clone();
                     let output_state =
@@ -368,9 +380,43 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     state = output_state;
                 }
                 Ok(state)
+            } else {
+                Err(Error::general_error("No plan".to_string()))
             }
         }
         .boxed()
+        .await
+    }
+
+    pub async fn apply_plan(
+        plan: Plan,
+        envref: NGEnvRef<E>,
+        context: NGContext<E>,
+        input_state: State<<E as NGEnvironment>::Value>,
+    ) -> Result<State<<E as NGEnvironment>::Value>, Error> {
+        async move {
+            let mut state = input_state;
+            for i in 0..plan.len() {
+                let step = plan[i].clone();
+                let ctx = context.clone_context();
+                let envref_copy = envref.clone();
+                let output_state =
+                    async move { Self::do_step(envref_copy, step, state, ctx).await }.await?;
+                state = output_state;
+            }
+            Ok(state)
+        }
+        .boxed()
+        .await
+    }
+
+    pub async fn run_plan(plan: Plan, envref: NGEnvRef<E>) -> Result<State<<E as NGEnvironment>::Value>, Error> {
+        Self::apply_plan(
+            plan,
+            envref.clone(),
+            NGContext::new(envref).await,
+            Self::initial_state(),
+        )
         .await
     }
 
@@ -385,26 +431,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
     pub fn initial_state() -> State<<E as NGEnvironment>::Value> {
         State::new()
     }
-    pub fn len(&self) -> usize {
-        if let Some(plan) = &self.plan {
-            return plan.steps.len();
-        }
-        0
-    }
-    pub fn get_step(&self, i: usize) -> Result<&Step, Error> {
-        if let Some(plan) = &self.plan {
-            if let Some(step) = plan.steps.get(i) {
-                return Ok(step);
-            } else {
-                return Err(Error::general_error(format!(
-                    "Step {} requested, plan has {} steps",
-                    i,
-                    plan.steps.len()
-                )));
-            }
-        }
-        Err(Error::general_error("No plan".to_string()))
-    }
+
     pub fn do_step(
         envref: NGEnvRef<E>,
         step: Step,
@@ -462,7 +489,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                                 &CommandKey::new(realm, ns, action_name),
                                 input_state,
                                 arguments,
-                                context.clone_context(),                                
+                                context.clone_context(),
                             )
                             .await?
                         }
@@ -1109,9 +1136,10 @@ mod tests {
 
         let mut pi = NGPlanInterpreter::new(env.to_ref());
         pi.set_query("hello.txt/-/greet-world").await?;
+        let plan = pi.plan.lock().await.as_ref().unwrap().clone();
         println!(
             "############################ PLAN ############################\n{}\n",
-            serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
+            serde_yaml::to_string(&plan).unwrap()
         );
         let state = pi.run().await?;
         assert_eq!(state.try_into_string()?, "Hello TEXT world!");
@@ -1173,18 +1201,24 @@ mod tests {
             }
             ng_register_command!(cr, greet(state, who:String));
 
-            fn template(state:State<Value>, mut args: NGCommandArguments<Value>, context:NGContext<SimpleNGEnvironment<Value>>)
-            ->  std::pin::Pin<
-            Box<dyn core::future::Future<Output = Result<Value, Error>> + Send + Sync + 'static>,
-            >{
-                Box::pin(async move{
-                    
-                let template = state.try_into_string()?;
-                let template = parse_simple_template(template)?;
-                let envref = context.clone_payload();
-                //let result = NGPlanInterpreter::new(envref).evaluate_simple_template(&template).await?;
-                //Ok(Value::from_string(result))
-                Ok(Value::none())
+            fn template(
+                state: State<Value>,
+                mut args: NGCommandArguments<Value>,
+                context: NGContext<SimpleNGEnvironment<Value>>,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn core::future::Future<Output = Result<Value, Error>> + Send + Sync + 'static,
+                >,
+            > {
+                Box::pin(async move {
+                    let template = state.try_into_string()?;
+                    let template = parse_simple_template(template)?;
+                    let envref = context.clone_payload();
+                    let pi = NGPlanInterpreter::new(envref);
+                    //let result = pi.evaluate("-R/hello.txt/-/greet-test").await?;
+                    //let result = NGPlanInterpreter::new(envref).evaluate_simple_template(&template).await?;
+                    //Ok(Value::from_string(result))
+                    Ok(Value::none())
                 })
             }
 
@@ -1198,5 +1232,4 @@ mod tests {
         assert_eq!(result, "*** Hello TEXT world! ***");
         Ok(())
     }
-
 }
