@@ -761,28 +761,30 @@ pub mod ngi {
         .boxed()
     }
 
-    pub async fn evaluate_simple_template<E: NGEnvironment>(
+    pub fn evaluate_simple_template<E: NGEnvironment>(
         envref: NGEnvRef<E>,
         template: SimpleTemplate,
-    ) -> Result<String, Error> {
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<String, Error>> + Send>> {
         let mut result = String::new();
-        for element in template.0.iter() {
-            match element {
-                SimpleTemplateElement::Text(t) => {
-                    result.push_str(t);
-                }
-                SimpleTemplateElement::ExpandQuery(q) => {
-                    let state = evaluate(envref.clone(), q).await?;
-                    if state.is_error()? {
-                        return Err(Error::general_error("Error in template".to_string())
-                            .with_query(&q)
-                            .with_position(&q.position()));
+        async move {
+            for element in template.0.iter() {
+                match element {
+                    SimpleTemplateElement::Text(t) => {
+                        result.push_str(t);
                     }
-                    result.push_str(&state.try_into_string()?);
+                    SimpleTemplateElement::ExpandQuery(q) => {
+                        let state = evaluate(envref.clone(), q).await?;
+                        if state.is_error()? {
+                            return Err(Error::general_error("Error in template".to_string())
+                                .with_query(&q)
+                                .with_position(&q.position()));
+                        }
+                        result.push_str(&state.try_into_string()?);
+                    }
                 }
             }
-        }
-        Ok(result)
+            Ok(result)
+        }.boxed()
     }
 }
 #[cfg(test)]
@@ -1407,6 +1409,11 @@ mod tests {
             "Hello TEXT".as_bytes(),
             &Metadata::new(),
         )?;
+        store.set(
+            &parse_key("template.txt").unwrap(),
+            "*** $-R/hello.txt/-/greet-world$ ***".as_bytes(),
+            &Metadata::new(),
+        )?;
 
         env.with_async_store(Box::new(crate::store::AsyncStoreWrapper(store)));
         {
@@ -1427,33 +1434,20 @@ mod tests {
                     dyn core::future::Future<Output = Result<Value, Error>> + Send + 'static,
                 >,
             > {
-                Box::pin(async move {
+                async move {
                     let template = state.try_into_string()?;
                     let template = parse_simple_template(template)?;
                     let envref = context.clone_payload();
-                    let result = crate::interpreter::ngi::evaluate(
-                         envref.clone(),
-                         "-R/hello.txt/-/greet-test",
-                     )
-                     .await?;
-                    let value = result.try_into_string()?;
-
-                    //let result = crate::interpreter::ngi::evaluate_simple_template(envref, template).await?;
-                    //let result = pi.evaluate("-R/hello.txt/-/greet-test").await?;
-                    //let result = NGPlanInterpreter::new(envref).evaluate_simple_template(&template).await?;
-                    //Ok(Value::from_string(result))
-                    Ok(Value::from_string(value))
-                })
+                    let result = crate::interpreter::ngi::evaluate_simple_template(envref, template).await?;
+                    Ok(Value::from_string(result))
+                }.boxed()
             }
 
             cr.register_async_command("template", template);
         }
-
-        let mut pi = NGPlanInterpreter::new(env.to_ref());
-
-        let template = parse_simple_template("*** $-R/hello.txt/-/greet-world$ ***")?;
-        let result = pi.evaluate_simple_template(&template).await?;
-        assert_eq!(result, "*** Hello TEXT world! ***");
+        let envref = env.to_ref();
+        let result = crate::interpreter::ngi::evaluate(envref, "-R/template.txt/-/template").await?;
+        assert_eq!(result.try_into_string()?, "*** Hello TEXT world! ***");
         Ok(())
     }
 }
