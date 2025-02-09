@@ -702,18 +702,20 @@ pub struct NGCommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
     async_executors: HashMap<
         CommandKey,
         Arc<
-            std::pin::Pin<
-                Box<
-                    dyn (Fn(
-                            State<V>,
-                            NGCommandArguments<V>,
-                            C,
-                        ) -> std::pin::Pin<
-                            Box<dyn core::future::Future<Output = Result<V, Error>> + Send + Sync + 'static>,
-                        >) + Send
-                        + Sync
-                        + 'static,
-                >,
+            Box<
+                dyn (Fn(
+                        State<V>,
+                        NGCommandArguments<V>,
+                        C,
+                    ) -> std::pin::Pin<
+                        Box<
+                            dyn core::future::Future<Output = Result<V, Error>>
+                                + Send
+                                + 'static,
+                        >,
+                    >) + Send
+                    + Sync
+                    + 'static,
             >,
         >,
     >,
@@ -787,9 +789,9 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
                 State<V>,
                 NGCommandArguments<V>,
                 C,
-            )
-                -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<V, Error>> + Send + Sync + 'static>>)
-            + Sync
+            ) -> std::pin::Pin<
+                Box<dyn core::future::Future<Output = Result<V, Error>> + Send  + 'static>,
+            >) + Sync
             + Send
             + 'static,
     {
@@ -799,20 +801,22 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
             .add_command(&command_metadata);
 
         let bf: Arc<
-            std::pin::Pin<
-                Box<
-                    dyn (Fn(
-                            State<V>,
-                            NGCommandArguments<V>,
-                            C,
-                        ) -> std::pin::Pin<
-                            Box<dyn core::future::Future<Output = Result<V, Error>> + Send + Sync + 'static>,
-                        >) + Send
-                        + Sync
-                        + 'static,
-                >,
+            Box<
+                dyn (Fn(
+                        State<V>,
+                        NGCommandArguments<V>,
+                        C,
+                    ) -> std::pin::Pin<
+                        Box<
+                            dyn core::future::Future<Output = Result<V, Error>>
+                                + Send
+                                + 'static,
+                        >,
+                    >) + Send
+                    + Sync
+                    + 'static,
             >,
-        > = Arc::new(Box::pin(f));
+        > = Arc::new(Box::new(f));
         self.async_executors.insert(key.clone(), bf.clone());
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
@@ -879,8 +883,7 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
     ) -> Result<V, Error> {
         if let Some(command) = self.async_executors.get(&key) {
             command(state, arguments, context).await
-        }
-        else{
+        } else {
             self.execute(key, &state, &mut arguments, context)
         }
     }

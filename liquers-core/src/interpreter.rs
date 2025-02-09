@@ -568,7 +568,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
 }
 
 pub mod ngi {
-    use futures::{future::BoxFuture, FutureExt};
+    use futures::{FutureExt};
 
     use crate::{
         command_metadata::CommandKey,
@@ -582,15 +582,23 @@ pub mod ngi {
         value::ValueInterface,
     };
 
-    pub async fn make_plan<E: NGEnvironment, Q: TryToQuery>(
+    pub fn make_plan<E: NGEnvironment, Q: TryToQuery>(
         envref: NGEnvRef<E>,
         query: Q,
-    ) -> Result<Plan, Error> {
-        let query = query.try_to_query()?;
-        let env = envref.0.read().await;
-        let cmr = env.get_command_metadata_registry();
-        let mut pb = PlanBuilder::new(query, cmr);
-        pb.build()
+    ) -> 
+    std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Plan, Error>> + Send + 'static>,
+    >
+    //impl std::future::Future<Output = Result<Plan, Error>> 
+    {
+        
+        let rquery = query.try_to_query();
+        async move{
+            let env = envref.0.read().await;
+            let cmr = env.get_command_metadata_registry();
+            let mut pb = PlanBuilder::new(rquery?, cmr);
+            pb.build()
+        }.boxed()
     }
 
     pub fn apply_plan<E: NGEnvironment>(
@@ -715,17 +723,23 @@ pub mod ngi {
         }
     }
 
-    pub async fn evaluate_plan<E: NGEnvironment>(
+    pub fn evaluate_plan<E: NGEnvironment>(
         plan: Plan,
         envref: NGEnvRef<E>,
-    ) -> Result<State<<E as NGEnvironment>::Value>, Error> {
-        apply_plan(
-            plan,
-            envref.clone(),
-            NGContext::new(envref).await,
-            State::<<E as NGEnvironment>::Value>::new(),
-        )
-        .await
+    ) ->
+    std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
+    > 
+    //Result<State<<E as NGEnvironment>::Value>, Error> 
+    {
+        async move{
+            apply_plan(
+                plan,
+                envref.clone(),
+                NGContext::new(envref).await,
+                State::<<E as NGEnvironment>::Value>::new(),
+            ).await
+        }.boxed()
     }
 
     pub fn evaluate<E: NGEnvironment, Q: TryToQuery>(
@@ -1410,24 +1424,25 @@ mod tests {
                 context: NGContext<SimpleNGEnvironment<Value>>,
             ) -> std::pin::Pin<
                 Box<
-                    dyn core::future::Future<Output = Result<Value, Error>> + Send + Sync + 'static,
+                    dyn core::future::Future<Output = Result<Value, Error>> + Send + 'static,
                 >,
             > {
                 Box::pin(async move {
                     let template = state.try_into_string()?;
                     let template = parse_simple_template(template)?;
                     let envref = context.clone_payload();
-                    // let result = crate::interpreter::ngi::evaluate(
-                    //     envref.clone(),
-                    //     "-R/hello.txt/-/greet-test",
-                    // )
-                    // .await?;
-                    
+                    let result = crate::interpreter::ngi::evaluate(
+                         envref.clone(),
+                         "-R/hello.txt/-/greet-test",
+                     )
+                     .await?;
+                    let value = result.try_into_string()?;
+
                     //let result = crate::interpreter::ngi::evaluate_simple_template(envref, template).await?;
                     //let result = pi.evaluate("-R/hello.txt/-/greet-test").await?;
                     //let result = NGPlanInterpreter::new(envref).evaluate_simple_template(&template).await?;
                     //Ok(Value::from_string(result))
-                    Ok(Value::none())
+                    Ok(Value::from_string(value))
                 })
             }
 
