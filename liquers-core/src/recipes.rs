@@ -9,10 +9,20 @@ use crate::{
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Recipe {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub query: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub title: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub description: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     pub arguments: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     pub links: HashMap<String, String>,
 }
 
@@ -242,7 +252,7 @@ mod test {
         let recipe = super::Recipe::new(
             "a".to_string(),
             "test title".to_string(),
-            "test description".to_string(),
+            "".to_string(),
         )
         .unwrap()
         .with_argument("b".to_string(), serde_json::json!("c"));
