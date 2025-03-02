@@ -44,6 +44,7 @@ pub enum Step {
     Error(String),
     // TODO: support Plan
     Plan(Plan),
+    SetCwd(Key),
 }
 
 impl Step {

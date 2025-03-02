@@ -103,6 +103,7 @@ pub struct NGContext<E:NGEnvironment>{
     envref: NGEnvRef<E>,
     store: Arc<Box<dyn Store>>,
     metadata: Arc<Mutex<MetadataRecord>>,
+    cwd_key: Option<Key>,
 }
 
 
@@ -116,6 +117,7 @@ impl <E:NGEnvironment> NGContext<E> {
             envref: env,
             store: store,
             metadata: Arc::new(Mutex::new(MetadataRecord::new())),
+            cwd_key: None,
         }
     }
 }
@@ -157,8 +159,17 @@ impl<E:NGEnvironment> ActionContext<NGEnvRef<E>, E::Value> for NGContext<E>
             envref: self.clone_payload(),
             store: self.store.clone(),
             metadata: self.metadata.clone(),
+            cwd_key: self.cwd_key.clone(),
         }
-    }    
+    }
+    fn get_cwd_key(&self) -> Option<Key> {
+        self.cwd_key.clone()
+    }
+
+    fn set_cwd_key(&mut self, key: Option<Key>) {
+        self.cwd_key = key;
+    }
+
 }
 
 impl<E: Environment> Clone for ArcEnvRef<E> {
@@ -248,6 +259,8 @@ pub trait ActionContext<P, V: ValueInterface> {
     fn warning(&self, message: &str);
     fn error(&self, message: &str);
     fn clone_context(&self) -> Self;
+    fn get_cwd_key(&self) -> Option<Key>;
+    fn set_cwd_key(&mut self, key: Option<Key>);
 }
 
 impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::EnvironmentReference, E>

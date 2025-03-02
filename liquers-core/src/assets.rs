@@ -43,7 +43,7 @@ impl <E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAsse
                 let plan = self.recipe_provider.recipe_plan(key).await.map_err(|e2| Error::general_error(
                     format!("Asset {key} not found ({e}, {e2})")
                 ))?;
-                let state = NGPlanInterpreter::run_plan(plan, self.envref.clone()).await?;
+                let state = crate::interpreter::ngi::evaluate_plan(plan, self.envref.clone(), Some(key.parent())).await?;
                 let data = state.as_bytes()?;
                 store.set(key, &data, &state.metadata).await?;
                 Ok((data, (*state.metadata).clone()))
@@ -64,7 +64,7 @@ impl <E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAsse
                 let plan = self.recipe_provider.recipe_plan(key).await.map_err(|e2| Error::general_error(
                     format!("Asset {key} not found ({e}, {e2})") // TODO: make own error type
                 ))?;
-                let state = NGPlanInterpreter::run_plan(plan, self.envref.clone()).await?;
+                let state = crate::interpreter::ngi::evaluate_plan(plan, self.envref.clone(), Some(key.parent())).await?;
                 let data = state.as_bytes()?;
                 store.set(key, &data, &state.metadata).await?;
                 return Ok(state);
@@ -83,7 +83,7 @@ impl <E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAsse
                 let plan = self.recipe_provider.recipe_plan(key).await.map_err(|e2| Error::general_error(
                     format!("Asset {key} not found ({e}, {e2})")
                 ))?;
-                let state = NGPlanInterpreter::run_plan(plan, self.envref.clone()).await?;
+                let state = crate::interpreter::ngi::evaluate_plan(plan, self.envref.clone(), Some(key.parent())).await?;
                 let data = state.as_bytes()?;
                 store.set(key, &data, &state.metadata).await?;
                 return Ok(data);

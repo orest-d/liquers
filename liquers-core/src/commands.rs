@@ -1199,6 +1199,13 @@ mod tests {
         fn clone_context(&self) -> Self {
             TrivialContext
         }
+        
+        fn get_cwd_key(&self) -> Option<Key> {
+            None
+        }
+        
+        fn set_cwd_key(&mut self, key: std::option::Option<Key>) {
+        }
     }
 
     impl NGCommandExecutor<NoInjection, Value, TrivialContext> for NGTestExecutor {
