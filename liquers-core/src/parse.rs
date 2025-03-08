@@ -125,11 +125,11 @@ fn entities(text: Span) -> IResult<Span, String> {
         https_entity,
         file_entity,
         protocol_entity,
-    ))(text)
+    )).parse(text)
 }
 fn parameter(text: Span) -> IResult<Span, ActionParameter> {
     let position: Position = text.into();
-    let (text, par) = many0(alt((parameter_text, entities)))(text)?;
+    let (text, par) = many0(alt((parameter_text, entities))).parse(text)?;
     Ok((
         text,
         ActionParameter::new_string(par.join("")).with_position(position),
@@ -150,7 +150,7 @@ fn parameter(text:Span) ->IResult<Span, ActionParameter>{
 fn action_request(text: Span) -> IResult<Span, ActionRequest> {
     let position: Position = text.into();
     let (text, name) = identifier(text)?;
-    let (text, parameters) = many0(minus_parameter)(text)?;
+    let (text, parameters) = many0(minus_parameter).parse(text)?;
     Ok((
         text,
         ActionRequest::new(name)
@@ -162,7 +162,7 @@ fn action_request(text: Span) -> IResult<Span, ActionRequest> {
 fn header_parameter(text: Span) -> IResult<Span, HeaderParameter> {
     let (text, _) = tag("-")(text)?;
     let position: Position = text.into();
-    let (text, parameter) = take_while(|c| is_alphanumeric(c as u8) || c == '_' || c == '.')(text)?;
+    let (text, parameter) = take_while(|c| (c as u8).is_alphanum() || c == '_' || c == '.')(text)?;
     Ok((
         text,
         HeaderParameter::new(parameter.to_string()).with_position(position),
@@ -171,11 +171,11 @@ fn header_parameter(text: Span) -> IResult<Span, HeaderParameter> {
 
 fn full_transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     let position: Position = text.into();
-    let (text, level_lead) = many1(tag("-"))(text)?;
+    let (text, level_lead) = many1(tag("-")).parse(text)?;
     let (text, lead_name) =
-        take_while1(|c: char| is_alphabetic(c as u8) && c.is_lowercase())(text)?;
-    let (text, rest_name) = take_while(|c| is_alphanumeric(c as u8) || c == '_')(text)?;
-    let (text, parameters) = many0(header_parameter)(text)?;
+        take_while1(|c: char| (c as u8).is_alpha() && c.is_lowercase())(text)?;
+    let (text, rest_name) = take_while(|c| (c as u8).is_alphanum() || c == '_')(text)?;
+    let (text, parameters) = many0(header_parameter).parse(text)?;
     let (text, _) = tag("/")(text)?;
 
     Ok((
@@ -192,7 +192,7 @@ fn full_transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
 
 fn short_transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     let position: Position = text.into();
-    let (text, level_lead) = many1(tag("-"))(text)?;
+    let (text, level_lead) = many1(tag("-")).parse(text)?;
     let (text, _) = tag("/")(text)?;
 
     Ok((
@@ -211,15 +211,15 @@ fn transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     alt((
         short_transform_segment_header,
         full_transform_segment_header,
-    ))(text)
+    )).parse(text)
 }
 
 fn resource_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     let position: Position = text.into();
-    let (text, level_lead) = many1(tag("-"))(text)?;
+    let (text, level_lead) = many1(tag("-")).parse(text)?;
     let (text, _) = tag("R")(text)?;
-    let (text, name) = take_while(|c: char| is_alphanumeric(c as u8) || c == '_')(text)?;
-    let (text, parameters) = many0(header_parameter)(text)?;
+    let (text, name) = take_while(|c: char| (c as u8).is_alphanum() || c == '_')(text)?;
+    let (text, parameters) = many0(header_parameter).parse(text)?;
 
     Ok((
         text,
@@ -234,15 +234,15 @@ fn resource_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
 }
 
 pub(crate) fn resource_path(text: Span) -> IResult<Span, Vec<ResourceName>> {
-    separated_list0(tag("/"), resource_name)(text)
+    separated_list0(tag("/"), resource_name).parse(text)
 }
 pub(crate) fn resource_path1(text: Span) -> IResult<Span, Vec<ResourceName>> {
-    separated_list1(tag("/"), resource_name)(text)
+    separated_list1(tag("/"), resource_name).parse(text)
 }
 
 fn resource_segment_with_header(text: Span) -> IResult<Span, ResourceQuerySegment> {
     let (text, header) = resource_segment_header(text)?;
-    let (text, path) = opt(preceded(tag("/"), resource_path1))(text)?;
+    let (text, path) = opt(preceded(tag("/"), resource_path1)).parse(text)?;
     let key = if let Some(path) = path {
         Key(path)
     } else {
@@ -277,7 +277,7 @@ fn filename_or_action2(text: Span) -> IResult<Span, FilenameOrAction> {
     Ok((text, FilenameOrAction::Action(action)))
 }
 fn filename_or_action(text: Span) -> IResult<Span, FilenameOrAction> {
-    alt((filename_or_action1, filename_or_action2))(text)
+    alt((filename_or_action1, filename_or_action2)).parse(text)
 }
 
 fn transform_segment_with_header(text: Span) -> IResult<Span, TransformQuerySegment> {
@@ -317,7 +317,7 @@ fn transform_qs0(text: Span) -> IResult<Span, QuerySegment> {
     let (text, tqs) = alt((
         transform_segment_without_header,
         transform_segment_with_header,
-    ))(text)?;
+    )).parse(text)?;
     Ok((text, QuerySegment::Transform(tqs)))
 }
 fn transform_qs1(text: Span) -> IResult<Span, QuerySegment> {
@@ -328,11 +328,11 @@ fn transform_qs1(text: Span) -> IResult<Span, QuerySegment> {
     Ok((text, QuerySegment::Transform(tqs)))
 }
 fn query_segment0(text: Span) -> IResult<Span, QuerySegment> {
-    alt((resource_qs, transform_qs0))(text)
+    alt((resource_qs, transform_qs0)).parse(text)
 }
 fn query_segment1(text: Span) -> IResult<Span, QuerySegment> {
     //    println!("query_segment1: {:?}", text);
-    let (text, x) = alt((resource_qs, transform_qs1))(text)?;
+    let (text, x) = alt((resource_qs, transform_qs1)).parse(text)?;
     //    println!("  qs text: {:?}", text);
     //    println!("  qs:      {:?}", x);
     Ok((text, x))
@@ -355,12 +355,12 @@ fn _transform_segment_without_header(text: Span) -> IResult<Span, TransformQuery
 
 fn nonterminating_separator(text: Span) -> IResult<Span, Span> {
     let (text, a) = tag("/")(text)?;
-    let (text, _) = peek(not(tag("-")))(text)?;
+    let (text, _) = peek(not(tag("-"))).parse(text)?;
     Ok((text, a))
 }
 
 fn action_requests(text: Span) -> IResult<Span, Vec<ActionRequest>> {
-    many0(terminated(action_request, nonterminating_separator))(text)
+    many0(terminated(action_request, nonterminating_separator)).parse(text)
 }
 
 fn transform_segment_without_header(text: Span) -> IResult<Span, TransformQuerySegment> {
@@ -409,11 +409,11 @@ fn transform_segment_without_header_and_filename(
 
 fn simple_transform_query(text: Span) -> IResult<Span, Query> {
     //    println!("simple_transform_query: {:?}", text);
-    let (text, abs) = opt(tag("/"))(text)?;
+    let (text, abs) = opt(tag("/")).parse(text)?;
     let (text, tqs) = alt((
         transform_segment_without_header,
         //transform_segment_without_header_and_filename,
-    ))(text)?;
+    )).parse(text)?;
     //    println!("simple_transform_query SUCCESS");
     Ok((
         text,
@@ -427,7 +427,7 @@ fn simple_transform_query(text: Span) -> IResult<Span, Query> {
 
 fn resource_transform_query(text: Span) -> IResult<Span, Query> {
     //    println!("resource_transform_query: {:?}", text);
-    let (text, abs) = opt(tag("/"))(text)?;
+    let (text, abs) = opt(tag("/")).parse(text)?;
     let (text, resource) = resource_path1(text)?;
     let (text, _slash) = tag("/")(text)?;
     let (text, tqs) = transform_segment_with_header(text)?;
@@ -449,10 +449,10 @@ fn resource_transform_query(text: Span) -> IResult<Span, Query> {
 }
 fn general_query(text: Span) -> IResult<Span, Query> {
     //    println!("general_query: {:?}", text);
-    let (text, abs) = opt(tag("/"))(text)?;
+    let (text, abs) = opt(tag("/")).parse(text)?;
     let (text, q0) = query_segment0(text)?;
     //    println!("q0: {:?}", q0);
-    let (text, mut segments) = many0(preceded(tag("/"), query_segment1))(text)?;
+    let (text, mut segments) = many0(preceded(tag("/"), query_segment1)).parse(text)?;
     //    println!("segments: {:?}", segments);
 
     segments.insert(0, q0);
@@ -468,7 +468,7 @@ fn general_query(text: Span) -> IResult<Span, Query> {
 }
 
 fn empty_query(text: Span) -> IResult<Span, Query> {
-    let (text, abs) = opt(tag("/"))(text)?;
+    let (text, abs) = opt(tag("/")).parse(text)?;
     Ok((
         text,
         Query {
@@ -485,7 +485,7 @@ fn query_parser(text: Span) -> IResult<Span, Query> {
         terminated(simple_transform_query, eof),
         general_query,
         empty_query,
-    ))(text)
+    )).parse(text)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -543,7 +543,7 @@ fn simple_template(text: Span) -> IResult<Span, SimpleTemplate> {
         template_escape_expand,
         template_expand_query,
         tempate_text,
-    )))(text)?;
+    ))).parse(text)?;
     Ok((text, SimpleTemplate(elements)))
 }
 
