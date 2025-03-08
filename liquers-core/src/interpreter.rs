@@ -622,7 +622,7 @@ pub mod ngi {
                 let envref_copy = envref.clone();
                 let output_state =
                     async move { do_step(envref_copy, step, state, ctx).await }.await?;
-                state = output_state;
+                state = output_state.with_metadata(context.get_metadata().into());
             }
             Ok(state)
         }

@@ -6,7 +6,7 @@ use liquers_core::{
     commands::{CommandRegistry, NGCommandRegistry},
     context::{ArcEnvRef, Context, EnvRef, Environment, NGContext, NGEnvRef, NGEnvironment},
     error::Error,
-    interpreter::{AsyncPlanInterpreter, NGPlanInterpreter},
+    interpreter::{ngi, AsyncPlanInterpreter, NGPlanInterpreter},
     query::{self, TryToQuery},
     state::State,
     store::{AsyncStore, NoAsyncStore, NoStore, Store},
@@ -53,7 +53,7 @@ impl<V: ValueInterface + 'static> ServerEnvironment<V> {
     }
 }
 
-pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
+pub async fn old_async_evaluate<E: NGEnvironment, Q: TryToQuery>(
     envref: NGEnvRef<E>,
     query: Q,
 ) -> Result<liquers_core::state::State<<E as NGEnvironment>::Value>, liquers_core::error::Error> {
@@ -68,6 +68,14 @@ pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
     );
     */
     pi.run().await
+}
+
+pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
+    envref: NGEnvRef<E>,
+    query: Q,
+) -> Result<liquers_core::state::State<<E as NGEnvironment>::Value>, liquers_core::error::Error> {
+    let query = query.try_to_query()?;
+    ngi::evaluate(envref, query, None).await
 }
 
 impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
