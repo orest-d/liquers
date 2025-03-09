@@ -1378,6 +1378,43 @@ mod tests {
 
     #[cfg(feature = "async_store")]
     #[tokio::test]
+    async fn test_nginterpreter_context() -> Result<(), Error> {
+        use crate::{context::SimpleNGEnvironment, store::*};
+
+        let mut env: SimpleNGEnvironment<Value> = SimpleNGEnvironment::new();
+        let store = MemoryStore::new(&Key::new());
+        store.set(
+            &parse_key("hello.txt").unwrap(),
+            "Hello TEXT".as_bytes(),
+            &Metadata::new(),
+        )?;
+
+        env.with_async_store(Box::new(crate::store::AsyncStoreWrapper(store)));
+        {
+            let cr = env.get_mut_command_executor();
+            fn greet(state: &State<Value>, who: String, context:NGContext<SimpleNGEnvironment<Value>>) -> Result<String, Error> {
+                let greeting = state.try_into_string().unwrap();
+                context.info("Hello from log");
+                Ok(format!("{} {}!", greeting, who))
+            }
+            ng_register_command!(cr, greet(state, who:String, context));
+        }
+
+        let mut pi = NGPlanInterpreter::new(env.to_ref());
+        pi.set_query("hello.txt/-/greet-world").await?;
+        let plan = pi.plan.lock().await.as_ref().unwrap().clone();
+        println!(
+            "############################ PLAN ############################\n{}\n",
+            serde_yaml::to_string(&plan).unwrap()
+        );
+        let state = pi.run().await?;
+        assert_eq!(state.try_into_string()?, "Hello TEXT world!");
+        Ok(())
+    }
+
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
     async fn test_template() -> Result<(), Error> {
         use crate::{context::SimpleNGEnvironment, parse::parse_simple_template, store::*};
 
