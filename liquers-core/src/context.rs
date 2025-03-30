@@ -287,15 +287,19 @@ impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::Enviro
         self.metadata.lock().unwrap().with_filename(filename);
     }
     fn debug(&self, message: &str) {
+        println!("DEBUG   {}", message);
         self.metadata.lock().unwrap().debug(message);
     }
     fn info(&self, message: &str) {
+        println!("INFO    {}", message);
         self.metadata.lock().unwrap().info(message);
     }
     fn warning(&self, message: &str) {
+        println!("WARNING {}", message);
         self.metadata.lock().unwrap().warning(message);
     }
     fn error(&self, message: &str) {
+        println!("ERROR   {}", message);
         self.metadata.lock().unwrap().error(message);
     }
     fn clone_context(&self) -> Self {

@@ -358,8 +358,18 @@ impl_ng_from_parameter_value!(
 );
 impl_from_parameter_value!(i64, |p: &serde_json::Value| p.as_i64(), try_into_i64);
 impl_ng_from_parameter_value!(i64, |p: &serde_json::Value| p.as_i64());
+impl_ng_from_parameter_value!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
+impl_ng_from_parameter_value!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
+impl_ng_from_parameter_value!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
+impl_ng_from_parameter_value!(isize, |p: &serde_json::Value| p.as_i64().map(|x| x as isize));
+impl_ng_from_parameter_value!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
+impl_ng_from_parameter_value!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
+impl_ng_from_parameter_value!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
+impl_ng_from_parameter_value!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
+impl_ng_from_parameter_value!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
 impl_from_parameter_value!(f64, |p: &serde_json::Value| p.as_f64(), try_into_f64);
 impl_ng_from_parameter_value!(f64, |p: &serde_json::Value| p.as_f64());
+impl_ng_from_parameter_value!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value!(
     Option<i64>,
     |p: &serde_json::Value| {

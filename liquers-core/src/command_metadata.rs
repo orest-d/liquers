@@ -383,6 +383,7 @@ impl ArgumentInfo {
     }
     pub fn set_injected(mut self) -> Self {
         self.injected = true;
+        self.gui_info = ArgumentGUIInfo::None;
         self
     }
     pub fn set_multiple(mut self) -> Self {
@@ -509,7 +510,7 @@ pub struct CommandMetadata {
     pub realm: String,
     pub namespace: String,
     pub name: String,
-    //TODO: remove module
+    //TODO: improve module - rust, python or jvm module ?
     pub module: String,
     pub doc: String,
     //TODO: state argument should be optional
