@@ -651,7 +651,6 @@ pub mod ngi {
             Step::GetNamedResource(_) => todo!(),
             Step::GetNamedResourceMetadata(_) => todo!(),
             Step::Evaluate(q) => {
-                //                todo!()  //TODO: ! evaluate
                 let query = q.clone();
                 async move {
                     let context = NGContext::new(envref.clone()).await;
@@ -722,8 +721,17 @@ pub mod ngi {
                 context.error(&m);
                 async move { Ok(input_state) }.boxed()
             }
-            Step::SetCwd(key) => todo!(),
-            Step::Plan(plan) => todo!(),
+            Step::SetCwd(key) => {
+                context.set_cwd_key(Some(key.clone()));
+                async move { Ok(input_state) }.boxed()
+            },
+            Step::Plan(plan) => {
+                async move {
+                    let state = apply_plan(plan, envref.clone(), context, input_state).await?;
+                    Ok(state)
+                }
+                .boxed()
+            },
         }
     }
 

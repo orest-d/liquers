@@ -1214,7 +1214,7 @@ mod tests {
             None
         }
         
-        fn set_cwd_key(&mut self, key: std::option::Option<Key>) {
+        fn set_cwd_key(&self, key: std::option::Option<Key>) {
         }
     }
 

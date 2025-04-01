@@ -103,7 +103,7 @@ pub struct NGContext<E:NGEnvironment>{
     envref: NGEnvRef<E>,
     store: Arc<Box<dyn Store>>,
     metadata: Arc<Mutex<MetadataRecord>>,
-    cwd_key: Option<Key>,
+    cwd_key: Arc<Mutex<Option<Key>>>,
 }
 
 
@@ -117,7 +117,7 @@ impl <E:NGEnvironment> NGContext<E> {
             envref: env,
             store: store,
             metadata: Arc::new(Mutex::new(MetadataRecord::new())),
-            cwd_key: None,
+            cwd_key: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -163,11 +163,12 @@ impl<E:NGEnvironment> ActionContext<NGEnvRef<E>, E::Value> for NGContext<E>
         }
     }
     fn get_cwd_key(&self) -> Option<Key> {
-        self.cwd_key.clone()
+        self.cwd_key.lock().unwrap().clone()
     }
 
-    fn set_cwd_key(&mut self, key: Option<Key>) {
-        self.cwd_key = key;
+    fn set_cwd_key(&self, key: Option<Key>) {
+        let mut guard = self.cwd_key.lock().unwrap();
+        *guard = key;
     }
 
 }
@@ -260,7 +261,7 @@ pub trait ActionContext<P, V: ValueInterface> {
     fn error(&self, message: &str);
     fn clone_context(&self) -> Self;
     fn get_cwd_key(&self) -> Option<Key>;
-    fn set_cwd_key(&mut self, key: Option<Key>);
+    fn set_cwd_key(&self, key: Option<Key>);
 }
 
 impl <E: Environment> ContextInterface<E> for Context<<E as Environment>::EnvironmentReference, E>

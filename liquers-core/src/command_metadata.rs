@@ -514,7 +514,7 @@ pub struct CommandMetadata {
     pub module: String,
     pub doc: String,
     //TODO: state argument should be optional
-    pub state_argument: ArgumentInfo,
+    pub state_argument: Option<ArgumentInfo>,
     pub arguments: Vec<ArgumentInfo>,
     pub cache: bool,
     pub volatile: bool,
@@ -529,7 +529,7 @@ impl CommandMetadata {
             name: name.to_string(),
             module: "".to_string(),
             doc: "".to_string(),
-            state_argument: ArgumentInfo::any_argument("state"),
+            state_argument: Some(ArgumentInfo::any_argument("state")),
             arguments: Vec::new(),
             cache: true,
             volatile: false,
@@ -543,7 +543,7 @@ impl CommandMetadata {
             name: key.name,
             module: "".to_string(),
             doc: "".to_string(),
-            state_argument: ArgumentInfo::any_argument("state"),
+            state_argument: Some(ArgumentInfo::any_argument("state")),
             arguments: Vec::new(),
             cache: true,
             volatile: false,
@@ -578,9 +578,14 @@ impl CommandMetadata {
     }
 
     pub fn with_state_argument(&mut self, state_argument: ArgumentInfo) -> &mut Self {
-        self.state_argument = state_argument;
+        self.state_argument = Some(state_argument);
         self
     }
+    pub fn no_state_argument(&mut self) -> &mut Self {
+        self.state_argument = None;
+        self
+    }
+
     pub fn with_argument(&mut self, argument: ArgumentInfo) -> &mut Self {
         self.arguments.push(argument);
         self
@@ -614,12 +619,14 @@ impl CommandMetadata {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandMetadataRegistry {
     pub commands: Vec<CommandMetadata>,
+    pub default_namespaces: Vec<String>,
 }
 
 impl CommandMetadataRegistry {
     pub fn new() -> Self {
         CommandMetadataRegistry {
             commands: Vec::new(),
+            default_namespaces: vec!["".to_string(), "root".to_string()],
         }
     }
 

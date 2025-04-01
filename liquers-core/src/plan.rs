@@ -693,9 +693,9 @@ impl<'c> PlanBuilder<'c> {
                 }
             }
         }
-        // TODO: get default namespaces from command registry
-        namespaces.push("".to_string());
-        namespaces.push("root".to_string());
+        self.command_registry.default_namespaces.iter().for_each(|x| {
+            namespaces.push(x.clone());
+        });
 
         // TODO: check if the namespaces are registered in command registry
         Ok(namespaces)
