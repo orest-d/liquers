@@ -142,6 +142,8 @@ pub struct MetadataRecord {
     pub media_type: String,
     /// Filename of the value
     pub filename: Option<String>,
+    /// Unicode icon representing the file type as an emoji
+    pub unicode_icon: String,
 }
 
 mod query_format {
@@ -308,6 +310,9 @@ impl MetadataRecord {
         self.media_type = crate::media_type::file_extension_to_media_type(
             self.extension().unwrap_or("".to_string()).as_str()
         ).to_owned();
+        if self.unicode_icon.is_empty() {
+            self.unicode_icon = self.default_unicode_icon().to_string();
+        }
         self
     }
     pub fn clean_log(&mut self) -> &mut Self {
@@ -386,46 +391,14 @@ impl MetadataRecord {
         }
         "bin".to_string()
     }
-/*
-    try:
-        if metadata["fileinfo"]["is_dir"]:
-            return "📁"
-    except:
-        pass
-    
-    type_identifier = metadata.get("type_identifier")
-    query=metadata.get("query")
-    extension=None
-    if query:
-        extension=parse(query).extension()
-    extension = extension or key_extension(metadata.get("key"))
 
-    filename=None
-    if query:
-        filename=parse(query).filename()
-    filename = filename or key_name(metadata.get("key"))
-
-    if filename=="recipes.yaml":
-        return "🍷"
-    if type_identifier in ("dataframe", "polars_dataframe") or extension in ("csv", "tsv", "xlsx", "parquet"):
-        return "🧮" #"𝄝"
-    if extension in ("htm","html","rtf","doc","md","tex","pdf","docx"):        
-        return "📰"
-    if extension in ("png","jpg","jpeg","svg"):
-        return "🎨"
-    if extension in ("json","pkl","pickle","yaml"):
-        return "💾"
-    if extension in ("sql",):
-        return "🐌"
-    if extension in ("py",):
-        return "🐍"
-    if type_identifier in ("text",):
-        return "📄"
-    return "📦"   
-
-*/
-    pub fn default_unicode_icon(self)->&'static str{
-        crate::icons::DEFAULT_ICON
+    pub fn default_unicode_icon(&self)->&'static str{
+        if let Some(extension) = self.extension() {
+            return crate::icons::file_extension_to_unicode_icon(&extension);
+        }
+        else{
+            return crate::icons::DEFAULT_ICON;
+        }
     }
 
 }
