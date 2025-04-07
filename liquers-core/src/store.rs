@@ -55,14 +55,6 @@ pub trait Store: Send + Sync {
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
     }
-    //TODO: implement async Store
-    /*
-    #[cfg(feature="async_store")]
-    /// Get data and metadata asynchronously
-    async fn async_get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        self.get(self, key)
-    }
-    */
 
     /// Get data as bytes
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {

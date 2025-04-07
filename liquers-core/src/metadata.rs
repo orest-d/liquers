@@ -138,6 +138,8 @@ pub struct MetadataRecord {
     pub message: String,
     /// Indicates that the value failed to be created
     pub is_error: bool,
+    /// Structure containing the error information
+    pub error_data: Option<Error>,
     /// Media type of the value
     pub media_type: String,
     /// Filename of the value
@@ -297,6 +299,20 @@ impl MetadataRecord {
         self.message = message;
         self
     }
+
+    pub fn with_error(&mut self, error: Error) -> &mut Self {
+        self.with_error_message((&error).to_string());
+        self.error_data = Some(error);
+        self
+    }
+
+    pub fn with_error_message(&mut self, message: String) -> &mut Self {
+        self.is_error = true;
+        self.message = message;
+        self.status = Status::Error;
+        self
+    }
+
     pub fn with_media_type(&mut self, media_type: String) -> &mut Self {
         self.media_type = media_type;
         self
@@ -626,6 +642,24 @@ impl Metadata {
             Metadata::MetadataRecord(m) => m.get_data_format(),
             _ => "bin".to_string(),
         }
+    }
+    
+    pub fn with_error(&mut self, e: Error) -> &mut Self {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("is_error".to_string(), Value::Bool(true));
+                o.insert("message".to_string(), Value::String(e.to_string()));
+                self
+            }
+            Metadata::MetadataRecord(m) => {
+                m.with_error(e);
+                self
+            }
+            _ => {
+                panic!("Cannot set error on unsupported legacy metadata")
+            }
+        }
+
     }
 
 }

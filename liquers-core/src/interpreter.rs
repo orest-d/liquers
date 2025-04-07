@@ -109,8 +109,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_store();
                 let (data, metadata) = store
-                    .get(&key)
-                    .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
+                    .get(&key)?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
@@ -259,8 +258,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
                 let store = self.environment.get_async_store();
                 let (data, metadata) = store
                     .get(&key)
-                    .await
-                    .map_err(|e| Error::general_error(format!("Store error: {}", e)))?; // TODO: use store error type - convert to Error
+                    .await?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }

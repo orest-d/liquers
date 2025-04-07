@@ -104,3 +104,19 @@ impl<V: ValueInterface> ToOwned for State<V> {
     }
 }
 */
+
+impl<V:ValueInterface> From<Result<State<V>, Error>> for State<V> {
+    fn from(result: Result<State<V>, Error>) -> Self {
+        match result {
+            Ok(state) => state,
+            Err(e) => {
+                let mut metadata = Metadata::new();
+                metadata.with_error(e);
+                State {
+                    data: Arc::new(RwLock::new(V::none())),
+                    metadata: Arc::new(metadata),
+                }
+            }
+        }
+    }
+}
