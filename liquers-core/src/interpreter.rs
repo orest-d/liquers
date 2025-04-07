@@ -696,8 +696,6 @@ pub mod ngi {
                             Ok(state)
                         }
                         Err(e) => {
-                            //let state = State::<<E as NGEnvironment>::Value>::new();
-                            // TODO: ! return state with error
                             Err(e)
                         }
                     }

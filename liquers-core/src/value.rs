@@ -537,7 +537,7 @@ impl DefaultValueSerializer for Value {
             "json" => serde_json::to_vec(self).map_err(|e| {
                 Error::new(ErrorType::SerializationError, format!("JSON error {}", e))
             }),
-            "txt" | "html" | "rs" => match self {  // TODO: handle various extensions better, rs is only to test assets
+            "txt" | "html" | "rs" | "py" | "css" => match self {  // TODO: handle various extensions better, rs is only to test assets
                 Value::None => Ok("none".as_bytes().to_vec()),
                 Value::Bool(true) => Ok("true".as_bytes().to_vec()),
                 Value::Bool(false) => Ok("false".as_bytes().to_vec()),
