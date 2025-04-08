@@ -116,6 +116,48 @@ impl Default for LogEntry {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+
+/// Structure containing the most important information about the asset
+/// It is can be used as a shorter version of the metadata
+pub struct AssetInfo {
+    /// If value is an asset (e.g. a file in a store), the key is key of the asset
+    #[serde(with = "option_key_format")]
+    pub key: Option<Key>,
+    /// Status of the value
+    pub status: Status,
+    /// Type identifier of the value
+    pub type_identifier: String,
+    /// Data format of the value - format how the data was serialized.
+    /// Whenever possible, this is a filename extension. It may be different from the file extension though,
+    /// e.g. if the file extension is ambiguous.
+    /// Method get_data_format() returns the data format, using extension as a default.
+    pub data_format: Option<String>,
+    /// Last message from the log 
+    pub message: String,
+    /// Indicates that the value failed to be created
+    pub is_error: bool,
+    /// Media type of the value
+    pub media_type: String,
+    /// Filename of the value
+    pub filename: Option<String>,
+    /// Unicode icon representing the file type as an emoji
+    pub unicode_icon: String,
+    /// File size in bytes
+    pub file_size: Option<u64>,
+    /// Is directory
+    pub is_dir: bool,
+}
+
+impl AssetInfo{
+    pub fn new() -> AssetInfo{
+        AssetInfo {
+            is_error: false,
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MetadataRecord {
     /// Log data
     pub log: Vec<LogEntry>,
@@ -146,6 +188,10 @@ pub struct MetadataRecord {
     pub filename: Option<String>,
     /// Unicode icon representing the file type as an emoji
     pub unicode_icon: String,
+    /// File size in bytes
+    pub file_size: Option<u64>,
+    /// Is directory
+    pub is_dir: bool,
 }
 
 mod query_format {
@@ -264,6 +310,24 @@ impl MetadataRecord {
             ..Self::default()
         }
     }
+
+    /// Get most important features in form of an AssetInfo
+    pub fn get_asset_info(&self) -> AssetInfo {
+        AssetInfo {
+            key: self.key.clone(),
+            status: self.status,
+            type_identifier: self.type_identifier.clone(),
+            data_format: self.data_format.clone(),
+            message: self.message.clone(),
+            is_error: self.is_error,
+            media_type: self.media_type.clone(),
+            filename: self.filename.clone(),
+            unicode_icon: self.unicode_icon.clone(),
+            file_size: self.file_size,
+            is_dir: self.is_dir,
+        }
+    }
+
     /// Set the query of the MetadataRecord
     pub fn with_query(&mut self, query: Query) -> &mut Self {
         self.query = query;
@@ -428,6 +492,35 @@ pub enum Metadata {
 impl Metadata {
     pub fn new() -> Metadata {
         Metadata::MetadataRecord(MetadataRecord::new())
+    }
+
+    /// Get most important features in form of an AssetInfo
+    pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                let mut m = AssetInfo::new();
+                if let Some(key) = o.get("key") {
+                    m.key = Some(parse::parse_key(key.to_string())?);
+                }
+                m.status = self.status();
+                m.type_identifier = self.type_identifier().unwrap_or("".to_string());
+                m.data_format = Some(self.get_data_format());
+                m.message = self.message().to_string();
+                m.is_error = self.is_error().unwrap_or(false);
+                m.media_type = self.get_media_type();
+                m.filename = self.filename();
+                m.unicode_icon = self.unicode_icon().to_string();
+                m.file_size = self.file_size();
+                m.is_dir = self.is_dir();
+                Ok(m)
+            }
+            Metadata::MetadataRecord(m) => Ok(m.get_asset_info()),
+            _ => {
+                Err(Error::general_error(
+                    "Failed to extract asset info from an unsupported metadata type".to_string(),
+                ))
+            }
+        }
     }
 
     pub fn with_query(&mut self, query: Query) -> &mut Self {
@@ -661,7 +754,98 @@ impl Metadata {
         }
 
     }
+    
+    fn status(&self) -> Status {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(status) = o.get("status") {
+                    return serde_json::from_value(status.clone()).unwrap_or(Status::None);
+                }
+                return Status::None;
+            }
+            Metadata::MetadataRecord(m) => m.status,
+            _ => Status::None,
+        }
+    }
+    
+    fn message(&self) -> &str {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(message) = o.get("message") {
+                    return message.as_str().unwrap_or("");
+                }
+                return "";
+            }
+            Metadata::MetadataRecord(m) => m.message.as_str(),
+            _ => "",
+        }
+    }
+    
+    fn unicode_icon(&self) -> &str {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(unicode_icon) = o.get("unicode_icon") {
+                    return unicode_icon.as_str().unwrap_or(crate::icons::DEFAULT_ICON);
+                }
+                return crate::icons::DEFAULT_ICON;
+            }
+            Metadata::MetadataRecord(m) => m.unicode_icon.as_str(),
+            _ => crate::icons::DEFAULT_ICON,
+        }
+    }
+    
+    fn file_size(&self) -> Option<u64> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(file_size) = o.get("file_size") {
+                    return file_size.as_u64();
+                }
+                return None;
+            }
+            Metadata::MetadataRecord(m) => m.file_size,
+            _ => None,
+        }
+    }
+    
+    fn is_dir(&self) -> bool {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(is_dir) = o.get("is_dir") {
+                    return is_dir.as_bool().unwrap_or(false);
+                }
+                return false;
+            }
+            Metadata::MetadataRecord(m) => m.is_dir,
+            _ => false,
+        }
+    }
 
+    pub fn with_isdir(&mut self, is_dir: bool) -> &mut Self {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("is_dir".to_string(), Value::Bool(is_dir));
+                self
+            }
+            Metadata::MetadataRecord(m) => {
+                m.is_dir = is_dir;
+                self
+            }
+            _ => self
+        }
+    }
+    pub fn with_file_size(&mut self, file_size: u64) -> &mut Self {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("file_size".to_string(), Value::Number(serde_json::Number::from(file_size)));
+                self
+            }
+            Metadata::MetadataRecord(m) => {
+                m.file_size = Some(file_size);
+                self
+            }
+            _ => self
+        }
+    }    
 }
 
 impl From<MetadataRecord> for Metadata {

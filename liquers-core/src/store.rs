@@ -25,6 +25,7 @@ pub trait Store: Send + Sync {
     fn default_metadata(&self, key: &Key, _is_dir: bool) -> MetadataRecord {
         let mut metadata = MetadataRecord::new();
         metadata.with_key(key.to_owned());
+        metadata.is_dir = _is_dir;
         metadata
     }
 
@@ -64,6 +65,11 @@ pub trait Store: Send + Sync {
     /// Get metadata
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         Err(Error::key_not_found(key))
+    }
+
+    /// Get asset info
+    fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
+        self.get_metadata(key)?.get_asset_info()
     }
 
     /// Store data and metadata.
@@ -212,8 +218,11 @@ pub trait AsyncStore: Send + Sync {
     }
 
     /// Create default metadata object for a given key
-    fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
-        MetadataRecord::new()
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        let mut m = MetadataRecord::new();
+        m.with_key(key.to_owned());
+        m.is_dir = is_dir;
+        m
     }
 
     /// Finalize metadata before storing - when data is available
@@ -250,6 +259,11 @@ pub trait AsyncStore: Send + Sync {
     /// Get metadata
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         self.get(key).await.map(|(_, metadata)| metadata)
+    }
+
+    /// Get asset info
+    async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
+        self.get_metadata(key).await?.get_asset_info()
     }
 
     /// Store data and metadata.
