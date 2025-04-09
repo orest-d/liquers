@@ -4,6 +4,7 @@
 use serde_json::{self, Value};
 
 use crate::error::Error;
+use crate::icons::DEFAULT_ICON;
 use crate::parse;
 use crate::query::{Key, Position, Query};
 
@@ -155,6 +156,34 @@ impl AssetInfo{
             ..Self::default()
         }
     }
+    pub fn with_key(&mut self, key: Key) -> &mut Self {
+        self.key = Some(key);
+        if let Some(filename) = self.key.as_ref().unwrap().filename() {
+            self.with_filename(filename.name.clone());
+        }
+        self
+    }
+    
+    fn with_filename(&mut self, filename: String) -> &mut Self {
+        self.filename = Some(filename);
+        self.media_type = crate::media_type::file_extension_to_media_type(
+            self.extension().unwrap_or("".to_string()).as_str()
+        ).to_owned();
+        if self.unicode_icon.is_empty() {
+            self.unicode_icon = DEFAULT_ICON.to_string();
+        }
+        self
+    }
+    
+    pub fn extension(&self) -> Option<String> {
+        if let Some(filename) = &self.filename {
+            let parts: Vec<&str> = filename.split('.').collect();
+            if parts.len() > 1 {
+                return Some(parts.last().unwrap().to_string());
+            }
+        }
+        None
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -192,6 +221,9 @@ pub struct MetadataRecord {
     pub file_size: Option<u64>,
     /// Is directory
     pub is_dir: bool,
+    /// Children are populated if the value is a directory
+    #[serde(default)]
+    pub children: Vec<AssetInfo>,
 }
 
 mod query_format {

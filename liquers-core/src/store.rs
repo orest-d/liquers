@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 
 use crate::error::Error;
-use crate::metadata::{self, Metadata, MetadataRecord};
+use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
 
 pub trait Store: Send + Sync {
@@ -22,10 +22,13 @@ pub trait Store: Send + Sync {
     }
 
     /// Create default metadata object for a given key
-    fn default_metadata(&self, key: &Key, _is_dir: bool) -> MetadataRecord {
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
         let mut metadata = MetadataRecord::new();
         metadata.with_key(key.to_owned());
-        metadata.is_dir = _is_dir;
+        metadata.is_dir = is_dir;
+        if is_dir {
+            metadata.children = self.listdir_asset_info(key).unwrap_or_default();
+        }
         metadata
     }
 
@@ -64,12 +67,21 @@ pub trait Store: Send + Sync {
 
     /// Get metadata
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        if self.is_dir(key)? {
+            let metadata = self.default_metadata(key, true);
+            return Ok(Metadata::MetadataRecord(metadata));
+        }
         Err(Error::key_not_found(key))
     }
 
     /// Get asset info
     fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
-        self.get_metadata(key)?.get_asset_info()
+        let mut info = self.get_metadata(key)?.get_asset_info().unwrap_or_else(|_e| {
+            AssetInfo::new()
+        });
+        info.with_key(key.to_owned());
+        info.is_dir = self.is_dir(key)?;
+        Ok(info)
     }
 
     /// Store data and metadata.
@@ -124,6 +136,34 @@ pub trait Store: Send + Sync {
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let names = self.listdir(key)?;
         Ok(names.iter().map(|x| key.join(x)).collect())
+    }
+
+    /// Return asset info of assets inside a directory specified by key.
+    /// Only info of assets present directly in the directory are returned,
+    /// subdirectories are not traversed.
+    fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+        let keys = self.listdir_keys(key)?;
+        let mut asset_info = Vec::new();
+        for k in keys {
+            let info = self.get_asset_info(&k)?;
+            asset_info.push(info);
+        }
+        asset_info.sort_by(|a, b| {
+            if a.is_dir{
+                if b.is_dir {
+                    a.filename.cmp(&b.filename)
+                } else {
+                    std::cmp::Ordering::Less
+                }
+            } else {
+                if b.is_dir {
+                    std::cmp::Ordering::Greater
+                } else {
+                    a.filename.cmp(&b.filename)
+                }
+            }
+        });
+        Ok(asset_info)
     }
 
     /// Return keys inside a directory specified by key.
@@ -258,12 +298,22 @@ pub trait AsyncStore: Send + Sync {
 
     /// Get metadata
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        if self.is_dir(key).await? {
+            let mut metadata = self.default_metadata(key, true);
+            metadata.children = self.listdir_asset_info(key).await?;
+            return Ok(Metadata::MetadataRecord(metadata));
+        }
         self.get(key).await.map(|(_, metadata)| metadata)
     }
 
     /// Get asset info
     async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
-        self.get_metadata(key).await?.get_asset_info()
+        let mut info = self.get_metadata(key).await?.get_asset_info().unwrap_or_else(|_e| {
+            AssetInfo::new()
+        });
+        info.with_key(key.to_owned());
+        info.is_dir = self.is_dir(key).await?;
+        Ok(info)
     }
 
     /// Store data and metadata.
@@ -316,6 +366,34 @@ pub trait AsyncStore: Send + Sync {
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let names = self.listdir(key).await?;
         Ok(names.iter().map(|x| key.join(x)).collect())
+    }
+
+    /// Return asset info of assets inside a directory specified by key.
+    /// Only info of assets present directly in the directory are returned,
+    /// subdirectories are not traversed.
+    async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+        let keys = self.listdir_keys(key).await?;
+        let mut asset_info = Vec::new();
+        for k in keys {
+            let info = self.get_asset_info(&k).await?;
+            asset_info.push(info);
+        }
+        asset_info.sort_by(|a, b| {
+            if a.is_dir{
+                if b.is_dir {
+                    a.filename.cmp(&b.filename)
+                } else {
+                    std::cmp::Ordering::Less
+                }
+            } else {
+                if b.is_dir {
+                    std::cmp::Ordering::Greater
+                } else {
+                    a.filename.cmp(&b.filename)
+                }
+            }
+        });
+        Ok(asset_info)
     }
 
     /// Return keys inside a directory specified by key.
@@ -573,9 +651,10 @@ impl Store for FileStore {
         self.prefix.to_owned()
     }
 
-    fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
+    fn default_metadata(&self, _key: &Key, is_dir: bool) -> MetadataRecord {
         let mut metadata = MetadataRecord::new();
         metadata.with_key(_key.to_owned());
+        metadata.is_dir = is_dir;
         metadata
     }
 
@@ -623,6 +702,11 @@ impl Store for FileStore {
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let path = self.key_to_path_metadata(key);
         if path.exists() {
+            if path.is_dir(){
+                let mut metadata = self.default_metadata(key, true);
+                metadata.children = self.listdir_asset_info(key).unwrap_or_default();
+                return Ok(Metadata::MetadataRecord(metadata));
+            }
             let mut file =
                 File::open(path).map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
             let mut buffer = Vec::new();
@@ -778,8 +862,11 @@ impl Store for MemoryStore {
         self.prefix.to_owned()
     }
 
-    fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
-        MetadataRecord::new()
+    fn default_metadata(&self, _key: &Key, is_dir: bool) -> MetadataRecord {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(_key.to_owned());
+        metadata.is_dir = is_dir;
+        metadata
     }
 
     fn finalize_metadata(
@@ -820,6 +907,11 @@ impl Store for MemoryStore {
 
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let mem = self.data.read().unwrap();
+        if self.is_dir(key)? {
+            let mut metadata = self.default_metadata(key, true);
+            metadata.children = self.listdir_asset_info(key)?;
+            return Ok(Metadata::MetadataRecord(metadata));
+        }
         match mem.get(key) {
             Some((_, metadata)) => Ok(metadata.to_owned()),
             None => Err(Error::key_not_found(key)),
