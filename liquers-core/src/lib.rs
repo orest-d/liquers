@@ -20,3 +20,4 @@ pub mod media_type;
 pub mod recipes;
 pub mod assets;
 pub mod icons;
+pub mod dependencies;

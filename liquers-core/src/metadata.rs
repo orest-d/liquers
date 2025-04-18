@@ -12,20 +12,47 @@ use crate::query::{Key, Position, Query};
 pub enum Status {
     None,
     Submitted,
-    EvaluatingParent,
-    Evaluation,
-    EvaluatingDependencies,
+    Processing,
+    Partial,
     Error,
     Recipe,
     Ready,
     Expired,
-    External,
-    SideEffect,
+    Source,
 }
 
 impl Default for Status {
     fn default() -> Self {
         Self::None
+    }
+}
+
+impl Status {
+    pub fn has_data(&self) -> bool {
+        match self {
+            Status::Ready => true,
+            Status::None => false,
+            Status::Submitted => false,
+            Status::Processing => false,
+            Status::Partial => true,
+            Status::Error => false,
+            Status::Recipe => false,
+            Status::Expired => true,
+            Status::Source => true,
+        }
+    }
+    pub fn can_have_tracked_dependencies(&self) -> bool {
+        match self {
+            Status::Ready => true,
+            Status::None => false,
+            Status::Submitted => false,
+            Status::Processing => false,
+            Status::Partial => true,
+            Status::Error => false,
+            Status::Recipe => false,
+            Status::Expired => false,
+            Status::Source => false,
+        }
     }
 }
 
