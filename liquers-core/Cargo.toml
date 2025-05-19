@@ -25,6 +25,7 @@ thiserror = "2.0.9"
 chrono = "0.4.31"
 tokio = { version = "1.37.0", features = ["sync", "rt"] }
 blake3 = "1.8.1"
+scc = "2.3.4"
 
 [dev-dependencies]
 tokio = {version="1.37.0", features = ["full"]}

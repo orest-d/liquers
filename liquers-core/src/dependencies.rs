@@ -95,6 +95,8 @@ pub struct DependencyRecord<V: Clone + PartialEq + Eq + Debug, D: Dependency> {
     pub version: V,
     /// The status of the dependency.
     pub status: Status,
+    /// User or system specified comment - explains the purpose or source of the dependency
+    pub comment:String
 }
 
 impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyRecord<V, D> {
@@ -103,6 +105,31 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyRecord<V, D> {
             dependency,
             version,
             status,
+            comment:"".to_string()
+        }
+    }
+    pub fn with_comment(&mut self, comment:String)->&mut Self{
+        self.comment = comment;
+        self
+    }
+}
+
+/// A dependency list is a list of all direct dependencies of a dependant
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyList<V: Clone + PartialEq + Eq + Debug, D: Dependency> {
+    pub dependant: D,
+    pub version:V,
+    pub status:Status,
+    pub dependencies:Vec<DependencyRecord<V,D>>,
+}
+
+impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyList<V, D> {
+    pub fn new(dependant: D, version:V, status:Status, dependencies:Vec<DependencyRecord<V, D>>) -> Self {
+        DependencyList {
+            dependant,
+            version,
+            status,
+            dependencies
         }
     }
 }
@@ -176,9 +203,13 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
         result
     }
 
+    pub fn is_base_dependency(&self, dependency:&D) -> bool {
+        dependency.is_base_dependency()
+    }
+
     pub fn base_dependencies(&self, dependency:&D) -> HashSet<D> {
         let mut result = HashSet::new();
-        if dependency.is_base_dependency() {
+        if self.is_base_dependency(dependency) {
             result.insert(dependency.clone());
             return result;
         }

@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use itertools::Itertools;
+use nom::Err;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{Add, Index, IndexMut};
@@ -727,6 +728,51 @@ impl Key {
             }
         }
         Key(result)
+    }
+}
+
+impl From<Key> for ResourceQuerySegment {
+    fn from(value: Key) -> Self {
+        ResourceQuerySegment {
+            header: None,
+            key: value,
+        }
+    }
+}
+
+impl From<ResourceQuerySegment> for Key {
+    fn from(value: ResourceQuerySegment) -> Self {
+        value.key
+    }
+}
+
+impl From<Key> for QuerySegment {
+    fn from(value: Key) -> Self {
+        QuerySegment::Resource(value.into())
+    }
+}
+
+impl From<Key> for Query{
+    fn from(value: Key) -> Self {
+        Query{            
+            segments:vec![value.into()],
+            source: QuerySource::Unspecified,
+            absolute: false,
+        }
+    }
+}
+
+impl TryFrom<Query> for Key {
+    type Error = Error;
+
+    fn try_from(value: Query) -> Result<Self, Self::Error> {
+        if let Some(segment) = value.resource_query() {
+            Ok(segment.key)
+        } else {
+            Err(Error::general_error(
+            format!("Query {value} cannot convert to key"),
+            ))
+        }
     }
 }
 
