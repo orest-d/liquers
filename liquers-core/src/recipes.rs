@@ -91,9 +91,13 @@ impl Recipe {
 
 #[async_trait]
 pub trait AsyncRecipeProvider: Send + Sync {
+    /// Returns true if folder represented by key has recipes
     async fn has_recipes(&self, key:&Key) -> Result<bool, Error>;
+    /// Returns a list of assets that have recipes in the folder represented by key
     async fn assets_with_recipes(&self, key:&Key) -> Result<Vec<ResourceName>, Error>;
+    /// Returns the plan for the asset represented by key
     async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error>;
+    /// Returns the recipe for the asset represented by key
     async fn recipe(&self, key:&Key) -> Result<Recipe, Error>;    
 }
 
