@@ -3,13 +3,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nom::Err;
 use scc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast};
 
 use crate::{
     context::{NGEnvRef, NGEnvironment},
     error::Error,
     interpreter::NGPlanInterpreter,
-    metadata::Metadata,
+    metadata::{Metadata, Status},
     query::{Key, Query},
     recipes::AsyncRecipeProvider,
     state::State,
@@ -17,11 +17,34 @@ use crate::{
     value::{DefaultValueSerializer, ValueInterface},
 };
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum AssetMessage{
+    StatusChanged(Status)
+}
+
 pub struct AssetData<E: NGEnvironment> {
     pub query: Query,
+    rx: broadcast::Receiver<AssetMessage>,
+    tx: broadcast::Sender<AssetMessage>,
+
     _marker: std::marker::PhantomData<E>,
 }
 
+impl<E: NGEnvironment> AssetData<E> {
+    pub fn new(query: Query) -> Self {
+        let (tx, rx) = broadcast::channel(100);
+        AssetData {
+            query,
+            rx,
+            tx,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn get_query(&self) -> Query {
+        self.query.clone()
+    }
+}
 pub struct AssetRef<E: NGEnvironment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
@@ -34,10 +57,7 @@ impl<E: NGEnvironment> AssetRef<E> {
     }
     pub fn new_from_query(query: Query) -> Self {
         AssetRef {
-            data: Arc::new(RwLock::new(AssetData {
-                query,
-                _marker: std::marker::PhantomData,
-            })),
+            data: Arc::new(RwLock::new(AssetData::new(query))),
         }
     }
 }
@@ -45,6 +65,7 @@ impl<E: NGEnvironment> AssetRef<E> {
 #[async_trait]
 pub trait AssetInterface<E: NGEnvironment>: Send + Sync {
     async fn get_query(&self) -> Query;
+    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
 }
 
 #[async_trait]
@@ -52,6 +73,10 @@ impl<E: NGEnvironment> AssetInterface<E> for AssetRef<E> {
     async fn get_query(&self) -> Query {
         let lock = self.data.read();
         lock.await.query.clone()
+    }
+    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage> {
+        let lock = self.data.read().await;
+        lock.tx.subscribe()
     }
 }
 

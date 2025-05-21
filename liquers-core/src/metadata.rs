@@ -28,6 +28,9 @@ impl Default for Status {
 }
 
 impl Status {
+    /// Returns true if some data is associated with the status
+    /// For Ready and Source it is a fully valid data,
+    /// otherwise it may be Partial or Expired.
     pub fn has_data(&self) -> bool {
         match self {
             Status::Ready => true,
@@ -52,6 +55,21 @@ impl Status {
             Status::Recipe => false,
             Status::Expired => false,
             Status::Source => false,
+        }
+    }
+    /// Returns true if the calculation of the asset is finished
+    /// and the asset is either valid and ready to be used or ended up with an error.
+    pub fn is_finished(&self) -> bool {
+        match self {
+            Status::Ready => true,
+            Status::None => false,
+            Status::Submitted => false,
+            Status::Processing => false,
+            Status::Partial => false,
+            Status::Error => true,
+            Status::Recipe => false,
+            Status::Expired => true,
+            Status::Source => true,
         }
     }
 }
