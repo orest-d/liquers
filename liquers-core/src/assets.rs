@@ -45,10 +45,18 @@ impl<E: NGEnvironment> AssetData<E> {
         self.query.clone()
     }
 }
+
 pub struct AssetRef<E: NGEnvironment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
+impl<E:NGEnvironment> Clone for AssetRef<E> {
+    fn clone(&self) -> Self {
+        AssetRef {
+            data: self.data.clone(),
+        }
+    }
+}
 impl<E: NGEnvironment> AssetRef<E> {
     pub fn new(data: AssetData<E>) -> Self {
         AssetRef {
@@ -121,12 +129,14 @@ pub trait AssetStore<E: NGEnvironment>: Send + Sync {
     async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error>;
 }
 
-struct EnvAssetStore<E: NGEnvironment> {
+pub struct EnvAssetStore<E: NGEnvironment> {
     envref: NGEnvRef<E>,
+    assets: scc::HashMap<Key, AssetRef<E>>,
 }
+
 impl<E: NGEnvironment> EnvAssetStore<E> {
     pub fn new(envref: NGEnvRef<E>) -> Self {
-        EnvAssetStore { envref }
+        EnvAssetStore { envref , assets: scc::HashMap::new() }
     }
 }
 
@@ -135,7 +145,15 @@ impl<E: NGEnvironment> AssetStore<E> for EnvAssetStore<E> {
     type Asset = AssetRef<E>;
 
     async fn get(&self, key: &Key) -> Result<Self::Asset, Error> {
-        Ok(AssetRef::<E>::new_from_query(key.clone().into()))
+
+        let entry = self.assets.entry_async(key.clone()).await
+            .or_insert_with(
+                || AssetRef::<E>::new_from_query(key.clone().into())
+            );
+        
+        Ok(
+            entry.get().clone()
+        )
     }
 
     async fn create(&self, key: &Key) -> Result<Self::Asset, Error> {

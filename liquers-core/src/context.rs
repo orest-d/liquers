@@ -3,15 +3,7 @@ use std::{
 };
 
 use crate::{
-    cache::{Cache, NoCache},
-    command_metadata::CommandMetadataRegistry,
-    commands::{CommandExecutor, CommandRegistry, NGCommandExecutor, NGCommandRegistry},
-    error::Error,
-    metadata::{Metadata, MetadataRecord},
-    query::{Key, Query, TryToQuery},
-    state::State,
-    store::{NoStore, Store},
-    value::ValueInterface,
+    assets::AssetStore, cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::{CommandExecutor, CommandRegistry, NGCommandExecutor, NGCommandRegistry}, error::Error, metadata::{Metadata, MetadataRecord}, query::{Key, Query, TryToQuery}, state::State, store::{NoStore, Store}, value::ValueInterface
 };
 
 pub trait Environment: Sized + Sync + Send {
@@ -44,6 +36,7 @@ pub trait Environment: Sized + Sync + Send {
 pub trait NGEnvironment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
     type CommandExecutor: NGCommandExecutor<NGEnvRef<Self>, Self::Value, NGContext<Self>>;
+    type AssetStore: AssetStore<Self>;
 
     fn evaluate(&mut self, _query: &Query) -> Result<State<Self::Value>, Error> {
         Err(Error::not_supported("evaluate not implemented".to_string()))
@@ -434,6 +427,8 @@ impl<V:ValueInterface> SimpleNGEnvironment<V> {
 impl <V:ValueInterface> NGEnvironment for SimpleNGEnvironment<V> {
     type Value = V;
     type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
+    type AssetStore = crate::assets::EnvAssetStore<Self>;
+    
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry

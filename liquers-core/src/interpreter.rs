@@ -866,17 +866,18 @@ mod tests {
             Arc::new(Box::new(crate::store::NoAsyncStore))
         }
     }
-
+    
     struct NGInjectionTest {
         variable: InjectedVariable,
         cr: NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>,
         store: Arc<Box<dyn crate::store::Store>>,
     }
-
+    
     impl NGEnvironment for NGInjectionTest {
         type Value = Value;
-
+        
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
+        type AssetStore = crate::assets::EnvAssetStore<Self>;
 
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
@@ -905,6 +906,7 @@ mod tests {
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             Arc::new(Box::new(crate::store::NoAsyncStore))
         }
+        
     }
 
     impl Environment for NoInjection {
@@ -952,6 +954,8 @@ mod tests {
         type Value = Value;
 
         type CommandExecutor = NGTestExecutor;
+        type AssetStore = crate::assets::EnvAssetStore<Self>;
+
 
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             panic!("NGNoInjection has no command metadata registry")
@@ -1027,6 +1031,8 @@ mod tests {
         type Value = Value;
 
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
+        type AssetStore = crate::assets::EnvAssetStore<Self>;
+
 
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
