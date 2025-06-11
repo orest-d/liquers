@@ -3,12 +3,33 @@
 
 use itertools::Itertools;
 use nom::Err;
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{Add, Index, IndexMut};
 use std::path::Path;
 
 use crate::error::Error;
+
+pub trait QueryRenderStyle{
+    fn string_begin(&self, position:&Position)->Cow<'static, str>;
+    fn string_end(&self, position:&Position)->Cow<'static, str>;
+    fn entity_begin(&self, position:&Position)->Cow<'static, str>;
+    fn entity_end(&self, position:&Position)->Cow<'static, str>;
+    fn separator_begin(&self, position:&Position)->Cow<'static, str>;
+    fn separator_end(&self, position:&Position)->Cow<'static, str>;
+}
+
+pub struct TrivialQueryRenderStyle;
+impl QueryRenderStyle for TrivialQueryRenderStyle{
+    fn string_begin(&self, position:&Position)->Cow<'static, str>{"".into()}
+    fn string_end(&self, position:&Position)->Cow<'static, str>{"".into()}
+    fn entity_begin(&self, position:&Position)->Cow<'static, str>{"".into()}
+    fn entity_end(&self, position:&Position)->Cow<'static, str>{"".into()}
+    fn separator_begin(&self, position:&Position)->Cow<'static, str>{"".into()}
+    fn separator_end(&self, position:&Position)->Cow<'static, str>{"".into()}
+
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Position {
@@ -67,7 +88,7 @@ pub fn encode_token<S: AsRef<str>>(text: S) -> String {
     let text = text.as_ref();
     let mut res = String::new();
     let chars: Vec<char> = text.chars().collect();
-    
+
     let mut i = 0;
     while i < chars.len() {
         match chars[i] {
@@ -155,6 +176,22 @@ impl ActionParameter {
         }
     }
     */
+    pub fn render<S:QueryRenderStyle>(&self, style:&S)->String{
+        match self {
+            Self::String(s, pos) => {
+                let string_begin = style.string_begin(pos);
+                let string_end = style.string_end(pos);
+                let token = encode_token(s);
+                format!("{string_begin}{token}{string_end}")
+            },
+            Self::Link(query, pos) => {
+                let entity_begin = style.entity_begin(pos);
+                let entity_end = style.entity_end(pos);
+                let rendered_query = query.encode(); // Switch to render once ready
+                format!("{entity_begin}~X~{entity_end}{rendered_query}{entity_end}~E{entity_end}")
+            }
+        }
+    }
 }
 
 impl Display for ActionParameter {
@@ -210,8 +247,6 @@ impl PartialEq for ResourceName {
 
 impl Eq for ResourceName {}
 
-
-
 #[allow(dead_code)]
 impl ResourceName {
     /// Create a new resource name (without a position)
@@ -223,10 +258,7 @@ impl ResourceName {
     }
     /// Equip the resource name with a position
     pub fn with_position(self, position: Position) -> Self {
-        Self {
-            position,
-            ..self
-        }
+        Self { position, ..self }
     }
 
     /// Clear the position of the resource name
@@ -286,16 +318,10 @@ impl ActionRequest {
         }
     }
     pub fn with_position(self, position: Position) -> Self {
-        Self {
-            position,
-            ..self
-        }
+        Self { position, ..self }
     }
     pub fn with_parameters(self, parameters: Vec<ActionParameter>) -> Self {
-        Self {
-            parameters,
-            ..self
-        }
+        Self { parameters, ..self }
     }
     pub fn is_ns(&self) -> bool {
         self.name == "ns"
@@ -408,6 +434,8 @@ impl SegmentHeader {
         self.name.is_empty() && self.level == 0 && self.parameters.is_empty()
     }
 
+    // Create empty segment header
+    // Resource flag is false
     pub fn new() -> SegmentHeader {
         SegmentHeader {
             name: "".to_owned(),
@@ -417,11 +445,18 @@ impl SegmentHeader {
             position: Position::unknown(),
         }
     }
-    pub fn with_position(self, position: Position) -> Self {
-        Self {
-            position,
-            ..self
+    // Like new, just set the resource flag to true
+    pub fn new_resource_header() -> SegmentHeader {
+        SegmentHeader {
+            name: "".to_owned(),
+            level: 0,
+            parameters: vec![],
+            resource: true,
+            position: Position::unknown(),
         }
+    }
+    pub fn with_position(self, position: Position) -> Self {
+        Self { position, ..self }
     }
 
     pub fn encode(&self) -> String {
@@ -542,18 +577,24 @@ impl TransformQuerySegment {
         }
     }
 
+    /// Returns true if the query is empty (no actions and no filename; header has no impact)
     pub fn is_empty(&self) -> bool {
         self.query.is_empty() && self.filename.is_none()
     }
 
+    /// Returns true if the query is a filename
+    /// i.e. filename is defined and there are no actions.
     pub fn is_filename(&self) -> bool {
         self.query.is_empty() && self.filename.is_some()
     }
 
+    /// Returs true if the query is a simple action request,
+    /// i.e. exactly one action request and no filename.
     pub fn is_action_request(&self) -> bool {
         self.query.len() == 1 && self.filename.is_none()
     }
 
+    /// Return the ActionRequest if the query is an action request (see [is_action_request]).
     pub fn action(&self) -> Option<ActionRequest> {
         if self.is_action_request() {
             Some(self.query[0].clone())
@@ -561,6 +602,7 @@ impl TransformQuerySegment {
             None
         }
     }
+    ///Returns true if the query is a "ns" action request.
     pub fn is_ns(&self) -> bool {
         self.action().is_some_and(|x| x.is_ns())
     }
@@ -591,6 +633,56 @@ impl TransformQuerySegment {
             }
         } else {
             query
+        }
+    }
+
+    /// Helper function to make a canonical filename
+    fn canonical_filename(filename: Option<ResourceName>) -> Option<ResourceName> {
+        if let Some(name) = &filename {
+            if name.name.starts_with("data.") {
+                filename
+            } else {
+                if let Some(i) = name.name.find('.') {
+                    let mut fname = name.name.clone();
+                    let ext = fname.split_off(i);
+                    Some(ResourceName {
+                        name: format!("data{ext}"),
+                        position: name.position.clone(),
+                    })
+                } else {
+                    Some(ResourceName {
+                        name: "data".to_owned(),
+                        position: name.position.clone(),
+                    })
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Removes ambiguity from the transform query, create a standard form.
+    /// The standard form is equivalent in the meaning to the original query.
+    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Note that this is done automatically if possible.
+    /// There are two potentia changes:
+    ///
+    /// - If there is no header, a header is created (without arguments or name)
+    /// - If the filename is exists, the extension is kept (since it determines the potential format),
+    /// but the first part of the filename is changed to "data", e.g. image.png is changed to data.png.
+    pub fn canonical(self) -> Self {
+        if self.header.is_none() {
+            Self {
+                header: Some(SegmentHeader::new()),
+                query: self.query,
+                filename: Self::canonical_filename(self.filename),
+            }
+        } else {
+            Self {
+                header: self.header,
+                query: self.query,
+                filename: Self::canonical_filename(self.filename),
+            }
         }
     }
 
@@ -786,10 +878,10 @@ impl From<Key> for QuerySegment {
     }
 }
 
-impl From<Key> for Query{
+impl From<Key> for Query {
     fn from(value: Key) -> Self {
-        Query{            
-            segments:vec![value.into()],
+        Query {
+            segments: vec![value.into()],
             source: QuerySource::Unspecified,
             absolute: false,
         }
@@ -803,9 +895,9 @@ impl TryFrom<Query> for Key {
         if let Some(segment) = value.resource_query() {
             Ok(segment.key)
         } else {
-            Err(Error::general_error(
-            format!("Query {value} cannot convert to key"),
-            ))
+            Err(Error::general_error(format!(
+                "Query {value} cannot convert to key"
+            )))
         }
     }
 }
@@ -934,6 +1026,23 @@ impl ResourceQuerySegment {
             key: self.key.to_absolute(cwd_key),
         }
     }
+
+    /// Removes ambiguity from the resource query, create a standard form.
+    /// The standard form is equivalent in the meaning to the original query.
+    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Note that this is done automatically if possible.
+    /// If there is no header, a header is created (without arguments)
+    /// It might be useful to call to_absolute before turning the query to caninical.
+    pub fn canonical(self) -> Self {
+        if self.header.is_none() {
+            Self {
+                key: self.key,
+                header: Some(SegmentHeader::new_resource_header()),
+            }
+        } else {
+            self
+        }
+    }
 }
 
 impl Display for ResourceQuerySegment {
@@ -1046,30 +1155,35 @@ impl QuerySegment {
             QuerySegment::Transform(tqs) => tqs.is_ns(),
         }
     }
+    ///Return namespaces if the query segment is ns.
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
         match self {
             QuerySegment::Resource(_) => None,
             QuerySegment::Transform(tqs) => tqs.ns(),
         }
     }
+    ///Get the last ns in the segment (if any)
     pub fn last_ns(&self) -> Option<Vec<ActionParameter>> {
         match self {
             QuerySegment::Resource(_) => None,
             QuerySegment::Transform(tqs) => tqs.last_ns(),
         }
     }
+    ///Check if the segment is a namespace
     pub fn is_filename(&self) -> bool {
         match self {
             QuerySegment::Resource(rqs) => rqs.is_filename(),
             QuerySegment::Transform(tqs) => tqs.is_filename(),
         }
     }
+    /// True if the segment is the resource query segment
     pub fn is_resource_query_segment(&self) -> bool {
         match self {
             QuerySegment::Resource(_) => true,
             QuerySegment::Transform(_) => false,
         }
     }
+    /// True if the segment is a transform query segment
     pub fn is_transform_query_segment(&self) -> bool {
         match self {
             QuerySegment::Resource(_) => false,
@@ -1108,6 +1222,21 @@ impl QuerySegment {
             QuerySegment::Transform(tqs) => tqs.action(),
         }
     }
+
+    /// Removes ambiguity from the query segment, create a standard form.
+    /// The standard form is equivalent in the meaning to the original query.
+    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Note that this is done automatically if possible.
+    pub fn canonical(self) -> Self {
+        match self {
+            QuerySegment::Resource(resource_query_segment) => {
+                QuerySegment::Resource(resource_query_segment.canonical())
+            }
+            QuerySegment::Transform(transform_query_segment) => {
+                QuerySegment::Transform(transform_query_segment.canonical())
+            }
+        }
+    }
 }
 
 impl Default for QuerySegment {
@@ -1144,8 +1273,7 @@ impl Hash for QuerySegment {
 }
 
 /// Query source - characterizes the place (string) where the query was read from.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum QuerySource {
     /// Query was read from a result of another query
     Query(String),
@@ -1159,7 +1287,6 @@ pub enum QuerySource {
     #[default]
     Unspecified,
 }
-
 
 impl Display for QuerySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1201,7 +1328,7 @@ impl Query {
             self.segments[0].position()
         }
     }
-    
+
     /// Return filename if present, None otherwise.
     pub fn filename(&self) -> Option<ResourceName> {
         match self.segments.last() {
@@ -1309,10 +1436,9 @@ impl Query {
     /// This requires that the resource query segment is present and has no header or a trivial header,
     /// i.e. no name and parameters.
     pub fn is_key(&self) -> bool {
-        if let Some(rq) = self.resource_query(){
+        if let Some(rq) = self.resource_query() {
             rq.header.is_none() || rq.header.as_ref().is_some_and(|x| x.is_trivial())
-        }
-        else{
+        } else {
             false
         }
     }
@@ -1502,6 +1628,7 @@ impl Query {
         }
     }
 
+    /// Encode the query to string
     pub fn encode(&self) -> String {
         if self.segments.is_empty() {
             if self.absolute {
@@ -1521,6 +1648,24 @@ impl Query {
             q
         }
     }
+
+    /// Removes ambiguity from the query, create a standard form.
+    /// The standard form is equivalent in the meaning to the original query.
+    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Query absolute flag is copied (though usually not impactful), source is copied (and not impactful)
+    /// Effectively only the segments are transformed.
+    pub fn canonical(self) -> Self {
+        Self {
+            segments: self
+                .segments
+                .into_iter()
+                .map(|seg| seg.canonical())
+                .collect(),
+            absolute: self.absolute,
+            source: self.source,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.segments.len()
     }
@@ -1619,7 +1764,7 @@ impl IndexMut<usize> for Query {
 
 #[cfg(test)]
 mod tests {
-    use crate::parse::parse_key;
+    use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
 
@@ -1789,38 +1934,58 @@ mod tests {
         // Test tilde escaping: ~ -> ~~
         assert_eq!(encode_token("~"), "~~");
         assert_eq!(encode_token("hello~world"), "hello~~world");
-        
+
         // Test space escaping: space -> ~.
         assert_eq!(encode_token(" "), "~.");
         assert_eq!(encode_token("hello world"), "hello~.world");
-        
+
         // Test slash escaping: / -> ~/
         assert_eq!(encode_token("/"), "~/");
         assert_eq!(encode_token("path/to/file"), "path~/to~/file");
-        
+
         // Test minus followed by digit: -<digit> -> ~<digit>
         assert_eq!(encode_token("-1"), "~1");
         assert_eq!(encode_token("-9"), "~9");
         assert_eq!(encode_token("value-123"), "value~123");
         assert_eq!(encode_token("-0something"), "~0something");
-        
+
         // Test minus not followed by digit: - -> ~_
         assert_eq!(encode_token("-"), "~_");
         assert_eq!(encode_token("hello-world"), "hello~_world");
         assert_eq!(encode_token("-abc"), "~_abc");
         assert_eq!(encode_token("test-"), "test~_");
-        
+
         // Test normal characters remain unchanged
         assert_eq!(encode_token("hello"), "hello");
         assert_eq!(encode_token("abc123"), "abc123");
         assert_eq!(encode_token("test.txt"), "test.txt");
-        
+
         // Test complex combinations
-        assert_eq!(encode_token("hello world/path-123"), "hello~.world~/path~123");
+        assert_eq!(
+            encode_token("hello world/path-123"),
+            "hello~.world~/path~123"
+        );
         assert_eq!(encode_token("~test -5 file/name"), "~~test~.~5~.file~/name");
         assert_eq!(encode_token("value-abc"), "value~_abc");
         assert_eq!(encode_token(""), "");
-        
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_canonical() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(parse_query("hello")?.encode(), "hello");
+        assert_eq!(parse_query("hello")?.canonical().encode(), "-/hello");
+        assert_eq!(
+            parse_query("hello/worl.txt")?.canonical().encode(),
+            "-/hello/data.txt"
+        );
+        assert_eq!(
+            parse_query("-R/xxx/yyy/-/hello/world.txt")?
+                .canonical()
+                .encode(),
+            "-R/xxx/yyy/-/hello/data.txt"
+        );
         Ok(())
     }
 }

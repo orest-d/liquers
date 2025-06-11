@@ -580,6 +580,10 @@ impl Query {
         Query(self.0.to_absolute(&cwd_key.0))
     }
 
+    pub fn canonical(&self) -> Query{
+       Query(self.0.clone().canonical()) 
+    }
+
     pub fn __repr__(&self) -> String {
         format!("Query('{:?}')", self.0.encode())
     }
