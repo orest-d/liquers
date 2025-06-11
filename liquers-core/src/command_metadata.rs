@@ -39,7 +39,7 @@ impl CommandRegistryIssue {
 }
 
 /// Single alternative of an enum argument, see EnumArgument
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgumentAlternative {
     pub alias: String,
     pub value: CommandParameterValue,
@@ -47,7 +47,7 @@ pub struct EnumArgumentAlternative {
 
 /// Type of an enum argument, see EnumArgument
 /// This is a restricted version of ArgumentType to prevent circular type definition
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
     String,
@@ -77,7 +77,7 @@ impl Default for EnumArgumentType {
 /// Besides alternatives (values) EnumArgument has name and a value type.
 /// If others_allowed is false, then only the values from the vector 'values' are allowed.
 /// If others_allowed is true, then any value is allowed, but it must conform to the value_type.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgument {
     pub name: String,
     pub values: Vec<EnumArgumentAlternative>,
@@ -151,7 +151,7 @@ impl EnumArgument {
 
 //TODO: add support for value with type_identifier
 /// Argument type specification
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArgumentType {
     #[serde(rename = "string")]
     String,
@@ -188,7 +188,7 @@ impl Default for ArgumentType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArgumentGUIInfo {
     /// Text field for entering a short text, e.g. a name or a title.
     /// Argument is a width hint specified in characters.
@@ -256,7 +256,7 @@ impl Default for ArgumentGUIInfo {
 /// In Plan building phase, the CommandParameterValue is used to fill the default values
 /// where needed when creating the ResolvedParameterValues for an Action.
 /// CommandParameterValue can be a JSON Value, a Query or None.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum CommandParameterValue {
     Value(Value),
     Query(Query),
@@ -300,14 +300,14 @@ impl Default for CommandParameterValue {
 }
 
 /// ParameterPreset defines and describes a preset for a command parameter.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct ParameterPreset {
     name: String,
     value: CommandParameterValue,
     description: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ArgumentInfo {
     /// Name of the argument, used to identify it in the command metadata.
     pub name: String,
@@ -562,7 +562,7 @@ impl From<&str> for CommandKey {
 }
 
 // TODO: continue here
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum CommandDefinition {
     Registered,
     Alias {
@@ -584,7 +584,7 @@ impl Default for CommandDefinition {
 /// by the preceding query. Preset  Command name may be validated against the CommandMetadata name.
 /// Preset is meant to be used e.g. in a UI to provide a quick way to execute a command with predefined parameters.
 /// For that purpose it defines label and description.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CommandPreset {
     pub action: ActionRequest,
     pub label: String,
@@ -628,7 +628,7 @@ impl CommandPreset {
 /// command.with_doc("This is a test command")
 ///    .with_argument(ArgumentInfo::string_argument("arg1"));
 /// ```
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct CommandMetadata {
     pub realm: String,
     pub namespace: String,

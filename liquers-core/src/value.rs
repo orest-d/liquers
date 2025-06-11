@@ -5,7 +5,7 @@ use serde_json;
 
 use std::{borrow::Cow, collections::BTreeMap, result::Result};
 
-use crate::{error::{Error, ErrorType}, metadata::MetadataRecord, recipes::Recipe};
+use crate::{command_metadata::CommandMetadata, error::{Error, ErrorType}, metadata::MetadataRecord, recipes::Recipe};
 use std::convert::{TryFrom, TryInto};
 
 /// Basic built-in value type
@@ -26,6 +26,7 @@ pub enum Value {
     Bytes(Vec<u8>),
     Metadata(MetadataRecord),
     Recipe(Recipe),
+    CommandMetadata(CommandMetadata)
 }
 
 // TODO: Remove the serialization and deserialization from ValueInterface (is it there?)
@@ -285,6 +286,7 @@ impl ValueInterface for Value {
             Value::Bytes(_) => "bytes".into(),
             Value::Metadata(_) => "metadata".into(),
             Value::Recipe(_) => "recipe".into(),
+            Value::CommandMetadata(_) => "command_metadata".into(),
         }
     }
 
@@ -301,6 +303,7 @@ impl ValueInterface for Value {
             Value::Bytes(_) => "bytes".into(),
             Value::Metadata(_) => "metadata".into(),
             Value::Recipe(_) => "recipe".into(),
+            Value::CommandMetadata(_) => "command_metadata".into(),
         }
     }
 
@@ -316,7 +319,8 @@ impl ValueInterface for Value {
             Value::Object(_) => "json".into(),
             Value::Bytes(_) => "b".into(),
             Value::Metadata(_) => "json".into(),
-            Value::Recipe(_) => "recipe.json".into(),
+            Value::Recipe(_) => "json".into(),
+            Value::CommandMetadata(_) => "json".into(),
         }
     }
 
@@ -333,6 +337,7 @@ impl ValueInterface for Value {
             Value::Bytes(_) => "binary.b".into(),
             Value::Metadata(_) => "metadata.json".into(),
             Value::Recipe(_) => "recipe.json".into(),
+            Value::CommandMetadata(_) => "command_metadata.json".into(),
         }
     }
 
@@ -349,6 +354,7 @@ impl ValueInterface for Value {
             Value::Bytes(_) => "application/octet-stream".into(),
             Value::Metadata(_) => "application/json".into(),
             Value::Recipe(_) => "application/json".into(),
+            Value::CommandMetadata(_) => "application/json".into(),
         }
     }
 
