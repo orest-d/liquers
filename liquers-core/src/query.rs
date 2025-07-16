@@ -64,7 +64,31 @@ impl Display for Position {
 }
 
 pub fn encode_token<S: AsRef<str>>(text: S) -> String {
-    format!("{}", text.as_ref())
+    let text = text.as_ref();
+    let mut res = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '~' => res.push_str("~~"),
+            ' ' => res.push_str("~."),
+            '/' => res.push_str("~/"),
+            '-' => {
+                // Check if minus is followed by a number
+                if i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+                    res.push('~');
+                    res.push(chars[i + 1]);
+                    i += 1; // Skip the digit
+                } else {
+                    res.push_str("~_");
+                }
+            }
+            c => res.push(c),
+        }
+        i += 1;
+    }
+    res
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1718,5 +1742,45 @@ mod tests {
         assert_eq!(key.extension(), Some("txt".to_owned()));
         let key = parse_key("arch.tar.gz").unwrap();
         assert_eq!(key.extension(), Some("gz".to_owned()));
+    }
+
+    #[test]
+    fn test_encode_token() -> Result<(), Box<dyn std::error::Error>> {
+        // Test tilde escaping: ~ -> ~~
+        assert_eq!(encode_token("~"), "~~");
+        assert_eq!(encode_token("hello~world"), "hello~~world");
+        
+        // Test space escaping: space -> ~.
+        assert_eq!(encode_token(" "), "~.");
+        assert_eq!(encode_token("hello world"), "hello~.world");
+        
+        // Test slash escaping: / -> ~/
+        assert_eq!(encode_token("/"), "~/");
+        assert_eq!(encode_token("path/to/file"), "path~/to~/file");
+        
+        // Test minus followed by digit: -<digit> -> ~<digit>
+        assert_eq!(encode_token("-1"), "~1");
+        assert_eq!(encode_token("-9"), "~9");
+        assert_eq!(encode_token("value-123"), "value~123");
+        assert_eq!(encode_token("-0something"), "~0something");
+        
+        // Test minus not followed by digit: - -> ~_
+        assert_eq!(encode_token("-"), "~_");
+        assert_eq!(encode_token("hello-world"), "hello~_world");
+        assert_eq!(encode_token("-abc"), "~_abc");
+        assert_eq!(encode_token("test-"), "test~_");
+        
+        // Test normal characters remain unchanged
+        assert_eq!(encode_token("hello"), "hello");
+        assert_eq!(encode_token("abc123"), "abc123");
+        assert_eq!(encode_token("test.txt"), "test.txt");
+        
+        // Test complex combinations
+        assert_eq!(encode_token("hello world/path-123"), "hello~.world~/path~123");
+        assert_eq!(encode_token("~test -5 file/name"), "~~test~.~5~.file~/name");
+        assert_eq!(encode_token("value-abc"), "value~_abc");
+        assert_eq!(encode_token(""), "");
+        
+        Ok(())
     }
 }

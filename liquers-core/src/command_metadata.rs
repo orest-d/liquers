@@ -193,8 +193,28 @@ pub enum ArgumentGUIInfo {
     TextField(usize),
     TextArea(usize, usize),
     IntegerField,
+    IntegerRange{
+        min: i64,
+        max: i64,
+    },
+    IntegerSlider{
+        min: i64,
+        max: i64,
+        step: i64,
+    },
     FloatField,
+    FloatSlider{
+        min: f64,
+        max: f64,
+        step: f64,
+    },
     Checkbox,
+    RadioBoolean{
+        true_label: String,
+        false_label: String,
+    },
+    HorizontalRadioEnum,
+    VerticalRadioEnum,
     EnumSelector,
     None,
 }
@@ -510,6 +530,7 @@ pub struct CommandMetadata {
     pub realm: String,
     pub namespace: String,
     pub name: String,
+    pub label: String,
     //TODO: improve module - rust, python or jvm module ?
     pub module: String,
     pub doc: String,
@@ -527,6 +548,7 @@ impl CommandMetadata {
             realm: "".to_string(),
             namespace: "root".to_string(),
             name: name.to_string(),
+            label: name.replace("_", " ").to_string(),
             module: "".to_string(),
             doc: "".to_string(),
             state_argument: Some(ArgumentInfo::any_argument("state")),
@@ -540,7 +562,8 @@ impl CommandMetadata {
         CommandMetadata {
             realm: key.realm,
             namespace: key.namespace,
-            name: key.name,
+            name: key.name.clone(),
+            label: key.name.clone().replace("_", " "),
             module: "".to_string(),
             doc: "".to_string(),
             state_argument: Some(ArgumentInfo::any_argument("state")),
@@ -577,6 +600,10 @@ impl CommandMetadata {
         issues
     }
 
+    pub fn with_label(&mut self, label: &str) -> &mut Self {
+        self.label = label.to_string();
+        self
+    }
     pub fn with_state_argument(&mut self, state_argument: ArgumentInfo) -> &mut Self {
         self.state_argument = Some(state_argument);
         self
