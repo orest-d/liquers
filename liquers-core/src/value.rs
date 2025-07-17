@@ -491,6 +491,51 @@ impl TryFrom<Value> for bool {
         }
     }
 }
+
+impl TryFrom<Value> for isize {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::I32(x) => Ok(x as isize),
+            Value::I64(x) => Ok(x as isize),
+            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+        }
+    }
+}
+
+impl TryFrom<Value> for u32 {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::I32(x) => Ok(x as u32),
+            Value::I64(x) => Ok(x as u32),
+            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+        }
+    }
+}
+
+impl TryFrom<Value> for u64 {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::I32(x) => Ok(x as u64),
+            Value::I64(x) => Ok(x as u64),
+            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+        }
+    }
+}
+
+impl TryFrom<Value> for usize {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::I32(x) => Ok(x as usize),
+            Value::I64(x) => Ok(x as usize),
+            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+        }
+    }
+}
+
 impl From<bool> for Value {
     fn from(value: bool) -> Value {
         Value::Bool(value)

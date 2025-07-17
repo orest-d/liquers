@@ -1359,7 +1359,7 @@ mod tests {
         cr.register_command("test1a", ng_command_wrapper!(test1()))?;
         ng_register_command!(cr, test1());
         ng_register_command!(cr, test2(context));
-        //ng_register_command!(cr, test3(x:usize));
+        ng_register_command!(cr, test3(x:usize));
         serde_yaml::to_writer(std::io::stdout(), &cr.command_metadata_registry)
             .expect("cr yaml error");
 
@@ -1398,11 +1398,10 @@ mod tests {
             )
             .unwrap();
 
-            /* DOES NOT WORK YET because parameters (of type usize) do not convert correctly
-        let mut a = ResolvedParameterValues::new()
+        let mut a = ResolvedParameterValues::new();
         a.0.push(ParameterValue::ParameterValue(
             "x".into(),
-            "123".into(),
+            123.into(),
             Position::unknown(),
         ));
         let mut ca3 = NGCommandArguments::new(a);
@@ -1414,7 +1413,6 @@ mod tests {
                 TrivialContext,
             )
             .unwrap();
-*/
         //        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
         //assert_eq!(context.get_metadata().log[0].message, "test2 called");
 
