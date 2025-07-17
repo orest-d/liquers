@@ -1492,7 +1492,7 @@ impl Query {
     }
 }
 
-pub trait TryToQuery{
+pub trait TryToQuery: std::fmt::Debug + Display + Clone {
     fn try_to_query(self) -> Result<Query, Error>;
 }
 
@@ -1505,6 +1505,12 @@ impl TryToQuery for &str {
 impl TryToQuery for String {
     fn try_to_query(self) -> Result<Query, Error> {
         crate::parse::parse_query(&self)
+    }
+}
+
+impl TryToQuery for &String {
+    fn try_to_query(self) -> Result<Query, Error> {
+        crate::parse::parse_query(self)
     }
 }
 

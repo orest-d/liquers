@@ -4,7 +4,7 @@
 use std::fmt::Display;
 
 use crate::error::Error;
-use crate::query::{ActionParameter, Query};
+use crate::query::{ActionParameter, ActionRequest, Query, TryToQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -113,10 +113,10 @@ impl EnumArgument {
         });
         self
     }
-    pub fn with_value<T:Into<Value>>(mut self, alias: &str, value: T) -> Self {
+    pub fn with_value<T: Into<Value>>(mut self, alias: &str, value: T) -> Self {
         self.values.push(EnumArgumentAlternative {
             alias: alias.to_string(),
-            value: CommandParameterValue::from_value(value.into())
+            value: CommandParameterValue::from_value(value.into()),
         });
         self
     }
@@ -193,23 +193,23 @@ pub enum ArgumentGUIInfo {
     TextField(usize),
     TextArea(usize, usize),
     IntegerField,
-    IntegerRange{
+    IntegerRange {
         min: i64,
         max: i64,
     },
-    IntegerSlider{
+    IntegerSlider {
         min: i64,
         max: i64,
         step: i64,
     },
     FloatField,
-    FloatSlider{
+    FloatSlider {
         min: f64,
         max: f64,
         step: f64,
     },
     Checkbox,
-    RadioBoolean{
+    RadioBoolean {
         true_label: String,
         false_label: String,
     },
@@ -378,21 +378,21 @@ impl ArgumentInfo {
         self.default = CommandParameterValue::null();
         self
     }
-    pub fn with_type(mut self, argtype:ArgumentType) -> Self {
+    pub fn with_type(mut self, argtype: ArgumentType) -> Self {
         self.argument_type = argtype;
         self
     }
-    pub fn with_default<T:Into<Value>>(mut self, value: T) -> Self {
+    pub fn with_default<T: Into<Value>>(mut self, value: T) -> Self {
         self.default = CommandParameterValue::from_value(value.into());
         self
     }
     pub fn true_by_default(mut self) -> Self {
-        self=self.with_type(ArgumentType::Boolean);
+        self = self.with_type(ArgumentType::Boolean);
         self.default = CommandParameterValue::from_value(Value::Bool(true));
         self
     }
     pub fn false_by_default(mut self) -> Self {
-        self=self.with_type(ArgumentType::Boolean);
+        self = self.with_type(ArgumentType::Boolean);
         self.default = CommandParameterValue::from_value(Value::Bool(false));
         self
     }
@@ -497,10 +497,10 @@ impl From<&str> for CommandKey {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CommandDefinition {
     Registered,
-    Alias{
+    Alias {
         command: CommandKey,
         head_parameters: Vec<CommandParameterValue>,
-    },    
+    },
 }
 
 impl Default for CommandDefinition {
@@ -509,6 +509,41 @@ impl Default for CommandDefinition {
     }
 }
 
+/// CommandPreset is a structure that holds a preset for a command with parameters (action) for user convinience.
+/// Preset is in form of aa string representation of an action request in a query.
+/// It need to start with a command name, followed by parameters (separated by dash).
+/// Realm and namespace are not specified in the preset, so it is assumed that the correct realm and namespace is implied
+/// by the preceding query. Preset  Command name may be validated against the CommandMetadata name.
+/// Preset is meant to be used e.g. in a UI to provide a quick way to execute a command with predefined parameters.
+/// For that purpose it defines label and description.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommandPreset {
+    pub action: ActionRequest,
+    pub label: String,
+    pub description: String,
+}
+
+impl CommandPreset {
+    pub fn new<Q: TryToQuery>(
+        preset_action: Q,
+        label: &str,
+        description: &str,
+    ) -> Result<Self, Error> {
+        let action: ActionRequest =
+            preset_action.clone()
+                .try_to_query()?
+                .action()
+                .ok_or(Error::general_error(format!(
+                    "Action expected as preset, got: {}",
+                    preset_action
+                )))?;
+        Ok(CommandPreset {
+            action,
+            label: label.to_string(),
+            description: description.to_string(),
+        })
+    }
+}
 // TODO: support input type
 // TODO: support output type
 /// CommandMetadata describes a command.
@@ -534,6 +569,7 @@ pub struct CommandMetadata {
     //TODO: improve module - rust, python or jvm module ?
     pub module: String,
     pub doc: String,
+    pub presets: Vec<CommandPreset>,
     //TODO: state argument should be optional
     pub state_argument: Option<ArgumentInfo>,
     pub arguments: Vec<ArgumentInfo>,
@@ -551,6 +587,7 @@ impl CommandMetadata {
             label: name.replace("_", " ").to_string(),
             module: "".to_string(),
             doc: "".to_string(),
+            presets: Vec::new(),
             state_argument: Some(ArgumentInfo::any_argument("state")),
             arguments: Vec::new(),
             cache: true,
@@ -566,6 +603,7 @@ impl CommandMetadata {
             label: key.name.clone().replace("_", " "),
             module: "".to_string(),
             doc: "".to_string(),
+            presets: Vec::new(),
             state_argument: Some(ArgumentInfo::any_argument("state")),
             arguments: Vec::new(),
             cache: true,
