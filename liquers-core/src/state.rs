@@ -10,7 +10,7 @@ use crate::{error::Error, metadata::Metadata, value::ValueInterface};
 pub struct State<V: ValueInterface> {
     // TODO: remove pub
     // TODO: try to remove rwlock
-    pub data: Arc<RwLock<V>>,
+    pub data: Arc<V>,
     pub metadata: Arc<Metadata>,
 }
 
@@ -18,20 +18,15 @@ impl<V: ValueInterface> State<V> {
     /// Creates a new State with an empty value and default metadata.
     pub fn new() -> State<V> {
         State {
-            data: Arc::new(RwLock::new(V::none())),
+            data: Arc::new(V::none()),
             metadata: Arc::new(Metadata::new()),
         }
-    }
-
-    /// Returns a read lock on the data.
-    pub fn read(&self) -> LockResult<RwLockReadGuard<'_,V> > {
-        self.data.read()
     }
 
     /// Creates a new State with the given value and metadata.
     pub fn from_value_and_metadata(value: V, metadata: Arc<Metadata>) -> State<V> {
         State {
-            data: Arc::new(RwLock::new(value)),
+            data: Arc::new(value),
             metadata: metadata,
         }
     }
@@ -45,7 +40,7 @@ impl<V: ValueInterface> State<V> {
     
     pub fn with_data(self, value: V) -> Self {
         State {
-            data: Arc::new(RwLock::new(value)),
+            data: Arc::new(value),
             metadata: self.metadata,
         }
     }
@@ -54,21 +49,21 @@ impl<V: ValueInterface> State<V> {
         let mut metadata = (*self.metadata).clone();
         metadata.with_type_identifier("text".to_owned());
         State {
-            data: Arc::new(RwLock::new(V::new(text))),
+            data: Arc::new(V::new(text)),
             metadata: Arc::new(metadata),
         }
     }
     pub fn as_bytes(&self) -> Result<Vec<u8>, Error> {
-        self.data.read().unwrap().as_bytes(&self.metadata.get_data_format())
+        self.data.as_bytes(&self.metadata.get_data_format())
     }
     pub fn is_none(&self) -> bool {
-        self.data.read().unwrap().is_none()
+        self.data.is_none()
     }
     pub fn is_empty(&self) -> bool {
-        self.data.read().unwrap().is_none()
+        self.data.is_none()
     }
     pub fn try_into_string(&self) -> Result<String, Error> {
-        self.data.read().unwrap().try_into_string()
+        self.data.try_into_string()
     }
     pub fn is_error(&self) -> Result<bool, Error> {
         (*self.metadata).is_error()
@@ -77,7 +72,7 @@ impl<V: ValueInterface> State<V> {
         if let Some(ext) = (*self.metadata).extension(){
             ext
         } else {
-            self.data.read().unwrap().default_extension().to_string()
+            self.data.default_extension().to_string()
         }
     }
 }
@@ -113,7 +108,7 @@ impl<V:ValueInterface> From<Result<State<V>, Error>> for State<V> {
                 let mut metadata = Metadata::new();
                 metadata.with_error(e);
                 State {
-                    data: Arc::new(RwLock::new(V::none())),
+                    data: Arc::new(V::none()),
                     metadata: Arc::new(metadata),
                 }
             }

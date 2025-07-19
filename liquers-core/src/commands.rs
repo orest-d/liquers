@@ -305,7 +305,7 @@ macro_rules! impl_from_parameter_value {
                     if let Some(link) = param.link().as_ref() {
                         let state = context.evaluate_dependency(link)?;
                         return <E as Environment>::Value::$stateval_to_res(
-                            &*(state.read().unwrap()),
+                            &*(state.data),
                         )
                         .map_err(|e| e.with_query(link));
                     } else {
@@ -481,7 +481,7 @@ impl<E: Environment> FromParameterValue<Vec<E::Value>, E> for Vec<E::Value> {
             if state.is_error()? {
                 return Err(Error::general_error("Error in link".to_owned()).with_query(link));
             }
-            let data = state.data.read().unwrap();
+            let data = &*(state.data);
             Ok(data.clone())
         };
 
