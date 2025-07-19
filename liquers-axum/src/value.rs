@@ -1,4 +1,4 @@
-use std::default;
+use std::{default, sync::Arc};
 
 use axum::{
     body::Body,
@@ -25,8 +25,8 @@ pub fn json_response(value: serde_json::Value) -> Response<Body> {
         .unwrap()
 }
 
-pub fn default_value_response(value: &Value, media_type:Option<&str>) -> Response<Body> {
-    match value {
+pub fn default_value_response(value: Arc<Value>, media_type:Option<&str>) -> Response<Body> {
+    match &*value {
         Value::None => json_response(value.try_into_json_value().unwrap()),
         Value::Bool(b) => json_response(value.try_into_json_value().unwrap()),
         Value::I32(_) => json_response(value.try_into_json_value().unwrap()),

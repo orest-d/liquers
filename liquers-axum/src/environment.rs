@@ -81,6 +81,7 @@ pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
 impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
     type Value = V;
     type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
+    type AssetStore = liquers_core::assets::EnvAssetStore<Self>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry
@@ -107,4 +108,5 @@ impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
     fn get_async_store(&self) -> Arc<Box<dyn AsyncStore>> {
         self.async_store.clone()
     }
+    
 }

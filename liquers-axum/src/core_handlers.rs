@@ -20,7 +20,7 @@ pub async fn evaluate_handler(
     State(envref): State<ServerEnvRef>,
 ) -> Response<Body> {
     match async_evaluate(envref, query).await {
-        Ok(state) => default_value_response(&(*state.read().unwrap()), Some(&state.metadata.get_media_type())),
+        Ok(state) => default_value_response(state.data.clone(), Some(&state.metadata.get_media_type())),
         Err(e) => CoreError(e).into_response(),
     }
 }
