@@ -1354,12 +1354,17 @@ mod tests {
             assert!(x==123);
             Ok(Value::from_string(format!("Hello3")))
         }
+        fn test4(x:f32) -> Result<Value, Error> {
+            assert!(x==234.0);
+            Ok(Value::from_string(format!("Hello4")))
+        }
         let mut cr = NGCommandRegistry::<NoInjection, Value, TrivialContext>::new();
         //cr.register_command("test1", command_wrapper1!(test1()<Value, StatEnvRef<NoInjection>, NoInjection>))?;
         cr.register_command("test1a", ng_command_wrapper!(test1()))?;
         ng_register_command!(cr, test1());
         ng_register_command!(cr, test2(context));
         ng_register_command!(cr, test3(x:usize));
+        ng_register_command!(cr, test4(x:f32));
         serde_yaml::to_writer(std::io::stdout(), &cr.command_metadata_registry)
             .expect("cr yaml error");
 
@@ -1410,6 +1415,24 @@ mod tests {
                 &CommandKey::new("", "", "test3"),
                 &state,
                 &mut ca3,
+                TrivialContext,
+            )
+            .unwrap();
+        //        serde_yaml::to_writer(std::io::stdout(), &context.get_metadata()).expect("yaml error");
+        //assert_eq!(context.get_metadata().log[0].message, "test2 called");
+
+        let mut a = ResolvedParameterValues::new();
+        a.0.push(ParameterValue::ParameterValue(
+            "x".into(),
+            234.into(),
+            Position::unknown(),
+        ));
+        let mut ca4 = NGCommandArguments::new(a);
+        let s = cr
+            .execute(
+                &CommandKey::new("", "", "test4"),
+                &state,
+                &mut ca4,
                 TrivialContext,
             )
             .unwrap();

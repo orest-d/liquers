@@ -74,7 +74,7 @@ impl Status {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum LogEntryKind {
     #[serde(rename = "debug")]
     Debug,
@@ -86,7 +86,7 @@ pub enum LogEntryKind {
     Error,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct LogEntry {
     pub kind: LogEntryKind,
     pub message: String,
@@ -161,7 +161,7 @@ impl Default for LogEntry {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 
 /// Structure containing the most important information about the asset
 /// It is can be used as a shorter version of the metadata
@@ -231,7 +231,7 @@ impl AssetInfo{
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct MetadataRecord {
     /// Log data
     pub log: Vec<LogEntry>,
@@ -537,7 +537,7 @@ impl MetadataRecord {
     }
 
     /// Return data format
-    /// If data_format is not set, return extension
+    /// If data_format is not set, return extension.
     /// If extension is not set, return "bin"
     pub fn get_data_format(&self) -> String {
         if let Some(data_format) = &self.data_format {
@@ -549,6 +549,10 @@ impl MetadataRecord {
         "bin".to_string()
     }
 
+    /// Return unicode icon representing the file type as an emoji
+    /// Unicode is inferred from the extension.
+    /// Note, that a custom unicode icon can be set in the attribute unicode_icon.
+    /// If extension is not set, return DEFAULT_ICON
     pub fn default_unicode_icon(&self)->&'static str{
         if let Some(extension) = self.extension() {
             return crate::icons::file_extension_to_unicode_icon(&extension);
@@ -556,6 +560,17 @@ impl MetadataRecord {
         else{
             return crate::icons::DEFAULT_ICON;
         }
+    }
+
+    /// Return an Error object if metadata describes a failed execution
+    pub fn error_result(&self) -> Result<(), Error> {
+        if self.is_error {
+            if let Some(error) = &self.error_data {
+                return Err(error.clone());
+            }
+            return Err(Error::general_error(self.message.clone()));
+        }
+        Ok(())
     }
 
 }
@@ -923,6 +938,26 @@ impl Metadata {
             _ => self
         }
     }    
+
+    /// Check if the metadata contains an error and return an error result
+    /// If the metadata is a legacy metadata, it relies on "is_error" and "message" fields
+    pub fn error_result(&self) -> Result<(), Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(is_error) = o.get("is_error") {
+                    if is_error.as_bool().unwrap_or(false) {
+                        if let Some(message) = o.get("message") {
+                            return Err(Error::general_error(message.to_string()));
+                        }
+                        return Err(Error::general_error("Unknown error".to_string()));
+                    }
+                }
+                Ok(())
+            }
+            Metadata::MetadataRecord(m) => m.error_result(),
+            _ => Err(Error::general_error("Unsupported metadata type".to_string())),
+        }
+    }
 }
 
 impl From<MetadataRecord> for Metadata {

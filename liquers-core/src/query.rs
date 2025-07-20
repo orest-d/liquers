@@ -10,7 +10,7 @@ use std::path::Path;
 
 use crate::error::Error;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Position {
     pub offset: usize,
     pub line: u32,

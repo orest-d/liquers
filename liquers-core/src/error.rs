@@ -30,7 +30,7 @@ pub enum ErrorType {
     ExecutionError,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Error {
     pub error_type: ErrorType,
     pub message: String,

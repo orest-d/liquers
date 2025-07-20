@@ -7,7 +7,7 @@ use crate::{
     command_metadata::CommandMetadataRegistry, context::{NGEnvRef, NGEnvironment}, error::Error, parse::parse_query, plan::{Plan, PlanBuilder}, query::{Key, Query, ResourceName}
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct Recipe {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]

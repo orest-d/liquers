@@ -33,28 +33,40 @@ pub fn default_value_response(value: Arc<Value>, media_type:Option<&str>) -> Res
         Value::I64(_) => json_response(value.try_into_json_value().unwrap()),
         Value::F64(_) => json_response(value.try_into_json_value().unwrap()),
         Value::Text(txt) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, media_type.unwrap_or("text/plain"))
-            .body(txt.to_string().into())
-            .unwrap(),
-        Value::Array(vec) => {
-            match value.try_into_json_value(){
-                Ok(x) => json_response(x),
-                Err(e) => CoreError(e).into_response(),
-            }
-        },
-        Value::Object(_) => {
-            match value.try_into_json_value(){
-                Ok(x) => json_response(x),
-                Err(e) => CoreError(e).into_response(),
-            }
-        },
-        Value::Bytes(vec) => {
-            Response::builder()
                 .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, media_type.unwrap_or("application/octet-stream"))
-                .body(vec.to_vec().into())
-                .unwrap()
+                .header(header::CONTENT_TYPE, media_type.unwrap_or("text/plain"))
+                .body(txt.to_string().into())
+                .unwrap(),
+        Value::Array(vec) => {
+                match value.try_into_json_value(){
+                    Ok(x) => json_response(x),
+                    Err(e) => CoreError(e).into_response(),
+                }
+            },
+        Value::Object(_) => {
+                match value.try_into_json_value(){
+                    Ok(x) => json_response(x),
+                    Err(e) => CoreError(e).into_response(),
+                }
+            },
+        Value::Bytes(vec) => {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, media_type.unwrap_or("application/octet-stream"))
+                    .body(vec.to_vec().into())
+                    .unwrap()
+            },
+        Value::Metadata(metadata_record) => {
+                match value.try_into_json_value(){
+                    Ok(x) => json_response(x),
+                    Err(e) => CoreError(e).into_response(),
+                }
         },
+        Value::Recipe(recipe) => {
+                match value.try_into_json_value(){
+                    Ok(x) => json_response(x),
+                    Err(e) => CoreError(e).into_response(),
+                }
+            },
     }
 }

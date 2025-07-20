@@ -37,6 +37,16 @@ impl<V: ValueInterface> State<V> {
             metadata: Arc::new(metadata),
         }
     }
+
+    /// Creates a new State with the given error and default metadata.
+    pub fn from_error(error: Error) -> Self {
+        let mut metadata = Metadata::new();
+        metadata.with_error(error);
+        State {
+            data: Arc::new(V::none()),
+            metadata: Arc::new(metadata),
+        }
+    }
     
     pub fn with_data(self, value: V) -> Self {
         State {
@@ -59,21 +69,24 @@ impl<V: ValueInterface> State<V> {
     pub fn is_none(&self) -> bool {
         self.data.is_none()
     }
-    pub fn is_empty(&self) -> bool {
-        self.data.is_none()
-    }
     pub fn try_into_string(&self) -> Result<String, Error> {
         self.data.try_into_string()
     }
+    /// Checks metadata for error.
     pub fn is_error(&self) -> Result<bool, Error> {
         (*self.metadata).is_error()
     }
+    /// Convinience method to get file extension from metadata.
     pub fn extension(&self) -> String {
         if let Some(ext) = (*self.metadata).extension(){
             ext
         } else {
             self.data.default_extension().to_string()
         }
+    }
+    /// Wrapper for metadata.error_result()
+    pub fn error_result(&self) -> Result<(), Error> {
+        self.metadata.error_result()
     }
 }
 

@@ -1,0 +1,6 @@
+recipes:
+- query: -R/src/lib.rs
+  title: test title
+  description: test description
+  arguments: {}
+  links: {}

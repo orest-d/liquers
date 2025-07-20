@@ -261,14 +261,14 @@ pub fn command_signature(input: TokenStream) -> TokenStream {
         quote! {
             #signature {
                 #extract_parameters
-                #fn_name(state, arguments, context).await
+                let res = #fn_name(state, arguments, context).await;
             }
         }
     } else {
         quote! {
             #signature {
                 #extract_parameters
-                #fn_name(state, arguments, context)
+                let res = #fn_name(state, arguments, context);
             }
         }
     };

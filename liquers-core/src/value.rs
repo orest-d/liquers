@@ -5,7 +5,7 @@ use serde_json;
 
 use std::{borrow::Cow, collections::BTreeMap, result::Result};
 
-use crate::error::{Error, ErrorType};
+use crate::{error::{Error, ErrorType}, metadata::MetadataRecord, recipes::Recipe};
 use std::convert::{TryFrom, TryInto};
 
 /// Basic built-in value type
@@ -24,6 +24,8 @@ pub enum Value {
     Array(Vec<Value>),
     Object(BTreeMap<String, Value>),
     Bytes(Vec<u8>),
+    Metadata(MetadataRecord),
+    Recipe(Recipe),
 }
 
 // TODO: Remove the serialization and deserialization from ValueInterface (is it there?)
@@ -92,6 +94,12 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
             _ => Err(Error::conversion_error(b, "bool")),
         }
     }
+
+    /// From metadata
+    fn from_metadata(metadata: MetadataRecord) -> Self;
+
+        /// From recipe
+    fn from_recipe(recipe: Recipe) -> Self;
 
     /// From bytes
     fn from_bytes(b: Vec<u8>) -> Self;
@@ -252,6 +260,14 @@ impl ValueInterface for Value {
                 }
                 Ok(serde_json::Value::Object(m))
             }
+            Value::Metadata(metadata_record) => {
+                serde_json::to_value(metadata_record)
+                    .map_err(|e| Error::conversion_error_with_message("metadata", "json value", &e.to_string()))
+            }
+            Value::Recipe(recipe) => {
+                serde_json::to_value(recipe)
+                    .map_err(|e| Error::conversion_error_with_message("recipe", "json value", &e.to_string()))
+            }
             _ => Err(Error::conversion_error(self.identifier(), "JSON value")),
         }
     }
@@ -267,6 +283,8 @@ impl ValueInterface for Value {
             Value::Array(_) => "generic".into(),
             Value::Object(_) => "dictionary".into(),
             Value::Bytes(_) => "bytes".into(),
+            Value::Metadata(_) => "metadata".into(),
+            Value::Recipe(_) => "recipe".into(),
         }
     }
 
@@ -281,6 +299,8 @@ impl ValueInterface for Value {
             Value::Array(_) => "array".into(),
             Value::Object(_) => "object".into(),
             Value::Bytes(_) => "bytes".into(),
+            Value::Metadata(_) => "metadata".into(),
+            Value::Recipe(_) => "recipe".into(),
         }
     }
 
@@ -295,6 +315,8 @@ impl ValueInterface for Value {
             Value::Array(_) => "json".into(),
             Value::Object(_) => "json".into(),
             Value::Bytes(_) => "b".into(),
+            Value::Metadata(_) => "json".into(),
+            Value::Recipe(_) => "recipe.json".into(),
         }
     }
 
@@ -309,6 +331,8 @@ impl ValueInterface for Value {
             Value::Array(_) => "data.json".into(),
             Value::Object(_) => "data.json".into(),
             Value::Bytes(_) => "binary.b".into(),
+            Value::Metadata(_) => "metadata.json".into(),
+            Value::Recipe(_) => "recipe.json".into(),
         }
     }
 
@@ -323,6 +347,8 @@ impl ValueInterface for Value {
             Value::Array(_) => "application/json".into(),
             Value::Object(_) => "application/json".into(),
             Value::Bytes(_) => "application/octet-stream".into(),
+            Value::Metadata(_) => "application/json".into(),
+            Value::Recipe(_) => "application/json".into(),
         }
     }
 
@@ -410,6 +436,15 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "f64")),
         }
     }
+    
+    fn from_metadata(metadata: MetadataRecord) -> Self {
+        Value::Metadata(metadata)
+    }
+    
+    fn from_recipe(recipe: Recipe) -> Self {
+        Value::Recipe(recipe)
+    }
+
 }
 
 impl TryFrom<&Value> for i32 {
@@ -478,6 +513,23 @@ impl TryFrom<Value> for f64 {
 impl From<f64> for Value {
     fn from(value: f64) -> Value {
         Value::F64(value)
+    }
+}
+
+impl TryFrom<Value> for f32 {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::I32(x) => Ok(x as f32),
+            Value::I64(x) => Ok(x as f32),
+            Value::F64(x) => Ok(x as f32),
+            _ => Err(Error::conversion_error(value.type_name(), "f32")),
+        }
+    }
+}
+impl From<f32> for Value {
+    fn from(value: f32) -> Value {
+        Value::F64(value as f64)
     }
 }
 
