@@ -190,32 +190,56 @@ impl Default for ArgumentType {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ArgumentGUIInfo {
+    /// Text field for entering a short text, e.g. a name or a title.
+    /// Argument is a width hint specified in characters.
+    /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
     TextField(usize),
+    /// Text area for entering of a larger text with a width and height hints.
+    /// Width and hight should be specified in characters.
+    /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
     TextArea(usize, usize),
     IntegerField,
+    /// Integer range with min and max values, unspecified how it should be rendered
     IntegerRange {
         min: i64,
         max: i64,
     },
+    /// Integer range with min and max values, should be rendered as a slider
     IntegerSlider {
         min: i64,
         max: i64,
         step: i64,
     },
+    /// Float entry field    
     FloatField,
+    /// Float range with min and max values, should be rendered as a slider
     FloatSlider {
         min: f64,
         max: f64,
         step: f64,
     },
+    /// Used to enter boolean values, should be presented as a checkbox.
     Checkbox,
+    /// Used to enter boolean values, presentable as radio buttons with custom labels for true and false.
     RadioBoolean {
         true_label: String,
         false_label: String,
     },
+    /// Used to enter enum values, arranged horizontally.
+    /// This is to be used when only up to 3-4 alternatives are expected with short enum labels.
     HorizontalRadioEnum,
+    /// Used to enter enum values, arranged vertically.
+    /// This is to be used when many alternatives are expected or if enum labels are long.
     VerticalRadioEnum,
+    /// Select enum from a dropdown list.
     EnumSelector,
+    /// Color picker for a color value
+    /// Should edit the color in form of a color name or hex code RGB or RGBA.
+    /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
+    ColorString,
+    /// Parameter should not appear in the GUI
+    Hide,
+    /// No GUI information
     None,
 }
 
@@ -275,15 +299,47 @@ impl Default for CommandParameterValue {
     }
 }
 
+/// ParameterPreset defines and describes a preset for a command parameter.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ParameterPreset {
+    name: String,
+    value: CommandParameterValue,
+    description: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ArgumentInfo {
+    /// Name of the argument, used to identify it in the command metadata.
     pub name: String,
+
+    /// Human readable label of the argument, used e.g. in the UI to display the argument.
     pub label: String,
+
+    /// Default value of the argument - or None.
     pub default: CommandParameterValue,
+
+    /// Type of the argument.
     pub argument_type: ArgumentType,
+
+    /// Used for variadic commands. If true, then this argument parses remaining command parameters 
     pub multiple: bool,
+
+    /// If true, then this argument is injected by the plan interpreter.
+    /// Injected parameters have to be accessible via action context. Typically these are global objects stored in the environment.
     pub injected: bool,
+
+    /// Preferred GUI entry widget, used to edit the argument in the UI.
+    /// UI may ignore it and use a simple string input field.
     pub gui_info: ArgumentGUIInfo,
+
+    /// Free dictionary of hints for the argument.
+    /// This may be used e.g. to provide additional hints for the UI.
+    pub hints: serde_json::Map<String, serde_json::Value>,
+
+    /// Parameters presets for the argument.
+    /// These can be used for quick setting of most frequent parameter values in UI.
+    /// They can also serve as a documentation for the argument.
+    pub presets: Vec<ParameterPreset>,
 }
 
 impl ArgumentInfo {
@@ -296,6 +352,8 @@ impl ArgumentInfo {
             multiple: false,
             injected: false,
             gui_info: ArgumentGUIInfo::TextField(40),
+            hints: serde_json::Map::new(),
+            presets: Vec::new(),
         }
     }
     fn check(&self, _realm: &str, _namespace: &str, _name: &str) -> Vec<CommandRegistryIssue> {
@@ -312,6 +370,8 @@ impl ArgumentInfo {
             multiple: false,
             injected: false,
             gui_info: ArgumentGUIInfo::TextField(40),
+            hints: serde_json::Map::new(),
+            presets: Vec::new(),
         }
     }
     pub fn string_argument(name: &str) -> Self {
@@ -323,6 +383,8 @@ impl ArgumentInfo {
             multiple: false,
             injected: false,
             gui_info: ArgumentGUIInfo::TextField(40),
+            hints: serde_json::Map::new(),
+            presets: Vec::new(),
         }
     }
     pub fn integer_argument(name: &str, option: bool) -> Self {
@@ -342,6 +404,8 @@ impl ArgumentInfo {
             multiple: false,
             injected: false,
             gui_info: ArgumentGUIInfo::IntegerField,
+            hints: serde_json::Map::new(),
+            presets: Vec::new(),
         }
     }
     pub fn float_argument(name: &str, option: bool) -> Self {
@@ -361,6 +425,8 @@ impl ArgumentInfo {
             multiple: false,
             injected: false,
             gui_info: ArgumentGUIInfo::FloatField,
+            hints: serde_json::Map::new(),
+            presets: Vec::new(),
         }
     }
     pub fn boolean_argument(name: &str) -> Self {
@@ -372,6 +438,8 @@ impl ArgumentInfo {
             multiple: false,
             injected: false,
             gui_info: ArgumentGUIInfo::Checkbox,
+            hints: serde_json::Map::new(),
+            presets: Vec::new(),
         }
     }
     pub fn with_default_none(mut self) -> Self {
