@@ -847,7 +847,7 @@ impl Metadata {
 
     }
     
-    fn status(&self) -> Status {
+    pub fn status(&self) -> Status {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(status) = o.get("status") {
@@ -860,7 +860,7 @@ impl Metadata {
         }
     }
     
-    fn message(&self) -> &str {
+    pub fn message(&self) -> &str {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(message) = o.get("message") {
@@ -873,7 +873,7 @@ impl Metadata {
         }
     }
     
-    fn unicode_icon(&self) -> &str {
+    pub fn unicode_icon(&self) -> &str {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(unicode_icon) = o.get("unicode_icon") {
@@ -886,7 +886,7 @@ impl Metadata {
         }
     }
     
-    fn file_size(&self) -> Option<u64> {
+    pub fn file_size(&self) -> Option<u64> {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(file_size) = o.get("file_size") {
@@ -899,7 +899,7 @@ impl Metadata {
         }
     }
     
-    fn is_dir(&self) -> bool {
+    pub fn is_dir(&self) -> bool {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(is_dir) = o.get("is_dir") {

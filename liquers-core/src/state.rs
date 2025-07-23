@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::{Arc, LockResult, RwLock, RwLockReadGuard}};
 
-use crate::{error::Error, metadata::Metadata, value::ValueInterface};
+use crate::{error::Error, metadata::{AssetInfo, Metadata, Status}, value::ValueInterface};
 
 /// State encapsulates the data (Value) and metadata (Metadata) of a value.
 /// It is typically used to represent the result of an evaluation.
@@ -22,7 +22,6 @@ impl<V: ValueInterface> State<V> {
             metadata: Arc::new(Metadata::new()),
         }
     }
-
     /// Creates a new State with the given value and metadata.
     pub fn from_value_and_metadata(value: V, metadata: Arc<Metadata>) -> State<V> {
         State {
@@ -88,6 +87,32 @@ impl<V: ValueInterface> State<V> {
     pub fn error_result(&self) -> Result<(), Error> {
         self.metadata.error_result()
     }
+
+    /// Get status from metadata.
+    pub fn status(&self) -> Status {
+        self.metadata.status()
+    }
+
+    /// Get message from metadata.
+    pub fn message(&self) -> &str {
+        self.metadata.message() 
+    }
+
+    /// Get unicode icon from metadata.
+    pub fn unicode_icon(&self) -> &str {
+        self.metadata.unicode_icon()
+    }
+
+    /// Get file size from metadata.
+    pub fn file_size(&self) -> Option<u64> {
+        self.metadata.file_size()
+    }
+
+    /// Get asset info from metadata.
+    pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
+        self.metadata.get_asset_info()
+    }   
+
 }
 
 impl<V: ValueInterface> Default for State<V> {
