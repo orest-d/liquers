@@ -415,7 +415,7 @@ impl CommandSignature {
         let namespace = &self.namespace;
         let name = self.name.to_string();
         quote! {
-            liquers_core::commands::CommandKey::new(#realm, #namespace, #name)
+            liquers_core::command_metadata::CommandKey::new(#realm, #namespace, #name)
         }
     }
 
@@ -894,7 +894,7 @@ mod tests {
                     res
                 }
                 let mut cm = registry.register_command(
-                    liquers_core::commands::CommandKey::new("", "", "test_fn"),
+                    liquers_core::command_metadata::CommandKey::new("", "", "test_fn"),
                     test_fn__CMD_
                 )?;
                 cm.with_label("Test label");
