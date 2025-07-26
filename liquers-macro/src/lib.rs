@@ -32,11 +32,11 @@ impl CommandParameter {
                 if *injected {
                     let name_str = name.to_string();
                     quote! {
-                        let #var_name: #ty = args.get_injected(#name_str, &context)?;
+                        let #var_name: #ty = arguments.get_injected(#name_str, &context)?;
                     }
                 } else {
                     quote! {
-                        let #var_name: #ty = args.get()?;
+                        let #var_name: #ty = arguments.get()?;
                     }
                 }
             }
@@ -307,7 +307,7 @@ impl CommandSignature {
             quote! {
                 fn #wrapper_name(
                     state: &liquers_core::state::State<CommandValue>,
-                    arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                    arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                     context: CommandContext,
                 ) ->
                 core::pin::Pin<
@@ -684,9 +684,9 @@ mod tests {
         };
         let tokens = sig.extract_all_parameters();
         let expected = quote! {
-            let a__par: i32 = args.get()?;
-            let b__par: String = args.get_injected("b", &context)?;
-            let c__par: f64 = args.get()?;
+            let a__par: i32 = arguments.get()?;
+            let b__par: String = arguments.get_injected("b", &context)?;
+            let c__par: f64 = arguments.get()?;
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
@@ -716,7 +716,7 @@ mod tests {
         let expected = quote! {
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                 context: CommandContext,
             ) ->
             core::pin::Pin<
@@ -746,9 +746,9 @@ mod tests {
                 context: CommandContext,
             ) -> core::result::Result<CommandValue, liquers_core::error::Error>
             {
-                let a__par: i32 = args.get()?;
-                let b__par: String = args.get_injected("b", &context)?;
-                let c__par: f64 = args.get()?;
+                let a__par: i32 = arguments.get()?;
+                let b__par: String = arguments.get_injected("b", &context)?;
+                let c__par: f64 = arguments.get()?;
                 let res = test_fn(state, arguments, context);
                 res
             }
@@ -889,7 +889,7 @@ mod tests {
                     context: CommandContext,
                 ) -> core::result::Result<CommandValue, liquers_core::error::Error>
                 {
-                    let a__par: i32 = args.get()?;
+                    let a__par: i32 = arguments.get()?;
                     let res = test_fn(state, arguments, context);
                     res
                 }
