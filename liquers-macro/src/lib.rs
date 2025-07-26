@@ -322,7 +322,7 @@ impl CommandSignature {
             quote! {
                 fn #wrapper_name(
                     state: &liquers_core::state::State<CommandValue>,
-                    arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                    arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                     context: CommandContext,
                 ) -> core::result::Result<CommandValue, liquers_core::error::Error>
             }
@@ -665,7 +665,7 @@ pub fn register_command(input: TokenStream) -> TokenStream {
     let gen = quote! {
         {
             #register_fn
-            #register_fn_name(&mut #cr)
+            #register_fn_name(#cr)
         }
     };
     gen.into()
@@ -700,7 +700,7 @@ mod tests {
         let expected = quote! {
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                 context: CommandContext,
             ) -> core::result::Result<CommandValue, liquers_core::error::Error>
         };
@@ -742,7 +742,7 @@ mod tests {
         let expected = quote! {
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                 context: CommandContext,
             ) -> core::result::Result<CommandValue, liquers_core::error::Error>
             {
@@ -885,7 +885,7 @@ mod tests {
             > {
                 fn test_fn__CMD_(
                     state: &liquers_core::state::State<CommandValue>,
-                    arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                    arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                     context: CommandContext,
                 ) -> core::result::Result<CommandValue, liquers_core::error::Error>
                 {
