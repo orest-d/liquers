@@ -1,10 +1,7 @@
-use std::fmt::Display;
-
 use proc_macro::TokenStream;
-use proc_macro2::extra;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, DeriveInput};
+use syn::parse_macro_input;
 
 enum DefaultValue {
     Str(String),
@@ -103,9 +100,15 @@ impl CommandParameter {
                 // Refactored helper: returns (is_option, Some(inner_ident)) or (false, Some(ident)) for plain types
                 fn is_option_of(ty: &syn::Type) -> (bool, Option<String>) {
                     if let syn::Type::Path(type_path) = ty {
-                        if type_path.path.segments.len() == 1 && type_path.path.segments[0].ident == "Option" {
-                            if let syn::PathArguments::AngleBracketed(ref args) = type_path.path.segments[0].arguments {
-                                if let Some(syn::GenericArgument::Type(syn::Type::Path(inner_ty))) = args.args.first() {
+                        if type_path.path.segments.len() == 1
+                            && type_path.path.segments[0].ident == "Option"
+                        {
+                            if let syn::PathArguments::AngleBracketed(ref args) =
+                                type_path.path.segments[0].arguments
+                            {
+                                if let Some(syn::GenericArgument::Type(syn::Type::Path(inner_ty))) =
+                                    args.args.first()
+                                {
                                     if let Some(inner_ident) = inner_ty.path.get_ident() {
                                         return (true, Some(inner_ident.to_string()));
                                     }
@@ -120,23 +123,57 @@ impl CommandParameter {
 
                 let (is_option, inner) = is_option_of(ty);
                 match (is_option, inner.as_deref()) {
-                    (false, Some("isize")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
-                    (true,  Some("usize")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
-                    (false, Some("i32")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
-                    (true,  Some("i32")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
-                    (false, Some("i64")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
-                    (true,  Some("i64")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
-                    (false, Some("u32")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
-                    (true,  Some("u32")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
-                    (false, Some("u64")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
-                    (true,  Some("u64")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
-                    (false, Some("f32")) => quote! { liquers_core::command_metadata::ArgumentType::Float },
-                    (true,  Some("f32")) => quote! { liquers_core::command_metadata::ArgumentType::FloatOpt },
-                    (false, Some("f64")) => quote! { liquers_core::command_metadata::ArgumentType::Float },
-                    (true,  Some("f64")) => quote! { liquers_core::command_metadata::ArgumentType::FloatOpt },
-                    (false, Some("bool")) => quote! { liquers_core::command_metadata::ArgumentType::Boolean },
-                    (false, Some("String")) => quote! { liquers_core::command_metadata::ArgumentType::String },
-                    (false, Some("Value")) => quote! { liquers_core::command_metadata::ArgumentType::Any },
+                    (false, Some("isize")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
+                    }
+                    (true, Some("usize")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
+                    }
+                    (false, Some("i32")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
+                    }
+                    (true, Some("i32")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
+                    }
+                    (false, Some("i64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
+                    }
+                    (true, Some("i64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
+                    }
+                    (false, Some("u32")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
+                    }
+                    (true, Some("u32")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
+                    }
+                    (false, Some("u64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
+                    }
+                    (true, Some("u64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
+                    }
+                    (false, Some("f32")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Float }
+                    }
+                    (true, Some("f32")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::FloatOpt }
+                    }
+                    (false, Some("f64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Float }
+                    }
+                    (true, Some("f64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::FloatOpt }
+                    }
+                    (false, Some("bool")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Boolean }
+                    }
+                    (false, Some("String")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::String }
+                    }
+                    (false, Some("Value")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::Any }
+                    }
                     _ => quote! { liquers_core::command_metadata::ArgumentType::Any },
                 }
             }
@@ -164,7 +201,7 @@ impl CommandParameter {
                 let argument_type = self.argument_type_expression();
                 let gui_str = gui.as_ref().map(|s| s.as_str()).unwrap_or("");
                 let default_value_expression = self.default_value_expression();
-                
+
                 Some(quote! {
                     liquers_core::command_metadata::ArgumentInfo{
                         name: #name_str.to_string(),
@@ -213,7 +250,7 @@ impl Parse for CommandSignatureStatement {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandSignatureStatement::Doc(lit.value()))
             }
-            "namespace" => {
+            "namespace" | "ns" => {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandSignatureStatement::Namespace(lit.value()))
             }
@@ -230,14 +267,16 @@ impl Parse for CommandSignatureStatement {
 }
 
 struct CommandSignature {
-    is_async: bool,
-    name: syn::Ident,
-    state_parameter: StateParameter,
-    parameters: Vec<CommandParameter>,
-    result_type: ResultType,
-    namespace: String,
-    realm: String,
-    command_statements: Vec<CommandSignatureStatement>,
+    pub is_async: bool,
+    pub name: syn::Ident,
+    pub label: Option<String>,
+    pub doc: Option<String>,
+    pub state_parameter: StateParameter,
+    pub parameters: Vec<CommandParameter>,
+    pub result_type: ResultType,
+    pub namespace: String,
+    pub realm: String,
+    pub command_statements: Vec<CommandSignatureStatement>,
 }
 
 impl CommandSignature {
@@ -339,14 +378,32 @@ impl CommandSignature {
         let command_wrapper = self.command_wrapper();
         let wrapper_fn_name = self.wrapper_fn_name();
         let reg_command = self.register_command();
+        let default_label = fn_name.to_string().replace('_', " ");
+        let label = self
+            .label
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or(default_label.as_str());
+        let doc = self.doc.as_ref().map(|s| s.as_str()).unwrap_or("");
+        let doc_cmd = if doc.is_empty() {
+            quote! {}
+        } else {
+            quote! { cm.with_doc(#doc); }
+        };
+        let arguments = self.command_arguments_expression();
 
         quote! {
             pub fn #register_fn_name(
                 registry: &mut liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>)
                 -> core::result::Result<&mut liquers_core::command_metadata::CommandMetadata, liquers_core::error::Error>
             {
-                #wrapper_fn_name,
+                #command_wrapper
+
                 let mut cm = #reg_command;
+                cm.with_label(#label);
+                #doc_cmd
+                cm.arguments = #arguments;
+
                 Ok(cm)
             }
         }
@@ -359,6 +416,20 @@ impl CommandSignature {
         let name = self.name.to_string();
         quote! {
             liquers_core::commands::CommandKey::new(#realm, #namespace, #name)
+        }
+    }
+
+    /// Generates a TokenStream that creates a Vec of ArgumentInfo for all defined arguments.
+    pub fn command_arguments_expression(&self) -> proc_macro2::TokenStream {
+        let args: Vec<proc_macro2::TokenStream> = self
+            .parameters
+            .iter()
+            .filter_map(|p| p.argument_info_expression())
+            .collect();
+        quote! {
+            vec![
+                #(#args),*
+            ]
         }
     }
 }
@@ -468,17 +539,22 @@ impl Parse for CommandSignature {
         // Optionally, set namespace/realm from statements if present
         let mut namespace = String::new();
         let mut realm = String::new();
+        let mut label = None;
+        let mut doc = None;
         for stmt in &command_statements {
             match stmt {
                 CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
                 CommandSignatureStatement::Realm(r) => realm = r.clone(),
-                _ => {}
+                CommandSignatureStatement::Label(l) => label = Some(l.clone()),
+                CommandSignatureStatement::Doc(d) => doc = Some(d.clone()),
             }
         }
 
         Ok(CommandSignature {
             is_async,
             name,
+            label,
+            doc,
             state_parameter,
             parameters,
             result_type,
@@ -560,16 +636,36 @@ impl ResultType {
     }
 }
 
+struct CommandSignatureExt{
+    cr: syn::Ident,
+    sig: CommandSignature,
+}
+
+
+
+
+impl Parse for CommandSignatureExt {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Parse the identifier for the command registry (e.g., cr)
+        let cr: syn::Ident = input.parse()?;
+        // Parse a comma
+        input.parse::<syn::Token![,]>()?;
+        // Parse the command signature
+        let sig: CommandSignature = input.parse()?;
+        Ok(CommandSignatureExt { cr, sig })
+    }
+}
+
 #[proc_macro]
-pub fn command_wrapper(input: TokenStream) -> TokenStream {
-    let sig = parse_macro_input!(input as CommandSignature);
-    let signature = sig.wrapper_fn_signature();
-    let extract_parameters = sig.extract_all_parameters();
-    let call = sig.command_call();
+pub fn register_command(input: TokenStream) -> TokenStream {
+    let sig = parse_macro_input!(input as CommandSignatureExt);
+    let register_fn = sig.sig.command_registration();
+    let register_fn_name = sig.sig.register_fn_name();
+    let cr = sig.cr;
     let gen = quote! {
-        #signature {
-            #extract_parameters
-            #call
+        {
+            #register_fn
+            #register_fn_name(&mut #cr)
         }
     };
     gen.into()
@@ -663,7 +759,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_argument_type_expression_i32() {
         let param = CommandParameter::Param {
@@ -753,5 +848,80 @@ mod tests {
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
-}
 
+    #[test]
+    fn test_command_signature_with_label() {
+        use syn::parse_quote;
+
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            label: "Test label"
+        };
+
+        assert_eq!(sig.label, Some("Test label".to_string()));
+    }
+
+    #[test]
+    fn test_command_registration_generates_function() {
+        use syn::parse_quote;
+
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            label: "Test label"
+        };
+
+        let tokens = sig.command_registration();
+
+        let expected =r#"
+            pub fn REGISTER__test_fn(
+                registry: &mut liquers_core::commands::NGCommandRegistry<
+                    CommandPayload,
+                    CommandValue,
+                    CommandContext
+                >
+            ) -> core::result::Result<
+                &mut liquers_core::command_metadata::CommandMetadata,
+                liquers_core::error::Error
+            > {
+                fn test_fn__CMD_(
+                    state: &liquers_core::state::State<CommandValue>,
+                    arguments: &mut liquers_core::command::NGCommandArguments<CommandValue>,
+                    context: CommandContext,
+                ) -> core::result::Result<CommandValue, liquers_core::error::Error>
+                {
+                    let a__par: i32 = args.get()?;
+                    let res = test_fn(state, arguments, context);
+                    res
+                }
+                let mut cm = registry.register_command(
+                    liquers_core::commands::CommandKey::new("", "", "test_fn"),
+                    test_fn__CMD_
+                )?;
+                cm.with_label("Test label");
+                cm.arguments = vec![liquers_core::command_metadata::ArgumentInfo {
+                    name: "a".to_string(),
+                    label: "a".to_string(),
+                    default: liquers_core::command_metadata::CommandParameterValue::None,
+                    argument_type: liquers_core::command_metadata::ArgumentType::Integer,
+                    multiple: false,
+                    injected: false,
+                    ..Default::default()
+                }];
+                Ok(cm)
+            }
+        
+        "#;
+
+        //println!("Generated tokens: {}", tokens.to_string());
+        fn fuzzy(s:&str) -> String {
+            s.replace(' ', "").replace('\n', "")
+        }
+        assert!(tokens.to_string().contains("pub fn"));
+        assert!(fuzzy(&tokens.to_string()).contains("cm.with_label"));
+        for (a,b) in fuzzy(&tokens.to_string()).split("::").zip(fuzzy(expected).split("::")) {
+            assert_eq!(a,b);
+        }
+        assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
+
+    }
+}
