@@ -44,6 +44,18 @@ impl CommandParameter {
         }
     }
 
+    pub fn parameter_name(&self) -> proc_macro2::TokenStream {
+        match self {
+            CommandParameter::Param {
+                name, ty, injected, ..
+            } => {
+                let var_name = syn::Ident::new(&format!("{}__par", name), name.span());
+                quote! {#var_name}
+            }
+            CommandParameter::Context => quote! {context},
+        }
+    }
+
     pub fn default_value_expression(&self) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
@@ -290,6 +302,28 @@ impl CommandSignature {
             #(#extractors)*
         }
     }
+    pub fn state_argument_parameter(&self) -> Option<proc_macro2::TokenStream> {
+        match self.state_parameter {
+            StateParameter::Value => Some(quote! {(&*(state.data)).clone()}),
+            StateParameter::State => Some(quote! {state}),
+            StateParameter::None => None,
+        }
+    }
+
+    pub fn wrapper_arguments(&self) -> proc_macro2::TokenStream {
+        let state_param = self.state_argument_parameter();
+        let mut args = vec![];
+        if let Some(state_param) = state_param {
+            args.push(state_param);
+        }
+        for param in &self.parameters {
+            args.push(param.parameter_name());
+        }
+        quote! {
+            #(#args),*
+        }
+    }
+
     /// Name of the wrapper function, that can be registered as a command
     pub fn wrapper_fn_name(&self) -> syn::Ident {
         syn::Ident::new(&format!("{}__CMD_", self.name), self.name.span())
@@ -331,16 +365,17 @@ impl CommandSignature {
     pub fn command_call(&self) -> proc_macro2::TokenStream {
         let fn_name = &self.name;
         let ret = self.result_type.convert_result();
+        let wrapper_args = self.wrapper_arguments();
         if self.is_async {
             quote! {
                 async move {
-                    let res = #fn_name(state, arguments, context).await;
+                    let res = #fn_name(#wrapper_args).await;
                     #ret
                 }.boxed()
             }
         } else {
             quote! {
-                let res = #fn_name(state, arguments, context);
+                let res = #fn_name(#wrapper_args);
                 #ret
             }
         }
@@ -636,13 +671,10 @@ impl ResultType {
     }
 }
 
-struct CommandSignatureExt{
+struct CommandSignatureExt {
     cr: syn::Ident,
     sig: CommandSignature,
 }
-
-
-
 
 impl Parse for CommandSignatureExt {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -749,7 +781,7 @@ mod tests {
                 let a__par: i32 = arguments.get()?;
                 let b__par: String = arguments.get_injected("b", &context)?;
                 let c__par: f64 = arguments.get()?;
-                let res = test_fn(state, arguments, context);
+                let res = test_fn(state, a__par, b__par, c__par);
                 res
             }
         };
@@ -872,7 +904,7 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let expected =r#"
+        let expected = r#"
             pub fn REGISTER__test_fn(
                 registry: &mut liquers_core::commands::NGCommandRegistry<
                     CommandPayload,
@@ -890,7 +922,7 @@ mod tests {
                 ) -> core::result::Result<CommandValue, liquers_core::error::Error>
                 {
                     let a__par: i32 = arguments.get()?;
-                    let res = test_fn(state, arguments, context);
+                    let res = test_fn(state, a__par);
                     res
                 }
                 let mut cm = registry.register_command(
@@ -913,15 +945,17 @@ mod tests {
         "#;
 
         //println!("Generated tokens: {}", tokens.to_string());
-        fn fuzzy(s:&str) -> String {
+        fn fuzzy(s: &str) -> String {
             s.replace(' ', "").replace('\n', "")
         }
         assert!(tokens.to_string().contains("pub fn"));
         assert!(fuzzy(&tokens.to_string()).contains("cm.with_label"));
-        for (a,b) in fuzzy(&tokens.to_string()).split("::").zip(fuzzy(expected).split("::")) {
-            assert_eq!(a,b);
+        for (a, b) in fuzzy(&tokens.to_string())
+            .split("::")
+            .zip(fuzzy(expected).split("::"))
+        {
+            assert_eq!(a, b);
         }
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
-
     }
 }
