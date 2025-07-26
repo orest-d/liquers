@@ -46,6 +46,140 @@ impl CommandParameter {
             _ => quote! {},
         }
     }
+
+    pub fn default_value_expression(&self) -> proc_macro2::TokenStream {
+        match self {
+            CommandParameter::Param {
+                default_value: Some(DefaultValue::Str(value)),
+                ..
+            } => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::String(#value.to_string()))
+            },
+            CommandParameter::Param {
+                default_value: Some(DefaultValue::Bool(value)),
+                ..
+            } => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::Bool(#value))
+            },
+            CommandParameter::Param {
+                default_value: Some(DefaultValue::Int(value)),
+                ..
+            } => {
+                quote! {
+                    liquers_core::command_metadata::CommandParameterValue::Value(
+                        serde_json::Value::Number(
+                            serde_json::Number::from_i64(*#value).unwrap_or(
+                                serde_json::Number::from_i64(0).unwrap()
+                            )
+                        )
+                    )
+                }
+            }
+            CommandParameter::Param {
+                default_value: Some(DefaultValue::Float(value)),
+                ..
+            } => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::Number(
+                        serde_json::Number::from_f64(*#value).unwrap_or(
+                            serde_json::Number::from_f64(0.0).unwrap()
+                        )
+                    )
+                )
+            },
+            _ => {
+                quote! {
+                    liquers_core::command_metadata::CommandParameterValue::None
+                }
+            }
+        }
+    }
+
+    pub fn argument_type_expression(&self) -> proc_macro2::TokenStream {
+        match self {
+            CommandParameter::Param { ty, .. } => {
+                // Refactored helper: returns (is_option, Some(inner_ident)) or (false, Some(ident)) for plain types
+                fn is_option_of(ty: &syn::Type) -> (bool, Option<String>) {
+                    if let syn::Type::Path(type_path) = ty {
+                        if type_path.path.segments.len() == 1 && type_path.path.segments[0].ident == "Option" {
+                            if let syn::PathArguments::AngleBracketed(ref args) = type_path.path.segments[0].arguments {
+                                if let Some(syn::GenericArgument::Type(syn::Type::Path(inner_ty))) = args.args.first() {
+                                    if let Some(inner_ident) = inner_ty.path.get_ident() {
+                                        return (true, Some(inner_ident.to_string()));
+                                    }
+                                }
+                            }
+                        } else if let Some(ident) = type_path.path.get_ident() {
+                            return (false, Some(ident.to_string()));
+                        }
+                    }
+                    (false, None)
+                }
+
+                let (is_option, inner) = is_option_of(ty);
+                match (is_option, inner.as_deref()) {
+                    (false, Some("isize")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
+                    (true,  Some("usize")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
+                    (false, Some("i32")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
+                    (true,  Some("i32")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
+                    (false, Some("i64")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
+                    (true,  Some("i64")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
+                    (false, Some("u32")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
+                    (true,  Some("u32")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
+                    (false, Some("u64")) => quote! { liquers_core::command_metadata::ArgumentType::Integer },
+                    (true,  Some("u64")) => quote! { liquers_core::command_metadata::ArgumentType::IntegerOption },
+                    (false, Some("f32")) => quote! { liquers_core::command_metadata::ArgumentType::Float },
+                    (true,  Some("f32")) => quote! { liquers_core::command_metadata::ArgumentType::FloatOpt },
+                    (false, Some("f64")) => quote! { liquers_core::command_metadata::ArgumentType::Float },
+                    (true,  Some("f64")) => quote! { liquers_core::command_metadata::ArgumentType::FloatOpt },
+                    (false, Some("bool")) => quote! { liquers_core::command_metadata::ArgumentType::Boolean },
+                    (false, Some("String")) => quote! { liquers_core::command_metadata::ArgumentType::String },
+                    (false, Some("Value")) => quote! { liquers_core::command_metadata::ArgumentType::Any },
+                    _ => quote! { liquers_core::command_metadata::ArgumentType::Any },
+                }
+            }
+            _ => {
+                quote! { liquers_core::command_metadata::ArgumentType::None }
+            }
+        }
+    }
+    pub fn argument_info_expression(&self) -> Option<proc_macro2::TokenStream> {
+        match self {
+            CommandParameter::Param {
+                name,
+                ty,
+                injected,
+                default_value,
+                label,
+                gui,
+            } => {
+                let name_str = name.to_string();
+                let default_label = name_str.replace('_', " ");
+                let label_str = label
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or(default_label.as_str());
+                let argument_type = self.argument_type_expression();
+                let gui_str = gui.as_ref().map(|s| s.as_str()).unwrap_or("");
+                let default_value_expression = self.default_value_expression();
+                
+                Some(quote! {
+                    liquers_core::command_metadata::ArgumentInfo{
+                        name: #name_str.to_string(),
+                        label: #label_str.to_string(),
+                        default: #default_value_expression,
+                        argument_type: #argument_type,
+                        multiple: false,
+                        injected: #injected,
+                        ..Default::default()
+                    }
+                })
+            }
+            _ => None,
+        }
+    }
 }
 
 enum StateParameter {
@@ -59,12 +193,51 @@ enum ResultType {
     Result,
 }
 
+enum CommandSignatureStatement {
+    Label(String),
+    Doc(String),
+    Namespace(String),
+    Realm(String),
+}
+
+impl Parse for CommandSignatureStatement {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident: syn::Ident = input.parse()?;
+        input.parse::<syn::Token![:]>()?;
+        match ident.to_string().as_str() {
+            "label" => {
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandSignatureStatement::Label(lit.value()))
+            }
+            "doc" => {
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandSignatureStatement::Doc(lit.value()))
+            }
+            "namespace" => {
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandSignatureStatement::Namespace(lit.value()))
+            }
+            "realm" => {
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandSignatureStatement::Realm(lit.value()))
+            }
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("Unknown command signature statement '{}'", other),
+            )),
+        }
+    }
+}
+
 struct CommandSignature {
     is_async: bool,
     name: syn::Ident,
     state_parameter: StateParameter,
     parameters: Vec<CommandParameter>,
     result_type: ResultType,
+    namespace: String,
+    realm: String,
+    command_statements: Vec<CommandSignatureStatement>,
 }
 
 impl CommandSignature {
@@ -78,9 +251,19 @@ impl CommandSignature {
             #(#extractors)*
         }
     }
+    /// Name of the wrapper function, that can be registered as a command
+    pub fn wrapper_fn_name(&self) -> syn::Ident {
+        syn::Ident::new(&format!("{}__CMD_", self.name), self.name.span())
+    }
+
+    /// Name of a function that does the registration of the command
+    pub fn register_fn_name(&self) -> syn::Ident {
+        syn::Ident::new(&format!("REGISTER__{}", self.name), self.name.span())
+    }
+
     pub fn wrapper_fn_signature(&self) -> proc_macro2::TokenStream {
         let fn_name = &self.name;
-        let wrapper_name = syn::Ident::new(&format!("{}__CMD_", fn_name), fn_name.span());
+        let wrapper_name = self.wrapper_fn_name();
         if self.is_async {
             quote! {
                 fn #wrapper_name(
@@ -135,6 +318,49 @@ impl CommandSignature {
         }
     }
 
+    pub fn register_command(&self) -> proc_macro2::TokenStream {
+        let fn_name = &self.name;
+        let wrapper_fn_name = self.wrapper_fn_name();
+        let key = self.command_key_expression();
+        if self.is_async {
+            quote! {
+                 registry.register_async_command(#key, #wrapper_fn_name)?
+            }
+        } else {
+            quote! {
+                 registry.register_command(#key, #wrapper_fn_name)?
+            }
+        }
+    }
+
+    pub fn command_registration(&self) -> proc_macro2::TokenStream {
+        let fn_name = &self.name;
+        let register_fn_name = self.register_fn_name();
+        let command_wrapper = self.command_wrapper();
+        let wrapper_fn_name = self.wrapper_fn_name();
+        let reg_command = self.register_command();
+
+        quote! {
+            pub fn #register_fn_name(
+                registry: &mut liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>)
+                -> core::result::Result<&mut liquers_core::command_metadata::CommandMetadata, liquers_core::error::Error>
+            {
+                #wrapper_fn_name,
+                let mut cm = #reg_command;
+                Ok(cm)
+            }
+        }
+    }
+
+    /// Returns a TokenStream expression constructing a CommandKey from realm, namespace, and function name.
+    pub fn command_key_expression(&self) -> proc_macro2::TokenStream {
+        let realm = &self.realm;
+        let namespace = &self.namespace;
+        let name = self.name.to_string();
+        quote! {
+            liquers_core::commands::CommandKey::new(#realm, #namespace, #name)
+        }
+    }
 }
 
 impl Parse for CommandParameter {
@@ -232,12 +458,33 @@ impl Parse for CommandSignature {
         }
         input.parse::<syn::Token![->]>()?;
         let result_type = input.parse()?;
+
+        // Parse command signature statements (e.g. label: "foo", doc: "bar")
+        let mut command_statements = Vec::new();
+        while input.peek(syn::Ident) {
+            command_statements.push(input.parse()?);
+        }
+
+        // Optionally, set namespace/realm from statements if present
+        let mut namespace = String::new();
+        let mut realm = String::new();
+        for stmt in &command_statements {
+            match stmt {
+                CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
+                CommandSignatureStatement::Realm(r) => realm = r.clone(),
+                _ => {}
+            }
+        }
+
         Ok(CommandSignature {
             is_async,
             name,
             state_parameter,
             parameters,
             result_type,
+            namespace,
+            realm,
+            command_statements,
         })
     }
 }
@@ -293,7 +540,10 @@ impl Parse for ResultType {
             match ident.to_string().as_str() {
                 "value" => Ok(ResultType::Value),
                 "result" => Ok(ResultType::Result),
-                other => Err(syn::Error::new(ident.span(), format!("Unknown result type '{}'", other))),
+                other => Err(syn::Error::new(
+                    ident.span(),
+                    format!("Unknown result type '{}'", other),
+                )),
             }
         } else {
             Err(input.error("Expected result type identifier (Value or Result)"))
@@ -329,6 +579,7 @@ pub fn command_wrapper(input: TokenStream) -> TokenStream {
 mod tests {
     use super::*;
     use quote::quote;
+    use syn::parse_quote;
 
     #[test]
     fn extract_all_parameters_basic() {
@@ -383,7 +634,6 @@ mod tests {
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
-
     #[test]
     fn command_wrapper_basic() {
         let input: proc_macro2::TokenStream = quote! {
@@ -412,4 +662,96 @@ mod tests {
             expected.to_string().replace(" ", "")
         );
     }
+
+
+    #[test]
+    fn test_argument_type_expression_i32() {
+        let param = CommandParameter::Param {
+            name: parse_quote! { a },
+            ty: parse_quote! { i32 },
+            injected: false,
+            default_value: None,
+            label: None,
+            gui: None,
+        };
+        let tokens = param.argument_type_expression();
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::Integer };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_argument_type_expression_option_i32() {
+        let param = CommandParameter::Param {
+            name: parse_quote! { a },
+            ty: parse_quote! { Option<i32> },
+            injected: false,
+            default_value: None,
+            label: None,
+            gui: None,
+        };
+        let tokens = param.argument_type_expression();
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::IntegerOption };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_argument_type_expression_f64() {
+        let param = CommandParameter::Param {
+            name: parse_quote! { a },
+            ty: parse_quote! { f64 },
+            injected: false,
+            default_value: None,
+            label: None,
+            gui: None,
+        };
+        let tokens = param.argument_type_expression();
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::Float };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_argument_type_expression_option_f64() {
+        let param = CommandParameter::Param {
+            name: parse_quote! { a },
+            ty: parse_quote! { Option<f64> },
+            injected: false,
+            default_value: None,
+            label: None,
+            gui: None,
+        };
+        let tokens = param.argument_type_expression();
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOpt };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_argument_type_expression_string() {
+        let param = CommandParameter::Param {
+            name: parse_quote! { a },
+            ty: parse_quote! { String },
+            injected: false,
+            default_value: None,
+            label: None,
+            gui: None,
+        };
+        let tokens = param.argument_type_expression();
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::String };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn test_argument_type_expression_value() {
+        let param = CommandParameter::Param {
+            name: parse_quote! { a },
+            ty: parse_quote! { Value },
+            injected: false,
+            default_value: None,
+            label: None,
+            gui: None,
+        };
+        let tokens = param.argument_type_expression();
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
 }
+
