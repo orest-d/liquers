@@ -179,6 +179,7 @@ impl<E: NGEnvironment> EnvAssetStore<E> {
     }
 }
 
+
 #[async_trait]
 impl<E: NGEnvironment> AssetStore<E> for EnvAssetStore<E> {
     type Asset = AssetRef<E>;
@@ -236,6 +237,8 @@ impl<E: NGEnvironment> AssetStore<E> for EnvAssetStore<E> {
         )))
     }
 }
+
+
 
 /*
 pub struct SccHashMapAssetStore {
@@ -418,6 +421,8 @@ mod tests {
     use crate::parse::parse_key;
     use crate::metadata::Metadata;
     use crate::value::Value;
+    use liquers_macro::register_command;
+    use crate as liquers_core;
 
     #[tokio::test]
     async fn test_get_state_stub() {
@@ -425,6 +430,25 @@ mod tests {
         let mut env: SimpleNGEnvironment<Value> = SimpleNGEnvironment::new();
         let store = MemoryStore::new(&Key::new());
         env.with_async_store(Box::new(AsyncStoreWrapper(store)));
+        let envref = env.ref_with_default_asset_store().await;
+        let asset_store = envref.0.read().await.get_asset_store();
+
+        {
+            let mut lock = envref.0.write().await;
+            let mut cr = lock.get_mut_command_executor();
+            type CommandValue = Value;
+            type CommandContext = crate::context::NGContext<SimpleNGEnvironment<Value>>;
+            type CommandPayload = NGEnvRef<SimpleNGEnvironment<Value>>;
+            fn hello() -> Result<Value, Error> {
+                Ok(Value::new("Hello TEXT"))
+            }
+            liquers_macro::register_command!(cr, fn hello()-> result);  
+        }
+
+        // TODO: CONTINUE HERE
+        //let state = asset_store.get_asset("hello").await.unwrap().get_state(envref.clone()).await.unwrap();
+        //assert_eq!(state.try_into_string().unwrap(), "Hello TEXT");
+
 
         // TODO: create an AssetRef and call get_state on it
         // let asset_ref = ...;

@@ -109,4 +109,17 @@ impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
         self.async_store.clone()
     }
     
+    fn get_asset_store(
+        &self,
+    ) -> Arc<
+        Box<
+            dyn liquers_core::assets::AssetStore<
+                Self,
+                Asset = <Self::AssetStore as liquers_core::assets::AssetStore<Self>>::Asset,
+            >,
+        >,
+    > {
+        todo!()
+    }
+    
 }

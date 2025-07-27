@@ -29,6 +29,7 @@ scc = "2.3.4"
 
 [dev-dependencies]
 tokio = {version="1.37.0", features = ["full"]}
+liquers-macro={path="../liquers-macro"}
 
 [dependencies.futures]
 version = "0.3.31"

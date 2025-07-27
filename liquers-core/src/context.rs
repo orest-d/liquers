@@ -453,15 +453,16 @@ impl<V: ValueInterface> SimpleNGEnvironment<V> {
     pub fn to_ref(self) -> NGEnvRef<Self> {
         NGEnvRef::new(self)
     }
-
-    // TODO: Implement asset store interface
-    /*
-    fn with_default_asset_store(&mut self) -> &mut Self {
+    pub async fn ref_with_default_asset_store(mut self) -> NGEnvRef<Self> {
         let envref = self.to_ref();
-        self.asset_store = Some(Arc::new(Box::new(crate::assets::EnvAssetStore::new(envref))));
-        self
+        let envref_copy = envref.clone();
+        {
+            let mut lock = envref.0.write().await;
+            (*lock).asset_store = Some(Arc::new(Box::new(crate::assets::EnvAssetStore::new(envref_copy))));
+        }
+        envref
     }   
-    */
+
 
 }
 
