@@ -108,8 +108,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         match step {
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_store();
-                let (data, metadata) = store
-                    .get(&key)?;
+                let (data, metadata) = store.get(&key)?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
@@ -256,9 +255,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
         match step {
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_async_store();
-                let (data, metadata) = store
-                    .get(&key)
-                    .await?;
+                let (data, metadata) = store.get(&key).await?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
@@ -535,7 +532,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     context.error(&m);
                 }
                 crate::plan::Step::Plan(_) => todo!(),
-                Step::SetCwd(key) => todo!() //TODO: not mutable - context.set_cwd_key(Some(key.clone())),
+                Step::SetCwd(key) => todo!(), //TODO: not mutable - context.set_cwd_key(Some(key.clone())),
             }
             Ok(input_state)
         }
@@ -569,7 +566,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
 }
 
 pub mod ngi {
-    use futures::{FutureExt};
+    use futures::FutureExt;
 
     use crate::{
         command_metadata::CommandKey,
@@ -586,20 +583,17 @@ pub mod ngi {
     pub fn make_plan<E: NGEnvironment, Q: TryToQuery>(
         envref: NGEnvRef<E>,
         query: Q,
-    ) -> 
-    std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Plan, Error>> + Send + 'static>,
-    >
-    //impl std::future::Future<Output = Result<Plan, Error>> 
+    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Plan, Error>> + Send + 'static>>
+//impl std::future::Future<Output = Result<Plan, Error>>
     {
-        
         let rquery = query.try_to_query();
-        async move{
+        async move {
             let env = envref.0.read().await;
             let cmr = env.get_command_metadata_registry();
             let mut pb = PlanBuilder::new(rquery?, cmr);
             pb.build()
-        }.boxed()
+        }
+        .boxed()
     }
 
     pub fn apply_plan<E: NGEnvironment>(
@@ -682,7 +676,7 @@ pub mod ngi {
                     */
                     let result = ce
                         .execute_async(
-                           &commannd_key,
+                            &commannd_key,
                             input_state,
                             arguments,
                             context.clone_context(),
@@ -695,11 +689,10 @@ pub mod ngi {
                                 .with_metadata(context.get_metadata().into());
                             Ok(state)
                         }
-                        Err(e) => {
-                            Err(e)
-                        }
+                        Err(e) => Err(e),
                     }
-                }.boxed()
+                }
+                .boxed()
             }
             Step::Filename(name) => {
                 context.set_filename(name.name.clone());
@@ -720,14 +713,12 @@ pub mod ngi {
             Step::SetCwd(key) => {
                 context.set_cwd_key(Some(key.clone()));
                 async move { Ok(input_state) }.boxed()
-            },
-            Step::Plan(plan) => {
-                async move {
-                    let state = apply_plan(plan, envref.clone(), context, input_state).await?;
-                    Ok(state)
-                }
-                .boxed()
-            },
+            }
+            Step::Plan(plan) => async move {
+                let state = apply_plan(plan, envref.clone(), context, input_state).await?;
+                Ok(state)
+            }
+            .boxed(),
         }
     }
 
@@ -735,13 +726,12 @@ pub mod ngi {
         plan: Plan,
         envref: NGEnvRef<E>,
         cwd_key: Option<Key>,
-    ) ->
-    std::pin::Pin<
+    ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
-    > 
-    //Result<State<<E as NGEnvironment>::Value>, Error> 
+    >
+//Result<State<<E as NGEnvironment>::Value>, Error>
     {
-        async move{
+        async move {
             let mut context = NGContext::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
             apply_plan(
@@ -749,8 +739,10 @@ pub mod ngi {
                 envref.clone(),
                 context,
                 State::<<E as NGEnvironment>::Value>::new(),
-            ).await
-        }.boxed()
+            )
+            .await
+        }
+        .boxed()
     }
 
     pub fn evaluate<E: NGEnvironment, Q: TryToQuery>(
@@ -799,11 +791,13 @@ pub mod ngi {
                 }
             }
             Ok(result)
-        }.boxed()
+        }
+        .boxed()
     }
 }
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use std::cell::RefCell;
     use std::fmt::format;
     use std::rc::Rc;
@@ -866,16 +860,16 @@ mod tests {
             Arc::new(Box::new(crate::store::NoAsyncStore))
         }
     }
-    
+
     struct NGInjectionTest {
         variable: InjectedVariable,
         cr: NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>,
         store: Arc<Box<dyn crate::store::Store>>,
     }
-    
+
     impl NGEnvironment for NGInjectionTest {
         type Value = Value;
-        
+
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
         type AssetStore = crate::assets::EnvAssetStore<Self>;
 
@@ -906,7 +900,19 @@ mod tests {
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             Arc::new(Box::new(crate::store::NoAsyncStore))
         }
-        
+
+        fn get_asset_store(
+            &self,
+        ) -> std::sync::Arc<
+            Box<
+                (dyn crate::assets::AssetStore<
+                    NGInjectionTest,
+                    Asset = crate::assets::AssetRef<NGInjectionTest>,
+                > + 'static),
+            >,
+        > {
+            panic!("NGInjectionTest has no asset store")
+        }
     }
 
     impl Environment for NoInjection {
@@ -956,7 +962,6 @@ mod tests {
         type CommandExecutor = NGTestExecutor;
         type AssetStore = crate::assets::EnvAssetStore<Self>;
 
-
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             panic!("NGNoInjection has no command metadata registry")
         }
@@ -983,6 +988,19 @@ mod tests {
 
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             panic!("NGNoInjection has no async store")
+        }
+
+        fn get_asset_store(
+            &self,
+        ) -> std::sync::Arc<
+            Box<
+                (dyn crate::assets::AssetStore<
+                    NGNoInjection,
+                    Asset = crate::assets::AssetRef<NGNoInjection>,
+                > + 'static),
+            >,
+        > {
+            panic!("NGNoInjection has no asset store")
         }
     }
 
@@ -1033,7 +1051,6 @@ mod tests {
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
         type AssetStore = crate::assets::EnvAssetStore<Self>;
 
-
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
         }
@@ -1060,6 +1077,19 @@ mod tests {
 
         fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
             Arc::new(Box::new(crate::store::NoAsyncStore))
+        }
+
+        fn get_asset_store(
+            &self,
+        ) -> std::sync::Arc<
+            Box<
+                (dyn crate::assets::AssetStore<
+                    NGMutableInjectionTest,
+                    Asset = crate::assets::AssetRef<NGMutableInjectionTest>,
+                > + 'static),
+            >,
+        > {
+            panic!("NGNoInjection has no asset store")
         }
     }
 
@@ -1402,7 +1432,11 @@ mod tests {
         env.with_async_store(Box::new(crate::store::AsyncStoreWrapper(store)));
         {
             let cr = env.get_mut_command_executor();
-            fn greet(state: &State<Value>, who: String, context:NGContext<SimpleNGEnvironment<Value>>) -> Result<String, Error> {
+            fn greet(
+                state: &State<Value>,
+                who: String,
+                context: NGContext<SimpleNGEnvironment<Value>>,
+            ) -> Result<String, Error> {
                 let greeting = state.try_into_string().unwrap();
                 context.info("Hello from log");
                 Ok(format!("{} {}!", greeting, who))
@@ -1421,7 +1455,6 @@ mod tests {
         assert_eq!(state.try_into_string()?, "Hello TEXT world!");
         Ok(())
     }
-
 
     #[cfg(feature = "async_store")]
     #[tokio::test]
@@ -1488,23 +1521,25 @@ mod tests {
                 mut _args: NGCommandArguments<Value>,
                 context: NGContext<SimpleNGEnvironment<Value>>,
             ) -> std::pin::Pin<
-                Box<
-                    dyn core::future::Future<Output = Result<Value, Error>> + Send + 'static,
-                >,
+                Box<dyn core::future::Future<Output = Result<Value, Error>> + Send + 'static>,
             > {
                 async move {
                     let template = state.try_into_string()?;
                     let template = parse_simple_template(template)?;
                     let envref = context.clone_payload();
-                    let result = crate::interpreter::ngi::evaluate_simple_template(envref, template, None).await?;
+                    let result =
+                        crate::interpreter::ngi::evaluate_simple_template(envref, template, None)
+                            .await?;
                     Ok(Value::from_string(result))
-                }.boxed()
+                }
+                .boxed()
             }
 
             cr.register_async_command("template", template);
         }
         let envref = env.to_ref();
-        let result = crate::interpreter::ngi::evaluate(envref, "-R/template.txt/-/template", None).await?;
+        let result =
+            crate::interpreter::ngi::evaluate(envref, "-R/template.txt/-/template", None).await?;
         assert_eq!(result.try_into_string()?, "*** Hello TEXT world! ***");
         Ok(())
     }

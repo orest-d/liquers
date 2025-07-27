@@ -8,8 +8,8 @@ use tokio::sync::{RwLock, broadcast};
 use crate::{
     context::{NGEnvRef, NGEnvironment},
     error::Error,
-    interpreter::NGPlanInterpreter,
-    metadata::{Metadata, Status},
+    interpreter::{self, NGPlanInterpreter},
+    metadata::{self, Metadata, Status},
     query::{Key, Query},
     recipes::AsyncRecipeProvider,
     state::State,
@@ -27,6 +27,15 @@ pub struct AssetData<E: NGEnvironment> {
     rx: broadcast::Receiver<AssetMessage>,
     tx: broadcast::Sender<AssetMessage>,
 
+    /// This is used to store the data in the asset if available.
+    data: Option<Arc<E::Value>>,
+
+    /// This is used to store the binary representation of the data in the asset if available.
+    /// If both data and binary is available, they will represent the same data and can be used interchangeably.
+    binary: Option<Arc<Vec<u8>>>,
+
+    metadata: Option<Arc<Metadata>>,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -37,6 +46,9 @@ impl<E: NGEnvironment> AssetData<E> {
             query,
             rx,
             tx,
+            data: None,
+            binary: None,
+            metadata: None,
             _marker: std::marker::PhantomData,
         }
     }
@@ -68,6 +80,33 @@ impl<E: NGEnvironment> AssetRef<E> {
             data: Arc::new(RwLock::new(AssetData::new(query))),
         }
     }
+
+    pub async fn get_state_if_available(&self) -> Result<Option<State<E::Value>>, Error> {
+        let lock = self.data.read().await;
+        if let (Some(data), Some(metadata)) = (&lock.data, &lock.metadata) {
+            return Ok(Some(State { data: data.clone(), metadata: metadata.clone() }));
+        }
+        else if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata){
+            todo!("Implement conversion from binary to State");
+        }
+        Ok(None)
+    }
+
+    pub async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error> {
+        if let Some(state) = self.get_state_if_available().await? {
+            return Ok(state);
+        }
+        else{
+            let mut lock = self.data.write().await;
+            let query = lock.get_query();
+            let plan = interpreter::ngi::make_plan(envref.clone(), query.clone()).await?;
+            let res = interpreter::ngi::evaluate_plan(plan, envref.clone(), None).await?;
+            lock.data = Some(res.data.clone());
+            lock.metadata = Some(res.metadata.clone());
+            lock.binary = None;
+            return Ok(res);
+        }
+     }
 }
 
 #[async_trait]
@@ -368,5 +407,29 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAsset
             }
         }
         Ok(dir)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::SimpleNGEnvironment;
+    use crate::store::{MemoryStore, AsyncStoreWrapper};
+    use crate::parse::parse_key;
+    use crate::metadata::Metadata;
+    use crate::value::Value;
+
+    #[tokio::test]
+    async fn test_get_state_stub() {
+        // Setup environment and store as in test_template_command
+        let mut env: SimpleNGEnvironment<Value> = SimpleNGEnvironment::new();
+        let store = MemoryStore::new(&Key::new());
+        env.with_async_store(Box::new(AsyncStoreWrapper(store)));
+
+        // TODO: create an AssetRef and call get_state on it
+        // let asset_ref = ...;
+        // let envref = env.to_ref();
+        // let state = asset_ref.get_state(envref).await.unwrap();
+        // assert_eq!(state.try_into_string().unwrap(), "Hello TEXT");
     }
 }
