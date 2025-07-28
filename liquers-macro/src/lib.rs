@@ -279,6 +279,41 @@ impl Parse for CommandSignatureStatement {
     }
 }
 
+enum CommandParameterStatement {
+    Label(String),
+    Gui(String),
+    Hint(String, String),
+}
+
+impl Parse for CommandParameterStatement {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident: syn::Ident = input.parse()?;
+        match ident.to_string().as_str() {
+            "label" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandParameterStatement::Label(lit.value()))
+            }
+            "gui" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandParameterStatement::Gui(lit.value()))
+            }
+            "hint" => {
+                // Parse: hint key_identifier: "Some hint"
+                let key: syn::Ident = input.parse()?;
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandParameterStatement::Hint(key.to_string(), lit.value()))
+            }
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("Unknown command parameter statement '{}'", other),
+            )),
+        }
+    }
+}
+
 struct CommandSignature {
     pub is_async: bool,
     pub name: syn::Ident,
@@ -507,17 +542,25 @@ impl Parse for CommandParameter {
                 } else {
                     None
                 };
+
                 let mut label = None;
                 let mut gui = None;
-                if input.peek(syn::LitStr) {
-                    let lit: syn::LitStr = input.parse()?;
-                    label = Some(lit.value());
+                if input.peek(syn::token::Paren) {
+                    let content;
+                    syn::parenthesized!(content in input);
+                    while !content.is_empty() {
+                        let stmt: CommandParameterStatement = content.parse()?;
+                        match stmt {
+                            CommandParameterStatement::Label(l) => label = Some(l),
+                            CommandParameterStatement::Gui(g) => gui = Some(g),
+                            CommandParameterStatement::Hint(_, _) => {} // TODO: handle hints
+                        }
+                        if content.peek(syn::Token![,]) {
+                            content.parse::<syn::Token![,]>()?;
+                        }
+                    }
                 }
-                if input.peek(syn::Token![/]) {
-                    input.parse::<syn::Token![/]>()?;
-                    let gui_lit: syn::LitStr = input.parse()?;
-                    gui = Some(gui_lit.value());
-                }
+
                 Ok(CommandParameter::Param {
                     name,
                     ty,
@@ -1010,5 +1053,24 @@ mod tests {
             assert_eq!(a, b);
         }
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
+    }
+
+    #[test]
+    fn test_command_parameter_with_label_argument_info() {
+        use syn::parse_quote;
+        let param: CommandParameter = syn::parse_quote! {
+            a: i32 = 42 (label: "My Argument")
+        };
+
+        // Generate ArgumentInfo token stream
+        let info_tokens = param.argument_info_expression().unwrap();
+        let info_string = info_tokens.to_string();
+
+        // Check that the label is present and correct
+        assert!(info_string.contains("label : \"My Argument\""));
+        // Check that the name is present and correct
+        assert!(info_string.contains("name : \"a\""));
+        // Check that the argument type is correct
+        assert!(info_string.contains("argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"));
     }
 }
