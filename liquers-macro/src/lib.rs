@@ -232,9 +232,11 @@ impl CommandParameter {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 enum StateParameter {
     Value,
     State,
+    Text,
     None,
 }
 
@@ -342,6 +344,7 @@ impl CommandSignature {
         match self.state_parameter {
             StateParameter::Value => Some(quote! {(&*(state.data)).clone()}),
             StateParameter::State => Some(quote! {state}),
+            StateParameter::Text => Some(quote! {state.try_into_string()?.as_str()}),
             StateParameter::None => None,
         }
     }
@@ -581,26 +584,11 @@ impl Parse for CommandSignature {
         let is_async = input.parse::<syn::Token![async]>().is_ok();
         input.parse::<syn::Token![fn]>()?;
         let name: syn::Ident = input.parse()?;
-        let value_type = if input.peek(syn::Token![<]) {
-            input.parse::<syn::Token![<]>()?;
-            let vt: syn::Type = input.parse()?;
-            input.parse::<syn::Token![>]>()?;
-            Some(vt)
-        } else {
-            None
-        };
         let content;
         syn::parenthesized!(content in input);
-        let state_parameter = if content.peek(syn::Ident) {
-            let ident: syn::Ident = content.parse()?;
-            match ident.to_string().as_str() {
-                "value" => StateParameter::Value,
-                "state" => StateParameter::State,
-                _ => StateParameter::None,
-            }
-        } else {
-            StateParameter::None
-        };
+
+        let state_parameter = StateParameter::parse(&content)?;
+
         let mut parameters = Vec::new();
         while content.peek(syn::Token![,]) {
             content.parse::<syn::Token![,]>()?;
@@ -653,11 +641,15 @@ impl Parse for StateParameter {
                 "value" => {
                     input.parse::<syn::Ident>()?;
                     Ok(StateParameter::Value)
-                }
+                },
+                "text" => {
+                    input.parse::<syn::Ident>()?;
+                    Ok(StateParameter::Text)
+                },
                 "state" => {
                     input.parse::<syn::Ident>()?;
                     Ok(StateParameter::State)
-                }
+                },
                 _ => Ok(StateParameter::None), // do not consume
             }
         } else {
@@ -779,6 +771,18 @@ mod tests {
                 arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
                 context: CommandContext,
             ) -> core::result::Result<CommandValue, liquers_core::error::Error>
+        };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn wrapper_fn_signature_text() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(text) -> result
+        };
+        let tokens = sig.state_argument_parameter().unwrap();
+        let expected = quote! {
+            state.try_into_string()?.as_str()
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
@@ -977,7 +981,6 @@ mod tests {
 
         let info_tokens = param.argument_info_expression().unwrap();
         let info_string = info_tokens.to_string();
-        println!("info_string: {}", info_string);
 
         assert!(info_string.contains("name : \"a\""));
         assert!(info_string.contains(
