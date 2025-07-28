@@ -10,7 +10,7 @@ use crate::{
     error::Error,
     interpreter::{self, NGPlanInterpreter},
     metadata::{self, Metadata, Status},
-    query::{Key, Query},
+    query::{Key, Query, TryToQuery},
     recipes::AsyncRecipeProvider,
     state::State,
     store::AsyncStore,
@@ -139,6 +139,7 @@ pub trait AssetManager<E: NGEnvironment>: Send + Sync {
 #[async_trait]
 pub trait AssetStore<E: NGEnvironment>: Send + Sync {
     type Asset: AssetInterface<E>;
+    async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error>;
     async fn get(&self, key: &Key) -> Result<Self::Asset, Error>;
     async fn create(&self, key: &Key) -> Result<Self::Asset, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
@@ -171,11 +172,12 @@ pub trait AssetStore<E: NGEnvironment>: Send + Sync {
 pub struct EnvAssetStore<E: NGEnvironment> {
     envref: NGEnvRef<E>,
     assets: scc::HashMap<Key, AssetRef<E>>,
+    query_assets: scc::HashMap<Query, AssetRef<E>>,
 }
 
 impl<E: NGEnvironment> EnvAssetStore<E> {
     pub fn new(envref: NGEnvRef<E>) -> Self {
-        EnvAssetStore { envref , assets: scc::HashMap::new() }
+        EnvAssetStore { envref , assets: scc::HashMap::new(), query_assets: scc::HashMap::new() }
     }
 }
 
@@ -183,6 +185,18 @@ impl<E: NGEnvironment> EnvAssetStore<E> {
 #[async_trait]
 impl<E: NGEnvironment> AssetStore<E> for EnvAssetStore<E> {
     type Asset = AssetRef<E>;
+
+    async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error> {
+        if let Some(key) = query.key() {
+            self.get(&key).await
+        } else {
+            let entry = self.query_assets
+                .entry_async(query.clone())
+                .await
+                .or_insert_with(|| AssetRef::<E>::new_from_query(query.clone()));
+            Ok(entry.get().clone())
+        }
+    }
 
     async fn get(&self, key: &Key) -> Result<Self::Asset, Error> {
 
@@ -425,7 +439,7 @@ mod tests {
     use crate as liquers_core;
 
     #[tokio::test]
-    async fn test_get_state_stub() {
+    async fn test_get_state() {
         // Setup environment and store as in test_template_command
         let mut env: SimpleNGEnvironment<Value> = SimpleNGEnvironment::new();
         let store = MemoryStore::new(&Key::new());
@@ -445,15 +459,8 @@ mod tests {
             liquers_macro::register_command!(cr, fn hello()-> result);  
         }
 
-        // TODO: CONTINUE HERE
-        //let state = asset_store.get_asset("hello").await.unwrap().get_state(envref.clone()).await.unwrap();
-        //assert_eq!(state.try_into_string().unwrap(), "Hello TEXT");
-
-
-        // TODO: create an AssetRef and call get_state on it
-        // let asset_ref = ...;
-        // let envref = env.to_ref();
-        // let state = asset_ref.get_state(envref).await.unwrap();
-        // assert_eq!(state.try_into_string().unwrap(), "Hello TEXT");
+        let query = "hello".try_to_query().unwrap();
+        let state = asset_store.get_asset(&query).await.unwrap().get_state(envref.clone()).await.unwrap();
+        assert_eq!(state.try_into_string().unwrap(), "Hello TEXT");
     }
 }

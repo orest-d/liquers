@@ -3,6 +3,7 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::parse_macro_input;
 
+#[derive(Debug, Clone, PartialEq)]
 enum DefaultValue {
     Str(String),
     Bool(bool),
@@ -79,7 +80,7 @@ impl CommandParameter {
                 quote! {
                     liquers_core::command_metadata::CommandParameterValue::Value(
                         serde_json::Value::Number(
-                            serde_json::Number::from_i64(*#value).unwrap_or(
+                            serde_json::Number::from_i64(#value).unwrap_or(
                                 serde_json::Number::from_i64(0).unwrap()
                             )
                         )
@@ -92,7 +93,7 @@ impl CommandParameter {
             } => quote! {
                 liquers_core::command_metadata::CommandParameterValue::Value(
                     serde_json::Value::Number(
-                        serde_json::Number::from_f64(*#value).unwrap_or(
+                        serde_json::Number::from_f64(#value).unwrap_or(
                             serde_json::Number::from_f64(0.0).unwrap()
                         )
                     )
@@ -891,6 +892,58 @@ mod tests {
         };
 
         assert_eq!(sig.label, Some("Test label".to_string()));
+    }
+
+    #[test]
+    fn test_command_signature_with_default_value() {
+        use syn::parse_quote;
+
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32 = 42) -> result
+        };
+
+
+        // Find the parameter 'a'
+        let param = sig.parameters.iter().find_map(|p| {
+            if let CommandParameter::Param {
+                name,
+                default_value,
+                ..
+            } = p
+            {
+                if name == "a" {
+                    return Some(default_value);
+                }
+            }
+            None
+        });
+
+        assert_eq!(param, Some(&Some(DefaultValue::Int(42))));
+
+        let param = sig
+            .parameters
+            .iter()
+            .find(|p| {
+                if let CommandParameter::Param { name, .. } = p {
+                    name == "a"
+                } else {
+                    false
+                }
+            })
+            .unwrap();
+
+        let info_tokens = param.argument_info_expression().unwrap();
+        let info_string = info_tokens.to_string();
+        println!("info_string: {}", info_string);
+
+        assert!(info_string.contains("name : \"a\""));
+        assert!(info_string.contains(
+            "default : liquers_core :: command_metadata :: CommandParameterValue :: Value"
+        ));
+        assert!(info_string.contains("Value (serde_json :: Value :: Number (serde_json :: Number :: from_i64 (42i64) . unwrap_or (serde_json :: Number :: from_i64 (0) . unwrap ())))"));
+        assert!(info_string.contains(
+            "argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"
+        ));
     }
 
     #[test]

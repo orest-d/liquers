@@ -1300,6 +1300,37 @@ impl Query {
         self.transform_query().and_then(|x| x.action())
     }
 
+    /// Returns true if the query is a simple key.
+    /// This requires that the resource query segment is present and has no header or a trivial header,
+    /// i.e. no name and parameters.
+    pub fn is_key(&self) -> bool {
+        if let Some(rq) = self.resource_query(){
+            rq.header.is_none() || rq.header.as_ref().map_or(false, |x| x.is_trivial())
+        }
+        else{
+            false
+        }
+    }
+
+    /// Returns the key if the query is a simple key (with no header or trivial header), None otherwise.
+    pub fn key(&self) -> Option<Key> {
+        if self.is_key() {
+            self.header_key()
+        } else {
+            None
+        }
+    }
+
+    /// Returns the key if the query is a resource query (disregarding the header), None otherwise.
+    pub fn header_key(&self) -> Option<Key> {
+        if let Some(rq) = self.resource_query() {
+            Some(rq.key.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Internal function to return a vector of segments up to the last segment.
     fn up_to_last_segment(&self) -> Vec<QuerySegment> {
         let mut seg = vec![];
         self.segments[0..self.segments.len() - 1].clone_into(&mut seg);
