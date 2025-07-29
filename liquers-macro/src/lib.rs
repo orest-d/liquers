@@ -11,6 +11,61 @@ enum DefaultValue {
     Float(f64),
 }
 
+/// This is a copy of ArgumentGUIInfo from liquers-core
+enum ArgumentGUIInfo {
+    /// Text field for entering a short text, e.g. a name or a title.
+    /// Argument is a width hint specified in characters.
+    /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
+    TextField(usize),
+    /// Text area for entering of a larger text with a width and height hints.
+    /// Width and hight should be specified in characters.
+    /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
+    TextArea(usize, usize),
+    IntegerField,
+    /// Integer range with min and max values, unspecified how it should be rendered
+    IntegerRange {
+        min: i64,
+        max: i64,
+    },
+    /// Integer range with min and max values, should be rendered as a slider
+    IntegerSlider {
+        min: i64,
+        max: i64,
+        step: i64,
+    },
+    /// Float entry field    
+    FloatField,
+    /// Float range with min and max values, should be rendered as a slider
+    FloatSlider {
+        min: f64,
+        max: f64,
+        step: f64,
+    },
+    /// Used to enter boolean values, should be presented as a checkbox.
+    Checkbox,
+    /// Used to enter boolean values, presentable as radio buttons with custom labels for true and false.
+    RadioBoolean {
+        true_label: String,
+        false_label: String,
+    },
+    /// Used to enter enum values, arranged horizontally.
+    /// This is to be used when only up to 3-4 alternatives are expected with short enum labels.
+    HorizontalRadioEnum,
+    /// Used to enter enum values, arranged vertically.
+    /// This is to be used when many alternatives are expected or if enum labels are long.
+    VerticalRadioEnum,
+    /// Select enum from a dropdown list.
+    EnumSelector,
+    /// Color picker for a color value
+    /// Should edit the color in form of a color name or hex code RGB or RGBA.
+    /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
+    ColorString,
+    /// Parameter should not appear in the GUI
+    Hide,
+    /// No GUI information
+    None,
+}
+
 enum CommandParameter {
     Param {
         name: syn::Ident,
@@ -18,7 +73,7 @@ enum CommandParameter {
         injected: bool,
         default_value: Option<DefaultValue>,
         label: Option<String>,
-        gui: Option<String>,
+        gui: ArgumentGUIInfo,
     },
     Context,
 }
@@ -212,7 +267,6 @@ impl CommandParameter {
                     .map(|s| s.as_str())
                     .unwrap_or(default_label.as_str());
                 let argument_type = self.argument_type_expression();
-                let gui_str = gui.as_ref().map(|s| s.as_str()).unwrap_or("");
                 let default_value_expression = self.default_value_expression();
 
                 Some(quote! {
@@ -223,6 +277,7 @@ impl CommandParameter {
                         argument_type: #argument_type,
                         multiple: false,
                         injected: #injected,
+                        gui: #gui,
                         ..Default::default()
                     }
                 })
@@ -283,7 +338,7 @@ impl Parse for CommandSignatureStatement {
 
 enum CommandParameterStatement {
     Label(String),
-    Gui(String),
+    Gui(ArgumentGUIInfo),
     Hint(String, String),
 }
 
@@ -298,8 +353,8 @@ impl Parse for CommandParameterStatement {
             }
             "gui" => {
                 input.parse::<syn::Token![:]>()?;
-                let lit: syn::LitStr = input.parse()?;
-                Ok(CommandParameterStatement::Gui(lit.value()))
+                let gui_info: ArgumentGUIInfo = input.parse()?;
+                Ok(CommandParameterStatement::Gui(gui_info))
             }
             "hint" => {
                 // Parse: hint key_identifier: "Some hint"
@@ -508,6 +563,142 @@ impl CommandSignature {
     }
 }
 
+impl Parse for ArgumentGUIInfo {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident: syn::Ident = input.parse()?;
+        match ident.to_string().as_str() {
+            "TextField" => {
+                let width: syn::LitInt = input.parse()?;
+                Ok(ArgumentGUIInfo::TextField(width.base10_parse()?))
+            }
+            "TextArea" => {
+                let width: syn::LitInt = input.parse()?;
+                input.parse::<syn::Token![,]>()?;
+                let height: syn::LitInt = input.parse()?;
+                Ok(ArgumentGUIInfo::TextArea(width.base10_parse()?, height.base10_parse()?))
+            }
+            "IntegerField" => Ok(ArgumentGUIInfo::IntegerField),
+            "IntegerRange" => {
+                let content;
+                syn::parenthesized!(content in input);
+                let min: syn::LitInt = content.parse()?;
+                content.parse::<syn::Token![,]>()?;
+                let max: syn::LitInt = content.parse()?;
+                Ok(ArgumentGUIInfo::IntegerRange {
+                    min: min.base10_parse()?,
+                    max: max.base10_parse()?,
+                })
+            }
+            "IntegerSlider" => {
+                let content;
+                syn::parenthesized!(content in input);
+                let min: syn::LitInt = content.parse()?;
+                content.parse::<syn::Token![,]>()?;
+                let max: syn::LitInt = content.parse()?;
+                content.parse::<syn::Token![,]>()?;
+                let step: syn::LitInt = content.parse()?;
+                Ok(ArgumentGUIInfo::IntegerSlider {
+                    min: min.base10_parse()?,
+                    max: max.base10_parse()?,
+                    step: step.base10_parse()?,
+                })
+            }
+            "FloatField" => Ok(ArgumentGUIInfo::FloatField),
+            "FloatSlider" => {
+                let content;
+                syn::parenthesized!(content in input);
+                let min: syn::LitFloat = content.parse()?;
+                content.parse::<syn::Token![,]>()?;
+                let max: syn::LitFloat = content.parse()?;
+                content.parse::<syn::Token![,]>()?;
+                let step: syn::LitFloat = content.parse()?;
+                Ok(ArgumentGUIInfo::FloatSlider {
+                    min: min.base10_parse()?,
+                    max: max.base10_parse()?,
+                    step: step.base10_parse()?,
+                })
+            }
+            "Checkbox" => Ok(ArgumentGUIInfo::Checkbox),
+            "RadioBoolean" => {
+                let content;
+                syn::parenthesized!(content in input);
+                let true_label: syn::LitStr = content.parse()?;
+                content.parse::<syn::Token![,]>()?;
+                let false_label: syn::LitStr = content.parse()?;
+                Ok(ArgumentGUIInfo::RadioBoolean {
+                    true_label: true_label.value(),
+                    false_label: false_label.value(),
+                })
+            }
+            "HorizontalRadioEnum" => Ok(ArgumentGUIInfo::HorizontalRadioEnum),
+            "VerticalRadioEnum" => Ok(ArgumentGUIInfo::VerticalRadioEnum),
+            "EnumSelector" => Ok(ArgumentGUIInfo::EnumSelector),
+            "ColorString" => Ok(ArgumentGUIInfo::ColorString),
+            "Hide" => Ok(ArgumentGUIInfo::Hide),
+            "None" => Ok(ArgumentGUIInfo::None),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("Unknown ArgumentGUIInfo variant '{}'", other),
+            )),
+        }
+    }
+}
+
+use quote::ToTokens;
+
+impl ToTokens for ArgumentGUIInfo {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let gui = match self {
+            ArgumentGUIInfo::TextField(n) => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::TextField(#n) }
+            }
+            ArgumentGUIInfo::TextArea(w, h) => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::TextArea(#w, #h) }
+            }
+            ArgumentGUIInfo::IntegerField => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::IntegerField }
+            }
+            ArgumentGUIInfo::IntegerRange { min, max } => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::IntegerRange { min: #min, max: #max } }
+            }
+            ArgumentGUIInfo::IntegerSlider { min, max, step } => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::IntegerSlider { min: #min, max: #max, step: #step } }
+            }
+            ArgumentGUIInfo::FloatField => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::FloatField }
+            }
+            ArgumentGUIInfo::FloatSlider { min, max, step } => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::FloatSlider { min: #min, max: #max, step: #step } }
+            }
+            ArgumentGUIInfo::Checkbox => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::Checkbox }
+            }
+            ArgumentGUIInfo::RadioBoolean { true_label, false_label } => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::RadioBoolean { true_label: #true_label.to_string(), false_label: #false_label.to_string() } }
+            }
+            ArgumentGUIInfo::HorizontalRadioEnum => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::HorizontalRadioEnum }
+            }
+            ArgumentGUIInfo::VerticalRadioEnum => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::VerticalRadioEnum }
+            }
+            ArgumentGUIInfo::EnumSelector => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector }
+            }
+            ArgumentGUIInfo::ColorString => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::ColorString }
+            }
+            ArgumentGUIInfo::Hide => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::Hide }
+            }
+            ArgumentGUIInfo::None => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::None }
+            }
+        };
+        gui.to_tokens(tokens);
+    }
+}
+
 impl Parse for CommandParameter {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek(syn::Ident) {
@@ -547,7 +738,7 @@ impl Parse for CommandParameter {
                 };
 
                 let mut label = None;
-                let mut gui = None;
+                let mut gui = ArgumentGUIInfo::TextField(20);
                 if input.peek(syn::token::Paren) {
                     let content;
                     syn::parenthesized!(content in input);
@@ -555,7 +746,7 @@ impl Parse for CommandParameter {
                         let stmt: CommandParameterStatement = content.parse()?;
                         match stmt {
                             CommandParameterStatement::Label(l) => label = Some(l),
-                            CommandParameterStatement::Gui(g) => gui = Some(g),
+                            CommandParameterStatement::Gui(g) => gui = g,
                             CommandParameterStatement::Hint(_, _) => {} // TODO: handle hints
                         }
                         if content.peek(syn::Token![,]) {
@@ -847,7 +1038,7 @@ mod tests {
             injected: false,
             default_value: None,
             label: None,
-            gui: None,
+            gui: ArgumentGUIInfo::TextField(20),
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Integer };
@@ -862,7 +1053,7 @@ mod tests {
             injected: false,
             default_value: None,
             label: None,
-            gui: None,
+            gui: ArgumentGUIInfo::TextField(20),
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::IntegerOption };
@@ -877,7 +1068,7 @@ mod tests {
             injected: false,
             default_value: None,
             label: None,
-            gui: None,
+            gui: ArgumentGUIInfo::TextField(20),
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Float };
@@ -892,7 +1083,7 @@ mod tests {
             injected: false,
             default_value: None,
             label: None,
-            gui: None,
+            gui: ArgumentGUIInfo::TextField(20),
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOpt };
@@ -907,7 +1098,7 @@ mod tests {
             injected: false,
             default_value: None,
             label: None,
-            gui: None,
+            gui: ArgumentGUIInfo::TextField(20),
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::String };
@@ -922,7 +1113,7 @@ mod tests {
             injected: false,
             default_value: None,
             label: None,
-            gui: None,
+            gui: ArgumentGUIInfo::TextField(20),
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
@@ -1036,6 +1227,7 @@ mod tests {
                     argument_type: liquers_core::command_metadata::ArgumentType::Integer,
                     multiple: false,
                     injected: false,
+                    gui: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
                     ..Default::default()
                 }];
                 Ok(cm)
@@ -1077,3 +1269,4 @@ mod tests {
         assert!(info_string.contains("argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"));
     }
 }
+
