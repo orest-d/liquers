@@ -9,6 +9,73 @@ enum DefaultValue {
     Bool(bool),
     Int(i64),
     Float(f64),
+    Query(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct CommandPreset {
+    action: String,
+    label: String,
+    description: String,
+}
+use quote::ToTokens;
+
+impl ToTokens for CommandPreset {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let action = &self.action;
+        let label = &self.label;
+        let description = &self.description;
+        tokens.extend(quote! {
+            liquers_core::command_metadata::CommandPreset::new(#action, #label, #description)?
+        });
+    }
+}
+
+impl Parse for CommandPreset {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Parse the action as a string literal
+        if !input.peek(syn::LitStr) {
+            return Err(input.error("string expected as a preset action"));
+        }
+        let action_lit: syn::LitStr = input.parse()?;
+        let action = action_lit.value();
+
+        let mut label = action.clone();
+        let mut description = String::new();
+
+        // Optionally parse (label: "...", description: "...")
+        if input.peek(syn::token::Paren) {
+            let content;
+            syn::parenthesized!(content in input);
+            while !content.is_empty() {
+                let ident: syn::Ident = content.parse()?;
+                if !content.peek(syn::Token![:]) {
+                    return Err(input.error(format!("colon expected after '{ident}' in command preset")));
+                }
+                content.parse::<syn::Token![:]>()?;
+                let value: syn::LitStr = content.parse()?;
+                match ident.to_string().as_str() {
+                    "label" => label = value.value(),
+                    "description" => description = value.value(),
+                    other => {
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            format!("Unknown field '{}' in CommandPreset", other),
+                        ))
+                    }
+                }
+                if content.peek(syn::Token![,]) {
+                    content.parse::<syn::Token![,]>()?;
+                }
+            }
+        }
+
+        Ok(CommandPreset {
+            action,
+            label,
+            description,
+        })
+    }
 }
 
 /// This is a copy of ArgumentGUIInfo from liquers-core
@@ -152,6 +219,14 @@ impl CommandParameter {
                             serde_json::Number::from_f64(0.0).unwrap()
                         )
                     )
+                )
+            },
+            CommandParameter::Param {
+                default_value: Some(DefaultValue::Query(value)),
+                ..
+            } => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Query(
+                    #value.to_string()
                 )
             },
             _ => {
@@ -305,11 +380,16 @@ enum CommandSignatureStatement {
     Doc(String),
     Namespace(String),
     Realm(String),
+    Preset(CommandPreset),
 }
 
 impl Parse for CommandSignatureStatement {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ident: syn::Ident = input.parse()?;
+        if !input.peek(syn::Token![:]) {
+            return Err(input.error(format!("colon expected after '{ident}' in command signature statement")));
+        }
+
         input.parse::<syn::Token![:]>()?;
         match ident.to_string().as_str() {
             "label" => {
@@ -327,6 +407,10 @@ impl Parse for CommandSignatureStatement {
             "realm" => {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandSignatureStatement::Realm(lit.value()))
+            }
+            "preset" => {
+                let preset: CommandPreset = input.parse()?;
+                Ok(CommandSignatureStatement::Preset(preset))
             }
             other => Err(syn::Error::new(
                 ident.span(),
@@ -361,7 +445,10 @@ impl Parse for CommandParameterStatement {
                 let key: syn::Ident = input.parse()?;
                 input.parse::<syn::Token![:]>()?;
                 let lit: syn::LitStr = input.parse()?;
-                Ok(CommandParameterStatement::Hint(key.to_string(), lit.value()))
+                Ok(CommandParameterStatement::Hint(
+                    key.to_string(),
+                    lit.value(),
+                ))
             }
             other => Err(syn::Error::new(
                 ident.span(),
@@ -381,6 +468,7 @@ struct CommandSignature {
     pub result_type: ResultType,
     pub namespace: String,
     pub realm: String,
+    pub presets: Vec<CommandPreset>,
     pub command_statements: Vec<CommandSignatureStatement>,
 }
 
@@ -520,6 +608,14 @@ impl CommandSignature {
             quote! { cm.with_doc(#doc); }
         };
         let arguments = self.command_arguments_expression();
+        let presets_code = if self.presets.is_empty() {
+            // If no presets are defined, we can use an empty vector
+            quote! {}
+        } else {
+            let presets = self.presets_expression();
+            quote! { cm.presets = #presets; }
+        };
+        // TODO: Add command presets here
 
         quote! {
             pub fn #register_fn_name(
@@ -532,6 +628,7 @@ impl CommandSignature {
                 cm.with_label(#label);
                 #doc_cmd
                 cm.arguments = #arguments;
+                #presets_code
 
                 Ok(cm)
             }
@@ -561,6 +658,16 @@ impl CommandSignature {
             ]
         }
     }
+    /// Generates a TokenStream that creates a Vec of CommandPreset for all defined presets.
+    pub fn presets_expression(&self) -> proc_macro2::TokenStream {
+        let presets: Vec<proc_macro2::TokenStream> =
+            self.presets.iter().map(|p| quote! { #p }).collect();
+        quote! {
+            vec![
+                #(#presets),*
+            ]
+        }
+    }
 }
 
 impl Parse for ArgumentGUIInfo {
@@ -575,7 +682,10 @@ impl Parse for ArgumentGUIInfo {
                 let width: syn::LitInt = input.parse()?;
                 input.parse::<syn::Token![,]>()?;
                 let height: syn::LitInt = input.parse()?;
-                Ok(ArgumentGUIInfo::TextArea(width.base10_parse()?, height.base10_parse()?))
+                Ok(ArgumentGUIInfo::TextArea(
+                    width.base10_parse()?,
+                    height.base10_parse()?,
+                ))
             }
             "IntegerField" => Ok(ArgumentGUIInfo::IntegerField),
             "IntegerRange" => {
@@ -644,8 +754,6 @@ impl Parse for ArgumentGUIInfo {
     }
 }
 
-use quote::ToTokens;
-
 impl ToTokens for ArgumentGUIInfo {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let gui = match self {
@@ -673,7 +781,10 @@ impl ToTokens for ArgumentGUIInfo {
             ArgumentGUIInfo::Checkbox => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::Checkbox }
             }
-            ArgumentGUIInfo::RadioBoolean { true_label, false_label } => {
+            ArgumentGUIInfo::RadioBoolean {
+                true_label,
+                false_label,
+            } => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::RadioBoolean { true_label: #true_label.to_string(), false_label: #false_label.to_string() } }
             }
             ArgumentGUIInfo::HorizontalRadioEnum => {
@@ -799,12 +910,16 @@ impl Parse for CommandSignature {
         let mut realm = String::new();
         let mut label = None;
         let mut doc = None;
+        let mut presets = Vec::new();
         for stmt in &command_statements {
             match stmt {
                 CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
                 CommandSignatureStatement::Realm(r) => realm = r.clone(),
                 CommandSignatureStatement::Label(l) => label = Some(l.clone()),
                 CommandSignatureStatement::Doc(d) => doc = Some(d.clone()),
+                CommandSignatureStatement::Preset(command_preset) => {
+                    presets.push(command_preset.clone());
+                }
             }
         }
 
@@ -819,6 +934,7 @@ impl Parse for CommandSignature {
             namespace,
             realm,
             command_statements,
+            presets,
         })
     }
 }
@@ -832,15 +948,15 @@ impl Parse for StateParameter {
                 "value" => {
                     input.parse::<syn::Ident>()?;
                     Ok(StateParameter::Value)
-                },
+                }
                 "text" => {
                     input.parse::<syn::Ident>()?;
                     Ok(StateParameter::Text)
-                },
+                }
                 "state" => {
                     input.parse::<syn::Ident>()?;
                     Ok(StateParameter::State)
-                },
+                }
                 _ => Ok(StateParameter::None), // do not consume
             }
         } else {
@@ -865,6 +981,17 @@ impl Parse for DefaultValue {
             let lit: syn::LitFloat = input.parse()?;
             let val = lit.base10_parse::<f64>()?;
             Ok(DefaultValue::Float(val))
+        } else if input.peek(syn::Ident) {
+            let ident: syn::Ident = input.parse()?;
+            match ident.to_string().as_str() {
+                "query" => {
+                    let lit: syn::LitStr = input.parse()?; // TODO: Validate query
+                    Ok(DefaultValue::Query(lit.value()))
+                }
+                id @ _ => Err(input.error(format!(
+                    "Unsupported default value type starting with literal {id}"
+                ))),
+            }
         } else {
             Err(input.error("Unsupported default value type"))
         }
@@ -1120,6 +1247,24 @@ mod tests {
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
+     #[test]
+    fn test_parse_preset_command_signature_statement() {
+        use syn::parse_quote;
+    
+        let stmt: CommandSignatureStatement = syn::parse_quote! {
+            preset: "action1" (label: "Preset 1", description: "First preset")
+        };
+    
+        match stmt {
+            CommandSignatureStatement::Preset(preset) => {
+                assert_eq!(preset.action, "action1");
+                assert_eq!(preset.label, "Preset 1");
+                assert_eq!(preset.description, "First preset");
+            }
+            _ => panic!("Expected CommandSignatureStatement::Preset"),
+        }
+    }
+       
     #[test]
     fn test_command_signature_with_label() {
         use syn::parse_quote;
@@ -1139,7 +1284,6 @@ mod tests {
         let sig: CommandSignature = syn::parse_quote! {
             fn test_fn(state, a: i32 = 42) -> result
         };
-
 
         // Find the parameter 'a'
         let param = sig.parameters.iter().find_map(|p| {
@@ -1181,6 +1325,63 @@ mod tests {
         assert!(info_string.contains(
             "argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"
         ));
+    }
+
+    #[test]
+    fn test_command_signature_with_default_query_value() {
+        use syn::parse_quote;
+
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: String = query "abc/def") -> result
+        };
+
+        // Find the parameter 'a'
+        let param = sig.parameters.iter().find_map(|p| {
+            if let CommandParameter::Param {
+                name,
+                default_value,
+                ..
+            } = p
+            {
+                if name == "a" {
+                    return Some(default_value);
+                }
+            }
+            None
+        });
+
+        assert_eq!(
+            param,
+            Some(&Some(DefaultValue::Query("abc/def".to_string())))
+        );
+
+        let param = sig
+            .parameters
+            .iter()
+            .find(|p| {
+                if let CommandParameter::Param { name, .. } = p {
+                    name == "a"
+                } else {
+                    false
+                }
+            })
+            .unwrap();
+
+        let info_tokens = param.argument_info_expression().unwrap();
+        let info_string = info_tokens.to_string();
+
+        assert!(info_string.contains("name : \"a\""));
+        assert!(info_string.contains(
+            "default : liquers_core :: command_metadata :: CommandParameterValue :: Query"
+        ));
+        assert!(info_string.contains("\"abc/def\""));
+        assert!(info_string.contains(
+            "argument_type : liquers_core :: command_metadata :: ArgumentType :: String"
+        ));
+    }
+
+    fn fuzzy(s: &str) -> String {
+        s.replace(' ', "").replace('\n', "")
     }
 
     #[test]
@@ -1236,9 +1437,6 @@ mod tests {
         "#;
 
         //println!("Generated tokens: {}", tokens.to_string());
-        fn fuzzy(s: &str) -> String {
-            s.replace(' ', "").replace('\n', "")
-        }
         assert!(tokens.to_string().contains("pub fn"));
         assert!(fuzzy(&tokens.to_string()).contains("cm.with_label"));
         for (a, b) in fuzzy(&tokens.to_string())
@@ -1248,6 +1446,54 @@ mod tests {
             assert_eq!(a, b);
         }
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
+    }
+
+    #[test]
+    fn test_command_registration_with_doc() {
+        use syn::parse_quote;
+
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            label: "Test label"
+            doc: "This is a test function"
+        };
+
+        let tokens = sig.command_registration();
+
+        let expected_doc = "cm . with_doc (\"This is a test function\") ;";
+        let expected_label = "cm . with_label (\"Test label\") ;";
+
+        let tokens_str = tokens.to_string();
+        //println!();
+        //println!("Generated tokens: {}", tokens_str);
+
+        assert!(&tokens_str.contains("pub fn REGISTER__test_fn"));
+        assert!(&tokens_str.contains(expected_label));
+        assert!(&tokens_str.contains(expected_doc));
+    }
+
+    #[test]
+    fn test_command_registration_with_presets() {
+        use syn::parse_quote;
+
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            label: "Test label"
+            doc: "This is a test function"
+            preset: "action1"
+            preset: "action2-x-y" (label: "Preset 2", description: "Second preset")
+        };
+
+        let tokens = sig.command_registration();
+
+        let tokens_str = tokens.to_string();
+
+        // Check that the generated code contains the presets vector and both presets
+        assert!(tokens_str.contains("cm . presets = vec ! ["));
+        assert!(tokens_str.contains("liquers_core :: command_metadata :: CommandPreset :: new (\"action1\" , \"action1\" , \"\")"));
+        assert!(tokens_str.contains("liquers_core :: command_metadata :: CommandPreset :: new (\"action2-x-y\" , \"Preset 2\" , \"Second preset\")"));
+        assert!(tokens_str.contains("cm . with_label (\"Test label\") ;"));
+        assert!(tokens_str.contains("cm . with_doc (\"This is a test function\") ;"));
     }
 
     #[test]
@@ -1266,7 +1512,8 @@ mod tests {
         // Check that the name is present and correct
         assert!(info_string.contains("name : \"a\""));
         // Check that the argument type is correct
-        assert!(info_string.contains("argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"));
+        assert!(info_string.contains(
+            "argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"
+        ));
     }
 }
-
