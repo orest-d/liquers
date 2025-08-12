@@ -455,21 +455,23 @@ impl<V: ValueInterface> SimpleNGEnvironment<V> {
     }
     pub async fn ref_with_default_asset_store(mut self) -> NGEnvRef<Self> {
         let envref = self.to_ref();
-        let envref_copy = envref.clone();
+        let envref_copy1 = envref.clone();
+        let envref_copy2 = envref.clone();
         {
             let mut lock = envref.0.write().await;
-            (*lock).asset_store = Some(Arc::new(Box::new(crate::assets::EnvAssetStore::new(envref_copy))));
+            (*lock).asset_store = Some(Arc::new(Box::new(crate::assets::EnvAssetStore::new(
+                envref_copy1,
+                crate::recipes::DefaultRecipeProvider::new(envref_copy2),
+            ))));
         }
         envref
-    }   
-
-
+    }
 }
 
 impl<V: ValueInterface> NGEnvironment for SimpleNGEnvironment<V> {
     type Value = V;
     type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
-    type AssetStore = crate::assets::EnvAssetStore<Self>;
+    type AssetStore = crate::assets::EnvAssetStore<Self, crate::recipes::DefaultRecipeProvider<Self>>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry
@@ -512,8 +514,7 @@ impl<V: ValueInterface> NGEnvironment for SimpleNGEnvironment<V> {
     > {
         if let Some(store) = &self.asset_store {
             store.clone()
-        }
-        else {
+        } else {
             panic!("Asset store is not set for SimpleNGEnvironment");
         }
     }

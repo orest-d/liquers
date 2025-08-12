@@ -11,7 +11,7 @@ use crate::{
     interpreter::{self, NGPlanInterpreter},
     metadata::{self, Metadata, Status},
     query::{Key, Query, TryToQuery},
-    recipes::AsyncRecipeProvider,
+    recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     store::AsyncStore,
     value::{DefaultValueSerializer, ValueInterface},
@@ -36,6 +36,8 @@ pub struct AssetData<E: NGEnvironment> {
 
     metadata: Option<Arc<Metadata>>,
 
+    recipe: Option<Recipe>,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -50,6 +52,7 @@ impl<E: NGEnvironment> AssetData<E> {
             binary: None,
             metadata: None,
             _marker: std::marker::PhantomData,
+            recipe: None,
         }
     }
 
@@ -169,21 +172,22 @@ pub trait AssetStore<E: NGEnvironment>: Send + Sync {
     async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error>;
 }
 
-pub struct EnvAssetStore<E: NGEnvironment> {
+pub struct EnvAssetStore<E: NGEnvironment, ARP: AsyncRecipeProvider> {
     envref: NGEnvRef<E>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
+    recipe_provider: ARP,
 }
 
-impl<E: NGEnvironment> EnvAssetStore<E> {
-    pub fn new(envref: NGEnvRef<E>) -> Self {
-        EnvAssetStore { envref , assets: scc::HashMap::new(), query_assets: scc::HashMap::new() }
+impl<E: NGEnvironment, ARP: AsyncRecipeProvider> EnvAssetStore<E, ARP> {
+    pub fn new(envref: NGEnvRef<E>, recipe_provider: ARP) -> Self {
+        EnvAssetStore { envref, assets: scc::HashMap::new(), query_assets: scc::HashMap::new(), recipe_provider }
     }
 }
 
 
 #[async_trait]
-impl<E: NGEnvironment> AssetStore<E> for EnvAssetStore<E> {
+impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E, ARP> {
     type Asset = AssetRef<E>;
 
     async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error> {

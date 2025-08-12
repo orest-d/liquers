@@ -817,6 +817,7 @@ mod tests {
     use crate::metadata::Metadata;
     use crate::parse::parse_key;
     use crate::query::Key;
+    use crate::recipes::DefaultRecipeProvider;
     use crate::value::{Value, ValueInterface};
     pub struct TestExecutor;
 
@@ -871,7 +872,7 @@ mod tests {
         type Value = Value;
 
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
-        type AssetStore = crate::assets::EnvAssetStore<Self>;
+        type AssetStore = crate::assets::EnvAssetStore<Self, DefaultRecipeProvider<Self>>;
 
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
@@ -960,7 +961,7 @@ mod tests {
         type Value = Value;
 
         type CommandExecutor = NGTestExecutor;
-        type AssetStore = crate::assets::EnvAssetStore<Self>;
+        type AssetStore = crate::assets::EnvAssetStore<Self, DefaultRecipeProvider<Self>>;
 
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             panic!("NGNoInjection has no command metadata registry")
@@ -1049,7 +1050,8 @@ mod tests {
         type Value = Value;
 
         type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, Value, NGContext<Self>>;
-        type AssetStore = crate::assets::EnvAssetStore<Self>;
+
+        type AssetStore = crate::assets::EnvAssetStore<Self, DefaultRecipeProvider<Self>>;
 
         fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
             &self.cr.command_metadata_registry
