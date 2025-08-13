@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
 use nom::Err;
 use scc;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 
 use crate::{
     context::{NGEnvRef, NGEnvironment},
@@ -18,8 +18,8 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum AssetMessage{
-    StatusChanged(Status)
+pub enum AssetMessage {
+    StatusChanged(Status),
 }
 
 pub struct AssetData<E: NGEnvironment> {
@@ -65,7 +65,7 @@ pub struct AssetRef<E: NGEnvironment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
-impl<E:NGEnvironment> Clone for AssetRef<E> {
+impl<E: NGEnvironment> Clone for AssetRef<E> {
     fn clone(&self) -> Self {
         AssetRef {
             data: self.data.clone(),
@@ -84,12 +84,16 @@ impl<E: NGEnvironment> AssetRef<E> {
         }
     }
 
+    // TODO: Support loading from binary
+    // TODO: Support creating from recipe   
     pub async fn get_state_if_available(&self) -> Result<Option<State<E::Value>>, Error> {
         let lock = self.data.read().await;
         if let (Some(data), Some(metadata)) = (&lock.data, &lock.metadata) {
-            return Ok(Some(State { data: data.clone(), metadata: metadata.clone() }));
-        }
-        else if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata){
+            return Ok(Some(State {
+                data: data.clone(),
+                metadata: metadata.clone(),
+            }));
+        } else if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
             todo!("Implement conversion from binary to State");
         }
         Ok(None)
@@ -98,8 +102,7 @@ impl<E: NGEnvironment> AssetRef<E> {
     pub async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.get_state_if_available().await? {
             return Ok(state);
-        }
-        else{
+        } else {
             let mut lock = self.data.write().await;
             let query = lock.get_query();
             let plan = interpreter::ngi::make_plan(envref.clone(), query.clone()).await?;
@@ -109,7 +112,7 @@ impl<E: NGEnvironment> AssetRef<E> {
             lock.binary = None;
             return Ok(res);
         }
-     }
+    }
 }
 
 #[async_trait]
@@ -181,10 +184,14 @@ pub struct EnvAssetStore<E: NGEnvironment, ARP: AsyncRecipeProvider> {
 
 impl<E: NGEnvironment, ARP: AsyncRecipeProvider> EnvAssetStore<E, ARP> {
     pub fn new(envref: NGEnvRef<E>, recipe_provider: ARP) -> Self {
-        EnvAssetStore { envref, assets: scc::HashMap::new(), query_assets: scc::HashMap::new(), recipe_provider }
+        EnvAssetStore {
+            envref,
+            assets: scc::HashMap::new(),
+            query_assets: scc::HashMap::new(),
+            recipe_provider,
+        }
     }
 }
-
 
 #[async_trait]
 impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E, ARP> {
@@ -194,7 +201,8 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore
         if let Some(key) = query.key() {
             self.get(&key).await
         } else {
-            let entry = self.query_assets
+            let entry = self
+                .query_assets
                 .entry_async(query.clone())
                 .await
                 .or_insert_with(|| AssetRef::<E>::new_from_query(query.clone()));
@@ -203,15 +211,21 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore
     }
 
     async fn get(&self, key: &Key) -> Result<Self::Asset, Error> {
+        let entry = self
+            .assets
+            .entry_async(key.clone())
+            .await
+            .or_insert_with(|| AssetRef::<E>::new_from_query(key.clone().into()));
 
-        let entry = self.assets.entry_async(key.clone()).await
-            .or_insert_with(
-                || AssetRef::<E>::new_from_query(key.clone().into())
-            );
-        
-        Ok(
-            entry.get().clone()
-        )
+        let asset_ref = entry.get().clone();
+
+        // Try to get a recipe from the recipe provider and set it in the asset if available
+        if let Ok(recipe) = self.recipe_provider.recipe(key).await {
+            let mut lock = asset_ref.data.write().await;
+            lock.recipe = Some(recipe);
+        }
+
+        Ok(asset_ref)
     }
 
     async fn create(&self, key: &Key) -> Result<Self::Asset, Error> {
@@ -224,39 +238,70 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore
 
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         let store = self.envref.get_async_store().await;
-        store.contains(key).await
+        if store.contains(key).await? {
+            return Ok(true);
+        }
+        self.recipe_provider.contains(key).await
     }
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {
-        let store = self.envref.get_async_store().await;
-        store.keys().await
+        self.listdir_keys_deep(&Key::new()).await
     }
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let store = self.envref.get_async_store().await;
-        store.listdir(key).await
+        let mut names = self
+        .recipe_provider
+        .assets_with_recipes(key)
+        .await?
+        .into_iter()
+        .map(|resourcename| resourcename.name)
+        .collect::<BTreeSet<String>>();
+        store.listdir(key).await?.into_iter().for_each(|name| {
+            names.insert(name);
+        });
+
+        Ok(names.into_iter().collect())
     }
 
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let store = self.envref.get_async_store().await;
-        store.listdir_keys(key).await
+        Ok(self.listdir(key)
+            .await?
+            .into_iter()
+            .map(|name| key.join(name))
+            .collect::<Vec<Key>>())
     }
 
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let store = self.envref.get_async_store().await;
-        store.listdir_keys_deep(key).await
+
+        let mut keys = store.listdir_keys_deep(key).await?.into_iter().collect::<BTreeSet<Key>>();
+        let mut folders = vec![];
+        for k in keys.iter() {
+            if store.is_dir(k).await? {
+                folders.push(k.clone());
+            }
+        }
+
+        for subkey in folders {
+            if store.is_dir(&subkey).await? {
+                let recipes = self.recipe_provider.assets_with_recipes(&subkey).await?;
+                for resourcename in recipes {
+                    keys.insert(subkey.join(resourcename.name));
+                }
+            }
+        }
+
+        Ok(keys.into_iter().collect())
     }
 
     async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error> {
-        //let store = self.envref.get_async_store().await;
-        //store.makedir(key).await
-        Err(Error::general_error(format!(
-            "makedir not implemented for EnvAssetStore"
-        )))
+        let store = self.envref.get_async_store().await;
+        let _sink = store.makedir(key).await?;
+        let asset = self.get(key).await?;
+        Ok(asset)
     }
 }
-
-
 
 /*
 pub struct SccHashMapAssetStore {
@@ -434,13 +479,13 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAsset
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate as liquers_core;
     use crate::context::SimpleNGEnvironment;
-    use crate::store::{MemoryStore, AsyncStoreWrapper};
-    use crate::parse::parse_key;
     use crate::metadata::Metadata;
+    use crate::parse::parse_key;
+    use crate::store::{AsyncStoreWrapper, MemoryStore};
     use crate::value::Value;
     use liquers_macro::register_command;
-    use crate as liquers_core;
 
     #[tokio::test]
     async fn test_get_state() {
@@ -460,11 +505,17 @@ mod tests {
             fn hello() -> Result<Value, Error> {
                 Ok(Value::new("Hello TEXT"))
             }
-            liquers_macro::register_command!(cr, fn hello()-> result);  
+            liquers_macro::register_command!(cr, fn hello()-> result);
         }
 
         let query = "hello".try_to_query().unwrap();
-        let state = asset_store.get_asset(&query).await.unwrap().get_state(envref.clone()).await.unwrap();
+        let state = asset_store
+            .get_asset(&query)
+            .await
+            .unwrap()
+            .get_state(envref.clone())
+            .await
+            .unwrap();
         assert_eq!(state.try_into_string().unwrap(), "Hello TEXT");
     }
 }

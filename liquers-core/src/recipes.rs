@@ -98,7 +98,23 @@ pub trait AsyncRecipeProvider: Send + Sync {
     /// Returns the plan for the asset represented by key
     async fn recipe_plan(&self, key:&Key) -> Result<Plan, Error>;
     /// Returns the recipe for the asset represented by key
-    async fn recipe(&self, key:&Key) -> Result<Recipe, Error>;    
+    async fn recipe(&self, key:&Key) -> Result<Recipe, Error>;  
+    /// Returns true if the asset represented by key has a recipe
+    async fn contains(&self, key:&Key) -> Result<bool, Error> {        
+        if let Some(name) = key.filename(){
+            let parent_key = key.parent();
+            if self.has_recipes(&parent_key).await?{
+                let recipes = self.assets_with_recipes(&parent_key).await?;
+                return Ok(recipes.iter().any(|resourcename| resourcename == name));
+            }
+            else{
+                return Ok(false);
+            }
+        }
+        else{
+           Ok(false) 
+        }
+    }  
 }
 
 pub struct DefaultRecipeProvider<E:NGEnvironment> {

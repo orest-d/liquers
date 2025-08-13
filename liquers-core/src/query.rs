@@ -190,6 +190,28 @@ pub struct ResourceName {
     pub position: Position,
 }
 
+impl PartialOrd for ResourceName {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.name.cmp(&other.name))
+    }
+}
+
+impl Ord for ResourceName {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+impl PartialEq for ResourceName {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for ResourceName {}
+
+
+
 #[allow(dead_code)]
 impl ResourceName {
     /// Create a new resource name (without a position)
@@ -235,14 +257,6 @@ impl ResourceName {
         }
     }
 }
-
-impl PartialEq for ResourceName {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-
-impl Eq for ResourceName {}
 
 impl Hash for ResourceName {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -637,7 +651,7 @@ impl Hash for TransformQuerySegment {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Key(pub Vec<ResourceName>);
 impl Key {
     /// Create a new empty key
