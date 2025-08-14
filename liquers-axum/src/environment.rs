@@ -1,16 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use liquers_core::{
-    cache::{Cache, NoCache},
-    command_metadata::CommandMetadataRegistry,
-    commands::{CommandRegistry, NGCommandRegistry},
-    context::{ArcEnvRef, Context, EnvRef, Environment, NGContext, NGEnvRef, NGEnvironment},
-    error::Error,
-    interpreter::{ngi, AsyncPlanInterpreter, NGPlanInterpreter},
-    query::{self, TryToQuery},
-    state::State,
-    store::{AsyncStore, NoAsyncStore, NoStore, Store},
-    value::ValueInterface,
+    cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::{CommandRegistry, NGCommandRegistry}, context::{ArcEnvRef, Context, EnvRef, Environment, NGContext, NGEnvRef, NGEnvironment}, error::Error, interpreter::{ngi, AsyncPlanInterpreter, NGPlanInterpreter}, query::{self, TryToQuery}, recipes::DefaultRecipeProvider, state::State, store::{AsyncStore, NoAsyncStore, NoStore, Store}, value::ValueInterface
 };
 use tokio::sync::RwLock;
 
@@ -81,7 +72,7 @@ pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
 impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
     type Value = V;
     type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
-    type AssetStore = liquers_core::assets::EnvAssetStore<Self>;
+    type AssetStore = liquers_core::assets::EnvAssetStore<Self, DefaultRecipeProvider<Self>>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
         &mut self.command_registry.command_metadata_registry
