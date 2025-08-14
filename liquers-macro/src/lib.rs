@@ -615,7 +615,6 @@ impl CommandSignature {
             let presets = self.presets_expression();
             quote! { cm.presets = #presets; }
         };
-        // TODO: Add command presets here
 
         quote! {
             pub fn #register_fn_name(

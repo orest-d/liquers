@@ -640,7 +640,7 @@ impl DefaultValueSerializer for Value {
             "json" => serde_json::to_vec(self).map_err(|e| {
                 Error::new(ErrorType::SerializationError, format!("JSON error {}", e))
             }),
-            "txt" | "html" | "rs" | "py" | "css" => match self {  // TODO: handle various extensions better, rs is only to test assets
+            "txt" | "html" | "rs" | "py" | "css" | "js" => match self {  // TODO: handle various extensions better, rs is only to test assets
                 Value::None => Ok("none".as_bytes().to_vec()),
                 Value::Bool(true) => Ok("true".as_bytes().to_vec()),
                 Value::Bool(false) => Ok("false".as_bytes().to_vec()),
@@ -658,13 +658,20 @@ impl DefaultValueSerializer for Value {
                     ),
                 )),
             },
+            "bytes" | "b" | "bin" => match self {
+                Value::Bytes(x) => Ok(x.clone()),
+                _ => Err(Error::new(
+                    ErrorType::SerializationError,
+                    format!("Serialization to bytes not supported by {}", self.type_name()),
+                )),
+            },
             _ => Err(Error::new(
                 ErrorType::SerializationError,
                 format!("Unsupported format {}", format),
             )),
         }
     }
-    fn deserialize_from_bytes(b: &[u8], _type_identifier: &str, fmt: &str) -> Result<Self, Error> {
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
         match fmt {
             "json" => serde_json::from_slice(b).map_err(|e| {
                 Error::new(
@@ -672,6 +679,28 @@ impl DefaultValueSerializer for Value {
                     format!("JSON error in from_bytes:{}", e),
                 )
             }),
+            "txt" | "html" | "rs" | "py" | "css" | "js" => {
+                let s = String::from_utf8_lossy(b);
+                match type_identifier {
+                    "generic" => Ok(Value::Text(s.to_string())),
+                    "text" => Ok(Value::Text(s.to_string())),
+                    "i32" => s.parse::<i32>().map(Value::I32).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "i32", &e.to_string())
+                    }),
+                    "i64" => s.parse::<i64>().map(Value::I64).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "i64", &e.to_string())
+                    }),
+                    "f64" => s.parse::<f64>().map(Value::F64).map_err(|e| {
+                        Error::conversion_error_with_message(&s, "f64", &e.to_string())
+                    }),
+                    "bool" => Value::from_bool_str(&s),
+                    _ => Err(Error::new(
+                        ErrorType::SerializationError,
+                        format!("Unsupported type identifier in from_bytes:{}", type_identifier),
+                    )),
+                }
+            },
+            "bytes" | "b" | "bin" => Ok(Value::Bytes(b.to_vec())),
             _ => Err(Error::new(
                 ErrorType::SerializationError,
                 format!("Unsupported format in from_bytes:{}", fmt),

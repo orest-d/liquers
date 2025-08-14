@@ -84,8 +84,49 @@ impl<E: NGEnvironment> AssetRef<E> {
         }
     }
 
-    // TODO: Support loading from binary
-    // TODO: Support creating from recipe   
+    // TODO: Support creating from recipe
+
+    /// Deserialize the binary data into the asset's data field.
+    /// Returns true if the deserialization was successful.
+    async fn deserialize_from_binary(&self) -> Result<bool, Error> {
+        let mut lock = self.data.write().await;
+        let value = {
+            if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
+                let type_identifier = metadata.as_ref().type_identifier()?;
+                let extension = metadata.extension().unwrap_or("bin".to_string());
+                E::Value::deserialize_from_bytes(
+                    &binary,
+                    &type_identifier,
+                    &extension,
+                )
+            } else {
+                return Ok(false)
+            }
+        }?;
+
+        lock.data = Some(Arc::new(value));
+        Ok(true)
+    }
+
+    /// Load the binary data from store if not already loaded.
+    /// Only works for assets with query being a key without realm.
+    /// Returns true if the binary data was present or loaded.
+    async fn try_load_binary_if_necessary(&self, envref: NGEnvRef<E>) -> Result<bool, Error> {
+        let mut lock = self.data.write().await;
+        if lock.binary.is_some() {
+            return Ok(true);
+        }
+        if let Some(key) = lock.query.key() {
+            let store = envref.get_async_store().await;
+            let (data, metadata) = store.get(&key).await?;
+            lock.binary = Some(Arc::new(data));
+            lock.metadata = Some(Arc::new(metadata));
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub async fn get_state_if_available(&self) -> Result<Option<State<E::Value>>, Error> {
         let lock = self.data.read().await;
         if let (Some(data), Some(metadata)) = (&lock.data, &lock.metadata) {
@@ -103,6 +144,14 @@ impl<E: NGEnvironment> AssetRef<E> {
         if let Some(state) = self.get_state_if_available().await? {
             return Ok(state);
         } else {
+            if self.try_load_binary_if_necessary(envref.clone()).await? {
+                if self.deserialize_from_binary().await? {
+                    if let Some(state) = self.get_state_if_available().await? {
+                        // TODO: Dispose binary if too long
+                        return Ok(state);
+                    }
+                }
+            }
             let mut lock = self.data.write().await;
             let query = lock.get_query();
             let plan = interpreter::ngi::make_plan(envref.clone(), query.clone()).await?;
@@ -251,12 +300,12 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let store = self.envref.get_async_store().await;
         let mut names = self
-        .recipe_provider
-        .assets_with_recipes(key)
-        .await?
-        .into_iter()
-        .map(|resourcename| resourcename.name)
-        .collect::<BTreeSet<String>>();
+            .recipe_provider
+            .assets_with_recipes(key)
+            .await?
+            .into_iter()
+            .map(|resourcename| resourcename.name)
+            .collect::<BTreeSet<String>>();
         store.listdir(key).await?.into_iter().for_each(|name| {
             names.insert(name);
         });
@@ -265,7 +314,8 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore
     }
 
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        Ok(self.listdir(key)
+        Ok(self
+            .listdir(key)
             .await?
             .into_iter()
             .map(|name| key.join(name))
@@ -275,7 +325,11 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let store = self.envref.get_async_store().await;
 
-        let mut keys = store.listdir_keys_deep(key).await?.into_iter().collect::<BTreeSet<Key>>();
+        let mut keys = store
+            .listdir_keys_deep(key)
+            .await?
+            .into_iter()
+            .collect::<BTreeSet<Key>>();
         let mut folders = vec![];
         for k in keys.iter() {
             if store.is_dir(k).await? {
