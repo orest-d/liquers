@@ -84,8 +84,6 @@ impl<E: NGEnvironment> AssetRef<E> {
         }
     }
 
-    // TODO: Support creating from recipe
-
     /// Deserialize the binary data into the asset's data field.
     /// Returns true if the deserialization was successful.
     async fn deserialize_from_binary(&self) -> Result<bool, Error> {
@@ -94,13 +92,9 @@ impl<E: NGEnvironment> AssetRef<E> {
             if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
                 let type_identifier = metadata.as_ref().type_identifier()?;
                 let extension = metadata.extension().unwrap_or("bin".to_string());
-                E::Value::deserialize_from_bytes(
-                    &binary,
-                    &type_identifier,
-                    &extension,
-                )
+                E::Value::deserialize_from_bytes(&binary, &type_identifier, &extension)
             } else {
-                return Ok(false)
+                return Ok(false);
             }
         }?;
 
@@ -127,6 +121,30 @@ impl<E: NGEnvironment> AssetRef<E> {
         }
     }
 
+    /// Try to create data from a recipe
+    async fn try_create_from_recipe(&self, envref: NGEnvRef<E>) -> Result<bool, Error> {
+        let mut lock = self.data.write().await;
+        if lock.recipe.is_none() {
+            return Ok(false);
+        }
+        let recipe = lock.recipe.as_ref().unwrap();
+
+        let envref1 = envref.clone();
+        let plan = {
+            let lock = envref1.0.read().await;
+            let cmr = lock.get_command_metadata_registry();
+            recipe.to_plan(cmr)
+        }?;
+
+        let cwd_key = lock.query.key().map_or_else(|| None, |k| Some(k.parent()));
+
+        let res = interpreter::ngi::evaluate_plan(plan, envref, cwd_key).await?;
+        lock.data = Some(res.data.clone());
+        lock.metadata = Some(res.metadata.clone());
+        lock.binary = None;
+        Ok(true)
+    }
+
     pub async fn get_state_if_available(&self) -> Result<Option<State<E::Value>>, Error> {
         let lock = self.data.read().await;
         if let (Some(data), Some(metadata)) = (&lock.data, &lock.metadata) {
@@ -150,6 +168,11 @@ impl<E: NGEnvironment> AssetRef<E> {
                         // TODO: Dispose binary if too long
                         return Ok(state);
                     }
+                }
+            }
+            if self.try_create_from_recipe(envref.clone()).await? {
+                if let Some(state) = self.get_state_if_available().await? {
+                    return Ok(state);
                 }
             }
             let mut lock = self.data.write().await;
