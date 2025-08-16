@@ -161,6 +161,16 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     /// Must be consistent with the default_media_type.
     fn default_extension(&self) -> Cow<'static, str>;
 
+    /// Default data format; determines the default data format for serialization
+    /// Data format is more specific than the file extension.
+    /// For example, the default extension can be "csv", but the data format can
+    /// specify what kind of CSV it is (e.g., "csv:comma" or "csv:tab").
+    /// The DefaultValueSerializer trait must be able to unde
+    /// Must be consistent with the default_media_type and default_extension.
+    fn default_data_format(&self) -> Cow<'static, str> {
+        self.default_extension()
+    }
+
     /// Default file name
     fn default_filename(&self) -> Cow<'static, str>;
 
@@ -629,14 +639,14 @@ pub trait DefaultValueSerializer
 where
     Self: Sized,
 {
-    fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error>;
-    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, format: &str)
+    fn as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error>;
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, data_format: &str)
         -> Result<Self, Error>;
 }
 
 impl DefaultValueSerializer for Value {
-    fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
-        match format {
+    fn as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error> {
+        match data_format {
             "json" => serde_json::to_vec(self).map_err(|e| {
                 Error::new(ErrorType::SerializationError, format!("JSON error {}", e))
             }),
@@ -653,7 +663,7 @@ impl DefaultValueSerializer for Value {
                     ErrorType::SerializationError,
                     format!(
                         "Serialization to {} not supported by {}",
-                        format,
+                        data_format,
                         self.type_name()
                     ),
                 )),
@@ -667,12 +677,12 @@ impl DefaultValueSerializer for Value {
             },
             _ => Err(Error::new(
                 ErrorType::SerializationError,
-                format!("Unsupported format {}", format),
+                format!("Unsupported format {}", data_format),
             )),
         }
     }
-    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
-        match fmt {
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, data_format: &str) -> Result<Self, Error> {
+        match data_format {
             "json" => serde_json::from_slice(b).map_err(|e| {
                 Error::new(
                     ErrorType::SerializationError,
@@ -703,7 +713,7 @@ impl DefaultValueSerializer for Value {
             "bytes" | "b" | "bin" => Ok(Value::Bytes(b.to_vec())),
             _ => Err(Error::new(
                 ErrorType::SerializationError,
-                format!("Unsupported format in from_bytes:{}", fmt),
+                format!("Unsupported format in from_bytes:{}", data_format),
             )),
         }
     }

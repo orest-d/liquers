@@ -191,6 +191,7 @@ impl<E: NGEnvironment> AssetRef<E> {
 pub trait AssetInterface<E: NGEnvironment>: Send + Sync {
     async fn get_query(&self) -> Query;
     async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
+    async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error>;
 }
 
 #[async_trait]
@@ -202,6 +203,9 @@ impl<E: NGEnvironment> AssetInterface<E> for AssetRef<E> {
     async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage> {
         let lock = self.data.read().await;
         lock.tx.subscribe()
+    }
+    async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error> {
+        self.get_state(envref).await
     }
 }
 

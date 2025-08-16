@@ -22,6 +22,9 @@ use crate::value::ValueInterface;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Step {
+    GetAsset(Key),
+    GetAssetBinary(Key),
+    GetAssetMetadata(Key),
     GetResource(Key),
     // TODO: support get resource metadata
     // TODO: support get resource raw and resolved
@@ -45,6 +48,7 @@ pub enum Step {
     // TODO: support Plan
     Plan(Plan),
     SetCwd(Key),
+    UseKeyValue(Key),
 }
 
 impl Step {
@@ -693,9 +697,12 @@ impl<'c> PlanBuilder<'c> {
                 }
             }
         }
-        self.command_registry.default_namespaces.iter().for_each(|x| {
-            namespaces.push(x.clone());
-        });
+        self.command_registry
+            .default_namespaces
+            .iter()
+            .for_each(|x| {
+                namespaces.push(x.clone());
+            });
 
         // TODO: check if the namespaces are registered in command registry
         Ok(namespaces)
@@ -722,7 +729,60 @@ impl<'c> PlanBuilder<'c> {
 
     // TODO: RQS realm should should be supported
     fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), Error> {
-        self.plan.steps.push(Step::GetResource(rqs.key.clone()));
+        if let Some(header) = &rqs.header {
+            if !header.name.is_empty() {
+                self.plan.steps.push(Step::Warning(format!(
+                    "Resource header name is ignored: '{}'",
+                    header.name
+                )));
+            }
+            if header.parameters.is_empty() {
+                self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
+            } else {
+                if header.parameters.len() > 1 {
+                    self.plan.steps.push(Step::Warning(format!(
+                        "Resource header has too many parameters: {}, extra parameters are ignored",
+                        header.parameters.len()
+                    )));
+                }
+
+                match header.parameters.first().unwrap().value.as_str() {
+                    "b" | "bin" | "binary" => {
+                        self.plan.steps.push(Step::GetAssetBinary(rqs.key.clone()));
+                    }
+                    "meta" | "metadata" => {
+                        self.plan
+                            .steps
+                            .push(Step::GetAssetMetadata(rqs.key.clone()));
+                    }
+                    "data" | "value" => {
+                        self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
+                    }
+                    "store" | "store_binary" | "store_bin" => {
+                        self.plan.steps.push(Step::GetResource(rqs.key.clone()));
+                    }
+                    "store_meta" => {
+                        self.plan
+                            .steps
+                            .push(Step::GetResourceMetadata(rqs.key.clone()));
+                    }
+                    "cwd" => {
+                        self.plan.steps.push(Step::SetCwd(rqs.key.clone()));
+                    }
+                    "key" => {
+                        self.plan.steps.push(Step::UseKeyValue(rqs.key.clone()));
+                    }
+                    _ => {
+                        return Err(Error::not_supported(
+                            "Resource header parameters must be string or link".to_string(),
+                        ));
+                    }
+                }
+            }
+        } else {
+            //self.plan.steps.push(Step::GetResource(rqs.key.clone()));
+            self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
+        }
         Ok(())
     }
 
@@ -996,12 +1056,20 @@ mod tests {
             .with_placeholders_allowed()
             .build()
             .is_ok());
-        let plan=PlanBuilder::new(parse_query("a").unwrap(), &cr)
-        .with_placeholders_allowed()
-        .build().unwrap();
+        let plan = PlanBuilder::new(parse_query("a").unwrap(), &cr)
+            .with_placeholders_allowed()
+            .build()
+            .unwrap();
         println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         assert!(plan.len() == 1);
-        if let Step::Action { realm, ns, action_name, position, parameters } = &plan[0]{
+        if let Step::Action {
+            realm,
+            ns,
+            action_name,
+            position,
+            parameters,
+        } = &plan[0]
+        {
             assert!(action_name == "a");
             assert!(parameters.0.len() == 1);
             if let ParameterValue::Placeholder(name) = &parameters.0[0] {
