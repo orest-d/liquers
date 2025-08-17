@@ -1623,4 +1623,61 @@ mod tests {
         assert_eq!(result.try_into_string()?, "*** Hello TEXT world! ***");
         Ok(())
     }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_template_command_asset() -> Result<(), Error> {
+        use crate::{context::SimpleNGEnvironment, parse::parse_simple_template, store::*};
+
+        let mut env: SimpleNGEnvironment<Value> = SimpleNGEnvironment::new();
+        let store = MemoryStore::new(&Key::new());
+        store.set(
+            &parse_key("hello.txt").unwrap(),
+            "Hello TEXT".as_bytes(),
+            &Metadata::new(),
+        )?;
+        store.set(
+            &parse_key("template.txt").unwrap(),
+            "*** $-R/hello.txt/-/greet-world$ ***".as_bytes(),
+            &Metadata::new(),
+        )?;
+
+        env.with_async_store(Box::new(crate::store::AsyncStoreWrapper(store)));
+        {
+            let cr = env.get_mut_command_executor();
+            fn greet(state: &State<Value>, who: String) -> Result<String, Error> {
+                println!("GREET {:?}", state.data);
+                let greeting = state.try_into_string().unwrap();
+                Ok(format!("{} {}!", greeting, who))
+            }
+            ng_register_command!(cr, greet(state, who:String));
+
+            fn template(
+                state: State<Value>,
+                mut _args: NGCommandArguments<Value>,
+                context: NGContext<SimpleNGEnvironment<Value>>,
+            ) -> std::pin::Pin<
+                Box<dyn core::future::Future<Output = Result<Value, Error>> + Send + 'static>,
+            > {
+                async move {
+                    let template = state.try_into_string()?;
+                    let template = parse_simple_template(template)?;
+                    let envref = context.clone_payload();
+                    let result =
+                        crate::interpreter::ngi::evaluate_simple_template(envref, template, None)
+                            .await?;
+                    Ok(Value::from_string(result))
+                }
+                .boxed()
+            }
+
+            cr.register_async_command("template", template);
+        }
+        let envref = env.ref_with_default_asset_store().await;
+        let result =
+            crate::interpreter::ngi::evaluate(envref, "-R/template.txt/-/template", None).await?;
+        assert_eq!(result.try_into_string()?, "*** Hello TEXT world! ***");
+        Ok(())
+    }
+
 }
