@@ -3,7 +3,6 @@ use serde_json;
 use liquers_core::{
     command_metadata::CommandMetadata,
     error::ErrorType,
-    recipes::Recipe,
     value::{self, DefaultValueSerializer, ValueInterface},
 };
 use pyo3::{
@@ -20,7 +19,7 @@ use std::{
     result::Result,
 };
 
-use crate::metadata::MetadataRecord;
+use crate::{metadata::MetadataRecord, recipes::Recipe};
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -35,7 +34,7 @@ pub enum Value {
     Object { value: BTreeMap<String, Value> },
     Bytes { value: Vec<u8> },
     Metadata { value: MetadataRecord },
-    //    Recipe { value: Recipe },
+    Recipe { value: Recipe },
     //    CommandMetadata { value: CommandMetadata },
     Py { value: Py<PyAny> },
 }
@@ -104,6 +103,7 @@ impl Value {
             Value::Bytes { value } => Ok(format!("{:?}", value)),
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).str()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
+            Value::Recipe { value } => Ok(format!("{:?}", value)),
         }
     }
     pub fn __repr__(&self) -> PyResult<String> {
@@ -143,6 +143,7 @@ impl Value {
             Value::Bytes { value } => Ok(format!("{:?}", value)),
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).repr()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
+            Value::Recipe { value } => Ok(format!("{:?}", value)),
         }
     }
 }
@@ -181,6 +182,7 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
         Value::Bytes { value } => Ok(value.to_object(py)),
         Value::Py { value } => Ok(value.clone_ref(py)),
         Value::Metadata { value } => Ok(value.clone().into_py(py)),
+        Value::Recipe { value } => Ok(value.clone().into_py(py)),
     }
 }
 
@@ -266,6 +268,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "bytes".into(),
             Value::Py { value: _ } => "python_value".into(),
             Value::Metadata { value } => "metadata".into(),
+            Value::Recipe { value } => "recipe".into(),
         }
     }
 
@@ -282,6 +285,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "bytes".into(),
             Value::Py { value: _ } => "python_value".into(),
             Value::Metadata { value } => "metadata".into(),
+            Value::Recipe { value } => "recipe".into(),
         }
     }
 
@@ -298,6 +302,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "b".into(),
             Value::Py { value: _ } => "pickle".into(),
             Value::Metadata { value } => "json".into(),
+            Value::Recipe { value } => "json".into(),
         }
     }
 
@@ -314,6 +319,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "binary.b".into(),
             Value::Py { value: _ } => "data.pickle".into(),
             Value::Metadata { value } => "metadata.json".into(),
+            Value::Recipe { value } => "recipe.json".into(),
         }
     }
 
@@ -330,6 +336,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "application/octet-stream".into(),
             Value::Py { value: _ } => "application/octet-stream".into(),
             Value::Metadata { value: _ } => "application/json".into(),
+            Value::Recipe { value: _ } => "application/json".into(),
         }
     }
 
@@ -421,11 +428,15 @@ impl ValueInterface for Value {
     }
 
     fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
-        todo!()
+        Value::Metadata {
+            value: MetadataRecord { inner: metadata },
+        }
     }
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
-        todo!()
+        Value::Recipe {
+            value: Recipe(recipe),
+        }
     }
 }
 

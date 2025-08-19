@@ -15,6 +15,7 @@ pub mod commands;
 pub mod context;
 pub mod plan;
 pub mod interpreter;
+pub mod recipes;
 use crate::parse::*;
 use crate::error::Error;
 
@@ -35,6 +36,8 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::metadata::Metadata>()?;
     m.add_class::<crate::metadata::MetadataRecord>()?;
+
+    m.add_class::<crate::recipes::Recipe>()?;
 
     m.add_class::<crate::store::Store>()?;
     m.add_function(wrap_pyfunction!(crate::store::local_filesystem_store, m)?)?;
