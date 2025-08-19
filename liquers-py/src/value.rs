@@ -1,7 +1,6 @@
 use serde_json;
 
 use liquers_core::{
-    command_metadata::CommandMetadata,
     error::ErrorType,
     value::{self, DefaultValueSerializer, ValueInterface},
 };
@@ -19,7 +18,7 @@ use std::{
     result::Result,
 };
 
-use crate::{metadata::MetadataRecord, recipes::Recipe};
+use crate::{command_metadata::CommandMetadata, metadata::MetadataRecord, recipes::Recipe};
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -35,7 +34,7 @@ pub enum Value {
     Bytes { value: Vec<u8> },
     Metadata { value: MetadataRecord },
     Recipe { value: Recipe },
-    //    CommandMetadata { value: CommandMetadata },
+    CommandMetadata { value: CommandMetadata },
     Py { value: Py<PyAny> },
 }
 
@@ -104,6 +103,7 @@ impl Value {
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).str()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
+            Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
         }
     }
     pub fn __repr__(&self) -> PyResult<String> {
@@ -144,6 +144,7 @@ impl Value {
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).repr()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
+            Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
         }
     }
 }
@@ -157,32 +158,33 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
         Value::F64 { value } => Ok(value.to_object(py)),
         Value::Text { value } => Ok(value.to_object(py)),
         Value::Array { value } => {
-            let list = PyList::empty_bound(py);
-            for x in value {
-                list.append(value_to_pyobject(x, py)?).map_err(|e| {
-                    liquers_core::error::Error::execution_error(format!(
-                        "Error appending to python list: {e}"
-                    ))
-                })?;
+                        let list = PyList::empty_bound(py);
+                        for x in value {
+                            list.append(value_to_pyobject(x, py)?).map_err(|e| {
+                                liquers_core::error::Error::execution_error(format!(
+                                    "Error appending to python list: {e}"
+                                ))
+                            })?;
+                        }
+                        Ok(list.into())
             }
-            Ok(list.into())
-        }
         Value::Object { value } => {
-            let dict = PyDict::new_bound(py);
-            for (k, v) in value {
-                let x = value_to_pyobject(v, py)?;
-                dict.set_item(k, x).map_err(|e| {
-                    liquers_core::error::Error::execution_error(format!(
-                        "Error setting item '{k}' in python dictionary: {e}"
-                    ))
-                })?;
+                let dict = PyDict::new_bound(py);
+                for (k, v) in value {
+                    let x = value_to_pyobject(v, py)?;
+                    dict.set_item(k, x).map_err(|e| {
+                        liquers_core::error::Error::execution_error(format!(
+                            "Error setting item '{k}' in python dictionary: {e}"
+                        ))
+                    })?;
+                }
+                Ok(dict.into())
             }
-            Ok(dict.into())
-        }
         Value::Bytes { value } => Ok(value.to_object(py)),
         Value::Py { value } => Ok(value.clone_ref(py)),
         Value::Metadata { value } => Ok(value.clone().into_py(py)),
         Value::Recipe { value } => Ok(value.clone().into_py(py)),
+        Value::CommandMetadata { value } => Ok(value.clone().into_py(py)),
     }
 }
 
@@ -269,6 +271,7 @@ impl ValueInterface for Value {
             Value::Py { value: _ } => "python_value".into(),
             Value::Metadata { value } => "metadata".into(),
             Value::Recipe { value } => "recipe".into(),
+            Value::CommandMetadata { value } => "command_metadata".into(),
         }
     }
 
@@ -286,6 +289,7 @@ impl ValueInterface for Value {
             Value::Py { value: _ } => "python_value".into(),
             Value::Metadata { value } => "metadata".into(),
             Value::Recipe { value } => "recipe".into(),
+            Value::CommandMetadata { value } => "command_metadata".into(),
         }
     }
 
@@ -303,6 +307,7 @@ impl ValueInterface for Value {
             Value::Py { value: _ } => "pickle".into(),
             Value::Metadata { value } => "json".into(),
             Value::Recipe { value } => "json".into(),
+            Value::CommandMetadata { value } => "json".into(),
         }
     }
 
@@ -320,6 +325,7 @@ impl ValueInterface for Value {
             Value::Py { value: _ } => "data.pickle".into(),
             Value::Metadata { value } => "metadata.json".into(),
             Value::Recipe { value } => "recipe.json".into(),
+            Value::CommandMetadata { value } => "command_metadata.json".into(),
         }
     }
 
@@ -337,6 +343,7 @@ impl ValueInterface for Value {
             Value::Py { value: _ } => "application/octet-stream".into(),
             Value::Metadata { value: _ } => "application/json".into(),
             Value::Recipe { value: _ } => "application/json".into(),
+            Value::CommandMetadata { value: _ } => "application/json".into(),
         }
     }
 

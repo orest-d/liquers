@@ -72,6 +72,7 @@ impl ArgumentInfo {
 }
 
 #[pyclass]
+#[derive(Debug, Clone)]
 pub struct CommandMetadata(pub liquers_core::command_metadata::CommandMetadata);
 
 #[pymethods]
