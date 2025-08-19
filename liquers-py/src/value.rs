@@ -1,8 +1,7 @@
 use serde_json;
 
 use liquers_core::{
-    error::ErrorType,
-    value::{self, DefaultValueSerializer, ValueInterface},
+    command_metadata::CommandMetadata, error::ErrorType, metadata::MetadataRecord, recipes::Recipe, value::{self, DefaultValueSerializer, ValueInterface}
 };
 use pyo3::{
     prelude::*,
@@ -30,6 +29,10 @@ pub enum Value {
     Array { value: Vec<Value> },
     Object { value: BTreeMap<String, Value> },
     Bytes { value: Vec<u8> },
+//    Metadata { value: MetadataRecord },
+//    Recipe { value: Recipe },
+//    CommandMetadata { value: CommandMetadata },
+
     Py { value: Py<PyAny> },
 }
 
@@ -405,6 +408,14 @@ impl ValueInterface for Value {
             Value::F64 { value: n } => Ok(*n),
             _ => Err(Error::conversion_error(self.identifier(), "f64")),
         }
+    }
+    
+    fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
+        todo!()
+    }
+    
+    fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
+        todo!()
     }
 }
 
