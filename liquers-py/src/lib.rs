@@ -34,6 +34,7 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::parse::parse_key, m)?)?;
 
     m.add_class::<crate::metadata::Metadata>()?;
+    m.add_class::<crate::metadata::MetadataRecord>()?;
 
     m.add_class::<crate::store::Store>()?;
     m.add_function(wrap_pyfunction!(crate::store::local_filesystem_store, m)?)?;

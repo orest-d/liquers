@@ -16,9 +16,11 @@ impl Metadata {
 }
 
 #[pyclass]
+#[derive(Clone, Debug)]
 pub struct MetadataRecord{
     pub inner: CoreMetadataRecord,
 }
+
 
 // TODO: Create AssetInfo
 // TODO: Create LogEntry

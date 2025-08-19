@@ -1,7 +1,10 @@
 use serde_json;
 
 use liquers_core::{
-    command_metadata::CommandMetadata, error::ErrorType, metadata::MetadataRecord, recipes::Recipe, value::{self, DefaultValueSerializer, ValueInterface}
+    command_metadata::CommandMetadata,
+    error::ErrorType,
+    recipes::Recipe,
+    value::{self, DefaultValueSerializer, ValueInterface},
 };
 use pyo3::{
     prelude::*,
@@ -17,6 +20,8 @@ use std::{
     result::Result,
 };
 
+use crate::metadata::MetadataRecord;
+
 #[derive(Debug, Clone)]
 #[pyclass]
 pub enum Value {
@@ -29,10 +34,9 @@ pub enum Value {
     Array { value: Vec<Value> },
     Object { value: BTreeMap<String, Value> },
     Bytes { value: Vec<u8> },
-//    Metadata { value: MetadataRecord },
-//    Recipe { value: Recipe },
-//    CommandMetadata { value: CommandMetadata },
-
+    Metadata { value: MetadataRecord },
+    //    Recipe { value: Recipe },
+    //    CommandMetadata { value: CommandMetadata },
     Py { value: Py<PyAny> },
 }
 
@@ -99,6 +103,7 @@ impl Value {
             )),
             Value::Bytes { value } => Ok(format!("{:?}", value)),
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).str()?.to_string())),
+            Value::Metadata { value } => Ok(format!("{:?}", value)),
         }
     }
     pub fn __repr__(&self) -> PyResult<String> {
@@ -137,6 +142,7 @@ impl Value {
             )),
             Value::Bytes { value } => Ok(format!("{:?}", value)),
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).repr()?.to_string())),
+            Value::Metadata { value } => Ok(format!("{:?}", value)),
         }
     }
 }
@@ -174,6 +180,7 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
         }
         Value::Bytes { value } => Ok(value.to_object(py)),
         Value::Py { value } => Ok(value.clone_ref(py)),
+        Value::Metadata { value } => Ok(value.clone().into_py(py)),
     }
 }
 
@@ -257,8 +264,8 @@ impl ValueInterface for Value {
             Value::Array { value: _ } => "generic".into(),
             Value::Object { value: _ } => "dictionary".into(),
             Value::Bytes { value: _ } => "bytes".into(),
-            // TODO: Implement this properly
             Value::Py { value: _ } => "python_value".into(),
+            Value::Metadata { value } => "metadata".into(),
         }
     }
 
@@ -273,8 +280,8 @@ impl ValueInterface for Value {
             Value::Array { value: _ } => "array".into(),
             Value::Object { value: _ } => "object".into(),
             Value::Bytes { value: _ } => "bytes".into(),
-            // TODO: Implement this properly
             Value::Py { value: _ } => "python_value".into(),
+            Value::Metadata { value } => "metadata".into(),
         }
     }
 
@@ -290,6 +297,7 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "json".into(),
             Value::Bytes { value: _ } => "b".into(),
             Value::Py { value: _ } => "pickle".into(),
+            Value::Metadata { value } => "json".into(),
         }
     }
 
@@ -305,6 +313,7 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "data.json".into(),
             Value::Bytes { value: _ } => "binary.b".into(),
             Value::Py { value: _ } => "data.pickle".into(),
+            Value::Metadata { value } => "metadata.json".into(),
         }
     }
 
@@ -320,6 +329,7 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "application/json".into(),
             Value::Bytes { value: _ } => "application/octet-stream".into(),
             Value::Py { value: _ } => "application/octet-stream".into(),
+            Value::Metadata { value: _ } => "application/json".into(),
         }
     }
 
@@ -409,11 +419,11 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "f64")),
         }
     }
-    
+
     fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
         todo!()
     }
-    
+
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
         todo!()
     }
