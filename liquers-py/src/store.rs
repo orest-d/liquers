@@ -12,6 +12,8 @@ pub fn local_filesystem_store(path: &str, prefix: &str) -> PyResult<Store> {
     ))))
 }
 
+/// TODO: Add AssetInfo support
+
 #[pymethods]
 impl Store {
     /// Get store name

@@ -36,6 +36,7 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::metadata::Metadata>()?;
     m.add_class::<crate::metadata::MetadataRecord>()?;
+    m.add_class::<crate::metadata::AssetInfo>()?;
 
     m.add_class::<crate::recipes::Recipe>()?;
 
