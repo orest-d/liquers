@@ -2,23 +2,140 @@ use liquers_core::error::Error;
 use liquers_core::metadata::{
     AssetInfo as CoreAssetInfo, LogEntry as CoreLogEntry, LogEntryKind as CoreLogEntryKind,
     MetadataRecord as CoreMetadataRecord, Status as CoreStatus,
+    Metadata as CoreMetadata,
 };
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
 use crate::parse::{Key, Position, Query};
 
-// implement to_json and from_json in MetadataRecord
-// implement to_json and from_json in AssetInfo
-
 #[pyclass]
-pub struct Metadata(pub liquers_core::metadata::Metadata);
+pub struct Metadata{pub inner: CoreMetadata}
 
 #[pymethods]
 impl Metadata {
     #[new]
     pub fn new() -> Self {
-        Metadata(liquers_core::metadata::Metadata::new())
+        Metadata { inner: CoreMetadata::new() }
+    }
+
+    pub fn get_asset_info(&self) -> PyResult<AssetInfo> {
+        self.inner
+            .get_asset_info()
+            .map(|info| AssetInfo { inner: info })
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn with_query(&mut self, query: Query) {
+        self.inner.with_query(query.0);
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        CoreMetadata::from_json(json)
+            .map(|m| Metadata { inner: m })
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn is_error(&self) -> PyResult<bool> {
+        self.inner
+            .is_error()
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        self.inner
+            .to_json()
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn get_media_type(&self) -> String {
+        self.inner.get_media_type()
+    }
+
+    pub fn query(&self) -> PyResult<Query> {
+        self.inner
+            .query()
+            .map(Query)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn with_type_identifier(&mut self, type_identifier: String) {
+        self.inner.with_type_identifier(type_identifier);
+    }
+
+    pub fn type_identifier(&self) -> PyResult<String> {
+        self.inner
+            .type_identifier()
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn filename(&self) -> Option<String> {
+        self.inner.filename()
+    }
+
+    pub fn extension(&self) -> Option<String> {
+        self.inner.extension()
+    }
+
+    pub fn set_extension(&mut self, extension: &str) -> PyResult<()> {
+        self.inner
+            .set_extension(extension)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        Ok(()) 
+    }
+
+    pub fn get_data_format(&self) -> String {
+        self.inner.get_data_format()
+    }
+
+    pub fn with_error(&mut self, error: String) {
+        self.inner.with_error(Error::general_error(error));
+    }
+
+    pub fn status(&self) -> Status {
+        Status {
+            inner: self.inner.status(),
+        }
+    }
+
+    pub fn message(&self) -> String {
+        self.inner.message().to_string()
+    }
+
+    pub fn unicode_icon(&self) -> String {
+        self.inner.unicode_icon().to_string()
+    }
+
+    pub fn file_size(&self) -> Option<u64> {
+        self.inner.file_size()
+    }
+
+    pub fn is_dir(&self) -> bool {
+        self.inner.is_dir()
+    }
+
+    pub fn with_isdir(&mut self, is_dir: bool) {
+        self.inner.with_isdir(is_dir);
+    }
+
+    pub fn with_file_size(&mut self, file_size: u64) {
+        self.inner.with_file_size(file_size);
+    }
+
+    pub fn error_result(&self) -> PyResult<()> {
+        self.inner
+            .error_result()
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
     }
 }
 
@@ -39,28 +156,30 @@ impl MetadataRecord {
 
     #[getter]
     pub fn log(&self) -> Vec<LogEntry> {
-        self.inner.log.iter()
-            .map(|entry| LogEntry { inner: entry.clone() })
+        self.inner
+            .log
+            .iter()
+            .map(|entry| LogEntry {
+                inner: entry.clone(),
+            })
             .collect()
     }
 
     #[setter]
     pub fn set_log(&mut self, log: Vec<LogEntry>) {
-        self.inner.log = log.into_iter()
-            .map(|entry| entry.inner)
-            .collect();
+        self.inner.log = log.into_iter().map(|entry| entry.inner).collect();
     }
 
     #[getter]
     pub fn query(&self) -> Query {
         Query(self.inner.query.clone())
     }
-    
+
     #[setter]
     pub fn set_query(&mut self, query: Query) {
         self.inner.query = query.0;
     }
-    
+
     #[getter]
     pub fn key(&self) -> Option<Key> {
         if let Some(key) = &self.inner.key {
@@ -209,11 +328,10 @@ impl MetadataRecord {
         self.inner.with_key(key.0);
     }
 
-    
     pub fn with_status(&mut self, status: Status) {
         self.inner.with_status(status.inner);
     }
-    
+
     pub fn with_type_identifier(&mut self, type_identifier: String) {
         self.inner.with_type_identifier(type_identifier);
     }
@@ -281,6 +399,26 @@ impl MetadataRecord {
         self.inner
             .error_result()
             .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let m: CoreMetadataRecord = serde_json::from_str(json)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        Ok(MetadataRecord { inner: m })
     }
 }
 
@@ -399,6 +537,18 @@ impl AssetInfo {
     pub fn set_is_dir(&mut self, is_dir: bool) {
         self.inner.is_dir = is_dir;
     }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let m: CoreAssetInfo = serde_json::from_str(json)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        Ok(AssetInfo { inner: m })
+    }
 }
 
 #[pyclass]
@@ -443,7 +593,6 @@ impl Status {
     }
 }
 
-// TODO: Convert LogEntryKind to python/pyo3 enum
 #[pyclass]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum LogEntryKind {
@@ -482,13 +631,13 @@ impl From<LogEntryKind> for CoreLogEntryKind {
 #[pymethods]
 impl LogEntryKind {
     #[new]
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> PyResult<Self> {
         match name {
-            "debug" => LogEntryKind::Debug,
-            "info" => LogEntryKind::Info,
-            "warning" => LogEntryKind::Warning,
-            "error" => LogEntryKind::Error,
-            _ => LogEntryKind::Info, // TODO: Raise an error
+            "debug" => Ok(LogEntryKind::Debug),
+            "info" => Ok(LogEntryKind::Info),
+            "warning" => Ok(LogEntryKind::Warning),
+            "error" => Ok(LogEntryKind::Error),
+            _ => Err(PyErr::new::<PyValueError, _>("Invalid log entry kind")),
         }
     }
 
@@ -503,6 +652,7 @@ impl LogEntryKind {
     pub fn __repr__(&self) -> String {
         format!("'{:?}'", self)
     }
+
 }
 
 #[pyclass]
@@ -582,5 +732,25 @@ impl LogEntry {
     #[setter]
     pub fn set_traceback(&mut self, traceback: Option<String>) {
         self.inner.traceback = traceback;
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let m: CoreLogEntry = serde_json::from_str(json)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        Ok(LogEntry { inner: m })
+    }
+
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
     }
 }

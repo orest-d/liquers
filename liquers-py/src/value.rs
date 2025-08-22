@@ -442,7 +442,7 @@ impl ValueInterface for Value {
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
         Value::Recipe {
-            value: Recipe(recipe),
+            value: Recipe { inner: recipe },
         }
     }
 }
