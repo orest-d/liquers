@@ -54,6 +54,7 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::value::Value>()?;
 
+    m.add_class::<crate::command_metadata::EnumArgumentType>()?;
     m.add_class::<crate::command_metadata::ArgumentInfo>()?;
     m.add_class::<crate::command_metadata::CommandMetadata>()?;
     m.add_class::<crate::command_metadata::CommandKey>()?;

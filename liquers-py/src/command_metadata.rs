@@ -1,4 +1,65 @@
-use pyo3::{exceptions::PyException, ffi::PyListObject, prelude::*, types::PyList};
+use pyo3::{exceptions::PyException, prelude::*, types::PyList};
+
+
+// TODO: Implement EnumArgumentType
+// TODO: Implement EnumArgumentAlternative
+// TODO: Implement EnumArgument
+// TODO: Implement ArgumentType
+// TODO: Implement ArgumentGUIInfo
+// TODO: Implement CommandParameterValue
+// TODO: Implement ParameterPreset
+// TODO: Implement CommandPreset
+// TODO: Implement CommandDefinition
+
+/// Type of an enum argument, see EnumArgument
+/// This is a restricted version of ArgumentType to prevent circular type definition
+
+#[pyclass]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum EnumArgumentType {
+    #[serde(rename = "string")]
+    String,
+    #[serde(rename = "int")]
+    Integer,
+    #[serde(rename = "int_opt")]
+    IntegerOption,
+    #[serde(rename = "float")]
+    Float,
+    #[serde(rename = "float_opt")]
+    FloatOption,
+    #[serde(rename = "bool")]
+    Boolean,
+    #[serde(rename = "any")]
+    Any,
+}
+
+impl From<EnumArgumentType> for liquers_core::command_metadata::EnumArgumentType {
+    fn from(e: EnumArgumentType) -> Self {
+        match e {
+            EnumArgumentType::String => liquers_core::command_metadata::EnumArgumentType::String,
+            EnumArgumentType::Integer => liquers_core::command_metadata::EnumArgumentType::Integer,
+            EnumArgumentType::IntegerOption => liquers_core::command_metadata::EnumArgumentType::IntegerOption,
+            EnumArgumentType::Float => liquers_core::command_metadata::EnumArgumentType::Float,
+            EnumArgumentType::FloatOption => liquers_core::command_metadata::EnumArgumentType::FloatOption,
+            EnumArgumentType::Boolean => liquers_core::command_metadata::EnumArgumentType::Boolean,
+            EnumArgumentType::Any => liquers_core::command_metadata::EnumArgumentType::Any,
+        }
+    }
+}
+
+impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType {
+    fn from(e: liquers_core::command_metadata::EnumArgumentType) -> Self {
+        match e {
+            liquers_core::command_metadata::EnumArgumentType::String => EnumArgumentType::String,
+            liquers_core::command_metadata::EnumArgumentType::Integer => EnumArgumentType::Integer,
+            liquers_core::command_metadata::EnumArgumentType::IntegerOption => EnumArgumentType::IntegerOption,
+            liquers_core::command_metadata::EnumArgumentType::Float => EnumArgumentType::Float,
+            liquers_core::command_metadata::EnumArgumentType::FloatOption => EnumArgumentType::FloatOption,
+            liquers_core::command_metadata::EnumArgumentType::Boolean => EnumArgumentType::Boolean,
+            liquers_core::command_metadata::EnumArgumentType::Any => EnumArgumentType::Any,
+        }
+    }
+}
 
 #[pyclass]
 pub struct CommandKey(pub liquers_core::command_metadata::CommandKey);
@@ -131,10 +192,12 @@ impl CommandMetadataRegistry {
         let mut cmd = liquers_core::command_metadata::CommandMetadata::new(command_name);
         cmd.with_namespace(namespace);
         let x = Python::with_gil(|py| {
-            let list = arguments.as_ref(py);
+            let list = arguments.bind(py);
             let mut args = Vec::new();
             for i in 0..list.len() {
-                let aname = list.get_item(i).unwrap().str().unwrap().to_str().unwrap();
+                let item = list.get_item(i).unwrap();
+                let pystr = item.str().unwrap();
+                let aname = pystr.to_str().unwrap();
                 let a = if aname == "context" {
                     liquers_core::command_metadata::ArgumentInfo::argument(aname).set_injected()
                 } else {
