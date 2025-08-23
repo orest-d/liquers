@@ -287,10 +287,10 @@ pub trait NGFromParameterValue<T> {
 /// Macro to simplify the implementation of the FromParameterValue trait
 macro_rules! impl_from_parameter_value {
     ($t:ty, $jsonvalue_to_opt:expr, $stateval_to_res:ident) => {
-        impl<E: Environment> FromParameterValue<$t, E> for $t {
+        impl<E: crate::context::Environment> crate::commands::FromParameterValue<$t, E> for $t {
             fn from_parameter_value(
                 param: &ParameterValue,
-                context: &impl ContextInterface<E>,
+                context: &impl crate::context::ContextInterface<E>,
             ) -> Result<$t, Error> {
                 if let Some(ref p) = param.value() {
                     $jsonvalue_to_opt(p).ok_or(
@@ -304,7 +304,7 @@ macro_rules! impl_from_parameter_value {
                 } else {
                     if let Some(link) = param.link().as_ref() {
                         let state = context.evaluate_dependency(link)?;
-                        return <E as Environment>::Value::$stateval_to_res(
+                        return <E as crate::context::Environment>::Value::$stateval_to_res(
                             &*(state.data),
                         )
                         .map_err(|e| e.with_query(link));
