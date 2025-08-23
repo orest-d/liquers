@@ -6,7 +6,7 @@ use scc;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::{
-    context2::{NGEnvRef, NGEnvironment}, error::Error, interpreter2, metadata::{self, Metadata, Status}, query::{Key, Query, TryToQuery}, recipes2::{AsyncRecipeProvider, Recipe}, state::State, store::AsyncStore, value::{DefaultValueSerializer, ValueInterface}
+    context2::{EnvRef, Environment}, error::Error, interpreter2, metadata::{self, Metadata, Status}, query::{Key, Query, TryToQuery}, recipes2::{AsyncRecipeProvider, Recipe}, state::State, store::AsyncStore, value::{DefaultValueSerializer, ValueInterface}
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -14,7 +14,7 @@ pub enum AssetMessage {
     StatusChanged(Status),
 }
 
-pub struct AssetData<E: NGEnvironment> {
+pub struct AssetData<E: Environment> {
     pub query: Query,
     rx: broadcast::Receiver<AssetMessage>,
     tx: broadcast::Sender<AssetMessage>,
@@ -33,7 +33,7 @@ pub struct AssetData<E: NGEnvironment> {
     _marker: std::marker::PhantomData<E>,
 }
 
-impl<E: NGEnvironment> AssetData<E> {
+impl<E: Environment> AssetData<E> {
     pub fn new(query: Query) -> Self {
         let (tx, rx) = broadcast::channel(100);
         AssetData {
@@ -53,18 +53,18 @@ impl<E: NGEnvironment> AssetData<E> {
     }
 }
 
-pub struct AssetRef<E: NGEnvironment> {
+pub struct AssetRef<E: Environment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
-impl<E: NGEnvironment> Clone for AssetRef<E> {
+impl<E: Environment> Clone for AssetRef<E> {
     fn clone(&self) -> Self {
         AssetRef {
             data: self.data.clone(),
         }
     }
 }
-impl<E: NGEnvironment> AssetRef<E> {
+impl<E: Environment> AssetRef<E> {
     pub fn new(data: AssetData<E>) -> Self {
         AssetRef {
             data: Arc::new(RwLock::new(data)),
@@ -97,7 +97,7 @@ impl<E: NGEnvironment> AssetRef<E> {
     /// Load the binary data from store if not already loaded.
     /// Only works for assets with query being a key without realm.
     /// Returns true if the binary data was present or loaded.
-    async fn try_load_binary_if_necessary(&self, envref: NGEnvRef<E>) -> Result<bool, Error> {
+    async fn try_load_binary_if_necessary(&self, envref: EnvRef<E>) -> Result<bool, Error> {
         let mut lock = self.data.write().await;
         if lock.binary.is_some() {
             return Ok(true);
@@ -114,7 +114,7 @@ impl<E: NGEnvironment> AssetRef<E> {
     }
 
     /// Try to create data from a recipe
-    async fn try_create_from_recipe(&self, envref: NGEnvRef<E>) -> Result<bool, Error> {
+    async fn try_create_from_recipe(&self, envref: EnvRef<E>) -> Result<bool, Error> {
         let mut lock = self.data.write().await;
         if lock.recipe.is_none() {
             return Ok(false);
@@ -150,7 +150,7 @@ impl<E: NGEnvironment> AssetRef<E> {
         Ok(None)
     }
 
-    pub async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error> {
+    pub async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.get_state_if_available().await? {
             return Ok(state);
         } else {
@@ -180,14 +180,14 @@ impl<E: NGEnvironment> AssetRef<E> {
 }
 
 #[async_trait]
-pub trait AssetInterface<E: NGEnvironment>: Send + Sync {
+pub trait AssetInterface<E: Environment>: Send + Sync {
     async fn get_query(&self) -> Query;
     async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
-    async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error>;
+    async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error>;
 }
 
 #[async_trait]
-impl<E: NGEnvironment> AssetInterface<E> for AssetRef<E> {
+impl<E: Environment> AssetInterface<E> for AssetRef<E> {
     async fn get_query(&self) -> Query {
         let lock = self.data.read();
         lock.await.query.clone()
@@ -196,13 +196,13 @@ impl<E: NGEnvironment> AssetInterface<E> for AssetRef<E> {
         let lock = self.data.read().await;
         lock.tx.subscribe()
     }
-    async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error> {
+    async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
         self.get_state(envref).await
     }
 }
 
 #[async_trait]
-pub trait AssetManager<E: NGEnvironment>: Send + Sync {
+pub trait AssetManager<E: Environment>: Send + Sync {
     type Asset: AssetInterface<E>;
     async fn get_asset_if_exists(&self, query: &Query) -> Result<Self::Asset, Error>;
     async fn get_asset(&self, query: Query) -> Result<Self::Asset, Error>;
@@ -211,7 +211,7 @@ pub trait AssetManager<E: NGEnvironment>: Send + Sync {
 }
 
 #[async_trait]
-pub trait AssetStore<E: NGEnvironment>: Send + Sync {
+pub trait AssetStore<E: Environment>: Send + Sync {
     type Asset: AssetInterface<E>;
     async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error>;
     async fn get(&self, key: &Key) -> Result<Self::Asset, Error>;
@@ -243,15 +243,15 @@ pub trait AssetStore<E: NGEnvironment>: Send + Sync {
     async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error>;
 }
 
-pub struct EnvAssetStore<E: NGEnvironment, ARP: AsyncRecipeProvider> {
-    envref: NGEnvRef<E>,
+pub struct EnvAssetStore<E: Environment, ARP: AsyncRecipeProvider> {
+    envref: EnvRef<E>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     recipe_provider: ARP,
 }
 
-impl<E: NGEnvironment, ARP: AsyncRecipeProvider> EnvAssetStore<E, ARP> {
-    pub fn new(envref: NGEnvRef<E>, recipe_provider: ARP) -> Self {
+impl<E: Environment, ARP: AsyncRecipeProvider> EnvAssetStore<E, ARP> {
+    pub fn new(envref: EnvRef<E>, recipe_provider: ARP) -> Self {
         EnvAssetStore {
             envref,
             assets: scc::HashMap::new(),
@@ -262,7 +262,7 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> EnvAssetStore<E, ARP> {
 }
 
 #[async_trait]
-impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E, ARP> {
+impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E, ARP> {
     type Asset = AssetRef<E>;
 
     async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error> {
@@ -432,7 +432,7 @@ impl AssetStore for SccHashMapAssetStore {
 */
 
 #[async_trait]
-pub trait AsyncAssets<E: NGEnvironment>: Send + Sync {
+pub trait AsyncAssets<E: Environment>: Send + Sync {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>;
     async fn get_state(&self, key: &Key) -> Result<State<E::Value>, Error>;
     async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error>;
@@ -442,13 +442,13 @@ pub trait AsyncAssets<E: NGEnvironment>: Send + Sync {
     async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error>;
 }
 
-pub struct DefaultAssets<E: NGEnvironment, ARP: AsyncRecipeProvider> {
-    pub(crate) envref: NGEnvRef<E>,
+pub struct DefaultAssets<E: Environment, ARP: AsyncRecipeProvider> {
+    pub(crate) envref: EnvRef<E>,
     recipe_provider: ARP,
 }
 
-impl<E: NGEnvironment, ARP: AsyncRecipeProvider> DefaultAssets<E, ARP> {
-    pub fn new(envref: NGEnvRef<E>, recipe_provider: ARP) -> Self {
+impl<E: Environment, ARP: AsyncRecipeProvider> DefaultAssets<E, ARP> {
+    pub fn new(envref: EnvRef<E>, recipe_provider: ARP) -> Self {
         DefaultAssets {
             envref,
             recipe_provider,
@@ -459,7 +459,7 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> DefaultAssets<E, ARP> {
 // TODO: This whole think is a mess. Asset needs to be properly implemented to be able to handle concurrent access
 // Asset needs some locking or transaction-like processing
 #[async_trait]
-impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAssets<E, ARP> {
+impl<E: Environment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAssets<E, ARP> {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         let store = self.envref.get_async_store().await;
         match store.get(key).await {
@@ -573,7 +573,7 @@ mod tests {
             let mut cr = lock.get_mut_command_executor();
             type CommandValue = Value;
             type CommandContext = crate::context::NGContext<SimpleNGEnvironment<Value>>;
-            type CommandPayload = NGEnvRef<SimpleNGEnvironment<Value>>;
+            type CommandPayload = EnvRef<SimpleNGEnvironment<Value>>;
             fn hello() -> Result<Value, Error> {
                 Ok(Value::new("Hello TEXT"))
             }

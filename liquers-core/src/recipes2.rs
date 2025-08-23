@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     command_metadata::CommandMetadataRegistry,
-    context2::{NGEnvRef, NGEnvironment},
+    context2::{EnvRef, Environment},
     error::Error,
     parse::parse_query,
     plan::{Plan, PlanBuilder},
@@ -135,12 +135,12 @@ pub trait AsyncRecipeProvider: Send + Sync {
     }
 }
 
-pub struct DefaultRecipeProvider<E: NGEnvironment> {
-    envref: NGEnvRef<E>,
+pub struct DefaultRecipeProvider<E: Environment> {
+    envref: EnvRef<E>,
 }
 
-impl<E: NGEnvironment> DefaultRecipeProvider<E> {
-    pub fn new(envref: NGEnvRef<E>) -> Self {
+impl<E: Environment> DefaultRecipeProvider<E> {
+    pub fn new(envref: EnvRef<E>) -> Self {
         DefaultRecipeProvider { envref }
     }
     pub async fn get_recipes(&self, key: &Key) -> Result<RecipeList, Error> {
@@ -163,7 +163,7 @@ impl<E: NGEnvironment> DefaultRecipeProvider<E> {
 }
 
 #[async_trait]
-impl<E: NGEnvironment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
+impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
     async fn assets_with_recipes(&self, key: &Key) -> Result<Vec<ResourceName>, Error> {
         if self.has_recipes(key).await? {
             let recipes = self.get_recipes(key).await?;

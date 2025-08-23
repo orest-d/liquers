@@ -21,16 +21,16 @@ use crate::value::ValueInterface;
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
 #[derive(Debug, Clone)]
-pub struct NGCommandArguments<V: ValueInterface> {
+pub struct CommandArguments<V: ValueInterface> {
     pub parameters: ResolvedParameterValues,
     pub values: Vec<Option<Arc<V>>>,
     pub action_position: Position,
     pub argument_number: usize,
 }
 
-impl<V: ValueInterface> NGCommandArguments<V> {
+impl<V: ValueInterface> CommandArguments<V> {
     pub fn new(parameters: ResolvedParameterValues) -> Self {
-        NGCommandArguments {
+        CommandArguments {
             parameters,
             action_position: Position::unknown(),
             argument_number: 0,
@@ -72,7 +72,7 @@ impl<V: ValueInterface> NGCommandArguments<V> {
         }
     }
 
-    pub fn get<T: NGFromParameterValue<T> + TryFrom<V, Error = Error>>( // TODO: BAD DESIGN, the TryFrom should not be here
+    pub fn get<T: FromParameterValue<T> + TryFrom<V, Error = Error>>( // TODO: BAD DESIGN, the TryFrom should not be here
         &mut self,
     ) -> Result<T, Error> {
         let argnum = self.argument_number;
@@ -148,7 +148,7 @@ impl<V: ValueInterface> NGCommandArguments<V> {
     */
 
     /// Returns the injected parameter as a value of type T
-    pub fn get_injected<P, T: NGInjectedFromContext<T, P, V>>(
+    pub fn get_injected<P, T: InjectedFromContext<T, P, V>>(
         &mut self,
         name: &str,
         context: &impl ActionContext<P, V>,
@@ -186,15 +186,15 @@ impl<V: ValueInterface> NGCommandArguments<V> {
 }
 
 
-pub trait NGFromParameterValue<T> {
+pub trait FromParameterValue<T> {
     fn from_parameter_value(param: &ParameterValue) -> Result<T, Error>;
 }
 
 
 /// Macro to simplify the implementation of the FromParameterValue trait
-macro_rules! impl_ng_from_parameter_value {
+macro_rules! impl_from_parameter_value2 {
     ($t:ty, $jsonvalue_to_opt:expr) => {
-        impl NGFromParameterValue<$t> for $t {
+        impl FromParameterValue<$t> for $t {
             fn from_parameter_value(param: &ParameterValue) -> Result<$t, Error> {
                 if let Some(ref p) = param.value() {
                     $jsonvalue_to_opt(p).ok_or(
@@ -217,39 +217,39 @@ macro_rules! impl_ng_from_parameter_value {
     };
 }
 
-impl_ng_from_parameter_value!(
+impl_from_parameter_value2!(
     String,
     (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned()))
 );
-impl_ng_from_parameter_value!(i64, |p: &serde_json::Value| p.as_i64());
-impl_ng_from_parameter_value!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
-impl_ng_from_parameter_value!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
-impl_ng_from_parameter_value!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
-impl_ng_from_parameter_value!(isize, |p: &serde_json::Value| p.as_i64().map(|x| x as isize));
-impl_ng_from_parameter_value!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
-impl_ng_from_parameter_value!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
-impl_ng_from_parameter_value!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
-impl_ng_from_parameter_value!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
-impl_ng_from_parameter_value!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
-impl_ng_from_parameter_value!(f64, |p: &serde_json::Value| p.as_f64());
-impl_ng_from_parameter_value!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
-impl_ng_from_parameter_value!(Option<i64>, |p: &serde_json::Value| {
+impl_from_parameter_value2!(i64, |p: &serde_json::Value| p.as_i64());
+impl_from_parameter_value2!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
+impl_from_parameter_value2!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
+impl_from_parameter_value2!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
+impl_from_parameter_value2!(isize, |p: &serde_json::Value| p.as_i64().map(|x| x as isize));
+impl_from_parameter_value2!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
+impl_from_parameter_value2!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
+impl_from_parameter_value2!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
+impl_from_parameter_value2!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
+impl_from_parameter_value2!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
+impl_from_parameter_value2!(f64, |p: &serde_json::Value| p.as_f64());
+impl_from_parameter_value2!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
+impl_from_parameter_value2!(Option<i64>, |p: &serde_json::Value| {
     if p.is_null() {
         Some(None)
     } else {
         p.as_i64().map(Some)
     }
 });
-impl_ng_from_parameter_value!(Option<f64>, |p: &serde_json::Value| {
+impl_from_parameter_value2!(Option<f64>, |p: &serde_json::Value| {
     if p.is_null() {
         Some(None)
     } else {
         p.as_f64().map(Some)
     }
 });
-impl_ng_from_parameter_value!(bool, |p: &serde_json::Value| p.as_bool());
+impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());
 
-impl<V: ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
+impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
     fn from_parameter_value(param: &ParameterValue) -> Result<Vec<V>, Error> {
         fn from_json_value<T: ValueInterface>(p: &serde_json::Value) -> Result<Vec<T>, Error> {
             match p {
@@ -317,19 +317,19 @@ impl<V: ValueInterface> NGFromParameterValue<Vec<V>> for Vec<V> {
     }
 }
 
-pub trait NGInjectedFromContext<T, P, V: ValueInterface> {
+pub trait InjectedFromContext<T, P, V: ValueInterface> {
     fn from_context(name: &str, context: &impl ActionContext<P, V>) -> Result<T, Error>;
 }
 
 #[async_trait]
-pub trait NGCommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>:
+pub trait CommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>:
     Send + Sync
 {
     fn execute(
         &self,
         command_key: &CommandKey,
         state: &State<V>,
-        arguments: &mut NGCommandArguments<V>,
+        arguments: &mut CommandArguments<V>,
         context: C,
     ) -> Result<V, Error>;
 
@@ -337,19 +337,19 @@ pub trait NGCommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send 
         &self,
         command_key: &CommandKey,
         state: State<V>,
-        mut arguments: NGCommandArguments<V>,
+        mut arguments: CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         self.execute(command_key, &state, &mut arguments, context)
     }
 }
 
-pub struct NGCommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
+pub struct CommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
     executors: HashMap<
         CommandKey,
         Arc<
             Box<
-                dyn (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> Result<V, Error>)
+                dyn (Fn(&State<V>, &mut CommandArguments<V>, C) -> Result<V, Error>)
                     + Send
                     + Sync
                     + 'static,
@@ -362,7 +362,7 @@ pub struct NGCommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
             Box<
                 dyn (Fn(
                         State<V>,
-                        NGCommandArguments<V>,
+                        CommandArguments<V>,
                         C,
                     ) -> std::pin::Pin<
                         Box<
@@ -380,9 +380,9 @@ pub struct NGCommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
     payload: PhantomData<P>,
 }
 
-impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
+impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
     pub fn new() -> Self {
-        NGCommandRegistry {
+        CommandRegistry {
             //executors: HashMap::new(),
             executors: HashMap::new(),
             async_executors: HashMap::new(),
@@ -393,7 +393,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, &mut NGCommandArguments<V>, C) -> Result<V, Error>)
+        F: (Fn(&State<V>, &mut CommandArguments<V>, C) -> Result<V, Error>)
             + Sync
             + Send
             + 'static,
@@ -414,7 +414,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
         K: Into<CommandKey>,
         F: (Fn(
                 State<V>,
-                NGCommandArguments<V>,
+                CommandArguments<V>,
                 C,
             ) -> std::pin::Pin<
                 Box<dyn core::future::Future<Output = Result<V, Error>> + Send  + 'static>,
@@ -431,7 +431,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
             Box<
                 dyn (Fn(
                         State<V>,
-                        NGCommandArguments<V>,
+                        CommandArguments<V>,
                         C,
                     ) -> std::pin::Pin<
                         Box<
@@ -451,13 +451,13 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> NGCommandRegistry<P, V, C> {
 
 #[async_trait]
 impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
-    NGCommandExecutor<P, V, C> for NGCommandRegistry<P, V, C>
+    CommandExecutor<P, V, C> for CommandRegistry<P, V, C>
 {
     fn execute(
         &self,
         key: &CommandKey,
         state: &State<V>,
-        arguments: &mut NGCommandArguments<V>,
+        arguments: &mut CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         if let Some(command) = self.executors.get(&key) {
@@ -476,7 +476,7 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
         &self,
         key: &CommandKey,
         state: State<V>,
-        mut arguments: NGCommandArguments<V>,
+        mut arguments: CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         if let Some(command) = self.async_executors.get(&key) {

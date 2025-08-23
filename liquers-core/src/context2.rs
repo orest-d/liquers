@@ -8,9 +8,9 @@ use std::{
 
 use crate::{
     assets2::AssetStore,
-    cache::{Cache, NoCache},
+    cache::Cache,
     command_metadata::CommandMetadataRegistry,
-    commands2::{NGCommandExecutor, NGCommandRegistry},
+    commands2::{CommandExecutor, CommandRegistry},
     error::Error,
     metadata::{Metadata, MetadataRecord},
     query::{Key, Query, TryToQuery},
@@ -19,9 +19,9 @@ use crate::{
     value::ValueInterface,
 };
 
-pub trait NGEnvironment: Sized + Sync + Send + 'static {
+pub trait Environment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
-    type CommandExecutor: NGCommandExecutor<NGEnvRef<Self>, Self::Value, NGContext<Self>>;
+    type CommandExecutor: CommandExecutor<EnvRef<Self>, Self::Value, Context<Self>>;
     type AssetStore: AssetStore<Self>;
 
     fn evaluate(&mut self, _query: &Query) -> Result<State<Self::Value>, Error> {
@@ -55,11 +55,11 @@ pub trait NGEnvironment: Sized + Sync + Send + 'static {
     }
 }
 
-pub struct NGEnvRef<E: NGEnvironment>(pub Arc<tokio::sync::RwLock<E>>);
+pub struct EnvRef<E: Environment>(pub Arc<tokio::sync::RwLock<E>>);
 
-impl<E: NGEnvironment> NGEnvRef<E> {
+impl<E: Environment> EnvRef<E> {
     pub fn new(env: E) -> Self {
-        NGEnvRef(Arc::new(tokio::sync::RwLock::new(env)))
+        EnvRef(Arc::new(tokio::sync::RwLock::new(env)))
     }
     #[cfg(feature = "async_store")]
     pub async fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
@@ -67,26 +67,26 @@ impl<E: NGEnvironment> NGEnvRef<E> {
     }
 }
 
-impl<E: NGEnvironment> Clone for NGEnvRef<E> {
+impl<E: Environment> Clone for EnvRef<E> {
     fn clone(&self) -> Self {
-        NGEnvRef(self.0.clone())
+        EnvRef(self.0.clone())
     }
 }
 
-pub struct NGContext<E: NGEnvironment> {
-    envref: NGEnvRef<E>,
+pub struct Context<E: Environment> {
+    envref: EnvRef<E>,
     store: Arc<Box<dyn Store>>,
     metadata: Arc<Mutex<MetadataRecord>>,
     cwd_key: Arc<Mutex<Option<Key>>>,
 }
 
-impl<E: NGEnvironment> NGContext<E> {
-    pub async fn new(env: NGEnvRef<E>) -> Self {
+impl<E: Environment> Context<E> {
+    pub async fn new(env: EnvRef<E>) -> Self {
         let store = {
             let env = env.0.read().await;
             env.get_store()
         };
-        NGContext {
+        Context {
             envref: env,
             store: store,
             metadata: Arc::new(Mutex::new(MetadataRecord::new())),
@@ -95,12 +95,12 @@ impl<E: NGEnvironment> NGContext<E> {
     }
 }
 
-impl<E: NGEnvironment> ActionContext<NGEnvRef<E>, E::Value> for NGContext<E> {
-    fn borrow_payload(&self) -> &NGEnvRef<E> {
+impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
+    fn borrow_payload(&self) -> &EnvRef<E> {
         &self.envref
     }
-    fn clone_payload(&self) -> NGEnvRef<E> {
-        NGEnvRef(self.envref.0.clone())
+    fn clone_payload(&self) -> EnvRef<E> {
+        EnvRef(self.envref.0.clone())
     }
     fn evaluate_dependency<Q: TryToQuery>(&self, query: Q) -> Result<State<E::Value>, Error> {
         todo!("implement evaluate_dependency")
@@ -127,7 +127,7 @@ impl<E: NGEnvironment> ActionContext<NGEnvRef<E>, E::Value> for NGContext<E> {
         self.metadata.lock().unwrap().error(message);
     }
     fn clone_context(&self) -> Self {
-        NGContext {
+        Context {
             envref: self.clone_payload(),
             store: self.store.clone(),
             metadata: self.metadata.clone(),
@@ -169,7 +169,7 @@ pub struct SimpleNGEnvironment<V: ValueInterface> {
     #[cfg(feature = "async_store")]
     async_store: Arc<Box<dyn crate::store::AsyncStore>>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
-    command_registry: NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>,
+    command_registry: CommandRegistry<EnvRef<Self>, V, Context<Self>>,
     asset_store: Option<
         Arc<
             Box<
@@ -186,7 +186,7 @@ impl<V: ValueInterface> SimpleNGEnvironment<V> {
     pub fn new() -> Self {
         SimpleNGEnvironment {
             store: Arc::new(Box::new(NoStore)),
-            command_registry: NGCommandRegistry::new(),
+            command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
@@ -205,10 +205,10 @@ impl<V: ValueInterface> SimpleNGEnvironment<V> {
     pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
         panic!("SimpleNGEnvironment does not support cache for now");
     }
-    pub fn to_ref(self) -> NGEnvRef<Self> {
-        NGEnvRef::new(self)
+    pub fn to_ref(self) -> EnvRef<Self> {
+        EnvRef::new(self)
     }
-    pub async fn ref_with_default_asset_store(mut self) -> NGEnvRef<Self> {
+    pub async fn ref_with_default_asset_store(mut self) -> EnvRef<Self> {
         let envref = self.to_ref();
         let envref_copy1 = envref.clone();
         let envref_copy2 = envref.clone();
@@ -224,9 +224,9 @@ impl<V: ValueInterface> SimpleNGEnvironment<V> {
     }
 }
 
-impl<V: ValueInterface> NGEnvironment for SimpleNGEnvironment<V> {
+impl<V: ValueInterface> Environment for SimpleNGEnvironment<V> {
     type Value = V;
-    type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
+    type CommandExecutor = CommandRegistry<EnvRef<Self>, V, Context<Self>>;
     type AssetStore = crate::assets2::EnvAssetStore<Self, crate::recipes2::DefaultRecipeProvider<Self>>;
 
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
