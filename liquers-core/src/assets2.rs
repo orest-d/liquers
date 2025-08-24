@@ -1,12 +1,19 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
-use nom::Err;
 use scc;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::{
-    context2::{EnvRef, Environment}, error::Error, interpreter2, metadata::{self, Metadata, Status}, query::{Key, Query, TryToQuery}, recipes2::{AsyncRecipeProvider, Recipe}, state::State, store::AsyncStore, value::{DefaultValueSerializer, ValueInterface}
+    context2::{EnvRef, Environment},
+    error::Error,
+    interpreter2,
+    metadata::{Metadata, Status},
+    query::{Key, Query},
+    recipes2::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
+    state::State,
+    store::AsyncStore,
+    value::DefaultValueSerializer,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -103,7 +110,7 @@ impl<E: Environment> AssetRef<E> {
             return Ok(true);
         }
         if let Some(key) = lock.query.key() {
-            let store = envref.get_async_store().await;
+            let store = envref.get_async_store();
             let (data, metadata) = store.get(&key).await?;
             lock.binary = Some(Arc::new(data));
             lock.metadata = Some(Arc::new(metadata));
@@ -123,8 +130,7 @@ impl<E: Environment> AssetRef<E> {
 
         let envref1 = envref.clone();
         let plan = {
-            let lock = envref1.0.read().await;
-            let cmr = lock.get_command_metadata_registry();
+            let cmr = envref1.0.get_command_metadata_registry();
             recipe.to_plan(cmr)
         }?;
 
@@ -243,28 +249,42 @@ pub trait AssetStore<E: Environment>: Send + Sync {
     async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error>;
 }
 
-pub struct EnvAssetStore<E: Environment, ARP: AsyncRecipeProvider> {
-    envref: EnvRef<E>,
+pub struct DefaultAssetStore<E: Environment> {
+    envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
-    recipe_provider: ARP,
+    recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
 }
 
-impl<E: Environment, ARP: AsyncRecipeProvider> EnvAssetStore<E, ARP> {
-    pub fn new(envref: EnvRef<E>, recipe_provider: ARP) -> Self {
-        EnvAssetStore {
-            envref,
+impl<E: Environment> DefaultAssetStore<E> {
+    pub fn new() -> Self {
+        DefaultAssetStore {
+            envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
             query_assets: scc::HashMap::new(),
-            recipe_provider,
+            recipe_provider: std::sync::OnceLock::new(),
         }
+    }
+    pub fn get_envref(&self) -> EnvRef<E> {
+        self.envref.get().expect("Environment not set in AssetStore").clone()
+    }
+
+    pub fn set_envref(&self, envref: EnvRef<E>) {
+        if self.envref.set(envref.clone()).is_err() {
+            panic!("Environment already set in AssetStore");
+        }
+        self.recipe_provider.set(DefaultRecipeProvider::new(envref));
+    }
+
+    pub fn get_recipe_provider(&self) -> &DefaultRecipeProvider<E> {
+        self.recipe_provider.get().expect("Recipe provider not set in AssetStore")
     }
 }
 
 #[async_trait]
-impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E, ARP> {
+impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
     type Asset = AssetRef<E>;
-
+    
     async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error> {
         if let Some(key) = query.key() {
             self.get(&key).await
@@ -288,7 +308,11 @@ impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E
         let asset_ref = entry.get().clone();
 
         // Try to get a recipe from the recipe provider and set it in the asset if available
-        if let Ok(recipe) = self.recipe_provider.recipe(key).await {
+        if let Ok(recipe) = self
+            .get_recipe_provider()
+            .recipe(key)
+            .await
+        {
             let mut lock = asset_ref.data.write().await;
             lock.recipe = Some(recipe);
         }
@@ -300,16 +324,16 @@ impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E
         self.get(key).await
     }
 
-    async fn remove(&self, key: &Key) -> Result<(), Error> {
+    async fn remove(&self, _key: &Key) -> Result<(), Error> { // TODO: Does nothing??
         Ok(())
     }
 
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let store = self.envref.get_async_store().await;
+        let store = self.get_envref().get_async_store();
         if store.contains(key).await? {
             return Ok(true);
         }
-        self.recipe_provider.contains(key).await
+        self.get_recipe_provider().contains(key).await
     }
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {
@@ -317,9 +341,9 @@ impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E
     }
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let store = self.envref.get_async_store().await;
+        let store = self.get_envref().get_async_store();
         let mut names = self
-            .recipe_provider
+            .get_recipe_provider()
             .assets_with_recipes(key)
             .await?
             .into_iter()
@@ -342,7 +366,7 @@ impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E
     }
 
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let store = self.envref.get_async_store().await;
+        let store = self.get_envref().get_async_store();
 
         let mut keys = store
             .listdir_keys_deep(key)
@@ -358,7 +382,7 @@ impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E
 
         for subkey in folders {
             if store.is_dir(&subkey).await? {
-                let recipes = self.recipe_provider.assets_with_recipes(&subkey).await?;
+                let recipes = self.get_recipe_provider().assets_with_recipes(&subkey).await?;
                 for resourcename in recipes {
                     keys.insert(subkey.join(resourcename.name));
                 }
@@ -369,182 +393,9 @@ impl<E: Environment, ARP: AsyncRecipeProvider> AssetStore<E> for EnvAssetStore<E
     }
 
     async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error> {
-        let store = self.envref.get_async_store().await;
+        let store = self.get_envref().get_async_store();
         let _sink = store.makedir(key).await?;
         let asset = self.get(key).await?;
         Ok(asset)
-    }
-}
-
-/*
-pub struct SccHashMapAssetStore {
-    store: scc::HashMap<Key, Asset>,
-}
-
-impl SccHashMapAssetStore {
-    pub fn new() -> Self {
-        SccHashMapAssetStore {
-            store: scc::HashMap::new(),
-        }
-    }
-}
-
-impl AssetStore for SccHashMapAssetStore {
-    async fn get(&self, key: &Key) -> Result<Asset, Error> {
-        self.store.get(key).ok_or(Error::general_error(format!("Key {key} not found")))
-    }
-
-    async fn create(&self, key: &Key) -> Result<Asset, Error> {
-        let asset = Asset { query: Query::new() };
-        self.store.insert(key.clone(), asset.clone());
-        Ok(asset)
-    }
-
-    async fn remove(&self, key: &Key) -> Result<(), Error> {
-        self.store.remove(key);
-        Ok(())
-    }
-
-    async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        Ok(self.store.contains_key(key))
-    }
-
-    async fn keys(&self) -> Result<Vec<Key>, Error> {
-        Ok(self.store.keys().cloned().collect())
-    }
-
-    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
-        Ok(vec![])
-    }
-
-    async fn listdir_keys(&self, _key: &Key) -> Result<Vec<Key>, Error> {
-        Ok(vec![])
-    }
-
-    async fn listdir_keys_deep(&self, _key: &Key) -> Result<Vec<Key>, Error> {
-        Ok(vec![])
-    }
-
-    async fn makedir(&self, _key: &Key) -> Result<Asset, Error> {
-        Ok(Asset { query: Query::new() })
-    }
-}
-*/
-
-#[async_trait]
-pub trait AsyncAssets<E: Environment>: Send + Sync {
-    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>;
-    async fn get_state(&self, key: &Key) -> Result<State<E::Value>, Error>;
-    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error>;
-    /// Return names inside a directory specified by key.
-    /// To get a key, names need to be joined with the key (key/name).
-    /// Complete keys can be obtained with the listdir_keys method.
-    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error>;
-}
-
-pub struct DefaultAssets<E: Environment, ARP: AsyncRecipeProvider> {
-    pub(crate) envref: EnvRef<E>,
-    recipe_provider: ARP,
-}
-
-impl<E: Environment, ARP: AsyncRecipeProvider> DefaultAssets<E, ARP> {
-    pub fn new(envref: EnvRef<E>, recipe_provider: ARP) -> Self {
-        DefaultAssets {
-            envref,
-            recipe_provider,
-        }
-    }
-}
-
-// TODO: This whole think is a mess. Asset needs to be properly implemented to be able to handle concurrent access
-// Asset needs some locking or transaction-like processing
-#[async_trait]
-impl<E: Environment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAssets<E, ARP> {
-    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        let store = self.envref.get_async_store().await;
-        match store.get(key).await {
-            Ok((data, metadata)) => Ok((data, metadata)),
-            Err(e) => {
-                let plan = self.recipe_provider.recipe_plan(key).await.map_err(|e2| {
-                    Error::general_error(format!("Asset {key} not found ({e}, {e2})"))
-                })?;
-                let state = crate::interpreter2::ngi::evaluate_plan(
-                    plan,
-                    self.envref.clone(),
-                    Some(key.parent()),
-                )
-                .await?;
-                let data = state.as_bytes()?;
-                store.set(key, &data, &state.metadata).await?;
-                Ok((data, (*state.metadata).clone()))
-            }
-        }
-    }
-
-    async fn get_state(&self, key: &Key) -> Result<State<E::Value>, Error> {
-        let store = self.envref.get_async_store().await;
-        match store.get(key).await {
-            // TODO: Handle the case with metadata without data
-            Ok((data, metadata)) => {
-                let type_identifier = metadata.type_identifier()?;
-                let value = E::Value::deserialize_from_bytes(
-                    &data,
-                    &type_identifier,
-                    &metadata.get_data_format(),
-                )?;
-                return Ok(State::from_value_and_metadata(value, Arc::new(metadata)));
-            }
-            Err(e) => {
-                let plan = self.recipe_provider.recipe_plan(key).await.map_err(|e2| {
-                    Error::general_error(
-                        format!("Asset {key} not found ({e}, {e2})"), // TODO: make own error type
-                    )
-                })?;
-                let state = crate::interpreter2::ngi::evaluate_plan(
-                    plan,
-                    self.envref.clone(),
-                    Some(key.parent()),
-                )
-                .await?;
-                let data = state.as_bytes()?;
-                store.set(key, &data, &state.metadata).await?;
-                return Ok(state);
-            }
-        }
-    }
-
-    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let store = self.envref.get_async_store().await;
-        match store.get_bytes(key).await {
-            // TODO: Handle the case with metadata without data
-            Ok(data) => {
-                return Ok(data);
-            }
-            Err(e) => {
-                let plan = self.recipe_provider.recipe_plan(key).await.map_err(|e2| {
-                    Error::general_error(format!("Asset {key} not found ({e}, {e2})"))
-                })?;
-                let state = crate::interpreter2::ngi::evaluate_plan(
-                    plan,
-                    self.envref.clone(),
-                    Some(key.parent()),
-                )
-                .await?;
-                let data = state.as_bytes()?;
-                store.set(key, &data, &state.metadata).await?;
-                return Ok(data);
-            }
-        }
-    }
-
-    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let store = self.envref.get_async_store().await;
-        let mut dir = store.listdir(key).await?;
-        for resourcename in self.recipe_provider.assets_with_recipes(key).await? {
-            if !dir.contains(&resourcename.name) {
-                dir.push(resourcename.name);
-            }
-        }
-        Ok(dir)
     }
 }

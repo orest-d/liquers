@@ -1,28 +1,8 @@
-use std::sync::Arc;
-
-use async_trait::async_trait;
-use tokio::sync::Mutex;
-
-use crate::command_metadata::CommandKey;
-use crate::commands2::{CommandArguments, CommandExecutor};
-use crate::context2::{
-    ActionContext, Context, EnvRef,
-    Environment,
-};
-use crate::error::Error;
-use crate::parse::{SimpleTemplate, SimpleTemplateElement};
-use crate::plan::{Plan, PlanBuilder, Step};
-use crate::query::TryToQuery;
-use crate::state::State;
-use crate::value::ValueInterface;
-use futures::future::{BoxFuture, FutureExt};
-
-
 pub mod ngi {
     use futures::FutureExt;
 
     use crate::{
-        assets2::AssetInterface, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
+        assets2::AssetStore, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
     };
 // TODO: instead of envref, it shoud use something like cmr From, it does not need to be async
     pub fn make_plan<E: Environment, Q: TryToQuery>(
@@ -33,8 +13,7 @@ pub mod ngi {
     {
         let rquery = query.try_to_query();
         async move {
-            let env = envref.0.read().await;
-            let cmr = env.get_command_metadata_registry();
+            let cmr = envref.get_command_metadata_registry();
             let mut pb = PlanBuilder::new(rquery?, cmr);
             pb.build()
         }
@@ -80,14 +59,14 @@ pub mod ngi {
     {
         match step {
             Step::GetResource(key) => async move {
-                let store = envref.get_async_store().await;
+                let store = envref.get_async_store();
                 let (data, metadata) = store.get(&key).await?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 Ok(State::new().with_data(value).with_metadata(metadata))
             }
             .boxed(),
             Step::GetResourceMetadata(key) => async move {
-                let store = envref.get_async_store().await;
+                let store = envref.get_async_store();
                 let metadata_value = store.get_metadata(&key).await?;
                 if let Some(metadata_value) = metadata_value.metadata_record() {
                     let value = <<E as Environment>::Value as ValueInterface>::from_metadata(metadata_value);
@@ -122,8 +101,7 @@ pub mod ngi {
                     CommandArguments::<<E as Environment>::Value>::new(parameters.clone());
                 arguments.action_position = position.clone();
                 async move {
-                    let env = envref.0.read().await;
-                    let ce = env.get_command_executor();
+                    let ce = envref.get_command_executor();
                     /*
                     ce.execute(
                         &CommandKey::new(realm, ns, action_name),
@@ -180,16 +158,16 @@ pub mod ngi {
             Step::GetAsset(key) => {
                 async move {
                     let envref1 = envref.clone();
-                    let asset_store = envref1.0.read().await.get_asset_store();
+                    let asset_store = envref1.get_asset_store();
                     let asset = asset_store.get(&key).await?;
                     let asset_state = asset.get_state(envref.clone()).await?;
                     Ok(asset_state)
                 }
                 .boxed()
             },
-            Step::GetAssetBinary(key) => todo!(),
-            Step::GetAssetMetadata(key) => todo!(),
-            Step::UseKeyValue(key) => todo!(),
+            Step::GetAssetBinary(_key) => todo!(),
+            Step::GetAssetMetadata(_key) => todo!(),
+            Step::UseKeyValue(_key) => todo!(),
         }
     }
 
@@ -200,10 +178,9 @@ pub mod ngi {
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
     >
-//Result<State<<E as NGEnvironment>::Value>, Error>
     {
         async move {
-            let mut context = Context::new(envref.clone()).await;
+            let context = Context::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
             apply_plan(
                 plan,
@@ -225,7 +202,7 @@ pub mod ngi {
         let rquery = query.try_to_query();
         async move {
             let plan = make_plan(envref.clone(), rquery?).await?;
-            let mut context = Context::new(envref.clone()).await;
+            let context = Context::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
             apply_plan(
                 plan,

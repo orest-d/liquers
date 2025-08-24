@@ -146,7 +146,6 @@ impl<E: Environment> DefaultRecipeProvider<E> {
     pub async fn get_recipes(&self, key: &Key) -> Result<RecipeList, Error> {
         self.envref
             .get_async_store()
-            .await
             .get_bytes(&key.join("recipes.yaml"))
             .await
             .map_or(
@@ -185,9 +184,8 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
             let recipe = recipes.get(&filename.name).ok_or(
                 Error::general_error(format!("No recipe found for key {}", key)).with_key(key),
             )?;
-            let env = self.envref.0.read().await;
             recipe
-                .to_plan(env.get_command_metadata_registry())
+                .to_plan(self.envref.get_command_metadata_registry())
                 .map_err(|e| e.with_key(key))
         } else {
             return Err(
@@ -213,7 +211,6 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
     async fn has_recipes(&self, key: &Key) -> Result<bool, Error> {
         self.envref
             .get_async_store()
-            .await
             .contains(&key.join("recipes.yaml"))
             .await
     }
