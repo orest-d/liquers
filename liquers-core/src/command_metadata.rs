@@ -249,7 +249,6 @@ impl Default for ArgumentGUIInfo {
     }
 }
 
-// TODO: maybe Template?
 /// CommandParameterValue represents a value of a command parameter.
 /// This is used to represent a default value of an argument
 /// defined in the CommandMetadata.
@@ -524,7 +523,6 @@ impl From<&CommandKey> for CommandKey {
 
 impl Display for CommandKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        //TODO: not sure yet what this should be
         write!(f, "{}-{}-{}", self.realm, self.namespace, self.name)
     }
 }
@@ -561,7 +559,6 @@ impl From<&str> for CommandKey {
     }
 }
 
-// TODO: continue here
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum CommandDefinition {
     Registered,

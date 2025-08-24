@@ -39,8 +39,6 @@ pub trait Environment: Sized + Sync + Send + 'static {
 
 // TODO: Define Session and User; Session connects multiple actions of a single user.
 // TODO: Session could be "SystemSession" for automated tasks or recipes.
-// TODO: Remove rwlock
-// TODO: Improve interface in envref
 pub struct EnvRef<E: Environment>(pub Arc<E>);
 
 impl<E: Environment> EnvRef<E> {
@@ -143,7 +141,6 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
 pub trait ActionContext<P, V: ValueInterface> {
     fn borrow_payload(&self) -> &P;
     fn clone_payload(&self) -> P;
-    // TODO: evaluate should probably be async
     fn get_metadata(&self) -> MetadataRecord;
     fn set_filename(&self, filename: String);
 

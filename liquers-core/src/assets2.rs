@@ -175,7 +175,7 @@ impl<E: Environment> AssetRef<E> {
             }
             let mut lock = self.data.write().await;
             let query = lock.get_query();
-            let plan = interpreter2::ngi::make_plan(envref.clone(), query.clone()).await?;
+            let plan = interpreter2::ngi::make_plan(envref.clone(), query.clone())?;
             let res = interpreter2::ngi::evaluate_plan(plan, envref.clone(), None).await?;
             lock.data = Some(res.data.clone());
             lock.metadata = Some(res.metadata.clone());

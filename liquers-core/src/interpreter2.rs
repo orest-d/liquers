@@ -4,20 +4,15 @@ pub mod ngi {
     use crate::{
         assets2::AssetStore, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
     };
-// TODO: instead of envref, it shoud use something like cmr From, it does not need to be async
     pub fn make_plan<E: Environment, Q: TryToQuery>(
         envref: EnvRef<E>,
         query: Q,
-    ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Plan, Error>> + Send + 'static>>
-//impl std::future::Future<Output = Result<Plan, Error>>
+    ) -> Result<Plan, Error>
     {
         let rquery = query.try_to_query();
-        async move {
-            let cmr = envref.get_command_metadata_registry();
-            let mut pb = PlanBuilder::new(rquery?, cmr);
-            pb.build()
-        }
-        .boxed()
+        let cmr = envref.get_command_metadata_registry();
+        let mut pb = PlanBuilder::new(rquery?, cmr);
+        pb.build()
     }
 
 // TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
@@ -83,7 +78,7 @@ pub mod ngi {
                 let query = q.clone();
                 async move {
                     let context = Context::new(envref.clone()).await;
-                    let plan = make_plan(envref.clone(), query).await?;
+                    let plan = make_plan(envref.clone(), query)?;
                     let input_state = State::<<E as Environment>::Value>::new();
                     apply_plan(plan, envref.clone(), context, input_state).await
                 }
@@ -201,7 +196,7 @@ pub mod ngi {
     {
         let rquery = query.try_to_query();
         async move {
-            let plan = make_plan(envref.clone(), rquery?).await?;
+            let plan = make_plan(envref.clone(), rquery?)?;
             let context = Context::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
             apply_plan(

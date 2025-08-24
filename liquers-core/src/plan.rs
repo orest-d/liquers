@@ -26,10 +26,7 @@ pub enum Step {
     GetAssetBinary(Key),
     GetAssetMetadata(Key),
     GetResource(Key),
-    // TODO: support get resource metadata
-    // TODO: support get resource raw and resolved
     GetResourceMetadata(Key),
-    // TODO: support named resources
     Evaluate(Query),
     Action {
         realm: String,
@@ -42,7 +39,6 @@ pub enum Step {
     Info(String),
     Warning(String),
     Error(String),
-    // TODO: support Plan
     Plan(Plan),
     SetCwd(Key),
     UseKeyValue(Key),
