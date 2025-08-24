@@ -119,8 +119,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
             crate::plan::Step::GetResourceMetadata(_) => todo!(),
-            crate::plan::Step::GetNamedResource(_) => todo!(),
-            crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
             crate::plan::Step::Evaluate(_) => todo!(),
             crate::plan::Step::Action {
                 realm,
@@ -165,8 +163,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
             Step::GetAssetMetadata(key) => todo!(),
             Step::GetResource(key) => todo!(),
             Step::GetResourceMetadata(key) => todo!(),
-            Step::GetNamedResource(key) => todo!(),
-            Step::GetNamedResourceMetadata(key) => todo!(),
             Step::Evaluate(query) => todo!(),
             Step::Action {
                 realm,
@@ -286,8 +282,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
             crate::plan::Step::GetResourceMetadata(_) => todo!(),
-            crate::plan::Step::GetNamedResource(_) => todo!(),
-            crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
             crate::plan::Step::Evaluate(_) => todo!(),
             crate::plan::Step::Action {
                 realm,
@@ -333,8 +327,6 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
             Step::GetAssetMetadata(key) => todo!(),
             Step::GetResource(key) => todo!(),
             Step::GetResourceMetadata(key) => todo!(),
-            Step::GetNamedResource(key) => todo!(),
-            Step::GetNamedResourceMetadata(key) => todo!(),
             Step::Evaluate(query) => todo!(),
             Step::Action {
                 realm,
@@ -496,8 +488,6 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     return Ok(State::new().with_data(value).with_metadata(metadata));
                 }
                 crate::plan::Step::GetResourceMetadata(_) => todo!(),
-                crate::plan::Step::GetNamedResource(_) => todo!(),
-                crate::plan::Step::GetNamedResourceMetadata(_) => todo!(),
                 crate::plan::Step::Evaluate(q) => {
                     //                todo!()  //TODO: ! evaluate
 
@@ -590,8 +580,6 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                 Step::GetAssetMetadata(key) => todo!(),
                 Step::GetResource(key) => todo!(),
                 Step::GetResourceMetadata(key) => todo!(),
-                Step::GetNamedResource(key) => todo!(),
-                Step::GetNamedResourceMetadata(key) => todo!(),
                 Step::Evaluate(query) => todo!(),
                 Step::Action {
                     realm,
@@ -705,8 +693,6 @@ pub mod ngi {
             }
             .boxed(),
             Step::GetResourceMetadata(_) => todo!(),
-            Step::GetNamedResource(_) => todo!(),
-            Step::GetNamedResourceMetadata(_) => todo!(),
             Step::Evaluate(q) => {
                 let query = q.clone();
                 async move {

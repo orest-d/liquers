@@ -1,10 +1,18 @@
+//! This defines Environment and Context.
+//! 
+//! * [Environment] is a global object that holds configuration and services like command executor, asset store, etc.
+//! * [Session] connects multiple actions of a single user.
+//! * [User] represents an individual user interacting with the system.
+//! * [Context] is a per-action object that holds e.g. the environment reference, metadata, current working directory.
+//! 
+//! This builds a natural hierarchy. The most specific structure is the [Context],
+//! which provides access to thhe [Session] and [Environment].
+//! [ActionContext] is a public interface to the Context.
+
 use core::panic;
-use std::{
-    cell::RefCell,
-    marker::PhantomData,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::
+    sync::{Arc, Mutex}
+;
 
 use crate::{
     assets2::AssetStore,
@@ -12,8 +20,8 @@ use crate::{
     command_metadata::CommandMetadataRegistry,
     commands2::{CommandExecutor, CommandRegistry},
     error::Error,
-    metadata::{Metadata, MetadataRecord},
-    query::{Key, Query, TryToQuery},
+    metadata::MetadataRecord,
+    query::{Key, TryToQuery},
     state::State,
     store::{NoStore, Store},
     value::ValueInterface,
@@ -24,15 +32,8 @@ pub trait Environment: Sized + Sync + Send + 'static {
     type CommandExecutor: CommandExecutor<EnvRef<Self>, Self::Value, Context<Self>>;
     type AssetStore: AssetStore<Self>;
 
-    fn evaluate(&mut self, _query: &Query) -> Result<State<Self::Value>, Error> {
-        Err(Error::not_supported("evaluate not implemented".to_string()))
-    }
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
     fn get_command_executor(&self) -> &Self::CommandExecutor;
-    fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor;
-    fn get_store(&self) -> Arc<Box<dyn Store>>;
-    fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>>;
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
 
@@ -46,15 +47,12 @@ pub trait Environment: Sized + Sync + Send + 'static {
             >,
         >,
     >;
-
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        self.get_store().get_bytes(key)
-    }
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        self.get_store().get_metadata(key)
-    }
 }
 
+// TODO: Define Session and User; Session connects multiple actions of a single user.
+// TODO: Session could be "SystemSession" for automated tasks or recipes.
+// TODO: Remove rwlock
+// TODO: Improve interface in envref
 pub struct EnvRef<E: Environment>(pub Arc<tokio::sync::RwLock<E>>);
 
 impl<E: Environment> EnvRef<E> {
@@ -73,28 +71,25 @@ impl<E: Environment> Clone for EnvRef<E> {
     }
 }
 
+// TODO: Do we need both Context and ActionContext?
+// TODO: There should be an asset reference
 pub struct Context<E: Environment> {
     envref: EnvRef<E>,
-    store: Arc<Box<dyn Store>>,
-    metadata: Arc<Mutex<MetadataRecord>>,
-    cwd_key: Arc<Mutex<Option<Key>>>,
+    metadata: Arc<Mutex<MetadataRecord>>,  // TODO: Decide whether Asset or Context is the Metadata owner
+    cwd_key: Arc<Mutex<Option<Key>>>,      // TODO: CWD should be owned by the context or maybe it should be in the Metadata
 }
 
 impl<E: Environment> Context<E> {
     pub async fn new(env: EnvRef<E>) -> Self {
-        let store = {
-            let env = env.0.read().await;
-            env.get_store()
-        };
         Context {
             envref: env,
-            store: store,
             metadata: Arc::new(Mutex::new(MetadataRecord::new())),
             cwd_key: Arc::new(Mutex::new(None)),
         }
     }
 }
 
+// TODO: It should be enough to have E as a parameter
 impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
     fn borrow_payload(&self) -> &EnvRef<E> {
         &self.envref
@@ -104,9 +99,6 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
     }
     fn evaluate_dependency<Q: TryToQuery>(&self, query: Q) -> Result<State<E::Value>, Error> {
         todo!("implement evaluate_dependency")
-    }
-    fn get_store(&self) -> Arc<Box<dyn Store>> {
-        self.store.clone()
     }
     fn get_metadata(&self) -> MetadataRecord {
         self.metadata.lock().unwrap().clone()
@@ -129,7 +121,6 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
     fn clone_context(&self) -> Self {
         Context {
             envref: self.clone_payload(),
-            store: self.store.clone(),
             metadata: self.metadata.clone(),
             cwd_key: self.cwd_key.clone(),
         }
@@ -144,21 +135,29 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
     }
 }
 
-
+// TODO: Think about the Payload. EnvRef and Session should always be available.
+// TODO: Add reference to Session
+// TODO: Add EnvRef
+// TODO: Add progress reporting
+// TODO: Should action parameters be in context?
+// TODO: There should be a reference to input_state_query
+// TODO: There should be a reference to query including the current action
 pub trait ActionContext<P, V: ValueInterface> {
     fn borrow_payload(&self) -> &P;
     fn clone_payload(&self) -> P;
+    // TODO: evaluate should probably be async
     fn evaluate_dependency<Q: TryToQuery>(&self, query: Q) -> Result<State<V>, Error>;
-    fn get_store(&self) -> Arc<Box<dyn Store>>;
     fn get_metadata(&self) -> MetadataRecord;
     fn set_filename(&self, filename: String);
+
+    // TODO: There should be a general log entry access 
     fn debug(&self, message: &str);
     fn info(&self, message: &str);
     fn warning(&self, message: &str);
     fn error(&self, message: &str);
-    fn clone_context(&self) -> Self;
+    fn clone_context(&self) -> Self; // TODO: clone_context may not need to be available for the action
     fn get_cwd_key(&self) -> Option<Key>;
-    fn set_cwd_key(&self, key: Option<Key>);
+    fn set_cwd_key(&self, key: Option<Key>); // TODO: set_cwd_key may not need to be available for the action 
 }
 
 
@@ -213,7 +212,6 @@ impl<V: ValueInterface> SimpleNGEnvironment<V> {
         let envref_copy1 = envref.clone();
         let envref_copy2 = envref.clone();
         {
-            todo!("This should be fixed");
             let mut lock = envref.0.write().await;
             (*lock).asset_store = Some(Arc::new(Box::new(crate::assets2::EnvAssetStore::new(
                 envref_copy1,
@@ -229,28 +227,12 @@ impl<V: ValueInterface> Environment for SimpleNGEnvironment<V> {
     type CommandExecutor = CommandRegistry<EnvRef<Self>, V, Context<Self>>;
     type AssetStore = crate::assets2::EnvAssetStore<Self, crate::recipes2::DefaultRecipeProvider<Self>>;
 
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
-
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
     }
 
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
-    }
-    fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
-        &mut self.command_registry
-    }
-    fn get_store(&self) -> Arc<Box<dyn Store>> {
-        self.store.clone()
-    }
-
-    fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>> {
-        panic!("SimpleNGEnvironment does not support cache for now");
-        //        let cache = NoCache::<V>::new();
-        //        Arc::new(Mutex::new(Box::new(cache)))
     }
 
     #[cfg(feature = "async_store")]
@@ -274,11 +256,4 @@ impl<V: ValueInterface> Environment for SimpleNGEnvironment<V> {
             panic!("Asset store is not set for SimpleNGEnvironment");
         }
     }
-}
-
-mod tests {
-    use super::*;
-    use crate::value::Value;
-    use std::sync::Arc;
-
 }

@@ -958,6 +958,14 @@ impl Metadata {
             _ => Err(Error::general_error("Unsupported metadata type".to_string())),
         }
     }
+
+    /// Return MetadataRecord if the metadata is of that type
+    pub fn metadata_record(&self) -> Option<MetadataRecord> {
+        match self {
+            Metadata::LegacyMetadata(_) => None,
+            Metadata::MetadataRecord(m) => Some(m.clone()),
+        }
+    }
 }
 
 impl From<MetadataRecord> for Metadata {

@@ -24,7 +24,7 @@ pub mod ngi {
     use crate::{
         assets2::AssetInterface, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
     };
-
+// TODO: instead of envref, it shoud use something like cmr From, it does not need to be async
     pub fn make_plan<E: Environment, Q: TryToQuery>(
         envref: EnvRef<E>,
         query: Q,
@@ -40,6 +40,8 @@ pub mod ngi {
         }
         .boxed()
     }
+
+// TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
 
     pub fn apply_plan<E: Environment>(
         plan: Plan,
@@ -84,9 +86,20 @@ pub mod ngi {
                 Ok(State::new().with_data(value).with_metadata(metadata))
             }
             .boxed(),
-            Step::GetResourceMetadata(_) => todo!(),
-            Step::GetNamedResource(_) => todo!(),
-            Step::GetNamedResourceMetadata(_) => todo!(),
+            Step::GetResourceMetadata(key) => async move {
+                let store = envref.get_async_store().await;
+                let metadata_value = store.get_metadata(&key).await?;
+                if let Some(metadata_value) = metadata_value.metadata_record() {
+                    let value = <<E as Environment>::Value as ValueInterface>::from_metadata(metadata_value);
+                    Ok(State::new().with_data(value))
+                } else {
+                    Err(Error::general_error(format!(
+                        "Resource metadata is in legacy format: {}",
+                        key
+                    )))
+                }
+            }
+            .boxed(),
             Step::Evaluate(q) => {
                 let query = q.clone();
                 async move {

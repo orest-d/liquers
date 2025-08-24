@@ -18,6 +18,9 @@ use crate::query::{Position, Query};
 use crate::state::State;
 use crate::value::ValueInterface;
 
+// TODO: CommandArguments may be passed via the context
+// TODO: CommandArguments should have an interface to access arguments as items
+// TODO: CommandArguments should have an interface to access arguments by name
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
 #[derive(Debug, Clone)]
@@ -116,36 +119,6 @@ impl<V: ValueInterface> CommandArguments<V> {
         }
         T::from_parameter_value(&p)
     }
-    // TODO: Implement get_value, use as a quicker way to get the value (any)
-    /*
-    pub fn get_value(&mut self) -> Result<Option<Arc<V>>, Error> {
-        let argnum=self.argument_number;
-        let p = self.pop_parameter()?.to_owned();
-        let value = self.values.get(argnum);
-
-        if let Some(link) = p.link() {
-            match value {
-                Some(Some(state)) => Ok(state.clone()),
-                Some(None) => Err(Error::general_error(format!(
-                    "Unresolved link parameter {}: {}",
-                    argnum,
-                    link
-                )).with_position(&self.action_position)),
-                None => Err(Error::general_error(format!(
-                    "Unresolved link parameter {}: {} (resolved links too short: {})",
-                    argnum,
-                    link,
-                    self.values.len()
-                )).with_position(&self.action_position)),
-            }
-        }
-        else{
-            Err(Error::general_error(format!(
-                "Link parameter expected, value found, parameter {}",argnum
-            )).with_position(&self.action_position))
-        }
-    }
-    */
 
     /// Returns the injected parameter as a value of type T
     pub fn get_injected<P, T: InjectedFromContext<T, P, V>>(

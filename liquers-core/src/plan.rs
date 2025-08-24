@@ -30,9 +30,6 @@ pub enum Step {
     // TODO: support get resource raw and resolved
     GetResourceMetadata(Key),
     // TODO: support named resources
-    GetNamedResource(Key),
-    GetNamedResourceMetadata(Key),
-    //TODO: support Evaluate?
     Evaluate(Query),
     Action {
         realm: String,
