@@ -109,7 +109,7 @@ pub mod ngi {
                         .execute_async(
                             &commannd_key,
                             input_state,
-                            arguments,
+                            &arguments,
                             context.clone_context(),
                         )
                         .await;

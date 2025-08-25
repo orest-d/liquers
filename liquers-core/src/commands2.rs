@@ -25,10 +25,9 @@ use crate::value::ValueInterface;
 /// when it is executed.
 #[derive(Debug, Clone)]
 pub struct CommandArguments<V: ValueInterface> {
-    pub parameters: ResolvedParameterValues,
-    pub values: Vec<Option<Arc<V>>>,
+    pub(crate) parameters: ResolvedParameterValues,
+    pub(crate) values: Vec<Option<Arc<V>>>,
     pub action_position: Position,
-    pub argument_number: usize,
 }
 
 impl<V: ValueInterface> CommandArguments<V> {
@@ -36,7 +35,6 @@ impl<V: ValueInterface> CommandArguments<V> {
         CommandArguments {
             parameters,
             action_position: Position::unknown(),
-            argument_number: 0,
             values: Vec::new(),
         }
     }
@@ -45,71 +43,66 @@ impl<V: ValueInterface> CommandArguments<V> {
         self.parameters.0.len()
     }
 
-    pub fn pop_value(&mut self) -> Result<Option<Arc<V>>, Error> {
-        if let Some(v) = self.values.get(self.argument_number) {
-            self.argument_number += 1;
-            if let Some(v) = v {
-                Ok(Some(v.clone()))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Err(Error::missing_argument(
-                self.argument_number,
-                "?",
-                &self.action_position,
-            ))
-        }
-    }
-
-    pub fn pop_parameter(&mut self) -> Result<&ParameterValue, Error> {
-        if let Some(p) = self.parameters.0.get(self.argument_number) {
-            self.argument_number += 1;
+    pub fn get_parameter(&self, i:usize, name:&str) -> Result<&ParameterValue, Error> {
+        if let Some(p) = self.parameters.0.get(i) {
             Ok(p)
         } else {
             Err(Error::missing_argument(
-                self.argument_number,
-                "?",
+                i,
+                name,
                 &self.action_position,
             ))
         }
     }
 
-    pub fn get<T: FromParameterValue<T> + TryFrom<V, Error = Error>>( // TODO: BAD DESIGN, the TryFrom should not be here
-        &mut self,
-    ) -> Result<T, Error> {
-        let argnum = self.argument_number;
-        let p = self.pop_parameter()?.to_owned();
-        if let Some(link) = p.link() {
-            let resolved = self.values.get(argnum);
-            return match resolved {
-                Some(Some(v)) => {
-                    let value = v.clone();
-                    return T::try_from((*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
-                                                          /*
-                                                                              if let Ok(v) = value.try_into_json_value(){
-                                                                                  return T::from_parameter_value(&ParameterValue::ParameterValue(v, p.position().or(self.action_position.clone())))
-                                                                              }
-                                                                              return Err(Error::general_error(format!(
-                                                                                  "Failed to convert link parameter {}: {}",
-                                                                                  argnum,
-                                                                                  link
-                                                                              )).with_position(&p.position().or(self.action_position.clone())));
-                                                          */
+    pub fn get_name(&self, i:usize) -> Result<Option<String>, Error> {
+        if let Some(p) = self.parameters.0.get(i) {
+            Ok(p.name())
+        } else {
+            Err(Error::missing_argument(
+                i,
+                "<unknown>",
+                &self.action_position,
+            ))
+        }
+    }
+
+    pub fn get_value(&self, i:usize, name:&str) -> Result<V, Error> {
+        if let Some(Some(v)) = self.values.get(i) {
+            Ok((*(v.clone())).clone())
+        } else {
+            let p = self.get_parameter(i, name)?;
+            if let Some(v) = p.value(){
+                Ok(V::try_from_json_value(&v)?)
+            }
+            else{
+                match p {
+                    ParameterValue::Placeholder(n) => Err(Error::general_error(format!(
+                        "Unresolved placeholder parameter {}: {}",
+                        i, n
+                    )).with_position(&self.action_position)),
+                    _ => Err(Error::general_error(format!(
+                        "Unresolved/unexpected parameter {}: {}", i, p
+                    )).with_position(&self.action_position)),
                 }
-                Some(None) => Err(Error::general_error(format!(
-                    "Unresolved link parameter {}: {}",
-                    argnum, link
-                ))
-                .with_position(&self.action_position)),
-                None => Err(Error::general_error(format!(
-                    "Unresolved link parameter {}: {} (resolved links too short: {})",
-                    argnum,
-                    link,
-                    self.values.len()
-                ))
-                .with_position(&self.action_position)),
-            };
+            }
+        }
+    }
+
+    pub fn get<T: FromParameterValue<T> + TryFrom<V, Error = Error>>( 
+        &self, i:usize, name:&str
+    ) -> Result<T, Error> {
+        if let Some(Some(v)) = self.values.get(i) {
+            let value = v.clone();
+            return T::try_from((*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
+        }
+        let p = self.get_parameter(i, name)?;
+
+        if let Some(link) = p.link() {
+            return Err(Error::general_error(format!(
+                "Unresolved link parameter {}: {}",
+                i, link
+            )).with_position(&self.action_position));
         }
         if p.is_injected() {
             return Err(Error::general_error(
@@ -122,11 +115,12 @@ impl<V: ValueInterface> CommandArguments<V> {
 
     /// Returns the injected parameter as a value of type T
     pub fn get_injected<P, T: InjectedFromContext<T, P, V>>(
-        &mut self,
+        &self,
+        i:usize,
         name: &str,
         context: &impl ActionContext<P, V>,
     ) -> Result<T, Error> {
-        let p = self.pop_parameter()?;
+        let p = self.get_parameter(i, name)?;
         if !p.is_injected() {
             return Err(Error::general_error(
                 "Inconsistent parameter type - value found, injected expected".to_owned(),
@@ -135,17 +129,8 @@ impl<V: ValueInterface> CommandArguments<V> {
         T::from_context(name, context)
     }
 
-    /// Returns true if all parameters have been used
-    /// This is checked during the command execution
-    pub fn all_parameters_used(&self) -> bool {
-        self.argument_number == self.parameters.0.len()
-    }
-    /// Returns the number of parameters that have not been used
-    pub fn excess_parameters(&self) -> usize {
-        self.parameters.len() - self.argument_number
-    }
-    pub fn parameter_position(&self) -> Position {
-        if let Some(p) = self.parameters.0.get(self.argument_number) {
+    pub fn parameter_position(&self, i:usize) -> Position {
+        if let Some(p) = self.parameters.0.get(i) {
             let pos = p.position();
             if pos.is_unknown() {
                 self.action_position.clone()
@@ -190,6 +175,34 @@ macro_rules! impl_from_parameter_value2 {
     };
 }
 
+macro_rules! impl_from_parameter_value2_opt {
+    ($t:ty, $jsonvalue_to_opt:expr) => {
+        impl FromParameterValue<Option<$t>> for Option<$t> {
+            fn from_parameter_value(param: &ParameterValue) -> Result<Option<$t>, Error> {
+                if let Some(ref p) = param.value() {
+                    if p.is_null() {
+                        return Ok(None);
+                    }
+                    $jsonvalue_to_opt(p).map(|x| Some(x)).ok_or(
+                        Error::conversion_error_with_message(
+                            p,
+                            stringify!($t),
+                            concat!(stringify!($t), " parameter value expected"),
+                        )
+                        .with_position(&param.position()),
+                    )
+                } else {
+                    return Err(Error::conversion_error_with_message(
+                        param,
+                        stringify!($t),
+                        "Parameter value expected",
+                    ));
+                }
+            }
+        }
+    };
+}
+
 impl_from_parameter_value2!(
     String,
     (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned()))
@@ -206,6 +219,20 @@ impl_from_parameter_value2!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as 
 impl_from_parameter_value2!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
 impl_from_parameter_value2!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
+impl_from_parameter_value2_opt!(i64, |p: &serde_json::Value| p.as_i64());
+impl_from_parameter_value2_opt!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
+impl_from_parameter_value2_opt!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
+impl_from_parameter_value2_opt!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
+impl_from_parameter_value2_opt!(isize, |p: &serde_json::Value| p.as_i64().map(|x| x as isize));
+impl_from_parameter_value2_opt!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
+impl_from_parameter_value2_opt!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
+impl_from_parameter_value2_opt!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
+impl_from_parameter_value2_opt!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
+impl_from_parameter_value2_opt!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
+impl_from_parameter_value2_opt!(f64, |p: &serde_json::Value| p.as_f64());
+impl_from_parameter_value2_opt!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
+impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());
+/*
 impl_from_parameter_value2!(Option<i64>, |p: &serde_json::Value| {
     if p.is_null() {
         Some(None)
@@ -220,7 +247,7 @@ impl_from_parameter_value2!(Option<f64>, |p: &serde_json::Value| {
         p.as_f64().map(Some)
     }
 });
-impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());
+*/
 
 impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
     fn from_parameter_value(param: &ParameterValue) -> Result<Vec<V>, Error> {
@@ -302,7 +329,7 @@ pub trait CommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 
         &self,
         command_key: &CommandKey,
         state: &State<V>,
-        arguments: &mut CommandArguments<V>,
+        arguments: &CommandArguments<V>,
         context: C,
     ) -> Result<V, Error>;
 
@@ -310,10 +337,10 @@ pub trait CommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 
         &self,
         command_key: &CommandKey,
         state: State<V>,
-        mut arguments: CommandArguments<V>,
+        arguments: &CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
-        self.execute(command_key, &state, &mut arguments, context)
+        self.execute(command_key, &state, &arguments, context)
     }
 }
 
@@ -322,7 +349,7 @@ pub struct CommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
         CommandKey,
         Arc<
             Box<
-                dyn (Fn(&State<V>, &mut CommandArguments<V>, C) -> Result<V, Error>)
+                dyn (Fn(&State<V>, &CommandArguments<V>, C) -> Result<V, Error>)
                     + Send
                     + Sync
                     + 'static,
@@ -366,7 +393,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, &mut CommandArguments<V>, C) -> Result<V, Error>)
+        F: (Fn(&State<V>, &CommandArguments<V>, C) -> Result<V, Error>)
             + Sync
             + Send
             + 'static,
@@ -430,7 +457,7 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
         &self,
         key: &CommandKey,
         state: &State<V>,
-        arguments: &mut CommandArguments<V>,
+        arguments: &CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         if let Some(command) = self.executors.get(&key) {
@@ -449,13 +476,13 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
         &self,
         key: &CommandKey,
         state: State<V>,
-        mut arguments: CommandArguments<V>,
+        arguments: &CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         if let Some(command) = self.async_executors.get(&key) {
-            command(state, arguments, context).await
+            command(state, arguments.clone(), context).await
         } else {
-            self.execute(key, &state, &mut arguments, context)
+            self.execute(key, &state, &arguments, context)
         }
     }
 }
