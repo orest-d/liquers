@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::fmt::Display;
 
 use crate::error::Error;
@@ -38,6 +39,7 @@ impl CommandRegistryIssue {
     }
 }
 
+// TODO: Label and description for alternatives
 /// Single alternative of an enum argument, see EnumArgument
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgumentAlternative {
@@ -166,6 +168,7 @@ pub enum ArgumentType {
     #[serde(rename = "bool")]
     Boolean,
     Enum(EnumArgument),
+    GlobalEnum(String),
     #[serde(rename = "any")]
     Any,
     #[serde(rename = "none")]
@@ -178,6 +181,18 @@ impl ArgumentType {
             ArgumentType::IntegerOption => true,
             ArgumentType::FloatOption => true,
             _ => false,
+        }
+    }
+    pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
+        match self {
+            ArgumentType::GlobalEnum(name) => {
+                if let Some(global_enum) = cmr.get_global_enum(name) {
+                    Ok(ArgumentType::Enum(global_enum.clone()))
+                } else {
+                    Err(Error::general_error(format!("Global enum {name} not defined")))
+                }
+            }
+            _ => Ok(self.clone()),
         }
     }
 }
@@ -358,6 +373,12 @@ impl ArgumentInfo {
     fn check(&self, _realm: &str, _namespace: &str, _name: &str) -> Vec<CommandRegistryIssue> {
         let issues = Vec::new();
         issues
+    }
+
+    pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error>{
+        let mut arginfo = self.clone();
+        arginfo.argument_type = self.argument_type.resolve_global_enums(cmr)?;
+        Ok(arginfo)
     }
 
     pub fn argument(name: &str) -> Self {
@@ -660,6 +681,15 @@ impl CommandMetadata {
             definition: CommandDefinition::Registered,
         }
     }
+    
+    pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
+        let mut new_self = self.clone();
+        for arginfo in new_self.arguments.iter_mut() {
+            arginfo.argument_type = arginfo.argument_type.resolve_global_enums(cmr)?;
+        }
+        Ok(new_self)
+    }
+
     pub fn from_key(key: CommandKey) -> Self {
         CommandMetadata {
             realm: key.realm,
@@ -745,11 +775,13 @@ impl CommandMetadata {
 
 // TODO: Refactor CommandMetadataRegistry to use realm/ns hierarchy and CommandKey
 // TODO: support global enums
+// TODO: support for dynamic global enums
 /// Command registry is a structure holding description (metadata) of all commands available in the system
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandMetadataRegistry {
     pub commands: Vec<CommandMetadata>,
     pub default_namespaces: Vec<String>,
+    pub global_enums: HashMap<String, EnumArgument>,
 }
 
 impl CommandMetadataRegistry {
@@ -757,7 +789,12 @@ impl CommandMetadataRegistry {
         CommandMetadataRegistry {
             commands: Vec::new(),
             default_namespaces: vec!["".to_string(), "root".to_string()],
+            global_enums: HashMap::new(),
         }
+    }
+
+    pub fn get_global_enum(&self, name: &str) -> Option<&EnumArgument> {
+        self.global_enums.get(name)
     }
 
     pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {

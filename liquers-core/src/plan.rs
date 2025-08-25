@@ -358,6 +358,9 @@ impl ParameterValue {
             ArgumentType::None => Err(Error::not_supported(
                 "None not supported as argument type".to_string(),
             )),
+            ArgumentType::GlobalEnum(_) => Err(Error::not_supported(
+                "GlobalEnum not supported as argument type".to_string(),
+            )),
         }
     }
 
@@ -714,7 +717,7 @@ impl<'c> PlanBuilder<'c> {
             &namespaces,
             &action_request.name,
         ) {
-            Ok(command_metadata.clone())
+            Ok(command_metadata.resolve_global_enums(self.command_registry)?)
         } else {
             Err(Error::action_not_registered(action_request, &namespaces))
         }

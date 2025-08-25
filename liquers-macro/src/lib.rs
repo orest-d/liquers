@@ -423,7 +423,7 @@ impl Parse for CommandSignatureStatement {
 enum CommandParameterStatement {
     Label(String),
     Gui(ArgumentGUIInfo),
-    Hint(String, String),
+    Hint(String, String), // TODO: Implement hints
 }
 
 impl Parse for CommandParameterStatement {
@@ -458,6 +458,11 @@ impl Parse for CommandParameterStatement {
     }
 }
 
+enum WrapperVersion {
+    V1,
+    V2,
+}
+
 struct CommandSignature {
     pub is_async: bool,
     pub name: syn::Ident,
@@ -469,7 +474,7 @@ struct CommandSignature {
     pub namespace: String,
     pub realm: String,
     pub presets: Vec<CommandPreset>,
-    pub command_statements: Vec<CommandSignatureStatement>,
+    pub wrapper_version: WrapperVersion,    
 }
 
 impl CommandSignature {
@@ -932,8 +937,8 @@ impl Parse for CommandSignature {
             result_type,
             namespace,
             realm,
-            command_statements,
             presets,
+            wrapper_version: WrapperVersion::V1,
         })
     }
 }
@@ -1035,8 +1040,27 @@ impl Parse for CommandSignatureExt {
         let cr: syn::Ident = input.parse()?;
         // Parse a comma
         input.parse::<syn::Token![,]>()?;
+        // Optionally parse a wrapper version
+        let wrapper_version = if input.peek(syn::Ident) {
+            let ident: syn::Ident = input.parse()?;
+            match ident.to_string().as_str() {
+                "V1" => Some(WrapperVersion::V1),
+                "V2" => Some(WrapperVersion::V2),
+                _ => return Err(syn::Error::new(ident.span(), "Unknown WrapperVersion")),
+            }
+        } else {
+            None
+        };
+        // If a wrapper version was parsed, expect a comma
+        if wrapper_version.is_some() {
+            input.parse::<syn::Token![,]>()?;
+        }
         // Parse the command signature
-        let sig: CommandSignature = input.parse()?;
+        let mut sig: CommandSignature = input.parse()?;
+        // Set the wrapper version if provided
+        if let Some(ver) = wrapper_version {
+            sig.wrapper_version = ver;
+        }
         Ok(CommandSignatureExt { cr, sig })
     }
 }

@@ -178,6 +178,9 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
         }
     }
 
+    // TODO: Not used at the moment - consider removing
+    /// Convenience method to get a plan for a recipe
+    /// It fetches the recipe (if available) and uses [Recipe::to_plan] to convert it to a plan.
     async fn recipe_plan(&self, key: &Key) -> Result<Plan, Error> {
         if let Some(filename) = key.filename() {
             let recipes = self.get_recipes(&key.parent()).await?;
