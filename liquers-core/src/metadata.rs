@@ -333,13 +333,13 @@ mod option_query_format {
     {
         let s = String::deserialize(deserializer);
         if s.is_err() {
-            return Ok(None);
+            Ok(None)
         } else {
             let s = s.unwrap();
             if s.is_empty() {
-                return Ok(Some(Query::new()));
+                Ok(Some(Query::new()))
             } else {
-                return parse::parse_query(&s).map_err(de::Error::custom).map(Some);
+                parse::parse_query(&s).map_err(de::Error::custom).map(Some)
             }
         }
     }
@@ -367,13 +367,13 @@ mod option_key_format {
     {
         let s = String::deserialize(deserializer);
         if s.is_err() {
-            return Ok(None);
+            Ok(None)
         } else {
             let s = s.unwrap();
             if s.is_empty() {
-                return Ok(Some(Key::new()));
+                Ok(Some(Key::new()))
             } else {
-                return parse::parse_key(&s).map_err(de::Error::custom).map(Some);
+                parse::parse_key(&s).map_err(de::Error::custom).map(Some)
             }
         }
     }
@@ -442,7 +442,7 @@ impl MetadataRecord {
     }
 
     pub fn with_error(&mut self, error: Error) -> &mut Self {
-        self.with_error_message((&error).to_string());
+        self.with_error_message(error.to_string());
         self.error_data = Some(error);
         self
     }
@@ -519,7 +519,7 @@ impl MetadataRecord {
                 parts.push(extension);
                 *filename = parts.join(".");
             } else {
-                filename.push_str(".");
+                filename.push('.');
                 filename.push_str(extension);
             }
         } else {
@@ -555,10 +555,10 @@ impl MetadataRecord {
     /// If extension is not set, return DEFAULT_ICON
     pub fn default_unicode_icon(&self)->&'static str{
         if let Some(extension) = self.extension() {
-            return crate::icons::file_extension_to_unicode_icon(&extension);
+            crate::icons::file_extension_to_unicode_icon(&extension)
         }
         else{
-            return crate::icons::DEFAULT_ICON;
+            crate::icons::DEFAULT_ICON
         }
     }
 
@@ -579,6 +579,12 @@ impl MetadataRecord {
 pub enum Metadata {
     LegacyMetadata(serde_json::Value),
     MetadataRecord(MetadataRecord),
+}
+
+impl Default for Metadata {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Metadata {
@@ -665,11 +671,11 @@ impl Metadata {
                 if let Some(e) = o.get("is_error") {
                     return e.as_bool().ok_or(Error::general_error("is_error not a boolean in legacy metadata".to_owned()));
                 }
-                return Err(Error::general_error("is_error not available in legacy metadata".to_owned()));
+                Err(Error::general_error("is_error not available in legacy metadata".to_owned()))
             }
             Metadata::MetadataRecord(m) => Ok(m.is_error),
-            Metadata::LegacyMetadata(serde_json::Value::Null) => {return Err(Error::general_error("legacy metadata is null, thus is_error is not available".to_owned()));},
-            _ => {return Err(Error::general_error("legacy metadata is not an object, thus is_error is not available".to_owned()));}
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {Err(Error::general_error("legacy metadata is null, thus is_error is not available".to_owned()))},
+            _ => {Err(Error::general_error("legacy metadata is not an object, thus is_error is not available".to_owned()))}
         }
     }
 
@@ -689,7 +695,7 @@ impl Metadata {
                 if let Some(media_type) = o.get("media_type") {
                     return media_type.to_string();
                 }
-                return "application/octet-stream".to_string();
+                "application/octet-stream".to_string()
             }
             Metadata::MetadataRecord(m) => m.get_media_type(),
             _ => "application/octet-stream".to_string(),
@@ -702,9 +708,9 @@ impl Metadata {
                 if let Some(Value::String(query)) = o.get("query") {
                     return parse::parse_query(query);
                 }
-                return Err(Error::general_error(
+                Err(Error::general_error(
                     "Query not found in legacy metadata".to_string(),
-                ));
+                ))
             }
             Metadata::MetadataRecord(m) => Ok(m.query.to_owned()),
             _ => Err(Error::general_error(
@@ -773,7 +779,7 @@ impl Metadata {
                     Some(filename.to_string())
                 } else {
                     self.query()
-                        .unwrap_or(Query::new())
+                        .unwrap_or_default()
                         .filename()
                         .map(|f| f.encode().to_string())
                 }
@@ -822,7 +828,7 @@ impl Metadata {
                 if let Some(extension) = self.extension() {
                     return extension.to_string();
                 }
-                return "bin".to_string();
+                "bin".to_string()
             }
             Metadata::MetadataRecord(m) => m.get_data_format(),
             _ => "bin".to_string(),
@@ -853,7 +859,7 @@ impl Metadata {
                 if let Some(status) = o.get("status") {
                     return serde_json::from_value(status.clone()).unwrap_or(Status::None);
                 }
-                return Status::None;
+                Status::None
             }
             Metadata::MetadataRecord(m) => m.status,
             _ => Status::None,
@@ -866,7 +872,7 @@ impl Metadata {
                 if let Some(message) = o.get("message") {
                     return message.as_str().unwrap_or("");
                 }
-                return "";
+                ""
             }
             Metadata::MetadataRecord(m) => m.message.as_str(),
             _ => "",
@@ -879,7 +885,7 @@ impl Metadata {
                 if let Some(unicode_icon) = o.get("unicode_icon") {
                     return unicode_icon.as_str().unwrap_or(crate::icons::DEFAULT_ICON);
                 }
-                return crate::icons::DEFAULT_ICON;
+                crate::icons::DEFAULT_ICON
             }
             Metadata::MetadataRecord(m) => m.unicode_icon.as_str(),
             _ => crate::icons::DEFAULT_ICON,
@@ -892,7 +898,7 @@ impl Metadata {
                 if let Some(file_size) = o.get("file_size") {
                     return file_size.as_u64();
                 }
-                return None;
+                None
             }
             Metadata::MetadataRecord(m) => m.file_size,
             _ => None,
@@ -905,7 +911,7 @@ impl Metadata {
                 if let Some(is_dir) = o.get("is_dir") {
                     return is_dir.as_bool().unwrap_or(false);
                 }
-                return false;
+                false
             }
             Metadata::MetadataRecord(m) => m.is_dir,
             _ => false,

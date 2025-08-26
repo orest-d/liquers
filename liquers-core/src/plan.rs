@@ -331,7 +331,7 @@ impl ParameterValue {
                             &e.name,
                             &format!("Undefined enum {} in argument {}", e.name, arginfo.name),
                         )
-                        .with_position(&pos))
+                        .with_position(pos))
                     }
                 }
             },
@@ -339,13 +339,13 @@ impl ParameterValue {
                 if s.is_empty() {
                     let res = Self::from_arginfo(arginfo);
                     if res.is_none() {
-                        return Ok(Self::ParameterValue(
+                        Ok(Self::ParameterValue(
                             arginfo.name.clone(),
                             s.into(),
                             pos.to_owned(),
-                        ));
+                        ))
                     } else {
-                        return Ok(res);
+                        Ok(res)
                     }
                 } else {
                     Ok(ParameterValue::ParameterValue(
@@ -536,6 +536,12 @@ impl ParameterValue {
 /// ResolvedParameterValues is created from an ActionRequest and CommandMetadata.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
+impl Default for ResolvedParameterValues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResolvedParameterValues {
     pub fn new() -> Self {
         ResolvedParameterValues(Vec::new())
@@ -820,7 +826,7 @@ impl<'c> PlanBuilder<'c> {
                     parameters: ResolvedParameterValues::from_action_extended(
                         action_request,
                         &command_metadata,
-                        &head_parameters,
+                        head_parameters,
                         self.allow_placeholders,
                     )?,
                 });
@@ -880,7 +886,7 @@ impl<'c> PlanBuilder<'c> {
                         return Ok(());
                     }
                     if let Some(action) = tqs.action() {
-                        self.process_action(&query, &action)?;
+                        self.process_action(query, &action)?;
                         return Ok(());
                     }
                     if tqs.is_filename() {
@@ -914,6 +920,12 @@ pub struct Plan {
     pub steps: Vec<Step>,
 }
 
+impl Default for Plan {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Plan {
     pub fn new() -> Self {
         Plan {
@@ -942,10 +954,7 @@ impl Plan {
     /// Find index of the last action in the plan
     fn last_action_index(&self) -> Option<usize> {
         for (i, s) in self.steps.iter().enumerate().rev() {
-            match s {
-                Step::Action { .. } => return Some(i),
-                _ => (),
-            }
+            if let Step::Action { .. } = s { return Some(i) }
         }
         None
     }

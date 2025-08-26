@@ -50,8 +50,10 @@ pub struct EnumArgumentAlternative {
 /// Type of an enum argument, see EnumArgument
 /// This is a restricted version of ArgumentType to prevent circular type definition
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
+    #[default]
     String,
     #[serde(rename = "int")]
     Integer,
@@ -67,11 +69,6 @@ pub enum EnumArgumentType {
     Any,
 }
 
-impl Default for EnumArgumentType {
-    fn default() -> Self {
-        EnumArgumentType::String
-    }
-}
 //TODO: add support for value with type_identifier
 
 /// Enum argument type specification
@@ -154,6 +151,7 @@ impl EnumArgument {
 //TODO: add support for value with type_identifier
 /// Argument type specification
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum ArgumentType {
     #[serde(rename = "string")]
     String,
@@ -170,6 +168,7 @@ pub enum ArgumentType {
     Enum(EnumArgument),
     GlobalEnum(String),
     #[serde(rename = "any")]
+    #[default]
     Any,
     #[serde(rename = "none")]
     None,
@@ -197,11 +196,6 @@ impl ArgumentType {
     }
 }
 
-impl Default for ArgumentType {
-    fn default() -> Self {
-        ArgumentType::Any
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArgumentGUIInfo {
@@ -271,9 +265,11 @@ impl Default for ArgumentGUIInfo {
 /// where needed when creating the ResolvedParameterValues for an Action.
 /// CommandParameterValue can be a JSON Value, a Query or None.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum CommandParameterValue {
     Value(Value),
     Query(Query),
+    #[default]
     None,
 }
 
@@ -307,11 +303,6 @@ impl CommandParameterValue {
     }
 }
 
-impl Default for CommandParameterValue {
-    fn default() -> Self {
-        CommandParameterValue::None
-    }
-}
 
 /// ParameterPreset defines and describes a preset for a command parameter.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -371,8 +362,8 @@ impl ArgumentInfo {
         }
     }
     fn check(&self, _realm: &str, _namespace: &str, _name: &str) -> Vec<CommandRegistryIssue> {
-        let issues = Vec::new();
-        issues
+        
+        Vec::new()
     }
 
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error>{
@@ -581,7 +572,9 @@ impl From<&str> for CommandKey {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum CommandDefinition {
+    #[default]
     Registered,
     Alias {
         command: CommandKey,
@@ -589,11 +582,6 @@ pub enum CommandDefinition {
     },
 }
 
-impl Default for CommandDefinition {
-    fn default() -> Self {
-        CommandDefinition::Registered
-    }
-}
 
 /// CommandPreset is a structure that holds a preset for a command with parameters (action) for user convinience.
 /// Preset is in form of aa string representation of an action request in a query.
@@ -711,7 +699,7 @@ impl CommandMetadata {
     }
     pub fn check(&self) -> Vec<CommandRegistryIssue> {
         let mut issues = Vec::new();
-        if self.name == "" {
+        if self.name.is_empty() {
             issues.push(CommandRegistryIssue::error(
                 &self.realm,
                 &self.namespace,
@@ -784,6 +772,12 @@ pub struct CommandMetadataRegistry {
     pub global_enums: HashMap<String, EnumArgument>,
 }
 
+impl Default for CommandMetadataRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandMetadataRegistry {
     pub fn new() -> Self {
         CommandMetadataRegistry {
@@ -823,15 +817,9 @@ impl CommandMetadataRegistry {
         K: Into<CommandKey>,
     {
         let key = key.into();
-        for command in &self.commands {
-            if command.realm == key.realm
+        self.commands.iter().find(|&command| command.realm == key.realm
                 && command.namespace == key.namespace
-                && command.name == key.name
-            {
-                return Some(command);
-            }
-        }
-        None
+                && command.name == key.name)
     }
 
     pub fn find_command(

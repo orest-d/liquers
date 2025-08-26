@@ -165,6 +165,12 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     asset_store: Arc<Box<DefaultAssetStore<Self>>>,
 }
 
+impl<V: ValueInterface> Default for SimpleEnvironment<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V: ValueInterface> SimpleEnvironment<V> {
     pub fn new() -> Self {
         SimpleEnvironment {

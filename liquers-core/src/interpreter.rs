@@ -70,7 +70,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         for i in 0..self.len() {
             let input_state = self.state.take().unwrap_or(self.initial_state());
             let step = self.get_step(i)?;
-            let output_state = self.do_step(&step, input_state, context.clone_context())?;
+            let output_state = self.do_step(step, input_state, context.clone_context())?;
             self.state = Some(output_state);
         }
         Ok(())
@@ -107,13 +107,13 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
         match step {
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_store();
-                let (data, metadata) = store.get(&key)?;
+                let (data, metadata) = store.get(key)?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
             crate::plan::Step::GetAsset(key) => { // FIXME: This is not correct - just to satisfy old unittests
                 let store = self.environment.get_store();
-                let (data, metadata) = store.get(&key)?;
+                let (data, metadata) = store.get(key)?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
@@ -148,13 +148,13 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> PlanInterpreter<E
                 context.set_filename(name.name.clone());
             }
             crate::plan::Step::Info(m) => {
-                context.info(&m);
+                context.info(m);
             }
             crate::plan::Step::Warning(m) => {
-                context.warning(&m);
+                context.warning(m);
             }
             crate::plan::Step::Error(m) => {
-                context.error(&m);
+                context.error(m);
             }
             crate::plan::Step::Plan(_) => todo!(),
             Step::SetCwd(key) => todo!(),
@@ -238,7 +238,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
             let input_state = self.state.take().unwrap_or(self.initial_state());
             let step = self.get_step(i)?;
             let output_state = self
-                .do_step(&step, input_state, context.clone_context())
+                .do_step(step, input_state, context.clone_context())
                 .await?;
             self.state = Some(output_state);
         }
@@ -276,7 +276,7 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
         match step {
             crate::plan::Step::GetResource(key) => {
                 let store = self.environment.get_async_store();
-                let (data, metadata) = store.get(&key).await?;
+                let (data, metadata) = store.get(key).await?;
                 let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
                 return Ok(State::new().with_data(value).with_metadata(metadata));
             }
@@ -311,13 +311,13 @@ impl<ER: EnvRef<E>, E: Environment<EnvironmentReference = ER>> AsyncPlanInterpre
                 context.set_filename(name.name.clone());
             }
             crate::plan::Step::Info(m) => {
-                context.info(&m);
+                context.info(m);
             }
             crate::plan::Step::Warning(m) => {
-                context.warning(&m);
+                context.warning(m);
             }
             crate::plan::Step::Error(m) => {
-                context.error(&m);
+                context.error(m);
             }
             crate::plan::Step::Plan(_) => todo!(),
             Step::SetCwd(key) => todo!(),
@@ -614,7 +614,7 @@ impl<E: NGEnvironment> NGPlanInterpreter<E> {
                     let state = pi.evaluate(q.clone()).await?;
                     if state.is_error()? {
                         return Err(Error::general_error("Error in template".to_string())
-                            .with_query(&q)
+                            .with_query(q)
                             .with_position(&q.position()));
                     }
                     result.push_str(&state.try_into_string()?);
@@ -846,7 +846,7 @@ pub mod ngi {
                         let state = evaluate(envref.clone(), q, cwd_key.clone()).await?;
                         if state.is_error()? {
                             return Err(Error::general_error("Error in template".to_string())
-                                .with_query(&q)
+                                .with_query(q)
                                 .with_position(&q.position()));
                         }
                         result.push_str(&state.try_into_string()?);

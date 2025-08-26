@@ -43,8 +43,8 @@ pub struct Error {
 impl Error {
     pub fn new(error_type: ErrorType, message: String) -> Self {
         Error {
-            error_type: error_type,
-            message: message,
+            error_type,
+            message,
             position: Position::unknown(),
             query: None,
             key: None,
@@ -53,7 +53,7 @@ impl Error {
 
     pub fn from_error<E:Display>(error_type:ErrorType, error: E) -> Self {
         Error {
-            error_type: error_type,
+            error_type,
             message: error.to_string(),
             position: Position::unknown(),
             query: None,
@@ -110,7 +110,7 @@ impl Error {
     pub fn not_supported(message: String) -> Self {
         Error {
             error_type: ErrorType::NotSupported,
-            message: message,
+            message,
             position: Position::unknown(),
             query: None,
             key: None,
@@ -194,7 +194,7 @@ impl Error {
     pub fn general_error(message: String) -> Self {
         Error {
             error_type: ErrorType::General,
-            message: message,
+            message,
             position: Position::unknown(),
             query: None,
             key: None,
@@ -203,7 +203,7 @@ impl Error {
     pub fn unexpected_error(message: String) -> Self {
         Error {
             error_type: ErrorType::UnexpectedError,
-            message: message,
+            message,
             position: Position::unknown(),
             query: None,
             key: None,
@@ -266,7 +266,7 @@ impl Error {
     pub fn execution_error(message: String) -> Self {
         Error {
             error_type: ErrorType::ExecutionError,
-            message: message,
+            message,
             position: Position::unknown(),
             query: None,
             key: None,

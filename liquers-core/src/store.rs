@@ -154,12 +154,10 @@ pub trait Store: Send + Sync {
                 } else {
                     std::cmp::Ordering::Less
                 }
+            } else if b.is_dir {
+                std::cmp::Ordering::Greater
             } else {
-                if b.is_dir {
-                    std::cmp::Ordering::Greater
-                } else {
-                    a.filename.cmp(&b.filename)
-                }
+                a.filename.cmp(&b.filename)
             }
         });
         Ok(asset_info)
@@ -172,7 +170,7 @@ pub trait Store: Send + Sync {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(&key)? {
+            if self.is_dir(key)? {
                 let sub = self.listdir_keys_deep(&sub_key)?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -384,12 +382,10 @@ pub trait AsyncStore: Send + Sync {
                 } else {
                     std::cmp::Ordering::Less
                 }
+            } else if b.is_dir {
+                std::cmp::Ordering::Greater
             } else {
-                if b.is_dir {
-                    std::cmp::Ordering::Greater
-                } else {
-                    a.filename.cmp(&b.filename)
-                }
+                a.filename.cmp(&b.filename)
             }
         });
         Ok(asset_info)
@@ -402,7 +398,7 @@ pub trait AsyncStore: Send + Sync {
         let keys = self.listdir_keys(key).await?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(&key).await? {
+            if self.is_dir(key).await? {
                 let sub = self.listdir_keys_deep(&sub_key).await?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -794,7 +790,7 @@ impl Store for FileStore {
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let path = self.key_to_path(key);
-        return Ok(path.is_dir());
+        Ok(path.is_dir())
     }
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
@@ -811,15 +807,13 @@ impl Store for FileStore {
                 })
                 .filter(|name| !name.ends_with(Self::METADATA))
                 .collect();
-            return Ok(names);
+            Ok(names)
+        }
+        else if path.exists() {
+            Ok(vec![])
         }
         else{
-            if path.exists() {
-                return Ok(vec![]);
-            }
-            else{
-                return Err(Error::key_not_found(key));
-            }   
+            Err(Error::key_not_found(key))
         }
     }
 
@@ -1019,6 +1013,12 @@ pub struct StoreRouter {
     stores: Vec<Box<dyn Store>>,
 }
 
+impl Default for StoreRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StoreRouter {
     pub fn new() -> StoreRouter {
         StoreRouter { stores: Vec::new() }
@@ -1049,7 +1049,7 @@ impl StoreRouter {
 
 impl Store for StoreRouter {
     fn store_name(&self) -> String {
-        std::format!("Store router")
+        "Store router".to_string()
     }
 
     fn key_prefix(&self) -> Key {
@@ -1162,7 +1162,7 @@ impl Store for StoreRouter {
         let mut list = Vec::new();
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) {
-                let names = store.listdir(&key)?;
+                let names = store.listdir(key)?;
                 list.extend(names);
             }
             if store.key_prefix().has_key_prefix(key) {
@@ -1183,7 +1183,7 @@ impl Store for StoreRouter {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(&key)? {
+            if self.is_dir(key)? {
                 let sub = self.listdir_keys_deep(&sub_key)?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -1200,7 +1200,7 @@ impl Store for StoreRouter {
 
     fn is_supported(&self, key: &Key) -> bool {
         self.find_store(key)
-            .map_or(false, |store| store.is_supported(key))
+            .is_some_and(|store| store.is_supported(key))
     }
 }
 
@@ -1221,12 +1221,7 @@ impl AsyncStoreRouter {
     }
 
     fn find_store(&self, key: &Key) -> Option<&Box<dyn AsyncStore>> {
-        for store in &self.stores {
-            if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
-                return Some(store);
-            }
-        }
-        None
+        self.stores.iter().find(|&store| key.has_key_prefix(&store.key_prefix()) && store.is_supported(key))
     }
 
     fn find_store_mut(&mut self, key: &Key) -> Option<&mut Box<dyn AsyncStore>> {
@@ -1243,7 +1238,7 @@ impl AsyncStoreRouter {
 #[cfg(feature = "async_store")]
 impl AsyncStore for AsyncStoreRouter {
     fn store_name(&self) -> String {
-        std::format!("Store router")
+        "Store router".to_string()
     }
 
     fn key_prefix(&self) -> Key {
@@ -1384,7 +1379,7 @@ impl AsyncStore for AsyncStoreRouter {
         let mut list = Vec::new();
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) {
-                let names = store.listdir(&key).await?;
+                let names = store.listdir(key).await?;
                 list.extend(names);
             }
             if store.key_prefix().has_key_prefix(key) {
@@ -1411,7 +1406,7 @@ impl AsyncStore for AsyncStoreRouter {
         let keys = self.listdir_keys(key).await?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(&key).await? {
+            if self.is_dir(key).await? {
                 let sub = self.listdir_keys_deep(&sub_key).await?;
                 keys_deep.extend(sub.into_iter());
             }

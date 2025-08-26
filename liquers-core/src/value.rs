@@ -113,7 +113,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
         if self.is_none() {
             Ok(None)
         } else {
-            self.try_into_string().map(|x| Some(x))
+            self.try_into_string().map(Some)
         }
     }
 
@@ -229,7 +229,7 @@ impl ValueInterface for Value {
 
     fn try_into_string(&self) -> Result<String, Error> {
         match self {
-            Value::None => Ok(format!("None")),
+            Value::None => Ok("None".to_string()),
             Value::Bool(b) => Ok(format!("{b}")),
             Value::I32(n) => Ok(format!("{n}")),
             Value::I64(n) => Ok(format!("{n}")),

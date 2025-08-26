@@ -226,7 +226,7 @@ pub mod ngi {
                         let state = evaluate(envref.clone(), q, cwd_key.clone()).await?;
                         if state.is_error()? {
                             return Err(Error::general_error("Error in template".to_string())
-                                .with_query(&q)
+                                .with_query(q)
                                 .with_position(&q.position()));
                         }
                         result.push_str(&state.try_into_string()?);

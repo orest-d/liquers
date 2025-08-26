@@ -155,6 +155,12 @@ pub struct DependencyManagerImpl<V: Clone + PartialEq + Eq + Debug, D: Dependenc
     dependents: std::collections::HashMap<D, HashSet<D>>,
 }
 
+impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> Default for DependencyManagerImpl<V, D> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, D> {
     pub fn new() -> Self {
         DependencyManagerImpl {
@@ -251,7 +257,7 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
             }
         }
         for d in self.all_dependents(dependency){
-            self.status.entry((&d).clone()).and_modify(
+            self.status.entry(d.clone()).and_modify(
                 |x|{
                     if x.0.has_data(){
                         x.0 = Status::Expired;
@@ -286,7 +292,7 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
         self.dependents.get_mut(dependency).unwrap().insert(something.clone());
         if self.dependencies.get_mut(something).unwrap().iter().all(|record| record.dependency != *dependency) {
             if let Some((status, version)) = self.status.get(dependency){
-                let record = DependencyRecord::new(dependency.clone(), version.clone(), status.clone());
+                let record = DependencyRecord::new(dependency.clone(), version.clone(), *status);
                 self.dependencies.get_mut(something).unwrap().push(record);
                 impacted.insert(something.clone());
                 if !status.has_data() {

@@ -21,9 +21,9 @@ pub struct Position {
 impl Position {
     pub fn new(offset: usize, line: u32, column: usize) -> Self {
         Position {
-            offset: offset,
-            line: line,
-            column: column,
+            offset,
+            line,
+            column,
         }
     }
     pub fn unknown() -> Position {
@@ -217,14 +217,14 @@ impl ResourceName {
     /// Create a new resource name (without a position)
     pub fn new(name: String) -> Self {
         Self {
-            name: name,
+            name,
             position: Position::unknown(),
         }
     }
     /// Equip the resource name with a position
     pub fn with_position(self, position: Position) -> Self {
         Self {
-            position: position,
+            position,
             ..self
         }
     }
@@ -281,19 +281,19 @@ pub struct ActionRequest {
 impl ActionRequest {
     pub fn new(name: String) -> ActionRequest {
         ActionRequest {
-            name: name,
+            name,
             ..Default::default()
         }
     }
     pub fn with_position(self, position: Position) -> Self {
         Self {
-            position: position,
+            position,
             ..self
         }
     }
     pub fn with_parameters(self, parameters: Vec<ActionParameter>) -> Self {
         Self {
-            parameters: parameters,
+            parameters,
             ..self
         }
     }
@@ -308,8 +308,8 @@ impl ActionRequest {
         }
     }
     pub fn encode(&self) -> String {
-        if self.parameters.len() == 0 {
-            return self.name.to_owned();
+        if self.parameters.is_empty() {
+            self.name.to_owned()
         } else {
             format!(
                 "{}-{}",
@@ -351,14 +351,14 @@ pub struct HeaderParameter {
 impl HeaderParameter {
     pub fn new(value: String) -> HeaderParameter {
         HeaderParameter {
-            value: value,
+            value,
             ..Default::default()
         }
     }
     pub fn with_position(self, position: Position) -> Self {
         Self {
             value: self.value,
-            position: position,
+            position,
         }
     }
     pub fn encode(&self) -> &str {
@@ -405,7 +405,7 @@ impl SegmentHeader {
     /// I.e. trivial header has no name, level is 0 and no parameters.
     /// Trivial header can be both for resource and query, it does not depend on the resource flags.
     pub fn is_trivial(&self) -> bool {
-        self.name.is_empty() && self.level == 0 && self.parameters.len() == 0
+        self.name.is_empty() && self.level == 0 && self.parameters.is_empty()
     }
 
     pub fn new() -> SegmentHeader {
@@ -419,13 +419,13 @@ impl SegmentHeader {
     }
     pub fn with_position(self, position: Position) -> Self {
         Self {
-            position: position,
+            position,
             ..self
         }
     }
 
     pub fn encode(&self) -> String {
-        let mut encoded: String = std::iter::repeat("-").take(self.level + 1).collect();
+        let mut encoded: String = std::iter::repeat_n("-", self.level + 1).collect();
         if self.resource {
             encoded.push('R');
         }
@@ -497,16 +497,14 @@ impl TransformQuerySegment {
     pub fn position(&self) -> Position {
         if let Some(header) = &self.header {
             header.position.to_owned()
-        } else {
-            if self.query.is_empty() {
-                if let Some(filename) = &self.filename {
-                    filename.position.to_owned()
-                } else {
-                    Position::unknown()
-                }
+        } else if self.query.is_empty() {
+            if let Some(filename) = &self.filename {
+                filename.position.to_owned()
             } else {
-                self.query[0].position.to_owned()
+                Position::unknown()
             }
+        } else {
+            self.query[0].position.to_owned()
         }
     }
 
@@ -524,25 +522,23 @@ impl TransformQuerySegment {
                     filename: Some(filename.clone()),
                 }),
             )
+        } else if self.query.is_empty() {
+            (None, None)
         } else {
-            if self.query.is_empty() {
-                (None, None)
-            } else {
-                let mut q = vec![];
-                self.query[0..self.query.len() - 1].clone_into(&mut q);
-                (
-                    Some(TransformQuerySegment {
-                        header: self.header.clone(),
-                        query: q,
-                        filename: None,
-                    }),
-                    Some(TransformQuerySegment {
-                        header: self.header.clone(),
-                        query: vec![self.query.last().unwrap().clone()],
-                        filename: None,
-                    }),
-                )
-            }
+            let mut q = vec![];
+            self.query[0..self.query.len() - 1].clone_into(&mut q);
+            (
+                Some(TransformQuerySegment {
+                    header: self.header.clone(),
+                    query: q,
+                    filename: None,
+                }),
+                Some(TransformQuerySegment {
+                    header: self.header.clone(),
+                    query: vec![self.query.last().unwrap().clone()],
+                    filename: None,
+                }),
+            )
         }
     }
 
@@ -566,7 +562,7 @@ impl TransformQuerySegment {
         }
     }
     pub fn is_ns(&self) -> bool {
-        self.action().map_or(false, |x| x.is_ns())
+        self.action().is_some_and(|x| x.is_ns())
     }
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
         self.action().and_then(|x| x.ns())
@@ -609,7 +605,7 @@ impl Add for TransformQuerySegment {
 
     fn add(self, rhs: Self) -> Self::Output {
         let mut q = self.query.clone();
-        q.extend(rhs.query.iter().map(|x| x.clone()));
+        q.extend(rhs.query.iter().cloned());
         TransformQuerySegment {
             header: self.header.clone(),
             query: q,
@@ -872,12 +868,10 @@ impl ResourceQuerySegment {
     pub fn position(&self) -> Position {
         if let Some(header) = &self.header {
             header.position.to_owned()
+        } else if self.key.is_empty() {
+            Position::unknown()
         } else {
-            if self.key.is_empty() {
-                Position::unknown()
-            } else {
-                self.key[0].position.to_owned()
-            }
+            self.key[0].position.to_owned()
         }
     }
 
@@ -1151,6 +1145,7 @@ impl Hash for QuerySegment {
 
 /// Query source - characterizes the place (string) where the query was read from.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum QuerySource {
     /// Query was read from a result of another query
     Query(String),
@@ -1161,14 +1156,10 @@ pub enum QuerySource {
     /// Query was read from an unknown source
     Other(String),
     /// The source of the query is unspecified
+    #[default]
     Unspecified,
 }
 
-impl Default for QuerySource {
-    fn default() -> Self {
-        QuerySource::Unspecified
-    }
-}
 
 impl Display for QuerySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1230,7 +1221,7 @@ impl Query {
     }
     /// Returns true if the query is a namespace definition.
     pub fn is_ns(&self) -> bool {
-        self.transform_query().map_or(false, |x| x.is_ns())
+        self.transform_query().is_some_and(|x| x.is_ns())
     }
     /// Returns the namespace definition if path is a namespace action.
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
@@ -1306,7 +1297,7 @@ impl Query {
     /// Returns true if the query is a single action request.
     pub fn is_action_request(&self) -> bool {
         self.transform_query()
-            .map_or(false, |x| x.is_action_request())
+            .is_some_and(|x| x.is_action_request())
     }
 
     /// Returns ActionRequest if the query is a single action request, None otherwise.
@@ -1319,7 +1310,7 @@ impl Query {
     /// i.e. no name and parameters.
     pub fn is_key(&self) -> bool {
         if let Some(rq) = self.resource_query(){
-            rq.header.is_none() || rq.header.as_ref().map_or(false, |x| x.is_trivial())
+            rq.header.is_none() || rq.header.as_ref().is_some_and(|x| x.is_trivial())
         }
         else{
             false
@@ -1373,14 +1364,14 @@ impl Query {
             }
             Some(QuerySegment::Transform(tqs)) => {
                 let (p, r) = tqs.predecessor();
-                if p.as_ref().map_or(true, |x| x.is_empty()) {
+                if p.as_ref().is_none_or(|x| x.is_empty()) {
                     (
                         Some(Query {
                             segments: self.up_to_last_segment(),
                             absolute: self.absolute,
                             ..Default::default()
                         }),
-                        r.map(|x| QuerySegment::Transform(x)),
+                        r.map(QuerySegment::Transform),
                     )
                 } else {
                     let mut seg = self.up_to_last_segment();
@@ -1391,7 +1382,7 @@ impl Query {
                             absolute: self.absolute,
                             ..Default::default()
                         }),
-                        r.map(|x| QuerySegment::Transform(x)),
+                        r.map(QuerySegment::Transform),
                     )
                 }
             }
@@ -1415,7 +1406,7 @@ impl Query {
             if qp.unwrap().is_empty() {
                 break;
             }
-            let x = (qp.map(|x| x.clone()), (&qr).clone());
+            let x = (qp.cloned(), qr.clone());
             result.push(x);
             let (q, r) = qp.unwrap().predecessor();
             buff = q;
@@ -1476,7 +1467,7 @@ impl Query {
             add_to_result(
                 &mut result,
                 &None,
-                &r.resource_query().map(|x| QuerySegment::Resource(x)),
+                &r.resource_query().map(QuerySegment::Resource),
             );
         }
         result
@@ -1484,17 +1475,15 @@ impl Query {
 
     /// Query without the filename.
     pub fn without_filename(self) -> Query {
-        if (&self).filename().is_none() {
+        if self.filename().is_none() {
             self
+        } else if let (Some(p), _) = self.predecessor() {
+            p
         } else {
-            if let (Some(p), _) = self.predecessor() {
-                p
-            } else {
-                Query {
-                    segments: vec![],
-                    absolute: self.absolute,
-                    ..Default::default()
-                }
+            Query {
+                segments: vec![],
+                absolute: self.absolute,
+                ..Default::default()
             }
         }
     }

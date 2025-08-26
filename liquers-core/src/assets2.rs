@@ -91,7 +91,7 @@ impl<E: Environment> AssetRef<E> {
             if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
                 let type_identifier = metadata.as_ref().type_identifier()?;
                 let extension = metadata.extension().unwrap_or("bin".to_string());
-                E::Value::deserialize_from_bytes(&binary, &type_identifier, &extension)
+                E::Value::deserialize_from_bytes(binary, &type_identifier, &extension)
             } else {
                 return Ok(false);
             }
@@ -158,14 +158,12 @@ impl<E: Environment> AssetRef<E> {
 
     pub async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.get_state_if_available().await? {
-            return Ok(state);
+            Ok(state)
         } else {
-            if self.try_load_binary_if_necessary(envref.clone()).await? {
-                if self.deserialize_from_binary().await? {
-                    if let Some(state) = self.get_state_if_available().await? {
-                        // TODO: Dispose binary if too long
-                        return Ok(state);
-                    }
+            if self.try_load_binary_if_necessary(envref.clone()).await? && self.deserialize_from_binary().await? {
+                if let Some(state) = self.get_state_if_available().await? {
+                    // TODO: Dispose binary if too long
+                    return Ok(state);
                 }
             }
             if self.try_create_from_recipe(envref.clone()).await? {
@@ -180,7 +178,7 @@ impl<E: Environment> AssetRef<E> {
             lock.data = Some(res.data.clone());
             lock.metadata = Some(res.metadata.clone());
             lock.binary = None;
-            return Ok(res);
+            Ok(res)
         }
     }
 }
@@ -254,6 +252,12 @@ pub struct DefaultAssetStore<E: Environment> {
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
+}
+
+impl<E: Environment> Default for DefaultAssetStore<E> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<E: Environment> DefaultAssetStore<E> {

@@ -1,16 +1,15 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
-use nom::Err;
 use scc;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::{
     context::{NGEnvRef, NGEnvironment},
     error::Error,
-    interpreter::{self, NGPlanInterpreter},
-    metadata::{self, Metadata, Status},
-    query::{Key, Query, TryToQuery},
+    interpreter::{self},
+    metadata::{Metadata, Status},
+    query::{Key, Query},
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     store::AsyncStore,
@@ -92,7 +91,7 @@ impl<E: NGEnvironment> AssetRef<E> {
             if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
                 let type_identifier = metadata.as_ref().type_identifier()?;
                 let extension = metadata.extension().unwrap_or("bin".to_string());
-                E::Value::deserialize_from_bytes(&binary, &type_identifier, &extension)
+                E::Value::deserialize_from_bytes(binary, &type_identifier, &extension)
             } else {
                 return Ok(false);
             }
@@ -160,14 +159,12 @@ impl<E: NGEnvironment> AssetRef<E> {
 
     pub async fn get_state(&self, envref: NGEnvRef<E>) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.get_state_if_available().await? {
-            return Ok(state);
+            Ok(state)
         } else {
-            if self.try_load_binary_if_necessary(envref.clone()).await? {
-                if self.deserialize_from_binary().await? {
-                    if let Some(state) = self.get_state_if_available().await? {
-                        // TODO: Dispose binary if too long
-                        return Ok(state);
-                    }
+            if self.try_load_binary_if_necessary(envref.clone()).await? && self.deserialize_from_binary().await? {
+                if let Some(state) = self.get_state_if_available().await? {
+                    // TODO: Dispose binary if too long
+                    return Ok(state);
                 }
             }
             if self.try_create_from_recipe(envref.clone()).await? {
@@ -182,7 +179,7 @@ impl<E: NGEnvironment> AssetRef<E> {
             lock.data = Some(res.data.clone());
             lock.metadata = Some(res.metadata.clone());
             lock.binary = None;
-            return Ok(res);
+            Ok(res)
         }
     }
 }
@@ -560,6 +557,7 @@ impl<E: NGEnvironment, ARP: AsyncRecipeProvider> AsyncAssets<E> for DefaultAsset
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::query::TryToQuery;
     use crate as liquers_core;
     use crate::context::SimpleNGEnvironment;
     use crate::metadata::Metadata;

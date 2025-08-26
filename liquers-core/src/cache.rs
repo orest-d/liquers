@@ -78,6 +78,12 @@ impl BinCache for NoBinCache {
 #[derive(Debug, Clone)]
 pub struct MemoryBinCache(HashMap<Query, (Arc<Metadata>, Option<Vec<u8>>)>);
 
+impl Default for MemoryBinCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryBinCache {
     pub fn new() -> Self {
         MemoryBinCache(HashMap::new())
@@ -148,9 +154,15 @@ pub trait Cache<V: ValueInterface>: BinCache {
 
 pub struct NoCache<V: ValueInterface>(PhantomData<V>);
 
+impl<V: ValueInterface> Default for NoCache<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V: ValueInterface> NoCache<V> {
     pub fn new() -> Self {
-        NoCache(PhantomData::default())
+        NoCache(PhantomData)
     }
 }
 

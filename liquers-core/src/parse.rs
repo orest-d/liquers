@@ -252,7 +252,7 @@ fn resource_segment_with_header(text: Span) -> IResult<Span, ResourceQuerySegmen
         text,
         ResourceQuerySegment {
             header: Some(header),
-            key: key,
+            key,
         },
     ))
 }
@@ -306,7 +306,7 @@ fn transform_segment_with_header(text: Span) -> IResult<Span, TransformQuerySegm
                 text,
                 TransformQuerySegment {
                     header: Some(header),
-                    query: query,
+                    query,
                     filename: None,
                 },
             ))
@@ -382,7 +382,7 @@ fn transform_segment_without_header(text: Span) -> IResult<Span, TransformQueryS
                 text,
                 TransformQuerySegment {
                     header: None,
-                    query: query,
+                    query,
                     filename: None,
                 },
             ))
@@ -566,7 +566,7 @@ pub fn parse_query(query: &str) -> Result<Query, Error> {
         let message = format!("{}", e);
         Error::query_parse_error(query, &message, &Position::unknown())
     })?;
-    if remainder.fragment().len() > 0 {
+    if !remainder.fragment().is_empty() {
         let position: Position = remainder.into();
         Err(Error::query_parse_error(
             query,
@@ -583,7 +583,7 @@ pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
         let em = format!("{}", e);
         Error::key_parse_error(key.as_ref(), &em, &Position::unknown())
     })?;
-    if remainder.fragment().len() > 0 {
+    if !remainder.fragment().is_empty() {
         let position: Position = remainder.into();
         Err(Error::key_parse_error(
             remainder.fragment(),
@@ -600,7 +600,7 @@ pub fn parse_simple_template<S: AsRef<str>>(template_text: S) -> Result<SimpleTe
         let em = format!("{}", e);
         Error::general_error(format!("Error parsing template: {}", em))
     })?;
-    if remainder.fragment().len() > 0 {
+    if !remainder.fragment().is_empty() {
         let position: Position = remainder.into();
         Err(Error::general_error(
             "Can't parse template completely".to_owned()).with_position(&position)
