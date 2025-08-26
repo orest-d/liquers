@@ -50,7 +50,9 @@ impl Parse for CommandPreset {
             while !content.is_empty() {
                 let ident: syn::Ident = content.parse()?;
                 if !content.peek(syn::Token![:]) {
-                    return Err(input.error(format!("colon expected after '{ident}' in command preset")));
+                    return Err(
+                        input.error(format!("colon expected after '{ident}' in command preset"))
+                    );
                 }
                 content.parse::<syn::Token![:]>()?;
                 let value: syn::LitStr = content.parse()?;
@@ -146,7 +148,7 @@ enum CommandParameter {
 }
 
 impl CommandParameter {
-    pub fn parameter_extractor(&self) -> proc_macro2::TokenStream {
+    pub fn parameter_extractor_v1(&self) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
                 name, ty, injected, ..
@@ -166,11 +168,52 @@ impl CommandParameter {
             _ => quote! {},
         }
     }
+    pub fn parameter_extractor_v2(&self, i: usize) -> proc_macro2::TokenStream {
+        match self {
+            CommandParameter::Param {
+                name, ty, injected, ..
+            } => {
+                let var_name = syn::Ident::new(&format!("{}__par", name), name.span());
+
+                // Helper to check if type is Value or Any
+                fn is_value_or_any(ty: &syn::Type) -> bool {
+                    if let syn::Type::Path(type_path) = ty {
+                        if let Some(ident) = type_path.path.get_ident() {
+                            let name = ident.to_string().to_lowercase();
+                            name == "value" || name == "any" || name == "commandvalue"
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+
+                let name_str = name.to_string();
+                if *injected {
+                    quote! {
+                        let #var_name: #ty = arguments.get_injected(#i, #name_str, &context)?;
+                    }
+                } else {
+                    if is_value_or_any(ty) {
+                        quote! {
+                            let #var_name = arguments.get_value(#i, #name_str)?;
+                        }
+                    } else {
+                        quote! {
+                            let #var_name: #ty = arguments.get(#i, #name_str)?;
+                        }
+                    }
+                }
+            }
+            _ => quote! {},
+        }
+    }
 
     pub fn parameter_name(&self) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
-                name, ty, injected, ..
+                name, ..
             } => {
                 let var_name = syn::Ident::new(&format!("{}__par", name), name.span());
                 quote! {#var_name}
@@ -329,9 +372,9 @@ impl CommandParameter {
         match self {
             CommandParameter::Param {
                 name,
-                ty,
+                ty:_ty,
                 injected,
-                default_value,
+                default_value: _default_value,
                 label,
                 gui,
             } => {
@@ -352,7 +395,7 @@ impl CommandParameter {
                         argument_type: #argument_type,
                         multiple: false,
                         injected: #injected,
-                        gui: #gui,
+                        gui_info: #gui,
                         ..Default::default()
                     }
                 })
@@ -387,7 +430,9 @@ impl Parse for CommandSignatureStatement {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ident: syn::Ident = input.parse()?;
         if !input.peek(syn::Token![:]) {
-            return Err(input.error(format!("colon expected after '{ident}' in command signature statement")));
+            return Err(input.error(format!(
+                "colon expected after '{ident}' in command signature statement"
+            )));
         }
 
         input.parse::<syn::Token![:]>()?;
@@ -474,16 +519,24 @@ struct CommandSignature {
     pub namespace: String,
     pub realm: String,
     pub presets: Vec<CommandPreset>,
-    pub wrapper_version: WrapperVersion,    
+    pub wrapper_version: WrapperVersion,
 }
 
 impl CommandSignature {
     pub fn extract_all_parameters(&self) -> proc_macro2::TokenStream {
-        let extractors: Vec<proc_macro2::TokenStream> = self
-            .parameters
-            .iter()
-            .map(|p| p.parameter_extractor())
-            .collect();
+
+        let extractors: Vec<proc_macro2::TokenStream> = match self.wrapper_version {
+            WrapperVersion::V1 => self
+                .parameters
+                .iter()
+                .map(|p| p.parameter_extractor_v1())
+                .collect(),
+            WrapperVersion::V2 => self
+                .parameters
+                .iter().enumerate()
+                .map(|(i, p)| p.parameter_extractor_v2(i))
+                .collect(),
+        };
         quote! {
             #(#extractors)*
         }
@@ -521,8 +574,7 @@ impl CommandSignature {
         syn::Ident::new(&format!("REGISTER__{}", self.name), self.name.span())
     }
 
-    pub fn wrapper_fn_signature(&self) -> proc_macro2::TokenStream {
-        let fn_name = &self.name;
+    pub fn wrapper_fn_signature_v1(&self) -> proc_macro2::TokenStream {
         let wrapper_name = self.wrapper_fn_name();
         if self.is_async {
             quote! {
@@ -549,6 +601,41 @@ impl CommandSignature {
             }
         }
     }
+
+    pub fn wrapper_fn_signature_v2(&self) -> proc_macro2::TokenStream {
+        let wrapper_name = self.wrapper_fn_name();
+        if self.is_async {
+            quote! {
+                fn #wrapper_name(
+                    state: &liquers_core::state::State<CommandValue>,
+                    arguments: &liquers_core::commands2::CommandArguments<CommandValue>,
+                    context: CommandContext,
+                ) ->
+                core::pin::Pin<
+                  std::boxed::Box<
+                    dyn core::future::Future<
+                      Output = core::result::Result<CommandValue, liquers_core::error::Error>
+                    > + core::sync::Send  + 'static
+                  >
+                >
+            }
+        } else {
+            quote! {
+                fn #wrapper_name(
+                    state: &liquers_core::state::State<CommandValue>,
+                    arguments: &liquers_core::commands2::CommandArguments<CommandValue>,
+                    context: CommandContext,
+                ) -> core::result::Result<CommandValue, liquers_core::error::Error>
+            }
+        }
+    }
+    pub fn wrapper_fn_signature(&self) -> proc_macro2::TokenStream {
+        match self.wrapper_version {
+            WrapperVersion::V1 => self.wrapper_fn_signature_v1(),
+            WrapperVersion::V2 => self.wrapper_fn_signature_v2(),
+        }
+    }
+
     pub fn command_call(&self) -> proc_macro2::TokenStream {
         let fn_name = &self.name;
         let ret = self.result_type.convert_result();
@@ -580,7 +667,6 @@ impl CommandSignature {
     }
 
     pub fn register_command(&self) -> proc_macro2::TokenStream {
-        let fn_name = &self.name;
         let wrapper_fn_name = self.wrapper_fn_name();
         let key = self.command_key_expression();
         if self.is_async {
@@ -598,7 +684,6 @@ impl CommandSignature {
         let fn_name = &self.name;
         let register_fn_name = self.register_fn_name();
         let command_wrapper = self.command_wrapper();
-        let wrapper_fn_name = self.wrapper_fn_name();
         let reg_command = self.register_command();
         let default_label = fn_name.to_string().replace('_', " ");
         let label = self
@@ -621,10 +706,19 @@ impl CommandSignature {
             quote! { cm.presets = #presets; }
         };
 
+
+        let registry_type = match self.wrapper_version {
+            WrapperVersion::V1 => quote! {
+                liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>
+            },
+            WrapperVersion::V2 => quote! {
+                liquers_core::commands2::CommandRegistry<CommandPayload, CommandValue, CommandContext>
+            },
+        };
         quote! {
             pub fn #register_fn_name(
-                registry: &mut liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>)
-                -> core::result::Result<&mut liquers_core::command_metadata::CommandMetadata, liquers_core::error::Error>
+                registry: &mut #registry_type
+            ) -> core::result::Result<&mut liquers_core::command_metadata::CommandMetadata, liquers_core::error::Error>
             {
                 #command_wrapper
 
@@ -1040,27 +1134,8 @@ impl Parse for CommandSignatureExt {
         let cr: syn::Ident = input.parse()?;
         // Parse a comma
         input.parse::<syn::Token![,]>()?;
-        // Optionally parse a wrapper version
-        let wrapper_version = if input.peek(syn::Ident) {
-            let ident: syn::Ident = input.parse()?;
-            match ident.to_string().as_str() {
-                "V1" => Some(WrapperVersion::V1),
-                "V2" => Some(WrapperVersion::V2),
-                _ => return Err(syn::Error::new(ident.span(), "Unknown WrapperVersion")),
-            }
-        } else {
-            None
-        };
-        // If a wrapper version was parsed, expect a comma
-        if wrapper_version.is_some() {
-            input.parse::<syn::Token![,]>()?;
-        }
         // Parse the command signature
         let mut sig: CommandSignature = input.parse()?;
-        // Set the wrapper version if provided
-        if let Some(ver) = wrapper_version {
-            sig.wrapper_version = ver;
-        }
         Ok(CommandSignatureExt { cr, sig })
     }
 }
@@ -1068,6 +1143,22 @@ impl Parse for CommandSignatureExt {
 #[proc_macro]
 pub fn register_command(input: TokenStream) -> TokenStream {
     let sig = parse_macro_input!(input as CommandSignatureExt);
+    let register_fn = sig.sig.command_registration();
+    let register_fn_name = sig.sig.register_fn_name();
+    let cr = sig.cr;
+    let gen = quote! {
+        {
+            #register_fn
+            #register_fn_name(#cr)
+        }
+    };
+    gen.into()
+}
+
+#[proc_macro]
+pub fn register_command_v2(input: TokenStream) -> TokenStream {
+    let mut sig = parse_macro_input!(input as CommandSignatureExt);
+    sig.sig.wrapper_version = WrapperVersion::V2;
     let register_fn = sig.sig.command_registration();
     let register_fn_name = sig.sig.register_fn_name();
     let cr = sig.cr;
@@ -1270,14 +1361,14 @@ mod tests {
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
-     #[test]
+    #[test]
     fn test_parse_preset_command_signature_statement() {
         use syn::parse_quote;
-    
+
         let stmt: CommandSignatureStatement = syn::parse_quote! {
             preset: "action1" (label: "Preset 1", description: "First preset")
         };
-    
+
         match stmt {
             CommandSignatureStatement::Preset(preset) => {
                 assert_eq!(preset.action, "action1");
@@ -1287,7 +1378,7 @@ mod tests {
             _ => panic!("Expected CommandSignatureStatement::Preset"),
         }
     }
-       
+
     #[test]
     fn test_command_signature_with_label() {
         use syn::parse_quote;
@@ -1451,7 +1542,7 @@ mod tests {
                     argument_type: liquers_core::command_metadata::ArgumentType::Integer,
                     multiple: false,
                     injected: false,
-                    gui: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
+                    gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
                     ..Default::default()
                 }];
                 Ok(cm)
@@ -1472,9 +1563,75 @@ mod tests {
     }
 
     #[test]
-    fn test_command_registration_with_doc() {
+    fn test_command_registration_generates_function_v2() {
         use syn::parse_quote;
 
+        let mut sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            label: "Test label"
+        };
+
+        sig.wrapper_version = WrapperVersion::V2;
+
+        let tokens = sig.command_registration();
+
+        let expected = r#"
+        pub fn REGISTER__test_fn(
+            registry: &mut liquers_core::commands2::CommandRegistry<
+                CommandPayload,
+                CommandValue,
+                CommandContext
+            >
+        ) -> core::result::Result<
+            &mut liquers_core::command_metadata::CommandMetadata,
+            liquers_core::error::Error
+        > {
+            fn test_fn__CMD_(
+                state: &liquers_core::state::State<CommandValue>,
+                arguments: &mut liquers_core::commands2::CommandArguments<CommandValue>,
+                context: CommandContext,
+            ) -> core::result::Result<CommandValue, liquers_core::error::Error> {
+                let a__par: i32 = arguments.get(0usize, "a")?;
+                let res = test_fn(state, a__par);
+                res
+            }
+            let mut cm = registry.register_command(
+                liquers_core::command_metadata::CommandKey::new("", "", "test_fn"),
+                test_fn__CMD_
+            )?;
+            cm.with_label("Test label");
+            cm.arguments = vec![liquers_core::command_metadata::ArgumentInfo {
+                name: "a".to_string(),
+                label: "a".to_string(),
+                default: liquers_core::command_metadata::CommandParameterValue::None,
+                argument_type: liquers_core::command_metadata::ArgumentType::Integer,
+                multiple: false,
+                injected: false,
+                gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
+                ..Default::default()
+            }];
+            Ok(cm)
+        }
+        "#;
+
+        println!("Generated tokens: {}", tokens.to_string());
+        fn fuzzy(s: &str) -> String {
+            s.replace(' ', "").replace('\n', "")
+        }
+        for (a, b) in fuzzy(&tokens.to_string())
+            .split(",")
+            .zip(fuzzy(expected).split(","))
+        {
+            assert_eq!(a, b);
+        }
+        assert!(tokens.to_string().contains("pub fn"));
+        assert!(fuzzy(&tokens.to_string()).contains("cm.with_label"));
+        assert!(fuzzy(&tokens.to_string()).contains("arguments.get(0usize,\"a\")?"));
+        assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
+    }
+
+    #[test]
+    fn test_command_registration_with_doc() {
         let sig: CommandSignature = syn::parse_quote! {
             fn test_fn(state, a: i32) -> result
             label: "Test label"
@@ -1497,8 +1654,6 @@ mod tests {
 
     #[test]
     fn test_command_registration_with_presets() {
-        use syn::parse_quote;
-
         let sig: CommandSignature = syn::parse_quote! {
             fn test_fn(state, a: i32) -> result
             label: "Test label"

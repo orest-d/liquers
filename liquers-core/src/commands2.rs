@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
-use crate::context2::{ActionContext};
+use crate::context2::ActionContext;
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
 use crate::query::{Position, Query};
@@ -43,19 +43,21 @@ impl<V: ValueInterface> CommandArguments<V> {
         self.parameters.0.len()
     }
 
-    pub fn get_parameter(&self, i:usize, name:&str) -> Result<&ParameterValue, Error> {
+    pub fn set_value(&mut self, i: usize, value: V) {
+        for j in self.values.len()..=i {
+            self.values.push(None);
+        }
+        self.values[i] = Some(Arc::new(value));
+    }
+    pub fn get_parameter(&self, i: usize, name: &str) -> Result<&ParameterValue, Error> {
         if let Some(p) = self.parameters.0.get(i) {
             Ok(p)
         } else {
-            Err(Error::missing_argument(
-                i,
-                name,
-                &self.action_position,
-            ))
+            Err(Error::missing_argument(i, name, &self.action_position))
         }
     }
 
-    pub fn get_name(&self, i:usize) -> Result<Option<String>, Error> {
+    pub fn get_name(&self, i: usize) -> Result<Option<String>, Error> {
         if let Some(p) = self.parameters.0.get(i) {
             Ok(p.name())
         } else {
@@ -67,30 +69,34 @@ impl<V: ValueInterface> CommandArguments<V> {
         }
     }
 
-    pub fn get_value(&self, i:usize, name:&str) -> Result<V, Error> {
+    pub fn get_value(&self, i: usize, name: &str) -> Result<V, Error> {
         if let Some(Some(v)) = self.values.get(i) {
             Ok((*(v.clone())).clone())
         } else {
             let p = self.get_parameter(i, name)?;
-            if let Some(v) = p.value(){
+            if let Some(v) = p.value() {
                 Ok(V::try_from_json_value(&v)?)
-            }
-            else{
+            } else {
                 match p {
                     ParameterValue::Placeholder(n) => Err(Error::general_error(format!(
                         "Unresolved placeholder parameter {}: {}",
                         i, n
-                    )).with_position(&self.action_position)),
+                    ))
+                    .with_position(&self.action_position)),
                     _ => Err(Error::general_error(format!(
-                        "Unresolved/unexpected parameter {}: {}", i, p
-                    )).with_position(&self.action_position)),
+                        "Unresolved/unexpected parameter {}: {}",
+                        i, p
+                    ))
+                    .with_position(&self.action_position)),
                 }
             }
         }
     }
 
-    pub fn get<T: FromParameterValue<T> + TryFrom<V, Error = Error>>( 
-        &self, i:usize, name:&str
+    pub fn get<T: FromParameterValue<T> + TryFrom<V, Error = Error>>(
+        &self,
+        i: usize,
+        name: &str,
     ) -> Result<T, Error> {
         if let Some(Some(v)) = self.values.get(i) {
             let value = v.clone();
@@ -99,10 +105,10 @@ impl<V: ValueInterface> CommandArguments<V> {
         let p = self.get_parameter(i, name)?;
 
         if let Some(link) = p.link() {
-            return Err(Error::general_error(format!(
-                "Unresolved link parameter {}: {}",
-                i, link
-            )).with_position(&self.action_position));
+            return Err(
+                Error::general_error(format!("Unresolved link parameter {}: {}", i, link))
+                    .with_position(&self.action_position),
+            );
         }
         if p.is_injected() {
             return Err(Error::general_error(
@@ -116,7 +122,7 @@ impl<V: ValueInterface> CommandArguments<V> {
     /// Returns the injected parameter as a value of type T
     pub fn get_injected<P, T: InjectedFromContext<T, P, V>>(
         &self,
-        i:usize,
+        i: usize,
         name: &str,
         context: &impl ActionContext<P, V>,
     ) -> Result<T, Error> {
@@ -129,7 +135,7 @@ impl<V: ValueInterface> CommandArguments<V> {
         T::from_context(name, context)
     }
 
-    pub fn parameter_position(&self, i:usize) -> Position {
+    pub fn parameter_position(&self, i: usize) -> Position {
         if let Some(p) = self.parameters.0.get(i) {
             let pos = p.position();
             if pos.is_unknown() {
@@ -143,11 +149,9 @@ impl<V: ValueInterface> CommandArguments<V> {
     }
 }
 
-
 pub trait FromParameterValue<T> {
     fn from_parameter_value(param: &ParameterValue) -> Result<T, Error>;
 }
-
 
 /// Macro to simplify the implementation of the FromParameterValue trait
 macro_rules! impl_from_parameter_value2 {
@@ -211,24 +215,32 @@ impl_from_parameter_value2!(i64, |p: &serde_json::Value| p.as_i64());
 impl_from_parameter_value2!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
 impl_from_parameter_value2!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
 impl_from_parameter_value2!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
-impl_from_parameter_value2!(isize, |p: &serde_json::Value| p.as_i64().map(|x| x as isize));
+impl_from_parameter_value2!(isize, |p: &serde_json::Value| p
+    .as_i64()
+    .map(|x| x as isize));
 impl_from_parameter_value2!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
 impl_from_parameter_value2!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
 impl_from_parameter_value2!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
 impl_from_parameter_value2!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
-impl_from_parameter_value2!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
+impl_from_parameter_value2!(usize, |p: &serde_json::Value| p
+    .as_i64()
+    .map(|x| x as usize));
 impl_from_parameter_value2!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value2_opt!(i64, |p: &serde_json::Value| p.as_i64());
 impl_from_parameter_value2_opt!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
 impl_from_parameter_value2_opt!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
 impl_from_parameter_value2_opt!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
-impl_from_parameter_value2_opt!(isize, |p: &serde_json::Value| p.as_i64().map(|x| x as isize));
+impl_from_parameter_value2_opt!(isize, |p: &serde_json::Value| p
+    .as_i64()
+    .map(|x| x as isize));
 impl_from_parameter_value2_opt!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
 impl_from_parameter_value2_opt!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
 impl_from_parameter_value2_opt!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
 impl_from_parameter_value2_opt!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
-impl_from_parameter_value2_opt!(usize, |p: &serde_json::Value| p.as_i64().map(|x| x as usize));
+impl_from_parameter_value2_opt!(usize, |p: &serde_json::Value| p
+    .as_i64()
+    .map(|x| x as usize));
 impl_from_parameter_value2_opt!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2_opt!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());
@@ -365,11 +377,7 @@ pub struct CommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
                         CommandArguments<V>,
                         C,
                     ) -> std::pin::Pin<
-                        Box<
-                            dyn core::future::Future<Output = Result<V, Error>>
-                                + Send
-                                + 'static,
-                        >,
+                        Box<dyn core::future::Future<Output = Result<V, Error>> + Send + 'static>,
                     >) + Send
                     + Sync
                     + 'static,
@@ -393,10 +401,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, &CommandArguments<V>, C) -> Result<V, Error>)
-            + Sync
-            + Send
-            + 'static,
+        F: (Fn(&State<V>, &CommandArguments<V>, C) -> Result<V, Error>) + Sync + Send + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
@@ -417,7 +422,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
                 CommandArguments<V>,
                 C,
             ) -> std::pin::Pin<
-                Box<dyn core::future::Future<Output = Result<V, Error>> + Send  + 'static>,
+                Box<dyn core::future::Future<Output = Result<V, Error>> + Send + 'static>,
             >) + Sync
             + Send
             + 'static,
@@ -434,11 +439,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
                         CommandArguments<V>,
                         C,
                     ) -> std::pin::Pin<
-                        Box<
-                            dyn core::future::Future<Output = Result<V, Error>>
-                                + Send
-                                + 'static,
-                        >,
+                        Box<dyn core::future::Future<Output = Result<V, Error>> + Send + 'static>,
                     >) + Send
                     + Sync
                     + 'static,
@@ -485,4 +486,157 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
             self.execute(key, &state, &arguments, context)
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate as liquers_core;
+    use crate::command_metadata::CommandKey;
+    use crate::commands2::{CommandArguments, CommandRegistry};
+    use crate::context2::ActionContext;
+    use crate::state::State;
+    use crate::value::Value;
+    use liquers_macro::*;
+
+    // Dummy context type
+    #[derive(Clone)]
+    struct DummyContext;
+    impl ActionContext<(), Value> for DummyContext {
+        fn borrow_payload(&self) -> &() {
+            panic!("Not implemented")
+        }
+
+        fn clone_payload(&self) -> () {
+            panic!("Not implemented")
+        }
+
+        fn get_metadata(&self) -> crate::metadata::MetadataRecord {
+            panic!("Not implemented")
+        }
+
+        fn set_filename(&self, filename: String) {
+            panic!("Not implemented")
+        }
+
+        fn debug(&self, message: &str) {
+            panic!("Not implemented")
+        }
+
+        fn info(&self, message: &str) {
+            panic!("Not implemented")
+        }
+
+        fn warning(&self, message: &str) {
+            panic!("Not implemented")
+        }
+
+        fn error(&self, message: &str) {
+            panic!("Not implemented")
+        }
+
+        fn clone_context(&self) -> Self {
+            panic!("Not implemented")
+        }
+
+        fn get_cwd_key(&self) -> Option<crate::query::Key> {
+            panic!("Not implemented")
+        }
+
+        fn set_cwd_key(&self, key: Option<crate::query::Key>) {
+            panic!("Not implemented")
+        }
+    }
+
+    #[test]
+    fn test_command_registry_execute() {
+        // Create a registry
+        let mut registry = CommandRegistry::<(), Value, DummyContext>::new();
+
+        // Register a simple command that returns a constant value
+        let key = CommandKey::new("realm", "namespace", "name");
+        registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from(42)))
+            .expect("register_command failed");
+
+        // Prepare state and arguments
+        let state = State::new();
+        let parameters = ResolvedParameterValues::new();
+        let args = CommandArguments::new(parameters);
+        let context = DummyContext;
+
+        // Execute the command
+        let result = registry.execute(&key, &state, &args, context);
+
+        // Assert the result
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        assert_eq!(value, Value::from(42));
+    }
+
+    #[test]
+    fn test_command_registry_execute_greet() {
+        // Create a registry
+        let mut registry = CommandRegistry::<(), Value, DummyContext>::new();
+
+        // Register a simple command that returns a constant value
+        let key = CommandKey::new_name("greet");
+        registry
+            .register_command(key.clone(), |state, args, _| {
+                let input = state.try_into_string()?;
+                let greeting: String = args.get(0, "greeting")?;
+                Ok(Value::from(format!("{}, {}!", greeting, input)))
+            })
+            .expect("register_command failed");
+
+        // Prepare state and arguments
+        let state = State::new().with_string("world");
+        let parameters = ResolvedParameterValues::new();
+        let mut args = CommandArguments::new(parameters);
+        args.set_value(0, Value::from("Hello"));
+        let context = DummyContext;
+
+        // Execute the command
+        let result = registry.execute(&key, &state, &args, context);
+
+        // Assert the result
+        assert!(result.is_ok());
+        let value = result.unwrap().try_into_string().unwrap();
+        assert_eq!(value, "Hello, world!");
+    }
+
+    #[test]
+    fn test_command_registry_execute_greet_macroregistration() {
+        // Create a registry
+        let mut registry = CommandRegistry::<(), Value, DummyContext>::new();
+
+        // Register a simple command that returns a constant value
+        let key = CommandKey::new_name("greet");
+        type CommandValue = Value;
+        type CommandContext = DummyContext;
+        type CommandPayload = ();
+
+        fn greet(state: &State<Value>, greeting: String) -> Result<Value, Error> {
+            let input = state.try_into_string()?;
+            Ok(Value::from(format!("{}, {}!", greeting, input)))
+        }
+        let mut cr = &mut registry;
+        register_command_v2!(cr, fn greet(state, greeting: String) -> result).expect("register_command failed");
+
+        // Prepare state and arguments
+        let state = State::new().with_string("world");
+        let parameters = ResolvedParameterValues::new();
+        let mut args = CommandArguments::new(parameters);
+        args.set_value(0, Value::from("Hello"));
+        let context = DummyContext;
+
+        // Execute the command
+        let result = registry.execute(&key, &state, &args, context);
+
+        // Assert the result
+        assert!(result.is_ok());
+        let value = result.unwrap().try_into_string().unwrap();
+        assert_eq!(value, "Hello, world!");
+    }
+
 }
