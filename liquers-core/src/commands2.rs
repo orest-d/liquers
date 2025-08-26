@@ -43,11 +43,11 @@ impl<V: ValueInterface> CommandArguments<V> {
         self.parameters.0.len()
     }
 
-    pub fn set_value(&mut self, i: usize, value: V) {
+    pub fn set_value(&mut self, i: usize, value: Arc<V>) {
         for j in self.values.len()..=i {
             self.values.push(None);
         }
-        self.values[i] = Some(Arc::new(value));
+        self.values[i] = Some(value);
     }
     pub fn get_parameter(&self, i: usize, name: &str) -> Result<&ParameterValue, Error> {
         if let Some(p) = self.parameters.0.get(i) {
@@ -593,7 +593,7 @@ mod tests {
         let state = State::new().with_string("world");
         let parameters = ResolvedParameterValues::new();
         let mut args = CommandArguments::new(parameters);
-        args.set_value(0, Value::from("Hello"));
+        args.set_value(0, Arc::new(Value::from("Hello")));
         let context = DummyContext;
 
         // Execute the command
@@ -627,7 +627,7 @@ mod tests {
         let state = State::new().with_string("world");
         let parameters = ResolvedParameterValues::new();
         let mut args = CommandArguments::new(parameters);
-        args.set_value(0, Value::from("Hello"));
+        args.set_value(0, Arc::new(Value::from("Hello")));
         let context = DummyContext;
 
         // Execute the command

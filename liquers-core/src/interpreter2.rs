@@ -2,20 +2,28 @@ pub mod ngi {
     use futures::FutureExt;
 
     use crate::{
-        assets2::AssetStore, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
+        assets2::AssetStore,
+        command_metadata::CommandKey,
+        commands2::{CommandArguments, CommandExecutor},
+        context2::{ActionContext, Context, EnvRef, Environment},
+        error::Error,
+        parse::{SimpleTemplate, SimpleTemplateElement},
+        plan::{Plan, PlanBuilder, Step},
+        query::{Key, TryToQuery},
+        state::State,
+        value::ValueInterface,
     };
     pub fn make_plan<E: Environment, Q: TryToQuery>(
         envref: EnvRef<E>,
         query: Q,
-    ) -> Result<Plan, Error>
-    {
+    ) -> Result<Plan, Error> {
         let rquery = query.try_to_query();
         let cmr = envref.get_command_metadata_registry();
         let mut pb = PlanBuilder::new(rquery?, cmr);
         pb.build()
     }
 
-// TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
+    // TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
 
     pub fn apply_plan<E: Environment>(
         plan: Plan,
@@ -64,7 +72,9 @@ pub mod ngi {
                 let store = envref.get_async_store();
                 let metadata_value = store.get_metadata(&key).await?;
                 if let Some(metadata_value) = metadata_value.metadata_record() {
-                    let value = <<E as Environment>::Value as ValueInterface>::from_metadata(metadata_value);
+                    let value = <<E as Environment>::Value as ValueInterface>::from_metadata(
+                        metadata_value,
+                    );
                     Ok(State::new().with_data(value))
                 } else {
                     Err(Error::general_error(format!(
@@ -96,6 +106,17 @@ pub mod ngi {
                     CommandArguments::<<E as Environment>::Value>::new(parameters.clone());
                 arguments.action_position = position.clone();
                 async move {
+                    for (i, param) in parameters.0.iter().enumerate() {
+                        if let Some(arg_query) = param.link() {
+                            let arg_value = envref
+                                .get_asset_store()
+                                .get_asset(&arg_query)
+                                .await?
+                                .get_state(envref.clone())
+                                .await?;
+                            arguments.set_value(i, arg_value.data.clone());
+                        }
+                    }
                     let ce = envref.get_command_executor();
                     /*
                     ce.execute(
@@ -150,16 +171,14 @@ pub mod ngi {
                 Ok(state)
             }
             .boxed(),
-            Step::GetAsset(key) => {
-                async move {
-                    let envref1 = envref.clone();
-                    let asset_store = envref1.get_asset_store();
-                    let asset = asset_store.get(&key).await?;
-                    let asset_state = asset.get_state(envref.clone()).await?;
-                    Ok(asset_state)
-                }
-                .boxed()
-            },
+            Step::GetAsset(key) => async move {
+                let envref1 = envref.clone();
+                let asset_store = envref1.get_asset_store();
+                let asset = asset_store.get(&key).await?;
+                let asset_state = asset.get_state(envref.clone()).await?;
+                Ok(asset_state)
+            }
+            .boxed(),
             Step::GetAssetBinary(_key) => todo!(),
             Step::GetAssetMetadata(_key) => todo!(),
             Step::UseKeyValue(_key) => todo!(),
@@ -172,8 +191,7 @@ pub mod ngi {
         cwd_key: Option<Key>,
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
-    >
-    {
+    > {
         async move {
             let context = Context::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
