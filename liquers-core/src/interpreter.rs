@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::command_metadata::CommandKey;
@@ -796,7 +795,7 @@ pub mod ngi {
 //Result<State<<E as NGEnvironment>::Value>, Error>
     {
         async move {
-            let mut context = NGContext::new(envref.clone()).await;
+            let context = NGContext::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
             apply_plan(
                 plan,
@@ -818,7 +817,7 @@ pub mod ngi {
         let rquery = query.try_to_query();
         async move {
             let plan = make_plan(envref.clone(), rquery?).await?;
-            let mut context = NGContext::new(envref.clone()).await;
+            let context = NGContext::new(envref.clone()).await;
             context.set_cwd_key(cwd_key);
             apply_plan(
                 plan,

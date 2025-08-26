@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;

@@ -104,7 +104,7 @@ impl EnumArgument {
         });
         self
     }
-    pub fn with_alternative(mut self, alias: &str) -> Self {
+    pub fn with_alternative(self, alias: &str) -> Self {
         self.with_string_value(alias, alias)
     }
     pub fn with_int_value(mut self, alias: &str, value: i32) -> Self {

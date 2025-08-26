@@ -5,10 +5,7 @@ pub struct Version(u128);
 
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
-use std::os::linux::raw::stat;
 
-use blake3::Hash;
-use nom::Err;
 
 use crate::error::Error;
 use crate::query::{Key, Query};
