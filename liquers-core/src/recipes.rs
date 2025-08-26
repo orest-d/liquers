@@ -296,11 +296,9 @@ mod test {
         println!("");
         assert!(plan.len() == 1);
         if let Step::Action {
-            realm,
-            ns,
             action_name,
-            position,
             parameters,
+            ..
         } = &plan[0]
         {
             assert!(action_name == "a");

@@ -306,7 +306,7 @@ impl CommandParameterValue {
 
 /// ParameterPreset defines and describes a preset for a command parameter.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-struct ParameterPreset {
+pub struct ParameterPreset {
     name: String,
     value: CommandParameterValue,
     description: String,

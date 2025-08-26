@@ -376,7 +376,6 @@ impl ParameterValue {
 
         if arginfo.multiple {
             let mut values = Vec::new();
-            let values_pos = param.position.clone();
             for x in &mut *param {
                 match x {
                     ActionParameter::String(s, pos) => {
@@ -409,10 +408,9 @@ impl ParameterValue {
                                 .with_position(pos))
                             }
                             ParameterValue::Placeholder(name) => {
-                                return Err(Error::general_error(
+                                return Err(Error::general_error(format!(
                                     "Placeholder '{name}' not supported inside vector argument"
-                                        .to_string(),
-                                )
+                                ))
                                 .with_position(pos))
                             }
                         }
@@ -954,7 +952,9 @@ impl Plan {
     /// Find index of the last action in the plan
     fn last_action_index(&self) -> Option<usize> {
         for (i, s) in self.steps.iter().enumerate().rev() {
-            if let Step::Action { .. } = s { return Some(i) }
+            if let Step::Action { .. } = s {
+                return Some(i);
+            }
         }
         None
     }
@@ -1068,11 +1068,9 @@ mod tests {
         println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         assert!(plan.len() == 1);
         if let Step::Action {
-            realm,
-            ns,
             action_name,
-            position,
             parameters,
+            ..
         } = &plan[0]
         {
             assert!(action_name == "a");

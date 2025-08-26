@@ -12,7 +12,6 @@ use crate::{
     query::{Key, Query},
     recipes2::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
     state::State,
-    store::AsyncStore,
     value::DefaultValueSerializer,
 };
 
@@ -150,7 +149,7 @@ impl<E: Environment> AssetRef<E> {
                 data: data.clone(),
                 metadata: metadata.clone(),
             }));
-        } else if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
+        } else if let (Some(binary), Some(_metadata)) = (&lock.binary, &lock.metadata) {
             todo!("Implement conversion from binary to State");
         }
         Ok(None)
@@ -277,7 +276,9 @@ impl<E: Environment> DefaultAssetStore<E> {
         if self.envref.set(envref.clone()).is_err() {
             panic!("Environment already set in AssetStore");
         }
-        self.recipe_provider.set(DefaultRecipeProvider::new(envref));
+        if self.recipe_provider.set(DefaultRecipeProvider::new(envref)).is_err() {
+            panic!("Recipe provider already set in AssetStore");
+        }
     }
 
     pub fn get_recipe_provider(&self) -> &DefaultRecipeProvider<E> {

@@ -600,7 +600,7 @@ impl AsyncStore for NoAsyncStore {
         Err(Error::key_not_found(key))
     }
 
-    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+    async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
         Err(Error::key_not_supported(key, "NoAsyncStore"))
     }
 }
@@ -1222,15 +1222,6 @@ impl AsyncStoreRouter {
 
     fn find_store(&self, key: &Key) -> Option<&Box<dyn AsyncStore>> {
         self.stores.iter().find(|&store| key.has_key_prefix(&store.key_prefix()) && store.is_supported(key))
-    }
-
-    fn find_store_mut(&mut self, key: &Key) -> Option<&mut Box<dyn AsyncStore>> {
-        for store in &mut self.stores {
-            if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
-                return Some(store);
-            }
-        }
-        None
     }
 }
 

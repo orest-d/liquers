@@ -38,7 +38,7 @@ impl Version {
 }
 
 
-trait Dependency: Display + Clone + PartialEq + Eq + std::hash::Hash + Debug {
+pub trait Dependency: Display + Clone + PartialEq + Eq + std::hash::Hash + Debug {
     /// Only base dependencies should be used for tracking.
     /// Base dependency is more permanent - it is typically stored in a store.
     /// Besides files, it could be recipes or commands.
@@ -296,7 +296,7 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
                 self.dependencies.get_mut(something).unwrap().push(record);
                 impacted.insert(something.clone());
                 if !status.has_data() {
-                    self.expire(something, impacted);
+                    self.expire(something, impacted)?;
                 }                
             }
             else{

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -296,11 +296,9 @@ mod test {
         println!("");
         assert!(plan.len() == 1);
         if let Step::Action {
-            realm,
-            ns,
             action_name,
-            position,
             parameters,
+            ..
         } = &plan[0]
         {
             assert!(action_name == "a");
