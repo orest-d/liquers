@@ -11,7 +11,6 @@ use nom::sequence::{preceded, terminated};
 use nom_locate::LocatedSpan;
 
 use nom::bytes::complete::{tag, take_while, take_while1};
-use nom::character::{is_alphabetic, is_alphanumeric};
 use nom::multi::{many0, many1, separated_list0, separated_list1};
 use nom::*;
 
@@ -35,17 +34,17 @@ impl<'a> From<Span<'a>> for Position {
 }
 
 fn identifier(text: Span) -> IResult<Span, String> {
-    let (text, a) = take_while1(|c| is_alphabetic(c as u8) || c == '_')(text)?;
-    let (text, b) = take_while(|c| is_alphanumeric(c as u8) || c == '_')(text)?;
+    let (text, a) = take_while1(|c| AsChar::is_alpha(c as u8) || c == '_')(text)?;
+    let (text, b) = take_while(|c| AsChar::is_alphanum(c as u8) || c == '_')(text)?;
 
     Ok((text, format!("{}{}", a, b)))
 }
 
 fn filename(text: Span) -> IResult<Span, String> {
-    let (text, a) = take_while(|c| is_alphanumeric(c as u8) || c == '_')(text)?;
+    let (text, a) = take_while(|c| AsChar::is_alphanum(c as u8) || c == '_')(text)?;
     let (text, _dot) = nom::character::complete::char('.')(text)?;
     let (text, b) =
-        take_while1(|c| is_alphanumeric(c as u8) || c == '_' || c == '.' || c == '-')(text)?;
+        take_while1(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '.' || c == '-')(text)?;
 
     Ok((text, format!("{}.{}", a, b)))
 }
@@ -58,9 +57,9 @@ fn slash_filename(text: Span) -> IResult<Span, String> {
 
 fn resource_name(text: Span) -> IResult<Span, ResourceName> {
     let position: Position = text.into();
-    let (text, a) = take_while1(|c| is_alphanumeric(c as u8) || c == '_' || c == '.')(text)?;
+    let (text, a) = take_while1(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '.')(text)?;
     let (text, b) =
-        take_while(|c| is_alphanumeric(c as u8) || c == '_' || c == '.' || c == '-')(text)?;
+        take_while(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '.' || c == '-')(text)?;
     Ok((
         text,
         ResourceName::new(format!("{}{}", a, b)).with_position(position),
@@ -68,7 +67,7 @@ fn resource_name(text: Span) -> IResult<Span, ResourceName> {
 }
 fn parameter_text(text: Span) -> IResult<Span, String> {
     let (text, a) =
-        take_while1(|c| is_alphanumeric(c as u8) || c == '_' || c == '+' || c == '.')(text)?;
+        take_while1(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '+' || c == '.')(text)?;
     Ok((text, a.to_string()))
 }
 
