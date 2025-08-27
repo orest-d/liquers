@@ -341,7 +341,7 @@ pub trait CommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 
         &self,
         command_key: &CommandKey,
         state: &State<V>,
-        arguments: &CommandArguments<V>,
+        arguments: CommandArguments<V>,
         context: C,
     ) -> Result<V, Error>;
 
@@ -349,10 +349,10 @@ pub trait CommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 
         &self,
         command_key: &CommandKey,
         state: State<V>,
-        arguments: &CommandArguments<V>,
+        arguments: CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
-        self.execute(command_key, &state, &arguments, context)
+        self.execute(command_key, &state, arguments, context)
     }
 }
 
@@ -361,7 +361,7 @@ pub struct CommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
         CommandKey,
         Arc<
             Box<
-                dyn (Fn(&State<V>, &CommandArguments<V>, C) -> Result<V, Error>)
+                dyn (Fn(&State<V>, CommandArguments<V>, C) -> Result<V, Error>)
                     + Send
                     + Sync
                     + 'static,
@@ -401,7 +401,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, &CommandArguments<V>, C) -> Result<V, Error>) + Sync + Send + 'static,
+        F: (Fn(&State<V>, CommandArguments<V>, C) -> Result<V, Error>) + Sync + Send + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
@@ -458,7 +458,7 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
         &self,
         key: &CommandKey,
         state: &State<V>,
-        arguments: &CommandArguments<V>,
+        arguments: CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         if let Some(command) = self.executors.get(&key) {
@@ -477,13 +477,13 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
         &self,
         key: &CommandKey,
         state: State<V>,
-        arguments: &CommandArguments<V>,
+        arguments: CommandArguments<V>,
         context: C,
     ) -> Result<V, Error> {
         if let Some(command) = self.async_executors.get(&key) {
             command(state, arguments.clone(), context).await
         } else {
-            self.execute(key, &state, &arguments, context)
+            self.execute(key, &state, arguments, context)
         }
     }
 }
@@ -566,7 +566,7 @@ mod tests {
         let context = DummyContext;
 
         // Execute the command
-        let result = registry.execute(&key, &state, &args, context);
+        let result = registry.execute(&key, &state, args, context);
 
         // Assert the result
         assert!(result.is_ok());
@@ -597,7 +597,7 @@ mod tests {
         let context = DummyContext;
 
         // Execute the command
-        let result = registry.execute(&key, &state, &args, context);
+        let result = registry.execute(&key, &state, args, context);
 
         // Assert the result
         assert!(result.is_ok());

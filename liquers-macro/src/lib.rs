@@ -608,7 +608,7 @@ impl CommandSignature {
             quote! {
                 fn #wrapper_name(
                     state: &liquers_core::state::State<CommandValue>,
-                    arguments: &liquers_core::commands2::CommandArguments<CommandValue>,
+                    arguments: liquers_core::commands2::CommandArguments<CommandValue>,
                     context: CommandContext,
                 ) ->
                 core::pin::Pin<
@@ -623,7 +623,7 @@ impl CommandSignature {
             quote! {
                 fn #wrapper_name(
                     state: &liquers_core::state::State<CommandValue>,
-                    arguments: &liquers_core::commands2::CommandArguments<CommandValue>,
+                    arguments: liquers_core::commands2::CommandArguments<CommandValue>,
                     context: CommandContext,
                 ) -> core::result::Result<CommandValue, liquers_core::error::Error>
             }
@@ -1135,7 +1135,7 @@ impl Parse for CommandSignatureExt {
         // Parse a comma
         input.parse::<syn::Token![,]>()?;
         // Parse the command signature
-        let mut sig: CommandSignature = input.parse()?;
+        let sig: CommandSignature = input.parse()?;
         Ok(CommandSignatureExt { cr, sig })
     }
 }
@@ -1588,7 +1588,7 @@ mod tests {
         > {
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::commands2::CommandArguments<CommandValue>,
+                arguments: liquers_core::commands2::CommandArguments<CommandValue>,
                 context: CommandContext,
             ) -> core::result::Result<CommandValue, liquers_core::error::Error> {
                 let a__par: i32 = arguments.get(0usize, "a")?;
