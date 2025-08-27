@@ -254,17 +254,17 @@ pub fn evaluate_simple_template<E: Environment>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(non_snake_case)]
     use super::*;
-    use crate::commands2::CommandRegistry;
+    use crate as liquers_core;
     use crate::command_metadata::CommandKey;
-    use crate::context2::{SimpleEnvironment, EnvRef};
-    use crate::interpreter2::evaluate;
+    use crate::context2::SimpleEnvironment;
     use crate::state::State;
     use crate::value::Value;
+    use liquers_macro::*;
 
     #[tokio::test]
-    async fn test_interpreter_evaluate_simple_environment() {
-        // Create a SimpleEnvironment for Value
+    async fn test_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut env = SimpleEnvironment::<Value>::new();
 
         // Register a command in the registry
@@ -273,15 +273,40 @@ mod tests {
             .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
             .expect("register_command failed");
 
-        // Wrap environment in EnvRef
         let envref = env.to_ref();
 
-        // Evaluate the command using its key as a query
-        let result = evaluate(envref.clone(), "test", None).await;
+        let state = evaluate(envref.clone(), "test", None).await?;
 
-        // Assert the result
-        assert!(result.is_ok());
-        let state = result.unwrap();
         assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
+        Ok(())
     }
+
+    #[tokio::test]
+    async fn test_hello_world() -> Result<(), Box<dyn std::error::Error>>  {
+        type CommandValue = Value;
+        type CommandContext = Context<SimpleEnvironment<CommandValue>>;
+        type CommandPayload = EnvRef<SimpleEnvironment<CommandValue>>;
+        let mut env = SimpleEnvironment::<Value>::new();
+
+        // Register "hello" command
+        fn world(_state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from("world"))
+        }
+        fn greet(state: &State<Value>, greet: String) -> Result<Value, Error> {
+            let what = state.try_into_string()?;
+            Ok(Value::from(format!("{greet}, {what}!")))
+        }
+        let mut cr = &mut env.command_registry;
+        register_command_v2!(cr, fn world(state) -> result).expect("register_command failed");
+        register_command_v2!(cr, fn greet(state, greet: String = "Hello") -> result).expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        let state = evaluate(envref.clone(), "world/greet", None).await?;
+
+        let value = state.try_into_string()?;
+        assert_eq!(value, "Hello, world!");
+        Ok(())
+    }
+
 }
