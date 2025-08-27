@@ -7,7 +7,7 @@ use tokio::sync::{broadcast, RwLock};
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
-    interpreter2,
+    interpreter2::{evaluate_plan, make_plan},
     metadata::{Metadata, Status},
     query::{Key, Query},
     recipes2::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
@@ -135,7 +135,7 @@ impl<E: Environment> AssetRef<E> {
 
         let cwd_key = lock.query.key().map_or_else(|| None, |k| Some(k.parent()));
 
-        let res = interpreter2::ngi::evaluate_plan(plan, envref, cwd_key).await?;
+        let res = evaluate_plan(plan, envref, cwd_key).await?;
         lock.data = Some(res.data.clone());
         lock.metadata = Some(res.metadata.clone());
         lock.binary = None;
@@ -149,9 +149,8 @@ impl<E: Environment> AssetRef<E> {
                 data: data.clone(),
                 metadata: metadata.clone(),
             }));
-        } else if let (Some(binary), Some(_metadata)) = (&lock.binary, &lock.metadata) {
-            todo!("Implement conversion from binary to State");
         }
+        // No deserialization, instead duplicate data would be created
         Ok(None)
     }
 
@@ -159,7 +158,9 @@ impl<E: Environment> AssetRef<E> {
         if let Some(state) = self.get_state_if_available().await? {
             Ok(state)
         } else {
-            if self.try_load_binary_if_necessary(envref.clone()).await? && self.deserialize_from_binary().await? {
+            if self.try_load_binary_if_necessary(envref.clone()).await?
+                && self.deserialize_from_binary().await?
+            {
                 if let Some(state) = self.get_state_if_available().await? {
                     // TODO: Dispose binary if too long
                     return Ok(state);
@@ -172,8 +173,8 @@ impl<E: Environment> AssetRef<E> {
             }
             let mut lock = self.data.write().await;
             let query = lock.get_query();
-            let plan = interpreter2::ngi::make_plan(envref.clone(), query.clone())?;
-            let res = interpreter2::ngi::evaluate_plan(plan, envref.clone(), None).await?;
+            let plan = make_plan(envref.clone(), query.clone())?;
+            let res = evaluate_plan(plan, envref.clone(), None).await?;
             lock.data = Some(res.data.clone());
             lock.metadata = Some(res.metadata.clone());
             lock.binary = None;
@@ -269,27 +270,36 @@ impl<E: Environment> DefaultAssetStore<E> {
         }
     }
     pub fn get_envref(&self) -> EnvRef<E> {
-        self.envref.get().expect("Environment not set in AssetStore").clone()
+        self.envref
+            .get()
+            .expect("Environment not set in AssetStore")
+            .clone()
     }
 
     pub fn set_envref(&self, envref: EnvRef<E>) {
         if self.envref.set(envref.clone()).is_err() {
             panic!("Environment already set in AssetStore");
         }
-        if self.recipe_provider.set(DefaultRecipeProvider::new(envref)).is_err() {
+        if self
+            .recipe_provider
+            .set(DefaultRecipeProvider::new(envref))
+            .is_err()
+        {
             panic!("Recipe provider already set in AssetStore");
         }
     }
 
     pub fn get_recipe_provider(&self) -> &DefaultRecipeProvider<E> {
-        self.recipe_provider.get().expect("Recipe provider not set in AssetStore")
+        self.recipe_provider
+            .get()
+            .expect("Recipe provider not set in AssetStore")
     }
 }
 
 #[async_trait]
 impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
     type Asset = AssetRef<E>;
-    
+
     async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error> {
         if let Some(key) = query.key() {
             self.get(&key).await
@@ -313,11 +323,7 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
         let asset_ref = entry.get().clone();
 
         // Try to get a recipe from the recipe provider and set it in the asset if available
-        if let Ok(recipe) = self
-            .get_recipe_provider()
-            .recipe(key)
-            .await
-        {
+        if let Ok(recipe) = self.get_recipe_provider().recipe(key).await {
             let mut lock = asset_ref.data.write().await;
             lock.recipe = Some(recipe);
         }
@@ -329,7 +335,8 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
         self.get(key).await
     }
 
-    async fn remove(&self, _key: &Key) -> Result<(), Error> { // TODO: Does nothing??
+    async fn remove(&self, _key: &Key) -> Result<(), Error> {
+        // TODO: Does nothing??
         Ok(())
     }
 
@@ -387,7 +394,10 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
 
         for subkey in folders {
             if store.is_dir(&subkey).await? {
-                let recipes = self.get_recipe_provider().assets_with_recipes(&subkey).await?;
+                let recipes = self
+                    .get_recipe_provider()
+                    .assets_with_recipes(&subkey)
+                    .await?;
                 for resourcename in recipes {
                     keys.insert(subkey.join(resourcename.name));
                 }

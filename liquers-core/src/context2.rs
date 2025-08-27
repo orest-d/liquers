@@ -161,7 +161,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     #[cfg(feature = "async_store")]
     async_store: Arc<Box<dyn crate::store::AsyncStore>>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
-    command_registry: CommandRegistry<EnvRef<Self>, V, Context<Self>>,
+    pub command_registry: CommandRegistry<EnvRef<Self>, V, Context<Self>>,
     asset_store: Arc<Box<DefaultAssetStore<Self>>>,
 }
 

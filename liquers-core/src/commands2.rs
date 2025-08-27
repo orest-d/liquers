@@ -631,7 +631,7 @@ mod tests {
         let context = DummyContext;
 
         // Execute the command
-        let result = registry.execute(&key, &state, &args, context);
+        let result = registry.execute(&key, &state, args, context);
 
         // Assert the result
         assert!(result.is_ok());
