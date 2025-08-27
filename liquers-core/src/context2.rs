@@ -13,14 +13,7 @@ use core::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    assets2::DefaultAssetStore,
-    cache::Cache,
-    command_metadata::CommandMetadataRegistry,
-    commands2::{CommandExecutor, CommandRegistry},
-    metadata::MetadataRecord,
-    query::Key,
-    store::{NoStore, Store},
-    value::ValueInterface,
+    assets2::AssetRef, assets2::DefaultAssetStore, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, metadata::MetadataRecord, query::Key, store::{NoStore, Store}, value::ValueInterface
 };
 
 pub trait Environment: Sized + Sync + Send + 'static {
@@ -70,18 +63,19 @@ impl<E: Environment> Clone for EnvRef<E> {
     }
 }
 
-// TODO: Do we need both Context and ActionContext?
 // TODO: There should be an asset reference
 pub struct Context<E: Environment> {
     envref: EnvRef<E>,
+    //asset: AssetRef<E>,
     metadata: Arc<Mutex<MetadataRecord>>, // TODO: Decide whether Asset or Context is the Metadata owner
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
 }
 
 impl<E: Environment> Context<E> {
-    pub async fn new(env: EnvRef<E>) -> Self {
+    pub async fn new(envref: EnvRef<E>) -> Self {
         Context {
-            envref: env,
+            envref,
+            //asset,
             metadata: Arc::new(Mutex::new(MetadataRecord::new())),
             cwd_key: Arc::new(Mutex::new(None)),
         }
@@ -116,6 +110,7 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
     }
     fn clone_context(&self) -> Self {
         Context {
+            //asset: self.asset.clone(),
             envref: self.clone_payload(),
             metadata: self.metadata.clone(),
             cwd_key: self.cwd_key.clone(),

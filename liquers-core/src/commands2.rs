@@ -18,9 +18,6 @@ use crate::query::{Position, Query};
 use crate::state::State;
 use crate::value::ValueInterface;
 
-// TODO: CommandArguments may be passed via the context
-// TODO: CommandArguments should have an interface to access arguments as items
-// TODO: CommandArguments should have an interface to access arguments by name
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
 #[derive(Debug, Clone)]
