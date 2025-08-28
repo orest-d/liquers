@@ -26,7 +26,9 @@ pub enum Value {
     Bytes(Vec<u8>),
     Metadata(MetadataRecord),
     Recipe(Recipe),
-    CommandMetadata(CommandMetadata)
+    CommandMetadata(CommandMetadata),
+    Query(crate::query::Query),
+    Key(crate::query::Key), 
 }
 
 // TODO: Remove the serialization and deserialization from ValueInterface (is it there?)
@@ -45,6 +47,12 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
 
     /// From string
     fn from_string(txt: String) -> Self;
+
+    /// From query
+    fn from_query(query: &crate::query::Query) -> Self;
+
+    /// From key
+    fn from_key(key: &crate::query::Key) -> Self;
 
     /// From integer
     fn from_i32(n: i32) -> Self;
@@ -297,6 +305,8 @@ impl ValueInterface for Value {
             Value::Metadata(_) => "metadata".into(),
             Value::Recipe(_) => "recipe".into(),
             Value::CommandMetadata(_) => "command_metadata".into(),
+            Value::Query(_) => "query".into(),
+            Value::Key(_) => "key".into(),
         }
     }
 
@@ -314,6 +324,8 @@ impl ValueInterface for Value {
             Value::Metadata(_) => "metadata".into(),
             Value::Recipe(_) => "recipe".into(),
             Value::CommandMetadata(_) => "command_metadata".into(),
+            Value::Query(_) => "query".into(),
+            Value::Key(_) => "key".into(),
         }
     }
 
@@ -331,6 +343,8 @@ impl ValueInterface for Value {
             Value::Metadata(_) => "json".into(),
             Value::Recipe(_) => "json".into(),
             Value::CommandMetadata(_) => "json".into(),
+            Value::Query(_) => "txt".into(),
+            Value::Key(_) => "txt".into(),
         }
     }
 
@@ -348,6 +362,8 @@ impl ValueInterface for Value {
             Value::Metadata(_) => "metadata.json".into(),
             Value::Recipe(_) => "recipe.json".into(),
             Value::CommandMetadata(_) => "command_metadata.json".into(),
+            Value::Query(_) => "query.txt".into(),
+            Value::Key(_) => "key.txt".into(),
         }
     }
 
@@ -365,6 +381,8 @@ impl ValueInterface for Value {
             Value::Metadata(_) => "application/json".into(),
             Value::Recipe(_) => "application/json".into(),
             Value::CommandMetadata(_) => "application/json".into(),
+            Value::Query(_) => "text/plain".into(),
+            Value::Key(_) => "text/plain".into(),
         }
     }
 
@@ -459,6 +477,14 @@ impl ValueInterface for Value {
     
     fn from_recipe(recipe: Recipe) -> Self {
         Value::Recipe(recipe)
+    }
+    
+    fn from_query(query: &crate::query::Query) -> Self {
+        Value::Query(query.clone())
+    }
+    
+    fn from_key(key: &crate::query::Key) -> Self {
+        Value::Key(key.clone())
     }
 
 }
@@ -659,6 +685,8 @@ impl DefaultValueSerializer for Value {
                 Value::F64(x) => Ok(format!("{x}").into_bytes()),
                 Value::Text(x) => Ok(x.as_bytes().to_vec()),
                 Value::Bytes(x) => Ok(x.clone()),   // TODO: handle bytes better - this is only to test rs
+                Value::Query(x) => Ok(x.encode().as_bytes().to_vec()), // TODO: not for languages
+                Value::Key(x) => Ok(x.encode().as_bytes().to_vec()), // TODO: not for languages
                 _ => Err(Error::new(
                     ErrorType::SerializationError,
                     format!(

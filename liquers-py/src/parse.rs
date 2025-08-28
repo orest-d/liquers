@@ -280,7 +280,7 @@ impl TransformQuerySegment {
 }
 
 #[pyclass]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Key(pub liquers_core::query::Key);
 
 #[pymethods]
@@ -311,7 +311,7 @@ impl Key {
     }
 
     pub fn __repr__(&self) -> String {
-        format!("{:?}", self.0)
+        format!("Key('{:?}')", self.0.encode())
     }
 
     pub fn __str__(&self) -> String {
@@ -486,7 +486,7 @@ impl QuerySegment {
 }
 
 #[pyclass]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Query(pub liquers_core::query::Query);
 
 #[pymethods]
@@ -581,7 +581,7 @@ impl Query {
     }
 
     pub fn __repr__(&self) -> String {
-        format!("{:?}", self.0)
+        format!("Query('{:?}')", self.0.encode())
     }
 
     pub fn __str__(&self) -> String {

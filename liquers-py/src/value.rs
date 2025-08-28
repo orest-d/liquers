@@ -18,7 +18,7 @@ use std::{
     result::Result,
 };
 
-use crate::{command_metadata::CommandMetadata, metadata::MetadataRecord, recipes::Recipe};
+use crate::{command_metadata::CommandMetadata, metadata::MetadataRecord, parse::{Key, Query}, recipes::Recipe};
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -35,6 +35,8 @@ pub enum Value {
     Metadata { value: MetadataRecord },
     Recipe { value: Recipe },
     CommandMetadata { value: CommandMetadata },
+    Query { value: Query },
+    Key { value: Key },
     Py { value: Py<PyAny> },
 }
 
@@ -104,6 +106,8 @@ impl Value {
             Value::Metadata { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
             Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
+            Value::Query { value } => Ok(value.encode()),
+            Value::Key { value } => Ok(value.encode()),
         }
     }
     pub fn __repr__(&self) -> PyResult<String> {
@@ -145,6 +149,8 @@ impl Value {
             Value::Metadata { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
             Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
+            Value::Query { value } => Ok(value.__repr__()),
+            Value::Key { value } => Ok(value.__repr__ ()),
         }
     }
 }
@@ -185,6 +191,8 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
         Value::Metadata { value } => Ok(value.clone().into_py(py)),
         Value::Recipe { value } => Ok(value.clone().into_py(py)),
         Value::CommandMetadata { value } => Ok(value.clone().into_py(py)),
+        Value::Query { value } => Ok(value.clone().into_py(py)),
+        Value::Key { value } => Ok(value.clone().into_py(py)),
     }
 }
 
@@ -269,9 +277,11 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "dictionary".into(),
             Value::Bytes { value: _ } => "bytes".into(),
             Value::Py { value: _ } => "python_value".into(),
-            Value::Metadata { value } => "metadata".into(),
-            Value::Recipe { value } => "recipe".into(),
-            Value::CommandMetadata { value } => "command_metadata".into(),
+            Value::Metadata { value: _} => "metadata".into(),
+            Value::Recipe { value: _ } => "recipe".into(),
+            Value::CommandMetadata { value: _ } => "command_metadata".into(),
+            Value::Query { value: _ } => "query".into(),
+            Value::Key { value: _ } => "key".into(),
         }
     }
 
@@ -287,9 +297,11 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "object".into(),
             Value::Bytes { value: _ } => "bytes".into(),
             Value::Py { value: _ } => "python_value".into(),
-            Value::Metadata { value } => "metadata".into(),
-            Value::Recipe { value } => "recipe".into(),
-            Value::CommandMetadata { value } => "command_metadata".into(),
+            Value::Metadata { value: _ } => "metadata".into(),
+            Value::Recipe { value: _ } => "recipe".into(),
+            Value::CommandMetadata { value: _ } => "command_metadata".into(),
+            Value::Query { value: _ } => "query".into(),
+            Value::Key { value: _ } => "key".into(),
         }
     }
 
@@ -305,9 +317,11 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "json".into(),
             Value::Bytes { value: _ } => "b".into(),
             Value::Py { value: _ } => "pickle".into(),
-            Value::Metadata { value } => "json".into(),
-            Value::Recipe { value } => "json".into(),
-            Value::CommandMetadata { value } => "json".into(),
+            Value::Metadata { value: _ } => "json".into(),
+            Value::Recipe { value: _ } => "json".into(),
+            Value::CommandMetadata { value: _ } => "json".into(),
+            Value::Query { value: _ } => "txt".into(),
+            Value::Key { value: _ } => "txt".into(),
         }
     }
 
@@ -323,9 +337,11 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "data.json".into(),
             Value::Bytes { value: _ } => "binary.b".into(),
             Value::Py { value: _ } => "data.pickle".into(),
-            Value::Metadata { value } => "metadata.json".into(),
-            Value::Recipe { value } => "recipe.json".into(),
-            Value::CommandMetadata { value } => "command_metadata.json".into(),
+            Value::Metadata { value: _ } => "metadata.json".into(),
+            Value::Recipe { value: _ } => "recipe.json".into(),
+            Value::CommandMetadata { value: _ } => "command_metadata.json".into(),
+            Value::Query { value: _ } => "query.txt".into(),
+            Value::Key { value: _ } => "key.txt".into(),
         }
     }
 
@@ -344,6 +360,8 @@ impl ValueInterface for Value {
             Value::Metadata { value: _ } => "application/json".into(),
             Value::Recipe { value: _ } => "application/json".into(),
             Value::CommandMetadata { value: _ } => "application/json".into(),
+            Value::Query { value: _ } => "text/plain".into(),
+            Value::Key { value: _ } => "text/plain".into(),
         }
     }
 
@@ -443,6 +461,18 @@ impl ValueInterface for Value {
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
         Value::Recipe {
             value: Recipe { inner: recipe },
+        }
+    }
+    
+    fn from_query(query: &liquers_core::query::Query) -> Self {
+        Value::Query {
+            value: Query ( query.clone() ),
+        }
+    }
+    
+    fn from_key(key: &liquers_core::query::Key) -> Self {
+        Value::Key {
+            value: Key(key.clone()),
         }
     }
 }
@@ -570,6 +600,8 @@ impl DefaultValueSerializer for Value {
                 Value::I64 { value: x } => Ok(format!("{x}").into_bytes()),
                 Value::F64 { value: x } => Ok(format!("{x}").into_bytes()),
                 Value::Text { value: x } => Ok(x.as_bytes().to_vec()),
+                Value::Query { value: x } => Ok(x.encode().as_bytes().to_vec()),
+                Value::Key { value: x } => Ok(x.encode().as_bytes().to_vec()),
                 _ => Err(Error::new(
                     ErrorType::SerializationError,
                     format!(
