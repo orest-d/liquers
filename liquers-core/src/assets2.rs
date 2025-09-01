@@ -1,8 +1,9 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
+use nom::Err;
 use scc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
     context2::{EnvRef, Environment},
@@ -15,9 +16,15 @@ use crate::{
     value::DefaultValueSerializer,
 };
 
+/// Enhanced version of AssetMessage to support job queue operations
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AssetMessage {
     StatusChanged(Status),
+    ValueProduced,
+    ErrorOccurred(String),
+    JobSubmitted,
+    JobStarted,
+    JobFinished,
 }
 
 pub struct AssetData<E: Environment> {
@@ -33,6 +40,8 @@ pub struct AssetData<E: Environment> {
     binary: Option<Arc<Vec<u8>>>,
 
     metadata: Option<Arc<Metadata>>,
+
+    status: Status,
 
     recipe: Option<Recipe>,
 
@@ -51,11 +60,34 @@ impl<E: Environment> AssetData<E> {
             metadata: None,
             _marker: std::marker::PhantomData,
             recipe: None,
+            status: Status::None,
         }
     }
 
     pub fn get_query(&self) -> Query {
         self.query.clone()
+    }
+
+    pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
+        if status != self.status {
+            if let Some(metadata) = self.metadata.as_mut() {
+                return match Arc::get_mut(metadata) {
+                    Some(Metadata::LegacyMetadata(_)) => Err(Error::unexpected_error(
+                        "Legacy metadata status can't be changed".to_owned(),
+                    )),
+                    Some(Metadata::MetadataRecord(metadata_record)) => {
+                        self.status = status;
+                        metadata_record.with_status(status);
+                        let _ = self.tx.send(AssetMessage::StatusChanged(status));
+                        Ok(())
+                    }
+                    None => Err(Error::unexpected_error(
+                        "Failed to get mutable reference to metadata".to_owned(),
+                    )),
+                };
+            }
+        }
+        Ok(())
     }
 }
 
@@ -81,6 +113,21 @@ impl<E: Environment> AssetRef<E> {
             data: Arc::new(RwLock::new(AssetData::new(query))),
         }
     }
+
+    /// Subscribe to asset events
+    pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> {
+        let lock = self.data.read().await;
+        lock.tx.subscribe()
+    }
+
+    /// Check if the asset is currently in the job queue
+    pub async fn is_in_job_queue(&self) -> bool {
+        match self.data.read().await.status {
+            Status::Submitted | Status::Processing => true,
+            _ => false,
+        }
+    }
+
 
     /// Deserialize the binary data into the asset's data field.
     /// Returns true if the deserialization was successful.
@@ -413,4 +460,199 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
         let asset = self.get(key).await?;
         Ok(asset)
     }
+}
+
+/// The job queue structure
+pub struct JobQueue<E: Environment> {
+    jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
+    capacity: usize,
+}
+
+impl<E: Environment + 'static> JobQueue<E> {
+    /// Create a new job queue with the specified capacity
+    pub fn new(capacity: usize) -> Self {
+        JobQueue {
+            jobs: Arc::new(Mutex::new(Vec::new())),
+            capacity,
+        }
+    }
+
+    /// Submit an asset for processing
+    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
+        // Update status to Submitted
+        {
+            let mut lock = asset.data.write().await;
+            (*lock).set_status(Status::Submitted)?;// TODO: on error crash job 
+
+            let _ = lock.tx.send(AssetMessage::JobSubmitted);
+        }
+
+        // Add to job queue
+        self.jobs.lock().await.push(asset);
+        Ok(())
+    }
+
+    /// Count how many jobs are currently running (Processing status)
+    pub async fn pending_jobs_count(&self) -> usize {
+        let jobs = self.jobs.lock().await;
+
+        let mut count = 0;
+        for asset in jobs.iter() {
+            let status = asset.data.read().await.status;
+
+            if status == Status::Processing {
+                count += 1;
+            }
+        }
+
+        count
+    }
+
+    /// Start processing jobs up to capacity
+    pub async fn run(self: Arc<Self>, envref: EnvRef<E>) {
+        loop {
+            let pending_count = self.pending_jobs_count().await;
+
+            // Check if we can start more jobs
+            if pending_count < self.capacity {
+                let available_slots = self.capacity - pending_count;
+                let mut jobs_to_start = Vec::new();
+
+                // Find submitted jobs
+                {
+                    let jobs = self.jobs.lock().await;
+                    for asset in jobs.iter() {
+                        if jobs_to_start.len() >= available_slots {
+                            break;
+                        }
+
+                        let status = asset.data.read().await.status;
+
+                        if status == Status::Submitted {
+                            jobs_to_start.push(asset.clone());
+                        }
+                    }
+                }
+
+                // Start jobs
+                for asset in jobs_to_start {
+                    let asset_clone = asset.clone();
+                    let envref_clone = envref.clone();
+
+                    // Set status to Processing
+                    {
+                        let mut lock = asset.data.write().await;
+                        lock.set_status(Status::Processing); // TODO: on error crash job 
+                        let _ = lock
+                            .tx
+                            .send(AssetMessage::StatusChanged(Status::Processing));
+                        let _ = lock.tx.send(AssetMessage::JobStarted);
+                    }
+
+                    // Process job in a separate task
+                    tokio::spawn(async move {
+                        let result = asset_clone.get_state(envref_clone).await;
+
+                        // Update status based on result
+                        let (status, error_msg) = match &result {
+                            Ok(_) => {
+                                let _ = {
+                                    let lock = asset_clone.data.write().await;
+                                    lock.tx.send(AssetMessage::ValueProduced)
+                                };
+                                (Status::Ready, None)
+                            }
+                            Err(e) => {
+                                let error_msg = e.to_string();
+                                let _ = {
+                                    let lock = asset_clone.data.write().await;
+                                    lock.tx.send(AssetMessage::ErrorOccurred(error_msg.clone()))
+                                };
+                                (Status::Error, Some(error_msg))
+                            }
+                        };
+
+                        // Update final status
+                        {
+                            let mut lock = asset_clone.data.write().await;
+ 
+                                let _ = lock.tx.send(AssetMessage::StatusChanged(status));
+                                let _ = lock.tx.send(AssetMessage::JobFinished);
+                            }
+                        }
+                    );
+                }
+            }
+
+            // Sleep briefly to avoid busy waiting
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Clean up completed jobs (Ready or Error status)
+    pub async fn cleanup_completed(&mut self) -> usize {
+        let (keep, initial_count, keep_len) = {
+            let mut jobs = self.jobs.lock().await;
+            let initial_count = jobs.len();
+            let mut keep: Vec<AssetRef<E>> = Vec::new();
+            for asset in jobs.iter() {
+                let lock = asset.data.read().await;
+                match lock.status {
+                    Status::Processing | Status::Submitted => {keep.push(asset.clone());}
+                    _ => {},
+                }
+            }
+            let keep_len = keep.len();
+            (keep, initial_count, keep_len)
+        };
+        self.jobs = Arc::new(Mutex::new(keep));
+        initial_count - keep_len
+    }
+}
+
+
+// Add methods to DefaultAssetStore to work with JobQueue
+impl<E: Environment> crate::assets2::DefaultAssetStore<E> {
+    /// Submit an asset to the job queue
+    pub async fn submit_to_job_queue(
+        &self,
+        asset: AssetRef<E>,
+        job_queue: Arc<JobQueue<E>>,
+    ) -> Result<(), Error> {
+        job_queue.submit(asset).await
+    }
+
+    /* 
+    /// Get an asset and optionally submit it to the job queue if it's not already processed
+    pub async fn get_asset_and_process(
+        &self,
+        query: &crate::query::Query,
+        job_queue: Option<Arc<JobQueue<E>>>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset = self.get_asset(query).await?;
+
+        // If we have a job queue and the asset needs processing, submit it
+        if let Some(queue) = job_queue {
+            let status = {
+                let lock = asset.data.read().await;
+                if let Some(metadata) = &lock.metadata {
+                    metadata.status
+                } else {
+                    Status::None
+                }
+            };
+
+            // Submit if not already processed or in queue
+            if status != Status::Ready
+                && status != Status::Error
+                && status != Status::Processing
+                && status != Status::Submitted
+            {
+                queue.submit(asset.clone()).await?;
+            }
+        }
+
+        Ok(asset)
+    }
+    */
 }
