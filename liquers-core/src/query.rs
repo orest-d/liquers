@@ -11,24 +11,127 @@ use std::path::Path;
 
 use crate::error::Error;
 
-pub trait QueryRenderStyle{
-    fn string_begin(&self, position:&Position)->Cow<'static, str>;
-    fn string_end(&self, position:&Position)->Cow<'static, str>;
-    fn entity_begin(&self, position:&Position)->Cow<'static, str>;
-    fn entity_end(&self, position:&Position)->Cow<'static, str>;
-    fn separator_begin(&self, position:&Position)->Cow<'static, str>;
-    fn separator_end(&self, position:&Position)->Cow<'static, str>;
+static UNKNOWN_POSITION: Position = Position {
+    offset: 0,
+    line: 0,
+    column: 0,
+};
+
+pub trait QueryRenderStyle {
+    fn position(&self) -> &Position;
+    fn highlight(&self, position: &Position) -> bool {
+        if self.position().is_unknown() {
+            return false;
+        }
+        *position == *self.position()
+    }
+    fn string_parameter_begin(&self, position: &Position) -> Cow<'static, str>;
+    fn string_parameter_end(&self, position: &Position) -> Cow<'static, str>;
+    fn string_parameter(&self, parameter: &str, position: &Position) -> String {
+        format!(
+            "{}{}{}",
+            self.string_parameter_begin(position),
+            parameter,
+            self.string_parameter_end(position)
+        )
+    }
+    fn entity_begin(&self, position: &Position) -> Cow<'static, str>;
+    fn entity_end(&self, position: &Position) -> Cow<'static, str>;
+    fn entity(&self, name: &str, position: &Position) -> String {
+        format!(
+            "{}{}{}",
+            self.entity_begin(position),
+            name,
+            self.entity_end(position)
+        )
+    }
+    fn separator_begin(&self, position: &Position) -> Cow<'static, str>;
+    fn separator_end(&self, position: &Position) -> Cow<'static, str>;
+    fn separator(&self, name: &str, position: &Position) -> String {
+        format!(
+            "{}{}{}",
+            self.separator_begin(position),
+            name,
+            self.separator_end(position)
+        )
+    }
+    fn resource_name_begin(&self, position: &Position) -> Cow<'static, str>;
+    fn resource_name_end(&self, position: &Position) -> Cow<'static, str>;
+    fn resource_name(&self, name: &str, position: &Position) -> String {
+        format!(
+            "{}{}{}",
+            self.resource_name_begin(position),
+            name,
+            self.resource_name_end(position)
+        )
+    }
+    fn action_name_begin(&self, position: &Position) -> Cow<'static, str>;
+    fn action_name_end(&self, position: &Position) -> Cow<'static, str>;
+    fn action_name(&self, name: &str, position: &Position) -> String {
+        format!(
+            "{}{}{}",
+            self.action_name_begin(position),
+            name,
+            self.action_name_end(position)
+        )
+    }
+    fn header_begin(&self, position: &Position) -> Cow<'static, str>;
+    fn header_end(&self, position: &Position) -> Cow<'static, str>;
+    fn header(&self, txt: &str, position: &Position) -> String {
+        format!(
+            "{}{}{}",
+            self.header_begin(position),
+            txt,
+            self.header_end(position)
+        )
+    }
+}
+
+pub trait QueryRenderer {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String;
 }
 
 pub struct TrivialQueryRenderStyle;
-impl QueryRenderStyle for TrivialQueryRenderStyle{
-    fn string_begin(&self, position:&Position)->Cow<'static, str>{"".into()}
-    fn string_end(&self, position:&Position)->Cow<'static, str>{"".into()}
-    fn entity_begin(&self, position:&Position)->Cow<'static, str>{"".into()}
-    fn entity_end(&self, position:&Position)->Cow<'static, str>{"".into()}
-    fn separator_begin(&self, position:&Position)->Cow<'static, str>{"".into()}
-    fn separator_end(&self, position:&Position)->Cow<'static, str>{"".into()}
-
+impl QueryRenderStyle for TrivialQueryRenderStyle {
+    fn position(&self) -> &Position {
+        &UNKNOWN_POSITION
+    }
+    fn string_parameter_begin(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn string_parameter_end(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn entity_begin(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn entity_end(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn separator_begin(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn separator_end(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn resource_name_begin(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn resource_name_end(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn action_name_begin(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn action_name_end(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn header_begin(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
+    fn header_end(&self, _position: &Position) -> Cow<'static, str> {
+        "".into()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -176,19 +279,20 @@ impl ActionParameter {
         }
     }
     */
-    pub fn render<S:QueryRenderStyle>(&self, style:&S)->String{
+}
+
+impl QueryRenderer for ActionParameter {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
         match self {
-            Self::String(s, pos) => {
-                let string_begin = style.string_begin(pos);
-                let string_end = style.string_end(pos);
+            Self::String(s, position) => {
                 let token = encode_token(s);
-                format!("{string_begin}{token}{string_end}")
-            },
-            Self::Link(query, pos) => {
-                let entity_begin = style.entity_begin(pos);
-                let entity_end = style.entity_end(pos);
+                style.string_parameter(&token, position)
+            }
+            Self::Link(query, position) => {
+                let entity_begin = style.entity("~X~", position);
+                let entity_end = style.entity("~E", position);
                 let rendered_query = query.encode(); // Switch to render once ready
-                format!("{entity_begin}~X~{entity_end}{rendered_query}{entity_end}~E{entity_end}")
+                format!("{entity_begin}{rendered_query}{entity_end}")
             }
         }
     }
@@ -290,6 +394,12 @@ impl ResourceName {
     }
 }
 
+impl QueryRenderer for ResourceName {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        style.resource_name(&self.name, &self.position)
+    }
+}
+
 impl Hash for ResourceName {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
@@ -346,6 +456,20 @@ impl ActionRequest {
     }
 }
 
+impl QueryRenderer for ActionRequest {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        let action_name = style.action_name(&self.name, &self.position);
+        let sep = style.separator("-", &Position::unknown());
+        let parameters = self
+            .parameters
+            .iter()
+            .map(|x| format!("{sep}{}", x.render(style)))
+            .collect::<Vec<_>>()
+            .join("");
+        format!("{action_name}{parameters}")
+    }
+}
+
 impl Display for ActionRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.encode())
@@ -389,6 +513,12 @@ impl HeaderParameter {
     }
     pub fn encode(&self) -> &str {
         &self.value
+    }
+}
+
+impl QueryRenderer for HeaderParameter {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        style.string_parameter(&self.value, &self.position)
     }
 }
 
@@ -473,6 +603,26 @@ impl SegmentHeader {
             }
         }
         encoded
+    }
+}
+
+impl QueryRenderer for SegmentHeader {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        let mut head: String = std::iter::repeat_n("-", self.level + 1).collect();
+        if self.resource {
+            head.push('R');
+        }
+        if !self.name.is_empty() {
+            head.push_str(&style.entity(&self.name, &self.position));
+        }
+        let mut styled_head = style.header(&head, &self.position);
+        if !self.parameters.is_empty() {
+            for parameter in self.parameters.iter() {
+                styled_head.push_str(&style.separator("-", &Position::unknown()));
+                styled_head.push_str(&parameter.render(style));
+            }
+        }
+        styled_head
     }
 }
 
@@ -692,6 +842,29 @@ impl TransformQuerySegment {
     }
 }
 
+impl QueryRenderer for TransformQuerySegment {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        let mut styled_query = if let Some(header) = &self.header {
+            header.render(style)
+        } else {
+            String::new()
+        };
+        for action in self.query.iter() {
+            if !styled_query.is_empty() {
+                styled_query.push_str(&style.separator("/", &Position::unknown()));
+            }
+            styled_query.push_str(&action.render(style));
+        }
+        if let Some(filename) = &self.filename {
+            if !styled_query.is_empty() {
+                styled_query.push_str(&style.separator("/", &Position::unknown()));
+            }
+            styled_query.push_str(&filename.render(style));
+        }
+        styled_query
+    }
+}
+
 impl Add for TransformQuerySegment {
     type Output = TransformQuerySegment;
 
@@ -854,6 +1027,29 @@ impl Key {
             }
         }
         Key(result)
+    }
+}
+
+impl QueryRenderer for Key {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        if self.is_empty() {
+            "".to_owned()
+        } else {
+            let first = self[0].render(style);
+            let rest = self
+                .iter()
+                .skip(1)
+                .map(|x| {
+                    format!(
+                        "{}{}",
+                        style.separator("/", &Position::unknown()),
+                        &x.render(style)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            format!("{first}{rest}")
+        }
     }
 }
 
@@ -1042,6 +1238,23 @@ impl ResourceQuerySegment {
         } else {
             self
         }
+    }
+}
+
+impl QueryRenderer for ResourceQuerySegment {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        let mut styled_query = if let Some(header) = &self.header {
+            header.render(style)
+        } else {
+            String::new()
+        };
+        if !self.key.is_empty() {
+            if !styled_query.is_empty() {
+                styled_query.push_str(&style.separator("/", &Position::unknown()));
+            }
+            styled_query.push_str(&self.key.render(style));
+        }
+        styled_query
     }
 }
 
@@ -1235,6 +1448,15 @@ impl QuerySegment {
             QuerySegment::Transform(transform_query_segment) => {
                 QuerySegment::Transform(transform_query_segment.canonical())
             }
+        }
+    }
+}
+
+impl QueryRenderer for QuerySegment {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        match self {
+            QuerySegment::Resource(rqs) => rqs.render(style),
+            QuerySegment::Transform(tqs) => tqs.render(style),
         }
     }
 }
@@ -1671,6 +1893,38 @@ impl Query {
     }
 }
 
+impl QueryRenderer for Query {
+    fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
+        if self.segments.is_empty() {
+            if self.absolute {
+                style.separator("/", &Position::unknown())
+            } else {
+                "".to_owned()
+            }
+        } else {
+            let first = self.segments[0].render(style);
+            let rest = self
+                .segments
+                .iter()
+                .skip(1)
+                .map(|x| {
+                    format!(
+                        "{}{}",
+                        style.separator("/", &Position::unknown()),
+                        &x.render(style)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            if self.absolute {
+                format!("{}{}{}", style.separator("/", &Position::unknown()), first, rest)
+            } else {
+                format!("{first}{rest}")
+            }
+        }
+    }
+}
+
 pub trait TryToQuery: std::fmt::Debug + Display + Clone {
     fn try_to_query(self) -> Result<Query, Error>;
 }
@@ -1790,6 +2044,7 @@ mod tests {
         };
         let ap = ActionParameter::Link(q, Position::unknown());
         assert_eq!(ap.encode(), "~X~hello~E");
+        assert_eq!(ap.render(&TrivialQueryRenderStyle), "~X~hello~E");
         Ok(())
     }
 
@@ -1801,8 +2056,10 @@ mod tests {
             parameters: vec![],
         };
         assert_eq!(a.encode(), "action");
+        assert_eq!(a.render(&TrivialQueryRenderStyle), "action");
         let a = ActionRequest::new("action1".to_owned());
         assert_eq!(a.encode(), "action1");
+        assert_eq!(a.render(&TrivialQueryRenderStyle), "action1");
         let q = Query {
             segments: vec![QuerySegment::Transform(TransformQuerySegment {
                 query: vec![ActionRequest::new("hello".to_owned())],
@@ -1820,6 +2077,7 @@ mod tests {
             ],
         };
         assert_eq!(a.encode(), "action-~X~hello~E-world");
+        assert_eq!(a.render(&TrivialQueryRenderStyle), "action-~X~hello~E-world");
         let q = Query {
             segments: vec![QuerySegment::Transform(TransformQuerySegment {
                 query: vec![ActionRequest::new("hello".to_owned())],
@@ -1833,6 +2091,7 @@ mod tests {
             ActionParameter::new_string("world".to_owned()),
         ]);
         assert_eq!(a.encode(), "action1-~X~hello~E-world");
+        assert_eq!(a.render(&TrivialQueryRenderStyle), "action1-~X~hello~E-world");
         Ok(())
     }
 
@@ -1860,6 +2119,7 @@ mod tests {
 
         let q = a + f;
         assert_eq!(q.encode(), "action/file.txt");
+        assert_eq!(q.render(&TrivialQueryRenderStyle), "action/file.txt");
     }
 
     #[test]
@@ -1868,7 +2128,7 @@ mod tests {
         assert_eq!(
             parse_key("./x").unwrap().to_absolute(&cwd_key).encode(),
             "a/b/c/x"
-        );
+        );       
         assert_eq!(
             parse_key("../x").unwrap().to_absolute(&cwd_key).encode(),
             "a/b/x"
