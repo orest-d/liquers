@@ -1128,6 +1128,16 @@ impl From<Key> for Query {
     }
 }
 
+impl From<&Key> for Query {
+    fn from(value: &Key) -> Self {
+        Query {
+            segments: vec![value.clone().into()],
+            source: QuerySource::Unspecified,
+            absolute: false,
+        }
+    }
+}
+
 impl TryFrom<Query> for Key {
     type Error = Error;
 

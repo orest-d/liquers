@@ -28,7 +28,7 @@ pub enum AssetMessage {
 }
 
 pub struct AssetData<E: Environment> {
-    pub query: Query,
+    pub recipe: Recipe,
     rx: broadcast::Receiver<AssetMessage>,
     tx: broadcast::Sender<AssetMessage>,
 
@@ -43,29 +43,22 @@ pub struct AssetData<E: Environment> {
 
     status: Status,
 
-    recipe: Option<Recipe>,
-
     _marker: std::marker::PhantomData<E>,
 }
 
 impl<E: Environment> AssetData<E> {
-    pub fn new(query: Query) -> Self {
+    pub fn new(recipe: Recipe) -> Self {
         let (tx, rx) = broadcast::channel(100);
         AssetData {
-            query,
+            recipe,
             rx,
             tx,
             data: None,
             binary: None,
             metadata: None,
             _marker: std::marker::PhantomData,
-            recipe: None,
             status: Status::None,
         }
-    }
-
-    pub fn get_query(&self) -> Query {
-        self.query.clone()
     }
 
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
@@ -108,9 +101,9 @@ impl<E: Environment> AssetRef<E> {
             data: Arc::new(RwLock::new(data)),
         }
     }
-    pub fn new_from_query(query: Query) -> Self {
+    pub fn new_from_recipe(recipe: Recipe) -> Self {
         AssetRef {
-            data: Arc::new(RwLock::new(AssetData::new(query))),
+            data: Arc::new(RwLock::new(AssetData::new(recipe))),
         }
     }
 
@@ -148,14 +141,14 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Load the binary data from store if not already loaded.
-    /// Only works for assets with query being a key without realm.
+    /// Only works for assets with recipe being a key without realm.
     /// Returns true if the binary data was present or loaded.
     async fn try_load_binary_if_necessary(&self, envref: EnvRef<E>) -> Result<bool, Error> {
         let mut lock = self.data.write().await;
         if lock.binary.is_some() {
             return Ok(true);
         }
-        if let Some(key) = lock.query.key() {
+        if let Some(key) = lock.recipe.key()? {
             let store = envref.get_async_store();
             let (data, metadata) = store.get(&key).await?;
             lock.binary = Some(Arc::new(data));
@@ -169,20 +162,14 @@ impl<E: Environment> AssetRef<E> {
     /// Try to create data from a recipe
     async fn try_create_from_recipe(&self, envref: EnvRef<E>) -> Result<bool, Error> {
         let mut lock = self.data.write().await;
-        if lock.recipe.is_none() {
-            return Ok(false);
-        }
-        let recipe = lock.recipe.as_ref().unwrap();
 
         let envref1 = envref.clone();
         let plan = {
             let cmr = envref1.0.get_command_metadata_registry();
-            recipe.to_plan(cmr)
+            lock.recipe.to_plan(cmr)
         }?;
 
-        let cwd_key = lock.query.key().map_or_else(|| None, |k| Some(k.parent()));
-
-        let res = evaluate_plan(plan, envref, cwd_key).await?;
+        let res = evaluate_plan(plan, envref).await?;
         lock.data = Some(res.data.clone());
         lock.metadata = Some(res.metadata.clone());
         lock.binary = None;
@@ -218,31 +205,21 @@ impl<E: Environment> AssetRef<E> {
                     return Ok(state);
                 }
             }
-            let mut lock = self.data.write().await;
-            let query = lock.get_query();
-            let plan = make_plan(envref.clone(), query.clone())?;
-            let res = evaluate_plan(plan, envref.clone(), None).await?;
-            lock.data = Some(res.data.clone());
-            lock.metadata = Some(res.metadata.clone());
-            lock.binary = None;
-            Ok(res)
+            Err(Error::unexpected_error(
+                "Failed to get state".to_owned(),
+            ))
         }
     }
 }
 
 #[async_trait]
 pub trait AssetInterface<E: Environment>: Send + Sync {
-    async fn get_query(&self) -> Query;
     async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
     async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error>;
 }
 
 #[async_trait]
 impl<E: Environment> AssetInterface<E> for AssetRef<E> {
-    async fn get_query(&self) -> Query {
-        let lock = self.data.read();
-        lock.await.query.clone()
-    }
     async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage> {
         let lock = self.data.read().await;
         lock.tx.subscribe()
@@ -355,7 +332,7 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
                 .query_assets
                 .entry_async(query.clone())
                 .await
-                .or_insert_with(|| AssetRef::<E>::new_from_query(query.clone()));
+                .or_insert_with(|| AssetRef::<E>::new_from_recipe(query.into()));
             Ok(entry.get().clone())
         }
     }
@@ -365,15 +342,9 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
             .assets
             .entry_async(key.clone())
             .await
-            .or_insert_with(|| AssetRef::<E>::new_from_query(key.clone().into()));
+            .or_insert_with(|| AssetRef::<E>::new_from_recipe(key.into()));
 
         let asset_ref = entry.get().clone();
-
-        // Try to get a recipe from the recipe provider and set it in the asset if available
-        if let Ok(recipe) = self.get_recipe_provider().recipe(key).await {
-            let mut lock = asset_ref.data.write().await;
-            lock.recipe = Some(recipe);
-        }
 
         Ok(asset_ref)
     }

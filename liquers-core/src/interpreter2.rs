@@ -184,14 +184,12 @@ pub fn do_step<E: Environment>(
 
 pub fn evaluate_plan<E: Environment>(
     plan: Plan,
-    envref: EnvRef<E>,
-    cwd_key: Option<Key>,
+    envref: EnvRef<E>
 ) -> std::pin::Pin<
     Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
 > {
     async move {
         let context = Context::new(envref.clone()).await;
-        context.set_cwd_key(cwd_key);
         apply_plan(
             plan,
             envref.clone(),

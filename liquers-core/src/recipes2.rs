@@ -7,7 +7,7 @@ use crate::{
     command_metadata::CommandMetadataRegistry,
     context2::{EnvRef, Environment},
     error::Error,
-    parse::parse_query,
+    parse::{parse_key, parse_query},
     plan::{Plan, PlanBuilder},
     query::{Key, Query, ResourceName},
 };
@@ -29,6 +29,9 @@ pub struct Recipe {
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
     pub links: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 impl Recipe {
@@ -40,6 +43,7 @@ impl Recipe {
             description,
             arguments: HashMap::new(),
             links: HashMap::new(),
+            cwd: None,
         })
     }
 
@@ -80,6 +84,31 @@ impl Recipe {
         Ok("binary".to_string())
     }
 
+    /// Returns true if the recipe has any arguments either values or links.
+    pub fn has_arguments(&self) -> bool {
+        !self.arguments.is_empty() || !self.links.is_empty()
+    }
+    /// Returns true if the recipe is a pure query (i.e. is a valid query with no arguments or links).
+    pub fn is_pure_query(&self) -> bool {
+        !self.has_arguments() && self.get_query().is_ok()
+    }
+    /// Returns key if the recipe is a pure query, that is a key.
+    /// Key is expanded to an absolute form using the cwd (if set)
+    pub fn key(&self) -> Result<Option<Key>, Error> {
+        let query = self.get_query()?;
+        if !self.has_arguments() {
+            if let Some(key) = query.key() {
+                if let Some(cwd) = &self.cwd {
+                    let cwd = parse_key(cwd)?;
+                    return Ok(Some(key.to_absolute(&cwd)));
+                } else {
+                    return Ok(Some(key));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Converts the recipe to a `Plan` using the provided `CommandMetadataRegistry`.
     /// It applies the arguments and links to the plan.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
@@ -108,6 +137,59 @@ impl Recipe {
         Ok(plan)
     }
 }
+
+impl From<&Query> for Recipe {
+    fn from(query: &Query) -> Self {
+        Recipe {
+            query: query.encode(),
+            title: "Ad-hoc query".to_string(),
+            description: "".to_string(),
+            arguments: HashMap::new(),
+            links: HashMap::new(),
+            cwd: None,
+        }
+    }
+}
+
+impl From<Query> for Recipe {
+    fn from(query: Query) -> Self {
+        Recipe {
+            query: query.encode(),
+            title: "Ad-hoc query".to_string(),
+            description: "".to_string(),
+            arguments: HashMap::new(),
+            links: HashMap::new(),
+            cwd: None,
+        }
+    }
+}
+
+impl From<Key> for Recipe {
+    fn from(key: Key) -> Self {
+        Recipe {
+            query: Query::from(key).encode(),
+            title: "Ad-hoc key-query".to_string(),
+            description: "".to_string(),
+            arguments: HashMap::new(),
+            links: HashMap::new(),
+            cwd: None,
+        }
+    }
+}
+
+impl From<&Key> for Recipe {
+    fn from(key: &Key) -> Self {
+        Recipe {
+            query: Query::from(key).encode(),
+            title: "Ad-hoc key-query".to_string(),
+            description: "".to_string(),
+            arguments: HashMap::new(),
+            links: HashMap::new(),
+            cwd: None,
+        }
+    }
+}
+
 
 #[async_trait]
 pub trait AsyncRecipeProvider: Send + Sync {
