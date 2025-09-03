@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
+use ansic::ansi;
 use itertools::Itertools;
 use nom::Err;
 use std::borrow::Cow;
@@ -131,6 +132,49 @@ impl QueryRenderStyle for TrivialQueryRenderStyle {
     }
     fn header_end(&self, _position: &Position) -> Cow<'static, str> {
         "".into()
+    }
+}
+
+pub struct DarkAnsiQueryRenderStyle;
+impl QueryRenderStyle for DarkAnsiQueryRenderStyle {
+    fn position(&self) -> &Position {
+        &UNKNOWN_POSITION
+    }
+    fn string_parameter_begin(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(bg.black yellow).into()
+    }
+    fn string_parameter_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
+    }
+    fn entity_begin(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(bg.black yellow dim).into()
+    }
+    fn entity_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
+    }
+    fn separator_begin(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(bg.black white dim).into()
+    }
+    fn separator_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
+    }
+    fn resource_name_begin(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(bg.black cyan bold).into()
+    }
+    fn resource_name_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
+    }
+    fn action_name_begin(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(bg.black blue bold).into()
+    }
+    fn action_name_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
+    }
+    fn header_begin(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(bg.black magenta bold).into()
+    }
+    fn header_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
     }
 }
 
@@ -2246,6 +2290,7 @@ mod tests {
                 .encode(),
             "-R/xxx/yyy/-/hello/data.txt"
         );
+        println!("Colored: {}", parse_query("-Rname-key/xxx/yyy/-/hello-abc-123/xxx-yyy/world.txt")?.render(&DarkAnsiQueryRenderStyle));
         Ok(())
     }
 }

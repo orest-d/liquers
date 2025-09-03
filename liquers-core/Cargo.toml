@@ -26,6 +26,7 @@ chrono = "0.4.31"
 tokio = { version = "1.47.1", features = ["sync", "rt"] }
 blake3 = "1.8.1"
 scc = "2.3.4"
+ansic = "0.1.7"
 
 [dev-dependencies]
 tokio = {version="1.47.1", features = ["full"]}
