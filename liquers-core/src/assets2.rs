@@ -1,14 +1,13 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
-use nom::Err;
 use scc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
-    interpreter2::{evaluate_plan, make_plan},
+    interpreter2::evaluate_plan,
     metadata::{Metadata, Status},
     query::{Key, Query},
     recipes2::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},

@@ -226,7 +226,7 @@ impl<E: Environment> DefaultRecipeProvider<E> {
         DefaultRecipeProvider { envref }
     }
     pub async fn get_recipes(&self, key: &Key) -> Result<RecipeList, Error> {
-        self.envref
+        let mut recipes: RecipeList = self.envref
             .get_async_store()
             .get_bytes(&key.join("recipes.yaml"))
             .await
@@ -239,7 +239,9 @@ impl<E: Environment> DefaultRecipeProvider<E> {
                     serde_yaml::from_slice(&bytes)
                         .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))
                 },
-            )
+            )?;
+        recipes.set_cwd(key.encode());
+        Ok(recipes)
     }
 }
 
@@ -329,6 +331,15 @@ impl RecipeList {
                 false
             }
         })
+    }
+
+    /// Set the current working directory for all the recipes in the list that do not have the CWD set.
+    pub fn set_cwd(&mut self, cwd: String) {
+        for recipe in &mut self.recipes {
+            if recipe.cwd.is_none() {
+                recipe.cwd = Some(cwd.clone());
+            }
+        }
     }
 }
 
