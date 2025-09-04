@@ -26,64 +26,93 @@ pub trait QueryRenderStyle {
         }
         *position == *self.position()
     }
+    fn highlight_or<F: Fn(&str) -> String>(&self, text: &str, position: &Position, f: F) -> String {
+        if self.highlight(position) {
+            self.highlighted_text(text)
+        } else {
+            f(text)
+        }
+    }
     fn string_parameter_begin(&self, position: &Position) -> Cow<'static, str>;
     fn string_parameter_end(&self, position: &Position) -> Cow<'static, str>;
     fn string_parameter(&self, parameter: &str, position: &Position) -> String {
-        format!(
-            "{}{}{}",
-            self.string_parameter_begin(position),
-            parameter,
-            self.string_parameter_end(position)
-        )
+        self.highlight_or(parameter, position, |text| {
+            format!(
+                "{}{}{}",
+                self.string_parameter_begin(position),
+                text,
+                self.string_parameter_end(position)
+            )
+        })
     }
     fn entity_begin(&self, position: &Position) -> Cow<'static, str>;
     fn entity_end(&self, position: &Position) -> Cow<'static, str>;
     fn entity(&self, name: &str, position: &Position) -> String {
-        format!(
-            "{}{}{}",
-            self.entity_begin(position),
-            name,
-            self.entity_end(position)
-        )
+        self.highlight_or(name, position, |text| {
+            format!(
+                "{}{}{}",
+                self.entity_begin(position),
+                text,
+                self.entity_end(position)
+            )
+        })
     }
     fn separator_begin(&self, position: &Position) -> Cow<'static, str>;
     fn separator_end(&self, position: &Position) -> Cow<'static, str>;
     fn separator(&self, name: &str, position: &Position) -> String {
-        format!(
-            "{}{}{}",
-            self.separator_begin(position),
-            name,
-            self.separator_end(position)
-        )
+        self.highlight_or(name, position, |text| {
+            format!(
+                "{}{}{}",
+                self.separator_begin(position),
+                text,
+                self.separator_end(position)
+            )
+        })
     }
     fn resource_name_begin(&self, position: &Position) -> Cow<'static, str>;
     fn resource_name_end(&self, position: &Position) -> Cow<'static, str>;
     fn resource_name(&self, name: &str, position: &Position) -> String {
-        format!(
-            "{}{}{}",
-            self.resource_name_begin(position),
-            name,
-            self.resource_name_end(position)
-        )
+        self.highlight_or(name, position, |text| {
+            format!(
+                "{}{}{}",
+                self.resource_name_begin(position),
+                text,
+                self.resource_name_end(position)
+            )
+        })
     }
     fn action_name_begin(&self, position: &Position) -> Cow<'static, str>;
     fn action_name_end(&self, position: &Position) -> Cow<'static, str>;
     fn action_name(&self, name: &str, position: &Position) -> String {
-        format!(
-            "{}{}{}",
-            self.action_name_begin(position),
-            name,
-            self.action_name_end(position)
-        )
+        self.highlight_or(name, position, |text| {
+            format!(
+                "{}{}{}",
+                self.action_name_begin(position),
+                text,
+                self.action_name_end(position)
+            )
+        })
     }
     fn header_begin(&self, position: &Position) -> Cow<'static, str>;
     fn header_end(&self, position: &Position) -> Cow<'static, str>;
     fn header(&self, txt: &str, position: &Position) -> String {
+        self.highlight_or(txt, position, |text| {
+            format!(
+                "{}{}{}",
+                self.header_begin(position),
+                text,
+                self.header_end(position)
+            )
+        })
+    }
+    fn highlight_begin(&self) -> Cow<'static, str>;
+    fn highlight_end(&self) -> Cow<'static, str>;
+    fn highlighted_text(&self, txt: &str) -> String {
         format!(
             "{}{}{}",
-            self.header_begin(position),
+            self.highlight_begin(),
             txt,
-            self.header_end(position)
+            self.highlight_end()
         )
     }
 }
@@ -132,13 +161,19 @@ impl QueryRenderStyle for TrivialQueryRenderStyle {
     }
     fn header_end(&self, _position: &Position) -> Cow<'static, str> {
         "".into()
+    }    
+    fn highlight_begin(&self) -> Cow<'static, str> {
+        "".into()
+    }
+    fn highlight_end(&self) -> Cow<'static, str> {
+        "".into()
     }
 }
 
-pub struct DarkAnsiQueryRenderStyle;
+pub struct DarkAnsiQueryRenderStyle(Position);
 impl QueryRenderStyle for DarkAnsiQueryRenderStyle {
     fn position(&self) -> &Position {
-        &UNKNOWN_POSITION
+        &self.0
     }
     fn string_parameter_begin(&self, _position: &Position) -> Cow<'static, str> {
         ansi!(bg.black yellow).into()
@@ -174,6 +209,12 @@ impl QueryRenderStyle for DarkAnsiQueryRenderStyle {
         ansi!(bg.black magenta bold).into()
     }
     fn header_end(&self, _position: &Position) -> Cow<'static, str> {
+        ansi!(reset).into()
+    }
+    fn highlight_begin(&self) -> Cow<'static, str> {
+        ansi!(bg.red yellow bold).into()
+    }
+    fn highlight_end(&self) -> Cow<'static, str> {
         ansi!(reset).into()
     }
 }
@@ -2300,7 +2341,15 @@ mod tests {
                 .encode(),
             "-R/xxx/yyy/-/hello/data.txt"
         );
-        println!("Colored: {}", parse_query("-Rname-key/xxx/yyy/-/hello-abc-123/xxx-yyy/world.txt")?.render(&DarkAnsiQueryRenderStyle));
+        let q = parse_query("-Rname-key/xxx/yyy/-/hello-abc-123/xxx-yyy/world.txt")?;
+        let position = q[1].position();
+        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        let position = q[1].transform_query_segment().unwrap().query[0].position.clone();
+        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        let position = q[1].transform_query_segment().unwrap().query[0].parameters[1].position();
+        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        let position = q[1].transform_query_segment().unwrap().filename.as_ref().unwrap().position.clone();
+        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         Ok(())
     }
 }
