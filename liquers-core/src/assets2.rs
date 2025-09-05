@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
 use scc;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 use crate::{
     context2::{EnvRef, Environment},
@@ -28,9 +28,11 @@ pub enum AssetMessage {
 
 pub struct AssetData<E: Environment> {
     pub recipe: Recipe,
-    rx: broadcast::Receiver<AssetMessage>,
-    tx: broadcast::Sender<AssetMessage>,
-
+    
+    // Add service channel for JobQueue -> Asset communication
+    service_tx: mpsc::Sender<AssetMessage>,
+    service_rx: Mutex<mpsc::Receiver<AssetMessage>>,
+    
     /// This is used to store the data in the asset if available.
     data: Option<Arc<E::Value>>,
 
@@ -47,17 +49,69 @@ pub struct AssetData<E: Environment> {
 
 impl<E: Environment> AssetData<E> {
     pub fn new(recipe: Recipe) -> Self {
-        let (tx, rx) = broadcast::channel(100);
+        // Create service channel with buffer size 32
+        let (service_tx, service_rx) = mpsc::channel(32);
+        
         AssetData {
             recipe,
-            rx,
-            tx,
+            service_tx,
+            service_rx: Mutex::new(service_rx),
             data: None,
             binary: None,
             metadata: None,
             _marker: std::marker::PhantomData,
             status: Status::None,
         }
+    }
+    
+    /// Get a clone of the service sender
+    pub fn service_sender(&self) -> mpsc::Sender<AssetMessage> {
+        self.service_tx.clone()
+    }
+
+    /// Process messages from the service channel
+    pub async fn process_service_messages(&mut self) -> Result<(), Error> {
+        let mut rx = self.service_rx.lock().await;
+        
+        // Process all pending messages without blocking
+        while let Ok(msg) = rx.try_recv().map_err(|e| Error::general_error(e.to_string())) {
+            match msg {
+                AssetMessage::StatusChanged(status) => {
+                    //self.set_status(status)?;
+                },
+                AssetMessage::JobSubmitted => {
+                    // Handle job submitted event
+                    // No additional logic needed here yet
+                },
+                AssetMessage::JobStarted => {
+                    // Handle job started event
+                    // No additional logic needed here yet
+                },
+                AssetMessage::JobFinished => {
+                    // Handle job finished event
+                    // No additional logic needed here yet
+                },
+                AssetMessage::ValueProduced => {
+                    // Handle value produced event
+                    // No additional logic needed here yet
+                },
+                AssetMessage::ErrorOccurred(error) => {
+                    // Handle error occurred event
+                    if let Some(metadata) = &mut self.metadata {
+                        if let Some(meta) = Arc::get_mut(metadata) {
+                            match meta {
+                                Metadata::MetadataRecord(record) => {
+                                    record.with_message(error);
+                                },
+                                _ => {},
+                            }
+                        }
+                    }
+                },
+            }
+        }
+        
+        Ok(())
     }
 
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
@@ -70,7 +124,7 @@ impl<E: Environment> AssetData<E> {
                     Some(Metadata::MetadataRecord(metadata_record)) => {
                         self.status = status;
                         metadata_record.with_status(status);
-                        let _ = self.tx.send(AssetMessage::StatusChanged(status));
+                        //let _ = self.tx.send(AssetMessage::StatusChanged(status));
                         Ok(())
                     }
                     None => Err(Error::unexpected_error(
@@ -105,12 +159,13 @@ impl<E: Environment> AssetRef<E> {
             data: Arc::new(RwLock::new(AssetData::new(recipe))),
         }
     }
-
-    /// Subscribe to asset events
-    pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> {
-        let lock = self.data.read().await;
-        lock.tx.subscribe()
-    }
+/*
+/// Subscribe to asset events
+pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> {
+    let lock = self.data.read().await;
+    lock.tx.subscribe()
+}
+*/
 
     /// Check if the asset is currently in the job queue
     pub async fn is_in_job_queue(&self) -> bool {
@@ -213,16 +268,18 @@ impl<E: Environment> AssetRef<E> {
 
 #[async_trait]
 pub trait AssetInterface<E: Environment>: Send + Sync {
-    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
+//    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
     async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error>;
 }
 
 #[async_trait]
 impl<E: Environment> AssetInterface<E> for AssetRef<E> {
+    /*
     async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage> {
         let lock = self.data.read().await;
         lock.tx.subscribe()
     }
+    */
     async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
         self.get_state(envref).await
     }
@@ -454,7 +511,7 @@ impl<E: Environment + 'static> JobQueue<E> {
             let mut lock = asset.data.write().await;
             (*lock).set_status(Status::Submitted)?;// TODO: on error crash job 
 
-            let _ = lock.tx.send(AssetMessage::JobSubmitted);
+            //let _ = lock.tx.send(AssetMessage::JobSubmitted);
         }
 
         // Add to job queue
@@ -513,10 +570,12 @@ impl<E: Environment + 'static> JobQueue<E> {
                     {
                         let mut lock = asset.data.write().await;
                         lock.set_status(Status::Processing); // TODO: on error crash job 
+                        /*
                         let _ = lock
-                            .tx
-                            .send(AssetMessage::StatusChanged(Status::Processing));
-                        let _ = lock.tx.send(AssetMessage::JobStarted);
+                        .tx
+                        .send(AssetMessage::StatusChanged(Status::Processing));
+                    let _ = lock.tx.send(AssetMessage::JobStarted);
+                    */
                     }
 
                     // Process job in a separate task
@@ -528,7 +587,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                             Ok(_) => {
                                 let _ = {
                                     let lock = asset_clone.data.write().await;
-                                    lock.tx.send(AssetMessage::ValueProduced)
+                                    //lock.tx.send(AssetMessage::ValueProduced)
                                 };
                                 (Status::Ready, None)
                             }
@@ -536,7 +595,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                                 let error_msg = e.to_string();
                                 let _ = {
                                     let lock = asset_clone.data.write().await;
-                                    lock.tx.send(AssetMessage::ErrorOccurred(error_msg.clone()))
+                                    //lock.tx.send(AssetMessage::ErrorOccurred(error_msg.clone()))
                                 };
                                 (Status::Error, Some(error_msg))
                             }
@@ -546,8 +605,8 @@ impl<E: Environment + 'static> JobQueue<E> {
                         {
                             let mut lock = asset_clone.data.write().await;
  
-                                let _ = lock.tx.send(AssetMessage::StatusChanged(status));
-                                let _ = lock.tx.send(AssetMessage::JobFinished);
+                                //let _ = lock.tx.send(AssetMessage::StatusChanged(status));
+                                //let _ = lock.tx.send(AssetMessage::JobFinished);
                             }
                         }
                     );
