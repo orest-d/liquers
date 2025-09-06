@@ -18,6 +18,7 @@ pub enum Status {
     Recipe,
     Ready,
     Expired,
+    Cancelled,
     Source,
 }
 
@@ -42,6 +43,7 @@ impl Status {
             Status::Recipe => false,
             Status::Expired => true,
             Status::Source => true,
+            Status::Cancelled => false,
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -55,6 +57,7 @@ impl Status {
             Status::Recipe => false,
             Status::Expired => false,
             Status::Source => false,
+            Status::Cancelled => false,
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -70,6 +73,7 @@ impl Status {
             Status::Recipe => false,
             Status::Expired => true,
             Status::Source => true,
+            Status::Cancelled => true,
         }
     }
 }
@@ -863,6 +867,31 @@ impl Metadata {
             }
             Metadata::MetadataRecord(m) => m.status,
             _ => Status::None,
+        }
+    }
+
+    pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("status".to_string(), serde_json::to_value(status).unwrap());
+                Ok(())
+            }
+            Metadata::MetadataRecord(m) => {
+                m.with_status(status);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.status = status;
+                *self = Metadata::MetadataRecord(m);
+                Ok(())
+            }
+
+            _ => {
+                Err(Error::general_error(
+                    "Cannot set status on unsupported legacy metadata".to_string(),
+                ))
+            }
         }
     }
     

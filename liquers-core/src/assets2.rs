@@ -1,8 +1,47 @@
+//! # Assets
+//! 
+//! Asset represents a unit of data that is available, is being produced (i.e. just being calculated)
+//! or can be produced later on demand.
+//! Asset provides access to the data, its metadata and binary representation and progress updates.
+//! Asset data are stored in an [AssetData] structure, which is accessed via [AssetRef].
+//! [AssetRef] is clonable and can be shared between multiple tasks.
+//! [AssetRef] is basically arc [tokio::sync::RwLock] on [AssetData].
+//! 
+//! ## Asset Communication
+//! AssetData communicates via two channels:
+//! - **service channel** (mpsc) that can trigger asset changes (monitor progress and cancelation)
+//! - **notification channel** (watch) that notifies about asset changes (status and progress updates, new data, errors)
+//! 
+//! Service channel should be considered internal. It communicates via [AssetServiceMessage].
+//! Service channel must be reliable and not drop messages. Context and JobQueue uses the service channel to send messages to the asset.
+//! Context typically uses it for sending log messages and progress updates. JobQueue uses it to notify about job status changes and cancelation.
+//! 
+//! Notification channel communicates notifications towards clients.
+//! Notification channel communicates via [AssetNotificationMessage].
+//! Since AssetData is maintaining a consistent authoritative state, it is not a problem if client will miss a notification.
+//! Client can always query the current state of the asset.
+//! 
+//! ## AssetData structure
+//! AssetData holds a [Recipe] data structure describing the task to construct the value.
+//! Initial value may also be provided to represent "apply" operation, e.g. where a query is applied to an existing value.
+//! The resulting data are hold in 3 optional fields:
+//! - metadata: [Metadata] - Always [crate::metadata::MetadataRecord] for new assets, but it can be legacy if binary data is available.
+//! - data: Arc<V> where V is the value type
+//! - binary: Arc<Vec<u8>> representing the serialized value
+//! 
+//! ## Asset lifecycle
+//! Asset goes through these stages:
+//! 1) **initial** - a state the asset is in after creation. Only the recipe is known, none of the data, binary or metadata is available.
+//! 2) **prepare** - check is binary data is available. In such a case value is deserialized.
+//! 3) **run** - start recipe execution and the loop processing the service messages.
+//! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
+//! 
+
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
 use scc;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::{
     context2::{EnvRef, Environment},
@@ -14,6 +53,29 @@ use crate::{
     state::State,
     value::DefaultValueSerializer,
 };
+
+/// Message for internal service communication (reliable, for control)
+#[derive(Debug, Clone)]
+pub enum AssetServiceMessage {
+    SetStatus(Status),
+    LogMessage(String),
+    Cancel,
+    UpdateProgress(f32),
+    JobSubmitted,
+    JobStarted,
+    JobFinished,
+}
+
+/// Message for notifications to clients (best-effort, for updates)
+#[derive(Debug, Clone)]
+pub enum AssetNotificationMessage {
+    Initial,
+    StatusChanged(Status),
+    ValueProduced,
+    ErrorOccurred(String),
+    ProgressUpdated(f32),
+    LogMessage(String),
+}
 
 /// Enhanced version of AssetMessage to support job queue operations
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -29,9 +91,12 @@ pub enum AssetMessage {
 pub struct AssetData<E: Environment> {
     pub recipe: Recipe,
     
-    // Add service channel for JobQueue -> Asset communication
-    service_tx: mpsc::Sender<AssetMessage>,
-    service_rx: Mutex<mpsc::Receiver<AssetMessage>>,
+    // Service channel (mpsc) for control messages
+    service_tx: mpsc::Sender<AssetServiceMessage>,
+    service_rx: Arc<Mutex<mpsc::Receiver<AssetServiceMessage>>>,
+    
+    // Notification channel (watch) for client notifications
+    notification_tx: watch::Sender<AssetNotificationMessage>,
     
     /// This is used to store the data in the asset if available.
     data: Option<Arc<E::Value>>,
@@ -40,8 +105,10 @@ pub struct AssetData<E: Environment> {
     /// If both data and binary is available, they will represent the same data and can be used interchangeably.
     binary: Option<Arc<Vec<u8>>>,
 
+    /// Metadata
     metadata: Option<Arc<Metadata>>,
 
+    /// Current status 
     status: Status,
 
     _marker: std::marker::PhantomData<E>,
@@ -52,10 +119,16 @@ impl<E: Environment> AssetData<E> {
         // Create service channel with buffer size 32
         let (service_tx, service_rx) = mpsc::channel(32);
         
+        // Create notification channel with initial status None
+        let (notification_tx, _notification_rx) = watch::channel(
+            AssetNotificationMessage::Initial
+        );
+        
         AssetData {
             recipe,
             service_tx,
-            service_rx: Mutex::new(service_rx),
+            service_rx: Arc::new(Mutex::new(service_rx)),
+            notification_tx,
             data: None,
             binary: None,
             metadata: None,
@@ -64,49 +137,59 @@ impl<E: Environment> AssetData<E> {
         }
     }
     
-    /// Get a clone of the service sender
-    pub fn service_sender(&self) -> mpsc::Sender<AssetMessage> {
+    /// Get a clone of the service sender for internal control
+    pub fn service_sender(&self) -> mpsc::Sender<AssetServiceMessage> {
         self.service_tx.clone()
+    }
+    
+    /// Subscribe to the notifications.
+    pub fn subscribe_to_notifications(&self) -> watch::Receiver<AssetNotificationMessage> {
+        self.notification_tx.subscribe()
     }
 
     /// Process messages from the service channel
-    pub async fn process_service_messages(&mut self) -> Result<(), Error> {
-        let mut rx = self.service_rx.lock().await;
-        
+    async fn process_service_messages(&mut self) -> Result<(), Error> {
+        let rx_ref = self.service_rx.clone();
+        let mut rx = rx_ref.lock().await;
+
         // Process all pending messages without blocking
-        while let Ok(msg) = rx.try_recv().map_err(|e| Error::general_error(e.to_string())) {
+        while let Ok(msg) = rx.try_recv() {
             match msg {
-                AssetMessage::StatusChanged(status) => {
+                AssetServiceMessage::SetStatus(status) => {
                     //self.set_status(status)?;
+                    // Send notification
+                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(status));
                 },
-                AssetMessage::JobSubmitted => {
-                    // Handle job submitted event
-                    // No additional logic needed here yet
-                },
-                AssetMessage::JobStarted => {
-                    // Handle job started event
-                    // No additional logic needed here yet
-                },
-                AssetMessage::JobFinished => {
-                    // Handle job finished event
-                    // No additional logic needed here yet
-                },
-                AssetMessage::ValueProduced => {
-                    // Handle value produced event
-                    // No additional logic needed here yet
-                },
-                AssetMessage::ErrorOccurred(error) => {
-                    // Handle error occurred event
+                AssetServiceMessage::LogMessage(message) => {
+                    // Forward log message to notification channel
+                    let _ = self.notification_tx.send(AssetNotificationMessage::LogMessage(message.clone()));
+                    // Update metadata with log message
                     if let Some(metadata) = &mut self.metadata {
                         if let Some(meta) = Arc::get_mut(metadata) {
-                            match meta {
-                                Metadata::MetadataRecord(record) => {
-                                    record.with_message(error);
-                                },
-                                _ => {},
+                            if let Metadata::MetadataRecord(record) = meta {
+                                record.with_message(message);
                             }
                         }
                     }
+                },
+                AssetServiceMessage::Cancel => {
+                    self.set_status(Status::Cancelled)?;
+                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+                },
+                AssetServiceMessage::UpdateProgress(progress) => {
+                    // Update progress and notify
+                    let _ = self.notification_tx.send(AssetNotificationMessage::ProgressUpdated(progress));
+                },
+                AssetServiceMessage::JobSubmitted => {
+                    self.set_status(Status::Submitted)?;
+                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                },
+                AssetServiceMessage::JobStarted => {
+                    self.set_status(Status::Processing)?;
+                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                },
+                AssetServiceMessage::JobFinished => {
+                    // Status should be set separately to Ready or Error
                 },
             }
         }
@@ -116,25 +199,37 @@ impl<E: Environment> AssetData<E> {
 
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         if status != self.status {
-            if let Some(metadata) = self.metadata.as_mut() {
-                return match Arc::get_mut(metadata) {
-                    Some(Metadata::LegacyMetadata(_)) => Err(Error::unexpected_error(
-                        "Legacy metadata status can't be changed".to_owned(),
-                    )),
-                    Some(Metadata::MetadataRecord(metadata_record)) => {
-                        self.status = status;
-                        metadata_record.with_status(status);
-                        //let _ = self.tx.send(AssetMessage::StatusChanged(status));
-                        Ok(())
-                    }
-                    None => Err(Error::unexpected_error(
-                        "Failed to get mutable reference to metadata".to_owned(),
-                    )),
-                };
+            if let Some(metadata) = &mut self.metadata {
+                if let Some(meta) = Arc::get_mut(metadata) {
+                    meta.set_status(status)?;
+                }
+            }
+            else{
+                return Err(Error::unexpected_error("Metadata not set in AssetData::set_status".to_owned()));
             }
         }
         Ok(())
     }
+
+    /// Poll the current state without any async operations.
+    /// Returns None if data or metadata is not available.
+    pub fn poll_state(&self) -> Option<State<E::Value>> {
+        if let (Some(data), Some(metadata)) = (&self.data, &self.metadata) {
+            Some(State {
+                data: data.clone(),
+                metadata: metadata.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Poll the current binary data and metadata without any async operations.
+    /// Returns None if binary or metadata is not available.
+    pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        self.binary.clone().zip(self.metadata.clone())
+    }
+
 }
 
 pub struct AssetRef<E: Environment> {
@@ -684,4 +779,26 @@ impl<E: Environment> crate::assets2::DefaultAssetStore<E> {
         Ok(asset)
     }
     */
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context2::SimpleEnvironment;
+    use crate::metadata::{Metadata, MetadataRecord, Status};
+    use crate::parse::parse_key;
+    use crate::recipes2::Recipe;
+    use crate::query::Key;
+    use crate::value::Value;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_asset_data_basics() {
+        let key = parse_key("test.txt").unwrap();
+        let asset_data = AssetData::<SimpleEnvironment<Value>>::new(key.into());
+        let state = asset_data.poll_state();
+        assert!(state.is_none());
+        let bin = asset_data.poll_binary();
+        assert!(bin.is_none());
+    }
 }
