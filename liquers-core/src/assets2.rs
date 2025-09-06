@@ -1,26 +1,26 @@
 //! # Assets
-//! 
+//!
 //! Asset represents a unit of data that is available, is being produced (i.e. just being calculated)
 //! or can be produced later on demand.
 //! Asset provides access to the data, its metadata and binary representation and progress updates.
 //! Asset data are stored in an [AssetData] structure, which is accessed via [AssetRef].
 //! [AssetRef] is clonable and can be shared between multiple tasks.
 //! [AssetRef] is basically arc [tokio::sync::RwLock] on [AssetData].
-//! 
+//!
 //! ## Asset Communication
 //! AssetData communicates via two channels:
 //! - **service channel** (mpsc) that can trigger asset changes (monitor progress and cancelation)
 //! - **notification channel** (watch) that notifies about asset changes (status and progress updates, new data, errors)
-//! 
+//!
 //! Service channel should be considered internal. It communicates via [AssetServiceMessage].
 //! Service channel must be reliable and not drop messages. Context and JobQueue uses the service channel to send messages to the asset.
 //! Context typically uses it for sending log messages and progress updates. JobQueue uses it to notify about job status changes and cancelation.
-//! 
+//!
 //! Notification channel communicates notifications towards clients.
 //! Notification channel communicates via [AssetNotificationMessage].
 //! Since AssetData is maintaining a consistent authoritative state, it is not a problem if client will miss a notification.
 //! Client can always query the current state of the asset.
-//! 
+//!
 //! ## AssetData structure
 //! AssetData holds a [Recipe] data structure describing the task to construct the value.
 //! Initial value may also be provided to represent "apply" operation, e.g. where a query is applied to an existing value.
@@ -28,14 +28,14 @@
 //! - metadata: [Metadata] - Always [crate::metadata::MetadataRecord] for new assets, but it can be legacy if binary data is available.
 //! - data: Arc<V> where V is the value type
 //! - binary: Arc<Vec<u8>> representing the serialized value
-//! 
+//!
 //! ## Asset lifecycle
 //! Asset goes through these stages:
 //! 1) **initial** - a state the asset is in after creation. Only the recipe is known, none of the data, binary or metadata is available.
 //! 2) **prepare** - check is binary data is available. In such a case value is deserialized.
 //! 3) **run** - start recipe execution and the loop processing the service messages.
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
-//! 
+//!
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -43,6 +43,9 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
+use crate::metadata;
+use crate::store::MemoryStore;
+use crate::value::ValueInterface;
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
@@ -70,6 +73,8 @@ pub enum AssetServiceMessage {
 #[derive(Debug, Clone)]
 pub enum AssetNotificationMessage {
     Initial,
+    Loading,
+    Loaded,
     StatusChanged(Status),
     ValueProduced,
     ErrorOccurred(String),
@@ -90,14 +95,17 @@ pub enum AssetMessage {
 
 pub struct AssetData<E: Environment> {
     pub recipe: Recipe,
-    
+
     // Service channel (mpsc) for control messages
     service_tx: mpsc::Sender<AssetServiceMessage>,
     service_rx: Arc<Mutex<mpsc::Receiver<AssetServiceMessage>>>,
-    
+
     // Notification channel (watch) for client notifications
     notification_tx: watch::Sender<AssetNotificationMessage>,
-    
+    notification_rx: watch::Receiver<AssetNotificationMessage>,
+
+    initial_value: Arc<E::Value>,
+
     /// This is used to store the data in the asset if available.
     data: Option<Arc<E::Value>>,
 
@@ -108,7 +116,7 @@ pub struct AssetData<E: Environment> {
     /// Metadata
     metadata: Option<Arc<Metadata>>,
 
-    /// Current status 
+    /// Current status
     status: Status,
 
     _marker: std::marker::PhantomData<E>,
@@ -118,17 +126,17 @@ impl<E: Environment> AssetData<E> {
     pub fn new(recipe: Recipe) -> Self {
         // Create service channel with buffer size 32
         let (service_tx, service_rx) = mpsc::channel(32);
-        
+
         // Create notification channel with initial status None
-        let (notification_tx, _notification_rx) = watch::channel(
-            AssetNotificationMessage::Initial
-        );
-        
+        let (notification_tx, notification_rx) = watch::channel(AssetNotificationMessage::Initial);
+
         AssetData {
             recipe,
             service_tx,
             service_rx: Arc::new(Mutex::new(service_rx)),
             notification_tx,
+            notification_rx,
+            initial_value: Arc::new(E::Value::none()),
             data: None,
             binary: None,
             metadata: None,
@@ -136,12 +144,76 @@ impl<E: Environment> AssetData<E> {
             status: Status::None,
         }
     }
-    
+
+    /// Check if the asset has an initial value
+    pub fn has_initial_value(&self) -> bool {
+        !self.initial_value.is_none()
+    }
+
+    /// Check if the asset is a resource (has a key in the recipe and no initial value)
+    pub fn is_resource(&self) -> bool {
+        if self.has_initial_value() {
+            return false;
+        }
+
+        if let Ok(Some(_key)) = self.recipe.key() {
+            return true;
+        }
+
+        false
+    }
+
+    /// Check if the asset is a pure query (no initial value and recipe is a pure query)
+    pub fn is_pure_query(&self) -> bool {
+        (!self.has_initial_value()) && self.recipe.is_pure_query()
+    }
+
+    /// This initializes the asset by loading binary data and metadata if the asset is a resource.
+    /// If the asset is available in the store, it is loaded and not queued.
+    /// Loading is considered a fast operation, which should be need to wait in the queue.
+    pub async fn initialize(&mut self, envref: EnvRef<E>) -> Result<(), Error> {
+        if !self.is_resource() {
+            return Ok(()); // If asset is not a resource, it can't be just loaded
+        }
+
+        let store = envref.get_async_store();
+        if let Ok(Some(key)) = self.recipe.key() {
+            self.notification_tx
+                .send(AssetNotificationMessage::Loading)
+                .map_err(|e| {
+                    Error::general_error(format!("Failed to send loading notification: {}", e))
+                        .with_query(&(&key).into())
+                })?;
+            if store.contains(&key).await? {
+                // Asset exists in the store, load binary and metadata
+                let (binary, metadata) = store.get(&key).await?;
+                self.binary = Some(Arc::new(binary));
+                self.metadata = Some(Arc::new(metadata));
+                let value = E::Value::deserialize_from_bytes(
+                    self.binary.as_ref().unwrap(),
+                    &self.metadata.as_ref().unwrap().type_identifier()?,
+                    &self.metadata.as_ref().unwrap().get_data_format(),
+                )?;
+                self.data = Some(Arc::new(value));
+                self.status = self.metadata.as_ref().unwrap().status();
+                self.notification_tx
+                    .send(AssetNotificationMessage::Loaded)
+                    .map_err(|e| {
+                        Error::general_error(format!("Failed to send loaded notification: {}", e))
+                            .with_query(&key.into())
+                    })?;
+
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
     /// Get a clone of the service sender for internal control
     pub fn service_sender(&self) -> mpsc::Sender<AssetServiceMessage> {
         self.service_tx.clone()
     }
-    
+
     /// Subscribe to the notifications.
     pub fn subscribe_to_notifications(&self) -> watch::Receiver<AssetNotificationMessage> {
         self.notification_tx.subscribe()
@@ -158,11 +230,15 @@ impl<E: Environment> AssetData<E> {
                 AssetServiceMessage::SetStatus(status) => {
                     //self.set_status(status)?;
                     // Send notification
-                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(status));
-                },
+                    let _ = self
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(status));
+                }
                 AssetServiceMessage::LogMessage(message) => {
                     // Forward log message to notification channel
-                    let _ = self.notification_tx.send(AssetNotificationMessage::LogMessage(message.clone()));
+                    let _ = self
+                        .notification_tx
+                        .send(AssetNotificationMessage::LogMessage(message.clone()));
                     // Update metadata with log message
                     if let Some(metadata) = &mut self.metadata {
                         if let Some(meta) = Arc::get_mut(metadata) {
@@ -171,41 +247,51 @@ impl<E: Environment> AssetData<E> {
                             }
                         }
                     }
-                },
+                }
                 AssetServiceMessage::Cancel => {
                     self.set_status(Status::Cancelled)?;
-                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
-                },
+                    let _ = self
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+                }
                 AssetServiceMessage::UpdateProgress(progress) => {
                     // Update progress and notify
-                    let _ = self.notification_tx.send(AssetNotificationMessage::ProgressUpdated(progress));
-                },
+                    let _ = self
+                        .notification_tx
+                        .send(AssetNotificationMessage::ProgressUpdated(progress));
+                }
                 AssetServiceMessage::JobSubmitted => {
                     self.set_status(Status::Submitted)?;
-                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Submitted));
-                },
+                    let _ = self
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                }
                 AssetServiceMessage::JobStarted => {
                     self.set_status(Status::Processing)?;
-                    let _ = self.notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Processing));
-                },
+                    let _ = self
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                }
                 AssetServiceMessage::JobFinished => {
                     // Status should be set separately to Ready or Error
-                },
+                }
             }
         }
-        
+
         Ok(())
     }
 
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         if status != self.status {
+            self.status = status;
             if let Some(metadata) = &mut self.metadata {
                 if let Some(meta) = Arc::get_mut(metadata) {
                     meta.set_status(status)?;
                 }
-            }
-            else{
-                return Err(Error::unexpected_error("Metadata not set in AssetData::set_status".to_owned()));
+            } else {
+                return Err(Error::unexpected_error(
+                    "Metadata not set in AssetData::set_status".to_owned(),
+                ));
             }
         }
         Ok(())
@@ -229,7 +315,6 @@ impl<E: Environment> AssetData<E> {
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         self.binary.clone().zip(self.metadata.clone())
     }
-
 }
 
 pub struct AssetRef<E: Environment> {
@@ -254,13 +339,13 @@ impl<E: Environment> AssetRef<E> {
             data: Arc::new(RwLock::new(AssetData::new(recipe))),
         }
     }
-/*
-/// Subscribe to asset events
-pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> {
-    let lock = self.data.read().await;
-    lock.tx.subscribe()
-}
-*/
+    /*
+    /// Subscribe to asset events
+    pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> {
+        let lock = self.data.read().await;
+        lock.tx.subscribe()
+    }
+    */
 
     /// Check if the asset is currently in the job queue
     pub async fn is_in_job_queue(&self) -> bool {
@@ -269,7 +354,6 @@ pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> 
             _ => false,
         }
     }
-
 
     /// Deserialize the binary data into the asset's data field.
     /// Returns true if the deserialization was successful.
@@ -354,16 +438,14 @@ pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> 
                     return Ok(state);
                 }
             }
-            Err(Error::unexpected_error(
-                "Failed to get state".to_owned(),
-            ))
+            Err(Error::unexpected_error("Failed to get state".to_owned()))
         }
     }
 }
 
 #[async_trait]
 pub trait AssetInterface<E: Environment>: Send + Sync {
-//    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
+    //    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
     async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error>;
 }
 
@@ -604,7 +686,7 @@ impl<E: Environment + 'static> JobQueue<E> {
         // Update status to Submitted
         {
             let mut lock = asset.data.write().await;
-            (*lock).set_status(Status::Submitted)?;// TODO: on error crash job 
+            (*lock).set_status(Status::Submitted)?; // TODO: on error crash job
 
             //let _ = lock.tx.send(AssetMessage::JobSubmitted);
         }
@@ -664,13 +746,13 @@ impl<E: Environment + 'static> JobQueue<E> {
                     // Set status to Processing
                     {
                         let mut lock = asset.data.write().await;
-                        lock.set_status(Status::Processing); // TODO: on error crash job 
-                        /*
-                        let _ = lock
-                        .tx
-                        .send(AssetMessage::StatusChanged(Status::Processing));
-                    let _ = lock.tx.send(AssetMessage::JobStarted);
-                    */
+                        lock.set_status(Status::Processing); // TODO: on error crash job
+                                                             /*
+                                                                 let _ = lock
+                                                                 .tx
+                                                                 .send(AssetMessage::StatusChanged(Status::Processing));
+                                                             let _ = lock.tx.send(AssetMessage::JobStarted);
+                                                             */
                     }
 
                     // Process job in a separate task
@@ -699,12 +781,11 @@ impl<E: Environment + 'static> JobQueue<E> {
                         // Update final status
                         {
                             let mut lock = asset_clone.data.write().await;
- 
-                                //let _ = lock.tx.send(AssetMessage::StatusChanged(status));
-                                //let _ = lock.tx.send(AssetMessage::JobFinished);
-                            }
+
+                            //let _ = lock.tx.send(AssetMessage::StatusChanged(status));
+                            //let _ = lock.tx.send(AssetMessage::JobFinished);
                         }
-                    );
+                    });
                 }
             }
 
@@ -722,8 +803,10 @@ impl<E: Environment + 'static> JobQueue<E> {
             for asset in jobs.iter() {
                 let lock = asset.data.read().await;
                 match lock.status {
-                    Status::Processing | Status::Submitted => {keep.push(asset.clone());}
-                    _ => {},
+                    Status::Processing | Status::Submitted => {
+                        keep.push(asset.clone());
+                    }
+                    _ => {}
                 }
             }
             let keep_len = keep.len();
@@ -733,7 +816,6 @@ impl<E: Environment + 'static> JobQueue<E> {
         initial_count - keep_len
     }
 }
-
 
 // Add methods to DefaultAssetStore to work with JobQueue
 impl<E: Environment> crate::assets2::DefaultAssetStore<E> {
@@ -746,7 +828,7 @@ impl<E: Environment> crate::assets2::DefaultAssetStore<E> {
         job_queue.submit(asset).await
     }
 
-    /* 
+    /*
     /// Get an asset and optionally submit it to the job queue if it's not already processed
     pub async fn get_asset_and_process(
         &self,
@@ -787,8 +869,9 @@ mod tests {
     use crate::context2::SimpleEnvironment;
     use crate::metadata::{Metadata, MetadataRecord, Status};
     use crate::parse::parse_key;
-    use crate::recipes2::Recipe;
     use crate::query::Key;
+    use crate::recipes2::Recipe;
+    use crate::store::AsyncStoreWrapper;
     use crate::value::Value;
     use std::sync::Arc;
 
@@ -800,5 +883,38 @@ mod tests {
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
         assert!(bin.is_none());
+    }
+    
+   #[tokio::test]
+    async fn test_asset_loading() {        
+        let key = parse_key("test.txt").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.get_async_store()
+            .set(
+                &key,
+                b"Hello, world!",
+                &Metadata::MetadataRecord(MetadataRecord::new().with_key(
+                    key.clone()).with_type_identifier("text".to_owned()).clone()
+                ))
+            .await
+            .unwrap();  
+
+        let envref = env.to_ref();
+
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(key.into());
+
+        let state = asset_data.poll_state();
+        assert!(state.is_none());
+        let bin = asset_data.poll_binary();
+        assert!(bin.is_none());
+        asset_data.initialize(envref).await.unwrap();
+        let state = asset_data.poll_state();
+        assert!(state.is_some());
+        let bin = asset_data.poll_binary();
+        assert!(bin.is_some());
+        assert_eq!(bin.unwrap().0.as_ref(), b"Hello, world!");
+        assert_eq!(state.unwrap().data.try_into_string().unwrap(), "Hello, world!");
+
     }
 }
