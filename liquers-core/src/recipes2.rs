@@ -9,7 +9,7 @@ use crate::{
     error::Error,
     parse::{parse_key, parse_query},
     plan::{Plan, PlanBuilder},
-    query::{Key, Query, ResourceName},
+    query::{Key, Query, ResourceName}, store,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -135,6 +135,29 @@ impl Recipe {
             }
         }
         Ok(plan)
+    }
+
+    /// Return current working directory for the recipe, if set.
+    /// CWD is used to resolve relative keys in the recipe query and links.
+    /// CWD is set automatically when loading recipes from a folder.
+    /// This may raise an error if cwd is not a valid key.
+    pub fn get_cwd(&self) -> Result<Option<Key>, Error> {
+        if let Some(cwd) = &self.cwd {
+            Ok(Some(parse_key(cwd)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the key to which the result of the recipe should be stored, if applicable.
+    pub fn store_to_key(&self) -> Result<Option<Key>, Error> {
+        let filename = self.filename()?;
+        let cwd = self.get_cwd()?;
+        if let (Some(filename), Some(cwd)) = (filename, cwd) {
+            Ok(Some(cwd.join(filename.name)))
+        } else {
+            Ok(None)
+        }
     }
 }
 
