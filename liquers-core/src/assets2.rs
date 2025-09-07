@@ -43,7 +43,8 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
-use crate::metadata;
+use crate::context2::Context;
+use crate::interpreter2::apply_plan;
 use crate::store::MemoryStore;
 use crate::value::ValueInterface;
 use crate::{
@@ -75,9 +76,9 @@ pub enum AssetNotificationMessage {
     Initial,
     Loading,
     Loaded,
-    StatusChanged(Status),
+    StatusChanged(Status), // TODO: remove argument?
     ValueProduced,
-    ErrorOccurred(String),
+    ErrorOccurred(Error),
     ProgressUpdated(f32),
     LogMessage(String),
 }
@@ -104,7 +105,7 @@ pub struct AssetData<E: Environment> {
     notification_tx: watch::Sender<AssetNotificationMessage>,
     notification_rx: watch::Receiver<AssetNotificationMessage>,
 
-    initial_value: Arc<E::Value>,
+    initial_state: State<E::Value>,
 
     /// This is used to store the data in the asset if available.
     data: Option<Arc<E::Value>>,
@@ -136,7 +137,7 @@ impl<E: Environment> AssetData<E> {
             service_rx: Arc::new(Mutex::new(service_rx)),
             notification_tx,
             notification_rx,
-            initial_value: Arc::new(E::Value::none()),
+            initial_state: State::new(),
             data: None,
             binary: None,
             metadata: None,
@@ -146,33 +147,33 @@ impl<E: Environment> AssetData<E> {
     }
 
     /// Check if the asset has an initial value
-    pub fn has_initial_value(&self) -> bool {
-        !self.initial_value.is_none()
+    pub fn has_initial_value(&self) -> Result<bool, Error> {
+        Ok((!self.initial_state.is_error()?) && (!self.initial_state.is_none()))
     }
 
     /// Check if the asset is a resource (has a key in the recipe and no initial value)
-    pub fn is_resource(&self) -> bool {
-        if self.has_initial_value() {
-            return false;
+    pub fn is_resource(&self) -> Result<bool, Error> {
+        if self.has_initial_value()? {
+            return Ok(false);
         }
 
         if let Ok(Some(_key)) = self.recipe.key() {
-            return true;
+            return Ok(true);
         }
 
-        false
+        Ok(false)
     }
 
     /// Check if the asset is a pure query (no initial value and recipe is a pure query)
-    pub fn is_pure_query(&self) -> bool {
-        (!self.has_initial_value()) && self.recipe.is_pure_query()
+    pub fn is_pure_query(&self) -> Result<bool, Error> {
+        Ok((!self.has_initial_value()?) && self.recipe.is_pure_query())
     }
 
     /// This initializes the asset by loading binary data and metadata if the asset is a resource.
     /// If the asset is available in the store, it is loaded and not queued.
     /// Loading is considered a fast operation, which should be need to wait in the queue.
     pub async fn initialize(&mut self, envref: EnvRef<E>) -> Result<(), Error> {
-        if !self.is_resource() {
+        if !self.is_resource()? {
             return Ok(()); // If asset is not a resource, it can't be just loaded
         }
 
@@ -207,6 +208,11 @@ impl<E: Environment> AssetData<E> {
             }
         }
         Ok(())
+    }
+
+    /// Get a reference to the asset data
+    pub fn to_ref(self) -> AssetRef<E> {
+        AssetRef::new(self)
     }
 
     /// Get a clone of the service sender for internal control
@@ -347,6 +353,49 @@ impl<E: Environment> AssetRef<E> {
     }
     */
 
+    async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
+        let lock = self.data.read().await;
+        (lock.initial_state.clone(), lock.recipe.clone())
+    }
+
+    pub async fn evaluate_recipe(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
+        let (input_state, recipe) = self.initial_state_and_recipe().await;
+        let plan = {
+            let cmr = envref.0.get_command_metadata_registry();
+            recipe.to_plan(cmr)?
+        };
+        let context = Context::new(envref.clone()).await; // TODO: reference to asset
+                                                          // TODO: Separate evaluation of dependencies
+        let res = apply_plan(plan, envref, context, input_state).await?;
+
+        Ok(res)
+    }
+
+    pub async fn evaluate_and_store(&self, envref: EnvRef<E>) {
+        let res = self.evaluate_recipe(envref).await;
+        match res {
+            Ok(state) => {
+                let mut lock = self.data.write().await;
+                lock.data = Some(state.data.clone());
+                lock.metadata = Some(state.metadata.clone());
+                lock.status = state.metadata.status();
+                let _ = lock
+                    .notification_tx
+                    .send(AssetNotificationMessage::ValueProduced);
+            }
+            Err(e) => {
+                let mut lock = self.data.write().await;
+                lock.data = None;
+                lock.metadata = Some(Arc::new(Metadata::from_error(e.clone())));
+                lock.status = Status::Error;
+                lock.binary = None;
+                let _ = lock
+                    .notification_tx
+                    .send(AssetNotificationMessage::ErrorOccurred(e.clone()));
+            }
+        }
+    }
+
     /// Check if the asset is currently in the job queue
     pub async fn is_in_job_queue(&self) -> bool {
         match self.data.read().await.status {
@@ -440,6 +489,21 @@ impl<E: Environment> AssetRef<E> {
             }
             Err(Error::unexpected_error("Failed to get state".to_owned()))
         }
+    }
+
+    pub async fn get_status(&self) -> Status {
+        let lock = self.data.read().await;
+        lock.status
+    }
+
+    pub async fn poll_state(&self) -> Option<State<E::Value>> {
+        let lock = self.data.read().await;
+        lock.poll_state()
+    }
+
+    pub async fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        let lock = self.data.read().await;
+        lock.poll_binary()
     }
 }
 
@@ -866,9 +930,10 @@ impl<E: Environment> crate::assets2::DefaultAssetStore<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_metadata::CommandKey;
     use crate::context2::SimpleEnvironment;
     use crate::metadata::{Metadata, MetadataRecord, Status};
-    use crate::parse::parse_key;
+    use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
     use crate::recipes2::Recipe;
     use crate::store::AsyncStoreWrapper;
@@ -884,9 +949,9 @@ mod tests {
         let bin = asset_data.poll_binary();
         assert!(bin.is_none());
     }
-    
-   #[tokio::test]
-    async fn test_asset_loading() {        
+
+    #[tokio::test]
+    async fn test_asset_loading() {
         let key = parse_key("test.txt").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
@@ -894,11 +959,15 @@ mod tests {
             .set(
                 &key,
                 b"Hello, world!",
-                &Metadata::MetadataRecord(MetadataRecord::new().with_key(
-                    key.clone()).with_type_identifier("text".to_owned()).clone()
-                ))
+                &Metadata::MetadataRecord(
+                    MetadataRecord::new()
+                        .with_key(key.clone())
+                        .with_type_identifier("text".to_owned())
+                        .clone(),
+                ),
+            )
             .await
-            .unwrap();  
+            .unwrap();
 
         let envref = env.to_ref();
 
@@ -914,7 +983,44 @@ mod tests {
         let bin = asset_data.poll_binary();
         assert!(bin.is_some());
         assert_eq!(bin.unwrap().0.as_ref(), b"Hello, world!");
-        assert_eq!(state.unwrap().data.try_into_string().unwrap(), "Hello, world!");
-
+        assert_eq!(
+            state.unwrap().data.try_into_string().unwrap(),
+            "Hello, world!"
+        );
     }
+
+    #[tokio::test]
+    async fn test_asset_evaluate_and_store() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+
+        let envref = env.to_ref();
+
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(query.into());
+
+        let state = asset_data.poll_state();
+        assert!(state.is_none());
+        let bin = asset_data.poll_binary();
+        assert!(bin.is_none());
+        asset_data.initialize(envref.clone()).await.unwrap();
+        let assetref = asset_data.to_ref();
+        let state = assetref.poll_state().await;
+        assert!(state.is_none());
+        let bin = assetref.poll_binary().await;
+        assert!(bin.is_none());
+        assetref.evaluate_and_store(envref.clone()).await;
+
+        let state = assetref.poll_state().await;
+        assert!(state.is_some());
+        assert_eq!(
+            state.unwrap().data.try_into_string().unwrap(),
+            "Hello, world!"
+        );
+    }
+
 }

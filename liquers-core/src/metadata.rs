@@ -392,6 +392,12 @@ impl MetadataRecord {
         }
     }
 
+    pub fn from_error(error: Error) -> MetadataRecord {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_error(error);
+        metadata
+    }
+
     /// Get most important features in form of an AssetInfo
     pub fn get_asset_info(&self) -> AssetInfo {
         AssetInfo {
@@ -596,6 +602,9 @@ impl Metadata {
         Metadata::MetadataRecord(MetadataRecord::new())
     }
 
+    pub fn from_error(error: Error) -> Metadata {
+        Metadata::MetadataRecord(MetadataRecord::from_error(error))
+    }
     /// Get most important features in form of an AssetInfo
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         match self {
