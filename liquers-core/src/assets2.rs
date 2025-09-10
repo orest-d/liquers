@@ -294,9 +294,8 @@ impl<E: Environment> AssetRef<E> {
     }
     */
 
-     /// Process messages from the service channel
+    /// Process messages from the service channel
     pub(crate) async fn process_service_messages(&self) -> Result<(), Error> {
-
         let (service_rx_ref, notification_tx) = {
             let lock = self.data.read().await;
             (lock.service_rx.clone(), lock.notification_tx.clone())
@@ -308,8 +307,7 @@ impl<E: Environment> AssetRef<E> {
             match msg {
                 AssetServiceMessage::SetStatus(status) => {
                     self.set_status(status).await?;
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::StatusChanged(status));
+                    let _ = notification_tx.send(AssetNotificationMessage::StatusChanged(status));
                 }
                 AssetServiceMessage::LogMessage(message) => {
                     // Forward log message to notification channel
@@ -319,30 +317,36 @@ impl<E: Environment> AssetRef<E> {
                     if let Some(metadata) = &mut lock.metadata {
                         if let Some(Metadata::MetadataRecord(meta)) = Arc::get_mut(metadata) {
                             meta.info(&message);
-                        }
-                        else{
-                            return Err(Error::unexpected_error("Metadata is not MetadataRecord in AssetServiceMessage::LogMessage".to_owned()));
+                        } else {
+                            return Err(Error::unexpected_error(
+                                "Metadata is not MetadataRecord in AssetServiceMessage::LogMessage"
+                                    .to_owned(),
+                            ));
                         }
                     }
                 }
                 AssetServiceMessage::Cancel => {
                     self.set_status(Status::Cancelled).await?;
-                    let _ = notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
                     return Ok(());
                 }
                 AssetServiceMessage::UpdateProgress(progress) => {
                     // Update progress and notify
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::ProgressUpdated(progress));
+                    let _ =
+                        notification_tx.send(AssetNotificationMessage::ProgressUpdated(progress));
                 }
                 AssetServiceMessage::JobSubmitted => {
                     self.set_status(Status::Submitted).await?;
-                    let _ = notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
                 }
                 AssetServiceMessage::JobStarted => {
                     self.set_status(Status::Processing).await?;
-                    let _ = notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Processing));
-                    let _ = notification_tx.send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Processing));
                 }
                 AssetServiceMessage::JobFinished => {
                     return Ok(());
@@ -352,17 +356,17 @@ impl<E: Environment> AssetRef<E> {
 
         Ok(())
     }
-   
+
     pub(crate) async fn run(&self, envref: EnvRef<E>) -> Result<(), Error> {
         if self.get_status().await.is_finished() {
             return Ok(()); // Already finished
         }
-        tokio::select!{
+        tokio::select! {
             res = self.process_service_messages() => res,
             res = self.evaluate_and_store(envref) => res
         }
     }
-   
+
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
         let lock = self.data.read().await;
         (lock.initial_state.clone(), lock.recipe.clone())
@@ -470,36 +474,58 @@ impl<E: Environment> AssetRef<E> {
         Ok(true)
     }
 
-    pub async fn get_state_if_available(&self) -> Result<Option<State<E::Value>>, Error> {
-        let lock = self.data.read().await;
-        if let (Some(data), Some(metadata)) = (&lock.data, &lock.metadata) {
-            return Ok(Some(State {
-                data: data.clone(),
-                metadata: metadata.clone(),
-            }));
-        }
-        // No deserialization, instead duplicate data would be created
-        Ok(None)
-    }
-
-    pub async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
-        if let Some(state) = self.get_state_if_available().await? {
+    pub async fn get_state_old(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
+        if let Some(state) = self.poll_state().await {
             Ok(state)
         } else {
             if self.try_load_binary_if_necessary(envref.clone()).await?
                 && self.deserialize_from_binary().await?
             {
-                if let Some(state) = self.get_state_if_available().await? {
+                if let Some(state) = self.poll_state().await {
                     // TODO: Dispose binary if too long
                     return Ok(state);
                 }
             }
             if self.try_create_from_recipe(envref.clone()).await? {
-                if let Some(state) = self.get_state_if_available().await? {
+                if let Some(state) = self.poll_state().await {
                     return Ok(state);
                 }
             }
             Err(Error::unexpected_error("Failed to get state".to_owned()))
+        }
+    }
+
+    pub async fn subscribe(&self) -> watch::Receiver<AssetNotificationMessage> {
+        let lock = self.data.read().await;
+        lock.notification_tx.subscribe()
+    }
+
+    pub async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
+        if let Some(state) = self.poll_state().await {
+            return Ok(state);
+        }
+
+        // Subscribe to notifications before starting evaluation
+        let mut rx = self.subscribe().await;
+
+        // Wait for either notifications or run completion
+
+        loop {
+            let notification = rx.borrow().clone();
+            match notification {
+                AssetNotificationMessage::ValueProduced => {
+                    if let Some(state) = self.poll_state().await {
+                        return Ok(state);
+                    }
+                }
+                AssetNotificationMessage::ErrorOccurred(e) => {
+                    return Err(e);
+                }
+                _ => {} // Ignore other notifications
+            }
+            rx.changed().await.map_err(|e| {
+                Error::general_error(format!("Failed to receive notification: {}", e))
+            })?;
         }
     }
 
@@ -1013,7 +1039,6 @@ mod tests {
             .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
             .expect("register_command failed");
 
-
         let envref = env.to_ref();
 
         let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(query.into());
@@ -1022,7 +1047,10 @@ mod tests {
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
         assert!(bin.is_none());
-        asset_data.try_quick_evaluation(envref.clone()).await.unwrap();
+        asset_data
+            .try_quick_evaluation(envref.clone())
+            .await
+            .unwrap();
         let assetref = asset_data.to_ref();
         let state = assetref.poll_state().await;
         assert!(state.is_none());
@@ -1047,7 +1075,6 @@ mod tests {
             .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
             .expect("register_command failed");
 
-
         let envref = env.to_ref();
 
         let asset_data = AssetData::<SimpleEnvironment<Value>>::new(query.into());
@@ -1062,5 +1089,4 @@ mod tests {
             "Hello, world!"
         );
     }
-
 }
