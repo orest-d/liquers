@@ -1,16 +1,7 @@
 use futures::FutureExt;
 
 use crate::{
-    assets2::AssetStore,
-    command_metadata::CommandKey,
-    commands2::{CommandArguments, CommandExecutor},
-    context2::{ActionContext, Context, EnvRef, Environment},
-    error::Error,
-    parse::{SimpleTemplate, SimpleTemplateElement},
-    plan::{Plan, PlanBuilder, Step},
-    query::{Key, TryToQuery},
-    state::State,
-    value::ValueInterface,
+    assets2::AssetStore, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, metadata::Status, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
 };
 pub fn make_plan<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
@@ -42,6 +33,9 @@ pub fn apply_plan<E: Environment>(
             let envref_copy = envref.clone();
             let output_state = async move { do_step(envref_copy, step, state, ctx).await }.await?;
             state = output_state.with_metadata(context.get_metadata().into());
+        }
+        if state.status().is_none() { // TODO: This is a hack, should be done via context and asset
+            state.set_status(Status::Ready)?; // TODO: status should be changed via the context and asset
         }
         Ok(state)
     }
@@ -109,7 +103,7 @@ pub fn do_step<E: Environment>(
                             .get_asset_store()
                             .get_asset(&arg_query)
                             .await?
-                            .get_state(envref.clone())
+                            .get_state()
                             .await?;
                         arguments.set_value(i, arg_value.data.clone());
                     }
@@ -172,7 +166,7 @@ pub fn do_step<E: Environment>(
             let envref1 = envref.clone();
             let asset_store = envref1.get_asset_store();
             let asset = asset_store.get(&key).await?;
-            let asset_state = asset.get_state(envref.clone()).await?;
+            let asset_state = asset.get_state().await?;
             Ok(asset_state)
         }
         .boxed(),

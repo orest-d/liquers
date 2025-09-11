@@ -37,6 +37,15 @@ impl<V: ValueInterface> State<V> {
         }
     }
 
+    /// Sets the status in metadata.
+    /// Avoid this method, since it creates a copy of the metadata with a changed status.
+    pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
+        let mut metadata = (*self.metadata).clone();
+        metadata.set_status(status)?;
+        self.metadata = Arc::new(metadata);
+        Ok(())
+    }
+
     /// Creates a new State with the given error and default metadata.
     pub fn from_error(error: Error) -> Self {
         let mut metadata = Metadata::new();
@@ -83,6 +92,13 @@ impl<V: ValueInterface> State<V> {
             self.data.default_extension().to_string()
         }
     }
+
+    /// Get the data format
+    /// Wrapper for metadata.get_data_format()
+    pub fn get_data_format(&self) -> String {
+        (*self.metadata).get_data_format()
+    }
+
     /// Wrapper for metadata.error_result()
     pub fn error_result(&self) -> Result<(), Error> {
         self.metadata.error_result()
@@ -111,7 +127,13 @@ impl<V: ValueInterface> State<V> {
     /// Get asset info from metadata.
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         self.metadata.get_asset_info()
-    }   
+    }
+
+    /// Serialize data to bytes with the given data format.
+    pub fn as_bytes_with_data_format(&self, data_format: &str) -> Result<Vec<u8>, Error> {
+        self.data.as_bytes(data_format)
+    }
+
 
 }
 

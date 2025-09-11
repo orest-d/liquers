@@ -353,7 +353,6 @@ impl<E: Environment> AssetRef<E> {
                 }
             }
         }
-
         Ok(())
     }
 
@@ -438,6 +437,23 @@ impl<E: Environment> AssetRef<E> {
         Ok(true)
     }
 
+    /// Serialize the asset's data into binary form
+    /// Data format from the metadata is used
+    /// This always serializes the asset, even when binary is available
+    /// If data is not available, None is returned
+    async fn serialize_to_binary(&self) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
+        if let Some(data) = self.poll_state().await {
+            let binary = data.as_bytes()?;
+            let mut lock = self.data.write().await;
+            let arc_binary = Arc::new(binary);
+            lock.binary = Some(arc_binary.clone());
+
+            Ok(Some((arc_binary, data.metadata.clone())))
+        } else {
+            Ok(None)
+        }
+    }
+ 
     /// Load the binary data from store if not already loaded.
     /// Only works for assets with recipe being a key without realm.
     /// Returns true if the binary data was present or loaded.
@@ -500,7 +516,7 @@ impl<E: Environment> AssetRef<E> {
         lock.notification_tx.subscribe()
     }
 
-    pub async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
+    pub async fn get_state(&self) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.poll_state().await {
             return Ok(state);
         }
@@ -514,20 +530,45 @@ impl<E: Environment> AssetRef<E> {
             let notification = rx.borrow().clone();
             match notification {
                 AssetNotificationMessage::ValueProduced => {
+                                if let Some(state) = self.poll_state().await {
+                                    return Ok(state);
+                                }
+                            }
+                AssetNotificationMessage::ErrorOccurred(e) => {
+                                return Err(e);
+                            }
+                AssetNotificationMessage::Initial => { },
+                AssetNotificationMessage::Loading => { },
+                AssetNotificationMessage::Loaded => {
                     if let Some(state) = self.poll_state().await {
                         return Ok(state);
                     }
-                }
-                AssetNotificationMessage::ErrorOccurred(e) => {
-                    return Err(e);
-                }
-                _ => {} // Ignore other notifications
+                },
+                AssetNotificationMessage::StatusChanged(_) => { },
+                AssetNotificationMessage::ProgressUpdated(_) => { },
+                AssetNotificationMessage::LogMessage => { },
             }
             rx.changed().await.map_err(|e| {
                 Error::general_error(format!("Failed to receive notification: {}", e))
             })?;
         }
     }
+
+    pub async fn get_binary(&self) -> Result<(Arc<Vec<u8>>, Arc<Metadata>), Error> {
+        if let Some(b) = self.poll_binary().await {
+            return Ok(b);
+        }
+        self.get_state().await?;
+        if let Some(b) = self.poll_binary().await {
+            Ok(b)
+        } else {
+            if let Some(b) = self.serialize_to_binary().await?{
+                Ok(b)
+            } else {
+                Err(Error::unexpected_error("Failed to get binary".to_owned()))
+            }
+        }
+    }   
 
     pub async fn get_status(&self) -> Status {
         let lock = self.data.read().await;
@@ -553,7 +594,7 @@ impl<E: Environment> AssetRef<E> {
 #[async_trait]
 pub trait AssetInterface<E: Environment>: Send + Sync {
     //    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
-    async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error>;
+    async fn get_state(&self) -> Result<State<E::Value>, Error>;
 }
 
 #[async_trait]
@@ -564,8 +605,8 @@ impl<E: Environment> AssetInterface<E> for AssetRef<E> {
         lock.tx.subscribe()
     }
     */
-    async fn get_state(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
-        self.get_state(envref).await
+    async fn get_state(&self) -> Result<State<E::Value>, Error> {
+        self.get_state().await
     }
 }
 
@@ -864,7 +905,7 @@ impl<E: Environment + 'static> JobQueue<E> {
 
                     // Process job in a separate task
                     tokio::spawn(async move {
-                        let result = asset_clone.get_state(envref_clone).await;
+                        let result = asset_clone.get_state().await;
 
                         // Update status based on result
                         let (status, error_msg) = match &result {
@@ -1089,4 +1130,40 @@ mod tests {
             "Hello, world!"
         );
     }
+
+    #[tokio::test]
+    async fn test_asset_get_state() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        let asset_data = AssetData::<SimpleEnvironment<Value>>::new(query.into());
+
+        let assetref = asset_data.to_ref();
+        assert!(assetref.poll_state().await.is_none());
+
+        let handle =tokio::spawn({
+            let assetref = assetref.clone();
+            async move {
+                assetref.get_state().await
+            }
+        });
+
+        assetref.run(envref.clone()).await.unwrap();
+
+        let result = handle.await.unwrap().unwrap().try_into_string().unwrap();
+        assert_eq!(result, "Hello, world!");
+        assert_eq!(assetref.get_status().await, Status::Ready);
+        assert!(assetref.poll_state().await.is_some());
+
+        let (b,_) = assetref.get_binary().await.unwrap();
+        assert_eq!(b.as_ref(), b"Hello, world!");
+    }
+
+
 }

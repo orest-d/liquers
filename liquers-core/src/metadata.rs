@@ -76,6 +76,10 @@ impl Status {
             Status::Cancelled => true,
         }
     }
+    
+    pub(crate) fn is_none(&self) -> bool {
+        *self == Status::None
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

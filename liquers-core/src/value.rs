@@ -698,6 +698,7 @@ impl DefaultValueSerializer for Value {
             },
             "bytes" | "b" | "bin" => match self {
                 Value::Bytes(x) => Ok(x.clone()),
+                Value::Text(x) => Ok(x.as_bytes().to_vec()),
                 _ => Err(Error::new(
                     ErrorType::SerializationError,
                     format!("Serialization to bytes not supported by {}", self.type_name()),
