@@ -45,12 +45,9 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
 use crate::interpreter2::apply_plan;
-use crate::store::MemoryStore;
-use crate::value::ValueInterface;
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
-    interpreter2::evaluate_plan,
     metadata::{Metadata, Status},
     query::{Key, Query},
     recipes2::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
@@ -99,11 +96,11 @@ pub struct AssetData<E: Environment> {
 
     // Service channel (mpsc) for control messages
     service_tx: mpsc::Sender<AssetServiceMessage>,
-    service_rx: Arc<Mutex<mpsc::Receiver<AssetServiceMessage>>>,
+    _service_rx: Arc<Mutex<mpsc::Receiver<AssetServiceMessage>>>,
 
     // Notification channel (watch) for client notifications
     notification_tx: watch::Sender<AssetNotificationMessage>,
-    notification_rx: watch::Receiver<AssetNotificationMessage>,
+    _notification_rx: watch::Receiver<AssetNotificationMessage>,
 
     initial_state: State<E::Value>,
 
@@ -134,9 +131,9 @@ impl<E: Environment> AssetData<E> {
         AssetData {
             recipe,
             service_tx,
-            service_rx: Arc::new(Mutex::new(service_rx)),
+            _service_rx: Arc::new(Mutex::new(service_rx)),
             notification_tx,
-            notification_rx,
+            _notification_rx: notification_rx,
             initial_state: State::new(),
             data: None,
             binary: None,
@@ -286,19 +283,12 @@ impl<E: Environment> AssetRef<E> {
             data: Arc::new(RwLock::new(AssetData::new(recipe))),
         }
     }
-    /*
-    /// Subscribe to asset events
-    pub async fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AssetMessage> {
-        let lock = self.data.read().await;
-        lock.tx.subscribe()
-    }
-    */
 
     /// Process messages from the service channel
     pub(crate) async fn process_service_messages(&self) -> Result<(), Error> {
         let (service_rx_ref, notification_tx) = {
             let lock = self.data.read().await;
-            (lock.service_rx.clone(), lock.notification_tx.clone())
+            (lock._service_rx.clone(), lock.notification_tx.clone())
         };
 
         let mut rx = service_rx_ref.lock().await;
@@ -356,8 +346,9 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// Run the asset evaluation loop.
     pub(crate) async fn run(&self, envref: EnvRef<E>) -> Result<(), Error> {
-        if self.get_status().await.is_finished() {
+        if self.status().await.is_finished() {
             return Ok(()); // Already finished
         }
         tokio::select! {
@@ -454,69 +445,17 @@ impl<E: Environment> AssetRef<E> {
         }
     }
  
-    /// Load the binary data from store if not already loaded.
-    /// Only works for assets with recipe being a key without realm.
-    /// Returns true if the binary data was present or loaded.
-    async fn try_load_binary_if_necessary(&self, envref: EnvRef<E>) -> Result<bool, Error> {
-        let mut lock = self.data.write().await;
-        if lock.binary.is_some() {
-            return Ok(true);
-        }
-        if let Some(key) = lock.recipe.key()? {
-            let store = envref.get_async_store();
-            let (data, metadata) = store.get(&key).await?;
-            lock.binary = Some(Arc::new(data));
-            lock.metadata = Some(Arc::new(metadata));
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    /// Try to create data from a recipe
-    async fn try_create_from_recipe(&self, envref: EnvRef<E>) -> Result<bool, Error> {
-        let mut lock = self.data.write().await;
-
-        let envref1 = envref.clone();
-        let plan = {
-            let cmr = envref1.0.get_command_metadata_registry();
-            lock.recipe.to_plan(cmr)
-        }?;
-
-        let res = evaluate_plan(plan, envref).await?;
-        lock.data = Some(res.data.clone());
-        lock.metadata = Some(res.metadata.clone());
-        lock.binary = None;
-        Ok(true)
-    }
-
-    pub async fn get_state_old(&self, envref: EnvRef<E>) -> Result<State<E::Value>, Error> {
-        if let Some(state) = self.poll_state().await {
-            Ok(state)
-        } else {
-            if self.try_load_binary_if_necessary(envref.clone()).await?
-                && self.deserialize_from_binary().await?
-            {
-                if let Some(state) = self.poll_state().await {
-                    // TODO: Dispose binary if too long
-                    return Ok(state);
-                }
-            }
-            if self.try_create_from_recipe(envref.clone()).await? {
-                if let Some(state) = self.poll_state().await {
-                    return Ok(state);
-                }
-            }
-            Err(Error::unexpected_error("Failed to get state".to_owned()))
-        }
-    }
-
+    /// Subscribe to asset notifications.
     pub async fn subscribe(&self) -> watch::Receiver<AssetNotificationMessage> {
         let lock = self.data.read().await;
         lock.notification_tx.subscribe()
     }
 
-    pub async fn get_state(&self) -> Result<State<E::Value>, Error> {
+    /// Get the final state of the asset.
+    /// This waits for the asset to be evaluated if necessary.
+    /// It requires to call the [Self::run] method, which is done by the [AssetManager].
+    /// If the asset is not running, the get may hang indefinitely.
+    pub async fn get(&self) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.poll_state().await {
             return Ok(state);
         }
@@ -558,7 +497,7 @@ impl<E: Environment> AssetRef<E> {
         if let Some(b) = self.poll_binary().await {
             return Ok(b);
         }
-        self.get_state().await?;
+        self.get().await?;
         if let Some(b) = self.poll_binary().await {
             Ok(b)
         } else {
@@ -570,7 +509,7 @@ impl<E: Environment> AssetRef<E> {
         }
     }   
 
-    pub async fn get_status(&self) -> Status {
+    pub async fn status(&self) -> Status {
         let lock = self.data.read().await;
         lock.status
     }
@@ -594,7 +533,7 @@ impl<E: Environment> AssetRef<E> {
 #[async_trait]
 pub trait AssetInterface<E: Environment>: Send + Sync {
     //    async fn message_receiver(&self) -> broadcast::Receiver<AssetMessage>;
-    async fn get_state(&self) -> Result<State<E::Value>, Error>;
+    async fn get(&self) -> Result<State<E::Value>, Error>;
 }
 
 #[async_trait]
@@ -605,8 +544,8 @@ impl<E: Environment> AssetInterface<E> for AssetRef<E> {
         lock.tx.subscribe()
     }
     */
-    async fn get_state(&self) -> Result<State<E::Value>, Error> {
-        self.get_state().await
+    async fn get(&self) -> Result<State<E::Value>, Error> {
+        self.get().await
     }
 }
 
@@ -905,7 +844,7 @@ impl<E: Environment + 'static> JobQueue<E> {
 
                     // Process job in a separate task
                     tokio::spawn(async move {
-                        let result = asset_clone.get_state().await;
+                        let result = asset_clone.get().await;
 
                         // Update status based on result
                         let (status, error_msg) = match &result {
@@ -1019,8 +958,8 @@ mod tests {
     use crate::metadata::{Metadata, MetadataRecord};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
-    use crate::store::AsyncStoreWrapper;
-    use crate::value::Value;
+    use crate::store::{AsyncStoreWrapper, MemoryStore};
+    use crate::value::{Value, ValueInterface};
 
     #[tokio::test]
     async fn test_asset_data_basics() {
@@ -1150,7 +1089,7 @@ mod tests {
         let handle =tokio::spawn({
             let assetref = assetref.clone();
             async move {
-                assetref.get_state().await
+                assetref.get().await
             }
         });
 
@@ -1158,7 +1097,7 @@ mod tests {
 
         let result = handle.await.unwrap().unwrap().try_into_string().unwrap();
         assert_eq!(result, "Hello, world!");
-        assert_eq!(assetref.get_status().await, Status::Ready);
+        assert_eq!(assetref.status().await, Status::Ready);
         assert!(assetref.poll_state().await.is_some());
 
         let (b,_) = assetref.get_binary().await.unwrap();

@@ -103,7 +103,7 @@ pub fn do_step<E: Environment>(
                             .get_asset_store()
                             .get_asset(&arg_query)
                             .await?
-                            .get_state()
+                            .get()
                             .await?;
                         arguments.set_value(i, arg_value.data.clone());
                     }
@@ -166,7 +166,7 @@ pub fn do_step<E: Environment>(
             let envref1 = envref.clone();
             let asset_store = envref1.get_asset_store();
             let asset = asset_store.get(&key).await?;
-            let asset_state = asset.get_state().await?;
+            let asset_state = asset.get().await?;
             Ok(asset_state)
         }
         .boxed(),
