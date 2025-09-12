@@ -732,10 +732,16 @@ impl Store for FileStore {
 
     fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path(key);
+        let mut tmp_metadata = metadata.clone();
+        tmp_metadata.set_status(metadata::Status::Storing)?;
+        let tmp_metadata = self.finalize_metadata(tmp_metadata, key, data, true);
+        self.set_metadata(key, &tmp_metadata)?;
+
         let mut file =
             File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         file.write_all(data)
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        let tmp_metadata = self.finalize_metadata(metadata.clone(), key, data, true);
         self.set_metadata(key, metadata)?;
         Ok(())
     }

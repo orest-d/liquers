@@ -6,6 +6,7 @@ use opendal::{BlockingOperator, Operator, Buffer};
 use bytes::Buf;
 
 use async_trait::async_trait;
+use liquers_core::metadata::Status;
 
 pub struct OpenDALStore {
     op: BlockingOperator,
@@ -317,10 +318,15 @@ impl AsyncStore for AsyncOpenDALStore{
     /// Store data and metadata.
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         //TODO: create_dir
+        let mut tmp_metadata = metadata.clone();
+        tmp_metadata.set_status(Status::Storing)?;
+        let tmp_metadata = self.finalize_metadata(tmp_metadata, key, data, true);
+        self.set_metadata(key, &tmp_metadata).await?;
         let path = self.key_to_path(key);
         let buffer = Buffer::from_iter(data.iter().copied());
         self.map_write_error(key, self.op.write(&path, buffer).await)?;
-        self.set_metadata(key, metadata).await?;
+        let tmp_metadata = self.finalize_metadata(metadata.clone(), key, data, true);
+        self.set_metadata(key, &tmp_metadata).await?;
         Ok(())
     }
 
