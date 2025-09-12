@@ -8,17 +8,31 @@ use crate::icons::DEFAULT_ICON;
 use crate::parse;
 use crate::query::{Key, Position, Query};
 
+/// Status of the asset
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum Status {
+    /// Status does not exist or is not available. May be used as an initial value.
     None,
+    /// Asset has been submitted for processing.
     Submitted,
+    /// Asset is currently being processed.
     Processing,
+    /// Asset published partial results.
     Partial,
+    /// Asset finished with an error.
     Error,
+    /// Asset is not ready, but it has a recipe that can be used to create the actual asset.
     Recipe,
+    /// Asset is being stored. It is not yet ready to be used.
+    /// This is automatically maintained by the store when the asset is being stored.
+    Storing,
+    /// Asset is fully calculated and ready to be used.
     Ready,
+    /// Asset is no longer valid and should not be used.
     Expired,
+    /// Asset processing was cancelled.
     Cancelled,
+    /// Asset is the source of the data. It is ready, and has neither dependencies nor a recipe.
     Source,
 }
 
@@ -44,6 +58,7 @@ impl Status {
             Status::Expired => true,
             Status::Source => true,
             Status::Cancelled => false,
+            Status::Storing => false,
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -58,6 +73,7 @@ impl Status {
             Status::Expired => false,
             Status::Source => false,
             Status::Cancelled => false,
+            Status::Storing => true,
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -74,6 +90,7 @@ impl Status {
             Status::Expired => true,
             Status::Source => true,
             Status::Cancelled => true,
+            Status::Storing => false,
         }
     }
     
