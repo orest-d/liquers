@@ -1,7 +1,17 @@
 use futures::FutureExt;
 
 use crate::{
-    assets2::AssetStore, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{ActionContext, Context, EnvRef, Environment}, error::Error, metadata::Status, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, state::State, value::ValueInterface
+    assets2::{AssetRef, AssetStore},
+    command_metadata::CommandKey,
+    commands2::{CommandArguments, CommandExecutor},
+    context2::{ActionContext, Context, EnvRef, Environment},
+    error::Error,
+    metadata::Status,
+    parse::{SimpleTemplate, SimpleTemplateElement},
+    plan::{Plan, PlanBuilder, Step},
+    query::{Key, Query, TryToQuery},
+    state::State,
+    value::ValueInterface,
 };
 pub fn make_plan<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
@@ -34,7 +44,8 @@ pub fn apply_plan<E: Environment>(
             let output_state = async move { do_step(envref_copy, step, state, ctx).await }.await?;
             state = output_state.with_metadata(context.get_metadata().into());
         }
-        if state.status().is_none() { // TODO: This is a hack, should be done via context and asset
+        if state.status().is_none() {
+            // TODO: This is a hack, should be done via context and asset
             state.set_status(Status::Ready)?; // TODO: status should be changed via the context and asset
         }
         Ok(state)
@@ -78,7 +89,8 @@ pub fn do_step<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                let context = Context::new(envref.clone()).await;
+                let context =
+                    Context::new(envref.clone(), AssetRef::new_from_recipe((&query).into())).await; // TODO: Fix assetref
                 let plan = make_plan(envref.clone(), query)?;
                 let input_state = State::<<E as Environment>::Value>::new();
                 apply_plan(plan, envref.clone(), context, input_state).await
@@ -178,12 +190,16 @@ pub fn do_step<E: Environment>(
 
 pub fn evaluate_plan<E: Environment>(
     plan: Plan,
-    envref: EnvRef<E>
+    envref: EnvRef<E>,
+    assetref: AssetRef<E>
 ) -> std::pin::Pin<
     Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
 > {
     async move {
-        let context = Context::new(envref.clone()).await;
+        let context = Context::new(
+            envref.clone(), assetref
+        )
+        .await;
         apply_plan(
             plan,
             envref.clone(),
@@ -202,13 +218,15 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
 ) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send>> {
     let rquery = query.try_to_query();
     async move {
-        let plan = make_plan(envref.clone(), rquery?)?;
-        let context = Context::new(envref.clone()).await;
+        let query = rquery?;
+        let plan = make_plan(envref.clone(), query.clone())?;
+        let assetref = AssetRef::new_from_recipe((&query).into());
+        let context = Context::new(envref.clone(), assetref).await;
         context.set_cwd_key(cwd_key);
         apply_plan(
             plan,
             envref.clone(),
-            Context::new(envref.clone()).await,
+            context,
             State::<<E as Environment>::Value>::new(),
         )
         .await
@@ -274,7 +292,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_hello_world() -> Result<(), Box<dyn std::error::Error>>  {
+    async fn test_hello_world() -> Result<(), Box<dyn std::error::Error>> {
         type CommandValue = Value;
         type CommandContext = Context<SimpleEnvironment<CommandValue>>;
         type CommandPayload = EnvRef<SimpleEnvironment<CommandValue>>;
@@ -290,7 +308,8 @@ mod tests {
         }
         let mut cr = &mut env.command_registry;
         register_command_v2!(cr, fn world(state) -> result).expect("register_command failed");
-        register_command_v2!(cr, fn greet(state, greet: String = "Hello") -> result).expect("register_command failed");
+        register_command_v2!(cr, fn greet(state, greet: String = "Hello") -> result)
+            .expect("register_command failed");
 
         let envref = env.to_ref();
 
@@ -300,5 +319,4 @@ mod tests {
         assert_eq!(value, "Hello, world!");
         Ok(())
     }
-
 }

@@ -368,7 +368,7 @@ impl<E: Environment> AssetRef<E> {
             let cmr = envref.0.get_command_metadata_registry();
             recipe.to_plan(cmr)?
         };
-        let context = Context::new(envref.clone()).await; // TODO: reference to asset
+        let context = Context::new(envref.clone(), self.clone()).await; // TODO: reference to asset
                                                           // TODO: Separate evaluation of dependencies
         let res = apply_plan(plan, envref, context, input_state).await?;
 

@@ -263,7 +263,7 @@ impl<E: Environment> DefaultRecipeProvider<E> {
                         .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))
                 },
             )?;
-        recipes.set_cwd(key.encode());
+        recipes.set_cwd(key.encode()).map_err(|e| e.with_key(key))?;
         Ok(recipes)
     }
 }
@@ -357,12 +357,16 @@ impl RecipeList {
     }
 
     /// Set the current working directory for all the recipes in the list that do not have the CWD set.
-    pub fn set_cwd(&mut self, cwd: String) {
+    pub fn set_cwd(&mut self, cwd: String) -> Result<(), Error> {
         for recipe in &mut self.recipes {
             if recipe.cwd.is_none() {
                 recipe.cwd = Some(cwd.clone());
             }
+            else{
+                return Err(Error::not_supported("CWD can't be explicitly specified in a recipe".to_owned()))
+            }
         }
+        Ok(())
     }
 }
 
