@@ -590,33 +590,12 @@ impl<E: Environment> AssetRef<E> {
     }
 }
 
-#[async_trait]
-pub trait AssetInterface<E: Environment>: Send + Sync {
-    async fn get(&self) -> Result<State<E::Value>, Error>;
-}
-
-#[async_trait]
-impl<E: Environment> AssetInterface<E> for AssetRef<E> {
-    async fn get(&self) -> Result<State<E::Value>, Error> {
-        self.get().await
-    }
-}
 
 #[async_trait]
 pub trait AssetManager<E: Environment>: Send + Sync {
-    type Asset: AssetInterface<E>;
-    async fn get_asset_if_exists(&self, query: &Query) -> Result<Self::Asset, Error>;
-    async fn get_asset(&self, query: Query) -> Result<Self::Asset, Error>;
-    async fn assets_list(&self) -> Result<Vec<Query>, Error>;
-    async fn contains_asset(&self, query: &Query) -> Result<bool, Error>;
-}
-
-#[async_trait]
-pub trait AssetStore<E: Environment>: Send + Sync {
-    type Asset: AssetInterface<E>;
-    async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error>;
-    async fn get(&self, key: &Key) -> Result<Self::Asset, Error>;
-    async fn create(&self, key: &Key) -> Result<Self::Asset, Error>;
+    async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
+    async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
+    async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
     /// Returns true if store contains the key.
     async fn contains(&self, key: &Key) -> Result<bool, Error>;
@@ -641,25 +620,25 @@ pub trait AssetStore<E: Environment>: Send + Sync {
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error>;
 
     /// Make a directory
-    async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error>;
+    async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error>;
 }
 
-pub struct DefaultAssetStore<E: Environment> {
+pub struct DefaultAssetManager<E: Environment> {
     envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
 }
 
-impl<E: Environment> Default for DefaultAssetStore<E> {
+impl<E: Environment> Default for DefaultAssetManager<E> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<E: Environment> DefaultAssetStore<E> {
+impl<E: Environment> DefaultAssetManager<E> {
     pub fn new() -> Self {
-        DefaultAssetStore {
+        DefaultAssetManager {
             envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
             query_assets: scc::HashMap::new(),
@@ -694,10 +673,8 @@ impl<E: Environment> DefaultAssetStore<E> {
 }
 
 #[async_trait]
-impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
-    type Asset = AssetRef<E>;
-
-    async fn get_asset(&self, query: &Query) -> Result<Self::Asset, Error> {
+impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
+    async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         if let Some(key) = query.key() {
             self.get(&key).await
         } else {
@@ -710,7 +687,7 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
         }
     }
 
-    async fn get(&self, key: &Key) -> Result<Self::Asset, Error> {
+    async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let entry = self
             .assets
             .entry_async(key.clone())
@@ -722,7 +699,7 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
         Ok(asset_ref)
     }
 
-    async fn create(&self, key: &Key) -> Result<Self::Asset, Error> {
+    async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         self.get(key).await
     }
 
@@ -798,7 +775,7 @@ impl<E: Environment> AssetStore<E> for DefaultAssetStore<E> {
         Ok(keys.into_iter().collect())
     }
 
-    async fn makedir(&self, key: &Key) -> Result<Self::Asset, Error> {
+    async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let store = self.get_envref().get_async_store();
         let _sink = store.makedir(key).await?;
         let asset = self.get(key).await?;
@@ -958,7 +935,7 @@ impl<E: Environment + 'static> JobQueue<E> {
 }
 
 // Add methods to DefaultAssetStore to work with JobQueue
-impl<E: Environment> crate::assets2::DefaultAssetStore<E> {
+impl<E: Environment> crate::assets2::DefaultAssetManager<E> {
     /// Submit an asset to the job queue
     pub async fn submit_to_job_queue(
         &self,

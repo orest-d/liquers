@@ -13,7 +13,7 @@ use core::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    assets2::AssetRef, assets2::DefaultAssetStore, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, metadata::MetadataRecord, query::Key, store::{NoStore, Store}, value::ValueInterface
+    assets2::AssetRef, assets2::DefaultAssetManager, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, metadata::MetadataRecord, query::Key, store::{NoStore, Store}, value::ValueInterface
 };
 
 pub trait Environment: Sized + Sync + Send + 'static {
@@ -25,9 +25,9 @@ pub trait Environment: Sized + Sync + Send + 'static {
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
 
-    fn get_asset_store(
+    fn get_asset_manager(
         &self,
-    ) -> Arc<Box<DefaultAssetStore<Self>>>;
+    ) -> Arc<Box<DefaultAssetManager<Self>>>;
 }
 
 // TODO: Define Session and User; Session connects multiple actions of a single user.
@@ -51,8 +51,8 @@ impl<E: Environment> EnvRef<E> {
 
     pub fn get_asset_store(
         &self,
-    ) -> Arc<Box<DefaultAssetStore<E>>> {
-        self.0.get_asset_store()
+    ) -> Arc<Box<DefaultAssetManager<E>>> {
+        self.0.get_asset_manager()
     }
 
 }
@@ -159,7 +159,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     async_store: Arc<Box<dyn crate::store::AsyncStore>>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<EnvRef<Self>, V, Context<Self>>,
-    asset_store: Arc<Box<DefaultAssetStore<Self>>>,
+    asset_store: Arc<Box<DefaultAssetManager<Self>>>,
 }
 
 impl<V: ValueInterface> Default for SimpleEnvironment<V> {
@@ -176,7 +176,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
-            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetStore::new()))
+            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetManager::new()))
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
@@ -194,7 +194,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
     pub fn to_ref(self) -> EnvRef<Self> {
         let envref = EnvRef::new(self);
         let envref1 = envref.clone();
-        envref1.0.get_asset_store().set_envref(envref.clone());
+        envref1.0.get_asset_manager().set_envref(envref.clone());
         envref
     }
 }
@@ -216,9 +216,9 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         self.async_store.clone()
     }
     
-    fn get_asset_store(
+    fn get_asset_manager(
         &self,
-    ) -> Arc<Box<DefaultAssetStore<Self>>> {
+    ) -> Arc<Box<DefaultAssetManager<Self>>> {
         self.asset_store.clone()
     }
 

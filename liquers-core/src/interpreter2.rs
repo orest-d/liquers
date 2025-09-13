@@ -1,7 +1,7 @@
 use futures::FutureExt;
 
 use crate::{
-    assets2::{AssetRef, AssetStore},
+    assets2::{AssetRef, AssetManager},
     command_metadata::CommandKey,
     commands2::{CommandArguments, CommandExecutor},
     context2::{ActionContext, Context, EnvRef, Environment},
