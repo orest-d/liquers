@@ -49,7 +49,7 @@ impl<E: Environment> EnvRef<E> {
         self.0.get_command_executor()
     }
 
-    pub fn get_asset_store(
+    pub fn get_asset_manager(
         &self,
     ) -> Arc<Box<DefaultAssetManager<E>>> {
         self.0.get_asset_manager()

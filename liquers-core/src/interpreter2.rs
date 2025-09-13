@@ -9,7 +9,7 @@ use crate::{
     metadata::Status,
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{Plan, PlanBuilder, Step},
-    query::{Key, Query, TryToQuery},
+    query::{Key, TryToQuery},
     state::State,
     value::ValueInterface,
 };
@@ -89,7 +89,7 @@ pub fn do_step<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                let context = Context::new(envref.clone(), AssetRef::new_from_recipe((&query).into(), envref.clone())).await; // TODO: Fix assetref
+                let context = Context::new(envref.clone(), AssetRef::new_from_recipe(0,(&query).into(), envref.clone())).await; // TODO: Fix assetref
                 let plan = make_plan(envref.clone(), query)?;
                 let input_state = State::<<E as Environment>::Value>::new();
                 apply_plan(plan, envref.clone(), context, input_state).await
@@ -111,7 +111,7 @@ pub fn do_step<E: Environment>(
                 for (i, param) in parameters.0.iter().enumerate() {
                     if let Some(arg_query) = param.link() {
                         let arg_value = envref
-                            .get_asset_store()
+                            .get_asset_manager()
                             .get_asset(&arg_query)
                             .await?
                             .get()
@@ -175,7 +175,7 @@ pub fn do_step<E: Environment>(
         .boxed(),
         Step::GetAsset(key) => async move {
             let envref1 = envref.clone();
-            let asset_store = envref1.get_asset_store();
+            let asset_store = envref1.get_asset_manager();
             let asset = asset_store.get(&key).await?;
             let asset_state = asset.get().await?;
             Ok(asset_state)
@@ -219,7 +219,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     async move {
         let query = rquery?;
         let plan = make_plan(envref.clone(), query.clone())?;
-        let assetref = AssetRef::new_from_recipe((&query).into(), envref.clone());
+        let assetref = AssetRef::new_from_recipe(0, (&query).into(), envref.clone());
         let context = Context::new(envref.clone(), assetref).await;
         context.set_cwd_key(cwd_key);
         apply_plan(

@@ -45,6 +45,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
 use crate::interpreter2::apply_plan;
+use crate::metadata::AssetInfo;
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
@@ -80,6 +81,7 @@ pub enum AssetNotificationMessage {
 }
 
 pub struct AssetData<E: Environment> {
+    id: u64,
     pub recipe: Recipe,
 
     envref: EnvRef<E>,
@@ -116,7 +118,7 @@ pub struct AssetData<E: Environment> {
 }
 
 impl<E: Environment> AssetData<E> {
-    pub fn new(recipe: Recipe, envref: EnvRef<E>) -> Self {
+    pub fn new(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
         // Create service channel with buffer size 32
         let (service_tx, service_rx) = mpsc::channel(32);
 
@@ -124,6 +126,7 @@ impl<E: Environment> AssetData<E> {
         let (notification_tx, notification_rx) = watch::channel(AssetNotificationMessage::Initial);
 
         AssetData {
+            id,
             envref,
             recipe,
             service_tx,
@@ -162,17 +165,32 @@ impl<E: Environment> AssetData<E> {
         Ok(false)
     }
 
+    /// Get asset info structure for the asset
+    pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
+        let mut assetinfo = if let Some(metadata) = &self.metadata {
+            metadata.get_asset_info().unwrap_or_default()
+        } else {
+            AssetInfo::new()
+        };
+        if let Some(key) = self.recipe.key()?.or(self.recipe.store_to_key()?) {
+            assetinfo.with_key(key);
+        }
+        assetinfo.query = Some(self.recipe.get_query()?);
+        assetinfo.status = self.status;
+        Ok(assetinfo)
+    }
+
     pub fn asset_reference(&self) -> Result<String, Error> {
         if self.is_resource().unwrap_or(false) {
             if let Ok(Some(key)) = self.recipe.key() {
-                return Ok(format!("resource asset: {}", key));
+                return Ok(format!("resource asset {}: {}", self.id(), key));
             }
         }
         if self.is_pure_query()? {
             let q = self.recipe.get_query().unwrap();
-            return Ok(format!("pure query asset: {}", q));
+            return Ok(format!("pure query asset {}: {}", self.id(), q));
         }
-        Ok(format!("complex asset: {:?}", self.recipe))
+        Ok(format!("complex asset {}: {:?}", self.id(), self.recipe))
     }
 
     /// Check if the asset is a pure query (no initial value and recipe is a pure query)
@@ -187,6 +205,7 @@ impl<E: Environment> AssetData<E> {
     /// to try to load the asset quickly.
     /// If the asset becomes available after the quick evaluation attempt, it is not queued.
     pub async fn try_quick_evaluation(&mut self) -> Result<(), Error> {
+        eprintln!("Trying quick evaluation for asset {}", self.id());
         if !self.is_resource()? {
             return Ok(()); // If asset is not a resource, it can't be just loaded
         }
@@ -246,7 +265,7 @@ impl<E: Environment> AssetData<E> {
                 if let Some(meta) = Arc::get_mut(metadata) {
                     meta.set_status(status)?;
                 }
-            } else {
+            } else {                
                 return Err(Error::unexpected_error(
                     "Metadata not set in AssetData::set_status".to_owned(),
                 ));
@@ -273,39 +292,97 @@ impl<E: Environment> AssetData<E> {
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         self.binary.clone().zip(self.metadata.clone())
     }
+
+    /// Reset the asset data, binary and metadata.
+    /// Status is set to None.
+    pub fn reset(&mut self) {
+        self.data = None;
+        self.binary = None;
+        self.metadata = None;
+        self.status = Status::None;
+        self.notification_tx
+            .send(AssetNotificationMessage::Initial)
+            .ok();
+    }
+
+    /// Get the unique id of the asset
+    fn id(&self) -> u64 {
+        self.id
+    }
 }
 
+/// Asset reference is a mean to get the state and status updates of an asset
+/// It is created and returned by an asset manager.
 pub struct AssetRef<E: Environment> {
+    id: u64,
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
 impl<E: Environment> Clone for AssetRef<E> {
     fn clone(&self) -> Self {
         AssetRef {
+            id: self.id,
             data: self.data.clone(),
         }
     }
 }
 impl<E: Environment> AssetRef<E> {
-    pub fn new(data: AssetData<E>) -> Self {
+    /// Create a new asset reference from asset data.
+    pub(crate) fn new(data: AssetData<E>) -> Self {
         AssetRef {
+            id: data.id(),
             data: Arc::new(RwLock::new(data)),
         }
     }
-    pub fn new_from_recipe(recipe: Recipe, envref: EnvRef<E>) -> Self {
+
+    /// Create a new asset reference from a recipe.
+    pub(crate) fn new_from_recipe(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
         AssetRef {
-            data: Arc::new(RwLock::new(AssetData::new(recipe, envref))),
+            id,
+            data: Arc::new(RwLock::new(AssetData::new(id, recipe, envref))),
         }
     }
 
+    /// Get the unique id of the asset
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Get a reference to the environment
     pub async fn get_envref(&self) -> EnvRef<E> {
         let lock = self.data.read().await;
         lock.get_envref()
     }
 
+    /// Get a string representation describing the asset
     pub async fn asset_reference(&self) -> Result<String, Error> {
         let lock = self.data.read().await;
         lock.asset_reference()
+    }
+
+    /// Get asset info structure for the asset
+    pub async fn get_asset_info(&self) -> Result<AssetInfo, Error> {
+        let lock = self.data.read().await;
+        lock.get_asset_info()
+    }
+
+    /// Inform the asset that it has been submitted
+    pub(crate) async fn submitted(&self) -> Result<(), Error> {
+        self.set_status(Status::Submitted).await?;
+        let lock = self.data.read().await;
+
+        lock.service_tx
+            .send(AssetServiceMessage::JobSubmitted)
+            .await
+            .map_err(|e| {
+                Error::general_error(format!("Failed to send JobSubmitted message: {}", e))
+            })
+    }
+
+    /// Reset the asset
+    pub async fn reset(&self) {
+        let mut lock = self.data.write().await;
+        lock.reset();
     }
 
     /// Process messages from the service channel
@@ -462,14 +539,6 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Check if the asset is currently in the job queue
-    pub async fn is_in_job_queue(&self) -> bool {
-        match self.data.read().await.status {
-            Status::Submitted | Status::Processing => true,
-            _ => false,
-        }
-    }
-
     /// Deserialize the binary data into the asset's data field.
     /// Returns true if the deserialization was successful.
     async fn deserialize_from_binary(&self) -> Result<bool, Error> {
@@ -590,7 +659,6 @@ impl<E: Environment> AssetRef<E> {
     }
 }
 
-
 #[async_trait]
 pub trait AssetManager<E: Environment>: Send + Sync {
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
@@ -624,10 +692,12 @@ pub trait AssetManager<E: Environment>: Send + Sync {
 }
 
 pub struct DefaultAssetManager<E: Environment> {
+    id: std::sync::atomic::AtomicU64,
     envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
+    job_queue: Arc<JobQueue<E>>,
 }
 
 impl<E: Environment> Default for DefaultAssetManager<E> {
@@ -638,13 +708,25 @@ impl<E: Environment> Default for DefaultAssetManager<E> {
 
 impl<E: Environment> DefaultAssetManager<E> {
     pub fn new() -> Self {
-        DefaultAssetManager {
+        let job_queue = Arc::new(JobQueue::new(2));
+        let manager = DefaultAssetManager {
+            id: std::sync::atomic::AtomicU64::new(1),
             envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
             query_assets: scc::HashMap::new(),
             recipe_provider: std::sync::OnceLock::new(),
-        }
+            job_queue: job_queue.clone(),
+        };
+        tokio::spawn(async move {
+            println!("Spawned job queue");
+            job_queue.run().await;
+        });
+        manager
     }
+    pub fn next_id(&self) -> u64 {
+        self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn get_envref(&self) -> EnvRef<E> {
         self.envref
             .get()
@@ -682,7 +764,13 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 .query_assets
                 .entry_async(query.clone())
                 .await
-                .or_insert_with(|| AssetRef::<E>::new_from_recipe(query.into(), self.get_envref()));
+                .or_insert_with(|| {
+                    AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), self.get_envref())
+                });
+            if entry.get().status().await.is_finished() {
+                return Ok(entry.get().clone());
+            }
+            self.job_queue.submit(entry.get().clone()).await?;
             Ok(entry.get().clone())
         }
     }
@@ -692,9 +780,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             .assets
             .entry_async(key.clone())
             .await
-            .or_insert_with(|| AssetRef::<E>::new_from_recipe(key.into(), self.get_envref()));
+            .or_insert_with(|| {
+                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), self.get_envref())
+            });
 
         let asset_ref = entry.get().clone();
+        if asset_ref.status().await.is_finished() {
+            return Ok(asset_ref);
+        }
+        self.job_queue.submit(asset_ref.clone()).await?;
 
         Ok(asset_ref)
     }
@@ -792,6 +886,7 @@ pub struct JobQueue<E: Environment> {
 impl<E: Environment + 'static> JobQueue<E> {
     /// Create a new job queue with the specified capacity
     pub fn new(capacity: usize) -> Self {
+        println!("Creating job queue with capacity {}", capacity);
         JobQueue {
             jobs: Arc::new(Mutex::new(Vec::new())),
             capacity,
@@ -799,17 +894,11 @@ impl<E: Environment + 'static> JobQueue<E> {
     }
 
     /// Submit an asset for processing
-    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
-        // Update status to Submitted
-        {
-            let mut lock = asset.data.write().await;
-            (*lock).set_status(Status::Submitted)?; // TODO: on error crash job
-
-            //let _ = lock.tx.send(AssetMessage::JobSubmitted);
-        }
-
-        // Add to job queue
-        self.jobs.lock().await.push(asset);
+    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {        
+        asset.submitted().await?;
+        let mut jobs = self.jobs.lock().await;
+        jobs.retain(|a| a.id() != asset.id());
+        jobs.push(asset);
         Ok(())
     }
 
@@ -819,9 +908,7 @@ impl<E: Environment + 'static> JobQueue<E> {
 
         let mut count = 0;
         for asset in jobs.iter() {
-            let status = asset.data.read().await.status;
-
-            if status == Status::Processing {
+            if asset.status().await.is_processing() {
                 count += 1;
             }
         }
@@ -830,9 +917,12 @@ impl<E: Environment + 'static> JobQueue<E> {
     }
 
     /// Start processing jobs up to capacity
-    pub async fn run(self: Arc<Self>, envref: EnvRef<E>) {
+    pub async fn run(self: Arc<Self>) {
+        eprintln!("Starting job queue");
         loop {
+            eprint!(".");
             let pending_count = self.pending_jobs_count().await;
+            eprintln!(" Pending jobs: {}", pending_count);
 
             // Check if we can start more jobs
             if pending_count < self.capacity {
@@ -847,9 +937,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                             break;
                         }
 
-                        let status = asset.data.read().await.status;
-
-                        if status == Status::Submitted {
+                        if asset.status().await == Status::Submitted {
                             jobs_to_start.push(asset.clone());
                         }
                     }
@@ -858,50 +946,9 @@ impl<E: Environment + 'static> JobQueue<E> {
                 // Start jobs
                 for asset in jobs_to_start {
                     let asset_clone = asset.clone();
-                    let envref_clone = envref.clone();
-
-                    // Set status to Processing
-                    {
-                        let mut lock = asset.data.write().await;
-                        lock.set_status(Status::Processing); // TODO: on error crash job
-                                                             /*
-                                                                 let _ = lock
-                                                                 .tx
-                                                                 .send(AssetMessage::StatusChanged(Status::Processing));
-                                                             let _ = lock.tx.send(AssetMessage::JobStarted);
-                                                             */
-                    }
-
-                    // Process job in a separate task
+                    eprintln!("Starting asset job {}", asset.id());
                     tokio::spawn(async move {
-                        let result = asset_clone.get().await;
-
-                        // Update status based on result
-                        let (status, error_msg) = match &result {
-                            Ok(_) => {
-                                let _ = {
-                                    let lock = asset_clone.data.write().await;
-                                    //lock.tx.send(AssetMessage::ValueProduced)
-                                };
-                                (Status::Ready, None)
-                            }
-                            Err(e) => {
-                                let error_msg = e.to_string();
-                                let _ = {
-                                    let lock = asset_clone.data.write().await;
-                                    //lock.tx.send(AssetMessage::ErrorOccurred(error_msg.clone()))
-                                };
-                                (Status::Error, Some(error_msg))
-                            }
-                        };
-
-                        // Update final status
-                        {
-                            let mut lock = asset_clone.data.write().await;
-
-                            //let _ = lock.tx.send(AssetMessage::StatusChanged(status));
-                            //let _ = lock.tx.send(AssetMessage::JobFinished);
-                        }
+                        let _ = asset_clone.run().await;
                     });
                 }
             }
@@ -912,18 +959,16 @@ impl<E: Environment + 'static> JobQueue<E> {
     }
 
     /// Clean up completed jobs (Ready or Error status)
+    /// Returns the number of jobs removed
     pub async fn cleanup_completed(&mut self) -> usize {
         let (keep, initial_count, keep_len) = {
             let mut jobs = self.jobs.lock().await;
             let initial_count = jobs.len();
             let mut keep: Vec<AssetRef<E>> = Vec::new();
             for asset in jobs.iter() {
-                let lock = asset.data.read().await;
-                match lock.status {
-                    Status::Processing | Status::Submitted => {
-                        keep.push(asset.clone());
-                    }
-                    _ => {}
+                let status = asset.status().await;
+                if !status.is_finished() {
+                    keep.push(asset.clone());
                 }
             }
             let keep_len = keep.len();
@@ -932,52 +977,6 @@ impl<E: Environment + 'static> JobQueue<E> {
         self.jobs = Arc::new(Mutex::new(keep));
         initial_count - keep_len
     }
-}
-
-// Add methods to DefaultAssetStore to work with JobQueue
-impl<E: Environment> crate::assets2::DefaultAssetManager<E> {
-    /// Submit an asset to the job queue
-    pub async fn submit_to_job_queue(
-        &self,
-        asset: AssetRef<E>,
-        job_queue: Arc<JobQueue<E>>,
-    ) -> Result<(), Error> {
-        job_queue.submit(asset).await
-    }
-
-    /*
-    /// Get an asset and optionally submit it to the job queue if it's not already processed
-    pub async fn get_asset_and_process(
-        &self,
-        query: &crate::query::Query,
-        job_queue: Option<Arc<JobQueue<E>>>,
-    ) -> Result<AssetRef<E>, Error> {
-        let asset = self.get_asset(query).await?;
-
-        // If we have a job queue and the asset needs processing, submit it
-        if let Some(queue) = job_queue {
-            let status = {
-                let lock = asset.data.read().await;
-                if let Some(metadata) = &lock.metadata {
-                    metadata.status
-                } else {
-                    Status::None
-                }
-            };
-
-            // Submit if not already processed or in queue
-            if status != Status::Ready
-                && status != Status::Error
-                && status != Status::Processing
-                && status != Status::Submitted
-            {
-                queue.submit(asset.clone()).await?;
-            }
-        }
-
-        Ok(asset)
-    }
-    */
 }
 
 #[cfg(test)]
@@ -995,7 +994,8 @@ mod tests {
     async fn test_asset_data_basics() {
         let dummy_env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = parse_key("test.txt").unwrap();
-        let asset_data = AssetData::<SimpleEnvironment<Value>>::new(key.into(), dummy_env.to_ref());
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, key.into(), dummy_env.to_ref());
         let state = asset_data.poll_state();
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
@@ -1023,7 +1023,8 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(key.into(), envref.clone());
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, key.into(), envref.clone());
 
         let state = asset_data.poll_state();
         assert!(state.is_none());
@@ -1053,7 +1054,7 @@ mod tests {
         let envref = env.to_ref();
 
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(query.into(), envref.clone());
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
 
         let state = asset_data.poll_state();
         assert!(state.is_none());
@@ -1086,7 +1087,8 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let asset_data = AssetData::<SimpleEnvironment<Value>>::new(query.into(), envref.clone());
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
 
         let assetref = asset_data.to_ref();
         assetref.run().await.unwrap();
@@ -1110,7 +1112,8 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let asset_data = AssetData::<SimpleEnvironment<Value>>::new(query.into(), envref.clone());
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
 
         let assetref = asset_data.to_ref();
         assert!(assetref.poll_state().await.is_none());
@@ -1148,7 +1151,8 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(recipe, envref.clone());
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, recipe, envref.clone());
         asset_data.save_in_background = false; // Save synchronously for the test
 
         let assetref = asset_data.to_ref();
@@ -1168,8 +1172,36 @@ mod tests {
         println!("store_key: {}", store_key);
         println!("Store keys: {:?}", store.keys().await.unwrap());
         assert!(contains);
-        let (data, metadata) = store.get(&store_key).await.unwrap();
+        let (data, _metadata) = store.get(&store_key).await.unwrap();
         assert_eq!(data, b"Hello, world!");
     }
+
+    #[tokio::test]
+    async fn test_asset_manager_get_state() {
+        println!("BEGIN");
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        println!("ENV CREATED");
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        println!("ENVREF CREATED");
+        let assetref = envref.get_asset_manager().get_asset(&query).await.unwrap();
+        
+        println!("REF: {}", assetref.asset_reference().await.unwrap());
+        /* 
+        let result = assetref.get().await.unwrap().try_into_string().unwrap();
+        assert_eq!(result, "Hello, world!");
+        assert_eq!(assetref.status().await, Status::Ready);
+        assert!(assetref.poll_state().await.is_some());
+
+        let (b, _) = assetref.get_binary().await.unwrap();
+        assert_eq!(b.as_ref(), b"Hello, world!");
+        */
+    }
+
 
 }

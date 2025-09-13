@@ -13,18 +13,22 @@ use crate::query::{Key, Position, Query};
 pub enum Status {
     /// Status does not exist or is not available. May be used as an initial value.
     None,
+    /// Asset is not ready, but it has a recipe that can be used to create it.
+    Recipe,
     /// Asset has been submitted for processing.
     Submitted,
+    /// Asset is waiting for its dependencies to become ready.
+    Dependencies,
     /// Asset is currently being processed.
     Processing,
-    /// Asset published partial results.
+    /// Asset is still processing but it published partial results.
     Partial,
     /// Asset finished with an error.
     Error,
-    /// Asset is not ready, but it has a recipe that can be used to create the actual asset.
-    Recipe,
     /// Asset is being stored. It is not yet ready to be used.
     /// This is automatically maintained by the store when the asset is being stored.
+    /// AssetRef should not be in this state.
+    /// If asset loads from store with status Storing, the loading is considered as failed.
     Storing,
     /// Asset is fully calculated and ready to be used.
     Ready,
@@ -59,6 +63,7 @@ impl Status {
             Status::Source => true,
             Status::Cancelled => false,
             Status::Storing => false,
+            Status::Dependencies => false,
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -74,6 +79,7 @@ impl Status {
             Status::Source => false,
             Status::Cancelled => false,
             Status::Storing => true,
+            Status::Dependencies => false,
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -91,9 +97,33 @@ impl Status {
             Status::Source => true,
             Status::Cancelled => true,
             Status::Storing => false,
+            Status::Dependencies => false,
         }
     }
-    
+
+    /// Returns true if the asset is being evaluated
+    /// Asset is processing when it is in [Processing](Status::Processing) state
+    /// or in [Partial](Status::Partial) state.
+    /// Asset is not considered to be processing if it is waiting for  [dependencies](Status::Dependencies)
+    /// or waiting in the queue ([Submitted](Status::Submitted)).
+    pub fn is_processing(&self) -> bool {
+        match self {
+            Status::Ready => false,
+            Status::None => false,
+            Status::Submitted => false,
+            Status::Processing => true,
+            Status::Partial => true,
+            Status::Error => false,
+            Status::Recipe => false,
+            Status::Expired => false,
+            Status::Source => false,
+            Status::Cancelled => false,
+            Status::Storing => false,
+            Status::Dependencies => false,
+        }
+    }
+
+    /// Status is None
     pub(crate) fn is_none(&self) -> bool {
         *self == Status::None
     }
@@ -191,6 +221,10 @@ impl Default for LogEntry {
 /// Structure containing the most important information about the asset
 /// It is can be used as a shorter version of the metadata
 pub struct AssetInfo {
+    /// If value is a result of a query
+    /// If a key is available, this is a query representation of a key
+    #[serde(with = "option_query_format")]
+    pub query: Option<Query>,
     /// If value is an asset (e.g. a file in a store), the key is key of the asset
     #[serde(with = "option_key_format")]
     pub key: Option<Key>,
@@ -203,7 +237,7 @@ pub struct AssetInfo {
     /// e.g. if the file extension is ambiguous.
     /// Method get_data_format() returns the data format, using extension as a default.
     pub data_format: Option<String>,
-    /// Last message from the log 
+    /// Last message from the log
     pub message: String,
     /// Indicates that the value failed to be created
     pub is_error: bool,
@@ -219,32 +253,53 @@ pub struct AssetInfo {
     pub is_dir: bool,
 }
 
-impl AssetInfo{
-    pub fn new() -> AssetInfo{
+impl AssetInfo {
+    pub fn new() -> AssetInfo {
         AssetInfo {
             is_error: false,
             ..Self::default()
         }
     }
+    /// Sets the key.
+    /// Note that a query and filename (if available in the key) is also set.
     pub fn with_key(&mut self, key: Key) -> &mut Self {
+        self.query = Some((&key).into());
         self.key = Some(key);
         if let Some(filename) = self.key.as_ref().unwrap().filename() {
             self.with_filename(filename.name.clone());
         }
         self
     }
-    
+
+    /// Sets the query.
+    /// Note that if query is a key, a key and filename (if available in the query) is also set.
+    pub fn with_query(&mut self, query: Query) -> &mut Self {
+        if query.is_key() {
+            if let Some(key) = query.key() {
+                self.key = Some(key);
+                if let Some(filename) = self.key.as_ref().unwrap().filename() {
+                    self.with_filename(filename.name.clone());
+                }
+            }
+        }
+        self.query = Some(query);
+        self
+    }
+
+    /// Sets the filename.
     fn with_filename(&mut self, filename: String) -> &mut Self {
         self.filename = Some(filename);
         self.media_type = crate::media_type::file_extension_to_media_type(
-            self.extension().unwrap_or("".to_string()).as_str()
-        ).to_owned();
+            self.extension().unwrap_or("".to_string()).as_str(),
+        )
+        .to_owned();
         if self.unicode_icon.is_empty() {
             self.unicode_icon = DEFAULT_ICON.to_string();
         }
+        self.data_format = self.extension();
         self
     }
-    
+
     pub fn extension(&self) -> Option<String> {
         if let Some(filename) = &self.filename {
             let parts: Vec<&str> = filename.split('.').collect();
@@ -260,7 +315,7 @@ impl AssetInfo{
 pub struct MetadataRecord {
     /// Log data
     pub log: Vec<LogEntry>,
-    /// Query constructing the value with which the metadata is associated with 
+    /// Query constructing the value with which the metadata is associated with
     #[serde(with = "query_format")]
     pub query: Query,
     /// If value is an asset (e.g. a file in a store), the key is key of the asset
@@ -275,7 +330,7 @@ pub struct MetadataRecord {
     /// e.g. if the file extension is ambiguous.
     /// Method get_data_format() returns the data format, using extension as a default.
     pub data_format: Option<String>,
-    /// Last message from the log 
+    /// Last message from the log
     pub message: String,
     /// Indicates that the value failed to be created
     pub is_error: bool,
@@ -422,6 +477,7 @@ impl MetadataRecord {
     /// Get most important features in form of an AssetInfo
     pub fn get_asset_info(&self) -> AssetInfo {
         AssetInfo {
+            query: Some(self.query.clone()),
             key: self.key.clone(),
             status: self.status,
             type_identifier: self.type_identifier.clone(),
@@ -496,8 +552,9 @@ impl MetadataRecord {
     pub fn with_filename(&mut self, filename: String) -> &mut Self {
         self.filename = Some(filename);
         self.media_type = crate::media_type::file_extension_to_media_type(
-            self.extension().unwrap_or("".to_string()).as_str()
-        ).to_owned();
+            self.extension().unwrap_or("".to_string()).as_str(),
+        )
+        .to_owned();
         if self.unicode_icon.is_empty() {
             self.unicode_icon = self.default_unicode_icon().to_string();
         }
@@ -560,7 +617,8 @@ impl MetadataRecord {
     pub fn get_media_type(&self) -> String {
         if self.media_type.is_empty() {
             if let Some(extension) = self.extension() {
-                return crate::media_type::file_extension_to_media_type(extension.as_str()).to_owned();
+                return crate::media_type::file_extension_to_media_type(extension.as_str())
+                    .to_owned();
             }
             return "application/octet-stream".to_string();
         }
@@ -584,11 +642,10 @@ impl MetadataRecord {
     /// Unicode is inferred from the extension.
     /// Note, that a custom unicode icon can be set in the attribute unicode_icon.
     /// If extension is not set, return DEFAULT_ICON
-    pub fn default_unicode_icon(&self)->&'static str{
+    pub fn default_unicode_icon(&self) -> &'static str {
         if let Some(extension) = self.extension() {
             crate::icons::file_extension_to_unicode_icon(&extension)
-        }
-        else{
+        } else {
             crate::icons::DEFAULT_ICON
         }
     }
@@ -603,7 +660,6 @@ impl MetadataRecord {
         }
         Ok(())
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -647,11 +703,9 @@ impl Metadata {
                 Ok(m)
             }
             Metadata::MetadataRecord(m) => Ok(m.get_asset_info()),
-            _ => {
-                Err(Error::general_error(
-                    "Failed to extract asset info from an unsupported metadata type".to_string(),
-                ))
-            }
+            _ => Err(Error::general_error(
+                "Failed to extract asset info from an unsupported metadata type".to_string(),
+            )),
         }
     }
 
@@ -699,17 +753,25 @@ impl Metadata {
     }
 
     /// Check if there was an error
-    pub fn is_error(&self) -> Result<bool, Error>{
+    pub fn is_error(&self) -> Result<bool, Error> {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(e) = o.get("is_error") {
-                    return e.as_bool().ok_or(Error::general_error("is_error not a boolean in legacy metadata".to_owned()));
+                    return e.as_bool().ok_or(Error::general_error(
+                        "is_error not a boolean in legacy metadata".to_owned(),
+                    ));
                 }
-                Err(Error::general_error("is_error not available in legacy metadata".to_owned()))
+                Err(Error::general_error(
+                    "is_error not available in legacy metadata".to_owned(),
+                ))
             }
             Metadata::MetadataRecord(m) => Ok(m.is_error),
-            Metadata::LegacyMetadata(serde_json::Value::Null) => {Err(Error::general_error("legacy metadata is null, thus is_error is not available".to_owned()))},
-            _ => {Err(Error::general_error("legacy metadata is not an object, thus is_error is not available".to_owned()))}
+            Metadata::LegacyMetadata(serde_json::Value::Null) => Err(Error::general_error(
+                "legacy metadata is null, thus is_error is not available".to_owned(),
+            )),
+            _ => Err(Error::general_error(
+                "legacy metadata is not an object, thus is_error is not available".to_owned(),
+            )),
         }
     }
 
@@ -868,7 +930,7 @@ impl Metadata {
             _ => "bin".to_string(),
         }
     }
-    
+
     pub fn with_error(&mut self, e: Error) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -884,9 +946,8 @@ impl Metadata {
                 panic!("Cannot set error on unsupported legacy metadata")
             }
         }
-
     }
-    
+
     pub fn status(&self) -> Status {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -917,14 +978,12 @@ impl Metadata {
                 Ok(())
             }
 
-            _ => {
-                Err(Error::general_error(
-                    "Cannot set status on unsupported legacy metadata".to_string(),
-                ))
-            }
+            _ => Err(Error::general_error(
+                "Cannot set status on unsupported legacy metadata".to_string(),
+            )),
         }
     }
-    
+
     pub fn message(&self) -> &str {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -937,7 +996,7 @@ impl Metadata {
             _ => "",
         }
     }
-    
+
     pub fn unicode_icon(&self) -> &str {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -950,7 +1009,7 @@ impl Metadata {
             _ => crate::icons::DEFAULT_ICON,
         }
     }
-    
+
     pub fn file_size(&self) -> Option<u64> {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -963,7 +1022,7 @@ impl Metadata {
             _ => None,
         }
     }
-    
+
     pub fn is_dir(&self) -> bool {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -987,22 +1046,25 @@ impl Metadata {
                 m.is_dir = is_dir;
                 self
             }
-            _ => self
+            _ => self,
         }
     }
     pub fn with_file_size(&mut self, file_size: u64) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                o.insert("file_size".to_string(), Value::Number(serde_json::Number::from(file_size)));
+                o.insert(
+                    "file_size".to_string(),
+                    Value::Number(serde_json::Number::from(file_size)),
+                );
                 self
             }
             Metadata::MetadataRecord(m) => {
                 m.file_size = Some(file_size);
                 self
             }
-            _ => self
+            _ => self,
         }
-    }    
+    }
 
     /// Check if the metadata contains an error and return an error result
     /// If the metadata is a legacy metadata, it relies on "is_error" and "message" fields
@@ -1020,7 +1082,9 @@ impl Metadata {
                 Ok(())
             }
             Metadata::MetadataRecord(m) => m.error_result(),
-            _ => Err(Error::general_error("Unsupported metadata type".to_string())),
+            _ => Err(Error::general_error(
+                "Unsupported metadata type".to_string(),
+            )),
         }
     }
 
