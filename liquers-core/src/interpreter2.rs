@@ -89,8 +89,7 @@ pub fn do_step<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                let context =
-                    Context::new(envref.clone(), AssetRef::new_from_recipe((&query).into())).await; // TODO: Fix assetref
+                let context = Context::new(envref.clone(), AssetRef::new_from_recipe((&query).into(), envref.clone())).await; // TODO: Fix assetref
                 let plan = make_plan(envref.clone(), query)?;
                 let input_state = State::<<E as Environment>::Value>::new();
                 apply_plan(plan, envref.clone(), context, input_state).await
@@ -220,7 +219,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     async move {
         let query = rquery?;
         let plan = make_plan(envref.clone(), query.clone())?;
-        let assetref = AssetRef::new_from_recipe((&query).into());
+        let assetref = AssetRef::new_from_recipe((&query).into(), envref.clone());
         let context = Context::new(envref.clone(), assetref).await;
         context.set_cwd_key(cwd_key);
         apply_plan(
