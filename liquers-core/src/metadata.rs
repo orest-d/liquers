@@ -948,6 +948,29 @@ impl Metadata {
         }
     }
 
+    pub fn add_log_entry(&mut self, log_entry: LogEntry) -> Result<(), Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(Value::Array(log)) = o.get_mut("log") {
+                    log.push(serde_json::to_value(log_entry).unwrap());
+                } else {
+                    o.insert(
+                        "log".to_string(),
+                        Value::Array(vec![serde_json::to_value(log_entry).unwrap()]),
+                    );
+                }
+                Ok(())
+            }
+            Metadata::MetadataRecord(m) => {
+                m.add_log_entry(log_entry);
+                Ok(())
+            }
+            _ => Err(Error::general_error(
+                "Cannot add log entry on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
     pub fn status(&self) -> Status {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {

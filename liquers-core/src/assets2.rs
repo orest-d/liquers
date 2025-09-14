@@ -45,7 +45,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
 use crate::interpreter2::apply_plan;
-use crate::metadata::AssetInfo;
+use crate::metadata::{AssetInfo, LogEntry};
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
@@ -73,6 +73,7 @@ pub enum AssetNotificationMessage {
     Initial,
     Loading,
     Loaded,
+    LoadingFailed,
     StatusChanged(Status), // TODO: remove argument?
     ValueProduced,
     ErrorOccurred(Error),
@@ -103,7 +104,7 @@ pub struct AssetData<E: Environment> {
     binary: Option<Arc<Vec<u8>>>,
 
     /// Metadata
-    metadata: Option<Arc<Metadata>>,
+    metadata: Metadata,
 
     /// Current status
     status: Status,
@@ -136,7 +137,7 @@ impl<E: Environment> AssetData<E> {
             initial_state: State::new(),
             data: None,
             binary: None,
-            metadata: None,
+            metadata: Metadata::new(),
             save_in_background: true,
             _marker: std::marker::PhantomData,
             status: Status::None,
@@ -167,11 +168,7 @@ impl<E: Environment> AssetData<E> {
 
     /// Get asset info structure for the asset
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
-        let mut assetinfo = if let Some(metadata) = &self.metadata {
-            metadata.get_asset_info().unwrap_or_default()
-        } else {
-            AssetInfo::new()
-        };
+        let mut assetinfo = self.metadata.get_asset_info().unwrap_or_default();
         if let Some(key) = self.recipe.key()?.or(self.recipe.store_to_key()?) {
             assetinfo.with_key(key);
         }
@@ -212,6 +209,7 @@ impl<E: Environment> AssetData<E> {
 
         let store = self.get_envref().get_async_store();
         if let Ok(Some(key)) = self.recipe.key() {
+            eprintln!("Asset {} is a resource with key {}", self.id(), key);
             self.notification_tx
                 .send(AssetNotificationMessage::Loading)
                 .map_err(|e| {
@@ -219,23 +217,46 @@ impl<E: Environment> AssetData<E> {
                         .with_query(&(&key).into())
                 })?;
             if store.contains(&key).await? {
+                eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
                 let (binary, metadata) = store.get(&key).await?;
                 self.binary = Some(Arc::new(binary));
-                self.metadata = Some(Arc::new(metadata));
-                let value = E::Value::deserialize_from_bytes(
-                    self.binary.as_ref().unwrap(),
-                    &self.metadata.as_ref().unwrap().type_identifier()?,
-                    &self.metadata.as_ref().unwrap().get_data_format(),
-                )?;
-                self.data = Some(Arc::new(value));
-                self.status = self.metadata.as_ref().unwrap().status();
-                self.notification_tx
-                    .send(AssetNotificationMessage::Loaded)
-                    .map_err(|e| {
-                        Error::general_error(format!("Failed to send loaded notification: {}", e))
+                if metadata.status().has_data() {
+                    eprintln!("Asset {} has data, deserializing", self.id());
+                    let value = E::Value::deserialize_from_bytes(
+                        self.binary.as_ref().unwrap(),
+                        &metadata.type_identifier()?,
+                        &metadata.get_data_format(),
+                    )?;
+                    self.data = Some(Arc::new(value));
+                    self.status = metadata.status();
+                    self.metadata = metadata;
+                    self.notification_tx
+                        .send(AssetNotificationMessage::Loaded)
+                        .map_err(|e| {
+                            Error::general_error(format!(
+                                "Failed to send loaded notification: {}",
+                                e
+                            ))
                             .with_query(&key.into())
-                    })?;
+                        })?;
+                } else {
+                    eprintln!(
+                        "Asset {} has no data, cannot deserialize, status: {:?}",
+                        self.id(),
+                        self.status
+                    );
+                    self.notification_tx
+                        .send(AssetNotificationMessage::LoadingFailed)
+                        .map_err(|e| {
+                            Error::general_error(format!(
+                                "Failed to send loaded notification: {}",
+                                e
+                            ))
+                            .with_query(&key.into())
+                        })?;
+                    self.reset();
+                }
 
                 return Ok(());
             }
@@ -261,15 +282,7 @@ impl<E: Environment> AssetData<E> {
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         if status != self.status {
             self.status = status;
-            if let Some(metadata) = &mut self.metadata {
-                if let Some(meta) = Arc::get_mut(metadata) {
-                    meta.set_status(status)?;
-                }
-            } else {                
-                return Err(Error::unexpected_error(
-                    "Metadata not set in AssetData::set_status".to_owned(),
-                ));
-            }
+            self.metadata.set_status(status);
         }
         Ok(())
     }
@@ -277,10 +290,10 @@ impl<E: Environment> AssetData<E> {
     /// Poll the current state without any async operations.
     /// Returns None if data or metadata is not available.
     pub fn poll_state(&self) -> Option<State<E::Value>> {
-        if let (Some(data), Some(metadata)) = (&self.data, &self.metadata) {
+        if let Some(data) = &self.data {
             Some(State {
                 data: data.clone(),
-                metadata: metadata.clone(),
+                metadata: Arc::new(self.metadata.clone()),
             })
         } else {
             None
@@ -290,7 +303,9 @@ impl<E: Environment> AssetData<E> {
     /// Poll the current binary data and metadata without any async operations.
     /// Returns None if binary or metadata is not available.
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
-        self.binary.clone().zip(self.metadata.clone())
+        self.binary
+            .clone()
+            .zip(Some(Arc::new(self.metadata.clone())))
     }
 
     /// Reset the asset data, binary and metadata.
@@ -298,7 +313,7 @@ impl<E: Environment> AssetData<E> {
     pub fn reset(&mut self) {
         self.data = None;
         self.binary = None;
-        self.metadata = None;
+        self.metadata = Metadata::new().into();
         self.status = Status::None;
         self.notification_tx
             .send(AssetNotificationMessage::Initial)
@@ -401,16 +416,7 @@ impl<E: Environment> AssetRef<E> {
                     let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
                     // Update metadata with log message
                     let mut lock = self.data.write().await;
-                    if let Some(metadata) = &mut lock.metadata {
-                        if let Some(Metadata::MetadataRecord(meta)) = Arc::get_mut(metadata) {
-                            meta.info(&message);
-                        } else {
-                            return Err(Error::unexpected_error(
-                                "Metadata is not MetadataRecord in AssetServiceMessage::LogMessage"
-                                    .to_owned(),
-                            ));
-                        }
-                    }
+                    lock.metadata.add_log_entry(LogEntry::info(message))?;
                 }
                 AssetServiceMessage::Cancel => {
                     self.set_status(Status::Cancelled).await?;
@@ -448,10 +454,21 @@ impl<E: Environment> AssetRef<E> {
         if self.status().await.is_finished() {
             return Ok(()); // Already finished
         }
-        tokio::select! {
+        let result = tokio::select! {
             res = self.process_service_messages() => res,
             res = self.evaluate_and_store() => res
+        };
+        if let Err(e) = &result {
+            let mut lock = self.data.write().await;
+            lock.data = None;
+            lock.status = Status::Error;
+            lock.binary = None;
+            lock.metadata = Metadata::from_error(e.clone());
+            let _ = lock
+                .notification_tx
+                .send(AssetNotificationMessage::ErrorOccurred(e.clone()));
         }
+        result
     }
 
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
@@ -479,7 +496,7 @@ impl<E: Environment> AssetRef<E> {
             Ok(state) => {
                 let mut lock = self.data.write().await;
                 lock.data = Some(state.data.clone());
-                lock.metadata = Some(state.metadata.clone());
+                lock.metadata = (*state.metadata).clone();
                 lock.status = state.metadata.status();
                 let _ = lock
                     .notification_tx
@@ -499,7 +516,7 @@ impl<E: Environment> AssetRef<E> {
             Err(e) => {
                 let mut lock = self.data.write().await;
                 lock.data = None;
-                lock.metadata = Some(Arc::new(Metadata::from_error(e.clone())));
+                lock.metadata.with_error(e.clone());
                 lock.status = Status::Error;
                 lock.binary = None;
                 let _ = lock
@@ -544,9 +561,9 @@ impl<E: Environment> AssetRef<E> {
     async fn deserialize_from_binary(&self) -> Result<bool, Error> {
         let mut lock = self.data.write().await;
         let value = {
-            if let (Some(binary), Some(metadata)) = (&lock.binary, &lock.metadata) {
-                let type_identifier = metadata.as_ref().type_identifier()?;
-                let extension = metadata.extension().unwrap_or("bin".to_string());
+            if let Some(binary) = &lock.binary {
+                let type_identifier = lock.metadata.type_identifier()?;
+                let extension = lock.metadata.extension().unwrap_or("bin".to_string());
                 E::Value::deserialize_from_bytes(binary, &type_identifier, &extension)
             } else {
                 return Ok(false);
@@ -615,6 +632,7 @@ impl<E: Environment> AssetRef<E> {
                 AssetNotificationMessage::StatusChanged(_) => {}
                 AssetNotificationMessage::ProgressUpdated(_) => {}
                 AssetNotificationMessage::LogMessage => {}
+                AssetNotificationMessage::LoadingFailed => {}
             }
             rx.changed().await.map_err(|e| {
                 Error::general_error(format!("Failed to receive notification: {}", e))
@@ -894,7 +912,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     }
 
     /// Submit an asset for processing
-    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {        
+    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
         asset.submitted().await?;
         let mut jobs = self.jobs.lock().await;
         jobs.retain(|a| a.id() != asset.id());
@@ -1178,21 +1196,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_asset_manager_get_state() {
-        println!("BEGIN");
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        println!("ENV CREATED");
         let key = CommandKey::new_name("test");
         env.command_registry
             .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
             .expect("register_command failed");
 
         let envref = env.to_ref();
-        println!("ENVREF CREATED");
         let assetref = envref.get_asset_manager().get_asset(&query).await.unwrap();
-        
-        println!("REF: {}", assetref.asset_reference().await.unwrap());
-        /* 
+
         let result = assetref.get().await.unwrap().try_into_string().unwrap();
         assert_eq!(result, "Hello, world!");
         assert_eq!(assetref.status().await, Status::Ready);
@@ -1200,8 +1213,5 @@ mod tests {
 
         let (b, _) = assetref.get_binary().await.unwrap();
         assert_eq!(b.as_ref(), b"Hello, world!");
-        */
     }
-
-
 }
