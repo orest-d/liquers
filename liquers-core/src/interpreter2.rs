@@ -105,7 +105,7 @@ pub fn do_step<E: Environment>(
         } => {
             let commannd_key = CommandKey::new(realm, ns, action_name);
             let mut arguments =
-                CommandArguments::<<E as Environment>::Value>::new(parameters.clone());
+                CommandArguments::<E>::new(parameters.clone());
             arguments.action_position = position.clone();
             async move {
                 for (i, param) in parameters.0.iter().enumerate() {
@@ -292,9 +292,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hello_world() -> Result<(), Box<dyn std::error::Error>> {
-        type CommandValue = Value;
-        type CommandContext = Context<SimpleEnvironment<CommandValue>>;
-        type CommandPayload = EnvRef<SimpleEnvironment<CommandValue>>;
+        type CommandEnvironment = SimpleEnvironment<Value>;
         let mut env = SimpleEnvironment::<Value>::new();
 
         // Register "hello" command

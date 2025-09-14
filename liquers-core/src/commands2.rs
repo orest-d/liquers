@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
-use crate::context2::ActionContext;
+use crate::context2::{ActionContext, Context, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
 use crate::query::{Position, Query};
@@ -20,14 +20,24 @@ use crate::value::ValueInterface;
 
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
-#[derive(Debug, Clone)]
-pub struct CommandArguments<V: ValueInterface> {
+#[derive(Debug)]
+pub struct CommandArguments<E:Environment> {
     pub(crate) parameters: ResolvedParameterValues,
-    pub(crate) values: Vec<Option<Arc<V>>>,
+    pub(crate) values: Vec<Option<Arc<E::Value>>>,
     pub action_position: Position,
 }
 
-impl<V: ValueInterface> CommandArguments<V> {
+impl<E: Environment> Clone for CommandArguments<E> {
+    fn clone(&self) -> Self {
+        CommandArguments {
+            parameters: self.parameters.clone(),
+            values: self.values.clone(),
+            action_position: self.action_position.clone(),
+        }
+    }
+}
+
+impl<E: Environment> CommandArguments<E> {
     pub fn new(parameters: ResolvedParameterValues) -> Self {
         CommandArguments {
             parameters,
@@ -40,7 +50,7 @@ impl<V: ValueInterface> CommandArguments<V> {
         self.parameters.0.len()
     }
 
-    pub fn set_value(&mut self, i: usize, value: Arc<V>) {
+    pub fn set_value(&mut self, i: usize, value: Arc<E::Value>) {
         for j in self.values.len()..=i {
             self.values.push(None);
         }
@@ -66,13 +76,13 @@ impl<V: ValueInterface> CommandArguments<V> {
         }
     }
 
-    pub fn get_value(&self, i: usize, name: &str) -> Result<V, Error> {
+    pub fn get_value(&self, i: usize, name: &str) -> Result<E::Value, Error> {
         if let Some(Some(v)) = self.values.get(i) {
             Ok((*(v.clone())).clone())
         } else {
             let p = self.get_parameter(i, name)?;
             if let Some(v) = p.value() {
-                Ok(V::try_from_json_value(&v)?)
+                Ok(E::Value::try_from_json_value(&v)?)
             } else {
                 match p {
                     ParameterValue::Placeholder(n) => Err(Error::general_error(format!(
@@ -90,7 +100,7 @@ impl<V: ValueInterface> CommandArguments<V> {
         }
     }
 
-    pub fn get<T: FromParameterValue<T> + TryFrom<V, Error = Error>>(
+    pub fn get<T: FromParameterValue<T> + TryFrom<E::Value, Error = Error>>(
         &self,
         i: usize,
         name: &str,
@@ -117,11 +127,11 @@ impl<V: ValueInterface> CommandArguments<V> {
     }
 
     /// Returns the injected parameter as a value of type T
-    pub fn get_injected<P, T: InjectedFromContext<T, P, V>>(
+    pub fn get_injected<T: InjectedFromContext<E>>(
         &self,
         i: usize,
         name: &str,
-        context: &impl ActionContext<P, V>,
+        context: Context<E>,
     ) -> Result<T, Error> {
         let p = self.get_parameter(i, name)?;
         if !p.is_injected() {
@@ -326,39 +336,39 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
     }
 }
 
-pub trait InjectedFromContext<T, P, V: ValueInterface> {
-    fn from_context(name: &str, context: &impl ActionContext<P, V>) -> Result<T, Error>;
+pub trait InjectedFromContext<E: Environment>: Sized {
+    fn from_context(name: &str, context: Context<E>) -> Result<Self, Error>;
 }
 
 #[async_trait]
-pub trait CommandExecutor<P, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>:
+pub trait CommandExecutor<E:Environment>:
     Send + Sync
 {
     fn execute(
         &self,
         command_key: &CommandKey,
-        state: &State<V>,
-        arguments: CommandArguments<V>,
-        context: C,
-    ) -> Result<V, Error>;
+        state: &State<E::Value>,
+        arguments: CommandArguments<E>,
+        context: Context<E>,
+    ) -> Result<E::Value, Error>;
 
     async fn execute_async(
         &self,
         command_key: &CommandKey,
-        state: State<V>,
-        arguments: CommandArguments<V>,
-        context: C,
-    ) -> Result<V, Error> {
+        state: State<E::Value>,
+        arguments: CommandArguments<E>,
+        context: Context<E>,
+    ) -> Result<E::Value, Error> {
         self.execute(command_key, &state, arguments, context)
     }
 }
 
-pub struct CommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
+pub struct CommandRegistry<E: Environment> {
     executors: HashMap<
         CommandKey,
         Arc<
             Box<
-                dyn (Fn(&State<V>, CommandArguments<V>, C) -> Result<V, Error>)
+                dyn (Fn(&State<E::Value>, CommandArguments<E>, Context<E>) -> Result<E::Value, Error>)
                     + Send
                     + Sync
                     + 'static,
@@ -370,22 +380,22 @@ pub struct CommandRegistry<P, V: ValueInterface, C: ActionContext<P, V>> {
         Arc<
             Box<
                 dyn (Fn(
-                        State<V>,
-                        CommandArguments<V>,
-                        C,
-                    ) -> std::pin::Pin<
-                        Box<dyn core::future::Future<Output = Result<V, Error>> + Send + 'static>,
-                    >) + Send
+                    State<E::Value>,
+                    CommandArguments<E>,
+                    Context<E>,
+                ) -> std::pin::Pin<
+                    Box<dyn core::future::Future<Output = Result<E::Value, Error>> + Send + 'static>,
+                >) + Send
                     + Sync
                     + 'static,
             >,
         >,
     >,
     pub command_metadata_registry: CommandMetadataRegistry,
-    payload: PhantomData<P>,
+    payload: PhantomData<E>, // TODO: Remove if not needed
 }
 
-impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
+impl<E: Environment> CommandRegistry<E> {
     pub fn new() -> Self {
         CommandRegistry {
             //executors: HashMap::new(),
@@ -398,7 +408,7 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<V>, CommandArguments<V>, C) -> Result<V, Error>) + Sync + Send + 'static,
+        F: (Fn(&State<E::Value>, CommandArguments<E>, Context<E>) -> Result<E::Value, Error>) + Sync + Send + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
@@ -415,11 +425,11 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
     where
         K: Into<CommandKey>,
         F: (Fn(
-                State<V>,
-                CommandArguments<V>,
-                C,
+                State<E::Value>,
+                CommandArguments<E>,
+                Context<E>,
             ) -> std::pin::Pin<
-                Box<dyn core::future::Future<Output = Result<V, Error>> + Send + 'static>,
+                Box<dyn core::future::Future<Output = Result<E::Value, Error>> + Send + 'static>,
             >) + Sync
             + Send
             + 'static,
@@ -432,11 +442,11 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
         let bf: Arc<
             Box<
                 dyn (Fn(
-                        State<V>,
-                        CommandArguments<V>,
-                        C,
+                        State<E::Value>,
+                        CommandArguments<E>,
+                        Context<E>,
                     ) -> std::pin::Pin<
-                        Box<dyn core::future::Future<Output = Result<V, Error>> + Send + 'static>,
+                        Box<dyn core::future::Future<Output = Result<E::Value, Error>> + Send + 'static>,
                     >) + Send
                     + Sync
                     + 'static,
@@ -448,16 +458,14 @@ impl<P, V: ValueInterface, C: ActionContext<P, V>> CommandRegistry<P, V, C> {
 }
 
 #[async_trait]
-impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
-    CommandExecutor<P, V, C> for CommandRegistry<P, V, C>
-{
+impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
     fn execute(
         &self,
         key: &CommandKey,
-        state: &State<V>,
-        arguments: CommandArguments<V>,
-        context: C,
-    ) -> Result<V, Error> {
+        state: &State<E::Value>,
+        arguments: CommandArguments<E>,
+        context: Context<E>,
+    ) -> Result<E::Value, Error> {
         if let Some(command) = self.executors.get(&key) {
             command(state, arguments, context)
         } else {
@@ -473,10 +481,10 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
     async fn execute_async(
         &self,
         key: &CommandKey,
-        state: State<V>,
-        arguments: CommandArguments<V>,
-        context: C,
-    ) -> Result<V, Error> {
+        state: State<E::Value>,
+        arguments: CommandArguments<E>,
+        context: Context<E>,
+    ) -> Result<E::Value, Error> {
         if let Some(command) = self.async_executors.get(&key) {
             command(state, arguments.clone(), context).await
         } else {
@@ -488,67 +496,20 @@ impl<P: Send + Sync, V: ValueInterface, C: ActionContext<P, V> + Send + 'static>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assets2::AssetManager;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
     use crate::commands2::{CommandArguments, CommandRegistry};
-    use crate::context2::ActionContext;
+    use crate::context2::SimpleEnvironment;
     use crate::state::State;
     use crate::value::Value;
     use liquers_macro::*;
 
-    // Dummy context type
-    #[derive(Clone)]
-    struct DummyContext;
-    impl ActionContext<(), Value> for DummyContext {
-        fn borrow_payload(&self) -> &() {
-            panic!("Not implemented")
-        }
 
-        fn clone_payload(&self) -> () {
-            panic!("Not implemented")
-        }
-
-        fn get_metadata(&self) -> crate::metadata::MetadataRecord {
-            panic!("Not implemented")
-        }
-
-        fn set_filename(&self, filename: String) {
-            panic!("Not implemented")
-        }
-
-        fn debug(&self, message: &str) {
-            panic!("Not implemented")
-        }
-
-        fn info(&self, message: &str) {
-            panic!("Not implemented")
-        }
-
-        fn warning(&self, message: &str) {
-            panic!("Not implemented")
-        }
-
-        fn error(&self, message: &str) {
-            panic!("Not implemented")
-        }
-
-        fn clone_context(&self) -> Self {
-            panic!("Not implemented")
-        }
-
-        fn get_cwd_key(&self) -> Option<crate::query::Key> {
-            panic!("Not implemented")
-        }
-
-        fn set_cwd_key(&self, key: Option<crate::query::Key>) {
-            panic!("Not implemented")
-        }
-    }
-
-    #[test]
-    fn test_command_registry_execute() {
+    #[tokio::test]
+    async fn test_command_registry_execute() {
         // Create a registry
-        let mut registry = CommandRegistry::<(), Value, DummyContext>::new();
+        let mut registry = CommandRegistry::<SimpleEnvironment<Value>>::new();
 
         // Register a simple command that returns a constant value
         let key = CommandKey::new("realm", "namespace", "name");
@@ -560,7 +521,9 @@ mod tests {
         let state = State::new();
         let parameters = ResolvedParameterValues::new();
         let args = CommandArguments::new(parameters);
-        let context = DummyContext;
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let assetref = envref.get_asset_manager().create_dummy_asset();
+        let context = assetref.create_context().await;
 
         // Execute the command
         let result = registry.execute(&key, &state, args, context);
@@ -571,10 +534,10 @@ mod tests {
         assert_eq!(value, Value::from(42));
     }
 
-    #[test]
-    fn test_command_registry_execute_greet() {
+    #[tokio::test]
+    async fn test_command_registry_execute_greet() {
         // Create a registry
-        let mut registry = CommandRegistry::<(), Value, DummyContext>::new();
+        let mut registry = CommandRegistry::<SimpleEnvironment<Value>>::new();
 
         // Register a simple command that returns a constant value
         let key = CommandKey::new_name("greet");
@@ -591,7 +554,9 @@ mod tests {
         let parameters = ResolvedParameterValues::new();
         let mut args = CommandArguments::new(parameters);
         args.set_value(0, Arc::new(Value::from("Hello")));
-        let context = DummyContext;
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let assetref = envref.get_asset_manager().create_dummy_asset();
+        let context = assetref.create_context().await;
 
         // Execute the command
         let result = registry.execute(&key, &state, args, context);
@@ -602,16 +567,14 @@ mod tests {
         assert_eq!(value, "Hello, world!");
     }
 
-    #[test]
-    fn test_command_registry_execute_greet_macroregistration() {
+    #[tokio::test]
+    async fn test_command_registry_execute_greet_macroregistration() {
         // Create a registry
-        let mut registry = CommandRegistry::<(), Value, DummyContext>::new();
+        let mut registry = CommandRegistry::<SimpleEnvironment<Value>>::new();
 
         // Register a simple command that returns a constant value
         let key = CommandKey::new_name("greet");
-        type CommandValue = Value;
-        type CommandContext = DummyContext;
-        type CommandPayload = ();
+        type CommandEnvironment = SimpleEnvironment<Value>;
 
         fn greet(state: &State<Value>, greeting: String) -> Result<Value, Error> {
             let input = state.try_into_string()?;
@@ -625,7 +588,9 @@ mod tests {
         let parameters = ResolvedParameterValues::new();
         let mut args = CommandArguments::new(parameters);
         args.set_value(0, Arc::new(Value::from("Hello")));
-        let context = DummyContext;
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let assetref = envref.get_asset_manager().create_dummy_asset();
+        let context = assetref.create_context().await;
 
         // Execute the command
         let result = registry.execute(&key, &state, args, context);

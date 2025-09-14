@@ -18,7 +18,7 @@ use crate::{
 
 pub trait Environment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
-    type CommandExecutor: CommandExecutor<EnvRef<Self>, Self::Value, Context<Self>>;
+    type CommandExecutor: CommandExecutor<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
     fn get_command_executor(&self) -> &Self::CommandExecutor;
@@ -84,7 +84,7 @@ impl<E: Environment> Context<E> {
 }
 
 // TODO: It should be enough to have E as a parameter
-impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
+impl<E: Environment> ActionContext<EnvRef<E>, E> for Context<E> {
     fn borrow_payload(&self) -> &EnvRef<E> {
         &self.envref
     }
@@ -126,6 +126,10 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
         let mut guard = self.cwd_key.lock().unwrap();
         *guard = key;
     }
+
+    fn get_asset_ref(&self) -> AssetRef<E> {
+        self.assetref.clone()
+    }
 }
 
 // TODO: Think about the Payload. EnvRef and Session should always be available.
@@ -135,7 +139,8 @@ impl<E: Environment> ActionContext<EnvRef<E>, E::Value> for Context<E> {
 // TODO: Should action parameters be in context?
 // TODO: There should be a reference to input_state_query
 // TODO: There should be a reference to query including the current action
-pub trait ActionContext<P, V: ValueInterface> {
+pub trait ActionContext<P, E: Environment> {
+    fn get_asset_ref(&self) -> AssetRef<E>;
     fn borrow_payload(&self) -> &P;
     fn clone_payload(&self) -> P;
     fn get_metadata(&self) -> MetadataRecord;
@@ -158,7 +163,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     #[cfg(feature = "async_store")]
     async_store: Arc<Box<dyn crate::store::AsyncStore>>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
-    pub command_registry: CommandRegistry<EnvRef<Self>, V, Context<Self>>,
+    pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
 }
 
@@ -201,7 +206,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
 
 impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type Value = V;
-    type CommandExecutor = CommandRegistry<EnvRef<Self>, V, Context<Self>>;
+    type CommandExecutor = CommandRegistry<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry

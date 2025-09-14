@@ -369,6 +369,11 @@ impl<E: Environment> AssetRef<E> {
         lock.get_envref()
     }
 
+    pub async fn create_context(&self) -> Context<E> {
+        let envref = self.get_envref().await;
+        Context::new(envref, self.clone()).await
+    }
+
     /// Get a string representation describing the asset
     pub async fn asset_reference(&self) -> Result<String, Error> {
         let lock = self.data.read().await;
@@ -795,6 +800,17 @@ impl<E: Environment> DefaultAssetManager<E> {
         {
             panic!("Recipe provider already set in AssetStore");
         }
+    }
+
+    pub fn create_asset(&self, recipe: Recipe) -> AssetRef<E> {
+        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, self.get_envref());
+        asset
+    }
+
+    pub fn create_dummy_asset(&self) -> AssetRef<E> {
+        let recipe = Query::new().into();
+        let asset = AssetRef::new_from_recipe(self.next_id(), recipe, self.get_envref());
+        asset
     }
 
     pub fn get_recipe_provider(&self) -> &DefaultRecipeProvider<E> {

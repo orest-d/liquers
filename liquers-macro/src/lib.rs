@@ -607,14 +607,14 @@ impl CommandSignature {
         if self.is_async {
             quote! {
                 fn #wrapper_name(
-                    state: &liquers_core::state::State<CommandValue>,
-                    arguments: liquers_core::commands2::CommandArguments<CommandValue>,
-                    context: CommandContext,
+                    state: &liquers_core::state::State<CommandEnvironment::Value>,
+                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment::Value>,
+                    context: Context<CommandEnvironment>,
                 ) ->
                 core::pin::Pin<
                   std::boxed::Box<
                     dyn core::future::Future<
-                      Output = core::result::Result<CommandValue, liquers_core::error::Error>
+                      Output = core::result::Result<CommandEnvironment::Value, liquers_core::error::Error>
                     > + core::sync::Send  + 'static
                   >
                 >
@@ -622,10 +622,10 @@ impl CommandSignature {
         } else {
             quote! {
                 fn #wrapper_name(
-                    state: &liquers_core::state::State<CommandValue>,
-                    arguments: liquers_core::commands2::CommandArguments<CommandValue>,
-                    context: CommandContext,
-                ) -> core::result::Result<CommandValue, liquers_core::error::Error>
+                    state: &liquers_core::state::State<CommandEnvironment::Value>,
+                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment::Value>,
+                    context: Context<CommandEnvironment>,
+                ) -> core::result::Result<CommandEnvironment::Value, liquers_core::error::Error>
             }
         }
     }
@@ -712,7 +712,7 @@ impl CommandSignature {
                 liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>
             },
             WrapperVersion::V2 => quote! {
-                liquers_core::commands2::CommandRegistry<CommandPayload, CommandValue, CommandContext>
+                liquers_core::commands2::CommandRegistry<CommandEnvironment>
             },
         };
         quote! {
@@ -1577,20 +1577,16 @@ mod tests {
 
         let expected = r#"
         pub fn REGISTER__test_fn(
-            registry: &mut liquers_core::commands2::CommandRegistry<
-                CommandPayload,
-                CommandValue,
-                CommandContext
-            >
+            registry: &mut liquers_core::commands2::CommandRegistry<CommandEnvironment>
         ) -> core::result::Result<
             &mut liquers_core::command_metadata::CommandMetadata,
             liquers_core::error::Error
         > {
             fn test_fn__CMD_(
-                state: &liquers_core::state::State<CommandValue>,
-                arguments: liquers_core::commands2::CommandArguments<CommandValue>,
-                context: CommandContext,
-            ) -> core::result::Result<CommandValue, liquers_core::error::Error> {
+                state: &liquers_core::state::State<CommandEnvironment::Value>,
+                arguments: liquers_core::commands2::CommandArguments<CommandEnvironment::Value>,
+                context: Context<CommandEnvironment>,
+            ) -> core::result::Result<CommandEnvironment::Value, liquers_core::error::Error> {
                 let a__par: i32 = arguments.get(0usize, "a")?;
                 let res = test_fn(state, a__par);
                 res
