@@ -240,7 +240,7 @@ impl<E: Environment> AssetData<E> {
                             ))
                             .with_query(&key.into())
                         })?;
-                } else {
+                } else {                    
                     eprintln!(
                         "Asset {} has no data, cannot deserialize, status: {:?}",
                         self.id(),
@@ -282,7 +282,7 @@ impl<E: Environment> AssetData<E> {
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         if status != self.status {
             self.status = status;
-            self.metadata.set_status(status);
+            self.metadata.set_status(status)?;
         }
         Ok(())
     }
@@ -467,6 +467,38 @@ impl<E: Environment> AssetRef<E> {
             let _ = lock
                 .notification_tx
                 .send(AssetNotificationMessage::ErrorOccurred(e.clone()));
+        }
+        else{
+            async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
+                eprintln!("Trying to set asset {} to ready - status {:?}", assetref.id(), assetref.status().await);
+                let mut lock = assetref.data.write().await;
+                    if lock.data.is_some(){
+                        lock.status = Status::Ready;
+                    }
+                    else{
+                        lock.status = Status::Error;
+                        let e = Error::unexpected_error(format!("Asset evaluation finished ({:?} status) but no data available", lock.status));
+                        lock.metadata.with_error(e.clone());
+                        let _ = lock
+                            .notification_tx
+                            .send(AssetNotificationMessage::ErrorOccurred(e));
+                    }
+
+            }
+            match self.status().await {
+                Status::None => {try_to_set_ready(self.clone()).await;}
+                Status::Recipe => {try_to_set_ready(self.clone()).await;}
+                Status::Submitted => {try_to_set_ready(self.clone()).await;}
+                Status::Dependencies => todo!(),
+                Status::Processing => {try_to_set_ready(self.clone()).await;}
+                Status::Partial => {try_to_set_ready(self.clone()).await;}
+                Status::Error => todo!(),
+                Status::Storing => todo!(),
+                Status::Ready => {},
+                Status::Expired => {},
+                Status::Cancelled => {},
+                Status::Source => {},
+            }
         }
         result
     }
@@ -980,7 +1012,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// Returns the number of jobs removed
     pub async fn cleanup_completed(&mut self) -> usize {
         let (keep, initial_count, keep_len) = {
-            let mut jobs = self.jobs.lock().await;
+            let jobs = self.jobs.lock().await;
             let initial_count = jobs.len();
             let mut keep: Vec<AssetRef<E>> = Vec::new();
             for asset in jobs.iter() {
@@ -1033,6 +1065,7 @@ mod tests {
                     MetadataRecord::new()
                         .with_key(key.clone())
                         .with_type_identifier("text".to_owned())
+                        .with_status(Status::Source)    
                         .clone(),
                 ),
             )
