@@ -1626,6 +1626,83 @@ mod tests {
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
     }
 
+     #[test]
+    fn test_command_registration_generates_async_function_v2() {
+        use syn::parse_quote;
+
+        let mut sig: CommandSignature = syn::parse_quote! {
+            async fn test_fn(state, a: i32) -> result
+            label: "Test label"
+        };
+
+        sig.wrapper_version = WrapperVersion::V2;
+
+        let tokens = sig.command_registration();
+
+        let expected = r#"
+        pub fn REGISTER__test_fn(
+            registry: &mut liquers_core::commands2::CommandRegistry<CommandEnvironment>
+        ) -> core::result::Result<
+            &mut liquers_core::command_metadata::CommandMetadata,
+            liquers_core::error::Error
+        > {
+            fn test_fn__CMD_(
+                state: &liquers_core::state::State<CommandEnvironment::Value>,
+                arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
+                context: Context<CommandEnvironment>,
+            ) -> core::pin::Pin<
+                std::boxed::Box<
+                    dyn core::future::Future<
+                            Output = core::result::Result<
+                                <CommandEnvironment as liquers_core::context2::Environment>::Value,
+                                liquers_core::error::Error
+                            >
+                        > + core::sync::Send
+                        + 'static
+                >
+            > {
+                let a__par: i32 = arguments.get(0usize, "a")?;
+                async move {
+                    let res = test_fn(state, a__par).await;
+                    res
+                }
+                .boxed()
+            }
+            let mut cm = registry.register_async_command(
+                liquers_core::command_metadata::CommandKey::new("", "", "test_fn"),
+                test_fn__CMD_
+            )?;
+            cm.with_label("Test label");
+            cm.arguments = vec![liquers_core::command_metadata::ArgumentInfo {
+                name: "a".to_string(),
+                label: "a".to_string(),
+                default: liquers_core::command_metadata::CommandParameterValue::None,
+                argument_type: liquers_core::command_metadata::ArgumentType::Integer,
+                multiple: false,
+                injected: false,
+                gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
+                ..Default::default()
+            }];
+            Ok(cm)
+        }
+        "#;
+
+        println!("Generated tokens: {}", tokens.to_string());
+        fn fuzzy(s: &str) -> String {
+            s.replace(' ', "").replace('\n', "")
+        }
+        for (a, b) in fuzzy(&tokens.to_string())
+            .split(",")
+            .zip(fuzzy(expected).split(","))
+        {
+            assert_eq!(a, b);
+        }
+        assert!(tokens.to_string().contains("pub fn"));
+        assert!(fuzzy(&tokens.to_string()).contains("cm.with_label"));
+        assert!(fuzzy(&tokens.to_string()).contains("arguments.get(0usize,\"a\")?"));
+        assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
+    }
+   
     #[test]
     fn test_command_registration_with_doc() {
         let sig: CommandSignature = syn::parse_quote! {
