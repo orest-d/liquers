@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
-use crate::context2::{ActionContext, Context, Environment};
+use crate::context2::{Context, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
 use crate::query::{Position, Query};

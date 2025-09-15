@@ -67,7 +67,6 @@ impl<E: Environment> Clone for EnvRef<E> {
 pub struct Context<E: Environment> {
     envref: EnvRef<E>,
     assetref: AssetRef<E>,
-    //asset: AssetRef<E>,
     metadata: Arc<Mutex<MetadataRecord>>, // TODO: Decide whether Asset or Context is the Metadata owner
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
 }
@@ -81,35 +80,31 @@ impl<E: Environment> Context<E> {
             cwd_key: Arc::new(Mutex::new(None)),
         }
     }
-}
-
-// TODO: It should be enough to have E as a parameter
-impl<E: Environment> ActionContext<EnvRef<E>, E> for Context<E> {
-    fn borrow_payload(&self) -> &EnvRef<E> {
+    pub fn borrow_payload(&self) -> &EnvRef<E> {
         &self.envref
     }
-    fn clone_payload(&self) -> EnvRef<E> {
+    pub fn clone_payload(&self) -> EnvRef<E> {
         EnvRef(self.envref.0.clone())
     }
-    fn get_metadata(&self) -> MetadataRecord {
+    pub fn get_metadata(&self) -> MetadataRecord {
         self.metadata.lock().unwrap().clone()
     }
-    fn set_filename(&self, filename: String) {
+    pub fn set_filename(&self, filename: String) {
         self.metadata.lock().unwrap().with_filename(filename);
     }
-    fn debug(&self, message: &str) {
+    pub fn debug(&self, message: &str) {
         self.metadata.lock().unwrap().debug(message);
     }
-    fn info(&self, message: &str) {
+    pub fn info(&self, message: &str) {
         self.metadata.lock().unwrap().info(message);
     }
-    fn warning(&self, message: &str) {
+    pub fn warning(&self, message: &str) {
         self.metadata.lock().unwrap().warning(message);
     }
-    fn error(&self, message: &str) {
+    pub fn error(&self, message: &str) {
         self.metadata.lock().unwrap().error(message);
     }
-    fn clone_context(&self) -> Self {
+    pub fn clone_context(&self) -> Self {
         Context {
             //asset: self.asset.clone(),
             envref: self.clone_payload(),
@@ -118,16 +113,16 @@ impl<E: Environment> ActionContext<EnvRef<E>, E> for Context<E> {
             cwd_key: self.cwd_key.clone(),
         }
     }
-    fn get_cwd_key(&self) -> Option<Key> {
+    pub fn get_cwd_key(&self) -> Option<Key> {
         self.cwd_key.lock().unwrap().clone()
     }
 
-    fn set_cwd_key(&self, key: Option<Key>) {
+    pub fn set_cwd_key(&self, key: Option<Key>) {
         let mut guard = self.cwd_key.lock().unwrap();
         *guard = key;
     }
 
-    fn get_asset_ref(&self) -> AssetRef<E> {
+    pub fn get_asset_ref(&self) -> AssetRef<E> {
         self.assetref.clone()
     }
 }
@@ -139,22 +134,6 @@ impl<E: Environment> ActionContext<EnvRef<E>, E> for Context<E> {
 // TODO: Should action parameters be in context?
 // TODO: There should be a reference to input_state_query
 // TODO: There should be a reference to query including the current action
-pub trait ActionContext<P, E: Environment> {
-    fn get_asset_ref(&self) -> AssetRef<E>;
-    fn borrow_payload(&self) -> &P;
-    fn clone_payload(&self) -> P;
-    fn get_metadata(&self) -> MetadataRecord;
-    fn set_filename(&self, filename: String);
-
-    // TODO: There should be a general log entry access
-    fn debug(&self, message: &str);
-    fn info(&self, message: &str);
-    fn warning(&self, message: &str);
-    fn error(&self, message: &str);
-    fn clone_context(&self) -> Self; // TODO: clone_context may not need to be available for the action
-    fn get_cwd_key(&self) -> Option<Key>;
-    fn set_cwd_key(&self, key: Option<Key>); // TODO: set_cwd_key may not need to be available for the action
-}
 
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
