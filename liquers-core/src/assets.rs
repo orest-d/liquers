@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;

@@ -608,13 +608,13 @@ impl CommandSignature {
             quote! {
                 fn #wrapper_name(
                     state: &liquers_core::state::State<CommandEnvironment::Value>,
-                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment::Value>,
+                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
                 ) ->
                 core::pin::Pin<
                   std::boxed::Box<
                     dyn core::future::Future<
-                      Output = core::result::Result<CommandEnvironment::Value, liquers_core::error::Error>
+                      Output = core::result::Result<<CommandEnvironment  as liquers_core::context2::Environment>::Value, liquers_core::error::Error>
                     > + core::sync::Send  + 'static
                   >
                 >
@@ -622,10 +622,10 @@ impl CommandSignature {
         } else {
             quote! {
                 fn #wrapper_name(
-                    state: &liquers_core::state::State<CommandEnvironment::Value>,
-                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment::Value>,
+                    state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
-                ) -> core::result::Result<CommandEnvironment::Value, liquers_core::error::Error>
+                ) -> core::result::Result<<CommandEnvironment as liquers_core::context2::Environment>::Value, liquers_core::error::Error>
             }
         }
     }
@@ -1583,10 +1583,10 @@ mod tests {
             liquers_core::error::Error
         > {
             fn test_fn__CMD_(
-                state: &liquers_core::state::State<CommandEnvironment::Value>,
-                arguments: liquers_core::commands2::CommandArguments<CommandEnvironment::Value>,
+                state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
-            ) -> core::result::Result<CommandEnvironment::Value, liquers_core::error::Error> {
+            ) -> core::result::Result<<CommandEnvironment as liquers_core::context2::Environment>::Value, liquers_core::error::Error> {
                 let a__par: i32 = arguments.get(0usize, "a")?;
                 let res = test_fn(state, a__par);
                 res

@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use core::panic;
 use std::{
     cell::RefCell,

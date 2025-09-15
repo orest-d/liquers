@@ -569,6 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_command_registry_execute_greet_macroregistration() {
+        use crate::context2::*;
         // Create a registry
         let mut registry = CommandRegistry::<SimpleEnvironment<Value>>::new();
 
