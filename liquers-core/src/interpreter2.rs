@@ -1,7 +1,7 @@
 use futures::FutureExt;
 
 use crate::{
-    assets2::{AssetRef, AssetManager},
+    assets2::{AssetManager, AssetRef},
     command_metadata::CommandKey,
     commands2::{CommandArguments, CommandExecutor},
     context2::{Context, EnvRef, Environment},
@@ -40,9 +40,10 @@ pub fn apply_plan<E: Environment>(
         for i in 0..plan.len() {
             let step = plan[i].clone();
             let ctx = context.clone_context();
-            let envref_copy = envref.clone();
-            let output_state = async move { do_step(envref_copy, step, state, ctx).await }.await?;
-            state = output_state.with_metadata(context.get_metadata().into());
+            let envref1= envref.clone();
+            let output_state = async move { 
+                do_step(envref1, step, state, ctx).await }.await?;
+            state = output_state.with_metadata(context.get_metadata().await?.into());
         }
         if state.status().is_none() {
             // TODO: This is a hack, should be done via context and asset
@@ -89,7 +90,10 @@ pub fn do_step<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                let context = Context::new(envref.clone(), AssetRef::new_from_recipe(0,(&query).into(), envref.clone())).await; // TODO: Fix assetref
+                let context = Context::new(
+                    AssetRef::new_from_recipe(0, (&query).into(), envref.clone()),
+                )
+                .await; // TODO: Fix assetref
                 let plan = make_plan(envref.clone(), query)?;
                 let input_state = State::<<E as Environment>::Value>::new();
                 apply_plan(plan, envref.clone(), context, input_state).await
@@ -104,8 +108,7 @@ pub fn do_step<E: Environment>(
             parameters,
         } => {
             let commannd_key = CommandKey::new(realm, ns, action_name);
-            let mut arguments =
-                CommandArguments::<E>::new(parameters.clone());
+            let mut arguments = CommandArguments::<E>::new(parameters.clone());
             arguments.action_position = position.clone();
             async move {
                 for (i, param) in parameters.0.iter().enumerate() {
@@ -140,7 +143,7 @@ pub fn do_step<E: Environment>(
                     Ok(result) => {
                         let state = State::<<E as Environment>::Value>::new()
                             .with_data(result)
-                            .with_metadata(context.get_metadata().into());
+                            .with_metadata(context.get_metadata().await?.into());
                         Ok(state)
                     }
                     Err(e) => Err(e),
@@ -148,10 +151,11 @@ pub fn do_step<E: Environment>(
             }
             .boxed()
         }
-        Step::Filename(name) => {
-            context.set_filename(name.name.clone());
-            async move { Ok(input_state) }.boxed()
+        Step::Filename(name) => async move {
+            context.set_filename(&name.name);
+            Ok(input_state)
         }
+        .boxed(),
         Step::Info(m) => {
             context.info(&m);
             async move { Ok(input_state) }.boxed()
@@ -190,15 +194,12 @@ pub fn do_step<E: Environment>(
 pub fn evaluate_plan<E: Environment>(
     plan: Plan,
     envref: EnvRef<E>,
-    assetref: AssetRef<E>
+    assetref: AssetRef<E>,
 ) -> std::pin::Pin<
     Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
 > {
     async move {
-        let context = Context::new(
-            envref.clone(), assetref
-        )
-        .await;
+        let context = Context::new(assetref).await;
         apply_plan(
             plan,
             envref.clone(),
@@ -220,7 +221,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         let query = rquery?;
         let plan = make_plan(envref.clone(), query.clone())?;
         let assetref = AssetRef::new_from_recipe(0, (&query).into(), envref.clone());
-        let context = Context::new(envref.clone(), assetref).await;
+        let context = Context::new(assetref).await;
         context.set_cwd_key(cwd_key);
         apply_plan(
             plan,

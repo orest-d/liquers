@@ -104,7 +104,7 @@ pub struct AssetData<E: Environment> {
     binary: Option<Arc<Vec<u8>>>,
 
     /// Metadata
-    metadata: Metadata,
+    pub(crate) metadata: Metadata,
 
     /// Current status
     status: Status,
@@ -177,17 +177,17 @@ impl<E: Environment> AssetData<E> {
         Ok(assetinfo)
     }
 
-    pub fn asset_reference(&self) -> Result<String, Error> {
+    pub fn asset_reference(&self) -> String {
         if self.is_resource().unwrap_or(false) {
             if let Ok(Some(key)) = self.recipe.key() {
-                return Ok(format!("resource asset {}: {}", self.id(), key));
+                return format!("Resource asset {}: {}", self.id(), key);
             }
         }
-        if self.is_pure_query()? {
+        if let Ok(true) = self.is_pure_query() {
             let q = self.recipe.get_query().unwrap();
-            return Ok(format!("pure query asset {}: {}", self.id(), q));
+            return format!("Pure query asset {}: {}", self.id(), q);
         }
-        Ok(format!("complex asset {}: {:?}", self.id(), self.recipe))
+        format!("Complex asset {}: {:?}", self.id(), self.recipe)
     }
 
     /// Check if the asset is a pure query (no initial value and recipe is a pure query)
@@ -370,12 +370,11 @@ impl<E: Environment> AssetRef<E> {
     }
 
     pub async fn create_context(&self) -> Context<E> {
-        let envref = self.get_envref().await;
-        Context::new(envref, self.clone()).await
+        Context::new(self.clone()).await
     }
 
     /// Get a string representation describing the asset
-    pub async fn asset_reference(&self) -> Result<String, Error> {
+    pub async fn asset_reference(&self) -> String {
         let lock = self.data.read().await;
         lock.asset_reference()
     }
@@ -520,7 +519,7 @@ impl<E: Environment> AssetRef<E> {
             let cmr = envref.0.get_command_metadata_registry();
             recipe.to_plan(cmr)?
         };
-        let context = Context::new(envref.clone(), self.clone()).await; // TODO: reference to asset
+        let context = Context::new(self.clone()).await; // TODO: reference to asset
                                                                         // TODO: Separate evaluation of dependencies
         let res = apply_plan(plan, envref, context, input_state).await?;
 
@@ -581,14 +580,14 @@ impl<E: Environment> AssetRef<E> {
                 store.set(key, &data, &metadata).await
             } else {
                 Err(Error::general_error(format!(
-                    "Cannot determine key to store asset {}",
-                    self.asset_reference().await?
+                    "Cannot determine key to store asset - {}",
+                    self.asset_reference().await
                 )))
             }
         } else {
             Err(Error::unexpected_error(format!(
-                "Failed to obtain binary value for storing of the asset {}",
-                self.asset_reference().await?
+                "Failed to obtain binary value for storing of the asset - {}",
+                self.asset_reference().await
             )))
         }
     }

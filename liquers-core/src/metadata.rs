@@ -884,6 +884,17 @@ impl Metadata {
             _ => None,
         }
     }
+    pub fn set_filename(&mut self, filename: &str) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::LegacyMetadata(_) => {
+                Err(Error::general_error("Cannot set filename on legacy metadata".to_string()))
+            }
+            Metadata::MetadataRecord(m) => {
+                m.set_filename(filename);
+                Ok(self)
+            }
+        }
+    }
     pub fn extension(&self) -> Option<String> {
         if let Some(filename) = self.filename() {
             let parts: Vec<&str> = filename.split('.').collect();

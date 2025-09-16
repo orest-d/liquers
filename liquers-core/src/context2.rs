@@ -13,7 +13,7 @@ use core::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    assets2::AssetRef, assets2::DefaultAssetManager, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, metadata::MetadataRecord, query::Key, store::{NoStore, Store}, value::ValueInterface
+    assets2::{AssetRef, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::Key, store::{NoStore, Store}, value::ValueInterface
 };
 
 pub trait Environment: Sized + Sync + Send + 'static {
@@ -65,51 +65,41 @@ impl<E: Environment> Clone for EnvRef<E> {
 
 // TODO: There should be an asset reference
 pub struct Context<E: Environment> {
-    envref: EnvRef<E>,
     assetref: AssetRef<E>,
-    metadata: Arc<Mutex<MetadataRecord>>, // TODO: Decide whether Asset or Context is the Metadata owner
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
 }
 
 impl<E: Environment> Context<E> {
-    pub async fn new(envref: EnvRef<E>, assetref:AssetRef<E>) -> Self {
+    pub async fn new(assetref:AssetRef<E>) -> Self {
         Context {
-            envref,
             assetref,
-            metadata: Arc::new(Mutex::new(MetadataRecord::new())),
             cwd_key: Arc::new(Mutex::new(None)),
         }
     }
-    pub fn borrow_payload(&self) -> &EnvRef<E> {
-        &self.envref
+    pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
+        self.assetref.data.read().await.metadata.metadata_record().ok_or(
+            Error::unexpected_error(format!("{} has legacy metadata", self.assetref.asset_reference().await))
+        )
     }
-    pub fn clone_payload(&self) -> EnvRef<E> {
-        EnvRef(self.envref.0.clone())
+    pub async fn set_filename(&self, filename: &str) -> Result<(), Error> {
+        self.assetref.data.write().await.metadata.set_filename(filename).map(|_| ())
     }
-    pub fn get_metadata(&self) -> MetadataRecord {
-        self.metadata.lock().unwrap().clone()
+    pub async fn debug(&self, message: &str) {
+        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::debug(message.to_string()));
     }
-    pub fn set_filename(&self, filename: String) {
-        self.metadata.lock().unwrap().with_filename(filename);
+    pub async fn info(&self, message: &str) {
+        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::info(message.to_string()));
     }
-    pub fn debug(&self, message: &str) {
-        self.metadata.lock().unwrap().debug(message);
+    pub async fn warning(&self, message: &str) {
+        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::warning(message.to_string()));
     }
-    pub fn info(&self, message: &str) {
-        self.metadata.lock().unwrap().info(message);
-    }
-    pub fn warning(&self, message: &str) {
-        self.metadata.lock().unwrap().warning(message);
-    }
-    pub fn error(&self, message: &str) {
-        self.metadata.lock().unwrap().error(message);
+    pub async fn error(&self, message: &str) {
+        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::error(message.to_string()));
     }
     pub fn clone_context(&self) -> Self {
         Context {
             //asset: self.asset.clone(),
-            envref: self.clone_payload(),
             assetref: self.assetref.clone(),
-            metadata: self.metadata.clone(),
             cwd_key: self.cwd_key.clone(),
         }
     }
