@@ -59,7 +59,7 @@ use crate::{
 /// Message for internal service communication (reliable, for control)
 #[derive(Debug, Clone)]
 pub enum AssetServiceMessage {
-    LogMessage(String),
+    LogMessage(LogEntry),
     Cancel,
     UpdateProgress(f32),
     JobSubmitted,
@@ -87,8 +87,8 @@ pub struct AssetData<E: Environment> {
 
     envref: EnvRef<E>,
     // Service channel (mpsc) for control messages
-    service_tx: mpsc::Sender<AssetServiceMessage>,
-    _service_rx: Arc<Mutex<mpsc::Receiver<AssetServiceMessage>>>,
+    service_tx: mpsc::UnboundedSender<AssetServiceMessage>,
+    service_rx: Arc<Mutex<mpsc::UnboundedReceiver<AssetServiceMessage>>>,
 
     // Notification channel (watch) for client notifications
     notification_tx: watch::Sender<AssetNotificationMessage>,
@@ -121,7 +121,7 @@ pub struct AssetData<E: Environment> {
 impl<E: Environment> AssetData<E> {
     pub fn new(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
         // Create service channel with buffer size 32
-        let (service_tx, service_rx) = mpsc::channel(32);
+        let (service_tx, service_rx) = mpsc::unbounded_channel();
 
         // Create notification channel with initial status None
         let (notification_tx, notification_rx) = watch::channel(AssetNotificationMessage::Initial);
@@ -131,7 +131,7 @@ impl<E: Environment> AssetData<E> {
             envref,
             recipe,
             service_tx,
-            _service_rx: Arc::new(Mutex::new(service_rx)),
+            service_rx: Arc::new(Mutex::new(service_rx)),
             notification_tx,
             _notification_rx: notification_rx,
             initial_state: State::new(),
@@ -270,7 +270,7 @@ impl<E: Environment> AssetData<E> {
     }
 
     /// Get a clone of the service sender for internal control
-    pub fn service_sender(&self) -> mpsc::Sender<AssetServiceMessage> {
+    pub fn service_sender(&self) -> mpsc::UnboundedSender<AssetServiceMessage> {
         self.service_tx.clone()
     }
 
@@ -392,7 +392,6 @@ impl<E: Environment> AssetRef<E> {
 
         lock.service_tx
             .send(AssetServiceMessage::JobSubmitted)
-            .await
             .map_err(|e| {
                 Error::general_error(format!("Failed to send JobSubmitted message: {}", e))
             })
@@ -406,21 +405,23 @@ impl<E: Environment> AssetRef<E> {
 
     /// Process messages from the service channel
     pub(crate) async fn process_service_messages(&self) -> Result<(), Error> {
+        println!("Starting to process service messages for asset {}", self.id());
         let (service_rx_ref, notification_tx) = {
             let lock = self.data.read().await;
-            (lock._service_rx.clone(), lock.notification_tx.clone())
+            (lock.service_rx.clone(), lock.notification_tx.clone())
         };
 
         let mut rx = service_rx_ref.lock().await;
 
         while let Some(msg) = rx.recv().await {
+            println!("Received message: {:?} by asset {}", msg, self.id());
             match msg {
-                AssetServiceMessage::LogMessage(message) => {
+                AssetServiceMessage::LogMessage(entry) => {
                     // Forward log message to notification channel
                     let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
                     // Update metadata with log message
                     let mut lock = self.data.write().await;
-                    lock.metadata.add_log_entry(LogEntry::info(message))?;
+                    lock.metadata.add_log_entry(entry)?;
                 }
                 AssetServiceMessage::Cancel => {
                     self.set_status(Status::Cancelled).await?;
@@ -628,9 +629,15 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Subscribe to asset notifications.
-    pub async fn subscribe(&self) -> watch::Receiver<AssetNotificationMessage> {
+    pub async fn subscribe_to_notifications(&self) -> watch::Receiver<AssetNotificationMessage> {
         let lock = self.data.read().await;
         lock.notification_tx.subscribe()
+    }
+
+    /// Get a clone of the service sender for internal control
+    pub(crate) async fn service_sender(&self) -> mpsc::UnboundedSender<AssetServiceMessage> {
+        let lock = self.data.read().await;
+        lock.service_sender()
     }
 
     /// Get the final state of the asset.
@@ -643,7 +650,7 @@ impl<E: Environment> AssetRef<E> {
         }
 
         // Subscribe to notifications before starting evaluation
-        let mut rx = self.subscribe().await;
+        let mut rx = self.subscribe_to_notifications().await;
 
         // Wait for either notifications or run completion
 
@@ -1046,6 +1053,8 @@ impl<E: Environment + 'static> JobQueue<E> {
 
 #[cfg(test)]
 mod tests {
+    use scc::hash_cache::Entry;
+
     use super::*;
     use crate::command_metadata::CommandKey;
     use crate::context2::SimpleEnvironment;
@@ -1262,4 +1271,35 @@ mod tests {
         let (b, _) = assetref.get_binary().await.unwrap();
         assert_eq!(b.as_ref(), b"Hello, world!");
     }
+
+    #[tokio::test]
+    async fn test_asset_log() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, ctx| {
+                println!("HELLO from test");
+                ctx.info("Hello from test");
+                Ok(Value::from("Hello, world!"))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let assetref = envref.get_asset_manager().get_asset(&query).await.unwrap();
+
+        let result = assetref.get().await.unwrap().try_into_string().unwrap();
+        let metadata = assetref.get().await.unwrap().metadata;
+        assert_eq!(result, "Hello, world!");
+        assert_eq!(assetref.status().await, Status::Ready);
+        if let Metadata::MetadataRecord(meta) = &*metadata {
+            let log_entry = meta.log.iter().find(
+                |entry| entry.message == "Hello from test"
+            );
+            assert!(log_entry.is_some());
+        } else {
+            panic!("Expected MetadataRecord");
+        }
+    }
+
 }

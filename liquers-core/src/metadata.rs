@@ -162,7 +162,7 @@ impl LogEntry {
             kind,
             message,
             ..Self::default()
-        }
+        }.with_timestamp()
     }
     pub fn info(message: String) -> LogEntry {
         LogEntry::new(LogEntryKind::Info, message)
@@ -176,27 +176,27 @@ impl LogEntry {
     pub fn error(message: String) -> LogEntry {
         LogEntry::new(LogEntryKind::Error, message)
     }
-    pub fn with_query(&mut self, query: Query) -> &mut Self {
+    pub fn with_query(mut self, query: Query) -> Self {
         self.query = Some(query);
         self
     }
-    pub fn with_position(&mut self, position: Position) -> &mut Self {
+    pub fn with_position(mut self, position: Position) -> Self {
         self.position = position;
         self
     }
-    pub fn with_traceback(&mut self, traceback: String) -> &mut Self {
+    pub fn with_traceback(mut self, traceback: String) -> Self {
         self.traceback = Some(traceback);
         self
     }
-    pub fn with_message_html(&mut self, message_html: String) -> &mut Self {
+    pub fn with_message_html(mut self, message_html: String) -> Self {
         self.message_html = Some(message_html);
         self
     }
-    pub fn with_custom_timestamp(&mut self, timestamp: String) -> &mut Self {
+    pub fn with_custom_timestamp(mut self, timestamp: String) -> Self {
         self.timestamp = timestamp;
         self
     }
-    pub fn with_timestamp(&mut self) -> &mut Self {
+    pub fn with_timestamp(mut self) -> Self {
         self.timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         self
     }
@@ -546,7 +546,12 @@ impl MetadataRecord {
         self
     }
     pub fn add_log_entry(&mut self, log_entry: LogEntry) -> &mut Self {
-        self.log.push(log_entry);
+        if log_entry.kind == LogEntryKind::Error {
+            self.is_error = true;
+            self.status = Status::Error;
+        }
+        self.message = log_entry.message.clone();
+        self.log.push(log_entry); 
         self
     }
     pub fn with_filename(&mut self, filename: String) -> &mut Self {

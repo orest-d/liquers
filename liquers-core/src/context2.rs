@@ -12,8 +12,10 @@
 use core::panic;
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::watch;
+
 use crate::{
-    assets2::{AssetRef, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::Key, store::{NoStore, Store}, value::ValueInterface
+    assets2::{AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::Key, store::{NoStore, Store}, value::ValueInterface
 };
 
 
@@ -83,13 +85,16 @@ impl<E: Environment> Clone for EnvRef<E> {
 pub struct Context<E: Environment> {
     assetref: AssetRef<E>,
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
+    service_tx: tokio::sync::mpsc::UnboundedSender<AssetServiceMessage>,
 }
 
 impl<E: Environment> Context<E> {
     pub async fn new(assetref:AssetRef<E>) -> Self {
+        let service_tx = assetref.service_sender().await;
         Context {
             assetref,
             cwd_key: Arc::new(Mutex::new(None)),
+            service_tx
         }
     }
     pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
@@ -100,23 +105,26 @@ impl<E: Environment> Context<E> {
     pub async fn set_filename(&self, filename: &str) -> Result<(), Error> {
         self.assetref.data.write().await.metadata.set_filename(filename).map(|_| ())
     }
-    pub async fn debug(&self, message: &str) {
-        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::debug(message.to_string()));
+    pub fn add_log_entry(&self, entry: LogEntry) -> Result<(), Error> {
+        self.service_tx.send(AssetServiceMessage::LogMessage(entry)).map_err(|e| Error::general_error(format!("Failed to send log message: {}", e)))
     }
-    pub async fn info(&self, message: &str) {
-        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::info(message.to_string()));
+    pub fn debug(&self, message: &str) -> Result<(), Error> {
+        self.add_log_entry(LogEntry::debug(message.to_string()))
     }
-    pub async fn warning(&self, message: &str) {
-        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::warning(message.to_string()));
+    pub fn info(&self, message: &str) -> Result<(), Error> {
+        self.add_log_entry(LogEntry::info(message.to_string()))
     }
-    pub async fn error(&self, message: &str) {
-        self.assetref.data.write().await.metadata.add_log_entry(LogEntry::error(message.to_string()));
+    pub fn warning(&self, message: &str) -> Result<(), Error> {
+        self.add_log_entry(LogEntry::warning(message.to_string()))
     }
-    pub fn clone_context(&self) -> Self {
+    pub fn error(&self, message: &str) -> Result<(), Error> {
+        self.add_log_entry(LogEntry::error(message.to_string()))
+    }
+    pub async fn clone_context(&self) -> Self {
         Context {
-            //asset: self.asset.clone(),
             assetref: self.assetref.clone(),
             cwd_key: self.cwd_key.clone(),
+            service_tx: self.service_tx.clone(),
         }
     }
     pub fn get_cwd_key(&self) -> Option<Key> {

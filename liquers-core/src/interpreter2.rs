@@ -39,7 +39,7 @@ pub fn apply_plan<E: Environment>(
         let mut state = input_state;
         for i in 0..plan.len() {
             let step = plan[i].clone();
-            let ctx = context.clone_context();
+            let ctx = context.clone_context().await;
             let envref1= envref.clone();
             let output_state = async move { 
                 do_step(envref1, step, state, ctx).await }.await?;
@@ -136,7 +136,7 @@ pub fn do_step<E: Environment>(
                         &commannd_key,
                         input_state,
                         arguments,
-                        context.clone_context(),
+                        context.clone_context().await,
                     )
                     .await;
                 match result {
