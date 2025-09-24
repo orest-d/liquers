@@ -587,7 +587,7 @@ impl CommandSignature {
                   std::boxed::Box<
                     dyn core::future::Future<
                       Output = core::result::Result<CommandValue, liquers_core::error::Error>
-                    > + core::sync::Send  + 'static
+                    > + core::marker::Send  + 'static
                   >
                 >
             }
@@ -606,8 +606,9 @@ impl CommandSignature {
         let wrapper_name = self.wrapper_fn_name();
         if self.is_async {
             quote! {
+                #[allow(non_snake_case)]
                 fn #wrapper_name(
-                    state: &liquers_core::state::State<CommandEnvironment::Value>,
+                    state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
                     arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
                 ) ->
@@ -615,12 +616,13 @@ impl CommandSignature {
                   std::boxed::Box<
                     dyn core::future::Future<
                       Output = core::result::Result<<CommandEnvironment  as liquers_core::context2::Environment>::Value, liquers_core::error::Error>
-                    > + core::sync::Send  + 'static
+                    > + core::marker::Send  + 'static
                   >
                 >
             }
         } else {
             quote! {
+                #[allow(non_snake_case)]
                 fn #wrapper_name(
                     state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
                     arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
@@ -642,10 +644,8 @@ impl CommandSignature {
         let wrapper_args = self.wrapper_arguments();
         if self.is_async {
             quote! {
-                async move {
-                    let res = #fn_name(#wrapper_args).await;
-                    #ret
-                }.boxed()
+                let res = #fn_name(#wrapper_args).await;
+                #ret
             }
         } else {
             quote! {
@@ -658,10 +658,21 @@ impl CommandSignature {
         let signature = self.wrapper_fn_signature();
         let extract_parameters = self.extract_all_parameters();
         let call = self.command_call();
-        quote! {
-            #signature {
-                #extract_parameters
-                #call
+        if self.is_async {
+            quote! {
+                #signature {
+                    async move {
+                        #extract_parameters
+                        #call
+                    }.boxed()
+                }
+            }
+        } else {
+            quote! {
+                #signature {
+                    #extract_parameters
+                    #call
+                }
             }
         }
     }
@@ -716,6 +727,7 @@ impl CommandSignature {
             },
         };
         quote! {
+            #[allow(non_snake_case)]
             pub fn #register_fn_name(
                 registry: &mut #registry_type
             ) -> core::result::Result<&mut liquers_core::command_metadata::CommandMetadata, liquers_core::error::Error>
@@ -1164,6 +1176,7 @@ pub fn register_command_v2(input: TokenStream) -> TokenStream {
     let cr = sig.cr;
     let gen = quote! {
         {
+            use futures::FutureExt; 
             #register_fn
             #register_fn_name(#cr)
         }
@@ -1235,7 +1248,7 @@ mod tests {
                 std::boxed::Box<
                     dyn core::future::Future<
                         Output = core::result::Result<CommandValue, liquers_core::error::Error>
-                    > + core::sync::Send  + 'static
+                    > + core::marker::Send  + 'static
                 >
             >
         };
@@ -1510,6 +1523,7 @@ mod tests {
         let tokens = sig.command_registration();
 
         let expected = r#"
+            #[allow(non_snake_case)]
             pub fn REGISTER__test_fn(
                 registry: &mut liquers_core::commands::NGCommandRegistry<
                     CommandPayload,
@@ -1576,12 +1590,14 @@ mod tests {
         let tokens = sig.command_registration();
 
         let expected = r#"
+        #[allow(non_snake_case)]
         pub fn REGISTER__test_fn(
             registry: &mut liquers_core::commands2::CommandRegistry<CommandEnvironment>
         ) -> core::result::Result<
             &mut liquers_core::command_metadata::CommandMetadata,
             liquers_core::error::Error
         > {
+            #[allow(non_snake_case)]
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
                 arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
@@ -1640,14 +1656,16 @@ mod tests {
         let tokens = sig.command_registration();
 
         let expected = r#"
+        #[allow(non_snake_case)]
         pub fn REGISTER__test_fn(
             registry: &mut liquers_core::commands2::CommandRegistry<CommandEnvironment>
         ) -> core::result::Result<
             &mut liquers_core::command_metadata::CommandMetadata,
             liquers_core::error::Error
         > {
+            #[allow(non_snake_case)]
             fn test_fn__CMD_(
-                state: &liquers_core::state::State<CommandEnvironment::Value>,
+                state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
                 arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
             ) -> core::pin::Pin<
@@ -1657,12 +1675,12 @@ mod tests {
                                 <CommandEnvironment as liquers_core::context2::Environment>::Value,
                                 liquers_core::error::Error
                             >
-                        > + core::sync::Send
+                        > + core::marker::Send
                         + 'static
                 >
             > {
-                let a__par: i32 = arguments.get(0usize, "a")?;
                 async move {
+                    let a__par: i32 = arguments.get(0usize, "a")?;
                     let res = test_fn(state, a__par).await;
                     res
                 }

@@ -26,7 +26,8 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
     register_command_v2!(cr, fn world(state) -> result).expect("register_command failed");
        {
         
-            use futures::FutureExt;  // TODO 4) Insert use futures::FutureExt;
+            use futures::FutureExt;
+            // TODO 4) Insert use futures::FutureExt;
             // TODO: turn off snake case warning
             pub fn REGISTER__greet(
                 registry: &mut liquers_core::commands2::CommandRegistry<

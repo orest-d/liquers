@@ -18,7 +18,7 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
     fn world(_state: &State<Value>) -> Result<Value, Error> {
         Ok(Value::from("world"))
     }
-    async fn greet(state: &State<Value>, greet: String) -> Result<Value, Error> {
+    async fn greet(state: State<Value>, greet: String) -> Result<Value, Error> {
         let what = state.try_into_string()?;
         Ok(Value::from(format!("{greet}, {what}!")))
     }

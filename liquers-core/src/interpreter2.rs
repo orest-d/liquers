@@ -327,14 +327,14 @@ mod tests {
         fn world(_state: &State<Value>) -> Result<Value, Error> {
             Ok(Value::from("world"))
         }
-        async fn greet(state: &State<Value>, greet: String) -> Result<Value, Error> {
+        async fn greet(state: State<Value>, greet: String) -> Result<Value, Error> {
             let what = state.try_into_string()?;
             Ok(Value::from(format!("{greet}, {what}!")))
         }
         let cr = &mut env.command_registry;
         register_command_v2!(cr, fn world(state) -> result).expect("register_command failed");
-        //register_command_v2!(cr, async fn greet(state, greet: String = "Hello") -> result)
-        //    .expect("register_command failed");
+        register_command_v2!(cr, async fn greet(state, greet: String = "Hello") -> result)
+            .expect("register_command failed");
 
         let envref = env.to_ref();
 
