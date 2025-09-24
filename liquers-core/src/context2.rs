@@ -16,9 +16,22 @@ use crate::{
     assets2::{AssetRef, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::Key, store::{NoStore, Store}, value::ValueInterface
 };
 
+
+pub enum User {
+    System,
+    Anonymous,
+    Named(String),
+}
+
+pub trait Session {
+    fn get_user(&self) -> &User;
+}
+
+
 pub trait Environment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
     type CommandExecutor: CommandExecutor<Self>;
+    type SessionType: Session;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
     fn get_command_executor(&self) -> &Self::CommandExecutor;
@@ -28,6 +41,9 @@ pub trait Environment: Sized + Sync + Send + 'static {
     fn get_asset_manager(
         &self,
     ) -> Arc<Box<DefaultAssetManager<Self>>>;
+
+    fn create_session(&self, user: User) -> Self::SessionType;
+
 }
 
 // TODO: Define Session and User; Session connects multiple actions of a single user.
@@ -125,6 +141,15 @@ impl<E: Environment> Context<E> {
 // TODO: There should be a reference to input_state_query
 // TODO: There should be a reference to query including the current action
 
+pub struct SimpleSession{
+    user: User,
+}
+impl Session for SimpleSession {
+    fn get_user(&self) -> &User {
+        &self.user
+    }
+}
+
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct SimpleEnvironment<V: ValueInterface> {
@@ -176,6 +201,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
 impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = SimpleSession;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -194,6 +220,9 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         &self,
     ) -> Arc<Box<DefaultAssetManager<Self>>> {
         self.asset_store.clone()
+    }
+    fn create_session(&self, user: User) -> Self::SessionType {
+        SimpleSession { user }
     }
 
 }
