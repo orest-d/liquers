@@ -62,6 +62,7 @@ pub enum AssetServiceMessage {
     LogMessage(LogEntry),
     Cancel,
     UpdateProgress(f32),
+    ErrorOccurred(Error),
     JobSubmitted,
     JobStarted,
     JobFinished,
@@ -79,6 +80,9 @@ pub enum AssetNotificationMessage {
     ErrorOccurred(Error),
     ProgressUpdated(f32),
     LogMessage,
+    JobSubmitted,
+    JobStarted,
+    JobFinished,
 }
 
 pub struct AssetData<E: Environment> {
@@ -231,6 +235,7 @@ impl<E: Environment> AssetData<E> {
                     self.data = Some(Arc::new(value));
                     self.status = metadata.status();
                     self.metadata = metadata;
+                    let key1 = key.clone();
                     self.notification_tx
                         .send(AssetNotificationMessage::Loaded)
                         .map_err(|e| {
@@ -238,9 +243,18 @@ impl<E: Environment> AssetData<E> {
                                 "Failed to send loaded notification: {}",
                                 e
                             ))
+                            .with_query(&key1.into())
+                        })?;
+                    self.notification_tx
+                        .send(AssetNotificationMessage::JobFinished)
+                        .map_err(|e| {
+                            Error::general_error(format!(
+                                "Failed to send job finished notification: {}",
+                                e
+                            ))
                             .with_query(&key.into())
                         })?;
-                } else {                    
+                } else {
                     eprintln!(
                         "Asset {} has no data, cannot deserialize, status: {:?}",
                         self.id(),
@@ -405,7 +419,10 @@ impl<E: Environment> AssetRef<E> {
 
     /// Process messages from the service channel
     pub(crate) async fn process_service_messages(&self) -> Result<(), Error> {
-        println!("Starting to process service messages for asset {}", self.id());
+        println!(
+            "Starting to process service messages for asset {}",
+            self.id()
+        );
         let (service_rx_ref, notification_tx) = {
             let lock = self.data.read().await;
             (lock.service_rx.clone(), lock.notification_tx.clone())
@@ -418,15 +435,16 @@ impl<E: Environment> AssetRef<E> {
             match msg {
                 AssetServiceMessage::LogMessage(entry) => {
                     // Forward log message to notification channel
-                    let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
                     // Update metadata with log message
                     let mut lock = self.data.write().await;
                     lock.metadata.add_log_entry(entry)?;
+                    let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
                 }
                 AssetServiceMessage::Cancel => {
                     self.set_status(Status::Cancelled).await?;
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
+                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
                     return Ok(());
                 }
                 AssetServiceMessage::UpdateProgress(progress) => {
@@ -438,15 +456,26 @@ impl<E: Environment> AssetRef<E> {
                     self.set_status(Status::Submitted).await?;
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                    let _ = notification_tx.send(AssetNotificationMessage::JobSubmitted);
                 }
                 AssetServiceMessage::JobStarted => {
                     self.set_status(Status::Processing).await?;
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Processing));
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                    let _ = notification_tx.send(AssetNotificationMessage::JobStarted);
                 }
                 AssetServiceMessage::JobFinished => {
+                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+                    return Ok(());
+                }
+                AssetServiceMessage::ErrorOccurred(error) => {
+                    {
+                        let mut lock = self.data.write().await;
+                        lock.status = Status::Error;
+                        lock.metadata.with_error(error.clone());
+                    }
+                    let _ = notification_tx.send(AssetNotificationMessage::ErrorOccurred(error));
+                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
                     return Ok(());
                 }
             }
@@ -454,15 +483,58 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    pub(crate) async fn wait_to_finish(&self) -> Result<(), Error> {
+        let mut rx = self.subscribe_to_notifications().await;
+        loop {
+            let notification = rx.borrow().clone();
+            eprintln!("Waiting for asset {} to finish, current notification: {:?}", self.id(), notification);
+            match notification {
+                AssetNotificationMessage::JobFinished => {
+                    return Ok(());
+                }
+                _ => {}
+            }
+            rx.changed().await.map_err(|e| {
+                Error::general_error(format!("Failed to receive notification: {}", e))
+            })?;
+        }
+    }
+
     /// Run the asset evaluation loop.
     pub(crate) async fn run(&self) -> Result<(), Error> {
         if self.status().await.is_finished() {
             return Ok(()); // Already finished
         }
-        let result = tokio::select! {
-            res = self.process_service_messages() => res,
+        let assetref = self.clone();
+        let psm = tokio::spawn(async move { assetref.process_service_messages().await });
+        let mut result = tokio::select! {
+            res = self.wait_to_finish() => res,
             res = self.evaluate_and_store() => res
         };
+        self.service_sender().await.send(AssetServiceMessage::JobFinished).ok();
+        let psm_result = psm.await;
+        match psm_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                result = Err(e);
+            }
+            Err(e) => {
+                if result.is_ok() {
+                    result = Err(Error::general_error(format!(
+                        "Failed to join process_service_messages task: {}",
+                        e
+                    )));
+                }
+                else{
+                    let mut lock = self.data.write().await;
+                    lock.metadata.add_log_entry(LogEntry::error(format!(
+                        "Failed to join process_service_messages task: {}",
+                        e
+                    ))).ok();
+                }
+            }
+        }
+
         if let Err(e) = &result {
             let mut lock = self.data.write().await;
             lock.data = None;
@@ -472,37 +544,48 @@ impl<E: Environment> AssetRef<E> {
             let _ = lock
                 .notification_tx
                 .send(AssetNotificationMessage::ErrorOccurred(e.clone()));
-        }
-        else{
+        } else {
             async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
-                eprintln!("Trying to set asset {} to ready - status {:?}", assetref.id(), assetref.status().await);
+                eprintln!(
+                    "Trying to set asset {} to ready - status {:?}",
+                    assetref.id(),
+                    assetref.status().await
+                );
                 let mut lock = assetref.data.write().await;
-                    if lock.data.is_some(){
-                        lock.status = Status::Ready;
-                    }
-                    else{
-                        lock.status = Status::Error;
-                        let e = Error::unexpected_error(format!("Asset evaluation finished ({:?} status) but no data available", lock.status));
-                        lock.metadata.with_error(e.clone());
-                        let _ = lock
-                            .notification_tx
-                            .send(AssetNotificationMessage::ErrorOccurred(e));
-                    }
-
+                if lock.data.is_some() {
+                    lock.status = Status::Ready;
+                } else {
+                    lock.status = Status::Error;
+                    let e = Error::unexpected_error(format!(
+                        "Asset evaluation finished ({:?} status) but no data available",
+                        lock.status
+                    ));
+                    lock.metadata.with_error(e.clone());
+                }
             }
             match self.status().await {
-                Status::None => {try_to_set_ready(self.clone()).await;}
-                Status::Recipe => {try_to_set_ready(self.clone()).await;}
-                Status::Submitted => {try_to_set_ready(self.clone()).await;}
+                Status::None => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Recipe => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Submitted => {
+                    try_to_set_ready(self.clone()).await;
+                }
                 Status::Dependencies => todo!(),
-                Status::Processing => {try_to_set_ready(self.clone()).await;}
-                Status::Partial => {try_to_set_ready(self.clone()).await;}
+                Status::Processing => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Partial => {
+                    try_to_set_ready(self.clone()).await;
+                }
                 Status::Error => todo!(),
                 Status::Storing => todo!(),
-                Status::Ready => {},
-                Status::Expired => {},
-                Status::Cancelled => {},
-                Status::Source => {},
+                Status::Ready => {}
+                Status::Expired => {}
+                Status::Cancelled => {}
+                Status::Source => {}
             }
         }
         result
@@ -521,7 +604,7 @@ impl<E: Environment> AssetRef<E> {
             recipe.to_plan(cmr)?
         };
         let context = Context::new(self.clone()).await; // TODO: reference to asset
-                                                                        // TODO: Separate evaluation of dependencies
+                                                        // TODO: Separate evaluation of dependencies
         let res = apply_plan(plan, envref, context, input_state).await?;
 
         Ok(res)
@@ -676,6 +759,17 @@ impl<E: Environment> AssetRef<E> {
                 AssetNotificationMessage::ProgressUpdated(_) => {}
                 AssetNotificationMessage::LogMessage => {}
                 AssetNotificationMessage::LoadingFailed => {}
+                AssetNotificationMessage::JobSubmitted => {}
+                AssetNotificationMessage::JobStarted => {}
+                AssetNotificationMessage::JobFinished => {
+                    if let Some(state) = self.poll_state().await {
+                        return Ok(state);
+                    } else {
+                        return Err(Error::unexpected_error(
+                            "Asset finished but no data available".to_owned(),
+                        ));
+                    }
+                }
             }
             rx.changed().await.map_err(|e| {
                 Error::general_error(format!("Failed to receive notification: {}", e))
@@ -1016,8 +1110,11 @@ impl<E: Environment + 'static> JobQueue<E> {
                 }
 
                 // Start jobs
-                for asset in jobs_to_start {
+                for asset in jobs_to_start {               
                     let asset_clone = asset.clone();
+                    if let Err(e) = asset_clone.set_status(Status::Processing).await {
+                        eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
+                    }
                     eprintln!("Starting asset job {}", asset.id());
                     tokio::spawn(async move {
                         let _ = asset_clone.run().await;
@@ -1089,7 +1186,7 @@ mod tests {
                     MetadataRecord::new()
                         .with_key(key.clone())
                         .with_type_identifier("text".to_owned())
-                        .with_status(Status::Source)    
+                        .with_status(Status::Source)
                         .clone(),
                 ),
             )
@@ -1197,8 +1294,9 @@ mod tests {
             let assetref = assetref.clone();
             async move { assetref.get().await }
         });
-
+        eprintln!("Waiting for asset to run");
         assetref.run().await.unwrap();
+        eprintln!("run completed");
 
         let result = handle.await.unwrap().unwrap().try_into_string().unwrap();
         assert_eq!(result, "Hello, world!");
@@ -1293,13 +1391,13 @@ mod tests {
         assert_eq!(result, "Hello, world!");
         assert_eq!(assetref.status().await, Status::Ready);
         if let Metadata::MetadataRecord(meta) = &*metadata {
-            let log_entry = meta.log.iter().find(
-                |entry| entry.message == "Hello from test"
-            );
+            let log_entry = meta
+                .log
+                .iter()
+                .find(|entry| entry.message == "Hello from test");
             assert!(log_entry.is_some());
         } else {
             panic!("Expected MetadataRecord");
         }
     }
-
 }

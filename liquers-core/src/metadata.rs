@@ -529,7 +529,8 @@ impl MetadataRecord {
     }
 
     pub fn with_error(&mut self, error: Error) -> &mut Self {
-        self.with_error_message(error.to_string());
+        self.error(&error.to_string());
+        self.is_error = true;
         self.error_data = Some(error);
         self
     }
