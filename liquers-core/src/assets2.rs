@@ -127,10 +127,16 @@ pub struct AssetData<E: Environment> {
 
 impl<E: Environment> AssetData<E> {
     pub fn new(id: u64, recipe: Recipe, envref: EnvRef<E>) -> Self {
-        // Create service channel with buffer size 32
-        let (service_tx, service_rx) = mpsc::unbounded_channel();
+        Self::new_ext(id, recipe, State::new(), envref)
+    }
 
-        // Create notification channel with initial status None
+    pub fn new_ext(
+        id: u64,
+        recipe: Recipe,
+        initial_state: State<E::Value>,
+        envref: EnvRef<E>,
+    ) -> Self {
+        let (service_tx, service_rx) = mpsc::unbounded_channel();
         let (notification_tx, notification_rx) = watch::channel(AssetNotificationMessage::Initial);
 
         AssetData {
@@ -141,7 +147,7 @@ impl<E: Environment> AssetData<E> {
             service_rx: Arc::new(Mutex::new(service_rx)),
             notification_tx,
             _notification_rx: notification_rx,
-            initial_state: State::new(),
+            initial_state,
             data: None,
             binary: None,
             metadata: Metadata::new(),
@@ -210,7 +216,8 @@ impl<E: Environment> AssetData<E> {
     /// If the asset becomes available after the quick evaluation attempt, it is not queued.
     pub async fn try_quick_evaluation(&mut self) -> Result<(), Error> {
         eprintln!("Trying quick evaluation for asset {}", self.id());
-        if !self.is_resource()? { // TODO: support for quick plans
+        if !self.is_resource()? {
+            // TODO: support for quick plans
             return Ok(()); // If asset is not a resource, it can't be just loaded
         }
 
@@ -490,7 +497,11 @@ impl<E: Environment> AssetRef<E> {
         let mut rx = self.subscribe_to_notifications().await;
         loop {
             let notification = rx.borrow().clone();
-            eprintln!("Waiting for asset {} to finish, current notification: {:?}", self.id(), notification);
+            eprintln!(
+                "Waiting for asset {} to finish, current notification: {:?}",
+                self.id(),
+                notification
+            );
             match notification {
                 AssetNotificationMessage::JobFinished => {
                     return Ok(());
@@ -514,7 +525,10 @@ impl<E: Environment> AssetRef<E> {
             res = self.wait_to_finish() => res,
             res = self.evaluate_and_store() => res
         };
-        self.service_sender().await.send(AssetServiceMessage::JobFinished).ok();
+        self.service_sender()
+            .await
+            .send(AssetServiceMessage::JobFinished)
+            .ok();
         let psm_result = psm.await;
         match psm_result {
             Ok(Ok(())) => {}
@@ -527,13 +541,14 @@ impl<E: Environment> AssetRef<E> {
                         "Failed to join process_service_messages task: {}",
                         e
                     )));
-                }
-                else{
+                } else {
                     let mut lock = self.data.write().await;
-                    lock.metadata.add_log_entry(LogEntry::error(format!(
-                        "Failed to join process_service_messages task: {}",
-                        e
-                    ))).ok();
+                    lock.metadata
+                        .add_log_entry(LogEntry::error(format!(
+                            "Failed to join process_service_messages task: {}",
+                            e
+                        )))
+                        .ok();
                 }
             }
         }
@@ -819,6 +834,7 @@ impl<E: Environment> AssetRef<E> {
 #[async_trait]
 pub trait AssetManager<E: Environment>: Send + Sync {
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
+    async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>;
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
@@ -944,6 +960,18 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
+    /// Create an ad-hoc asset applied to a value
+    async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error> {
+        let metadata = Arc::new(Metadata::new());
+        let initial_state = State::from_value_and_metadata(to, metadata);
+        let asset_ref =
+            AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
+        // TODO: Fast track here
+        self.job_queue.submit(asset_ref.clone()).await?;
+
+        Ok(asset_ref)
+    }
+
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let entry = self
             .assets
@@ -964,6 +992,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        // TODO: Probably should create a new asset and make it possible to set its value
         self.get(key).await
     }
 
@@ -1114,7 +1143,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                 }
 
                 // Start jobs
-                for asset in jobs_to_start {               
+                for asset in jobs_to_start {
                     let asset_clone = asset.clone();
                     if let Err(e) = asset_clone.set_status(Status::Processing).await {
                         eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
@@ -1375,6 +1404,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_apply() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |s, _, _| {
+                let txt = s.try_into_string()?;
+                Ok(Value::from(format!("Hello, {txt}!")))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let assetref = envref
+            .get_asset_manager()
+            .apply(query.into(), "WORLD".into())
+            .await
+            .unwrap();
+
+        let result = assetref.get().await.unwrap().try_into_string().unwrap();
+        assert_eq!(result, "Hello, WORLD!");
+        assert_eq!(assetref.status().await, Status::Ready);
+        assert!(assetref.poll_state().await.is_some());
+
+        let (b, _) = assetref.get_binary().await.unwrap();
+        assert_eq!(b.as_ref(), b"Hello, WORLD!");
+    }
+
+    #[tokio::test]
     async fn test_asset_log() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -1404,5 +1461,4 @@ mod tests {
             panic!("Expected MetadataRecord");
         }
     }
-
 }

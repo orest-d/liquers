@@ -97,10 +97,15 @@ impl<E: Environment> Context<E> {
             service_tx
         }
     }
-    
+
     pub async fn evaluate(&self, query:&Query) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         envref.get_asset_manager().get_asset(query).await
+    }
+
+    pub async fn apply(&self, query:&Query, to:E::Value) -> Result<AssetRef<E>, Error> {
+        let envref = self.assetref.get_envref().await;
+        envref.get_asset_manager().apply(query.into(), to).await
     }
 
     pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
