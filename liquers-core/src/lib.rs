@@ -5,15 +5,23 @@
 //! 
 //! ## Glossary
 //! 
-//! **[Key](crate::query::Key)** - an indentifier of a resource. Think about a [key](crate::query::Key) as a path to a file.
-//! Key consist of names separated by '/'.
+//! **[Key](crate::query::Key)** - an indentifier of a resource. In the simplest case [key](crate::query::Key) is a path to a file.
+//! Key consist of names separated by '/'. More generally, key identifies a resource in a store (see [store](crate::store)),
+//! which is an abstraction of a file-system capable of storing metadata.
+//! Key can only point to a resource in a store, not to any physical file in the file-system,
+//! which provides a layer of safety, preventing access to arbitrary files.
+//! Key construction only allows certain patterns to ensure validity.
+//! This restrictions exist to allow the key to safely coexist in the [query](crate::query::Query),
+//! not clashing with the syntax of the query language. Also prevent clashes with the metadata stored physically
+//! in the underlying filesystem.
+//!
 //! A key can be converted to a query.
 //! 
 //! **[Query](crate::query::Query)** - describes a sequence of steps in a pipeline.
 //! One of the most important concepts in Liquers (see [query](crate::query::Query)).
 //! Query can be evaluated resulting in a state.
 //! 
-//! **[Value](crate::value::ValueInterface)** - the basic data unit implementing [value interface](crate::value::ValueInterface).
+//! **[Value](crate::value::ValueInterface)** - *1st layer of value encapsulation*: the basic data unit implementing [value interface](crate::value::ValueInterface).
 //! Typically an enum that can be of various types. It defines basic operations like serialization and deserialization.
 //! 
 //! **[Metadata](crate::metadata::Metadata)** - Describes anything useful associated with a given value:
@@ -21,22 +29,11 @@
 //! whether the value has been successfully produced or if there was an errot.
 //! See [metadata](crate::metadata).
 //!
-//! **[State](crate::state::State)** - basically a tuple of a value and metadata.
+//! **[State](crate::state::State)** - *2nd layer of value encapsulation*: basically a tuple of a value and metadata.
 //! This is what is passed along the pipeline.
 //! See [state](crate::state).
 //!
-//! **Resource** - is a state identified by a key. It is typically stored in a store (see [store](crate::store)).
-//! There is no special object representing a resource, but in the documentation it is often refered
-//! to resources as an value, state or asset identified by a key.
-//! 
-//! **[Recipe](crate::recipes2::Recipe)** - A high level procedure ('recipe') how to create certain state. Recipes are typically defined in recipe files
-//! organized in folders. Recipe often is simply in form of a query. (see [query](crate::query))
-//! 
-//! **[Plan](crate::plan::Plan)** - a sequence of specific instructions that can be interpreted and resulting in a State.
-//! A query or recipe can be compiled into a plan. This happens internally plan normally does not
-//! need to be created explicitly. Think of it like an execution plan in a database.
-//! 
-//! **[Asset](crate::assets2::Asset)** - represent a *State* in making. It may be a recipe being executed or a ready value.
+//! **[Asset](crate::assets2)** - *3rd layer of value encapsulation*: represent a *[State](crate::state::State)* in making. It may be a recipe being executed or a ready value.
 //! A requests to execute a query or fetch a resource results in a asset reference
 //! that serves as a handle. In a simples case, asset reference can be used to fetch a result.
 //! It can also be used to receive notifications of asset events and to poll asset state.
@@ -44,19 +41,41 @@
 //! proper sharing via a read-write lock. Assets are accessed via a [AssetManager](crate::assets2::AssetManager).
 //! AssetManager can be considered as a key-value store and cache for states and eventually their
 //! binary representation.
+//!
+//! **Resource** - is a state identified by a key. It is typically stored in a store (see [store](crate::store)).
+//! There is no special object representing a resource, but in the documentation it is often refered
+//! to resources as an value, state or asset identified by a key.
 //! 
+//! **[Recipe](crate::recipes2::Recipe)** - A high level procedure ('recipe') how to create certain state. Recipes are typically defined in recipe files
+//! organized in folders. Recipe in its simple form is a query. (see [query])
+//! Besides a query, recipe allows to document the resource, providing a title and description.
+//! Recipes may reside in a hierarchycal filesystem-like structure maintained by an asset manager.
+//! 
+//! **[Plan](crate::plan::Plan)** - a sequence of specific instructions that can be interpreted and resulting in a State.
+//! A query or recipe can be compiled into a plan. This happens internally plan normally does not
+//! need to be created explicitly. Plan is analogous to an execution plan in a database.
+//!
 //! **[Store](crate::store::AsyncStore)** - is a storage abstraction able to store binary data and metadata indexed by keys ([Key](crate::query::Key)).
 //! It can be considered as a safe abstraction over a file system with some extra features.
 //!  
-//! **[Environment](crate::context2::Environment)** - a global environment representing a collection of services needed to evaluate queries and recipes.
+//! **[Asset manager](crate::assets2::AssetManager)** - is a repository of assets.
+//! It can be seen as an extension built on top of a store. Like store, asset manager can access physical files,
+//! but besides that, asset manager can contain assets created on demand (represented by recipes).
+//! Asset manager takes care of execution of the assets in a job queue and tracks the progress.
+//! Asset manager also provides caching of the assets and creation/execution of ad-hoc assets (e.g. user queries and 'apply' operations).
+//!  
+//! **[Environment](crate::context2::Environment)** - a global environment representing a collection of services needed to evaluate queries and recipes,
+//! e.g. store, asset manager, command metadata registry, etc.
 //! Environment is common for all users
 //! 
 //! **[Session](crate::context2::Session)** - user session: environment (common for all users), user data, session data.
 //! 
 //! **[Context](crate::context2::Context)** - a context of creation of a resulting value. Context has a reference to
-//! environment, session, asset being created and eventual details of the pipeline step being executed.
-//! Context provides services like log, progress messages and metadata.
-//! Context is a meen of communicating to the asset.
+//! environment and a reference to the asset being created.
+//! Context provides services to the command, e.g. log, progress messages and metadata.
+//! Context is the mean of communicating to the asset (and thus all clients having an asset reference)
+//! during the creation of the asset. The communication is performed using channels, thus the context
+//! acts as an interface from blocking commands to an asynchronous environment of assets.
 //! 
 //! **[Command](crate::commands2)** - is a step in the transformation pipeline. It is basically a function that takes
 //! a state as an argument and returns another state (or error). It can also take additional parameters.

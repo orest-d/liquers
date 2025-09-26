@@ -266,6 +266,7 @@ pub fn evaluate_simple_template<E: Environment>(
 mod tests {
     #![allow(non_snake_case)]
     use super::*;
+    use crate::parse::parse_query;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
     use crate::context2::SimpleEnvironment;
@@ -342,6 +343,40 @@ mod tests {
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Hello, world!");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_context_evaluate() -> Result<(), Box<dyn std::error::Error>> {
+        type CommandEnvironment = SimpleEnvironment<Value>;
+        let mut env = SimpleEnvironment::<Value>::new();
+
+        // Register "hello" command
+        fn world(_state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from("world"))
+        }
+        fn moon(_state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from("moon"))
+        }
+        async fn greet(state: State<Value>, greet: String, context: Context<CommandEnvironment>) -> Result<Value, Error> {
+            let what = state.try_into_string()?;
+            context.info(&format!("Greeting {what}"))?;
+            let moon = context.evaluate(&parse_query("moon").unwrap()).await?;
+            let moon_text = moon.get().await?.try_into_string()?;
+            Ok(Value::from(format!("{greet}, {what} from {moon_text}!")))
+        }
+        let cr = &mut env.command_registry;
+        register_command_v2!(cr, fn world(state) -> result).expect("register_command failed");
+        register_command_v2!(cr, fn moon(state) -> result).expect("register_command failed");
+        register_command_v2!(cr, async fn greet(state, greet: String = "Hello", context) -> result)
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        let state = evaluate(envref.clone(), "world/greet", None).await?;
+
+        let value = state.try_into_string()?;
+        assert_eq!(value, "Hello, world from moon!");
         Ok(())
     }
 

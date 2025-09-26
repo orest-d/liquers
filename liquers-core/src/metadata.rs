@@ -164,6 +164,25 @@ impl LogEntry {
             ..Self::default()
         }.with_timestamp()
     }
+
+    pub fn from_error(error: &Error) -> LogEntry {
+        let mut log_entry = LogEntry::error(error.to_string());
+        log_entry = log_entry.with_position(error.position.clone());
+
+        if let Some(query) = error.query.as_ref() {
+            if let Ok(query) = parse::parse_query(query) {
+                log_entry = log_entry.with_query(query);
+            }
+            else{
+                log_entry.message = format!("{} (unparseable query: {})", log_entry.message, query);
+            }
+        }
+        // TODO: Set/support traceback somehow
+        //if let Some(e) = error.source(){
+        //    log_entry = log_entry.with_traceback(e.to_string());
+        //}
+        log_entry
+    }
     pub fn info(message: String) -> LogEntry {
         LogEntry::new(LogEntryKind::Info, message)
     }

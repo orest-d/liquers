@@ -1,7 +1,10 @@
 //! # Assets
 //!
-//! Asset represents a unit of data that is available, is being produced (i.e. just being calculated)
-//! or can be produced later on demand.
+//! Asset can be seen as the outer-most (3rd layer) of value encapsulation in Liquers:
+//! - 1st layer: Value - represents the actual data and its type - basically an enum
+//! - 2nd layer: State - represents a value with its metadata (status, type, logs, etc.)
+//! - 3rd layer: Asset - represents a state that may be ready, it is being queued or produced or can be produced on demand.
+//!
 //! Asset provides access to the data, its metadata and binary representation and progress updates.
 //! Asset data are stored in an [AssetData] structure, which is accessed via [AssetRef].
 //! [AssetRef] is clonable and can be shared between multiple tasks.
@@ -26,11 +29,11 @@
 //! Initial value may also be provided to represent "apply" operation, e.g. where a query is applied to an existing value.
 //! The resulting data are hold in 3 optional fields:
 //! - metadata: [Metadata] - Always [crate::metadata::MetadataRecord] for new assets, but it can be legacy if binary data is available.
-//! - data: Arc<V> where V is the value type
-//! - binary: Arc<Vec<u8>> representing the serialized value
+//! - data: `Arc<V>` where V is the value type
+//! - binary: `Arc<Vec<u8>>` representing the serialized value
 //!
 //! ## Asset lifecycle
-//! Asset goes through these stages:
+//! Asset typically goes through these stages:
 //! 1) **initial** - a state the asset is in after creation. Only the recipe is known, none of the data, binary or metadata is available.
 //! 2) **prepare** - check is binary data is available. In such a case value is deserialized.
 //! 3) **run** - start recipe execution and the loop processing the service messages.
@@ -207,7 +210,7 @@ impl<E: Environment> AssetData<E> {
     /// If the asset becomes available after the quick evaluation attempt, it is not queued.
     pub async fn try_quick_evaluation(&mut self) -> Result<(), Error> {
         eprintln!("Trying quick evaluation for asset {}", self.id());
-        if !self.is_resource()? {
+        if !self.is_resource()? { // TODO: support for quick plans
             return Ok(()); // If asset is not a resource, it can't be just loaded
         }
 
@@ -224,8 +227,8 @@ impl<E: Environment> AssetData<E> {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
                 let (binary, metadata) = store.get(&key).await?;
-                self.binary = Some(Arc::new(binary));
                 if metadata.status().has_data() {
+                    self.binary = Some(Arc::new(binary));
                     eprintln!("Asset {} has data, deserializing", self.id());
                     let value = E::Value::deserialize_from_bytes(
                         self.binary.as_ref().unwrap(),
@@ -541,9 +544,6 @@ impl<E: Environment> AssetRef<E> {
             lock.status = Status::Error;
             lock.binary = None;
             lock.metadata = Metadata::from_error(e.clone());
-            let _ = lock
-                .notification_tx
-                .send(AssetNotificationMessage::ErrorOccurred(e.clone()));
         } else {
             async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
                 eprintln!(
@@ -560,7 +560,9 @@ impl<E: Environment> AssetRef<E> {
                         "Asset evaluation finished ({:?} status) but no data available",
                         lock.status
                     ));
-                    lock.metadata.with_error(e.clone());
+                    if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
+                        eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
+                    }
                 }
             }
             match self.status().await {
@@ -936,6 +938,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if entry.get().status().await.is_finished() {
                 return Ok(entry.get().clone());
             }
+            // TODO: Fast track here
             self.job_queue.submit(entry.get().clone()).await?;
             Ok(entry.get().clone())
         }
@@ -954,6 +957,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if asset_ref.status().await.is_finished() {
             return Ok(asset_ref);
         }
+        // TODO: Fast track here
         self.job_queue.submit(asset_ref.clone()).await?;
 
         Ok(asset_ref)
@@ -1400,4 +1404,5 @@ mod tests {
             panic!("Expected MetadataRecord");
         }
     }
+
 }

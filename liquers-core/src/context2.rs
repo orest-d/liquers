@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
 use crate::{
-    assets2::{AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::Key, store::{NoStore, Store}, value::ValueInterface
+    assets2::{AssetManager, AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::{Key, Query}, store::{NoStore, Store}, value::ValueInterface
 };
 
 
@@ -97,6 +97,12 @@ impl<E: Environment> Context<E> {
             service_tx
         }
     }
+    
+    pub async fn evaluate(&self, query:&Query) -> Result<AssetRef<E>, Error> {
+        let envref = self.assetref.get_envref().await;
+        envref.get_asset_manager().get_asset(query).await
+    }
+
     pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
         self.assetref.data.read().await.metadata.metadata_record().ok_or(
             Error::unexpected_error(format!("{} has legacy metadata", self.assetref.asset_reference().await))
