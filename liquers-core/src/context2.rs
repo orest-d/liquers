@@ -15,9 +15,18 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
 use crate::{
-    assets2::{AssetManager, AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager}, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord}, query::{Key, Query}, store::{NoStore, Store}, value::ValueInterface
+    assets2::{
+        AssetManager, AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager,
+    },
+    cache::Cache,
+    command_metadata::CommandMetadataRegistry,
+    commands2::{CommandExecutor, CommandRegistry},
+    error::Error,
+    metadata::{LogEntry, MetadataRecord, ProgressEntry},
+    query::{Key, Query},
+    store::{NoStore, Store},
+    value::ValueInterface,
 };
-
 
 pub enum User {
     System,
@@ -29,7 +38,6 @@ pub trait Session {
     fn get_user(&self) -> &User;
 }
 
-
 pub trait Environment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
     type CommandExecutor: CommandExecutor<Self>;
@@ -40,12 +48,9 @@ pub trait Environment: Sized + Sync + Send + 'static {
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>>;
 
-    fn get_asset_manager(
-        &self,
-    ) -> Arc<Box<DefaultAssetManager<Self>>>;
+    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>>;
 
     fn create_session(&self, user: User) -> Self::SessionType;
-
 }
 
 // TODO: Define Session and User; Session connects multiple actions of a single user.
@@ -67,12 +72,9 @@ impl<E: Environment> EnvRef<E> {
         self.0.get_command_executor()
     }
 
-    pub fn get_asset_manager(
-        &self,
-    ) -> Arc<Box<DefaultAssetManager<E>>> {
+    pub fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<E>>> {
         self.0.get_asset_manager()
     }
-
 }
 
 impl<E: Environment> Clone for EnvRef<E> {
@@ -89,35 +91,62 @@ pub struct Context<E: Environment> {
 }
 
 impl<E: Environment> Context<E> {
-    pub async fn new(assetref:AssetRef<E>) -> Self {
+    pub async fn new(assetref: AssetRef<E>) -> Self {
         let service_tx = assetref.service_sender().await;
         Context {
             assetref,
             cwd_key: Arc::new(Mutex::new(None)),
-            service_tx
+            service_tx,
         }
     }
 
-    pub async fn evaluate(&self, query:&Query) -> Result<AssetRef<E>, Error> {
+    pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         envref.get_asset_manager().get_asset(query).await
     }
 
-    pub async fn apply(&self, query:&Query, to:E::Value) -> Result<AssetRef<E>, Error> {
+    pub async fn apply(&self, query: &Query, to: E::Value) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         envref.get_asset_manager().apply(query.into(), to).await
     }
 
     pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
-        self.assetref.data.read().await.metadata.metadata_record().ok_or(
-            Error::unexpected_error(format!("{} has legacy metadata", self.assetref.asset_reference().await))
-        )
+        self.assetref
+            .data
+            .read()
+            .await
+            .metadata
+            .metadata_record()
+            .ok_or(Error::unexpected_error(format!(
+                "{} has legacy metadata",
+                self.assetref.asset_reference().await
+            )))
+    }
+    pub fn progress(&self, progress: ProgressEntry) -> Result<(), Error> {
+        self.service_tx
+            .send(AssetServiceMessage::UpdatePrimaryProgress(progress))
+            .map_err(|e| Error::general_error(format!("Failed to send progress message: {}", e)))
+    }
+    pub fn secondary_progress(&self, progress: ProgressEntry) -> Result<(), Error> {
+        self.service_tx
+            .send(AssetServiceMessage::UpdateSecondaryProgress(progress))
+            .map_err(|e| {
+                Error::general_error(format!("Failed to send secondary progress message: {}", e))
+            })
     }
     pub async fn set_filename(&self, filename: &str) -> Result<(), Error> {
-        self.assetref.data.write().await.metadata.set_filename(filename).map(|_| ())
+        self.assetref
+            .data
+            .write()
+            .await
+            .metadata
+            .set_filename(filename)
+            .map(|_| ())
     }
     pub fn add_log_entry(&self, entry: LogEntry) -> Result<(), Error> {
-        self.service_tx.send(AssetServiceMessage::LogMessage(entry)).map_err(|e| Error::general_error(format!("Failed to send log message: {}", e)))
+        self.service_tx
+            .send(AssetServiceMessage::LogMessage(entry))
+            .map_err(|e| Error::general_error(format!("Failed to send log message: {}", e)))
     }
     pub fn debug(&self, message: &str) -> Result<(), Error> {
         self.add_log_entry(LogEntry::debug(message.to_string()))
@@ -160,7 +189,7 @@ impl<E: Environment> Context<E> {
 // TODO: There should be a reference to input_state_query
 // TODO: There should be a reference to query including the current action
 
-pub struct SimpleSession{
+pub struct SimpleSession {
     user: User,
 }
 impl Session for SimpleSession {
@@ -194,7 +223,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
-            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetManager::new()))
+            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetManager::new())),
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
@@ -234,14 +263,11 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
         self.async_store.clone()
     }
-    
-    fn get_asset_manager(
-        &self,
-    ) -> Arc<Box<DefaultAssetManager<Self>>> {
+
+    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>> {
         self.asset_store.clone()
     }
     fn create_session(&self, user: User) -> Self::SessionType {
         SimpleSession { user }
     }
-
 }

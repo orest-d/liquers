@@ -266,6 +266,7 @@ pub fn evaluate_simple_template<E: Environment>(
 mod tests {
     #![allow(non_snake_case)]
     use super::*;
+    use crate::metadata::ProgressEntry;
     use crate::parse::parse_query;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
@@ -398,6 +399,7 @@ mod tests {
             context.info(&format!("Greeting {what}"))?;
             let upper = context.apply(&parse_query("upper").unwrap(), what.into()).await?;
             let upper_text = upper.get().await?.try_into_string()?;
+            context.progress(ProgressEntry::done("OK, done".to_owned()))?;
             Ok(Value::from(format!("{greet}, {upper_text}!")))
         }
         let cr = &mut env.command_registry;
@@ -412,6 +414,7 @@ mod tests {
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, WORLD!");
+        assert!(state.metadata.primary_progress().is_done());
         Ok(())
     }
 

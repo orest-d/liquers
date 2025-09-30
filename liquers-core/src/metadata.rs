@@ -162,7 +162,8 @@ impl LogEntry {
             kind,
             message,
             ..Self::default()
-        }.with_timestamp()
+        }
+        .with_timestamp()
     }
 
     pub fn from_error(error: &Error) -> LogEntry {
@@ -172,8 +173,7 @@ impl LogEntry {
         if let Some(query) = error.query.as_ref() {
             if let Ok(query) = parse::parse_query(query) {
                 log_entry = log_entry.with_query(query);
-            }
-            else{
+            } else {
                 log_entry.message = format!("{} (unparseable query: {})", log_entry.message, query);
             }
         }
@@ -235,6 +235,80 @@ impl Default for LogEntry {
     }
 }
 
+/// Structure to capture progress of asset creation
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ProgressEntry {
+    pub message: String,
+    pub done: u32,
+    pub total: u32,
+    pub timestamp: String,
+    pub eta: Option<String>,
+}
+
+impl ProgressEntry {
+    /// Create a new ProgressEntry with the given message, done and total values.
+    pub fn new(message: String, done: u32, total: u32) -> ProgressEntry {
+        ProgressEntry {
+            message,
+            done,
+            total,
+            timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            eta: None,
+        }
+    }
+    /// Create a ProgressEntry indicating no progress (off).
+    pub fn off() -> ProgressEntry {
+        ProgressEntry::new("".to_string(), 0, 0)
+    }
+    /// Create a ProgressEntry indicating a tick - i.e. progress step with unknown total.
+    pub fn tick(message: String) -> ProgressEntry {
+        ProgressEntry::new(message, 1, 0)
+    }
+    /// Create a ProgressEntry indicating that the progress is done.
+    pub fn done(message: String) -> ProgressEntry {
+        ProgressEntry::new(message, 1, 1)
+    }
+    /// Set a custom message.
+    pub fn with_message(mut self, message: String) -> Self {
+        self.message = message;
+        self
+    }
+    /// Set an estimated time of arrival (ETA).
+    pub fn with_eta(mut self, eta: String) -> Self {
+        self.eta = Some(eta);
+        self
+    }
+    /// Check if the progress is off
+    pub fn is_off(&self) -> bool {
+        (self.total == 0) && (self.done == 0)
+    }
+    /// Check if the progress is done
+    pub fn is_done(&self) -> bool {
+        (self.total > 0) && (self.done == self.total)
+    }
+    /// Check if the progress is a tick (progress is an activity indicator with unknown total)
+    pub fn is_tick(&self) -> bool {
+        (self.total == 0) && (self.done > 0)
+    }
+    pub fn set(&mut self, progress: &ProgressEntry) {
+        self.message = progress.message.clone();
+        if self.is_tick() && progress.is_tick() {
+            self.done += 1;
+            return;
+        }
+        self.done = progress.done;
+        self.total = progress.total;
+        self.timestamp = progress.timestamp.clone();
+        self.eta = progress.eta.clone();
+    }
+}
+
+impl Default for ProgressEntry {
+    fn default() -> Self {
+        ProgressEntry::off()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 
 /// Structure containing the most important information about the asset
@@ -270,6 +344,8 @@ pub struct AssetInfo {
     pub file_size: Option<u64>,
     /// Is directory
     pub is_dir: bool,
+    /// Progress
+    pub progress: ProgressEntry,
 }
 
 impl AssetInfo {
@@ -365,6 +441,8 @@ pub struct MetadataRecord {
     pub file_size: Option<u64>,
     /// Is directory
     pub is_dir: bool,
+    /// Progress
+    pub progress: Vec<ProgressEntry>,
     /// Children are populated if the value is a directory
     #[serde(default)]
     pub children: Vec<AssetInfo>,
@@ -508,6 +586,11 @@ impl MetadataRecord {
             unicode_icon: self.unicode_icon.clone(),
             file_size: self.file_size,
             is_dir: self.is_dir,
+            progress: if self.progress.is_empty() {
+                ProgressEntry::off()
+            } else {
+                self.progress[0].clone()
+            },
         }
     }
 
@@ -571,7 +654,7 @@ impl MetadataRecord {
             self.status = Status::Error;
         }
         self.message = log_entry.message.clone();
-        self.log.push(log_entry); 
+        self.log.push(log_entry);
         self
     }
     pub fn with_filename(&mut self, filename: String) -> &mut Self {
@@ -684,6 +767,39 @@ impl MetadataRecord {
             return Err(Error::general_error(self.message.clone()));
         }
         Ok(())
+    }
+    pub fn primary_progress(&self) -> ProgressEntry {
+        if self.progress.is_empty() {
+            ProgressEntry::off()
+        } else {
+            self.progress[0].clone()
+        }
+    }
+    pub fn set_primary_progress(&mut self, progress: &ProgressEntry) -> &mut Self {
+        if self.progress.is_empty() {
+            self.progress.push(progress.clone());
+        } else {
+            self.progress[0].set(progress);
+        }
+        self
+    }
+    pub fn secondary_progress(&self) -> ProgressEntry {
+        if self.progress.len() < 2 {
+            ProgressEntry::off()
+        } else {
+            self.progress[1].clone()
+        }
+    }
+    pub fn set_secondary_progress(&mut self, progress: &ProgressEntry) -> &mut Self {
+        if self.progress.is_empty() {
+            self.progress.push(ProgressEntry::off());
+            self.progress.push(progress.clone());
+        } else if self.progress.len() < 2 {
+            self.progress.push(progress.clone());
+        } else {
+            self.progress[1].set(progress);
+        }
+        self
     }
 }
 
@@ -911,9 +1027,9 @@ impl Metadata {
     }
     pub fn set_filename(&mut self, filename: &str) -> Result<&mut Self, Error> {
         match self {
-            Metadata::LegacyMetadata(_) => {
-                Err(Error::general_error("Cannot set filename on legacy metadata".to_string()))
-            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set filename on legacy metadata".to_string(),
+            )),
             Metadata::MetadataRecord(m) => {
                 m.set_filename(filename);
                 Ok(self)
@@ -1124,6 +1240,49 @@ impl Metadata {
             _ => self,
         }
     }
+
+    /// Get primary progress
+    /// If not available or for legacy metadata, return ProgressEntry::off()
+    pub fn primary_progress(&self)-> ProgressEntry {
+        match self {
+            Metadata::MetadataRecord(m) => m.primary_progress(),
+            _ => ProgressEntry::off(),
+        }
+    }
+    
+    /// Set primary progress
+    /// No-op for legacy metadata
+    pub fn set_primary_progress(&mut self, progress: &ProgressEntry) -> &mut Self {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.set_primary_progress(progress);
+                self
+            }
+            _ => self,
+        }
+    }
+
+    /// Get secondary progress
+    /// If not available or for legacy metadata, return ProgressEntry::off()
+    pub fn secondary_progress(&self) -> ProgressEntry {
+        match self {
+            Metadata::MetadataRecord(m) => m.secondary_progress(),
+            _ => ProgressEntry::off(),
+        }
+    }
+
+    /// Set secondary progress
+    /// No-op for legacy metadata
+    pub fn set_secondary_progress(&mut self, progress: &ProgressEntry) -> &mut Self {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.set_secondary_progress(progress);
+                self
+            }
+            _ => self,
+        }
+    }
+
 
     /// Check if the metadata contains an error and return an error result
     /// If the metadata is a legacy metadata, it relies on "is_error" and "message" fields

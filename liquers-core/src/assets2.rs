@@ -48,7 +48,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
 use crate::interpreter2::apply_plan;
-use crate::metadata::{AssetInfo, LogEntry};
+use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
@@ -64,7 +64,8 @@ use crate::{
 pub enum AssetServiceMessage {
     LogMessage(LogEntry),
     Cancel,
-    UpdateProgress(f32),
+    UpdatePrimaryProgress(ProgressEntry),
+    UpdateSecondaryProgress(ProgressEntry),
     ErrorOccurred(Error),
     JobSubmitted,
     JobStarted,
@@ -81,7 +82,8 @@ pub enum AssetNotificationMessage {
     StatusChanged(Status), // TODO: remove argument?
     ValueProduced,
     ErrorOccurred(Error),
-    ProgressUpdated(f32),
+    PrimaryProgressUpdated(ProgressEntry),
+    SecondaryProgressUpdated(ProgressEntry),
     LogMessage,
     JobSubmitted,
     JobStarted,
@@ -457,10 +459,17 @@ impl<E: Environment> AssetRef<E> {
                     let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
                     return Ok(());
                 }
-                AssetServiceMessage::UpdateProgress(progress) => {
-                    // Update progress and notify
-                    let _ =
-                        notification_tx.send(AssetNotificationMessage::ProgressUpdated(progress));
+                AssetServiceMessage::UpdatePrimaryProgress(progress) => {
+                    let mut lock = self.data.write().await;
+                    lock.metadata.set_primary_progress(&progress);
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::PrimaryProgressUpdated(progress));
+                }
+                AssetServiceMessage::UpdateSecondaryProgress(progress_entry) => {
+                    let mut lock = self.data.write().await;
+                    lock.metadata.set_secondary_progress(&progress_entry);
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::SecondaryProgressUpdated(progress_entry));
                 }
                 AssetServiceMessage::JobSubmitted => {
                     self.set_status(Status::Submitted).await?;
@@ -773,7 +782,8 @@ impl<E: Environment> AssetRef<E> {
                     }
                 }
                 AssetNotificationMessage::StatusChanged(_) => {}
-                AssetNotificationMessage::ProgressUpdated(_) => {}
+                AssetNotificationMessage::PrimaryProgressUpdated(_) => {}
+                AssetNotificationMessage::SecondaryProgressUpdated(_) => {}
                 AssetNotificationMessage::LogMessage => {}
                 AssetNotificationMessage::LoadingFailed => {}
                 AssetNotificationMessage::JobSubmitted => {}
@@ -1183,8 +1193,6 @@ impl<E: Environment + 'static> JobQueue<E> {
 
 #[cfg(test)]
 mod tests {
-    use scc::hash_cache::Entry;
-
     use super::*;
     use crate::command_metadata::CommandKey;
     use crate::context2::SimpleEnvironment;
@@ -1439,7 +1447,7 @@ mod tests {
         env.command_registry
             .register_command(key.clone(), |_, _, ctx| {
                 println!("HELLO from test");
-                ctx.info("Hello from test");
+                ctx.info("Hello from test")?;
                 Ok(Value::from("Hello, world!"))
             })
             .expect("register_command failed");
