@@ -40,6 +40,7 @@
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
 //!
 
+use std::env;
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
@@ -47,7 +48,7 @@ use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
-use crate::interpreter2::apply_plan;
+use crate::interpreter2::{apply_plan, apply_plan_new};
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
@@ -106,6 +107,8 @@ pub struct AssetData<E: Environment> {
 
     initial_state: State<E::Value>,
 
+    query: Arc<Option<Query>>,
+
     /// This is used to store the data in the asset if available.
     data: Option<Arc<E::Value>>,
 
@@ -133,6 +136,10 @@ impl<E: Environment> AssetData<E> {
         Self::new_ext(id, recipe, State::new(), envref)
     }
 
+    pub fn new_temporary(envref: EnvRef<E>) -> Self {
+        Self::new_ext(0, Recipe::default(), State::new(), envref)
+    }
+
     pub fn new_ext(
         id: u64,
         recipe: Recipe,
@@ -141,6 +148,17 @@ impl<E: Environment> AssetData<E> {
     ) -> Self {
         let (service_tx, service_rx) = mpsc::unbounded_channel();
         let (notification_tx, notification_rx) = watch::channel(AssetNotificationMessage::Initial);
+        let query = if recipe.is_pure_query(){
+            if let Ok(q) = recipe.get_query(){
+                Arc::new(Some(q))
+            }
+            else{
+                Arc::new(None)
+            }
+        }
+        else{
+            Arc::new(None)
+        };
 
         AssetData {
             id,
@@ -151,6 +169,7 @@ impl<E: Environment> AssetData<E> {
             notification_tx,
             _notification_rx: notification_rx,
             initial_state,
+            query,
             data: None,
             binary: None,
             metadata: Metadata::new(),
@@ -383,6 +402,10 @@ impl<E: Environment> AssetRef<E> {
             id,
             data: Arc::new(RwLock::new(AssetData::new(id, recipe, envref))),
         }
+    }
+
+    pub fn new_temporary(envref: EnvRef<E>) -> Self {
+        AssetData::new_temporary(envref).to_ref()
     }
 
     /// Get the unique id of the asset
@@ -962,7 +985,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     pub fn new() -> Self {
         let job_queue = Arc::new(JobQueue::new(2));
         let manager = DefaultAssetManager {
-            id: std::sync::atomic::AtomicU64::new(1),
+            id: std::sync::atomic::AtomicU64::new(1000),
             envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
             query_assets: scc::HashMap::new(),

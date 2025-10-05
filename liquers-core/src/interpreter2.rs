@@ -1,23 +1,9 @@
-use std::{env, sync::Arc};
+use std::{sync::Arc};
 
-use blake3::Hash;
 use futures::FutureExt;
-use scc::HashMap;
 
 use crate::{
-    assets2::{AssetManager, AssetRef},
-    command_metadata::CommandKey,
-    commands2::{CommandArguments, CommandExecutor},
-    context,
-    context2::{Context, EnvRef, Environment},
-    error::Error,
-    metadata::{LogEntry, Metadata, Status},
-    parse::{SimpleTemplate, SimpleTemplateElement},
-    plan::{Plan, PlanBuilder, Step},
-    query::{Key, TryToQuery},
-    recipes::Recipe,
-    state::State,
-    value::ValueInterface,
+    assets2::{AssetManager, AssetRef}, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{Context, EnvRef, Environment}, error::Error, metadata::{LogEntry, Metadata, Status}, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, recipes2::Recipe, state::State, value::ValueInterface
 };
 
 pub fn make_plan<E: Environment, Q: TryToQuery>(
@@ -56,6 +42,50 @@ pub fn apply_plan<E: Environment>(
             state.set_status(Status::Ready)?; // TODO: status should be changed via the context and asset
         }
         Ok(state)
+    }
+    .boxed()
+}
+
+pub fn apply_plan_new<E: Environment>(
+    plan: Plan,
+    input_asset: AssetRef<E>,
+    output_asset: AssetRef<E>,
+    envref: EnvRef<E>,
+) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<(), Error>> + Send + 'static>>
+//impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
+{
+    async move {
+        let (plan1, plan2) = plan.split();
+
+        let mut input = if plan1.is_empty() {
+            input_asset.clone()
+        } else {
+            let intermediate_asset = AssetRef::new_temporary(envref.clone());
+            apply_plan_new(
+                plan1,
+                input_asset.clone(),
+                intermediate_asset.clone(),
+                envref.clone(),
+            )
+            .await?;
+            intermediate_asset
+        };
+        if plan2.is_empty() {
+            output_asset.set_state(input.get().await?).await
+        } else {
+            for i in 0..plan.len() {
+                let step = plan2[i].clone();
+                let envref1 = envref.clone();
+                let output = output_asset.clone();
+                let _ = async move { do_step_new(step, input.clone(), output, envref1).await }.await?;
+                input = output_asset.clone();
+            }
+            if output_asset.status().await.is_none() {
+                // TODO: This is a hack, should be done via context and asset
+                let _ = output_asset.set_status(Status::Ready).await?;
+            }
+            Ok(())
+        }
     }
     .boxed()
 }
@@ -209,21 +239,22 @@ pub fn do_step_new<E: Environment>(
 {
     match step {
         Step::GetResource(key) => {
-            let key1=key.clone();
+            let key1 = key.clone();
             async move {
-            let context = Context::new(output_asset.clone()).await;
-            context.add_log_entry(
-                LogEntry::info("Getting resource".to_string()).with_query(key.into()),
-            )?;
-            let store = envref.get_async_store();
-            let (data, metadata) = store.get(&key1).await?;
-            let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
-            context
-                .set_state(State::from_value_and_metadata(value, Arc::new(metadata)))
-                .await?;
-            Ok(())
+                let context = Context::new(output_asset.clone()).await;
+                context.add_log_entry(
+                    LogEntry::info("Getting resource".to_string()).with_query(key.into()),
+                )?;
+                let store = envref.get_async_store();
+                let (data, metadata) = store.get(&key1).await?;
+                let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
+                context
+                    .set_state(State::from_value_and_metadata(value, Arc::new(metadata)))
+                    .await?;
+                Ok(())
+            }
+            .boxed()
         }
-        .boxed()}
         Step::GetResourceMetadata(key) => async move {
             let context = Context::new(output_asset.clone()).await;
             let store = envref.get_async_store();
@@ -352,7 +383,7 @@ pub fn do_step_new<E: Environment>(
                 Ok(())
             }
             .boxed()
-        },
+        }
     }
 }
 

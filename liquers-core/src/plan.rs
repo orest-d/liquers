@@ -57,6 +57,35 @@ impl Step {
             _ => false,
         }
     }
+    /// Returns true if this step is an action step,
+    pub fn is_action(&self) -> bool {
+        match self {
+            Step::Action { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Returns true is this step just modifies the context,
+    /// i.e. logging operation, changing cwd or filename
+    /// and does not produce any data.
+    pub fn is_context_modifier(&self) -> bool {
+        match self {
+            Step::GetAsset(_key) => false,
+            Step::GetAssetBinary(_key) => false,
+            Step::GetAssetMetadata(_key) => false,
+            Step::GetResource(_key) => false,
+            Step::GetResourceMetadata(_key) => false,
+            Step::Evaluate(_) => false,
+            Step::Action { .. } => false,
+            Step::Filename(_resource_name) => true,
+            Step::Info(_) => true,
+            Step::Warning(_) => true,
+            Step::Error(_) => true,
+            Step::Plan(_) => false,
+            Step::SetCwd(_) => true,
+            Step::UseKeyValue(_) => false,
+        }
+    }
 }
 
 /// Parameter value contains the partially or fully resolved value of a single command parameter.
@@ -931,6 +960,9 @@ impl Plan {
             steps: Vec::new(),
         }
     }
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty()
+    }
     pub fn info(&mut self, message: String) {
         self.steps.push(Step::Info(message));
     }
@@ -975,6 +1007,51 @@ impl Plan {
             }
         }
         false
+    }
+
+    /// Find the index to split the plan.
+    /// Plan after the split index should contain only context modifiers and at most one action step.
+    pub fn split_index(&self)->usize {
+        for i in (0..self.steps.len()).rev() {
+            if self[i].is_action() {
+                if i == 0 {
+                    return 0;
+                } else {
+                    for ii in (0..=i-1).rev() {
+                        if !self[ii].is_context_modifier() {
+                            return ii+1;
+                        }
+                    }
+                    return 0;
+                }
+            }
+            if self[i].is_context_modifier() {
+                continue;
+            }
+            return i+1;
+        }
+        0
+    }
+
+    /// Split the plan into two plans.
+    /// First plan is being the state argument dependency for the second plan.
+    /// The second plan should contain at most one action step.
+    pub fn split(&self) -> (Plan, Plan) {
+        if self.is_empty() {
+            return (Plan::new(), Plan::new());
+        }
+
+        let mut split_index = self.split_index();
+        if split_index == 0{
+            return (Plan::new(), self.clone());
+        }
+        let mut first_plan = Plan::new();
+        first_plan.query = self.query.clone();
+        first_plan.steps = self.steps[..split_index].to_vec();
+        let mut second_plan = Plan::new();
+        second_plan.query = self.query.clone();
+        second_plan.steps = self.steps[split_index..].to_vec();
+        (first_plan, second_plan)
     }
 }
 
@@ -1157,5 +1234,115 @@ mod tests {
         assert_eq!(rp.0[0].value(), Some(Value::String("zzz".to_string())));
         assert_eq!(rp.0[1].value(), Some(Value::Number(123.into())));
         dbg!(rp);
+    }
+
+    #[test]
+    fn test_plan_split_index() {
+        use crate::plan::{Plan, Step};
+        use crate::query::{Key, Position, ResourceName};
+        use crate::plan::{ResolvedParameterValues};
+
+        // Plan with no actions: should return 0
+        let plan = Plan { query: Default::default(), steps: vec![
+            Step::Info("info".to_string()),
+            Step::Warning("warn".to_string()),
+            Step::Error("err".to_string()),
+        ]};
+        assert_eq!(plan.split_index(), 0);
+        let (p1,p2) = plan.split();
+        assert!(p1.is_empty());
+        assert_eq!(p2.len(), 3);
+
+        // Plan with one action at the start
+        let plan = Plan { query: Default::default(), steps: vec![
+            Step::Action {
+                realm: "r".to_string(),
+                ns: "n".to_string(),
+                action_name: "a".to_string(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues::new(),
+            },
+            Step::Info("info".to_string()),
+        ]};
+        assert_eq!(plan.split_index(), 0);
+        let (p1,p2) = plan.split();
+        assert!(p1.is_empty());
+        assert_eq!(p2.len(), 2);
+
+        // Plan with context modifiers before and after an action
+        let plan = Plan { query: Default::default(), steps: vec![
+            Step::Info("info".to_string()),
+            Step::SetCwd(Key::new()),
+            Step::Action {
+                realm: "r".to_string(),
+                ns: "n".to_string(),
+                action_name: "a".to_string(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues::new(),
+            },
+            Step::Warning("warn".to_string()),
+            Step::Filename(ResourceName::new("file.txt".to_string())),
+        ]};
+        assert_eq!(plan.split_index(), 0);
+        let (p1,p2) = plan.split();
+        assert!(p1.is_empty());
+        assert_eq!(p2.len(), 5);
+
+        // Plan with a non-context-modifier before the action
+        let plan = Plan { query: Default::default(), steps: vec![
+            Step::GetAsset(Key::new()),
+            Step::Info("info1".to_string()),
+            Step::Action {
+                realm: "r".to_string(),
+                ns: "n".to_string(),
+                action_name: "a".to_string(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues::new(),
+            },
+            Step::Info("info2".to_string()),
+        ]};
+        assert_eq!(plan.split_index(), 1);
+        let (p1,p2) = plan.split();
+        assert_eq!(p1.len(), 1);
+        assert_eq!(p2.len(), 3);
+        assert!(p2[0].is_context_modifier());
+        assert!(p2[1].is_action());
+        assert!(p2[2].is_context_modifier());
+
+        // Plan with two actions
+        println!("### Testing plan with two actions");
+        let plan = Plan { query: Default::default(), steps: vec![
+            Step::GetAsset(Key::new()),
+            Step::Action {
+                realm: "r".to_string(),
+                ns: "n".to_string(),
+                action_name: "a1".to_string(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues::new(),
+            },
+            Step::Action {
+                realm: "r".to_string(),
+                ns: "n".to_string(),
+                action_name: "a2".to_string(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues::new(),
+            },
+            Step::Info("info".to_string()),
+        ]};
+        assert_eq!(plan.split_index(), 2);
+        let (p1,p2) = plan.split();
+        assert_eq!(p1.len(), 2);
+        assert_eq!(p2.len(), 2);
+        assert!(p1[1].is_action()); 
+        assert!(p2[0].is_action()); 
+        assert!(p2[1].is_context_modifier());
+
+        let plan = Plan { query: Default::default(), steps: vec![
+            Step::Evaluate(Default::default()),
+        ]};
+        assert_eq!(plan.split_index(), 1);
+        let (p1,p2) = plan.split();
+        assert_eq!(p1.len(), 1);
+        assert_eq!(p2.len(), 0);
     }
 }
