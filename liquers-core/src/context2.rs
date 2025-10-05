@@ -10,22 +10,14 @@
 //! [ActionContext] is a public interface to the Context.
 
 use core::panic;
-use std::sync::{Arc, Mutex};
+use std::{f32::consts::E, sync::{Arc, Mutex}};
 
 use tokio::sync::watch;
 
 use crate::{
     assets2::{
         AssetManager, AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager,
-    },
-    cache::Cache,
-    command_metadata::CommandMetadataRegistry,
-    commands2::{CommandExecutor, CommandRegistry},
-    error::Error,
-    metadata::{LogEntry, MetadataRecord, ProgressEntry},
-    query::{Key, Query},
-    store::{NoStore, Store},
-    value::ValueInterface,
+    }, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord, ProgressEntry}, query::{Key, Query}, state::State, store::{NoStore, Store}, value::ValueInterface
 };
 
 pub enum User {
@@ -86,6 +78,7 @@ impl<E: Environment> Clone for EnvRef<E> {
 // TODO: There should be an asset reference
 pub struct Context<E: Environment> {
     assetref: AssetRef<E>,
+    envref: EnvRef<E>,
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
     service_tx: tokio::sync::mpsc::UnboundedSender<AssetServiceMessage>,
 }
@@ -93,8 +86,10 @@ pub struct Context<E: Environment> {
 impl<E: Environment> Context<E> {
     pub async fn new(assetref: AssetRef<E>) -> Self {
         let service_tx = assetref.service_sender().await;
+        let envref = assetref.get_envref().await;
         Context {
             assetref,
+            envref,
             cwd_key: Arc::new(Mutex::new(None)),
             service_tx,
         }
@@ -163,6 +158,7 @@ impl<E: Environment> Context<E> {
     pub async fn clone_context(&self) -> Self {
         Context {
             assetref: self.assetref.clone(),
+            envref: self.envref.clone(),
             cwd_key: self.cwd_key.clone(),
             service_tx: self.service_tx.clone(),
         }
@@ -178,6 +174,26 @@ impl<E: Environment> Context<E> {
 
     pub fn get_asset_ref(&self) -> AssetRef<E> {
         self.assetref.clone()
+    }
+
+    pub fn get_envref(&self) -> EnvRef<E> {
+        self.envref.clone()
+    }
+
+    pub(crate) async fn set_value(&self, value: E::Value) -> Result<(), Error> {
+        self.assetref.set_value(value).await
+    }
+
+    pub(crate) async fn set_metadata_value(&self, metadata: MetadataRecord) -> Result<(), Error> {
+        self.assetref.set_value(E::Value::from_metadata(metadata)).await
+    }
+
+    pub(crate) async fn set_state(&self, state: State<E::Value>) -> Result<(), Error> {
+        self.assetref.set_state(state).await
+    }
+
+    pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
+        self.assetref.set_error(error).await
     }
 }
 

@@ -49,6 +49,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 use crate::context2::Context;
 use crate::interpreter2::apply_plan;
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
+use crate::value::ValueInterface;
 use crate::{
     context2::{EnvRef, Environment},
     error::Error,
@@ -62,13 +63,13 @@ use crate::{
 /// Message for internal service communication (reliable, for control)
 #[derive(Debug, Clone)]
 pub enum AssetServiceMessage {
-    LogMessage(LogEntry),
-    Cancel,
-    UpdatePrimaryProgress(ProgressEntry),
-    UpdateSecondaryProgress(ProgressEntry),
-    ErrorOccurred(Error),
     JobSubmitted,
     JobStarted,
+    LogMessage(LogEntry),
+    UpdatePrimaryProgress(ProgressEntry),
+    UpdateSecondaryProgress(ProgressEntry),
+    Cancel,
+    ErrorOccurred(Error),
     JobFinished,
 }
 
@@ -79,14 +80,14 @@ pub enum AssetNotificationMessage {
     Loading,
     Loaded,
     LoadingFailed,
+    JobSubmitted,
+    JobStarted,
     StatusChanged(Status), // TODO: remove argument?
     ValueProduced,
     ErrorOccurred(Error),
+    LogMessage,
     PrimaryProgressUpdated(ProgressEntry),
     SecondaryProgressUpdated(ProgressEntry),
-    LogMessage,
-    JobSubmitted,
-    JobStarted,
     JobFinished,
 }
 
@@ -215,9 +216,9 @@ impl<E: Environment> AssetData<E> {
     /// These strategies are tried before the asset is queued for evaluation.
     /// A queue might be occupied by long running tasks, so it is beneficial
     /// to try to load the asset quickly.
-    /// If the asset becomes available after the quick evaluation attempt, it is not queued.
-    pub async fn try_quick_evaluation(&mut self) -> Result<(), Error> {
-        eprintln!("Trying quick evaluation for asset {}", self.id());
+    /// If the asset becomes available after the fast track attempt, it is not queued.
+    pub async fn try_fast_track(&mut self) -> Result<(), Error> {
+        eprintln!("Trying fast track for asset {}", self.id());
         if !self.is_resource()? {
             // TODO: support for quick plans
             return Ok(()); // If asset is not a resource, it can't be just loaded
@@ -229,7 +230,7 @@ impl<E: Environment> AssetData<E> {
             self.notification_tx
                 .send(AssetNotificationMessage::Loading)
                 .map_err(|e| {
-                    Error::general_error(format!("Failed to send loading notification: {}", e))
+                    Error::general_error(format!("Failed to send 'Loading' notification: {}", e))
                         .with_query(&(&key).into())
                 })?;
             if store.contains(&key).await? {
@@ -252,7 +253,7 @@ impl<E: Environment> AssetData<E> {
                         .send(AssetNotificationMessage::Loaded)
                         .map_err(|e| {
                             Error::general_error(format!(
-                                "Failed to send loaded notification: {}",
+                                "Failed to send 'Loaded' notification: {}",
                                 e
                             ))
                             .with_query(&key1.into())
@@ -401,6 +402,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Get a string representation describing the asset
     pub async fn asset_reference(&self) -> String {
+        // TODO: Make it to return non-async shared Arc string
         let lock = self.data.read().await;
         lock.asset_reference()
     }
@@ -460,6 +462,12 @@ impl<E: Environment> AssetRef<E> {
                     return Ok(());
                 }
                 AssetServiceMessage::UpdatePrimaryProgress(progress) => {
+                    println!(
+                        "Asset {} updating primary progress: {:?}",
+                        self.id(),
+                        progress
+                    );
+
                     let mut lock = self.data.write().await;
                     lock.metadata.set_primary_progress(&progress);
                     let _ = notification_tx
@@ -468,8 +476,9 @@ impl<E: Environment> AssetRef<E> {
                 AssetServiceMessage::UpdateSecondaryProgress(progress_entry) => {
                     let mut lock = self.data.write().await;
                     lock.metadata.set_secondary_progress(&progress_entry);
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::SecondaryProgressUpdated(progress_entry));
+                    let _ = notification_tx.send(
+                        AssetNotificationMessage::SecondaryProgressUpdated(progress_entry),
+                    );
                 }
                 AssetServiceMessage::JobSubmitted => {
                     self.set_status(Status::Submitted).await?;
@@ -838,6 +847,66 @@ impl<E: Environment> AssetRef<E> {
     pub async fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         let lock = self.data.read().await;
         lock.poll_binary()
+    }
+
+    pub(crate) async fn set_value(
+        &self,
+        value: <E as Environment>::Value,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        lock.data = Some(Arc::new(value));
+        lock.binary = None; // Invalidate binary
+        lock.set_status(Status::Ready);
+        // TODO: Update metadata with value info
+        let _ = lock
+            .notification_tx
+            .send(AssetNotificationMessage::ValueProduced);
+        lock.service_sender()
+            .send(AssetServiceMessage::JobFinished)
+            .map_err(|e| {
+                Error::general_error(format!("Failed to send JobFinished message: {}", e))
+            })?;
+        Ok(())
+    }
+
+    pub(crate) async fn set_state(
+        &self,
+        state: State<<E as Environment>::Value>,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        lock.data = Some(state.data.clone());
+        lock.metadata = (*state.metadata).clone();
+        lock.binary = None; // Invalidate binary
+        // TODO: Update metadata with value info
+        let status = lock.metadata.status();
+        if status == Status::Ready {
+            let _ = lock
+                .notification_tx
+                .send(AssetNotificationMessage::ValueProduced);
+            lock.service_sender()
+                .send(AssetServiceMessage::JobFinished)
+                .map_err(|e| {
+                    Error::general_error(format!("Failed to send JobFinished message: {}", e))
+                })?;
+        }
+        else{
+            lock.set_status(status);
+            eprintln!("WARNING: Asset {} set_state called with non-ready state, status set to {:?}", lock.id, lock.status);
+        }
+        Ok(())
+    }
+    
+    pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        lock.data = None;
+        lock.metadata = Metadata::from_error(error.clone());
+        lock.binary = None; // Invalidate binary
+        lock.service_sender()
+            .send(AssetServiceMessage::ErrorOccurred(error.clone()))
+            .map_err(|e| {
+                Error::general_error(format!("Failed to send ErrorOccurred message: {}\n{}", e, error))
+            })?;
+        Ok(())
     }
 }
 
@@ -1243,7 +1312,7 @@ mod tests {
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
         assert!(bin.is_none());
-        asset_data.try_quick_evaluation().await.unwrap();
+        asset_data.try_fast_track().await.unwrap();
         let state = asset_data.poll_state();
         assert!(state.is_some());
         let bin = asset_data.poll_binary();
@@ -1273,7 +1342,7 @@ mod tests {
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
         assert!(bin.is_none());
-        asset_data.try_quick_evaluation().await.unwrap();
+        asset_data.try_fast_track().await.unwrap();
         let assetref = asset_data.to_ref();
         let state = assetref.poll_state().await;
         assert!(state.is_none());

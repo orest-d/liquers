@@ -1,18 +1,25 @@
+use std::{env, sync::Arc};
+
+use blake3::Hash;
 use futures::FutureExt;
+use scc::HashMap;
 
 use crate::{
     assets2::{AssetManager, AssetRef},
     command_metadata::CommandKey,
     commands2::{CommandArguments, CommandExecutor},
+    context,
     context2::{Context, EnvRef, Environment},
     error::Error,
-    metadata::Status,
+    metadata::{LogEntry, Metadata, Status},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{Plan, PlanBuilder, Step},
     query::{Key, TryToQuery},
+    recipes::Recipe,
     state::State,
     value::ValueInterface,
 };
+
 pub fn make_plan<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
     query: Q,
@@ -40,9 +47,8 @@ pub fn apply_plan<E: Environment>(
         for i in 0..plan.len() {
             let step = plan[i].clone();
             let ctx = context.clone_context().await;
-            let envref1= envref.clone();
-            let output_state = async move { 
-                do_step(envref1, step, state, ctx).await }.await?;
+            let envref1 = envref.clone();
+            let output_state = async move { do_step(envref1, step, state, ctx).await }.await?;
             state = output_state.with_metadata(context.get_metadata().await?.into());
         }
         if state.status().is_none() {
@@ -90,9 +96,11 @@ pub fn do_step<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                let context = Context::new(
-                    AssetRef::new_from_recipe(0, (&query).into(), envref.clone()),
-                )
+                let context = Context::new(AssetRef::new_from_recipe(
+                    0,
+                    (&query).into(),
+                    envref.clone(),
+                ))
                 .await; // TODO: Fix assetref
                 let plan = make_plan(envref.clone(), query)?;
                 let input_state = State::<<E as Environment>::Value>::new();
@@ -191,6 +199,163 @@ pub fn do_step<E: Environment>(
     }
 }
 
+pub fn do_step_new<E: Environment>(
+    step: Step,
+    input_asset: AssetRef<E>,
+    output_asset: AssetRef<E>,
+    envref: EnvRef<E>,
+) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<(), Error>> + Send + 'static>>
+//BoxFuture<'static, Result<State<<E as NGEnvironment>::Value>, Error>>
+{
+    match step {
+        Step::GetResource(key) => {
+            let key1=key.clone();
+            async move {
+            let context = Context::new(output_asset.clone()).await;
+            context.add_log_entry(
+                LogEntry::info("Getting resource".to_string()).with_query(key.into()),
+            )?;
+            let store = envref.get_async_store();
+            let (data, metadata) = store.get(&key1).await?;
+            let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
+            context
+                .set_state(State::from_value_and_metadata(value, Arc::new(metadata)))
+                .await?;
+            Ok(())
+        }
+        .boxed()}
+        Step::GetResourceMetadata(key) => async move {
+            let context = Context::new(output_asset.clone()).await;
+            let store = envref.get_async_store();
+            let metadata_value = store.get_metadata(&key).await?;
+            if let Some(metadata_value) = metadata_value.metadata_record() {
+                context.set_metadata_value(metadata_value).await
+            } else {
+                if let Metadata::LegacyMetadata(json_metadata) = metadata_value {
+                    context.add_log_entry(
+                        LogEntry::warning("Resource metadata is in legacy format".to_string())
+                            .with_query(key.into()),
+                    )?;
+                    let metadata_value =
+                        <<E as Environment>::Value as ValueInterface>::try_from_json_value(
+                            &json_metadata,
+                        )?;
+                    context.set_value(metadata_value).await
+                } else {
+                    Err(Error::general_error(
+                        "Resource metadata is in an unknown format".to_string(),
+                    )
+                    .with_query(&key.into()))
+                }
+            }
+        }
+        .boxed(),
+        Step::Evaluate(q) => {
+            let query = q.clone();
+            async move {
+                // TODO: Link two assets
+                let asset = envref.get_asset_manager().get_asset(&query).await?;
+                output_asset.set_state(asset.get().await?).await
+            }
+            .boxed()
+        }
+        Step::Action {
+            ref realm,
+            ref ns,
+            ref action_name,
+            position,
+            parameters,
+        } => {
+            let commannd_key = CommandKey::new(realm, ns, action_name);
+            let mut arguments = CommandArguments::<E>::new(parameters.clone());
+            arguments.action_position = position.clone();
+            async move {
+                for (i, param) in parameters.0.iter().enumerate() {
+                    if let Some(arg_query) = param.link() {
+                        let arg_value = envref
+                            .get_asset_manager()
+                            .get_asset(&arg_query)
+                            .await?
+                            .get()
+                            .await?;
+                        arguments.set_value(i, arg_value.data.clone());
+                    }
+                }
+                let ce = envref.get_command_executor();
+                let input_state = input_asset.get().await?;
+                let context = Context::new(output_asset.clone()).await;
+                let result = ce
+                    .execute_async(&commannd_key, input_state, arguments, context)
+                    .await;
+                match result {
+                    Ok(result) => {
+                        output_asset.set_value(result).await?;
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            .boxed()
+        }
+        Step::Filename(name) => async move {
+            let context = Context::new(output_asset.clone()).await;
+            context.set_filename(&name.name).await?;
+            Ok(())
+        }
+        .boxed(),
+        Step::Info(m) => async move {
+            let context = Context::new(output_asset.clone()).await;
+            context.info(&m)?;
+            Ok(())
+        }
+        .boxed(),
+        Step::Warning(m) => async move {
+            let context = Context::new(output_asset.clone()).await;
+            context.warning(&m)?;
+            Ok(())
+        }
+        .boxed(),
+        Step::Error(m) => async move {
+            let context = Context::new(output_asset.clone()).await;
+            context.error(&m)?;
+            Ok(())
+        }
+        .boxed(),
+        Step::SetCwd(key) => async move {
+            let context = Context::new(output_asset.clone()).await;
+            context.set_cwd_key(Some(key.clone()));
+            Ok(())
+        }
+        .boxed(),
+        Step::Plan(plan) => async move {
+            todo!("Implement nested plan");
+            //let state = apply_plan(plan, envref.clone(), context, input_state).await?;
+            Ok(())
+        }
+        .boxed(),
+        Step::GetAsset(key) => async move {
+            let envref1 = envref.clone();
+            let asset_store = envref1.get_asset_manager();
+            let asset = asset_store.get(&key).await?;
+            let asset_state = asset.get().await?;
+            // TODO: Link assets
+            output_asset.set_state(asset_state).await?;
+            Ok(())
+        }
+        .boxed(),
+        Step::GetAssetBinary(_key) => todo!(),
+        Step::GetAssetMetadata(_key) => todo!(),
+        Step::UseKeyValue(key) => {
+            let value = E::Value::from_key(&key);
+            async move {
+                output_asset.set_value(value).await?;
+                Ok(())
+            }
+            .boxed()
+        },
+    }
+}
+
 pub fn evaluate_plan<E: Environment>(
     plan: Plan,
     envref: EnvRef<E>,
@@ -266,11 +431,11 @@ pub fn evaluate_simple_template<E: Environment>(
 mod tests {
     #![allow(non_snake_case)]
     use super::*;
-    use crate::metadata::ProgressEntry;
-    use crate::parse::parse_query;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
     use crate::context2::SimpleEnvironment;
+    use crate::metadata::ProgressEntry;
+    use crate::parse::parse_query;
     use crate::state::State;
     use crate::value::Value;
     use liquers_macro::*;
@@ -359,7 +524,11 @@ mod tests {
         fn moon(_state: &State<Value>) -> Result<Value, Error> {
             Ok(Value::from("moon"))
         }
-        async fn greet(state: State<Value>, greet: String, context: Context<CommandEnvironment>) -> Result<Value, Error> {
+        async fn greet(
+            state: State<Value>,
+            greet: String,
+            context: Context<CommandEnvironment>,
+        ) -> Result<Value, Error> {
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
             let moon = context.evaluate(&parse_query("moon").unwrap()).await?;
@@ -394,10 +563,16 @@ mod tests {
             let txt = state.try_into_string()?;
             Ok(Value::from(txt.to_uppercase()))
         }
-        async fn greet(state: State<Value>, greet: String, context: Context<CommandEnvironment>) -> Result<Value, Error> {
+        async fn greet(
+            state: State<Value>,
+            greet: String,
+            context: Context<CommandEnvironment>,
+        ) -> Result<Value, Error> {
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
-            let upper = context.apply(&parse_query("upper").unwrap(), what.into()).await?;
+            let upper = context
+                .apply(&parse_query("upper").unwrap(), what.into())
+                .await?;
             let upper_text = upper.get().await?.try_into_string()?;
             context.progress(ProgressEntry::done("OK, done".to_owned()))?;
             Ok(Value::from(format!("{greet}, {upper_text}!")))
@@ -411,11 +586,11 @@ mod tests {
         let envref = env.to_ref();
 
         let state = evaluate(envref.clone(), "world/greet-Ciao", None).await?;
+        println!("Metadata: {:?}", state.metadata);
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, WORLD!");
         assert!(state.metadata.primary_progress().is_done());
         Ok(())
     }
-
 }
