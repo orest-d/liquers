@@ -651,13 +651,6 @@ impl ResolvedParameterValues {
     }
 }
 
-pub struct PlanBuilder<'c> {
-    query: Query,
-    command_registry: &'c CommandMetadataRegistry,
-    plan: Plan,
-    allow_placeholders: bool,
-}
-
 pub struct ActionParameterIterator<'a> {
     pub action_request: &'a ActionRequest,
     pub parameter_number: usize,
@@ -688,6 +681,14 @@ impl<'a> Iterator for ActionParameterIterator<'a> {
     }
 }
 
+pub struct PlanBuilder<'c> {
+    query: Query,
+    command_registry: &'c CommandMetadataRegistry,
+    plan: Plan,
+    allow_placeholders: bool,
+    expand_predecessors: bool,
+}
+
 // TODO: support cache
 // TODO: support volatile flags
 // TODO: support inline flag
@@ -698,10 +699,19 @@ impl<'c> PlanBuilder<'c> {
             command_registry,
             plan: Plan::new(),
             allow_placeholders: false,
+            expand_predecessors: true, // TODO: expand_predecessors should be false by default
         }
     }
     pub fn with_placeholders_allowed(mut self) -> Self {
         self.allow_placeholders = true;
+        self
+    }
+    pub fn expand_predecessors(mut self) -> Self {
+        self.expand_predecessors = true;
+        self
+    }
+    pub fn disable_expand_predecessors(mut self) -> Self {
+        self.expand_predecessors = false;
         self
     }
 
@@ -787,10 +797,10 @@ impl<'c> PlanBuilder<'c> {
                     "data" | "value" => {
                         self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
                     }
-                    "store" | "store_binary" | "store_bin" => {
+                    "stored" | "stored_binary" | "stored_bin" => {
                         self.plan.steps.push(Step::GetResource(rqs.key.clone()));
                     }
-                    "store_meta" => {
+                    "stored_meta" => {
                         self.plan
                             .steps
                             .push(Step::GetResourceMetadata(rqs.key.clone()));
@@ -899,7 +909,11 @@ impl<'c> PlanBuilder<'c> {
 
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
-                self.process_query(p)?;
+                if self.expand_predecessors {
+                    self.process_query(p)?;
+                } else {
+                    self.plan.steps.push(Step::Evaluate(p.clone()));
+                }
             }
         }
         if let Some(qs) = q {

@@ -1433,7 +1433,7 @@ mod tests {
         }
 
         let mut pi = AsyncPlanInterpreter::new(env.to_ref());
-        pi.with_query("-R-store_binary/hello.txt/-/greet-world").unwrap();
+        pi.with_query("-R-stored_binary/hello.txt/-/greet-world").unwrap();
         //println!("{:?}", pi.plan);
         println!(
             "############################ PLAN ############################\n{}\n",
@@ -1568,7 +1568,7 @@ mod tests {
         )?;
         store.set(
             &parse_key("template.txt").unwrap(),
-            "*** $-R-store_binary/hello.txt/-/greet-world$ ***".as_bytes(),
+            "*** $-R-stored_binary/hello.txt/-/greet-world$ ***".as_bytes(),
             &Metadata::new(),
         )?;
 
@@ -1605,7 +1605,7 @@ mod tests {
         }
         let envref = env.to_ref();
         let result =
-            crate::interpreter::ngi::evaluate(envref, "-R-store_binary/template.txt/-/template", None).await?;
+            crate::interpreter::ngi::evaluate(envref, "-R-stored_binary/template.txt/-/template", None).await?;
         assert_eq!(result.try_into_string()?, "*** Hello TEXT world! ***");
         Ok(())
     }
