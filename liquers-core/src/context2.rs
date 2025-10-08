@@ -197,6 +197,16 @@ impl<E: Environment> Context<E> {
     }
 }
 
+impl<E: Environment> Clone for Context<E> {
+    fn clone(&self) -> Self {
+        Context {
+            assetref: self.assetref.clone(),
+            envref: self.envref.clone(),
+            cwd_key: self.cwd_key.clone(),
+            service_tx: self.service_tx.clone(),
+        }
+    }
+}
 // TODO: Think about the Payload. EnvRef and Session should always be available.
 // TODO: Add reference to Session
 // TODO: Add EnvRef

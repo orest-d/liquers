@@ -1,9 +1,20 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use futures::FutureExt;
 
 use crate::{
-    assets2::{AssetManager, AssetRef}, command_metadata::CommandKey, commands2::{CommandArguments, CommandExecutor}, context2::{Context, EnvRef, Environment}, error::Error, metadata::{LogEntry, Metadata, Status}, parse::{SimpleTemplate, SimpleTemplateElement}, plan::{Plan, PlanBuilder, Step}, query::{Key, TryToQuery}, recipes2::Recipe, state::State, value::ValueInterface
+    assets2::{AssetManager, AssetRef},
+    command_metadata::CommandKey,
+    commands2::{CommandArguments, CommandExecutor},
+    context2::{Context, EnvRef, Environment},
+    error::Error,
+    metadata::{self, LogEntry, Metadata, Status},
+    parse::{SimpleTemplate, SimpleTemplateElement},
+    plan::{Plan, PlanBuilder, Step},
+    query::{Key, TryToQuery},
+    recipes2::Recipe,
+    state::State,
+    value::ValueInterface,
 };
 
 pub fn make_plan<E: Environment, Q: TryToQuery>(
@@ -45,50 +56,29 @@ pub fn apply_plan<E: Environment>(
     }
     .boxed()
 }
-
 pub fn apply_plan_new<E: Environment>(
     plan: Plan,
-    input_asset: AssetRef<E>,
-    output_asset: AssetRef<E>,
+    input_state: State<E::Value>,
+    context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<(), Error>> + Send + 'static>>
+) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>>
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
-        let (plan1, plan2) = plan.split();
-
-        let mut input = if plan1.is_empty() {
-            input_asset.clone()
-        } else {
-            let intermediate_asset = AssetRef::new_temporary(envref.clone());
-            apply_plan_new(
-                plan1,
-                input_asset.clone(),
-                intermediate_asset.clone(),
-                envref.clone(),
-            )
-            .await?;
-            intermediate_asset
-        };
-        if plan2.is_empty() {
-            output_asset.set_state(input.get().await?).await
-        } else {
-            for i in 0..plan.len() {
-                let step = plan2[i].clone();
-                let envref1 = envref.clone();
-                let output = output_asset.clone();
-                let _ = async move { do_step_new(step, input.clone(), output, envref1).await }.await?;
-                input = output_asset.clone();
-            }
-            if output_asset.status().await.is_none() {
-                // TODO: This is a hack, should be done via context and asset
-                let _ = output_asset.set_status(Status::Ready).await?;
-            }
-            Ok(())
+        let mut state = input_state;
+        for i in 0..plan.len() {
+            let step = plan[i].clone();
+            let envref1 = envref.clone();
+            let context1 = context.clone();
+            let res = async move { do_step_new(step, state, context1, envref1).await }.await?;
+            state = State::new().with_data((*res).clone()).with_metadata(context.get_metadata().await?.into());
         }
+        Ok(state.data.clone())
+
     }
     .boxed()
 }
+
 
 pub fn do_step<E: Environment>(
     envref: EnvRef<E>,
@@ -231,52 +221,48 @@ pub fn do_step<E: Environment>(
 
 pub fn do_step_new<E: Environment>(
     step: Step,
-    input_asset: AssetRef<E>,
-    output_asset: AssetRef<E>,
+    input: State<E::Value>,
+    context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<(), Error>> + Send + 'static>>
-//BoxFuture<'static, Result<State<<E as NGEnvironment>::Value>, Error>>
-{
+) -> std::pin::Pin<
+    Box<
+        dyn core::future::Future<Output = Result<Arc<<E as Environment>::Value>, Error>>
+            + Send
+            + 'static,
+    >,
+> {
     match step {
-        Step::GetResource(key) => {
-            let key1 = key.clone();
-            async move {
-                let context = Context::new(output_asset.clone()).await;
-                context.add_log_entry(
-                    LogEntry::info("Getting resource".to_string()).with_query(key.into()),
-                )?;
-                let store = envref.get_async_store();
-                let (data, metadata) = store.get(&key1).await?;
-                let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
-                context
-                    .set_state(State::from_value_and_metadata(value, Arc::new(metadata)))
-                    .await?;
-                Ok(())
-            }
-            .boxed()
-        }
-        Step::GetResourceMetadata(key) => async move {
-            let context = Context::new(output_asset.clone()).await;
+        Step::GetResource(key) => async move {
+            context.add_log_entry(
+                LogEntry::info("Getting resource".to_string()).with_query(key.clone().into()),
+            )?;
             let store = envref.get_async_store();
-            let metadata_value = store.get_metadata(&key).await?;
-            if let Some(metadata_value) = metadata_value.metadata_record() {
-                context.set_metadata_value(metadata_value).await
-            } else {
-                if let Metadata::LegacyMetadata(json_metadata) = metadata_value {
+            let (data, metadata) = store.get(&key).await?;
+            Ok(Arc::new(
+                <<E as Environment>::Value as ValueInterface>::from_bytes(data),
+            ))
+        }
+        .boxed(),
+        Step::GetResourceMetadata(key) => async move {
+            context.add_log_entry(
+                LogEntry::info("Getting resource metadata".to_string())
+                    .with_query(key.clone().into()),
+            )?;
+            let store = envref.get_async_store();
+            match store.get_metadata(&key).await? {
+                Metadata::MetadataRecord(mr) => Ok(Arc::new(
+                    <<E as Environment>::Value as ValueInterface>::from_metadata(mr),
+                )),
+                Metadata::LegacyMetadata(json_value) => {
                     context.add_log_entry(
                         LogEntry::warning("Resource metadata is in legacy format".to_string())
                             .with_query(key.into()),
                     )?;
                     let metadata_value =
                         <<E as Environment>::Value as ValueInterface>::try_from_json_value(
-                            &json_metadata,
+                            &json_value,
                         )?;
-                    context.set_value(metadata_value).await
-                } else {
-                    Err(Error::general_error(
-                        "Resource metadata is in an unknown format".to_string(),
-                    )
-                    .with_query(&key.into()))
+                    Ok(Arc::new(metadata_value))
                 }
             }
         }
@@ -284,84 +270,67 @@ pub fn do_step_new<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                // TODO: Link two assets
                 let asset = envref.get_asset_manager().get_asset(&query).await?;
-                output_asset.set_state(asset.get().await?).await
+                asset.get().await.map(|s| s.data.clone())
             }
             .boxed()
         }
         Step::Action {
-            ref realm,
-            ref ns,
-            ref action_name,
+            realm,
+            ns,
+            action_name,
             position,
             parameters,
-        } => {
-            let commannd_key = CommandKey::new(realm, ns, action_name);
+        } => async move {
+            let command_key = CommandKey::new(&realm, &ns, &action_name);
             let mut arguments = CommandArguments::<E>::new(parameters.clone());
             arguments.action_position = position.clone();
-            async move {
-                for (i, param) in parameters.0.iter().enumerate() {
-                    if let Some(arg_query) = param.link() {
-                        let arg_value = envref
-                            .get_asset_manager()
-                            .get_asset(&arg_query)
-                            .await?
-                            .get()
-                            .await?;
-                        arguments.set_value(i, arg_value.data.clone());
-                    }
-                }
-                let ce = envref.get_command_executor();
-                let input_state = input_asset.get().await?;
-                let context = Context::new(output_asset.clone()).await;
-                let result = ce
-                    .execute_async(&commannd_key, input_state, arguments, context)
-                    .await;
-                match result {
-                    Ok(result) => {
-                        output_asset.set_value(result).await?;
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
+            for (i, param) in parameters.0.iter().enumerate() {
+                if let Some(arg_query) = param.link() {
+                    let arg_value = envref
+                        .get_asset_manager()
+                        .get_asset(&arg_query)
+                        .await?
+                        .get()
+                        .await?;
+                    arguments.set_value(i, arg_value.data.clone());
                 }
             }
-            .boxed()
+            let ce = envref.get_command_executor();
+            ce.execute_async(&command_key, input, arguments, context)
+                .await
+                .map(|v| Arc::new(v))
         }
+        .boxed(),
+
         Step::Filename(name) => async move {
-            let context = Context::new(output_asset.clone()).await;
             context.set_filename(&name.name).await?;
-            Ok(())
+            Ok(input.data.clone())
         }
         .boxed(),
         Step::Info(m) => async move {
-            let context = Context::new(output_asset.clone()).await;
             context.info(&m)?;
-            Ok(())
+            Ok(input.data.clone())
         }
         .boxed(),
         Step::Warning(m) => async move {
-            let context = Context::new(output_asset.clone()).await;
             context.warning(&m)?;
-            Ok(())
+            Ok(input.data.clone())
         }
         .boxed(),
         Step::Error(m) => async move {
-            let context = Context::new(output_asset.clone()).await;
             context.error(&m)?;
-            Ok(())
+            Ok(input.data.clone())
         }
         .boxed(),
         Step::SetCwd(key) => async move {
-            let context = Context::new(output_asset.clone()).await;
-            context.set_cwd_key(Some(key.clone()));
-            Ok(())
+            context.set_cwd_key(Some(key));
+            Ok(input.data.clone())
         }
         .boxed(),
         Step::Plan(plan) => async move {
             todo!("Implement nested plan");
             //let state = apply_plan(plan, envref.clone(), context, input_state).await?;
-            Ok(())
         }
         .boxed(),
         Step::GetAsset(key) => async move {
@@ -369,21 +338,38 @@ pub fn do_step_new<E: Environment>(
             let asset_store = envref1.get_asset_manager();
             let asset = asset_store.get(&key).await?;
             let asset_state = asset.get().await?;
-            // TODO: Link assets
-            output_asset.set_state(asset_state).await?;
-            Ok(())
+            Ok(asset_state.data.clone())
         }
         .boxed(),
         Step::GetAssetBinary(_key) => todo!(),
-        Step::GetAssetMetadata(_key) => todo!(),
-        Step::UseKeyValue(key) => {
-            let value = E::Value::from_key(&key);
-            async move {
-                output_asset.set_value(value).await?;
-                Ok(())
+        Step::GetAssetMetadata(key) => async move {
+            let envref1 = envref.clone();
+            let asset_store = envref1.get_asset_manager();
+            let asset = asset_store.get(&key).await?;
+            let asset_state = asset.get().await?;
+            match &*asset_state.metadata {
+                Metadata::LegacyMetadata(value) => {
+                    context.add_log_entry(
+                        LogEntry::warning("Asset metadata is in legacy format".to_string())
+                            .with_query(key.into()),
+                    )?;
+                    Ok(Arc::new(
+                        <<E as Environment>::Value as ValueInterface>::try_from_json_value(value)?,
+                    ))
+                }
+                Metadata::MetadataRecord(metadata_record) => Ok(Arc::new(
+                    <<E as Environment>::Value as ValueInterface>::from_metadata(
+                        metadata_record.clone(),
+                    ),
+                )),
             }
-            .boxed()
         }
+        .boxed(),
+        Step::UseKeyValue(key) => async move {
+            let value = E::Value::from_key(&key);
+            Ok(Arc::new(value))
+        }
+        .boxed(),
     }
 }
 
