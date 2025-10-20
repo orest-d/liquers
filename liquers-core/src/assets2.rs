@@ -78,9 +78,6 @@ pub enum AssetServiceMessage {
 #[derive(Debug, Clone)]
 pub enum AssetNotificationMessage {
     Initial,
-    Loading,
-    Loaded,
-    LoadingFailed,
     JobSubmitted,
     JobStarted,
     StatusChanged(Status), // TODO: remove argument?
@@ -150,15 +147,13 @@ impl<E: Environment> AssetData<E> {
     ) -> Self {
         let (service_tx, service_rx) = mpsc::unbounded_channel();
         let (notification_tx, notification_rx) = watch::channel(AssetNotificationMessage::Initial);
-        let query = if recipe.is_pure_query(){
-            if let Ok(q) = recipe.get_query(){
+        let query = if recipe.is_pure_query() {
+            if let Ok(q) = recipe.get_query() {
                 Arc::new(Some(q))
-            }
-            else{
+            } else {
                 Arc::new(None)
             }
-        }
-        else{
+        } else {
             Arc::new(None)
         };
 
@@ -238,22 +233,22 @@ impl<E: Environment> AssetData<E> {
     /// A queue might be occupied by long running tasks, so it is beneficial
     /// to try to load the asset quickly.
     /// If the asset becomes available after the fast track attempt, it is not queued.
-    pub async fn try_fast_track(&mut self) -> Result<(), Error> {
+    ///
+    /// The purpose of the fast track is to avoid unnecessary queuing of assets
+    /// and thus prevent blocking of assets that are in store (i.e. they are ready, just not loaded).
+    /// For example - if the queue is blocked by long running task(s),
+    /// a server can still reply immediately if the asset is in the store.
+    /// This can be generalized further to support volatile and fast queries.
+    pub async fn try_fast_track(&mut self) -> Result<bool, Error> {
         eprintln!("Trying fast track for asset {}", self.id());
         if !self.is_resource()? {
             // TODO: support for quick plans
-            return Ok(()); // If asset is not a resource, it can't be just loaded
+            return Ok(false); // If asset is not a resource, it can't be just loaded
         }
 
         let store = self.get_envref().get_async_store();
         if let Ok(Some(key)) = self.recipe.key() {
             eprintln!("Asset {} is a resource with key {}", self.id(), key);
-            self.notification_tx
-                .send(AssetNotificationMessage::Loading)
-                .map_err(|e| {
-                    Error::general_error(format!("Failed to send 'Loading' notification: {}", e))
-                        .with_query(&(&key).into())
-                })?;
             if store.contains(&key).await? {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
@@ -271,15 +266,6 @@ impl<E: Environment> AssetData<E> {
                     self.metadata = metadata;
                     let key1 = key.clone();
                     self.notification_tx
-                        .send(AssetNotificationMessage::Loaded)
-                        .map_err(|e| {
-                            Error::general_error(format!(
-                                "Failed to send 'Loaded' notification: {}",
-                                e
-                            ))
-                            .with_query(&key1.into())
-                        })?;
-                    self.notification_tx
                         .send(AssetNotificationMessage::JobFinished)
                         .map_err(|e| {
                             Error::general_error(format!(
@@ -288,28 +274,19 @@ impl<E: Environment> AssetData<E> {
                             ))
                             .with_query(&key.into())
                         })?;
+                    eprintln!("Asset {} loaded successfully", self.id());
+                    return Ok(true);
                 } else {
                     eprintln!(
                         "Asset {} has no data, cannot deserialize, status: {:?}",
                         self.id(),
                         self.status
                     );
-                    self.notification_tx
-                        .send(AssetNotificationMessage::LoadingFailed)
-                        .map_err(|e| {
-                            Error::general_error(format!(
-                                "Failed to send loaded notification: {}",
-                                e
-                            ))
-                            .with_query(&key.into())
-                        })?;
                     self.reset();
                 }
-
-                return Ok(());
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Get a reference to the asset data
@@ -411,10 +388,8 @@ impl<E: Environment> AssetRef<E> {
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
         let assetref = AssetData::new_temporary(envref).to_ref();
         let assetref1 = assetref.clone();
-        let _handle = tokio::spawn(async move {
-            assetref1.process_service_messages().await
-        });
-        
+        let _handle = tokio::spawn(async move { assetref1.process_service_messages().await });
+
         assetref
     }
 
@@ -666,7 +641,7 @@ impl<E: Environment> AssetRef<E> {
 
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
         let (input_state, recipe) = self.initial_state_and_recipe().await;
-        
+
         let envref = self.get_envref().await;
         /*
         let plan = {
@@ -676,12 +651,15 @@ impl<E: Environment> AssetRef<E> {
         */
         let context = Context::new(self.clone()).await; // TODO: reference to asset
                                                         // TODO: Separate evaluation of dependencies
-        //let res = apply_plan(plan, envref, context, input_state).await?;
-        //let res = apply_plan_new(
-        //    plan, input_state, context, envref).await?;
+                                                        //let res = apply_plan(plan, envref, context, input_state).await?;
+                                                        //let res = apply_plan_new(
+                                                        //    plan, input_state, context, envref).await?;
         let res = envref.apply_recipe(input_state, recipe, context).await?;
 
-        Ok(State{data: res, metadata: Arc::new(self.data.read().await.metadata.clone())})
+        Ok(State {
+            data: res,
+            metadata: Arc::new(self.data.read().await.metadata.clone()),
+        })
     }
 
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
@@ -823,17 +801,10 @@ impl<E: Environment> AssetRef<E> {
                     return Err(e);
                 }
                 AssetNotificationMessage::Initial => {}
-                AssetNotificationMessage::Loading => {}
-                AssetNotificationMessage::Loaded => {
-                    if let Some(state) = self.poll_state().await {
-                        return Ok(state);
-                    }
-                }
                 AssetNotificationMessage::StatusChanged(_) => {}
                 AssetNotificationMessage::PrimaryProgressUpdated(_) => {}
                 AssetNotificationMessage::SecondaryProgressUpdated(_) => {}
                 AssetNotificationMessage::LogMessage => {}
-                AssetNotificationMessage::LoadingFailed => {}
                 AssetNotificationMessage::JobSubmitted => {}
                 AssetNotificationMessage::JobStarted => {}
                 AssetNotificationMessage::JobFinished => {
@@ -888,10 +859,7 @@ impl<E: Environment> AssetRef<E> {
         lock.poll_binary()
     }
 
-    pub(crate) async fn set_value(
-        &self,
-        value: <E as Environment>::Value,
-    ) -> Result<(), Error> {
+    pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
         println!("Setting value for asset {}", self.id());
         let mut lock = self.data.write().await;
         lock.data = Some(Arc::new(value));
@@ -918,7 +886,7 @@ impl<E: Environment> AssetRef<E> {
         lock.data = Some(state.data.clone());
         lock.metadata = (*state.metadata).clone();
         lock.binary = None; // Invalidate binary
-        // TODO: Update metadata with value info
+                            // TODO: Update metadata with value info
         let status = lock.metadata.status();
         if status == Status::Ready {
             let _ = lock
@@ -929,14 +897,16 @@ impl<E: Environment> AssetRef<E> {
                 .map_err(|e| {
                     Error::general_error(format!("Failed to send JobFinished message: {}", e))
                 })?;
-        }
-        else{
+        } else {
             lock.set_status(status);
-            eprintln!("WARNING: Asset {} set_state called with non-ready state, status set to {:?}", lock.id, lock.status);
+            eprintln!(
+                "WARNING: Asset {} set_state called with non-ready state, status set to {:?}",
+                lock.id, lock.status
+            );
         }
         Ok(())
     }
-    
+
     pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
         let mut lock = self.data.write().await;
         lock.data = None;
@@ -945,7 +915,10 @@ impl<E: Environment> AssetRef<E> {
         lock.service_sender()
             .send(AssetServiceMessage::ErrorOccurred(error.clone()))
             .map_err(|e| {
-                Error::general_error(format!("Failed to send ErrorOccurred message: {}\n{}", e, error))
+                Error::general_error(format!(
+                    "Failed to send ErrorOccurred message: {}\n{}",
+                    e, error
+                ))
             })?;
         Ok(())
     }
@@ -1074,7 +1047,14 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if entry.get().status().await.is_finished() {
                 return Ok(entry.get().clone());
             }
-            // TODO: Fast track here
+            let assetref = entry.get().clone();
+            {
+                let mut lock = assetref.data.write().await;
+                if lock.try_fast_track().await? {
+                    return Ok(assetref.clone());
+                }
+            }
+
             self.job_queue.submit(entry.get().clone()).await?;
             Ok(entry.get().clone())
         }
@@ -1086,7 +1066,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let initial_state = State::from_value_and_metadata(to, metadata);
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
-        // TODO: Fast track here
+        // No fast track makes sense now, since apply can't be stored, however in the future
+        // TODO: support fast-track once it makes sense
         self.job_queue.submit(asset_ref.clone()).await?;
 
         Ok(asset_ref)
@@ -1105,7 +1086,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if asset_ref.status().await.is_finished() {
             return Ok(asset_ref);
         }
-        // TODO: Fast track here
+        {
+            let asset_ref = asset_ref.clone();
+            let mut lock = asset_ref.data.write().await;
+            if lock.try_fast_track().await? {
+                drop(lock);
+                return Ok(asset_ref);
+            }
+        }
+
         self.job_queue.submit(asset_ref.clone()).await?;
 
         Ok(asset_ref)
