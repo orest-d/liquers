@@ -136,8 +136,10 @@ impl<E: Environment> AssetData<E> {
         Self::new_ext(id, recipe, State::new(), envref)
     }
 
+    /// Creates a temporary asset data structure.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        Self::new_ext(0, Recipe::default(), State::new(), envref)
+        let asset = Self::new_ext(0, Recipe::default(), State::new(), envref);
+        asset
     }
 
     pub fn new_ext(
@@ -404,8 +406,16 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
+    /// Creates a temporary asset reference.
+    /// This spawns the event processing loop immediately.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        AssetData::new_temporary(envref).to_ref()
+        let assetref = AssetData::new_temporary(envref).to_ref();
+        let assetref1 = assetref.clone();
+        let _handle = tokio::spawn(async move {
+            assetref1.process_service_messages().await
+        });
+        
+        assetref
     }
 
     /// Get the unique id of the asset
@@ -656,16 +666,22 @@ impl<E: Environment> AssetRef<E> {
 
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
         let (input_state, recipe) = self.initial_state_and_recipe().await;
+        
         let envref = self.get_envref().await;
+        /*
         let plan = {
             let cmr = envref.0.get_command_metadata_registry();
             recipe.to_plan(cmr)?
         };
+        */
         let context = Context::new(self.clone()).await; // TODO: reference to asset
                                                         // TODO: Separate evaluation of dependencies
-        let res = apply_plan(plan, envref, context, input_state).await?;
+        //let res = apply_plan(plan, envref, context, input_state).await?;
+        //let res = apply_plan_new(
+        //    plan, input_state, context, envref).await?;
+        let res = envref.apply_recipe(input_state, recipe, context).await?;
 
-        Ok(res)
+        Ok(State{data: res, metadata: Arc::new(self.data.read().await.metadata.clone())})
     }
 
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
@@ -876,6 +892,7 @@ impl<E: Environment> AssetRef<E> {
         &self,
         value: <E as Environment>::Value,
     ) -> Result<(), Error> {
+        println!("Setting value for asset {}", self.id());
         let mut lock = self.data.write().await;
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
@@ -896,6 +913,7 @@ impl<E: Environment> AssetRef<E> {
         &self,
         state: State<<E as Environment>::Value>,
     ) -> Result<(), Error> {
+        println!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
         lock.data = Some(state.data.clone());
         lock.metadata = (*state.metadata).clone();

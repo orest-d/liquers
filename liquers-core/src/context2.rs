@@ -10,14 +10,28 @@
 //! [ActionContext] is a public interface to the Context.
 
 use core::panic;
-use std::{f32::consts::E, sync::{Arc, Mutex}};
+use std::{
+    f32::consts::E,
+    sync::{Arc, Mutex},
+};
 
+use futures::FutureExt;
 use tokio::sync::watch;
 
 use crate::{
     assets2::{
         AssetManager, AssetNotificationMessage, AssetRef, AssetServiceMessage, DefaultAssetManager,
-    }, cache::Cache, command_metadata::CommandMetadataRegistry, commands2::{CommandExecutor, CommandRegistry}, error::Error, metadata::{LogEntry, MetadataRecord, ProgressEntry}, query::{Key, Query}, state::State, store::{NoStore, Store}, value::ValueInterface
+    },
+    cache::Cache,
+    command_metadata::CommandMetadataRegistry,
+    commands2::{CommandExecutor, CommandRegistry},
+    error::Error,
+    metadata::{LogEntry, MetadataRecord, ProgressEntry},
+    query::{Key, Query, TryToQuery},
+    recipes2::Recipe,
+    state::State,
+    store::{NoStore, Store},
+    value::ValueInterface,
 };
 
 pub enum User {
@@ -43,6 +57,15 @@ pub trait Environment: Sized + Sync + Send + 'static {
     fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>>;
 
     fn create_session(&self, user: User) -> Self::SessionType;
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
+    >;
 }
 
 // TODO: Define Session and User; Session connects multiple actions of a single user.
@@ -66,6 +89,32 @@ impl<E: Environment> EnvRef<E> {
 
     pub fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<E>>> {
         self.0.get_asset_manager()
+    }
+    pub fn apply_recipe(
+        &self,
+        input_state: State<E::Value>,
+        recipe: Recipe,
+        context: Context<E>,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>,
+    > {
+        Box::pin(E::apply_recipe(self.clone(), input_state, recipe, context))
+    }
+
+    pub fn evaluate<Q:TryToQuery>(
+        &self,
+        query: Q,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<AssetRef<E>, Error>> + Send + 'static>,
+    > {
+        let envref = self.clone();
+        let rquery = query.try_to_query();
+        
+        async move {
+            let asset_manager = envref.get_asset_manager();
+            asset_manager.get_asset(&rquery?).await
+        }
+        .boxed()
     }
 }
 
@@ -185,7 +234,9 @@ impl<E: Environment> Context<E> {
     }
 
     pub(crate) async fn set_metadata_value(&self, metadata: MetadataRecord) -> Result<(), Error> {
-        self.assetref.set_value(E::Value::from_metadata(metadata)).await
+        self.assetref
+            .set_value(E::Value::from_metadata(metadata))
+            .await
     }
 
     pub(crate) async fn set_state(&self, state: State<E::Value>) -> Result<(), Error> {
@@ -295,5 +346,27 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
     fn create_session(&self, user: User) -> Self::SessionType {
         SimpleSession { user }
+    }
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
+    > {
+        use crate::interpreter2::apply_plan_new;
+
+        async move {
+            let plan = {
+                let cmr = envref.0.get_command_metadata_registry();
+                recipe.to_plan(cmr)?
+            };
+            let res = apply_plan_new(plan, input_state, context, envref).await?;
+
+            Ok(res)
+        }
+        .boxed()
     }
 }

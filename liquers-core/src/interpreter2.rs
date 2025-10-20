@@ -56,6 +56,7 @@ pub fn apply_plan<E: Environment>(
     }
     .boxed()
 }
+
 pub fn apply_plan_new<E: Environment>(
     plan: Plan,
     input_state: State<E::Value>,
@@ -402,9 +403,10 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     async move {
         let query = rquery?;
         let plan = make_plan(envref.clone(), query.clone())?;
-        let assetref = AssetRef::new_from_recipe(0, (&query).into(), envref.clone());
+        let assetref = AssetRef::new_temporary(envref.clone());
         let context = Context::new(assetref).await;
         context.set_cwd_key(cwd_key);
+        /*
         apply_plan(
             plan,
             envref.clone(),
@@ -412,6 +414,10 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
             State::<<E as Environment>::Value>::new(),
         )
         .await
+        */
+        let input_state = State::<<E as Environment>::Value>::new();
+        let res = apply_plan_new(plan, input_state, context.clone(), envref).await?;
+        Ok(State::new().with_data((*res).clone()).with_metadata(context.get_metadata().await?.into()))
     }
     .boxed()
 }
@@ -602,7 +608,8 @@ mod tests {
 
         let envref = env.to_ref();
 
-        let state = evaluate(envref.clone(), "world/greet-Ciao", None).await?;
+        let asset = envref.evaluate("world/greet-Ciao").await?;
+        let state = asset.get().await?;
         println!("Metadata: {:?}", state.metadata);
 
         let value = state.try_into_string()?;
