@@ -962,7 +962,7 @@ pub struct DefaultAssetManager<E: Environment> {
     envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
-    recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
+    //recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
     job_queue: Arc<JobQueue<E>>,
 }
 
@@ -980,7 +980,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
             query_assets: scc::HashMap::new(),
-            recipe_provider: std::sync::OnceLock::new(),
+            //recipe_provider: std::sync::OnceLock::new(),
             job_queue: job_queue.clone(),
         };
         tokio::spawn(async move {
@@ -1004,13 +1004,6 @@ impl<E: Environment> DefaultAssetManager<E> {
         if self.envref.set(envref.clone()).is_err() {
             panic!("Environment already set in AssetStore");
         }
-        if self
-            .recipe_provider
-            .set(DefaultRecipeProvider::new(envref))
-            .is_err()
-        {
-            panic!("Recipe provider already set in AssetStore");
-        }
     }
 
     pub fn create_asset(&self, recipe: Recipe) -> AssetRef<E> {
@@ -1024,10 +1017,11 @@ impl<E: Environment> DefaultAssetManager<E> {
         asset
     }
 
-    pub fn get_recipe_provider(&self) -> &DefaultRecipeProvider<E> {
-        self.recipe_provider
+    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+        self.envref
             .get()
-            .expect("Recipe provider not set in AssetStore")
+            .expect("Environment not set in AssetStore")
+            .get_recipe_provider()
     }
 }
 
