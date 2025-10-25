@@ -634,6 +634,100 @@ impl<E: Environment> AssetRef<E> {
         result
     }
 
+    /// Run the asset evaluation loop.
+    pub(crate) async fn run_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        if self.status().await.is_finished() {
+            return Ok(()); // Already finished
+        }
+        let assetref = self.clone();
+        let psm = tokio::spawn(async move { assetref.process_service_messages().await });
+        let mut result = tokio::select! {
+            res = self.wait_to_finish() => res,
+            res = self.evaluate_immediately(payload) => res
+        };
+        self.service_sender()
+            .await
+            .send(AssetServiceMessage::JobFinished)
+            .ok();
+        let psm_result = psm.await;
+        match psm_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                result = Err(e);
+            }
+            Err(e) => {
+                if result.is_ok() {
+                    result = Err(Error::general_error(format!(
+                        "Failed to join process_service_messages task: {}",
+                        e
+                    )));
+                } else {
+                    let mut lock = self.data.write().await;
+                    lock.metadata
+                        .add_log_entry(LogEntry::error(format!(
+                            "Failed to join process_service_messages task: {}",
+                            e
+                        )))
+                        .ok();
+                }
+            }
+        }
+
+        if let Err(e) = &result {
+            let mut lock = self.data.write().await;
+            lock.data = None;
+            lock.status = Status::Error;
+            lock.binary = None;
+            lock.metadata = Metadata::from_error(e.clone());
+        } else {
+            async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
+                eprintln!(
+                    "Trying to set asset {} to ready - status {:?}",
+                    assetref.id(),
+                    assetref.status().await
+                );
+                let mut lock = assetref.data.write().await;
+                if lock.data.is_some() {
+                    lock.status = Status::Ready;
+                } else {
+                    lock.status = Status::Error;
+                    let e = Error::unexpected_error(format!(
+                        "Asset evaluation finished ({:?} status) but no data available",
+                        lock.status
+                    ));
+                    if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
+                        eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
+                    }
+                }
+            }
+            match self.status().await {
+                Status::None => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Recipe => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Submitted => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Dependencies => todo!(),
+                Status::Processing => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Partial => {
+                    try_to_set_ready(self.clone()).await;
+                }
+                Status::Error => todo!(),
+                Status::Storing => todo!(),
+                Status::Ready => {}
+                Status::Expired => {}
+                Status::Cancelled => {}
+                Status::Source => {}
+            }
+        }
+        result
+    }
+
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
         let lock = self.data.read().await;
         (lock.initial_state.clone(), lock.recipe.clone())
@@ -697,6 +791,25 @@ impl<E: Environment> AssetRef<E> {
                 Err(e)
             }
         }
+    }
+
+    pub async fn evaluate_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        let (input_state, recipe) = self.initial_state_and_recipe().await;
+
+        let envref = self.get_envref().await;
+        let mut context = Context::new(self.clone()).await;
+        if let Some(payload) = payload {
+            context.set_payload(payload);
+        }
+        let res = envref.apply_recipe(input_state, recipe, context).await?;
+
+
+        let mut lock = self.data.write().await;
+        lock.data = Some(res.clone());
+        let _ = lock
+                    .notification_tx
+                    .send(AssetNotificationMessage::ValueProduced);
+        Ok(())
     }
 
     async fn save_to_store(&self) -> Result<(), Error> {
@@ -928,6 +1041,7 @@ impl<E: Environment> AssetRef<E> {
 pub trait AssetManager<E: Environment>: Send + Sync {
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
     async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>;
+    async fn apply_immediately(&self, recipe: Recipe, to: E::Value, payload: Option<E::Payload>) -> Result<AssetRef<E>, Error>;
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
@@ -1067,6 +1181,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         Ok(asset_ref)
     }
 
+    /// Create an ad-hoc asset applied to a value
+    async fn apply_immediately(&self, recipe: Recipe, to: E::Value, payload: Option<E::Payload>) -> Result<AssetRef<E>, Error> {
+        let metadata = Arc::new(Metadata::new());
+        let initial_state = State::from_value_and_metadata(to, metadata);
+        let asset_ref =
+            AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
+        // No fast track makes sense now, since apply can't be stored, however in the future
+        // TODO: support fast-track once it makes sense
+        asset_ref.run_immediately(payload).await?;
+
+        Ok(asset_ref)
+    }
+
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let entry = self
             .assets
@@ -1199,7 +1326,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
         asset.submitted().await?;
         let mut jobs = self.jobs.lock().await;
-        jobs.retain(|a| a.id() != asset.id());
+        jobs.retain(|a| a.id() != asset.id()); // TODO: this should not push the asset to the end of the queue
         jobs.push(asset);
         Ok(())
     }
@@ -1524,6 +1651,34 @@ mod tests {
             .unwrap();
 
         let result = assetref.get().await.unwrap().try_into_string().unwrap();
+        assert_eq!(result, "Hello, WORLD!");
+        assert_eq!(assetref.status().await, Status::Ready);
+        assert!(assetref.poll_state().await.is_some());
+
+        let (b, _) = assetref.get_binary().await.unwrap();
+        assert_eq!(b.as_ref(), b"Hello, WORLD!");
+    }
+
+    #[tokio::test]
+    async fn test_apply_immediately() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |s, _, _| {
+                let txt = s.try_into_string()?;
+                Ok(Value::from(format!("Hello, {txt}!")))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let assetref = envref
+            .get_asset_manager()
+            .apply_immediately(query.into(), "WORLD".into(), None)
+            .await
+            .unwrap();
+
+        let result = assetref.poll_state().await.unwrap().try_into_string().unwrap();
         assert_eq!(result, "Hello, WORLD!");
         assert_eq!(assetref.status().await, Status::Ready);
         assert!(assetref.poll_state().await.is_some());
