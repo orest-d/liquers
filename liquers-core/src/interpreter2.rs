@@ -456,7 +456,7 @@ mod tests {
     use super::*;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
-    use crate::context2::SimpleEnvironment;
+    use crate::context2::{SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::metadata::ProgressEntry;
     use crate::parse::parse_query;
     use crate::state::State;
@@ -617,4 +617,49 @@ mod tests {
         assert!(state.metadata.primary_progress().is_done());
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_evaluate_immediately() -> Result<(), Box<dyn std::error::Error>> {
+        type CommandEnvironment = SimpleEnvironmentWithPayload<Value, String>;
+        let mut env = SimpleEnvironmentWithPayload::<Value, String>::new();
+
+        fn word(_state: &State<Value>, payload: String) -> Result<Value, Error> {
+            Ok(Value::from(format!("{payload}")))
+        }
+        fn upper(state: &State<Value>) -> Result<Value, Error> {
+            let txt = state.try_into_string()?;
+            Ok(Value::from(txt.to_uppercase()))
+        }
+        async fn greet(
+            state: State<Value>,
+            greet: String,
+            context: Context<CommandEnvironment>,
+        ) -> Result<Value, Error> {
+            let what = state.try_into_string()?;
+            context.info(&format!("Greeting {what}"))?;
+            let upper = context
+                .apply(&parse_query("upper").unwrap(), what.into())
+                .await?;
+            let upper_text = upper.get().await?.try_into_string()?;
+            context.progress(ProgressEntry::done("OK, done".to_owned()))?;
+            Ok(Value::from(format!("{greet}, {upper_text}!")))
+        }
+        let cr = &mut env.command_registry;
+        register_command_v2!(cr, fn word(state, payload: String injected) -> result).expect("register_command failed");
+        register_command_v2!(cr, fn upper(state) -> result).expect("register_command failed");
+        register_command_v2!(cr, async fn greet(state, greet: String = "Hello", context) -> result)
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        let asset = envref.evaluate_immediately("word/greet-Ciao", "Earth".into()).await?;
+        let state = asset.get().await?;
+        println!("Metadata: {:?}", state.metadata);
+
+        let value = state.try_into_string()?;
+        assert_eq!(value, "Ciao, EARTH!");
+        assert!(state.metadata.primary_progress().is_done());
+        Ok(())
+    }
+
 }

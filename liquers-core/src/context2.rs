@@ -15,6 +15,7 @@ use std::{
 };
 
 use futures::FutureExt;
+use serde::de;
 
 use crate::{
     assets2::{
@@ -127,6 +128,24 @@ impl<E: Environment> EnvRef<E> {
         async move {
             let asset_manager = envref.get_asset_manager();
             asset_manager.get_asset(&rquery?).await
+        }
+        .boxed()
+    }
+
+    pub fn evaluate_immediately<Q:TryToQuery>(
+        &self,
+        query: Q,
+        payload: E::Payload,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<AssetRef<E>, Error>> + Send + 'static>,
+    > {
+        let envref = self.clone();
+        let rquery = query.try_to_query();
+        
+        async move {
+            let asset_manager = envref.get_asset_manager();
+            let query = rquery?;
+            asset_manager.apply_immediately(query.into(), E::Value::none(), Some(payload)).await
         }
         .boxed()
     }
@@ -350,6 +369,114 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
     type Payload = ();
+
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+        &self.command_registry.command_metadata_registry
+    }
+
+    fn get_command_executor(&self) -> &Self::CommandExecutor {
+        &self.command_registry
+    }
+
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<Box<dyn crate::store::AsyncStore>> {
+        self.async_store.clone()
+    }
+
+    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>> {
+        self.asset_store.clone()
+    }
+    fn create_session(&self, user: User) -> Self::SessionType {
+        SimpleSession { user }
+    }
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
+    > {
+        use crate::interpreter2::apply_plan_new;
+
+        async move {
+            let plan = {
+                let cmr = envref.0.get_command_metadata_registry();
+                recipe.to_plan(cmr)?
+            };
+            let res = apply_plan_new(plan, input_state, context, envref).await?;
+
+            Ok(res)
+        }
+        .boxed()
+    }
+    
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+        if let Some(provider) = &self.recipe_provider {
+            return provider.clone();
+        }
+        panic!("No recipe provider configured in SimpleEnvironment");
+    }
+    
+    fn init_with_envref(&self, envref: EnvRef<Self>) {
+        self.get_asset_manager().set_envref(envref.clone());
+    }
+}
+
+
+
+/// Simple environment with payload and configurable store and cache
+/// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
+pub struct SimpleEnvironmentWithPayload<V: ValueInterface,P: Clone +  Send + Sync + 'static> {
+    store: Arc<Box<dyn Store>>,
+    #[cfg(feature = "async_store")]
+    async_store: Arc<Box<dyn crate::store::AsyncStore>>,
+    //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
+    pub command_registry: CommandRegistry<Self>,
+    asset_store: Arc<Box<DefaultAssetManager<Self>>>,
+    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider>>>,
+    _payload: std::marker::PhantomData<P>,
+}
+
+impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Default for SimpleEnvironmentWithPayload<V,P> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> SimpleEnvironmentWithPayload<V,P> {
+    pub fn new() -> Self {
+        SimpleEnvironmentWithPayload {
+            store: Arc::new(Box::new(NoStore)),
+            command_registry: CommandRegistry::new(),
+            //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
+            _payload: std::marker::PhantomData::<P>::default(),
+            #[cfg(feature = "async_store")]
+            async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
+            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetManager::new())),
+            recipe_provider: None,
+        }
+    }
+    pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
+        self.store = Arc::new(store);
+        self
+    }
+    #[cfg(feature = "async_store")]
+    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
+        self.async_store = Arc::new(store);
+        self
+    }
+    pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
+        panic!("SimpleEnvironment does not support cache for now");
+    }
+}
+
+impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Environment for SimpleEnvironmentWithPayload<V,P> {
+    type Value = V;
+    type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = SimpleSession;
+    type Payload = P;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry

@@ -340,6 +340,16 @@ pub trait InjectedFromContext<E: Environment>: Sized {
     fn from_context(name: &str, context: Context<E>) -> Result<Self, Error>;
 }
 
+impl<E: Environment> InjectedFromContext<E> for E::Payload
+{
+    fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
+        context.get_payload_clone().ok_or(Error::general_error(format!(
+            "No payload in context for injected parameter {}",
+            name
+        )))
+    }
+}
+
 #[async_trait]
 pub trait CommandExecutor<E:Environment>:
     Send + Sync

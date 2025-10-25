@@ -1415,7 +1415,7 @@ impl<E: Environment + 'static> JobQueue<E> {
 mod tests {
     use super::*;
     use crate::command_metadata::CommandKey;
-    use crate::context2::SimpleEnvironment;
+    use crate::context2::{SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::metadata::{Metadata, MetadataRecord};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
@@ -1685,6 +1685,35 @@ mod tests {
 
         let (b, _) = assetref.get_binary().await.unwrap();
         assert_eq!(b.as_ref(), b"Hello, WORLD!");
+    }
+
+    #[tokio::test]
+    async fn test_apply_immediately_with_payload() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironmentWithPayload<Value, String> = SimpleEnvironmentWithPayload::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |s, _arg, context| {
+                let txt = s.try_into_string()?;
+                let payload = context.get_payload_clone().unwrap();
+                Ok(Value::from(format!("{payload}, {txt}!")))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let assetref = envref
+            .get_asset_manager()
+            .apply_immediately(query.into(), "WORLD".into(), Some("Hi".to_owned()))
+            .await
+            .unwrap();
+
+        let result = assetref.poll_state().await.unwrap().try_into_string().unwrap();
+        assert_eq!(result, "Hi, WORLD!");
+        assert_eq!(assetref.status().await, Status::Ready);
+        assert!(assetref.poll_state().await.is_some());
+
+        let (b, _) = assetref.get_binary().await.unwrap();
+        assert_eq!(b.as_ref(), b"Hi, WORLD!");
     }
 
     #[tokio::test]
