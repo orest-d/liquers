@@ -1351,7 +1351,6 @@ impl<E: Environment + 'static> JobQueue<E> {
         loop {
             eprint!(".");
             let pending_count = self.pending_jobs_count().await;
-            eprintln!(" Pending jobs: {}", pending_count);
 
             // Check if we can start more jobs
             if pending_count < self.capacity {

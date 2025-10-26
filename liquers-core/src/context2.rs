@@ -312,7 +312,7 @@ impl<E: Environment> Clone for Context<E> {
 // TODO: There should be a reference to query including the current action
 
 pub struct SimpleSession {
-    user: User,
+    pub user: User,
 }
 impl Session for SimpleSession {
     fn get_user(&self) -> &User {
