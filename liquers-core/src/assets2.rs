@@ -803,12 +803,11 @@ impl<E: Environment> AssetRef<E> {
         }
         let res = envref.apply_recipe(input_state, recipe, context).await?;
 
-
         let mut lock = self.data.write().await;
         lock.data = Some(res.clone());
         let _ = lock
-                    .notification_tx
-                    .send(AssetNotificationMessage::ValueProduced);
+            .notification_tx
+            .send(AssetNotificationMessage::ValueProduced);
         Ok(())
     }
 
@@ -1041,7 +1040,12 @@ impl<E: Environment> AssetRef<E> {
 pub trait AssetManager<E: Environment>: Send + Sync {
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
     async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>;
-    async fn apply_immediately(&self, recipe: Recipe, to: E::Value, payload: Option<E::Payload>) -> Result<AssetRef<E>, Error>;
+    async fn apply_immediately(
+        &self,
+        recipe: Recipe,
+        to: E::Value,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error>;
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
@@ -1182,7 +1186,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     /// Create an ad-hoc asset applied to a value
-    async fn apply_immediately(&self, recipe: Recipe, to: E::Value, payload: Option<E::Payload>) -> Result<AssetRef<E>, Error> {
+    async fn apply_immediately(
+        &self,
+        recipe: Recipe,
+        to: E::Value,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
         let metadata = Arc::new(Metadata::new());
         let initial_state = State::from_value_and_metadata(to, metadata);
         let asset_ref =
@@ -1325,9 +1334,22 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// Submit an asset for processing
     pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
         asset.submitted().await?;
+        let pending_count = self.pending_jobs_count().await;
+        if pending_count < self.capacity { // avoid waiting in queue
+            let asset_clone = asset.clone();
+            if let Err(e) = asset_clone.set_status(Status::Processing).await {
+                eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
+            }
+            eprintln!("Starting asset job {} immediately", asset.id());
+            tokio::spawn(async move {
+                let _ = asset_clone.run().await;
+            });
+        }
         let mut jobs = self.jobs.lock().await;
-        jobs.retain(|a| a.id() != asset.id()); // TODO: this should not push the asset to the end of the queue
+        let asset_id = asset.id();
         jobs.push(asset);
+        jobs.retain(|a| a.id() != asset_id); // TODO: this should not push the asset to the end of the queue
+        
         Ok(())
     }
 
@@ -1349,7 +1371,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     pub async fn run(self: Arc<Self>) {
         eprintln!("Starting job queue");
         loop {
-            eprint!(".");
+            //eprint!(".");
             let pending_count = self.pending_jobs_count().await;
 
             // Check if we can start more jobs
@@ -1677,7 +1699,12 @@ mod tests {
             .await
             .unwrap();
 
-        let result = assetref.poll_state().await.unwrap().try_into_string().unwrap();
+        let result = assetref
+            .poll_state()
+            .await
+            .unwrap()
+            .try_into_string()
+            .unwrap();
         assert_eq!(result, "Hello, WORLD!");
         assert_eq!(assetref.status().await, Status::Ready);
         assert!(assetref.poll_state().await.is_some());
@@ -1689,7 +1716,8 @@ mod tests {
     #[tokio::test]
     async fn test_apply_immediately_with_payload() {
         let query = parse_query("test").unwrap();
-        let mut env: SimpleEnvironmentWithPayload<Value, String> = SimpleEnvironmentWithPayload::new();
+        let mut env: SimpleEnvironmentWithPayload<Value, String> =
+            SimpleEnvironmentWithPayload::new();
         let key = CommandKey::new_name("test");
         env.command_registry
             .register_command(key.clone(), |s, _arg, context| {
@@ -1706,7 +1734,12 @@ mod tests {
             .await
             .unwrap();
 
-        let result = assetref.poll_state().await.unwrap().try_into_string().unwrap();
+        let result = assetref
+            .poll_state()
+            .await
+            .unwrap()
+            .try_into_string()
+            .unwrap();
         assert_eq!(result, "Hi, WORLD!");
         assert_eq!(assetref.status().await, Status::Ready);
         assert!(assetref.poll_state().await.is_some());
