@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -9,7 +9,8 @@ use crate::{
     error::Error,
     parse::{parse_key, parse_query},
     plan::{Plan, PlanBuilder},
-    query::{Key, Query, ResourceName}, store,
+    query::{Key, Query, ResourceName},
+    store,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -113,7 +114,9 @@ impl Recipe {
     /// It applies the arguments and links to the plan.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
-        let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
+        let mut planbuilder = PlanBuilder::new(query.clone(), cmr)
+            .with_placeholders_allowed();
+//            .disable_expand_predecessors(); // TODO: fix - evaluate_immediately unittest is crashing with this option
         let mut plan = planbuilder.build()?;
 
         for (name, value) in &self.arguments {
@@ -213,7 +216,6 @@ impl From<&Key> for Recipe {
     }
 }
 
-
 #[async_trait]
 pub trait AsyncRecipeProvider: Send + Sync {
     /// Returns true if folder represented by key has recipes
@@ -249,7 +251,8 @@ impl<E: Environment> DefaultRecipeProvider<E> {
         DefaultRecipeProvider { envref }
     }
     pub async fn get_recipes(&self, key: &Key) -> Result<RecipeList, Error> {
-        let mut recipes: RecipeList = self.envref
+        let mut recipes: RecipeList = self
+            .envref
             .get_async_store()
             .get_bytes(&key.join("recipes.yaml"))
             .await
@@ -361,9 +364,10 @@ impl RecipeList {
         for recipe in &mut self.recipes {
             if recipe.cwd.is_none() {
                 recipe.cwd = Some(cwd.clone());
-            }
-            else{
-                return Err(Error::not_supported("CWD can't be explicitly specified in a recipe".to_owned()))
+            } else {
+                return Err(Error::not_supported(
+                    "CWD can't be explicitly specified in a recipe".to_owned(),
+                ));
             }
         }
         Ok(())
