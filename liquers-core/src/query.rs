@@ -134,11 +134,18 @@ impl StyledQueryToken {
             StyledQueryToken::Highlight(s) => s,
         }
     }
+    pub fn to_highlight_if_matching(self, p1:&Position, p2:&Position) -> Self{
+        if p1.highlight(p2) {
+            StyledQueryToken::Highlight(self.to_text())
+        } else {
+            self
+        }
+    }
 }
 
 pub trait QueryRenderer {
     fn render<S: QueryRenderStyle>(&self, style: &S) -> String;
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken>;
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken>;
 }
 
 pub struct TrivialQueryRenderStyle;
@@ -272,6 +279,14 @@ impl Position {
             self
         }
     }
+    /// Returns true if two positions are equal but not unknown
+    pub fn highlight(&self, position: &Position) -> bool {
+        if self.is_unknown() {
+            return false;
+        }
+        *self == *position
+    }
+
 }
 
 impl Default for Position {
@@ -402,16 +417,17 @@ impl QueryRenderer for ActionParameter {
         }
     }
 
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         match self {
-            Self::String(s, _) => {
-                let token = StyledQueryToken::StringParameter(s.to_owned());
+            Self::String(s, p) => {
+                let token =
+                    StyledQueryToken::StringParameter(s.to_owned()).to_highlight_if_matching(p, position);
                 Either::Left(std::iter::once(token))
             }
-            Self::Link(query, _) => {
-                let begin = StyledQueryToken::Entity("~X~".to_owned());
-                let query_tokens = query.styled_tokens();
-                let end = StyledQueryToken::Entity("~E".to_owned());
+            Self::Link(query, p) => {
+                let begin = StyledQueryToken::Entity("~X~".to_owned()).to_highlight_if_matching(p, position);
+                let query_tokens = query.styled_tokens(position);
+                let end = StyledQueryToken::Entity("~E".to_owned()).to_highlight_if_matching(p, position);
                 Either::Right(
                     std::iter::once(begin)
                         .chain(query_tokens)
@@ -522,8 +538,8 @@ impl QueryRenderer for ResourceName {
     fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
         style.resource_name(&self.name, &self.position)
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
-        std::iter::once(StyledQueryToken::ResourceName(self.name.to_owned()))
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
+        std::iter::once(StyledQueryToken::ResourceName(self.name.to_owned()).to_highlight_if_matching(position, &self.position))
     }
 }
 
@@ -595,10 +611,10 @@ impl QueryRenderer for ActionRequest {
             .join("");
         format!("{action_name}{parameters}")
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
-        let action_token = StyledQueryToken::ActionName(self.name.to_owned());
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
+        let action_token = StyledQueryToken::ActionName(self.name.to_owned()).to_highlight_if_matching(position, &self.position);
         let params_tokens = self.parameters.iter().flat_map(|p| {
-            std::iter::once(StyledQueryToken::Separator("-".to_owned())).chain(p.styled_tokens())
+            std::iter::once(StyledQueryToken::Separator("-".to_owned())).chain(p.styled_tokens(position))
         });
         std::iter::once(action_token).chain(params_tokens)
     }
@@ -654,8 +670,8 @@ impl QueryRenderer for HeaderParameter {
     fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
         style.string_parameter(&self.value, &self.position)
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
-        std::iter::once(StyledQueryToken::StringParameter(self.value.to_owned()))
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
+        std::iter::once(StyledQueryToken::StringParameter(self.value.to_owned()).to_highlight_if_matching(position, &self.position))
     }
 }
 
@@ -761,7 +777,7 @@ impl QueryRenderer for SegmentHeader {
         }
         styled_head
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         let mut head: String = std::iter::repeat_n("-", self.level + 1).collect();
         if self.resource {
             head.push('R');
@@ -769,9 +785,9 @@ impl QueryRenderer for SegmentHeader {
         if !self.name.is_empty() {
             head.push_str(&self.name);
         }
-        let head_token = StyledQueryToken::Header(head);
+        let head_token = StyledQueryToken::Header(head).to_highlight_if_matching(position, &self.position);
         let params_tokens = self.parameters.iter().flat_map(|p| {
-            std::iter::once(StyledQueryToken::Separator("-".to_owned())).chain(p.styled_tokens())
+            std::iter::once(StyledQueryToken::Separator("-".to_owned())).chain(p.styled_tokens(position))
         });
         std::iter::once(head_token).chain(params_tokens)
     }
@@ -1015,9 +1031,9 @@ impl QueryRenderer for TransformQuerySegment {
         }
         styled_query
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         let mut tokens = if let Some(header) = &self.header {
-            header.styled_tokens().collect::<Vec<_>>()
+            header.styled_tokens(position).collect::<Vec<_>>()
         } else {
             vec![]
         };
@@ -1025,13 +1041,13 @@ impl QueryRenderer for TransformQuerySegment {
             if !tokens.is_empty() {
                 tokens.push(StyledQueryToken::Separator("/".to_owned()));
             }
-            tokens.extend(action.styled_tokens());
+            tokens.extend(action.styled_tokens(position));
         }
         if let Some(filename) = &self.filename {
             if !tokens.is_empty() {
                 tokens.push(StyledQueryToken::Separator("/".to_owned()));
             }
-            tokens.extend(filename.styled_tokens());
+            tokens.extend(filename.styled_tokens(position));
         }
         tokens.into_iter()
     }
@@ -1223,17 +1239,15 @@ impl QueryRenderer for Key {
             format!("{first}{rest}")
         }
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         if self.is_empty() {
             Either::Left(std::iter::empty())
         } else {
             Either::Right(
-                std::iter::once(StyledQueryToken::ResourceName(self[0].name.clone())).chain(
+                self[0].styled_tokens(position).chain(
                     self.iter().skip(1).flat_map(|x| {
-                        vec![
-                            StyledQueryToken::Separator("/".to_owned()),
-                            StyledQueryToken::ResourceName(x.name.clone()),
-                        ]
+                        std::iter::once(StyledQueryToken::Separator("/".to_owned()))
+                            .chain(x.styled_tokens(position))
                     }),
                 ),
             )
@@ -1454,14 +1468,14 @@ impl QueryRenderer for ResourceQuerySegment {
         }
         styled_query
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         let mut tokens = if let Some(header) = &self.header {
-            header.styled_tokens().collect::<Vec<_>>()
+            header.styled_tokens(position).collect::<Vec<_>>()
         } else {
             Vec::new()
         };
         if !self.key.is_empty() {
-            tokens.extend(self.key.styled_tokens());
+            tokens.extend(self.key.styled_tokens(position));
         }
         tokens.into_iter()
     }
@@ -1668,10 +1682,10 @@ impl QueryRenderer for QuerySegment {
             QuerySegment::Transform(tqs) => tqs.render(style),
         }
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         match self {
-            QuerySegment::Resource(rqs) => Either::Left(rqs.styled_tokens()),
-            QuerySegment::Transform(tqs) => Either::Right(tqs.styled_tokens()),
+            QuerySegment::Resource(rqs) => Either::Left(rqs.styled_tokens(position)),
+            QuerySegment::Transform(tqs) => Either::Right(tqs.styled_tokens(position)),
         }
     }
 }
@@ -2143,14 +2157,14 @@ impl QueryRenderer for Query {
             }
         }
     }
-    fn styled_tokens(&self) -> impl Iterator<Item = StyledQueryToken> {
+    fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         let first_tokens = if self.segments.is_empty() {
             Either::Left(std::iter::empty())
         } else {
-            Either::Right(self.segments[0].styled_tokens())
+            Either::Right(self.segments[0].styled_tokens(position))
         };
         let rest_tokens = self.segments.iter().skip(1).flat_map(|x| {
-            std::iter::once(StyledQueryToken::Separator("/".to_owned())).chain(x.styled_tokens())
+            std::iter::once(StyledQueryToken::Separator("/".to_owned())).chain(x.styled_tokens(position))
         });
         if self.absolute {
             Either::Left(
@@ -2296,7 +2310,7 @@ mod tests {
         };
         assert_eq!(a.encode(), "action");
         assert_eq!(a.render(&TrivialQueryRenderStyle), "action");
-        assert_eq!(a.styled_tokens().map(|t| t.to_text()).collect::<Vec<_>>().concat(), "action");
+        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.to_text()).collect::<Vec<_>>().concat(), "action");
         let a = ActionRequest::new("action1".to_owned());
         assert_eq!(a.encode(), "action1");
         assert_eq!(a.render(&TrivialQueryRenderStyle), "action1");
@@ -2321,7 +2335,7 @@ mod tests {
             a.render(&TrivialQueryRenderStyle),
             "action-~X~hello~E-world"
         );
-        assert_eq!(a.styled_tokens().map(|t| t.to_text()).collect::<Vec<_>>().concat(), "action-~X~hello~E-world");
+        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.to_text()).collect::<Vec<_>>().concat(), "action-~X~hello~E-world");
 
         let q = Query {
             segments: vec![QuerySegment::Transform(TransformQuerySegment {
