@@ -153,7 +153,7 @@ impl EnumArgument {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[derive(Default)]
 pub enum ArgumentType {
-    #[serde(rename = "string")]
+    #[serde(rename = "string")]    
     String,
     #[serde(rename = "int")]
     Integer,
@@ -194,10 +194,22 @@ impl ArgumentType {
             _ => Ok(self.clone()),
         }
     }
+    pub fn is_any(&self) -> bool {
+        match self {
+            ArgumentType::Any => true,
+            _ => false,
+        }
+    }
+    pub fn is_none(&self) -> bool {
+        match self {
+            ArgumentType::None => true,
+            _ => false,
+        }
+    }
 }
 
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum ArgumentGUIInfo {
     /// Text field for entering a short text, e.g. a name or a title.
     /// Argument is a width hint specified in characters.
@@ -249,13 +261,8 @@ pub enum ArgumentGUIInfo {
     /// Parameter should not appear in the GUI
     Hide,
     /// No GUI information
+    #[default]
     None,
-}
-
-impl Default for ArgumentGUIInfo {
-    fn default() -> Self {
-        ArgumentGUIInfo::TextField(20)
-    }
 }
 
 /// CommandParameterValue represents a value of a command parameter.
@@ -312,6 +319,26 @@ pub struct ParameterPreset {
     description: String,
 }
 
+fn is_false(b: &bool) -> bool {
+    *b == false
+}
+
+fn is_true(b: &bool) -> bool {
+    *b == true
+}
+fn true_default()->bool{
+    true
+}
+fn false_default()->bool{
+    false
+}
+fn gui_info_is_none(gui_info: &ArgumentGUIInfo) -> bool {
+    match gui_info {
+        ArgumentGUIInfo::None => true,
+        _ => false,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct ArgumentInfo {
     /// Name of the argument, used to identify it in the command metadata.
@@ -321,29 +348,43 @@ pub struct ArgumentInfo {
     pub label: String,
 
     /// Default value of the argument - or None.
+    #[serde(skip_serializing_if = "CommandParameterValue::is_null")]
+    #[serde(default)]
     pub default: CommandParameterValue,
 
     /// Type of the argument.
+    #[serde(skip_serializing_if = "ArgumentType::is_any")]
+    #[serde(default)]
     pub argument_type: ArgumentType,
 
-    /// Used for variadic commands. If true, then this argument parses remaining command parameters 
+    /// Used for variadic commands. If true, then this argument parses remaining command parameters
+    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default = "false_default")]
     pub multiple: bool,
 
     /// If true, then this argument is injected by the plan interpreter.
     /// Injected parameters have to be accessible via action context. Typically these are global objects stored in the environment.
+    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default = "false_default")]
     pub injected: bool,
 
     /// Preferred GUI entry widget, used to edit the argument in the UI.
     /// UI may ignore it and use a simple string input field.
+    #[serde(skip_serializing_if = "gui_info_is_none")]
+    #[serde(default)]
     pub gui_info: ArgumentGUIInfo,
 
     /// Free dictionary of hints for the argument.
     /// This may be used e.g. to provide additional hints for the UI.
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    #[serde(default)]
     pub hints: serde_json::Map<String, serde_json::Value>,
 
     /// Parameters presets for the argument.
     /// These can be used for quick setting of most frequent parameter values in UI.
     /// They can also serve as a documentation for the argument.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub presets: Vec<ParameterPreset>,
 }
 
@@ -636,16 +677,30 @@ impl CommandPreset {
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct CommandMetadata {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub realm: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub namespace: String,
     pub name: String,
     pub label: String,
     //TODO: improve module - rust, python or jvm module ?
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub module: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub doc: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub presets: Vec<CommandPreset>,
     //TODO: state argument should be optional
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub state_argument: Option<ArgumentInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub arguments: Vec<ArgumentInfo>,
     pub cache: bool,
     pub volatile: bool,
