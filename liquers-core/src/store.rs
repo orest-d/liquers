@@ -646,9 +646,9 @@ impl Store for FileStore {
         self.prefix.to_owned()
     }
 
-    fn default_metadata(&self, _key: &Key, is_dir: bool) -> MetadataRecord {
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
         let mut metadata = MetadataRecord::new();
-        metadata.with_key(_key.to_owned());
+        metadata.with_key(key.to_owned());
         metadata.is_dir = is_dir;
         metadata
     }

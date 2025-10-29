@@ -332,6 +332,10 @@ pub struct AssetInfo {
     pub data_format: Option<String>,
     /// Last message from the log
     pub message: String,
+    /// Title of the asset
+    pub title: String,
+    /// Description of the asset
+    pub description: String,  
     /// Indicates that the value failed to be created
     pub is_error: bool,
     /// Media type of the value
@@ -427,6 +431,10 @@ pub struct MetadataRecord {
     pub data_format: Option<String>,
     /// Last message from the log
     pub message: String,
+    /// Title of the asset
+    pub title: String,
+    /// Description of the asset
+    pub description: String,   
     /// Indicates that the value failed to be created
     pub is_error: bool,
     /// Structure containing the error information
@@ -580,6 +588,8 @@ impl MetadataRecord {
             type_identifier: self.type_identifier.clone(),
             data_format: self.data_format.clone(),
             message: self.message.clone(),
+            title: self.title.clone(),
+            description: self.description.clone(),
             is_error: self.is_error,
             media_type: self.media_type.clone(),
             filename: self.filename.clone(),
@@ -627,6 +637,14 @@ impl MetadataRecord {
     }
     pub fn with_message(&mut self, message: String) -> &mut Self {
         self.message = message;
+        self
+    }
+    pub fn with_title(&mut self, title: String) -> &mut Self {
+        self.title = title;
+        self
+    }
+    pub fn with_description(&mut self, description: String) -> &mut Self {
+        self.description = description;
         self
     }
 

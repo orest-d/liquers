@@ -1204,6 +1204,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        eprintln!("Getting asset for key {}", key);
         let entry = self
             .assets
             .entry_async(key.clone())
@@ -1217,14 +1218,16 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             return Ok(asset_ref);
         }
         {
+            eprintln!("Trying fast track for asset with key {}", key);
             let asset_ref = asset_ref.clone();
             let mut lock = asset_ref.data.write().await;
             if lock.try_fast_track().await? {
+                eprintln!("Fast track successful for asset with key {}", key);
                 drop(lock);
                 return Ok(asset_ref);
             }
         }
-
+        eprintln!("Submitting asset with key {} to job queue", key);
         self.job_queue.submit(asset_ref.clone()).await?;
 
         Ok(asset_ref)

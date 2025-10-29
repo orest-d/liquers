@@ -5,7 +5,7 @@ use serde_json;
 
 use std::{borrow::Cow, collections::BTreeMap, result::Result};
 
-use crate::{command_metadata::CommandMetadata, error::{Error, ErrorType}, metadata::MetadataRecord, recipes::Recipe};
+use crate::{command_metadata::CommandMetadata, error::{Error, ErrorType}, metadata::{AssetInfo, MetadataRecord}, recipes::Recipe};
 use std::convert::{TryFrom, TryInto};
 
 /// Basic built-in value type
@@ -25,6 +25,7 @@ pub enum Value {
     Object(BTreeMap<String, Value>),
     Bytes(Vec<u8>),
     Metadata(MetadataRecord),
+    AssetInfo(AssetInfo),
     Recipe(Recipe),
     CommandMetadata(CommandMetadata),
     Query(crate::query::Query),
@@ -107,7 +108,10 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     /// From metadata
     fn from_metadata(metadata: MetadataRecord) -> Self;
 
-        /// From recipe
+        /// From metadata
+    fn from_asset_info(asset_info: AssetInfo) -> Self;
+
+    /// From recipe
     fn from_recipe(recipe: Recipe) -> Self;
 
     /// From bytes
@@ -303,6 +307,7 @@ impl ValueInterface for Value {
             Value::Object(_) => "dictionary".into(),
             Value::Bytes(_) => "bytes".into(),
             Value::Metadata(_) => "metadata".into(),
+            Value::AssetInfo(_) => "asset_info".into(),
             Value::Recipe(_) => "recipe".into(),
             Value::CommandMetadata(_) => "command_metadata".into(),
             Value::Query(_) => "query".into(),
@@ -322,6 +327,7 @@ impl ValueInterface for Value {
             Value::Object(_) => "object".into(),
             Value::Bytes(_) => "bytes".into(),
             Value::Metadata(_) => "metadata".into(),
+            Value::AssetInfo(_) => "asset_info".into(),
             Value::Recipe(_) => "recipe".into(),
             Value::CommandMetadata(_) => "command_metadata".into(),
             Value::Query(_) => "query".into(),
@@ -341,6 +347,7 @@ impl ValueInterface for Value {
             Value::Object(_) => "json".into(),
             Value::Bytes(_) => "b".into(),
             Value::Metadata(_) => "json".into(),
+            Value::AssetInfo(_) => "json".into(),
             Value::Recipe(_) => "json".into(),
             Value::CommandMetadata(_) => "json".into(),
             Value::Query(_) => "txt".into(),
@@ -360,6 +367,7 @@ impl ValueInterface for Value {
             Value::Object(_) => "data.json".into(),
             Value::Bytes(_) => "binary.b".into(),
             Value::Metadata(_) => "metadata.json".into(),
+            Value::AssetInfo(_) => "asset_info.json".into(),
             Value::Recipe(_) => "recipe.json".into(),
             Value::CommandMetadata(_) => "command_metadata.json".into(),
             Value::Query(_) => "query.txt".into(),
@@ -379,6 +387,7 @@ impl ValueInterface for Value {
             Value::Object(_) => "application/json".into(),
             Value::Bytes(_) => "application/octet-stream".into(),
             Value::Metadata(_) => "application/json".into(),
+            Value::AssetInfo(_) => "application/json".into(),
             Value::Recipe(_) => "application/json".into(),
             Value::CommandMetadata(_) => "application/json".into(),
             Value::Query(_) => "text/plain".into(),
@@ -475,6 +484,10 @@ impl ValueInterface for Value {
         Value::Metadata(metadata)
     }
     
+    fn from_asset_info(asset_info: AssetInfo) -> Self {
+        Value::AssetInfo(asset_info)
+    }
+    
     fn from_recipe(recipe: Recipe) -> Self {
         Value::Recipe(recipe)
     }
@@ -486,6 +499,7 @@ impl ValueInterface for Value {
     fn from_key(key: &crate::query::Key) -> Self {
         Value::Key(key.clone())
     }
+    
 
 }
 
