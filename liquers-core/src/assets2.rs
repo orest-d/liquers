@@ -156,8 +156,11 @@ impl<E: Environment> AssetData<E> {
         } else {
             Arc::new(None)
         };
+        let assetinfo = recipe
+            .get_asset_info()
+            .unwrap_or_else(|_| AssetInfo::default());
 
-        AssetData {
+        let mut asset = AssetData {
             id,
             envref,
             recipe,
@@ -169,11 +172,13 @@ impl<E: Environment> AssetData<E> {
             query,
             data: None,
             binary: None,
-            metadata: Metadata::new(),
+            metadata: assetinfo.into(),
             save_in_background: true,
             _marker: std::marker::PhantomData,
             status: Status::None,
-        }
+        };
+
+        asset
     }
 
     pub fn get_envref(&self) -> EnvRef<E> {
@@ -1049,6 +1054,9 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
+    /// Get asset info
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>;
+
     /// Returns true if store contains the key.
     async fn contains(&self, key: &Key) -> Result<bool, Error>;
 
@@ -1064,6 +1072,32 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// Only keys present directly in the directory are returned,
     /// subdirectories are not traversed.
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error>;
+
+    /// Return asset info of assets inside a directory specified by key.
+    /// Only info of assets present directly in the directory are returned,
+    /// subdirectories are not traversed.
+    async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+        let keys = self.listdir_keys(key).await?;
+        let mut asset_info = Vec::new();
+        for k in keys {
+            let info = self.get_asset_info(&k).await?;
+            asset_info.push(info);
+        }
+        asset_info.sort_by(|a, b| {
+            if a.is_dir{
+                if b.is_dir {
+                    a.filename.cmp(&b.filename)
+                } else {
+                    std::cmp::Ordering::Less
+                }
+            } else if b.is_dir {
+                std::cmp::Ordering::Greater
+            } else {
+                a.filename.cmp(&b.filename)
+            }
+        });
+        Ok(asset_info)
+    }
 
     /// Return asset info of assets inside a directory specified by key.
     /// Return keys inside a directory specified by key.
@@ -1169,6 +1203,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
             self.job_queue.submit(entry.get().clone()).await?;
             Ok(entry.get().clone())
+        }
+    }
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>{
+        if self.assets.contains(key) {
+            let assetref = self.get(key).await?;
+            assetref.get_asset_info().await
+        } else {
+            let store = self.get_envref().get_async_store();
+            if store.contains(key).await? {
+                store.get_asset_info(key).await
+            } else {
+                self.get_recipe_provider().get_asset_info(key).await
+            }
         }
     }
 

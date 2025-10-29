@@ -4,13 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::{
-    command_metadata::CommandMetadataRegistry,
-    context2::{EnvRef, Environment},
-    error::Error,
-    parse::{parse_key, parse_query},
-    plan::{Plan, PlanBuilder},
-    query::{Key, Query, ResourceName},
-    store,
+    command_metadata::CommandMetadataRegistry, context2::{EnvRef, Environment}, error::Error, metadata::{AssetInfo, Status}, parse::{parse_key, parse_query}, plan::{Plan, PlanBuilder}, query::{self, Key, Query, ResourceName}, store
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -66,6 +60,9 @@ impl Recipe {
     }
 
     /// Returns the filename of the recipe, if it has a valid query.
+    /// NOTE: Though in general recipes need to have filenames,
+    /// ad-hoc recipes (stemming e.g. from web API calls) of queries converted to recipes
+    /// do not need to have a filename.
     pub fn filename(&self) -> Result<Option<ResourceName>, Error> {
         Ok(self.get_query()?.filename())
     }
@@ -82,7 +79,15 @@ impl Recipe {
         if let Some(extension) = self.extension()? {
             return Ok(extension);
         }
-        Ok("binary".to_string())
+        Ok("bin".to_string())
+    }
+
+    pub fn unicode_icon(&self) -> String {
+       if let Ok(Some(extension)) = self.extension() {
+            crate::icons::file_extension_to_unicode_icon(&extension).to_owned()
+        } else {
+            crate::icons::DEFAULT_ICON.to_owned()
+        }
     }
 
     /// Returns true if the recipe has any arguments either values or links.
@@ -162,6 +167,29 @@ impl Recipe {
             Ok(None)
         }
     }
+
+    pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
+        let mut asset_info = AssetInfo::new();
+        asset_info.key = None; // Key is not known to the recipe
+        if self.is_pure_query(){
+            asset_info.query = if let Ok(query) = self.get_query() {
+                Some(query)
+            } else {
+                None
+            };
+        }
+        asset_info.message="Recipe available".to_string();
+        asset_info.title = self.title.clone();
+        asset_info.description = self.description.clone();
+        asset_info.filename = self.filename()?.map(|f| f.name);
+        asset_info.data_format = Some(self.data_format()?);
+        asset_info.is_error = false;
+        asset_info.is_dir = false;
+        asset_info.status = Status::Recipe;
+        asset_info.unicode_icon = self.unicode_icon();
+        Ok(asset_info)
+    }
+
 }
 
 impl From<&Query> for Recipe {
@@ -239,6 +267,14 @@ pub trait AsyncRecipeProvider: Send + Sync {
         } else {
             Ok(false)
         }
+    }
+    /// Returns asset info for the asset represented by key
+    /// This is a true asset info only if the asset is not available.
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
+        let recipe = self.recipe(key).await?;
+        let mut asset_info = recipe.get_asset_info()?;
+        asset_info.key = Some(key.clone());
+        Ok(asset_info)
     }
 }
 

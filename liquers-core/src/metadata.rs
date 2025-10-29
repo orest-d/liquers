@@ -410,6 +410,41 @@ impl AssetInfo {
     }
 }
 
+impl From<AssetInfo> for MetadataRecord {
+    fn from(asset_info: AssetInfo) -> Self {
+        let mut metadata = MetadataRecord::new();
+        metadata.query = asset_info.query.unwrap_or(Query::new());
+        metadata.key = asset_info.key;
+        metadata.status = asset_info.status;
+        metadata.type_identifier = asset_info.type_identifier;
+        metadata.data_format = asset_info.data_format;
+        metadata.message = asset_info.message;
+        metadata.title = asset_info.title;
+        metadata.description = asset_info.description;
+        metadata.is_error = asset_info.is_error;
+        metadata.media_type = asset_info.media_type;
+        metadata.filename = asset_info.filename;
+        metadata.unicode_icon = asset_info.unicode_icon;
+        metadata.file_size = asset_info.file_size;
+        metadata.is_dir = asset_info.is_dir;
+        metadata.progress = vec![asset_info.progress];
+        metadata
+    }
+}
+
+impl From<AssetInfo> for Metadata {
+    fn from(asset_info: AssetInfo) -> Self {
+        let m: MetadataRecord = asset_info.into();
+        m.into()
+    }
+}
+
+impl From<MetadataRecord> for AssetInfo {
+    fn from(metadata: MetadataRecord) -> Self {
+        metadata.get_asset_info()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct MetadataRecord {
     /// Log data
@@ -853,6 +888,8 @@ impl Metadata {
                 m.type_identifier = self.type_identifier().unwrap_or("".to_string());
                 m.data_format = Some(self.get_data_format());
                 m.message = self.message().to_string();
+                m.title = self.title().to_string();
+                m.description = self.description().to_string();
                 m.is_error = self.is_error().unwrap_or(false);
                 m.media_type = self.get_media_type();
                 m.filename = self.filename();
@@ -1186,6 +1223,32 @@ impl Metadata {
                 ""
             }
             Metadata::MetadataRecord(m) => m.message.as_str(),
+            _ => "",
+        }
+    }
+
+    pub fn title(&self) -> &str {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(title) = o.get("title") {
+                    return title.as_str().unwrap_or("");
+                }
+                ""
+            }
+            Metadata::MetadataRecord(m) => m.title.as_str(),
+            _ => "",
+        }
+    }
+
+    pub fn description(&self) -> &str {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(description) = o.get("description") {
+                    return description.as_str().unwrap_or("");
+                }
+                ""
+            }
+            Metadata::MetadataRecord(m) => m.description.as_str(),
             _ => "",
         }
     }
