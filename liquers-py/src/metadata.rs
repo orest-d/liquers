@@ -117,7 +117,7 @@ impl Metadata {
     }
 
     pub fn with_isdir(&mut self, is_dir: bool) {
-        self.inner.with_isdir(is_dir);
+        self.inner.with_is_dir(is_dir);
     }
 
     pub fn with_file_size(&mut self, file_size: u64) {

@@ -24,6 +24,7 @@ pub trait Store: Send + Sync {
     fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
         let mut metadata = MetadataRecord::new();
         metadata.with_key(key.to_owned());
+        let _ = metadata.set_updated_now();
         metadata.is_dir = is_dir;
         if is_dir {
             metadata.children = self.listdir_asset_info(key).unwrap_or_default();
@@ -33,25 +34,40 @@ pub trait Store: Send + Sync {
 
     /// Finalize metadata before storing - when data is available
     /// This can't be a directory
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _data: &[u8],
-        _update: bool,
-    ) -> Metadata {
-        metadata
+    /// If update is true, it is considered a real update of the data,
+    /// not just fixing the metadata - the time of the update gets actualized too
+    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        let _ = metadata.with_key(key.clone());
+        metadata.with_file_size(data.len() as u64);
+        match metadata.status() {
+            metadata::Status::None => {
+                // If there is data, then the status can't be None - It could be only some state that has data.
+                // Source is the least assuming, but it can create inconsistency if there is a recipe.
+                let _ = metadata.set_status(metadata::Status::Source);
+            }
+            _ => {}
+        }
     }
 
     /// Finalize metadata before storing - when data is not available
     fn finalize_metadata_empty(
         &self,
-        metadata: Metadata,
-        _key: &Key,
-        _is_dir: bool,
-        _update: bool,
-    ) -> Metadata {
-        metadata
+        metadata: &mut Metadata,
+        key: &Key,
+        is_dir: bool,
+        update: bool,
+    ) {
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        metadata.with_is_dir(is_dir);
+        let _ = metadata.with_key(key.clone());
+        if is_dir {
+            let _ = metadata.set_status(metadata::Status::Directory);
+        }
     }
 
     /// Get data and metadata
@@ -75,9 +91,10 @@ pub trait Store: Send + Sync {
 
     /// Get asset info
     fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
-        let mut info = self.get_metadata(key)?.get_asset_info().unwrap_or_else(|_e| {
-            AssetInfo::new()
-        });
+        let mut info = self
+            .get_metadata(key)?
+            .get_asset_info()
+            .unwrap_or_else(|_e| AssetInfo::new());
         info.with_key(key.to_owned());
         info.is_dir = self.is_dir(key)?;
         Ok(info)
@@ -148,7 +165,7 @@ pub trait Store: Send + Sync {
             asset_info.push(info);
         }
         asset_info.sort_by(|a, b| {
-            if a.is_dir{
+            if a.is_dir {
                 if b.is_dir {
                     a.filename.cmp(&b.filename)
                 } else {
@@ -257,32 +274,44 @@ pub trait AsyncStore: Send + Sync {
     /// Create default metadata object for a given key
     fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
         let mut m = MetadataRecord::new();
-        m.with_key(key.to_owned());
-        m.is_dir = is_dir;
+        m.set_updated_now().with_key(key.to_owned()).is_dir = is_dir;
         m
     }
 
     /// Finalize metadata before storing - when data is available
     /// This can't be a directory
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _data: &[u8],
-        _update: bool,
-    ) -> Metadata {
-        metadata
+    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        let _ = metadata.with_key(key.clone());
+        metadata.with_file_size(data.len() as u64);
+        match metadata.status() {
+            metadata::Status::None => {
+                // If there is data, then the status can't be None - It could be only some state that has data.
+                // Source is the least assuming, but it can create inconsistency if there is a recipe.
+                let _ = metadata.set_status(metadata::Status::Source);
+            }
+            _ => {}
+        }
     }
 
     /// Finalize metadata before storing - when data is not available
     fn finalize_metadata_empty(
         &self,
-        metadata: Metadata,
-        _key: &Key,
-        _is_dir: bool,
-        _update: bool,
-    ) -> Metadata {
-        metadata
+        metadata: &mut Metadata,
+        key: &Key,
+        is_dir: bool,
+        update: bool,
+    ) {
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        metadata.with_is_dir(is_dir);
+        let _ = metadata.with_key(key.clone());
+        if is_dir {
+            let _ = metadata.set_status(metadata::Status::Directory);
+        }
     }
 
     /// Get data asynchronously
@@ -305,9 +334,11 @@ pub trait AsyncStore: Send + Sync {
 
     /// Get asset info
     async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
-        let mut info = self.get_metadata(key).await?.get_asset_info().unwrap_or_else(|_e| {
-            AssetInfo::new()
-        });
+        let mut info = self
+            .get_metadata(key)
+            .await?
+            .get_asset_info()
+            .unwrap_or_else(|_e| AssetInfo::new());
         info.with_key(key.to_owned());
         info.is_dir = self.is_dir(key).await?;
         Ok(info)
@@ -376,7 +407,7 @@ pub trait AsyncStore: Send + Sync {
             asset_info.push(info);
         }
         asset_info.sort_by(|a, b| {
-            if a.is_dir{
+            if a.is_dir {
                 if b.is_dir {
                     a.filename.cmp(&b.filename)
                 } else {
@@ -456,24 +487,18 @@ impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
 
     /// Finalize metadata before storing - when data is available
     /// This can't be a directory
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        key: &Key,
-        data: &[u8],
-        update: bool,
-    ) -> Metadata {
+    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
         self.0.finalize_metadata(metadata, key, data, update)
     }
 
     /// Finalize metadata before storing - when data is not available
     fn finalize_metadata_empty(
         &self,
-        metadata: Metadata,
+        metadata: &mut Metadata,
         key: &Key,
         is_dir: bool,
         update: bool,
-    ) -> Metadata {
+    ) {
         self.0
             .finalize_metadata_empty(metadata, key, is_dir, update)
     }
@@ -646,37 +671,19 @@ impl Store for FileStore {
         self.prefix.to_owned()
     }
 
-    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
-        let mut metadata = MetadataRecord::new();
-        metadata.with_key(key.to_owned());
-        metadata.is_dir = is_dir;
-        metadata
-    }
-
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _data: &[u8],
-        _update: bool,
-    ) -> Metadata {
-        metadata
-    }
-
-    fn finalize_metadata_empty(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _is_dir: bool,
-        _update: bool,
-    ) -> Metadata {
-        metadata
-    }
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         let data = self.get_bytes(key)?;
         match self.get_metadata(key) {
             Ok(metadata) => Ok((data, metadata)),
-            Err(_) => Ok((data, Metadata::MetadataRecord(MetadataRecord::new()))),
+            Err(error) => {
+                let mut metadata = self.default_metadata(key, false);
+                metadata.warning(&format!("Can't read metadata: {}", error));
+                metadata.warning("New metadata has been created. (get)");
+                let mut metadata = Metadata::MetadataRecord(metadata);
+                self.finalize_metadata(&mut metadata, key, &data, false);
+                self.set_metadata(key, &metadata);
+                Ok((data, metadata))
+            }
         }
     }
 
@@ -697,7 +704,7 @@ impl Store for FileStore {
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let path = self.key_to_path_metadata(key);
         if path.exists() {
-            if path.is_dir(){
+            if path.is_dir() {
                 let mut metadata = self.default_metadata(key, true);
                 metadata.children = self.listdir_asset_info(key).unwrap_or_default();
                 return Ok(Metadata::MetadataRecord(metadata));
@@ -722,9 +729,21 @@ impl Store for FileStore {
         } else {
             let path = self.key_to_path(key);
             if path.exists() {
-                let metadata = self.default_metadata(key, path.is_dir());   
-                Ok(Metadata::MetadataRecord(metadata))
-            } else {   
+                if path.is_dir() {
+                    let mut metadata = self.default_metadata(key, true);
+                    metadata.children = self.listdir_asset_info(key).unwrap_or_default();
+                    return Ok(Metadata::MetadataRecord(metadata));
+                } else {
+                    let mut metadata = self.default_metadata(key, false);
+                    metadata.warning(&format!("Metadata file {} does not exist.", path.display()));
+                    metadata.warning("New metadata has been created. (get_metadata)");
+                    let mut metadata = Metadata::MetadataRecord(metadata);
+                    let data = self.get_bytes(key)?;
+                    self.finalize_metadata(&mut metadata, key, &data, false);
+                    self.set_metadata(key, &metadata)?;
+                    return Ok(metadata);
+                }
+            } else {
                 Err(Error::key_not_found(key))
             }
         }
@@ -733,15 +752,15 @@ impl Store for FileStore {
     fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let path = self.key_to_path(key);
         let mut tmp_metadata = metadata.clone();
+        self.finalize_metadata(&mut tmp_metadata, key, data, true);
         tmp_metadata.set_status(metadata::Status::Storing)?;
-        let tmp_metadata = self.finalize_metadata(tmp_metadata, key, data, true);
         self.set_metadata(key, &tmp_metadata)?;
 
         let mut file =
             File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         file.write_all(data)
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        let tmp_metadata = self.finalize_metadata(metadata.clone(), key, data, true);
+        let tmp_metadata = self.finalize_metadata(&mut tmp_metadata, key, data, true);
         self.set_metadata(key, metadata)?;
         Ok(())
     }
@@ -814,11 +833,9 @@ impl Store for FileStore {
                 .filter(|name| !name.ends_with(Self::METADATA))
                 .collect();
             Ok(names)
-        }
-        else if path.exists() {
+        } else if path.exists() {
             Ok(vec![])
-        }
-        else{
+        } else {
             Err(Error::key_not_found(key))
         }
     }
@@ -865,26 +882,6 @@ impl Store for MemoryStore {
         let mut metadata = MetadataRecord::new();
         metadata.with_key(_key.to_owned());
         metadata.is_dir = is_dir;
-        metadata
-    }
-
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _data: &[u8],
-        _update: bool,
-    ) -> Metadata {
-        metadata
-    }
-
-    fn finalize_metadata_empty(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _is_dir: bool,
-        _update: bool,
-    ) -> Metadata {
         metadata
     }
 
@@ -1068,28 +1065,43 @@ impl Store for StoreRouter {
         })
     }
 
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        key: &Key,
-        data: &[u8],
-        update: bool,
-    ) -> Metadata {
-        self.find_store(key).map_or(metadata.clone(), |store| {
-            store.finalize_metadata(metadata, key, data, update)
-        })
+    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
+        self.find_store(key)
+            .iter()
+            .for_each(|store| store.finalize_metadata(metadata, key, data, update));
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        let _ = metadata.with_key(key.clone());
+        metadata.with_file_size(data.len() as u64);
+        match metadata.status() {
+            metadata::Status::None => {
+                // If there is data, then the status can't be None - It could be only some state that has data.
+                // Source is the least assuming, but it can create inconsistency if there is a recipe.
+                let _ = metadata.set_status(metadata::Status::Source);
+            }
+            _ => {}
+        }
     }
 
     fn finalize_metadata_empty(
         &self,
-        metadata: Metadata,
+        metadata: &mut Metadata,
         key: &Key,
         is_dir: bool,
         update: bool,
-    ) -> Metadata {
-        self.find_store(key).map_or(metadata.clone(), |store| {
-            store.finalize_metadata_empty(metadata, key, is_dir, update)
-        })
+    ) {
+        self.find_store(key)
+            .iter()
+            .for_each(|store| store.finalize_metadata_empty(metadata, key, is_dir, update));
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        metadata.with_is_dir(is_dir);
+        let _ = metadata.with_key(key.clone());
+        if is_dir {
+            let _ = metadata.set_status(metadata::Status::Directory);
+        }
     }
 
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
@@ -1227,7 +1239,9 @@ impl AsyncStoreRouter {
     }
 
     fn find_store(&self, key: &Key) -> Option<&Box<dyn AsyncStore>> {
-        self.stores.iter().find(|&store| key.has_key_prefix(&store.key_prefix()) && store.is_supported(key))
+        self.stores
+            .iter()
+            .find(|&store| key.has_key_prefix(&store.key_prefix()) && store.is_supported(key))
     }
 }
 
@@ -1248,28 +1262,30 @@ impl AsyncStore for AsyncStoreRouter {
         })
     }
 
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        key: &Key,
-        data: &[u8],
-        update: bool,
-    ) -> Metadata {
-        self.find_store(key).map_or(metadata.clone(), |store| {
-            store.finalize_metadata(metadata, key, data, update)
-        })
+    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
+        self.find_store(key).iter().for_each(|store| {
+            store.finalize_metadata(metadata, key, data, update);
+        });
     }
 
     fn finalize_metadata_empty(
         &self,
-        metadata: Metadata,
+        metadata: &mut Metadata,
         key: &Key,
         is_dir: bool,
         update: bool,
-    ) -> Metadata {
-        self.find_store(key).map_or(metadata.clone(), |store| {
-            store.finalize_metadata_empty(metadata, key, is_dir, update)
-        })
+    ) {
+        self.find_store(key).iter().for_each(|store| {
+            store.finalize_metadata_empty(metadata, key, is_dir, update);
+        });
+        if update {
+            let _ = metadata.set_updated_now();
+        }
+        metadata.with_is_dir(is_dir);
+        let _ = metadata.with_key(key.clone());
+        if is_dir {
+            let _ = metadata.set_status(metadata::Status::Directory);
+        }
     }
 
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {

@@ -2,21 +2,23 @@
 use std::collections::BTreeSet;
 
 use liquers_core::{error::Error, metadata::{Metadata, MetadataRecord}, query::Key, store::{AsyncStore, Store}};
-use opendal::{BlockingOperator, Operator, Buffer};
+use opendal::{Operator, Buffer};
 use bytes::Buf;
 
 use async_trait::async_trait;
 use liquers_core::metadata::Status;
 
+// Sync implementation disabled due to opendal API changes
+/*
 pub struct OpenDALStore {
-    op: BlockingOperator,
+    op: Operator,
     prefix: Key,
 }
 
 impl OpenDALStore {
     const METADATA: &'static str = ".__metadata__";
 
-    pub fn new(op: BlockingOperator, prefix: Key) -> Self {
+    pub fn new(op: Operator, prefix: Key) -> Self {
         OpenDALStore { op, prefix }
     }
 
@@ -51,22 +53,22 @@ impl Store for OpenDALStore {
     
     fn finalize_metadata(
         &self,
-        metadata: Metadata,
+        metadata: &mut Metadata,
         _key: &Key,
         _data: &[u8],
         _update: bool,
-    ) -> Metadata {
-        metadata
+    ) {
+    
     }
     
     fn finalize_metadata_empty(
         &self,
-        metadata: Metadata,
+        metadata: &mut Metadata,
         _key: &Key,
         _is_dir: bool,
         _update: bool,
-    ) -> Metadata {
-        metadata
+    ) {
+        
     }
     
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), liquers_core::error::Error> {
@@ -209,6 +211,7 @@ impl Store for OpenDALStore {
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
     }
 }
+*/
 
 #[cfg(feature = "async_store")]
 pub struct AsyncOpenDALStore {
@@ -258,29 +261,6 @@ impl AsyncStore for AsyncOpenDALStore{
         MetadataRecord::new()
     }
 
-    /// Finalize metadata before storing - when data is available
-    /// This can't be a directory
-    fn finalize_metadata(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _data: &[u8],
-        _update: bool,
-    ) -> Metadata {
-        metadata
-    }
-
-    /// Finalize metadata before storing - when data is not available
-    fn finalize_metadata_empty(
-        &self,
-        metadata: Metadata,
-        _key: &Key,
-        _is_dir: bool,
-        _update: bool,
-    ) -> Metadata {
-        metadata
-    }
-
     /// Get data asynchronously
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>{
         Ok((self.get_bytes(key).await?, self.get_metadata(key).await?))
@@ -319,13 +299,14 @@ impl AsyncStore for AsyncOpenDALStore{
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         //TODO: create_dir
         let mut tmp_metadata = metadata.clone();
+        self.finalize_metadata(&mut tmp_metadata, key, data, true);
         tmp_metadata.set_status(Status::Storing)?;
-        let tmp_metadata = self.finalize_metadata(tmp_metadata, key, data, true);
         self.set_metadata(key, &tmp_metadata).await?;
         let path = self.key_to_path(key);
         let buffer = Buffer::from_iter(data.iter().copied());
         self.map_write_error(key, self.op.write(&path, buffer).await)?;
-        let tmp_metadata = self.finalize_metadata(metadata.clone(), key, data, true);
+        let mut tmp_metadata = metadata.clone();
+        self.finalize_metadata(&mut tmp_metadata, key, data, true);
         self.set_metadata(key, &tmp_metadata).await?;
         Ok(())
     }
@@ -340,7 +321,8 @@ impl AsyncStore for AsyncOpenDALStore{
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
         };
         let path = self.key_to_path_metadata(key);
-        self.map_write_error(key, self.op.write(&path, metadata_str).await)
+        self.map_write_error(key, self.op.write(&path, metadata_str).await)?;
+        Ok(())
     }
 
     /// Remove data and metadata associated with the key

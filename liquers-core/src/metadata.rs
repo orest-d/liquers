@@ -13,6 +13,8 @@ use crate::query::{Key, Position, Query};
 pub enum Status {
     /// Status does not exist or is not available. May be used as an initial value.
     None,
+    /// Directory can only have a "Directory" status.
+    Directory,
     /// Asset is not ready, but it has a recipe that can be used to create it.
     Recipe,
     /// Asset has been submitted for processing.
@@ -64,6 +66,7 @@ impl Status {
             Status::Cancelled => false,
             Status::Storing => false,
             Status::Dependencies => false,
+            Status::Directory => false,
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -80,6 +83,7 @@ impl Status {
             Status::Cancelled => false,
             Status::Storing => true,
             Status::Dependencies => false,
+            Status::Directory => false,
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -98,6 +102,7 @@ impl Status {
             Status::Cancelled => true,
             Status::Storing => false,
             Status::Dependencies => false,
+            Status::Directory => true,
         }
     }
 
@@ -120,6 +125,7 @@ impl Status {
             Status::Cancelled => false,
             Status::Storing => false,
             Status::Dependencies => false,
+            Status::Directory => false,
         }
     }
 
@@ -350,6 +356,8 @@ pub struct AssetInfo {
     pub is_dir: bool,
     /// Progress
     pub progress: ProgressEntry,
+    /// Time of the last update
+    pub updated:String,
 }
 
 impl AssetInfo {
@@ -428,6 +436,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.file_size = asset_info.file_size;
         metadata.is_dir = asset_info.is_dir;
         metadata.progress = vec![asset_info.progress];
+        metadata.updated = asset_info.updated;
         metadata
     }
 }
@@ -486,6 +495,8 @@ pub struct MetadataRecord {
     pub is_dir: bool,
     /// Progress
     pub progress: Vec<ProgressEntry>,
+    /// Time of the last update
+    pub updated: String,
     /// Children are populated if the value is a directory
     #[serde(default)]
     pub children: Vec<AssetInfo>,
@@ -602,15 +613,18 @@ mod option_key_format {
 impl MetadataRecord {
     /// Create a new empty MetadataRecord with default values
     pub fn new() -> MetadataRecord {
-        MetadataRecord {
+        let mut metadata = MetadataRecord {
             is_error: false,
             ..Self::default()
-        }
+        };
+        metadata.set_updated_now();
+        metadata
     }
 
     pub fn from_error(error: Error) -> MetadataRecord {
         let mut metadata = MetadataRecord::new();
         metadata.with_error(error);
+        metadata.set_updated_now();
         metadata
     }
 
@@ -636,6 +650,7 @@ impl MetadataRecord {
             } else {
                 self.progress[0].clone()
             },
+            updated: self.updated.clone(),
         }
     }
 
@@ -664,22 +679,27 @@ impl MetadataRecord {
     pub fn with_status(&mut self, status: Status) -> &mut Self {
         self.status = status;
         self.is_error = status == Status::Error;
+        self.set_updated_now();
         self
     }
     pub fn with_type_identifier(&mut self, type_identifier: String) -> &mut Self {
         self.type_identifier = type_identifier;
+        self.set_updated_now();
         self
     }
     pub fn with_message(&mut self, message: String) -> &mut Self {
         self.message = message;
+        self.set_updated_now();
         self
     }
     pub fn with_title(&mut self, title: String) -> &mut Self {
         self.title = title;
+        self.set_updated_now();
         self
     }
     pub fn with_description(&mut self, description: String) -> &mut Self {
         self.description = description;
+        self.set_updated_now();
         self
     }
 
@@ -687,6 +707,7 @@ impl MetadataRecord {
         self.error(&error.to_string());
         self.is_error = true;
         self.error_data = Some(error);
+        self.set_updated_now();
         self
     }
 
@@ -694,11 +715,13 @@ impl MetadataRecord {
         self.is_error = true;
         self.message = message;
         self.status = Status::Error;
+        self.set_updated_now();
         self
     }
 
     pub fn with_media_type(&mut self, media_type: String) -> &mut Self {
         self.media_type = media_type;
+        self.set_updated_now();
         self
     }
     pub fn add_log_entry(&mut self, log_entry: LogEntry) -> &mut Self {
@@ -708,6 +731,7 @@ impl MetadataRecord {
         }
         self.message = log_entry.message.clone();
         self.log.push(log_entry);
+        self.set_updated_now();
         self
     }
     pub fn with_filename(&mut self, filename: String) -> &mut Self {
@@ -719,6 +743,7 @@ impl MetadataRecord {
         if self.unicode_icon.is_empty() {
             self.unicode_icon = self.default_unicode_icon().to_string();
         }
+        self.set_updated_now();
         self
     }
     pub fn clean_log(&mut self) -> &mut Self {
@@ -852,6 +877,11 @@ impl MetadataRecord {
         } else {
             self.progress[1].set(progress);
         }
+        self
+    }
+    /// Update the updated timestamp to now
+    pub fn set_updated_now(&mut self) -> &mut Self {
+        self.updated = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         self
     }
 }
@@ -1292,7 +1322,7 @@ impl Metadata {
         }
     }
 
-    pub fn with_isdir(&mut self, is_dir: bool) -> &mut Self {
+    pub fn with_is_dir(&mut self, is_dir: bool) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 o.insert("is_dir".to_string(), Value::Bool(is_dir));
@@ -1322,6 +1352,21 @@ impl Metadata {
         }
     }
 
+    pub fn with_key(&mut self, key: Key) -> Result<&mut Self,Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("key".to_string(), Value::String(key.encode()));
+                Ok(self)
+            }
+            Metadata::MetadataRecord(m) => {
+                m.with_key(key);
+                Ok(self)
+            }
+            _ => {
+                Err(Error::general_error("Cannot set key on unsupported legacy metadata".to_string()))
+            }
+        }
+    }
     /// Get primary progress
     /// If not available or for legacy metadata, return ProgressEntry::off()
     pub fn primary_progress(&self)-> ProgressEntry {
@@ -1364,6 +1409,39 @@ impl Metadata {
         }
     }
 
+    pub fn updated(&self) -> &str {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(updated) = o.get("updated") {
+                    return updated.as_str().unwrap_or("");
+                }
+                ""
+            }
+            Metadata::MetadataRecord(m) => m.updated.as_str(),
+            _ => "",
+        }
+    }
+
+    /// Set the updated timestamp
+    pub fn set_updated(&mut self, updated: String) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("updated".to_string(), Value::String(updated));
+                Ok(self)
+            }
+            Metadata::MetadataRecord(m) => {
+                m.updated = updated;
+                Ok(self)
+            }
+            _ => Err(Error::general_error("Unsupported metadata type".to_string())),
+        }
+    }
+
+    /// Update the updated timestamp to now
+    pub fn set_updated_now(&mut self) -> Result<&mut Self, Error> {
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        self.set_updated(now)
+    }
 
     /// Check if the metadata contains an error and return an error result
     /// If the metadata is a legacy metadata, it relies on "is_error" and "message" fields

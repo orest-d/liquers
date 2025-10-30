@@ -475,6 +475,10 @@ impl ValueInterface for Value {
             value: Key(key.clone()),
         }
     }
+
+    fn from_asset_info(asset_info: liquers_core::metadata::AssetInfo) -> Self {
+        todo!("Implement conversion from AssetInfo to Value")
+    }
 }
 
 impl TryFrom<&Value> for i32 {

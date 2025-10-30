@@ -258,14 +258,22 @@ impl<E: Environment> AssetData<E> {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
                 let (binary, metadata) = store.get(&key).await?;
-                if metadata.status().has_data() {
+                if metadata.is_error() == Ok(true){ // Stored as error
+                    self.metadata = metadata;
+                    self.status = self.metadata.status();
+                    self.binary = None;
+                    self.data = None;
+                    return Ok(true);
+
+                }
+                else if metadata.status().has_data() { // TODO: if binary is supplied, it does have data...
                     self.binary = Some(Arc::new(binary));
                     eprintln!("Asset {} has data, deserializing", self.id());
                     let value = E::Value::deserialize_from_bytes(
                         self.binary.as_ref().unwrap(),
                         &metadata.type_identifier()?,
                         &metadata.get_data_format(),
-                    )?;
+                    )?; // TODO: If it fails to deserialize, it might be corrupted
                     self.data = Some(Arc::new(value));
                     self.status = metadata.status();
                     self.metadata = metadata;
@@ -282,12 +290,8 @@ impl<E: Environment> AssetData<E> {
                     eprintln!("Asset {} loaded successfully", self.id());
                     return Ok(true);
                 } else {
-                    eprintln!(
-                        "Asset {} has no data, cannot deserialize, status: {:?}",
-                        self.id(),
-                        self.status
-                    );
-                    self.reset();
+                    return Err(Error::general_error(format!("Inconsistent status of asset {}: Asset is stored, having binary size {}, but it has status: {:?}",
+                    self.id(), binary.len(), self.status)).with_key(&key));
                 }
             }
         }
@@ -634,6 +638,7 @@ impl<E: Environment> AssetRef<E> {
                 Status::Expired => {}
                 Status::Cancelled => {}
                 Status::Source => {}
+                Status::Directory => {}
             }
         }
         result
@@ -725,6 +730,7 @@ impl<E: Environment> AssetRef<E> {
                 Status::Error => todo!(),
                 Status::Storing => todo!(),
                 Status::Ready => {}
+                Status::Directory => {}
                 Status::Expired => {}
                 Status::Cancelled => {}
                 Status::Source => {}

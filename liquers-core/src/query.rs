@@ -391,6 +391,10 @@ impl ActionParameter {
             Self::Link(query, _) => format!("~X~{}~E", query.encode()),
         }
     }
+
+    pub fn set_value(&mut self, value: &str) {
+        *self = Self::String(encode_token(value), Position::unknown())
+    }
     /*
     pub fn to_html(&self, mark_position:&Position) -> String {
         match self {
@@ -638,6 +642,20 @@ impl Hash for ActionRequest {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
         self.parameters.hash(state);
+    }
+}
+
+impl Index<usize> for ActionRequest {
+    type Output = ActionParameter;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.parameters[index]
+    }
+}
+
+impl IndexMut<usize> for ActionRequest {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.parameters[index]
     }
 }
 
@@ -1100,6 +1118,20 @@ impl Hash for TransformQuerySegment {
     }
 }
 
+impl Index<usize> for TransformQuerySegment {
+    type Output = ActionRequest;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.query[index]
+    }
+}
+
+impl IndexMut<usize> for TransformQuerySegment {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.query[index]
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Key(pub Vec<ResourceName>);
 impl Key {
@@ -1499,6 +1531,20 @@ impl Hash for ResourceQuerySegment {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.header.hash(state);
         self.key.hash(state);
+    }
+}
+
+impl Index<usize> for ResourceQuerySegment {
+    type Output = ResourceName;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.key[index]
+    }
+}
+
+impl IndexMut<usize> for ResourceQuerySegment {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.key[index]
     }
 }
 
