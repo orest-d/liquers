@@ -424,6 +424,8 @@ enum CommandSignatureStatement {
     Namespace(String),
     Realm(String),
     Preset(CommandPreset),
+    Next(CommandPreset),
+    Filename(String),
 }
 
 impl Parse for CommandSignatureStatement {
@@ -456,6 +458,14 @@ impl Parse for CommandSignatureStatement {
             "preset" => {
                 let preset: CommandPreset = input.parse()?;
                 Ok(CommandSignatureStatement::Preset(preset))
+            }
+            "next" => {
+                let next: CommandPreset = input.parse()?;
+                Ok(CommandSignatureStatement::Next(next))
+            }
+            "filename" => {
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandSignatureStatement::Filename(lit.value()))
             }
             other => Err(syn::Error::new(
                 ident.span(),
@@ -519,6 +529,8 @@ struct CommandSignature {
     pub namespace: String,
     pub realm: String,
     pub presets: Vec<CommandPreset>,
+    pub next: Vec<CommandPreset>,
+    pub filename: String,
     pub wrapper_version: WrapperVersion,
 }
 
@@ -716,6 +728,17 @@ impl CommandSignature {
             let presets = self.presets_expression();
             quote! { cm.presets = #presets; }
         };
+        let filename: proc_macro2::TokenStream = {
+            let filename_str = &self.filename;
+            quote! { #filename_str }
+        };
+        let next_code = if self.next.is_empty() {
+            // If no next commands are defined, we can use an empty vector
+            quote! {}
+        } else {
+            let next = self.next_expression();
+            quote! { cm.next = #next; }
+        };
 
 
         let registry_type = match self.wrapper_version {
@@ -739,7 +762,8 @@ impl CommandSignature {
                 #doc_cmd
                 cm.arguments = #arguments;
                 #presets_code
-
+                #next_code
+                cm.with_filename(#filename);
                 Ok(cm)
             }
         }
@@ -777,6 +801,16 @@ impl CommandSignature {
                 #(#presets),*
             ]
         }
+    }
+    /// Generates a TokenStream that creates a Vec of CommandPreset for all defined presets.
+    pub fn next_expression(&self) -> proc_macro2::TokenStream {
+        let next: Vec<proc_macro2::TokenStream> =
+            self.next.iter().map(|p| quote! { #p }).collect();
+        quote! {
+            vec![
+                #(#next),*
+            ]
+        }   
     }
 }
 
@@ -1021,6 +1055,8 @@ impl Parse for CommandSignature {
         let mut label = None;
         let mut doc = None;
         let mut presets = Vec::new();
+        let mut next = Vec::new();
+        let mut filename = String::new();
         for stmt in &command_statements {
             match stmt {
                 CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
@@ -1030,6 +1066,10 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Preset(command_preset) => {
                     presets.push(command_preset.clone());
                 }
+                CommandSignatureStatement::Next(command_preset) => {
+                    next.push(command_preset.clone());
+                },
+                CommandSignatureStatement::Filename(f) => filename = f.clone(),
             }
         }
 
@@ -1044,6 +1084,8 @@ impl Parse for CommandSignature {
             namespace,
             realm,
             presets,
+            next,
+            filename,
             wrapper_version: WrapperVersion::V1,
         })
     }
@@ -1559,6 +1601,7 @@ mod tests {
                     gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
                     ..Default::default()
                 }];
+                cm.with_filename("");
                 Ok(cm)
             }
         
@@ -1622,6 +1665,7 @@ mod tests {
                 gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
                 ..Default::default()
             }];
+            cm.with_filename("");
             Ok(cm)
         }
         "#;
@@ -1701,6 +1745,7 @@ mod tests {
                 gui_info: liquers_core::command_metadata::ArgumentGUIInfo::TextField(20usize),
                 ..Default::default()
             }];
+            cm.with_filename("");
             Ok(cm)
         }
         "#;
@@ -1751,6 +1796,7 @@ mod tests {
             doc: "This is a test function"
             preset: "action1"
             preset: "action2-x-y" (label: "Preset 2", description: "Second preset")
+            next: "nextaction1"
         };
 
         let tokens = sig.command_registration();
@@ -1763,6 +1809,8 @@ mod tests {
         assert!(tokens_str.contains("liquers_core :: command_metadata :: CommandPreset :: new (\"action2-x-y\" , \"Preset 2\" , \"Second preset\")"));
         assert!(tokens_str.contains("cm . with_label (\"Test label\") ;"));
         assert!(tokens_str.contains("cm . with_doc (\"This is a test function\") ;"));
+        assert!(tokens_str.contains("cm . next = vec ! ["));
+        assert!(tokens_str.contains("liquers_core :: command_metadata :: CommandPreset :: new (\"nextaction1\" , \"nextaction1\" , \"\")"));
     }
 
     #[test]

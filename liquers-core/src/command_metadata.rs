@@ -677,33 +677,81 @@ impl CommandPreset {
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct CommandMetadata {
+    /// Realm of the command, used to group commands in different domains.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
     pub realm: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
+
+    /// Namespace of the command, used to group commands in different namespaces.
     pub namespace: String,
+
+    /// Name of the command, used to identify it.
+    /// It must be unique within its namespace.
     pub name: String,
+
+    /// Label of the command, provides a simple description of what the command does.
+    /// It may appear in command UI.
     pub label: String,
-    //TODO: improve module - rust, python or jvm module ?
+
+    /// Module where the command is implemented.
+    /// It is platform dependent. This is for informational purposes only.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
+    //TODO: improve module - rust, python or jvm module ?
     pub module: String,
+
+    /// Documentation string for the command.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
     pub doc: String,
+
+    /// Presets for the command, see [CommandPreset].
+    /// This gives a quick way to fill in all the parameters of the command for common use cases.
+    /// It can serve as an example or in a UI to quickly create a command with predefined parameters.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub presets: Vec<CommandPreset>,
+
+    /// Proposal for next commands to be executed after this one.
+    /// This can be used in UIs to suggest next steps to the user.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub next: Vec<CommandPreset>,
+
+    /// Proposal for a filename to save the result of this command to.
+    /// This can be used in UIs to suggest a filename.
+    /// Empty string means no suggestion.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
+    pub filename: String,
+
+    /// Describes the state argument of the command, if any.
     //TODO: state argument should be optional
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub state_argument: Option<ArgumentInfo>,
+
+    /// List of arguments of the command. See [ArgumentInfo].
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub arguments: Vec<ArgumentInfo>,
+
+    /// If true, then the result of the command can be cached.
+    /// Default is true.
     pub cache: bool,
+
+    /// If true, then the command is volatile.
+    /// Volatile commands need to be re-executed every time, they cannot be cached.
+    /// If a volatile command appears in a plan or query, all the steps after the volatile command
+    /// effectively become volatile as well, as they depend on the result of the volatile command.
+    /// Default is false.
     pub volatile: bool,
+
+    /// Definition of the command, see [CommandDefinition].
+    /// Commands are normally registered and defined in the environment via a [crate::commands2::CommandExecutor].
+    /// They can however also be defined as aliases to other commands.
     pub definition: CommandDefinition,
 }
 
@@ -722,6 +770,8 @@ impl CommandMetadata {
             cache: true,
             volatile: false,
             definition: CommandDefinition::Registered,
+            next: Vec::new(),
+            filename: "".to_string(),
         }
     }
     
@@ -747,6 +797,8 @@ impl CommandMetadata {
             cache: true,
             volatile: false,
             definition: CommandDefinition::Registered,
+            next: Vec::new(),
+            filename: "".to_string(),
         }
     }
     pub fn key(&self) -> CommandKey {
@@ -814,6 +866,10 @@ impl CommandMetadata {
         self.module = module.to_string();
         self
     }
+    pub fn with_filename(&mut self, filename: &str) -> &mut Self {
+        self.filename = filename.to_string();
+        self
+    }    
 }
 
 // TODO: Refactor CommandMetadataRegistry to use realm/ns hierarchy and CommandKey
