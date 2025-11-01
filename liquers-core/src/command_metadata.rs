@@ -258,6 +258,12 @@ pub enum ArgumentGUIInfo {
     /// Should edit the color in form of a color name or hex code RGB or RGBA.
     /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
     ColorString,
+    /// Combined text field with date picker
+    /// Date picker creates YYYYMMDD formatted date string, but other text can be entered as well
+    /// The size parameter should be at least 8 to accommodate the date string
+    /// UI may interpret the size differently, e.g. as width_pixels = 10*size.
+    /// Zero size may be interpreted as no text field, only date picker.
+    DateField(usize),
     /// Parameter should not appear in the GUI
     Hide,
     /// No GUI information

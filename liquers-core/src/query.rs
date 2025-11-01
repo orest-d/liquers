@@ -122,8 +122,66 @@ pub enum StyledQueryToken {
     Highlight(String),
 }
 
+pub struct StyledQuery{
+    pub tokens: Vec<StyledQueryToken>,
+}
+
+impl StyledQuery {
+    pub fn new() -> Self {
+        Self { tokens: Vec::new() }
+    }
+}
+
+impl From<Query> for StyledQuery {
+    fn from(query: Query) -> Self {
+        let tokens = query.styled_tokens(&Position::unknown()).collect();
+        StyledQuery { tokens }
+    }
+}
+
+impl From<&Query> for StyledQuery {
+    fn from(query: &Query) -> Self {
+        let tokens = query.styled_tokens(&Position::unknown()).collect();
+        StyledQuery { tokens }
+    }
+}
+
+impl From<Key> for StyledQuery {
+    fn from(key: Key) -> Self {
+        let tokens = key.styled_tokens(&Position::unknown()).collect();
+        StyledQuery { tokens }
+    }
+}
+
+impl From<&Key> for StyledQuery {
+    fn from(key: &Key) -> Self {
+        let tokens = key.styled_tokens(&Position::unknown()).collect();
+        StyledQuery { tokens }
+    }
+}
+
+impl Display for StyledQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for token in &self.tokens {
+            write!(f, "{}", token.get_text())?;
+        }
+        Ok(())
+    }
+}
+
 impl StyledQueryToken {
-    pub fn to_text(self) -> String {
+    pub fn into_text(self) -> String {
+        match self {
+            StyledQueryToken::StringParameter(s) => s,
+            StyledQueryToken::Entity(s) => s,
+            StyledQueryToken::Separator(s) => s,
+            StyledQueryToken::ResourceName(s) => s,
+            StyledQueryToken::ActionName(s) => s,
+            StyledQueryToken::Header(s) => s,
+            StyledQueryToken::Highlight(s) => s,
+        }
+    }
+    pub fn get_text(&self) -> &str {
         match self {
             StyledQueryToken::StringParameter(s) => s,
             StyledQueryToken::Entity(s) => s,
@@ -136,7 +194,7 @@ impl StyledQueryToken {
     }
     pub fn to_highlight_if_matching(self, p1:&Position, p2:&Position) -> Self{
         if p1.highlight(p2) {
-            StyledQueryToken::Highlight(self.to_text())
+            StyledQueryToken::Highlight(self.into_text())
         } else {
             self
         }
@@ -1507,6 +1565,9 @@ impl QueryRenderer for ResourceQuerySegment {
             Vec::new()
         };
         if !self.key.is_empty() {
+            if !tokens.is_empty(){
+                tokens.push(StyledQueryToken::Separator("/".to_owned()));
+            }
             tokens.extend(self.key.styled_tokens(position));
         }
         tokens.into_iter()
@@ -2356,7 +2417,7 @@ mod tests {
         };
         assert_eq!(a.encode(), "action");
         assert_eq!(a.render(&TrivialQueryRenderStyle), "action");
-        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.to_text()).collect::<Vec<_>>().concat(), "action");
+        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.into_text()).collect::<Vec<_>>().concat(), "action");
         let a = ActionRequest::new("action1".to_owned());
         assert_eq!(a.encode(), "action1");
         assert_eq!(a.render(&TrivialQueryRenderStyle), "action1");
@@ -2381,7 +2442,7 @@ mod tests {
             a.render(&TrivialQueryRenderStyle),
             "action-~X~hello~E-world"
         );
-        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.to_text()).collect::<Vec<_>>().concat(), "action-~X~hello~E-world");
+        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.into_text()).collect::<Vec<_>>().concat(), "action-~X~hello~E-world");
 
         let q = Query {
             segments: vec![QuerySegment::Transform(TransformQuerySegment {

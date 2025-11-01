@@ -303,11 +303,6 @@ impl<E: Environment> Clone for Context<E> {
         }
     }
 }
-// TODO: Think about the Payload. EnvRef and Session should always be available.
-// TODO: Add reference to Session
-// TODO: Add EnvRef
-// TODO: Add progress reporting
-// TODO: Should action parameters be in context?
 // TODO: There should be a reference to input_state_query
 // TODO: There should be a reference to query including the current action
 
