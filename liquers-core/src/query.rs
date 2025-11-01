@@ -130,6 +130,10 @@ impl StyledQuery {
     pub fn new() -> Self {
         Self { tokens: Vec::new() }
     }
+    pub fn from_query<T: QueryRenderer>(x: &T, position: &Position) -> Self {
+        let tokens = x.styled_tokens(position).collect();
+        StyledQuery { tokens }
+    }
 }
 
 impl From<Query> for StyledQuery {
