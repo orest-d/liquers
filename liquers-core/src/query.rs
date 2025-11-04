@@ -487,7 +487,7 @@ impl QueryRenderer for ActionParameter {
         match self {
             Self::String(s, p) => {
                 let token =
-                    StyledQueryToken::StringParameter(s.to_owned()).to_highlight_if_matching(p, position);
+                    StyledQueryToken::StringParameter(encode_token(s)).to_highlight_if_matching(p, position);
                 Either::Left(std::iter::once(token))
             }
             Self::Link(query, p) => {

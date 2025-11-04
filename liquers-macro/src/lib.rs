@@ -86,10 +86,12 @@ enum ArgumentGUIInfo {
     /// Argument is a width hint specified in characters.
     /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
     TextField(usize),
+    CodeField(usize, String),
     /// Text area for entering of a larger text with a width and height hints.
     /// Width and hight should be specified in characters.
     /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
     TextArea(usize, usize),
+    CodeArea(usize, usize, String),
     IntegerField,
     /// Integer range with min and max values, unspecified how it should be rendered
     IntegerRange {
@@ -129,6 +131,7 @@ enum ArgumentGUIInfo {
     /// Should edit the color in form of a color name or hex code RGB or RGBA.
     /// The hex code does NOT start with `#`, but is just a string of 6 or 8 hexadecimal digits.
     ColorString,
+    DateField(usize),
     /// Parameter should not appear in the GUI
     Hide,
     /// No GUI information
@@ -822,6 +825,15 @@ impl Parse for ArgumentGUIInfo {
                 let width: syn::LitInt = input.parse()?;
                 Ok(ArgumentGUIInfo::TextField(width.base10_parse()?))
             }
+            "CodeField" => {
+                let width: syn::LitInt = input.parse()?;
+                input.parse::<syn::Token![,]>()?;
+                let lang: syn::LitStr = input.parse()?;
+                Ok(ArgumentGUIInfo::CodeField(
+                    width.base10_parse()?,
+                    lang.value(),
+                ))
+            }
             "TextArea" => {
                 let width: syn::LitInt = input.parse()?;
                 input.parse::<syn::Token![,]>()?;
@@ -829,6 +841,18 @@ impl Parse for ArgumentGUIInfo {
                 Ok(ArgumentGUIInfo::TextArea(
                     width.base10_parse()?,
                     height.base10_parse()?,
+                ))
+            }
+            "CodeArea" => {
+                let width: syn::LitInt = input.parse()?;
+                input.parse::<syn::Token![,]>()?;
+                let height: syn::LitInt = input.parse()?;
+                input.parse::<syn::Token![,]>()?;
+                let lang: syn::LitStr = input.parse()?;
+                Ok(ArgumentGUIInfo::CodeArea(
+                    width.base10_parse()?,
+                    height.base10_parse()?,
+                    lang.value(),
                 ))
             }
             "IntegerField" => Ok(ArgumentGUIInfo::IntegerField),
@@ -888,6 +912,10 @@ impl Parse for ArgumentGUIInfo {
             "VerticalRadioEnum" => Ok(ArgumentGUIInfo::VerticalRadioEnum),
             "EnumSelector" => Ok(ArgumentGUIInfo::EnumSelector),
             "ColorString" => Ok(ArgumentGUIInfo::ColorString),
+            "DateField" => {
+                let width: syn::LitInt = input.parse()?;
+                Ok(ArgumentGUIInfo::DateField(width.base10_parse()?))
+            }
             "Hide" => Ok(ArgumentGUIInfo::Hide),
             "None" => Ok(ArgumentGUIInfo::None),
             other => Err(syn::Error::new(
@@ -904,8 +932,14 @@ impl ToTokens for ArgumentGUIInfo {
             ArgumentGUIInfo::TextField(n) => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::TextField(#n) }
             }
+            ArgumentGUIInfo::CodeField(w, lang) => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::CodeField(#w, #lang.to_string()) }
+            }
             ArgumentGUIInfo::TextArea(w, h) => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::TextArea(#w, #h) }
+            }
+            ArgumentGUIInfo::CodeArea(w, h, lang) => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::CodeArea(#w, #h, #lang.to_string()) }
             }
             ArgumentGUIInfo::IntegerField => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::IntegerField }
@@ -942,6 +976,9 @@ impl ToTokens for ArgumentGUIInfo {
             }
             ArgumentGUIInfo::ColorString => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::ColorString }
+            }
+            ArgumentGUIInfo::DateField(width) => {
+                quote! { liquers_core::command_metadata::ArgumentGUIInfo::DateField(#width) }
             }
             ArgumentGUIInfo::Hide => {
                 quote! { liquers_core::command_metadata::ArgumentGUIInfo::Hide }

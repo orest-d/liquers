@@ -215,10 +215,19 @@ pub enum ArgumentGUIInfo {
     /// Argument is a width hint specified in characters.
     /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
     TextField(usize),
+    /// A text field for entering a code snippet, e.g. a script or a query.
+    /// First parameter is width hint in characters, second parameter is a language identifier (e.g. "sql", "python", "liquers-query").
+    /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
+    CodeField(usize, String),
     /// Text area for entering of a larger text with a width and height hints.
     /// Width and hight should be specified in characters.
     /// UI may interpret the hints differently, e.g. as width_pixels = 10*width.
     TextArea(usize, usize),
+    /// Text area for entering of a larger text with a width and height hints and a language identifier.
+    /// Width and hight should be specified in characters.
+    /// Second parameter is a language identifier (e.g. "sql", "python", "liquers-query").
+    /// UI may interpret the hints differently, e.g. as width_pixels
+    CodeArea(usize, usize, String),
     IntegerField,
     /// Integer range with min and max values, unspecified how it should be rendered
     IntegerRange {
@@ -260,6 +269,8 @@ pub enum ArgumentGUIInfo {
     ColorString,
     /// Combined text field with date picker
     /// Date picker creates YYYYMMDD formatted date string, but other text can be entered as well
+    /// Alternatively, date can be in format YYYY-MM-DD, which in the query will appear as YYYY~MM~DD,
+    /// so commands need to be able to interpret both.
     /// The size parameter should be at least 8 to accommodate the date string
     /// UI may interpret the size differently, e.g. as width_pixels = 10*size.
     /// Zero size may be interpreted as no text field, only date picker.
