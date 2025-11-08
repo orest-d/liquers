@@ -358,6 +358,8 @@ pub struct AssetInfo {
     pub progress: ProgressEntry,
     /// Time of the last update
     pub updated:String,
+    /// Structure containing the error information
+    pub error_data: Option<Error>,
 }
 
 impl AssetInfo {
@@ -437,6 +439,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.is_dir = asset_info.is_dir;
         metadata.progress = vec![asset_info.progress];
         metadata.updated = asset_info.updated;
+        metadata.error_data = asset_info.error_data;
         metadata
     }
 }
@@ -651,6 +654,7 @@ impl MetadataRecord {
                 self.progress[0].clone()
             },
             updated: self.updated.clone(),
+            error_data: self.error_data.clone(),
         }
     }
 

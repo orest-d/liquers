@@ -315,6 +315,7 @@ impl<E: Environment> AssetData<E> {
 
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         if status != self.status {
+            eprintln!("Asset {} status changed from {:?} to {:?}", self.id(), self.status, status);
             self.status = status;
             self.metadata.set_status(status)?;
         }
@@ -977,9 +978,26 @@ impl<E: Environment> AssetRef<E> {
         lock.poll_state()
     }
 
+    pub fn try_poll_state(&self) -> Option<State<E::Value>> {
+        if let Ok(lock) = self.data.try_read() {
+            lock.poll_state()
+        } else {
+            None
+        }
+    }
+
     pub async fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         let lock = self.data.read().await;
         lock.poll_binary()
+    }
+
+    pub fn try_poll_binary(&self)  -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        if let Ok(lock) = self.data.try_read() {
+            lock.poll_binary()
+        }
+        else{
+            None
+        }
     }
 
     pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
@@ -1389,7 +1407,6 @@ impl<E: Environment + 'static> JobQueue<E> {
 
     /// Submit an asset for processing
     pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
-        asset.submitted().await?;
         let pending_count = self.pending_jobs_count().await;
         if pending_count < self.capacity { // avoid waiting in queue
             let asset_clone = asset.clone();
@@ -1400,6 +1417,9 @@ impl<E: Environment + 'static> JobQueue<E> {
             tokio::spawn(async move {
                 let _ = asset_clone.run().await;
             });
+        }
+        else{
+            asset.submitted().await?;
         }
         let mut jobs = self.jobs.lock().await;
         let asset_id = asset.id();
