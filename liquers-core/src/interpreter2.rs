@@ -10,7 +10,7 @@ use crate::{
     error::Error,
     metadata::{self, LogEntry, Metadata, Status},
     parse::{SimpleTemplate, SimpleTemplateElement},
-    plan::{Plan, PlanBuilder, Step},
+    plan::{ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
     query::{Key, TryToQuery},
     recipes2::Recipe,
     state::State,
@@ -448,6 +448,83 @@ pub fn evaluate_simple_template<E: Environment>(
         Ok(result)
     }
     .boxed()
+}
+
+pub trait IsVolatile<E:Environment>{
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error>;
+}
+
+impl<E: Environment> IsVolatile<E> for ParameterValue {
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        if let Some(link) = self.link() {
+            let plan = make_plan(env.clone(), link.clone())?;
+            Box::pin(plan.is_volatile(env)).await
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+impl<E: Environment> IsVolatile<E> for ResolvedParameterValues {
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        for param in self.0.iter() {
+            if param.is_volatile(env.clone()).await? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+impl<E: Environment> IsVolatile<E> for Plan {
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        for step in self.steps.iter() {
+            if step.is_volatile(env.clone()).await? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+impl<E: Environment> IsVolatile<E> for Recipe {
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        let plan = self.to_plan(env.get_command_metadata_registry())?;
+        plan.is_volatile(env).await
+    }
+}
+
+impl<E: Environment> IsVolatile<E> for Step {
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        match self {
+            Step::Action { realm, ns, action_name, position, parameters } => {
+                if let Some(cmd) = env.get_command_metadata_registry().find_command(&realm, &ns, action_name) {
+                    if cmd.volatile {
+                        return Ok(true);
+                    }
+                    if parameters.is_volatile(env).await? {
+                        return Ok(true);
+                    }
+                    return Ok(false);
+                } else {
+                    Ok(false)
+                }
+            }
+            Step::GetAsset(key) => todo!(),
+            Step::GetAssetBinary(key) => todo!(),
+            Step::GetAssetMetadata(key) => todo!(),
+            Step::GetResource(key) => todo!(),
+            Step::GetResourceMetadata(key) => todo!(),
+            Step::Evaluate(query) => todo!(),
+            Step::Filename(resource_name) => Ok(false),
+            Step::Info(_) => Ok(false),
+            Step::Warning(_) => Ok(false),
+            Step::Error(_) => Ok(false),
+            Step::Plan(plan) => todo!(),
+            Step::SetCwd(key) => Ok(false),
+            Step::UseKeyValue(key) => Ok(false),
+        }
+    }
 }
 
 #[cfg(test)]

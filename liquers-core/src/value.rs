@@ -108,7 +108,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     /// From metadata
     fn from_metadata(metadata: MetadataRecord) -> Self;
 
-        /// From metadata
+    /// From asset info
     fn from_asset_info(asset_info: AssetInfo) -> Self;
 
     /// From recipe

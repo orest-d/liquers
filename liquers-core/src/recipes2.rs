@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::{
-    command_metadata::CommandMetadataRegistry, context2::{EnvRef, Environment}, error::Error, metadata::{AssetInfo, Status}, parse::{parse_key, parse_query}, plan::{Plan, PlanBuilder}, query::{self, Key, Query, ResourceName}, store
+    command_metadata::CommandMetadataRegistry, context2::{EnvRef, Environment}, error::Error, interpreter2::IsVolatile, metadata::{AssetInfo, Status}, parse::{parse_key, parse_query}, plan::{Plan, PlanBuilder}, query::{self, Key, Query, ResourceName}, store
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -27,7 +27,26 @@ pub struct Recipe {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub cwd: Option<String>,
+    /// If true, the recipe is treated as volatile even if it doesn't have a volatile plan
+    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default="false_default")]
+    pub volatile: bool,
 }
+
+fn is_false(b: &bool) -> bool {
+    *b == false
+}
+
+fn is_true(b: &bool) -> bool {
+    *b == true
+}
+fn true_default()->bool{
+    true
+}
+fn false_default()->bool{
+    false
+}
+
 
 impl Recipe {
     /// Creates a new recipe with the given query, title, and description.
@@ -39,6 +58,7 @@ impl Recipe {
             arguments: HashMap::new(),
             links: HashMap::new(),
             cwd: None,
+            volatile: false,
         })
     }
 
@@ -189,7 +209,6 @@ impl Recipe {
         asset_info.unicode_icon = self.unicode_icon();
         Ok(asset_info)
     }
-
 }
 
 impl From<&Query> for Recipe {
@@ -201,6 +220,7 @@ impl From<&Query> for Recipe {
             arguments: HashMap::new(),
             links: HashMap::new(),
             cwd: None,
+            volatile: false,
         }
     }
 }
@@ -214,6 +234,7 @@ impl From<Query> for Recipe {
             arguments: HashMap::new(),
             links: HashMap::new(),
             cwd: None,
+            volatile: false,
         }
     }
 }
@@ -227,6 +248,7 @@ impl From<Key> for Recipe {
             arguments: HashMap::new(),
             links: HashMap::new(),
             cwd: None,
+            volatile: false,
         }
     }
 }
@@ -240,6 +262,7 @@ impl From<&Key> for Recipe {
             arguments: HashMap::new(),
             links: HashMap::new(),
             cwd: None,
+            volatile: false,
         }
     }
 }
@@ -253,7 +276,11 @@ pub trait AsyncRecipeProvider: Send + Sync {
     /// Returns the plan for the asset represented by key
     async fn recipe_plan(&self, key: &Key) -> Result<Plan, Error>;
     /// Returns the recipe for the asset represented by key
+    /// Errors if no recipe is found
     async fn recipe(&self, key: &Key) -> Result<Recipe, Error>;
+    /// Returns a recipe if available, None otherwise
+    /// Error can still occur e.g. for an IO error.
+    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error>;
     /// Returns true if the asset represented by key has a recipe
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         if let Some(name) = key.filename() {
@@ -355,6 +382,17 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
                 Error::general_error(format!("No filename in key '{}'", key)).with_key(key),
             );
         }
+    }
+
+    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
+        if let Some(filename) = key.filename() {
+            let parent_key = key.parent();
+            if self.has_recipes(&parent_key).await? {
+                let recipes = self.get_recipes(&parent_key).await?;
+                return Ok(recipes.get(&filename.name).cloned());
+            }
+        }
+        Ok(None)
     }
 
     async fn has_recipes(&self, key: &Key) -> Result<bool, Error> {

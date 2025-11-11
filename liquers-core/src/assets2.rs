@@ -48,7 +48,7 @@ use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
-use crate::interpreter2::{apply_plan, apply_plan_new};
+use crate::interpreter2::{IsVolatile, apply_plan, apply_plan_new};
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
@@ -1067,15 +1067,22 @@ impl<E: Environment> AssetRef<E> {
 
 #[async_trait]
 pub trait AssetManager<E: Environment>: Send + Sync {
+    /// Get Asset for a query
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
-    async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>;
+    /// Get Asset they represents applying the recipe to the given value
+    async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>; // TODO: to probably should be a state, not a value
     async fn apply_immediately(
         &self,
         recipe: Recipe,
-        to: E::Value,
+        to: E::Value, // TODO: to probably should be a state, not a value
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error>;
+    /// Get Asset for a key
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
+    /// Get Recipe for a key if the recipe exists
+    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error>;
+    /// Check if resource is volatile
+    async fn is_volatile(&self, key: &Key) -> Result<bool, Error>;
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     async fn remove(&self, key: &Key) -> Result<(), Error>;
     /// Get asset info
@@ -1302,6 +1309,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         self.job_queue.submit(asset_ref.clone()).await?;
 
         Ok(asset_ref)
+    }
+
+    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
+        self.get_recipe_provider().recipe_opt(key).await
+    }
+    
+    async fn is_volatile(&self, key: &Key) -> Result<bool, Error>{
+        if let Some(recipe) = self.recipe_opt(key).await? {
+            let env = self.get_envref();
+            Ok(recipe.is_volatile(env).await?)
+        } else {
+            Ok(false)
+        }
     }
 
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error> {

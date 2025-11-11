@@ -13,6 +13,8 @@ use crate::command_metadata::{
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
     CommandParameterValue, EnumArgumentType,
 };
+use crate::context::Environment;
+use crate::context2::EnvRef;
 use crate::error::{Error, ErrorType};
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
@@ -86,7 +88,9 @@ impl Step {
             Step::UseKeyValue(_) => false,
         }
     }
+
 }
+
 
 /// Parameter value contains the partially or fully resolved value of a single command parameter.
 /// Parameter values are passed to the command executor when the command is executed.
@@ -649,6 +653,31 @@ impl ResolvedParameterValues {
         }
         false
     }
+
+
+    pub fn iter(&self) -> std::slice::Iter<'_, ParameterValue> {
+        self.0.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, ParameterValue> {
+        self.0.iter_mut()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&ParameterValue> {
+        self.0.get(index)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut ParameterValue> {
+        self.0.get_mut(index)
+    }
+}
+
+impl IntoIterator for ResolvedParameterValues {
+    type Item = ParameterValue;
+    type IntoIter = std::vec::IntoIter<ParameterValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
 }
 
 pub struct ActionParameterIterator<'a> {
@@ -1069,6 +1098,7 @@ impl Plan {
         second_plan.steps = self.steps[split_index..].to_vec();
         (first_plan, second_plan)
     }
+
 }
 
 impl Index<usize> for Plan {
