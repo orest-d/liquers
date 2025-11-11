@@ -1206,6 +1206,63 @@ impl<E: Environment> DefaultAssetManager<E> {
             .expect("Environment not set in AssetStore")
             .get_recipe_provider()
     }
+
+    async fn get_nonvolatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        eprintln!("Getting non-volatile asset for key {}", key);
+        
+        let entry = self
+            .assets
+            .entry_async(key.clone())
+            .await
+            .or_insert_with(|| {
+                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), self.get_envref())
+            });
+
+        Ok(entry.get().clone())
+    }
+
+    async fn get_volatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        eprintln!("Getting volatile asset for key {}", key);
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.get_envref());
+        Ok(asset_ref)
+    }
+
+    async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        if self.is_volatile(key).await? {
+            self.get_volatile_resource_asset(key).await
+        } else {
+            self.get_nonvolatile_resource_asset(key).await
+        }   
+    }
+
+    async fn get_nonvolatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        eprintln!("Getting non-volatile asset for query {}", query);
+
+        let entry = self
+            .query_assets
+            .entry_async(query.clone())
+            .await
+            .or_insert_with(|| {
+                AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), self.get_envref())
+            });
+
+        Ok(entry.get().clone())
+    }
+
+    async fn get_volatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        eprintln!("Getting volatile asset for query {}", query);
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.get_envref());
+        Ok(asset_ref)
+    }
+
+    async fn get_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        if query.is_volatile(self.get_envref()).await? {
+            self.get_volatile_query_asset(query).await
+        } else {
+            self.get_nonvolatile_query_asset(query).await
+        }
+    }
+
 }
 
 #[async_trait]
@@ -1214,17 +1271,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(key) = query.key() {
             self.get(&key).await
         } else {
-            let entry = self
-                .query_assets
-                .entry_async(query.clone())
-                .await
-                .or_insert_with(|| {
-                    AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), self.get_envref())
-                });
-            if entry.get().status().await.is_finished() {
-                return Ok(entry.get().clone());
+            let assetref = self.get_query_asset(query).await?;
+            if assetref.status().await.is_finished() {
+                return Ok(assetref);
             }
-            let assetref = entry.get().clone();
             {
                 let mut lock = assetref.data.write().await;
                 if lock.try_fast_track().await? {
@@ -1232,8 +1282,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 }
             }
 
-            self.job_queue.submit(entry.get().clone()).await?;
-            Ok(entry.get().clone())
+            self.job_queue.submit(assetref.clone()).await?;
+            Ok(assetref)
         }
     }
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>{
@@ -1283,15 +1333,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting asset for key {}", key);
-        let entry = self
-            .assets
-            .entry_async(key.clone())
-            .await
-            .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), key.into(), self.get_envref())
-            });
-
-        let asset_ref = entry.get().clone();
+        let asset_ref = self.get_resource_asset(key).await?;
         if asset_ref.status().await.is_finished() {
             return Ok(asset_ref);
         }
@@ -1314,7 +1356,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
         self.get_recipe_provider().recipe_opt(key).await
     }
-    
+
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error>{
         if let Some(recipe) = self.recipe_opt(key).await? {
             let env = self.get_envref();

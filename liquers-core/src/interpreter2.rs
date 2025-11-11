@@ -8,10 +8,10 @@ use crate::{
     commands2::{CommandArguments, CommandExecutor},
     context2::{Context, EnvRef, Environment},
     error::Error,
-    metadata::{self, LogEntry, Metadata, Status},
+    metadata::{LogEntry, Metadata, Status},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
-    query::{Key, TryToQuery},
+    query::{Key, Query, TryToQuery},
     recipes2::Recipe,
     state::State,
     value::ValueInterface,
@@ -457,8 +457,7 @@ pub trait IsVolatile<E:Environment>{
 impl<E: Environment> IsVolatile<E> for ParameterValue {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
         if let Some(link) = self.link() {
-            let plan = make_plan(env.clone(), link.clone())?;
-            Box::pin(plan.is_volatile(env)).await
+            Box::pin(link.is_volatile(env)).await
         } else {
             Ok(false)
         }
@@ -479,7 +478,7 @@ impl<E: Environment> IsVolatile<E> for ResolvedParameterValues {
 impl<E: Environment> IsVolatile<E> for Plan {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
         for step in self.steps.iter() {
-            if step.is_volatile(env.clone()).await? {
+            if Box::pin(step.is_volatile(env.clone())).await? {
                 return Ok(true);
             }
         }
@@ -489,7 +488,17 @@ impl<E: Environment> IsVolatile<E> for Plan {
 
 impl<E: Environment> IsVolatile<E> for Recipe {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        if self.volatile{
+            return Ok(true);
+        }
         let plan = self.to_plan(env.get_command_metadata_registry())?;
+        plan.is_volatile(env).await
+    }
+}
+
+impl<E: Environment> IsVolatile<E> for Query {
+    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
+        let plan = make_plan(env.clone(), self.clone())?;
         plan.is_volatile(env).await
     }
 }
@@ -497,7 +506,7 @@ impl<E: Environment> IsVolatile<E> for Recipe {
 impl<E: Environment> IsVolatile<E> for Step {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
         match self {
-            Step::Action { realm, ns, action_name, position, parameters } => {
+            Step::Action { realm, ns, action_name, position: _, parameters } => {
                 if let Some(cmd) = env.get_command_metadata_registry().find_command(&realm, &ns, action_name) {
                     if cmd.volatile {
                         return Ok(true);
@@ -510,19 +519,37 @@ impl<E: Environment> IsVolatile<E> for Step {
                     Ok(false)
                 }
             }
-            Step::GetAsset(key) => todo!(),
-            Step::GetAssetBinary(key) => todo!(),
-            Step::GetAssetMetadata(key) => todo!(),
-            Step::GetResource(key) => todo!(),
-            Step::GetResourceMetadata(key) => todo!(),
-            Step::Evaluate(query) => todo!(),
-            Step::Filename(resource_name) => Ok(false),
+            Step::GetAsset(key) => {
+                env.get_asset_manager().is_volatile(&key).await
+            }
+            Step::GetAssetBinary(key) => {
+                env.get_asset_manager().is_volatile(&key).await
+            }
+            Step::GetAssetMetadata(key) => {
+                env.get_asset_manager().is_volatile(&key).await
+            }
+            Step::GetResource(key) => {
+                eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)");
+                // TODO: support for resource volatility check
+                Ok(false)
+            },
+            Step::GetResourceMetadata(key) => {
+                eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (B)");
+                // TODO: support for resource volatility check
+                Ok(false)
+            }
+            Step::Evaluate(query) => {
+                query.is_volatile(env).await
+            }
+            Step::Filename(_) => Ok(false),
             Step::Info(_) => Ok(false),
             Step::Warning(_) => Ok(false),
             Step::Error(_) => Ok(false),
-            Step::Plan(plan) => todo!(),
-            Step::SetCwd(key) => Ok(false),
-            Step::UseKeyValue(key) => Ok(false),
+            Step::Plan(plan) => {
+                plan.is_volatile(env).await
+            },
+            Step::SetCwd(_) => Ok(false),
+            Step::UseKeyValue(_) => Ok(false),
         }
     }
 }
