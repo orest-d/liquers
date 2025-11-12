@@ -422,6 +422,7 @@ enum ResultType {
 }
 
 enum CommandSignatureStatement {
+    Volatile(bool),
     Label(String),
     Doc(String),
     Namespace(String),
@@ -442,6 +443,10 @@ impl Parse for CommandSignatureStatement {
 
         input.parse::<syn::Token![:]>()?;
         match ident.to_string().as_str() {
+            "volatile" =>{
+                let lit: syn::LitBool = input.parse()?;
+                Ok(CommandSignatureStatement::Volatile(lit.value()))
+            }
             "label" => {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandSignatureStatement::Label(lit.value()))
@@ -534,6 +539,7 @@ struct CommandSignature {
     pub presets: Vec<CommandPreset>,
     pub next: Vec<CommandPreset>,
     pub filename: String,
+    pub volatile: bool,
     pub wrapper_version: WrapperVersion,
 }
 
@@ -752,6 +758,12 @@ impl CommandSignature {
                 liquers_core::commands2::CommandRegistry<CommandEnvironment>
             },
         };
+        let volatile_code = if self.volatile {
+            quote!(cm.volatile = true;)
+        }
+        else{
+            quote!()
+        };
         quote! {
             #[allow(non_snake_case)]
             pub fn #register_fn_name(
@@ -767,6 +779,7 @@ impl CommandSignature {
                 #presets_code
                 #next_code
                 cm.with_filename(#filename);
+                #volatile_code
                 Ok(cm)
             }
         }
@@ -1094,6 +1107,7 @@ impl Parse for CommandSignature {
         let mut presets = Vec::new();
         let mut next = Vec::new();
         let mut filename = String::new();
+        let mut volatile: bool = false;
         for stmt in &command_statements {
             match stmt {
                 CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
@@ -1107,6 +1121,9 @@ impl Parse for CommandSignature {
                     next.push(command_preset.clone());
                 },
                 CommandSignatureStatement::Filename(f) => filename = f.clone(),
+                CommandSignatureStatement::Volatile(b) => {
+                    volatile = *b;
+                },
             }
         }
 
@@ -1123,6 +1140,7 @@ impl Parse for CommandSignature {
             presets,
             next,
             filename,
+            volatile,
             wrapper_version: WrapperVersion::V1,
         })
     }
