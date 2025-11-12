@@ -48,7 +48,7 @@ use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context2::Context;
-use crate::interpreter2::{IsVolatile, apply_plan, apply_plan_new};
+use crate::interpreter2::{apply_plan, apply_plan_new, IsVolatile};
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
@@ -184,6 +184,27 @@ impl<E: Environment> AssetData<E> {
     pub fn get_envref(&self) -> EnvRef<E> {
         self.envref.clone()
     }
+   
+ 
+    async fn save_metadata_to_store_now(&self) -> Result<(), Error> {
+        let envref = self.get_envref();
+        let store = envref.get_async_store();
+        let key = self.recipe.store_to_key()?;
+        if let Some(key) = key.as_ref() {
+            store.set_metadata(key, &self.metadata).await
+        } else {
+            Err(Error::general_error(format!(
+                "Cannot determine key to store asset metadata - {}",
+                self.asset_reference()
+            )))
+        }
+    }
+  
+    async fn save_metadata_to_store(&self) -> Result<(), Error>{
+        // TODO: prevent too frequent saving
+        self.save_metadata_to_store_now().await;
+        Ok(())
+    }
 
     /// Check if the asset has an initial value
     pub fn has_initial_value(&self) -> Result<bool, Error> {
@@ -258,15 +279,15 @@ impl<E: Environment> AssetData<E> {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
                 let (binary, metadata) = store.get(&key).await?;
-                if metadata.is_error() == Ok(true){ // Stored as error
+                if metadata.is_error() == Ok(true) {
+                    // Stored as error
                     self.metadata = metadata;
                     self.status = self.metadata.status();
                     self.binary = None;
                     self.data = None;
                     return Ok(true);
-
-                }
-                else if metadata.status().has_data() { // TODO: if binary is supplied, it does have data...
+                } else if metadata.status().has_data() {
+                    // TODO: if binary is supplied, it does have data...
                     self.binary = Some(Arc::new(binary));
                     eprintln!("Asset {} has data, deserializing", self.id());
                     let value = E::Value::deserialize_from_bytes(
@@ -278,17 +299,34 @@ impl<E: Environment> AssetData<E> {
                     self.status = metadata.status();
                     self.metadata = metadata;
                     let key1 = key.clone();
-                    self.notification_tx
-                        .send(AssetNotificationMessage::JobFinished)
-                        .map_err(|e| {
-                            Error::general_error(format!(
-                                "Failed to send job finished notification: {}",
-                                e
-                            ))
-                            .with_query(&key.into())
-                        })?;
-                    eprintln!("Asset {} loaded successfully", self.id());
-                    return Ok(true);
+                    match self.status {
+                        Status::Ready | Status::Source => {
+                            self.notification_tx
+                                .send(AssetNotificationMessage::JobFinished)
+                                .map_err(|e| {
+                                    Error::general_error(format!(
+                                        "Failed to send job finished notification: {}",
+                                        e
+                                    ))
+                                    .with_query(&key.into())
+                                })?;
+                            eprintln!("Asset {} loaded successfully", self.id());
+                            return Ok(true);
+                        }
+                        _ => {
+                            self.notification_tx
+                                .send(AssetNotificationMessage::StatusChanged(self.status))
+                                .map_err(|e| {
+                                    Error::general_error(format!(
+                                        "Failed to send status change notification: {}",
+                                        e
+                                    ))
+                                    .with_query(&key.into())
+                                })?;
+                            eprintln!("Asset {} loaded data that is not ready", self.id());
+                            return Ok(false);
+                        }
+                    }
                 } else {
                     return Err(Error::general_error(format!("Inconsistent status of asset {}: Asset is stored, having binary size {}, but it has status: {:?}",
                     self.id(), binary.len(), self.status)).with_key(&key));
@@ -315,7 +353,12 @@ impl<E: Environment> AssetData<E> {
 
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         if status != self.status {
-            eprintln!("Asset {} status changed from {:?} to {:?}", self.id(), self.status, status);
+            eprintln!(
+                "Asset {} status changed from {:?} to {:?}",
+                self.id(),
+                self.status,
+                status
+            );
             self.status = status;
             self.metadata.set_status(status)?;
         }
@@ -431,6 +474,12 @@ impl<E: Environment> AssetRef<E> {
         lock.get_asset_info()
     }
 
+    /// Get asset info structure for the asset
+    pub async fn get_metadata(&self) -> Result<Metadata, Error> {
+        let lock = self.data.read().await;
+        Ok(lock.metadata.clone())
+    }
+
     /// Inform the asset that it has been submitted
     pub(crate) async fn submitted(&self) -> Result<(), Error> {
         self.set_status(Status::Submitted).await?;
@@ -470,6 +519,7 @@ impl<E: Environment> AssetRef<E> {
                     // Update metadata with log message
                     let mut lock = self.data.write().await;
                     lock.metadata.add_log_entry(entry)?;
+                    lock.save_metadata_to_store().await?;
                     let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
                 }
                 AssetServiceMessage::Cancel => {
@@ -477,6 +527,7 @@ impl<E: Environment> AssetRef<E> {
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
                     let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+                    self.save_metadata_to_store().await?;
                     return Ok(());
                 }
                 AssetServiceMessage::UpdatePrimaryProgress(progress) => {
@@ -488,24 +539,28 @@ impl<E: Environment> AssetRef<E> {
 
                     let mut lock = self.data.write().await;
                     lock.metadata.set_primary_progress(&progress);
+                    lock.save_metadata_to_store().await?;
                     let _ = notification_tx
                         .send(AssetNotificationMessage::PrimaryProgressUpdated(progress));
                 }
                 AssetServiceMessage::UpdateSecondaryProgress(progress_entry) => {
                     let mut lock = self.data.write().await;
                     lock.metadata.set_secondary_progress(&progress_entry);
+                    lock.save_metadata_to_store().await?;
                     let _ = notification_tx.send(
                         AssetNotificationMessage::SecondaryProgressUpdated(progress_entry),
                     );
                 }
                 AssetServiceMessage::JobSubmitted => {
                     self.set_status(Status::Submitted).await?;
+                    self.save_metadata_to_store().await?;
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
                     let _ = notification_tx.send(AssetNotificationMessage::JobSubmitted);
                 }
                 AssetServiceMessage::JobStarted => {
                     self.set_status(Status::Processing).await?;
+                    self.save_metadata_to_store().await?;
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Processing));
                     let _ = notification_tx.send(AssetNotificationMessage::JobStarted);
@@ -519,6 +574,7 @@ impl<E: Environment> AssetRef<E> {
                         let mut lock = self.data.write().await;
                         lock.status = Status::Error;
                         lock.metadata.with_error(error.clone());
+                        lock.save_metadata_to_store().await?;
                     }
                     let _ = notification_tx.send(AssetNotificationMessage::ErrorOccurred(error));
                     let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
@@ -852,6 +908,31 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
+    async fn save_metadata_to_store(&self) -> Result<(), Error> {
+        let lock = self.data.read().await;
+        lock.save_metadata_to_store().await
+    }
+
+    /* 
+    async fn save_metadata_to_store(&self) -> Result<(), Error> {
+        let lock = self.data.read().await;
+
+        let envref = lock.get_envref();
+        let metadata = lock.metadata.clone();
+        let store = envref.get_async_store();
+        let key = lock.recipe.store_to_key()?;
+        drop(lock);
+        if let Some(key) = key.as_ref() {
+            store.set_metadata(key, &metadata).await
+        } else {
+            Err(Error::general_error(format!(
+                "Cannot determine key to store asset metadata - {}",
+                self.asset_reference().await
+            )))
+        }
+    }
+    */
+
     /// Deserialize the binary data into the asset's data field.
     /// Returns true if the deserialization was successful.
     async fn deserialize_from_binary(&self) -> Result<bool, Error> {
@@ -991,11 +1072,10 @@ impl<E: Environment> AssetRef<E> {
         lock.poll_binary()
     }
 
-    pub fn try_poll_binary(&self)  -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+    pub fn try_poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         if let Ok(lock) = self.data.try_read() {
             lock.poll_binary()
-        }
-        else{
+        } else {
             None
         }
     }
@@ -1115,7 +1195,7 @@ pub trait AssetManager<E: Environment>: Send + Sync {
             asset_info.push(info);
         }
         asset_info.sort_by(|a, b| {
-            if a.is_dir{
+            if a.is_dir {
                 if b.is_dir {
                     a.filename.cmp(&b.filename)
                 } else {
@@ -1209,7 +1289,7 @@ impl<E: Environment> DefaultAssetManager<E> {
 
     async fn get_nonvolatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for key {}", key);
-        
+
         let entry = self
             .assets
             .entry_async(key.clone())
@@ -1232,7 +1312,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             self.get_volatile_resource_asset(key).await
         } else {
             self.get_nonvolatile_resource_asset(key).await
-        }   
+        }
     }
 
     async fn get_nonvolatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
@@ -1262,7 +1342,6 @@ impl<E: Environment> DefaultAssetManager<E> {
             self.get_nonvolatile_query_asset(query).await
         }
     }
-
 }
 
 #[async_trait]
@@ -1286,7 +1365,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             Ok(assetref)
         }
     }
-    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>{
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
         if self.assets.contains(key) {
             let assetref = self.get(key).await?;
             assetref.get_asset_info().await
@@ -1357,7 +1436,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         self.get_recipe_provider().recipe_opt(key).await
     }
 
-    async fn is_volatile(&self, key: &Key) -> Result<bool, Error>{
+    async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
         if let Some(recipe) = self.recipe_opt(key).await? {
             let env = self.get_envref();
             Ok(recipe.is_volatile(env).await?)
@@ -1470,7 +1549,8 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// Submit an asset for processing
     pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
         let pending_count = self.pending_jobs_count().await;
-        if pending_count < self.capacity { // avoid waiting in queue
+        if pending_count < self.capacity {
+            // avoid waiting in queue
             let asset_clone = asset.clone();
             if let Err(e) = asset_clone.set_status(Status::Processing).await {
                 eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
@@ -1479,15 +1559,14 @@ impl<E: Environment + 'static> JobQueue<E> {
             tokio::spawn(async move {
                 let _ = asset_clone.run().await;
             });
-        }
-        else{
+        } else {
             asset.submitted().await?;
         }
         let mut jobs = self.jobs.lock().await;
         let asset_id = asset.id();
         jobs.push(asset);
         jobs.retain(|a| a.id() != asset_id); // TODO: this should not push the asset to the end of the queue
-        
+
         Ok(())
     }
 
