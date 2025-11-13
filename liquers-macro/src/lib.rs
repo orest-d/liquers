@@ -630,7 +630,7 @@ impl CommandSignature {
                 #[allow(non_snake_case)]
                 fn #wrapper_name(
                     state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
-                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
+                    arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
                 ) ->
                 core::pin::Pin<
@@ -646,7 +646,7 @@ impl CommandSignature {
                 #[allow(non_snake_case)]
                 fn #wrapper_name(
                     state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
-                    arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
+                    arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
                 ) -> core::result::Result<<CommandEnvironment as liquers_core::context2::Environment>::Value, liquers_core::error::Error>
             }
@@ -755,7 +755,7 @@ impl CommandSignature {
                 liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>
             },
             WrapperVersion::V2 => quote! {
-                liquers_core::commands2::CommandRegistry<CommandEnvironment>
+                liquers_core::commands::CommandRegistry<CommandEnvironment>
             },
         };
         let volatile_code = if self.volatile {
@@ -1690,7 +1690,7 @@ mod tests {
         let expected = r#"
         #[allow(non_snake_case)]
         pub fn REGISTER__test_fn(
-            registry: &mut liquers_core::commands2::CommandRegistry<CommandEnvironment>
+            registry: &mut liquers_core::commands::CommandRegistry<CommandEnvironment>
         ) -> core::result::Result<
             &mut liquers_core::command_metadata::CommandMetadata,
             liquers_core::error::Error
@@ -1698,7 +1698,7 @@ mod tests {
             #[allow(non_snake_case)]
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
-                arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
+                arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
             ) -> core::result::Result<<CommandEnvironment as liquers_core::context2::Environment>::Value, liquers_core::error::Error> {
                 let a__par: i32 = arguments.get(0usize, "a")?;
@@ -1757,7 +1757,7 @@ mod tests {
         let expected = r#"
         #[allow(non_snake_case)]
         pub fn REGISTER__test_fn(
-            registry: &mut liquers_core::commands2::CommandRegistry<CommandEnvironment>
+            registry: &mut liquers_core::commands::CommandRegistry<CommandEnvironment>
         ) -> core::result::Result<
             &mut liquers_core::command_metadata::CommandMetadata,
             liquers_core::error::Error
@@ -1765,7 +1765,7 @@ mod tests {
             #[allow(non_snake_case)]
             fn test_fn__CMD_(
                 state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
-                arguments: liquers_core::commands2::CommandArguments<CommandEnvironment>,
+                arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
             ) -> core::pin::Pin<
                 std::boxed::Box<

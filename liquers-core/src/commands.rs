@@ -506,10 +506,10 @@ impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets2::AssetManager;
+    use crate::assets::AssetManager;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
-    use crate::commands2::{CommandArguments, CommandRegistry};
+    use crate::commands::{CommandArguments, CommandRegistry};
     use crate::context2::SimpleEnvironment;
     use crate::state::State;
     use crate::value::Value;

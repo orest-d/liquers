@@ -18,12 +18,12 @@ use futures::FutureExt;
 use serde::de;
 
 use crate::{
-    assets2::{
+    assets::{
         AssetManager, AssetRef, AssetServiceMessage, DefaultAssetManager,
     },
     cache::Cache,
     command_metadata::CommandMetadataRegistry,
-    commands2::{CommandExecutor, CommandRegistry},
+    commands::{CommandExecutor, CommandRegistry},
     error::Error,
     metadata::{LogEntry, MetadataRecord, ProgressEntry},
     query::{Key, Query, TryToQuery},
@@ -341,7 +341,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
-            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetManager::new())),
+            asset_store: Arc::new(Box::new(crate::assets::DefaultAssetManager::new())),
             recipe_provider: None,
         }
     }
@@ -449,7 +449,7 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> SimpleEnvironmentWithP
             _payload: std::marker::PhantomData::<P>::default(),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(Box::new(crate::store::NoAsyncStore)),
-            asset_store: Arc::new(Box::new(crate::assets2::DefaultAssetManager::new())),
+            asset_store: Arc::new(Box::new(crate::assets::DefaultAssetManager::new())),
             recipe_provider: None,
         }
     }

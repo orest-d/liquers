@@ -24,7 +24,7 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
             // TODO 4) Insert use futures::FutureExt;
             // TODO: turn off snake case warning
             pub fn REGISTER__greet(
-                registry: &mut liquers_core::commands2::CommandRegistry<
+                registry: &mut liquers_core::commands::CommandRegistry<
                     CommandEnvironment,
                 >,
             ) -> core::result::Result<
@@ -36,7 +36,7 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
                     //TODO: 1) state is not a reference
                     //TODO: 2) fix generic argument for extracting the value 
                     state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
-                    arguments: liquers_core::commands2::CommandArguments<
+                    arguments: liquers_core::commands::CommandArguments<
                         CommandEnvironment,
                     >,
                     context: Context<CommandEnvironment>,

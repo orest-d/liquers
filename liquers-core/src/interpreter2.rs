@@ -3,9 +3,9 @@ use std::sync::Arc;
 use futures::FutureExt;
 
 use crate::{
-    assets2::{AssetManager, AssetRef},
+    assets::{AssetManager, AssetRef},
     command_metadata::CommandKey,
-    commands2::{CommandArguments, CommandExecutor},
+    commands::{CommandArguments, CommandExecutor},
     context2::{Context, EnvRef, Environment},
     error::Error,
     metadata::{LogEntry, Metadata, Status},
@@ -355,7 +355,7 @@ pub fn do_step_new<E: Environment>(
                             .with_query(key.into()),
                     )?;
                     Ok(Arc::new(
-                        <<E as Environment>::Value as ValueInterface>::try_from_json_value(value)?,
+                        <<E as Environment>::Value as ValueInterface>::try_from_json_value(&value)?,
                     ))
                 }
                 Metadata::MetadataRecord(metadata_record) => Ok(Arc::new(
