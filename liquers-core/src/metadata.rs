@@ -341,7 +341,7 @@ pub struct AssetInfo {
     /// Title of the asset
     pub title: String,
     /// Description of the asset
-    pub description: String,  
+    pub description: String,
     /// Indicates that the value failed to be created
     pub is_error: bool,
     /// Media type of the value
@@ -357,7 +357,7 @@ pub struct AssetInfo {
     /// Progress
     pub progress: ProgressEntry,
     /// Time of the last update
-    pub updated:String,
+    pub updated: String,
     /// Structure containing the error information
     pub error_data: Option<Error>,
 }
@@ -481,7 +481,7 @@ pub struct MetadataRecord {
     /// Title of the asset
     pub title: String,
     /// Description of the asset
-    pub description: String,   
+    pub description: String,
     /// Indicates that the value failed to be created
     pub is_error: bool,
     /// Structure containing the error information
@@ -939,26 +939,50 @@ impl Metadata {
         }
     }
 
-    pub fn with_query(&mut self, query: Query) -> &mut Self {
+    pub fn with_query(&mut self, query: Query) -> Result<&mut Self, Error> {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 o.insert("query".to_string(), Value::String(query.encode()));
-                self
+                Ok(self)
             }
             Metadata::MetadataRecord(m) => {
                 m.with_query(query);
-                self
+                Ok(self)
             }
             Metadata::LegacyMetadata(serde_json::Value::Null) => {
                 let mut m = MetadataRecord::new();
                 m.query = query;
                 *self = Metadata::MetadataRecord(m);
-                self
+                Ok(self)
             }
 
-            _ => {
-                panic!("Cannot set query on unsupported legacy metadata")
+            _ => Err(Error::general_error(
+                "Cannot set query on unsupported legacy metadata".to_string(),
+            )
+            .with_query(&query)),
+        }
+    }
+
+    pub fn with_key(&mut self, key: Key) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("key".to_string(), Value::String(key.encode()));
+                Ok(self)
             }
+            Metadata::MetadataRecord(m) => {
+                m.with_key(key);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.key = Some(key);
+                *self = Metadata::MetadataRecord(m);
+                Ok(self)
+            }
+
+            _ => Err(Error::general_error(
+                "Cannot set key on unsupported legacy metadata".to_string(),
+            ).with_key(&key)),
         }
     }
 
@@ -1041,6 +1065,21 @@ impl Metadata {
             Metadata::MetadataRecord(m) => Ok(m.query.to_owned()),
             _ => Err(Error::general_error(
                 "Query not found in unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    pub fn key(&self) -> Result<Option<Key>, crate::error::Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(Value::String(key)) = o.get("key") {
+                    return Ok(Some(parse::parse_key(key)?));
+                }
+                Ok(None)
+            }
+            Metadata::MetadataRecord(m) => Ok(m.key.to_owned()),
+            _ => Err(Error::general_error(
+                "Key not found in unsupported legacy metadata".to_string(),
             )),
         }
     }
@@ -1356,30 +1395,15 @@ impl Metadata {
         }
     }
 
-    pub fn with_key(&mut self, key: Key) -> Result<&mut Self,Error> {
-        match self {
-            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                o.insert("key".to_string(), Value::String(key.encode()));
-                Ok(self)
-            }
-            Metadata::MetadataRecord(m) => {
-                m.with_key(key);
-                Ok(self)
-            }
-            _ => {
-                Err(Error::general_error("Cannot set key on unsupported legacy metadata".to_string()))
-            }
-        }
-    }
     /// Get primary progress
     /// If not available or for legacy metadata, return ProgressEntry::off()
-    pub fn primary_progress(&self)-> ProgressEntry {
+    pub fn primary_progress(&self) -> ProgressEntry {
         match self {
             Metadata::MetadataRecord(m) => m.primary_progress(),
             _ => ProgressEntry::off(),
         }
     }
-    
+
     /// Set primary progress
     /// No-op for legacy metadata
     pub fn set_primary_progress(&mut self, progress: &ProgressEntry) -> &mut Self {
@@ -1437,7 +1461,9 @@ impl Metadata {
                 m.updated = updated;
                 Ok(self)
             }
-            _ => Err(Error::general_error("Unsupported metadata type".to_string())),
+            _ => Err(Error::general_error(
+                "Unsupported metadata type".to_string(),
+            )),
         }
     }
 

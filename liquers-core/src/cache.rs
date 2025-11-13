@@ -280,7 +280,7 @@ mod tests {
         assert_eq!(cache.contains(&key), false);
         cache.set_binary(
             "hello".as_bytes(),
-            &Metadata::new().with_query(key.to_owned()),
+            &Metadata::new().with_query(key.to_owned()).unwrap(),
         )?;
         assert_eq!(cache.contains(&key), true);
         assert_eq!(cache.get_binary(&key).is_some(), true);
@@ -299,7 +299,7 @@ mod tests {
                 cache
                     .set_binary(
                         "hello1".as_bytes(),
-                        &Metadata::new().with_query(key.to_owned()),
+                        &Metadata::new().with_query(key.to_owned()).unwrap(),
                     )
                     .unwrap();
                 assert!(cache.get_metadata(&key).unwrap().query().unwrap() == key);
@@ -314,7 +314,7 @@ mod tests {
                 cache
                     .set_binary(
                         "hello2".as_bytes(),
-                        &Metadata::new().with_query(key.to_owned()),
+                        &Metadata::new().with_query(key.to_owned()).unwrap(),
                     )
                     .unwrap();
                 println!("T2 CACHED {:?}", cache.get_binary(&key));

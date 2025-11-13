@@ -89,6 +89,81 @@ pub enum AssetNotificationMessage {
     JobFinished,
 }
 
+pub struct MetadataSaver{
+    metadata: Mutex<Option<Metadata>>,
+    interval: std::time::Duration,
+    last_save: Option<std::time::Instant>,
+}
+
+impl MetadataSaver {
+    pub fn new(interval: std::time::Duration) -> Self {
+        Self {
+            metadata: Mutex::new(None),
+            interval,
+            last_save: None,
+        }
+    }
+
+    pub async fn save(&mut self, metadata: &Metadata, envref: EnvRef<impl Environment>) -> Result<(), Error> {
+        let mut lock = self.metadata.lock().await;
+        if lock.is_some(){
+            *lock = Some(metadata.clone());
+        }
+        else{
+            if self.can_save_now() {
+                let store = envref.get_async_store();
+                if let Some(key) = metadata.key()? {
+                    store.set_metadata(&key, metadata).await?;
+                    self.last_save = Some(std::time::Instant::now());
+                }
+                *lock = None;
+            }
+            else{
+                *lock = Some(metadata.clone());
+                drop(lock);
+                tokio::time::sleep(self.duration_to_next_save()).await;
+                let mut lock = self.metadata.lock().await;
+                if let Some(metadata) = lock.take(){
+                    let store = envref.get_async_store();
+                    if let Some(key) = metadata.key()? {
+                        store.set_metadata(&key, &metadata).await?;
+                        self.last_save = Some(std::time::Instant::now());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn duration_since_last_save(&self) -> Option<std::time::Duration> {
+        if let Some(last_save) = self.last_save {
+            Some(std::time::Instant::now().duration_since(last_save))
+        } else {
+            None
+        }
+    }
+
+    fn duration_to_next_save(&self) -> std::time::Duration {
+        if let Some(duration) = self.duration_since_last_save(){
+            if duration >= self.interval {
+                std::time::Duration::from_secs(0)
+            } else {
+                self.interval - duration
+            }
+        } else {
+            std::time::Duration::from_secs(0)
+        }
+    }
+
+    fn can_save_now(&self) -> bool {
+        if let Some(duration) = self.duration_since_last_save(){
+            duration >= self.interval
+        } else {
+            true
+        }
+    }
+}
+
 pub struct AssetData<E: Environment> {
     id: u64,
     pub recipe: Recipe,
@@ -1086,6 +1161,7 @@ impl<E: Environment> AssetRef<E> {
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
         lock.set_status(Status::Ready);
+        // TODO: Store value in set_value
         // TODO: Update metadata with value info
         let _ = lock
             .notification_tx
@@ -1108,6 +1184,7 @@ impl<E: Environment> AssetRef<E> {
         lock.metadata = (*state.metadata).clone();
         lock.binary = None; // Invalidate binary
                             // TODO: Update metadata with value info
+                            // TODO: Store state in store
         let status = lock.metadata.status();
         if status == Status::Ready {
             let _ = lock
@@ -1552,6 +1629,7 @@ impl<E: Environment + 'static> JobQueue<E> {
         if pending_count < self.capacity {
             // avoid waiting in queue
             let asset_clone = asset.clone();
+            // Status set directly, since message processing is not running yet
             if let Err(e) = asset_clone.set_status(Status::Processing).await {
                 eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
             }
@@ -1613,6 +1691,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                 // Start jobs
                 for asset in jobs_to_start {
                     let asset_clone = asset.clone();
+                    // Status set directly, since message processing is not running yet
                     if let Err(e) = asset_clone.set_status(Status::Processing).await {
                         eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
                     }
