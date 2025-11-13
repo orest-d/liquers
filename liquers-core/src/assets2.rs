@@ -103,8 +103,16 @@ impl MetadataSaver {
             last_save: None,
         }
     }
-
+    // TODO: Make a proper save immediately task
+/*
     pub async fn save(&mut self, metadata: &Metadata, envref: EnvRef<impl Environment>) -> Result<(), Error> {
+        tokio::spawn(async move{
+            self.save_task(metadata, envref);
+        });
+        Ok(())
+    }
+    */
+    async fn save_task(&mut self, metadata: &Metadata, envref: EnvRef<impl Environment>) -> Result<(), Error> {
         let mut lock = self.metadata.lock().await;
         if lock.is_some(){
             *lock = Some(metadata.clone());
