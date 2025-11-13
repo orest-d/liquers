@@ -12,7 +12,7 @@ use crate::{
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
     query::{Key, Query, TryToQuery},
-    recipes2::Recipe,
+    recipes::Recipe,
     state::State,
     value::ValueInterface,
 };

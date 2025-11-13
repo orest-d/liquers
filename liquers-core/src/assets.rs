@@ -48,7 +48,7 @@ use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context::Context;
-use crate::interpreter2::{apply_plan, apply_plan_new, IsVolatile};
+use crate::interpreter::{apply_plan, apply_plan_new, IsVolatile};
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
@@ -56,7 +56,7 @@ use crate::{
     error::Error,
     metadata::{Metadata, Status},
     query::{Key, Query},
-    recipes2::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
+    recipes::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
     state::State,
     value::DefaultValueSerializer,
 };

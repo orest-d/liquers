@@ -27,7 +27,7 @@ use crate::{
     error::Error,
     metadata::{LogEntry, MetadataRecord, ProgressEntry},
     query::{Key, Query, TryToQuery},
-    recipes2::{AsyncRecipeProvider, Recipe},
+    recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     store::{NoStore, Store},
     value::ValueInterface,
@@ -393,7 +393,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use crate::interpreter2::apply_plan_new;
+        use crate::interpreter::apply_plan_new;
 
         async move {
             let plan = {
@@ -501,7 +501,7 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Environment for Simple
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use crate::interpreter2::apply_plan_new;
+        use crate::interpreter::apply_plan_new;
 
         async move {
             let plan = {

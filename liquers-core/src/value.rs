@@ -5,7 +5,7 @@ use serde_json;
 
 use std::{borrow::Cow, collections::BTreeMap, result::Result};
 
-use crate::{command_metadata::CommandMetadata, error::{Error, ErrorType}, metadata::{AssetInfo, MetadataRecord}, recipes2::Recipe};
+use crate::{command_metadata::CommandMetadata, error::{Error, ErrorType}, metadata::{AssetInfo, MetadataRecord}, recipes::Recipe};
 use std::convert::{TryFrom, TryInto};
 
 /// Basic built-in value type
