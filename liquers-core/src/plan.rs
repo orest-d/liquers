@@ -13,7 +13,7 @@ use crate::command_metadata::{
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
     CommandParameterValue, EnumArgumentType,
 };
-use crate::context2::EnvRef;
+use crate::context::EnvRef;
 use crate::error::{Error, ErrorType};
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,

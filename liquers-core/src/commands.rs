@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use nom::Err;
 
 use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
-use crate::context2::{Context, Environment};
+use crate::context::{Context, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
 use crate::query::{Position, Query};
@@ -510,7 +510,7 @@ mod tests {
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
     use crate::commands::{CommandArguments, CommandRegistry};
-    use crate::context2::SimpleEnvironment;
+    use crate::context::SimpleEnvironment;
     use crate::state::State;
     use crate::value::Value;
     use liquers_macro::*;
@@ -579,7 +579,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_command_registry_execute_greet_macroregistration() {
-        use crate::context2::*;
+        use crate::context::*;
         // Create a registry
         let mut registry = CommandRegistry::<SimpleEnvironment<Value>>::new();
 

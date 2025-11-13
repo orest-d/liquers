@@ -113,7 +113,7 @@ pub mod cache;
 pub mod command_metadata;
 #[macro_use]
 pub mod commands;
-pub mod context2;
+pub mod context;
 pub mod error;
 pub mod interpreter2;
 pub mod metadata;

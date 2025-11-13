@@ -629,14 +629,14 @@ impl CommandSignature {
             quote! {
                 #[allow(non_snake_case)]
                 fn #wrapper_name(
-                    state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                    state: liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                     arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
                 ) ->
                 core::pin::Pin<
                   std::boxed::Box<
                     dyn core::future::Future<
-                      Output = core::result::Result<<CommandEnvironment  as liquers_core::context2::Environment>::Value, liquers_core::error::Error>
+                      Output = core::result::Result<<CommandEnvironment  as liquers_core::context::Environment>::Value, liquers_core::error::Error>
                     > + core::marker::Send  + 'static
                   >
                 >
@@ -645,10 +645,10 @@ impl CommandSignature {
             quote! {
                 #[allow(non_snake_case)]
                 fn #wrapper_name(
-                    state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                    state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                     arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
-                ) -> core::result::Result<<CommandEnvironment as liquers_core::context2::Environment>::Value, liquers_core::error::Error>
+                ) -> core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value, liquers_core::error::Error>
             }
         }
     }
@@ -1697,10 +1697,10 @@ mod tests {
         > {
             #[allow(non_snake_case)]
             fn test_fn__CMD_(
-                state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                state: &liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                 arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
-            ) -> core::result::Result<<CommandEnvironment as liquers_core::context2::Environment>::Value, liquers_core::error::Error> {
+            ) -> core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value, liquers_core::error::Error> {
                 let a__par: i32 = arguments.get(0usize, "a")?;
                 let res = test_fn(state, a__par);
                 res
@@ -1764,14 +1764,14 @@ mod tests {
         > {
             #[allow(non_snake_case)]
             fn test_fn__CMD_(
-                state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                state: liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                 arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
             ) -> core::pin::Pin<
                 std::boxed::Box<
                     dyn core::future::Future<
                             Output = core::result::Result<
-                                <CommandEnvironment as liquers_core::context2::Environment>::Value,
+                                <CommandEnvironment as liquers_core::context::Environment>::Value,
                                 liquers_core::error::Error
                             >
                         > + core::marker::Send

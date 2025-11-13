@@ -1,5 +1,5 @@
 use liquers_core::{
-    command_metadata::CommandKey, context2::{Context, Environment, SimpleEnvironment}, error::Error, interpreter2::evaluate, state::State, value::Value
+    command_metadata::CommandKey, context::{Context, Environment, SimpleEnvironment}, error::Error, interpreter2::evaluate, state::State, value::Value
 };
 use liquers_macro::*;
 
@@ -35,7 +35,7 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
                     //state: &liquers_core::state::State<CommandEnvironment::Value>,
                     //TODO: 1) state is not a reference
                     //TODO: 2) fix generic argument for extracting the value 
-                    state: liquers_core::state::State<<CommandEnvironment as liquers_core::context2::Environment>::Value>,
+                    state: liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                     arguments: liquers_core::commands::CommandArguments<
                         CommandEnvironment,
                     >,
@@ -44,7 +44,7 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
                     std::boxed::Box<
                         dyn core::future::Future<
                             Output = core::result::Result<
-                                <CommandEnvironment as liquers_core::context2::Environment>::Value,
+                                <CommandEnvironment as liquers_core::context::Environment>::Value,
                                 liquers_core::error::Error,
                             >,
                         > + core::marker::Send + 'static,

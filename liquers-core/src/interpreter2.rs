@@ -6,7 +6,7 @@ use crate::{
     assets::{AssetManager, AssetRef},
     command_metadata::CommandKey,
     commands::{CommandArguments, CommandExecutor},
-    context2::{Context, EnvRef, Environment},
+    context::{Context, EnvRef, Environment},
     error::Error,
     metadata::{LogEntry, Metadata, Status},
     parse::{SimpleTemplate, SimpleTemplateElement},
@@ -560,7 +560,7 @@ mod tests {
     use super::*;
     use crate as liquers_core;
     use crate::command_metadata::CommandKey;
-    use crate::context2::{SimpleEnvironment, SimpleEnvironmentWithPayload};
+    use crate::context::{SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::metadata::ProgressEntry;
     use crate::parse::parse_query;
     use crate::state::State;

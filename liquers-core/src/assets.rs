@@ -47,12 +47,12 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
-use crate::context2::Context;
+use crate::context::Context;
 use crate::interpreter2::{apply_plan, apply_plan_new, IsVolatile};
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
-    context2::{EnvRef, Environment},
+    context::{EnvRef, Environment},
     error::Error,
     metadata::{Metadata, Status},
     query::{Key, Query},
@@ -1740,7 +1740,7 @@ impl<E: Environment + 'static> JobQueue<E> {
 mod tests {
     use super::*;
     use crate::command_metadata::CommandKey;
-    use crate::context2::{SimpleEnvironment, SimpleEnvironmentWithPayload};
+    use crate::context::{SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::metadata::{Metadata, MetadataRecord};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
