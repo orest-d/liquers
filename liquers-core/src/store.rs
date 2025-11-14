@@ -681,7 +681,7 @@ impl Store for FileStore {
                 metadata.warning("New metadata has been created. (get)");
                 let mut metadata = Metadata::MetadataRecord(metadata);
                 self.finalize_metadata(&mut metadata, key, &data, false);
-                self.set_metadata(key, &metadata);
+                self.set_metadata(key, &metadata)?;
                 Ok((data, metadata))
             }
         }
@@ -760,7 +760,7 @@ impl Store for FileStore {
             File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         file.write_all(data)
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        let tmp_metadata = self.finalize_metadata(&mut tmp_metadata, key, data, true);
+        self.finalize_metadata(&mut tmp_metadata, key, data, true);
         self.set_metadata(key, metadata)?;
         Ok(())
     }

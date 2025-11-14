@@ -181,21 +181,21 @@ pub fn do_step<E: Environment>(
             .boxed()
         }
         Step::Filename(name) => async move {
-            context.set_filename(&name.name);
+            context.set_filename(&name.name).await?;
             Ok(input_state)
         }
         .boxed(),
-        Step::Info(m) => {
-            context.info(&m);
-            async move { Ok(input_state) }.boxed()
+        Step::Info(m) => {            
+            let res = context.info(&m);
+            async move {res?; Ok(input_state) }.boxed()
         }
         Step::Warning(m) => {
-            context.warning(&m);
-            async move { Ok(input_state) }.boxed()
+            let res = context.warning(&m);
+            async move {res?; Ok(input_state) }.boxed()
         }
         Step::Error(m) => {
-            context.error(&m);
-            async move { Ok(input_state) }.boxed()
+            let res = context.error(&m);
+            async move {res?; Ok(input_state) }.boxed()
         }
         Step::SetCwd(key) => {
             context.set_cwd_key(Some(key.clone()));
@@ -238,7 +238,7 @@ pub fn do_step_new<E: Environment>(
                 LogEntry::info("Getting resource".to_string()).with_query(key.clone().into()),
             )?;
             let store = envref.get_async_store();
-            let (data, metadata) = store.get(&key).await?;
+            let (data, _metadata) = store.get(&key).await?;
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_bytes(data),
             ))
@@ -450,7 +450,7 @@ pub fn evaluate_simple_template<E: Environment>(
     .boxed()
 }
 
-pub trait IsVolatile<E:Environment>{
+pub(crate) trait IsVolatile<E:Environment>{
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error>;
 }
 

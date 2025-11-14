@@ -15,7 +15,6 @@ use std::{
 };
 
 use futures::FutureExt;
-use serde::de;
 
 use crate::{
     assets::{
@@ -354,7 +353,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
         self.async_store = Arc::new(store);
         self
     }
-    pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
+    pub fn with_cache(&mut self, _cache: Box<dyn Cache<V>>) -> &mut Self {
         panic!("SimpleEnvironment does not support cache for now");
     }
 }
@@ -462,7 +461,7 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> SimpleEnvironmentWithP
         self.async_store = Arc::new(store);
         self
     }
-    pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
+    pub fn with_cache(&mut self, _cache: Box<dyn Cache<V>>) -> &mut Self {
         panic!("SimpleEnvironment does not support cache for now");
     }
 }

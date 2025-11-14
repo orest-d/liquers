@@ -4,7 +4,13 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::{
-    command_metadata::CommandMetadataRegistry, context::{EnvRef, Environment}, error::Error, interpreter::IsVolatile, metadata::{AssetInfo, Status}, parse::{parse_key, parse_query}, plan::{Plan, PlanBuilder}, query::{self, Key, Query, ResourceName}, store
+    command_metadata::CommandMetadataRegistry,
+    context::{EnvRef, Environment},
+    error::Error,
+    metadata::{AssetInfo, Status},
+    parse::{parse_key, parse_query},
+    plan::{Plan, PlanBuilder},
+    query::{Key, Query, ResourceName},
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -29,7 +35,7 @@ pub struct Recipe {
     pub cwd: Option<String>,
     /// If true, the recipe is treated as volatile even if it doesn't have a volatile plan
     #[serde(skip_serializing_if = "is_false")]
-    #[serde(default="false_default")]
+    #[serde(default = "false_default")]
     pub volatile: bool,
 }
 
@@ -37,16 +43,9 @@ fn is_false(b: &bool) -> bool {
     *b == false
 }
 
-fn is_true(b: &bool) -> bool {
-    *b == true
-}
-fn true_default()->bool{
-    true
-}
-fn false_default()->bool{
+fn false_default() -> bool {
     false
 }
-
 
 impl Recipe {
     /// Creates a new recipe with the given query, title, and description.
@@ -103,7 +102,7 @@ impl Recipe {
     }
 
     pub fn unicode_icon(&self) -> String {
-       if let Ok(Some(extension)) = self.extension() {
+        if let Ok(Some(extension)) = self.extension() {
             crate::icons::file_extension_to_unicode_icon(&extension).to_owned()
         } else {
             crate::icons::DEFAULT_ICON.to_owned()
@@ -139,9 +138,8 @@ impl Recipe {
     /// It applies the arguments and links to the plan.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
-        let mut planbuilder = PlanBuilder::new(query.clone(), cmr)
-            .with_placeholders_allowed();
-//            .disable_expand_predecessors(); // TODO: fix - evaluate_immediately unittest is crashing with this option
+        let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
+        //            .disable_expand_predecessors(); // TODO: fix - evaluate_immediately unittest is crashing with this option
         let mut plan = planbuilder.build()?;
 
         for (name, value) in &self.arguments {
@@ -191,14 +189,14 @@ impl Recipe {
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let mut asset_info = AssetInfo::new();
         asset_info.key = None; // Key is not known to the recipe
-        if self.is_pure_query(){
+        if self.is_pure_query() {
             asset_info.query = if let Ok(query) = self.get_query() {
                 Some(query)
             } else {
                 None
             };
         }
-        asset_info.message="Recipe available".to_string();
+        asset_info.message = "Recipe available".to_string();
         asset_info.title = self.title.clone();
         asset_info.description = self.description.clone();
         asset_info.filename = self.filename()?.map(|f| f.name);

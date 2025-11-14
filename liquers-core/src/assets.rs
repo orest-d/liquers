@@ -285,7 +285,7 @@ impl<E: Environment> AssetData<E> {
   
     async fn save_metadata_to_store(&self) -> Result<(), Error>{
         // TODO: prevent too frequent saving
-        self.save_metadata_to_store_now().await;
+        self.save_metadata_to_store_now().await; // FIXME: HERE IS A BUG - if error is raised instead of ignored, unittests hang
         Ok(())
     }
 

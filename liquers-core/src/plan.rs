@@ -1085,7 +1085,7 @@ impl Plan {
             return (Plan::new(), Plan::new());
         }
 
-        let mut split_index = self.split_index();
+        let split_index = self.split_index();
         if split_index == 0 {
             return (Plan::new(), self.clone());
         }
