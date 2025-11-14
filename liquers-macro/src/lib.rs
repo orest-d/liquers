@@ -151,6 +151,7 @@ enum CommandParameter {
 }
 
 impl CommandParameter {
+    /*
     pub fn parameter_extractor_v1(&self) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
@@ -171,6 +172,7 @@ impl CommandParameter {
             _ => quote! {},
         }
     }
+    */
     pub fn parameter_extractor_v2(&self, i: usize) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
@@ -522,7 +524,7 @@ impl Parse for CommandParameterStatement {
 }
 
 enum WrapperVersion {
-    V1,
+    //V1,
     V2,
 }
 
@@ -547,11 +549,13 @@ impl CommandSignature {
     pub fn extract_all_parameters(&self) -> proc_macro2::TokenStream {
 
         let extractors: Vec<proc_macro2::TokenStream> = match self.wrapper_version {
+            /*
             WrapperVersion::V1 => self
                 .parameters
                 .iter()
                 .map(|p| p.parameter_extractor_v1())
                 .collect(),
+                */
             WrapperVersion::V2 => self
                 .parameters
                 .iter().enumerate()
@@ -595,6 +599,7 @@ impl CommandSignature {
         syn::Ident::new(&format!("REGISTER__{}", self.name), self.name.span())
     }
 
+    /*
     pub fn wrapper_fn_signature_v1(&self) -> proc_macro2::TokenStream {
         let wrapper_name = self.wrapper_fn_name();
         if self.is_async {
@@ -622,6 +627,7 @@ impl CommandSignature {
             }
         }
     }
+    */
 
     pub fn wrapper_fn_signature_v2(&self) -> proc_macro2::TokenStream {
         let wrapper_name = self.wrapper_fn_name();
@@ -654,7 +660,7 @@ impl CommandSignature {
     }
     pub fn wrapper_fn_signature(&self) -> proc_macro2::TokenStream {
         match self.wrapper_version {
-            WrapperVersion::V1 => self.wrapper_fn_signature_v1(),
+            //WrapperVersion::V1 => self.wrapper_fn_signature_v1(),
             WrapperVersion::V2 => self.wrapper_fn_signature_v2(),
         }
     }
@@ -751,9 +757,11 @@ impl CommandSignature {
 
 
         let registry_type = match self.wrapper_version {
+            /*
             WrapperVersion::V1 => quote! {
                 liquers_core::commands::NGCommandRegistry<CommandPayload, CommandValue, CommandContext>
             },
+            */
             WrapperVersion::V2 => quote! {
                 liquers_core::commands::CommandRegistry<CommandEnvironment>
             },
@@ -1141,7 +1149,7 @@ impl Parse for CommandSignature {
             next,
             filename,
             volatile,
-            wrapper_version: WrapperVersion::V1,
+            wrapper_version: WrapperVersion::V2,
         })
     }
 }
@@ -1294,9 +1302,9 @@ mod tests {
         };
         let tokens = sig.extract_all_parameters();
         let expected = quote! {
-            let a__par: i32 = arguments.get()?;
-            let b__par: String = arguments.get_injected("b", context.clone())?;
-            let c__par: f64 = arguments.get()?;
+            let a__par: i32 = arguments.get(0usize, "a")?;
+            let b__par: String = arguments.get_injected(1usize, "b", context.clone())?;
+            let c__par: f64 = arguments.get(2usize, "c")?;
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
@@ -1308,11 +1316,12 @@ mod tests {
         };
         let tokens = sig.wrapper_fn_signature();
         let expected = quote! {
+            #[allow(non_snake_case)]
             fn test_fn__CMD_(
-                state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
-                context: CommandContext,
-            ) -> core::result::Result<CommandValue, liquers_core::error::Error>
+                state : &liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
+                arguments : liquers_core::commands::CommandArguments<CommandEnvironment>,
+                context : Context<CommandEnvironment>,
+            ) -> core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value, liquers_core::error::Error>
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
@@ -1336,35 +1345,35 @@ mod tests {
         };
         let tokens = sig.wrapper_fn_signature();
         let expected = quote! {
+            #[allow(non_snake_case)]
             fn test_fn__CMD_(
-                state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
-                context: CommandContext,
+                state : liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
+                arguments : liquers_core::commands::CommandArguments<CommandEnvironment>,
+                context : Context<CommandEnvironment>,
             ) ->
             core::pin::Pin<
                 std::boxed::Box<
                     dyn core::future::Future<
-                        Output = core::result::Result<CommandValue, liquers_core::error::Error>
-                    > + core::marker::Send  + 'static
-                >
-            >
+                        Output = core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value,
+                        liquers_core::error::Error> > + core::marker::Send + 'static > >
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
     #[test]
     fn command_wrapper_basic() {
-        let input: proc_macro2::TokenStream = quote! {
+        let _input: proc_macro2::TokenStream = quote! {
             fn test_fn(state, a: i32, b: String injected, c: f64) -> result
         };
         let sig: CommandSignature = syn::parse_quote! {
             fn test_fn(state, a: i32, b: String injected, c: f64) -> result
         };
         let expanded = sig.command_wrapper();
-        let expected = quote! {
+        /*
+        let expected1 = quote! {
             fn test_fn__CMD_(
                 state: &liquers_core::state::State<CommandValue>,
-                arguments: &mut liquers_core::commands::NGCommandArguments<CommandValue>,
+                arguments: &mut liquers_core::commands::CommandArguments<CommandValue>,
                 context: CommandContext,
             ) -> core::result::Result<CommandValue, liquers_core::error::Error>
             {
@@ -1374,6 +1383,22 @@ mod tests {
                 let res = test_fn(state, a__par, b__par, c__par);
                 res
             }
+        };
+        */
+        let expected = quote!{
+            #[allow(non_snake_case)]
+            fn test_fn__CMD_(
+                state : &liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
+                arguments : liquers_core::commands::CommandArguments<CommandEnvironment>,
+                context : Context<CommandEnvironment>,
+            ) -> core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value, liquers_core::error::Error>
+            {
+                let a__par:i32 = arguments.get(0usize , "a")?;
+                let b__par:String = arguments.get_injected (1usize, "b", context.clone())?;
+                let c__par : f64 = arguments.get(2usize , "c")?;
+                let res = test_fn(state, a__par, b__par, c__par);
+                res
+            }            
         };
         assert_eq!(
             expanded.to_string().replace(" ", ""),
@@ -1608,6 +1633,7 @@ mod tests {
         s.replace(' ', "").replace('\n', "")
     }
 
+    /*
     #[test]
     fn test_command_registration_generates_function() {
         use syn::parse_quote;
@@ -1673,6 +1699,7 @@ mod tests {
         }
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
     }
+    */
 
     #[test]
     fn test_command_registration_generates_function_v2() {
