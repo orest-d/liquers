@@ -592,7 +592,7 @@ mod tests {
             Ok(Value::from(format!("{}, {}!", greeting, input)))
         }
         let mut cr = &mut registry;
-        register_command_v2!(cr, fn greet(state, greeting: String) -> result).expect("register_command failed");
+        register_command!(cr, fn greet(state, greeting: String) -> result).expect("register_command failed");
 
         // Prepare state and arguments
         let state = State::new().with_string("world");

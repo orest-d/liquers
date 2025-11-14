@@ -17,8 +17,8 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
         Ok(Value::from(format!("{greet}, {what}!")))
     }
     let cr = &mut env.command_registry;
-    register_command_v2!(cr, fn world(state) -> result).expect("register_command failed");
-    register_command_v2!(cr, async fn greet(state, greet: String = "Hello") -> result)
+    register_command!(cr, fn world(state) -> result).expect("register_command failed");
+    register_command!(cr, async fn greet(state, greet: String = "Hello") -> result)
          .expect("register_command failed");
 
     let envref = env.to_ref();
