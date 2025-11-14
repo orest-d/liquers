@@ -23,7 +23,26 @@ impl IntoResponse for CoreError {
             .unwrap()
     }
 }
+pub struct AssetDataResultWrapper(pub Result<(std::sync::Arc<Vec<u8>>, std::sync::Arc<Metadata>), liquers_core::error::Error>);
 
+impl From<Result<(std::sync::Arc<Vec<u8>>, std::sync::Arc<Metadata>), liquers_core::error::Error>> for AssetDataResultWrapper {
+    fn from(r: Result<(std::sync::Arc<Vec<u8>>, std::sync::Arc<Metadata>), liquers_core::error::Error>) -> Self {
+        AssetDataResultWrapper(r)
+    }
+}
+
+impl IntoResponse for AssetDataResultWrapper {
+    fn into_response(self) -> Response<Body> {
+        match self.0 {
+            Ok((data, metadata)) => Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, metadata.get_media_type())
+                .body(data.as_ref().to_vec().into())
+                .unwrap(),
+            Err(e) => CoreError(e).into_response(),
+        }
+    }
+}
 pub struct DataResultWrapper(pub Result<(Vec<u8>, Metadata), liquers_core::error::Error>);
 
 impl From<Result<(Vec<u8>, Metadata), liquers_core::error::Error>> for DataResultWrapper {
@@ -31,6 +50,7 @@ impl From<Result<(Vec<u8>, Metadata), liquers_core::error::Error>> for DataResul
         DataResultWrapper(r)
     }
 }
+
 
 impl IntoResponse for DataResultWrapper {
     fn into_response(self) -> Response<Body> {

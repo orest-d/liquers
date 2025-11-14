@@ -1,16 +1,14 @@
-use crate::value::default_value_response;
-use std::sync::Arc;
+use crate::utils::AssetDataResultWrapper;
 
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, Response, StatusCode},
+    http::Response,
     response::IntoResponse,
 };
-use liquers_core::value::Value;
 
 use crate::{
-    environment::{async_evaluate, ServerEnvRef},
+    environment::{ServerEnvRef},
     utils::CoreError,
 };
 
@@ -19,8 +17,11 @@ pub async fn evaluate_handler(
     Path(query): Path<String>,
     State(envref): State<ServerEnvRef>,
 ) -> Response<Body> {
-    match async_evaluate(envref, query).await {
-        Ok(state) => default_value_response(state.data.clone(), Some(&state.metadata.get_media_type())),
+    match envref.evaluate(query).await {
+        Ok(asset) => {
+            let dw: AssetDataResultWrapper = asset.get_binary().await.into();
+            dw.into_response()
+        },
         Err(e) => CoreError(e).into_response(),
     }
 }

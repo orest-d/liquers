@@ -6,12 +6,8 @@ pub mod value;
 
 use crate::environment::ServerEnvironment;
 use core_handlers::evaluate_handler;
-use liquers_core::context::NGEnvRef;
-use liquers_core::value::Value;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
 use axum::{routing::get, Router};
+use liquers_core::context::Environment;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncStoreWrapper, FileStore};
 
@@ -20,12 +16,12 @@ async fn main() {
     //let hashmaptest: Arc<HashMap<String, String>> = Arc::new(HashMap::new());
     // build our application with a single route
 
-    let mut env: ServerEnvironment<Value> = ServerEnvironment::new();
+    let mut env: ServerEnvironment = ServerEnvironment::new();
     env.with_async_store(Box::new(AsyncStoreWrapper(FileStore::new(
         ".",
         &Key::new(),
     ))));
-    let state = NGEnvRef::new(env);
+    let state = env.to_ref();
 
     //    let store:Arc<Box<dyn AsyncStore>> = Arc::new(Box::new(AsyncStoreWrapper(FileStore::new(".", &Key::new()))));
 

@@ -1,25 +1,18 @@
-use std::sync::Arc;
 
 use axum::{
     body::Body,
     extract::{Path, State},
     http::{header, Response, StatusCode},
     response::IntoResponse,
-    Error,
 };
 use liquers_core::{
-    assets::{AsyncAssets, DefaultAssets},
-    context::{Environment, NGEnvironment},
-    metadata::{Metadata, MetadataRecord},
-    parse::parse_key,
-    recipes::DefaultRecipeProvider,
+    assets::AssetManager, context::Environment, metadata::Metadata, parse::parse_key, recipes::DefaultRecipeProvider
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
 use crate::{
-    environment::{ServerEnvRef, ServerEnvironmentType},
-    utils::{CoreError, DataResultWrapper},
+    environment::{ServerEnvRef, ServerEnvironment},
+    utils::{AssetDataResultWrapper, CoreError, DataResultWrapper},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -107,7 +100,7 @@ pub async fn store_data_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => DataResultWrapper(store.get(&key).await).into_response(),
         Err(e) => CoreError(e).into_response(),
@@ -120,7 +113,16 @@ pub async fn assets_data_handler(
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
     match parse_key(&query) {
-        Ok(key) => DataResultWrapper(default_assets(env.clone()).get(&key).await).into_response(),
+        Ok(key) => {
+            let res = env.get_asset_manager().get(&key).await;
+            match res {
+                Ok(asset) => {
+                    let datares: AssetDataResultWrapper = asset.get_binary().await.into();
+                    datares.into_response()
+                },
+                Err(e) => CoreError(e).into_response(),
+            } 
+        }
         Err(e) => CoreError(e).into_response(),
     }
 }
@@ -130,7 +132,7 @@ pub async fn web_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         // TODO: handle directory and nicer error
         Ok(key) => DataResultWrapper(store.get(&key).await).into_response(),
@@ -143,7 +145,7 @@ pub async fn store_metadata_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => match store.get_metadata(&key).await {
             Ok(Metadata::MetadataRecord(metadata)) => Response::builder()
@@ -201,7 +203,7 @@ pub async fn remove_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => StoreResult::from(store.remove(&key).await)
             .with_key(key.encode())
@@ -215,7 +217,7 @@ pub async fn removedir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => StoreResult::from(store.removedir(&key).await)
             .with_key(key.encode())
@@ -229,7 +231,7 @@ pub async fn contains_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => StoreResult::from(store.contains(&key).await)
             .with_key(key.encode())
@@ -243,7 +245,7 @@ pub async fn is_dir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => StoreResult::from(store.is_dir(&key).await)
             .with_key(key.encode())
@@ -254,7 +256,7 @@ pub async fn is_dir_handler(
 
 #[axum::debug_handler]
 pub async fn keys_handler(State(env): State<ServerEnvRef>) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     StoreResult::from(
         store
             .keys()
@@ -271,7 +273,7 @@ pub async fn listdir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => StoreResult::from(store.listdir(&key).await)
             .with_key(key.encode())
@@ -280,8 +282,8 @@ pub async fn listdir_handler(
     }
 }
 
-fn default_assets(env: ServerEnvRef) -> impl AsyncAssets<ServerEnvironmentType> {
-    DefaultAssets::new(env.clone(), DefaultRecipeProvider::new(env))
+fn default_assets(env: ServerEnvRef) -> std::sync::Arc<Box<liquers_core::assets::DefaultAssetManager<ServerEnvironment>>> {
+    env.get_asset_manager()
 }
 
 #[axum::debug_handler]
@@ -306,7 +308,7 @@ pub async fn makedir_handler(
     Path(query): Path<String>,
     State(env): State<ServerEnvRef>,
 ) -> Response<Body> {
-    let store = env.0.read().await.get_async_store();
+    let store = env.get_async_store();
     match parse_key(&query) {
         Ok(key) => StoreResult::from(store.makedir(&key).await)
             .with_key(key.encode())

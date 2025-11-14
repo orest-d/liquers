@@ -1,82 +1,64 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use futures::FutureExt;
 use liquers_core::{
-    cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::{CommandRegistry, NGCommandRegistry}, context::{ArcEnvRef, Context, EnvRef, Environment, NGContext, NGEnvRef, NGEnvironment}, error::Error, interpreter::{ngi, AsyncPlanInterpreter, NGPlanInterpreter}, query::{self, TryToQuery}, recipes::DefaultRecipeProvider, state::State, store::{AsyncStore, NoAsyncStore, NoStore, Store}, value::ValueInterface
+    assets::DefaultAssetManager,
+    command_metadata::CommandMetadataRegistry,
+    commands::CommandRegistry,
+    context::{Context, EnvRef, Environment, Session, User},
+    error::Error,
+    query::{Key, TryToQuery},
+    recipes::{AsyncRecipeProvider, Recipe},
+    state::State,
+    store::{AsyncStore, AsyncStoreWrapper, FileStore},
 };
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
-/// Simple environment with configurable store and cache
-/// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
-pub struct ServerEnvironment<V: ValueInterface> {
-    store: Arc<Box<dyn Store>>,
-    #[cfg(feature = "async_store")]
-    async_store: Arc<Box<dyn AsyncStore>>,
-    cache: Arc<Mutex<Box<dyn Cache<V>>>>,
-    command_registry: NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>,
+pub struct TrivialSession;
+impl Session for TrivialSession {
+    fn get_user(&self) -> &User {
+        &User::Anonymous
+    }
 }
 
-pub type ServerValue = liquers_core::value::Value;
-pub type ServerEnvironmentType = ServerEnvironment<ServerValue>;
-pub type ServerEnvRef = NGEnvRef<ServerEnvironmentType>;
+pub struct ServerEnvironment {
+    async_store: Arc<Box<dyn AsyncStore>>,
+    pub command_registry: CommandRegistry<Self>,
+    asset_store: Arc<Box<DefaultAssetManager<Self>>>,
+    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider>>>,
+}
 
-impl<V: ValueInterface + 'static> ServerEnvironment<V> {
+pub type ServerEnvRef = EnvRef<ServerEnvironment>;
+
+impl Default for ServerEnvironment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ServerEnvironment {
     pub fn new() -> Self {
         ServerEnvironment {
-            store: Arc::new(Box::new(NoStore)),
-            command_registry: NGCommandRegistry::new(),
-            cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
-            #[cfg(feature = "async_store")]
-            async_store: Arc::new(Box::new(NoAsyncStore)),
+            command_registry: CommandRegistry::new(),
+            async_store: Arc::new(Box::new(AsyncStoreWrapper(FileStore::new(
+                ".",
+                &Key::new(),
+            )))),
+            asset_store: Arc::new(Box::new(DefaultAssetManager::new())),
+            recipe_provider: None,
         }
     }
-    pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::new(store);
-        self
-    }
-    #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn AsyncStore>) -> &mut Self {
         self.async_store = Arc::new(store);
         self
     }
-    pub fn with_cache(&mut self, cache: Box<dyn Cache<V>>) -> &mut Self {
-        self.cache = Arc::new(Mutex::new(cache));
-        self
-    }
 }
 
-pub async fn old_async_evaluate<E: NGEnvironment, Q: TryToQuery>(
-    envref: NGEnvRef<E>,
-    query: Q,
-) -> Result<liquers_core::state::State<<E as NGEnvironment>::Value>, liquers_core::error::Error> {
-    let mut pi = NGPlanInterpreter::new(envref);
-    let query = query.try_to_query()?;
-    pi.set_query(&query).await?;
-    //println!("{:?}", pi.plan);
-    /*
-    println!(
-        "############################ PLAN ############################\n{}\n",
-        serde_yaml::to_string(pi.plan.as_ref().unwrap()).unwrap()
-    );
-    */
-    pi.run().await
-}
-
-pub async fn async_evaluate<E: NGEnvironment, Q: TryToQuery>(
-    envref: NGEnvRef<E>,
-    query: Q,
-) -> Result<liquers_core::state::State<<E as NGEnvironment>::Value>, liquers_core::error::Error> {
-    let query = query.try_to_query()?;
-    ngi::evaluate(envref, query, None).await
-}
-
-impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
-    type Value = V;
-    type CommandExecutor = NGCommandRegistry<NGEnvRef<Self>, V, NGContext<Self>>;
-    type AssetStore = liquers_core::assets::EnvAssetStore<Self, DefaultRecipeProvider<Self>>;
-
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
+impl Environment for ServerEnvironment {
+    type Value = liquers_core::value::Value;
+    type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = TrivialSession;
+    type Payload = ServerPayload;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -85,32 +67,59 @@ impl<V: ValueInterface> NGEnvironment for ServerEnvironment<V> {
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
-    fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
-        &mut self.command_registry
-    }
-    fn get_store(&self) -> Arc<Box<dyn Store>> {
-        self.store.clone()
-    }
 
-    fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>> {
-        self.cache.clone()
-    }
-    #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn AsyncStore>> {
         self.async_store.clone()
     }
-    
-    fn get_asset_store(
-        &self,
-    ) -> Arc<
-        Box<
-            dyn liquers_core::assets::AssetStore<
-                Self,
-                Asset = <Self::AssetStore as liquers_core::assets::AssetStore<Self>>::Asset,
-            >,
-        >,
-    > {
-        todo!()
+
+    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>> {
+        self.asset_store.clone()
     }
-    
+    fn create_session(&self, _user: User) -> Self::SessionType {
+        TrivialSession
+    }
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
+    > {
+        use liquers_core::interpreter::apply_plan_new;
+
+        async move {
+            let plan = {
+                let cmr = envref.0.get_command_metadata_registry();
+                recipe.to_plan(cmr)?
+            };
+            let res = apply_plan_new(plan, input_state, context, envref).await?;
+
+            Ok(res)
+        }
+        .boxed()
+    }
+
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+        if let Some(provider) = &self.recipe_provider {
+            return provider.clone();
+        }
+        panic!("No recipe provider configured in SimpleEnvironment");
+    }
+
+    fn init_with_envref(&self, envref: EnvRef<Self>) {
+        self.get_asset_manager().set_envref(envref.clone());
+    }
+}
+
+pub struct ServerPayloadData {}
+
+#[derive(Clone)]
+pub struct ServerPayload(Arc<Mutex<ServerPayloadData>>);
+
+impl ServerPayload {
+    pub fn new() -> Self {
+        ServerPayload(Arc::new(Mutex::new(ServerPayloadData {})))
+    }
 }
