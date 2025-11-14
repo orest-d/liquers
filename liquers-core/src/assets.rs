@@ -243,7 +243,7 @@ impl<E: Environment> AssetData<E> {
             .get_asset_info()
             .unwrap_or_else(|_| AssetInfo::default());
 
-        let mut asset = AssetData {
+        let asset = AssetData {
             id,
             envref,
             recipe,
@@ -276,16 +276,13 @@ impl<E: Environment> AssetData<E> {
         if let Some(key) = key.as_ref() {
             store.set_metadata(key, &self.metadata).await
         } else {
-            Err(Error::general_error(format!(
-                "Cannot determine key to store asset metadata - {}",
-                self.asset_reference()
-            )))
+            Ok(()) // No key => nowhere and no need to save
         }
     }
   
     async fn save_metadata_to_store(&self) -> Result<(), Error>{
         // TODO: prevent too frequent saving
-        self.save_metadata_to_store_now().await; // FIXME: HERE IS A BUG - if error is raised instead of ignored, unittests hang
+        self.save_metadata_to_store_now().await?;
         Ok(())
     }
 
@@ -381,7 +378,6 @@ impl<E: Environment> AssetData<E> {
                     self.data = Some(Arc::new(value));
                     self.status = metadata.status();
                     self.metadata = metadata;
-                    let key1 = key.clone();
                     match self.status {
                         Status::Ready | Status::Source => {
                             self.notification_tx
