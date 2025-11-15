@@ -1,9 +1,9 @@
 use std::{env, sync::Arc};
 
 use pyo3::{exceptions::PyException, prelude::*};
-use crate::{commands::CommandRegistry, context::{EnvRefDef, Environment}, error::Error, state::State};
-use liquers_core::interpreter::PlanInterpreter;
+use crate::{commands::CommandRegistry, context::{Environment}, error::Error, state::State};
 
+/* 
 #[pyfunction]
 pub fn evaluate(query:String) -> PyResult<State> {
     //let cmr = &command_metadata_registry.0;
@@ -32,3 +32,4 @@ pub fn evaluate_with_cmr(query:String, cmr:&crate::command_metadata::CommandMeta
     let state = pi.evaluate(query).map_err(|e| Error(e))?;
     Ok(State(state))
 }
+*/

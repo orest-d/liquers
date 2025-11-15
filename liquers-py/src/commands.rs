@@ -1,15 +1,16 @@
-use liquers_core::context::ContextInterface;
+use liquers_core::context::Context;
 use liquers_core::state::State;
-use liquers_core::{register_command, value::ValueInterface};
+use liquers_core::{value::ValueInterface};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
+use crate::context::Environment;
 use crate::error::Error;
 use crate::value::{value_to_pyobject, Value};
 
 #[pyclass]
-pub struct CommandArguments(liquers_core::commands::CommandArguments);
+pub struct CommandArguments(liquers_core::commands::CommandArguments<Environment>);
 
 #[pymethods]
 impl CommandArguments {
@@ -24,11 +25,7 @@ impl CommandArguments {
 
 #[pyclass]
 pub struct CommandRegistry(
-    pub  liquers_core::commands::CommandRegistry<
-        crate::context::EnvRefDef,
-        crate::context::Environment,
-        crate::value::Value,
-    >,
+    pub  liquers_core::commands::CommandRegistry<Environment>
 );
 
 fn hello() -> Result<Value, Error> {
@@ -93,10 +90,8 @@ fn json2py(py: Python, json: &serde_json::Value) -> PyResult<PyObject> {
 fn parameter2py(
     py: Python,
     p: &liquers_core::plan::ParameterValue,
-    context: &liquers_core::context::Context<
-        crate::context::EnvRefDef,
-        crate::context::Environment,
-    >,
+    context: &liquers_core::context::Context<Environment>
+
 ) -> PyResult<PyObject> {
     match p {
         liquers_core::plan::ParameterValue::DefaultValue(_, x) => json2py(py, x),
@@ -108,7 +103,7 @@ fn parameter2py(
         liquers_core::plan::ParameterValue::EnumLink(_, _, _) => todo!(),
         liquers_core::plan::ParameterValue::Injected(name) => {
             if name=="context"{
-                Ok(crate::context::Context(context.clone_context()).into_py(py))
+                Ok(crate::context::Context(context.clone()).into_py(py))
             }
             else{
                 Err(PyErr::new::<PyException, _>(
@@ -128,15 +123,15 @@ fn parameter2py(
 
 fn pycall(
     state: &State<Value>,
-    arg: &mut liquers_core::commands::CommandArguments,
-    context: liquers_core::context::Context<crate::context::EnvRefDef, crate::context::Environment>,
+    arg: &mut liquers_core::commands::CommandArguments<Environment>,
+    context: liquers_core::context::Context<Environment>,
 ) -> Result<Value, liquers_core::error::Error> {
     println!("pycall");
     context.info("pycall called");
     //let context_par = arg.pop_parameter()?;
-    let module: String = arg.get(&context)?;
-    let function: String = arg.get(&context)?;
-    let pass_state: String = arg.get(&context)?;
+    let module: String = arg.get(0, "module")?;
+    let function: String = arg.get(1, "function")?;
+    let pass_state: String = arg.get(2, "pass_state")?;
 
     let state_value: Option<PyObject> = if pass_state == "no" {
         None

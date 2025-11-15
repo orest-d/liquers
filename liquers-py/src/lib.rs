@@ -71,8 +71,8 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<crate::plan::Plan>()?;
     m.add_function(wrap_pyfunction!(crate::plan::build_plan, m)?)?;
 
-    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate_with_cmr, m)?)?;
+//    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate, m)?)?;
+//    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate_with_cmr, m)?)?;
 
     Ok(())
 }

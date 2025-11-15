@@ -1,14 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 
-use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{ArcEnvRef, ContextInterface}, store::{AsyncStore, NoAsyncStore, Store}};
-use once_cell::sync::{Lazy, OnceCell};
+use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{SimpleSession}, store::{AsyncStore, NoAsyncStore, Store}};
 use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::value::Value;
-
-pub type EnvRefDef = liquers_core::context::ArcEnvRef<Environment>;
-pub type ContextType = liquers_core::context::Context<EnvRefDef, Environment>;
 
 /*
 #[pyclass]
@@ -28,7 +24,7 @@ impl EnvRef{
 pub struct Environment {
     pub store: Arc<Box<dyn Store>>,
     pub cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
-    pub command_registry: CommandRegistry<EnvRefDef, Self, Value>,
+    pub command_registry: CommandRegistry<Self>,
     //#[cfg(feature = "async_store")]
     //async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
 }
@@ -79,13 +75,9 @@ impl Environment {
 
 impl liquers_core::context::Environment for Environment {
     type Value = Value;
-    type CommandExecutor = CommandRegistry<Self::EnvironmentReference, Self, Self::Value>;
-    type EnvironmentReference = EnvRefDef;
-    type Context = liquers_core::context::Context<Self::EnvironmentReference, Self>;
-
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
+    type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = liquers_core::context::SimpleSession;    
+    type Payload = ();
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -94,27 +86,46 @@ impl liquers_core::context::Environment for Environment {
     fn get_command_executor(&self) -> &Self::CommandExecutor {
         &self.command_registry
     }
-    fn get_mut_command_executor(&mut self) -> &mut Self::CommandExecutor {
-        &mut self.command_registry
-    }
-    fn get_store(&self) -> Arc<Box<dyn Store>> {
-        self.store.clone()
-    }
 
-    fn get_cache(&self) -> Arc<Mutex<Box<dyn Cache<Self::Value>>>> {
-        self.cache.clone()
-    }
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<Box<dyn liquers_core::store::AsyncStore>> {
         //self.async_store.clone()
         Arc::new(Box::new(NoAsyncStore))
     }
     
+    
+    fn get_asset_manager(&self) -> Arc<Box<liquers_core::assets::DefaultAssetManager<Self>>> {
+        todo!()
+    }
+    
+    fn get_recipe_provider(&self) -> Arc<Box<dyn liquers_core::recipes::AsyncRecipeProvider>> {
+        todo!()
+    }
+    
+    fn create_session(&self, user: liquers_core::context::User) -> Self::SessionType {
+        SimpleSession{user}
+    }
+    
+    fn apply_recipe(
+        envref: liquers_core::context::EnvRef<Self>,
+        input_state: liquers_core::state::State<Self::Value>,
+        recipe: liquers_core::recipes::Recipe,
+        context: liquers_core::context::Context<Self>,
+    ) -> std::pin::Pin<
+        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, liquers_core::error::Error>> + Send + 'static>,
+    > {
+        todo!()
+    }
+    
+    fn init_with_envref(&self, envref: liquers_core::context::EnvRef<Self>) {
+        todo!()
+    }
+    
 }
 
 
 #[pyclass(unsendable)]
-pub struct Context(pub liquers_core::context::Context<EnvRefDef, Environment>);
+pub struct Context(pub liquers_core::context::Context<Environment>);
 
 #[pymethods]
 impl Context {
