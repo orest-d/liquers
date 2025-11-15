@@ -303,6 +303,35 @@ pub trait AsyncRecipeProvider: Send + Sync {
     }
 }
 
+pub struct TrivialRecipeProvider;
+
+#[async_trait]
+impl AsyncRecipeProvider for TrivialRecipeProvider {
+    async fn assets_with_recipes(&self, _key: &Key) -> Result<Vec<ResourceName>, Error> {
+        Ok(Vec::new())
+    }
+
+    async fn recipe_plan(&self, key: &Key) -> Result<Plan, Error> {
+        return Err(
+            Error::general_error(format!("No recipe plans defined by the trivial recipe provider; key '{}'", key)).with_key(key),
+        );
+    }
+
+    async fn recipe(&self, key: &Key) -> Result<Recipe, Error> {
+        return Err(
+            Error::general_error(format!("No recipes defined by the trivial recipe provider; key '{}'", key)).with_key(key),
+        );
+    }
+
+    async fn recipe_opt(&self, _key: &Key) -> Result<Option<Recipe>, Error> {
+        Ok(None)
+    }
+
+    async fn has_recipes(&self, _key: &Key) -> Result<bool, Error> {
+        Ok(false)
+    }
+}
+
 pub struct DefaultRecipeProvider<E: Environment> {
     envref: EnvRef<E>,
 }
