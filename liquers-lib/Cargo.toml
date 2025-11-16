@@ -1,0 +1,28 @@
+[package]
+name = "liquers-lib"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
+liquers-core={path="../liquers-core"}
+serde = "1.0.181"
+serde_derive = "1.0.181"
+serde_json = "1.0.104"
+serde_yaml = "0.9.33"
+bytes = "1.8.0"
+async-trait = "0.1.80"
+egui = "0.33.0"
+eframe = "0.33.0"
+egui_plot = "0.34.0"
+polars = { version = "0.51.0", features = ["lazy", "temporal"] }
+reqwest = { version = "0.12.24", features = ["json"] }
+image = "0.25.9"
+resvg = "0.45.1"
+usvg = "0.45.1"
+tiny-skia = "0.11"
+futures = "0.3.31"
