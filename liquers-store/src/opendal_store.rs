@@ -248,7 +248,7 @@ impl AsyncOpenDALStore {
 impl AsyncStore for AsyncOpenDALStore{
     /// Get store name
     fn store_name(&self) -> String {
-        format!("{} Store", self.key_prefix())
+        format!("{} OpenDAL Store", self.key_prefix())
     }
 
     /// Key prefix common to all keys in this store.

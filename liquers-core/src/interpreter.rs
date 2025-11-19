@@ -612,6 +612,35 @@ mod tests {
         Ok(())
     }
 
+     #[tokio::test]
+    async fn test_generic_hello_world() -> Result<(), Box<dyn std::error::Error>> {
+        type CommandEnvironment = SimpleEnvironment<Value>;
+        let mut env = SimpleEnvironment::<Value>::new();
+
+        // Register "hello" command
+        fn world<E:Environment>(_state: &State<E::Value>, context: Context<E>) -> Result<Value, Error> {
+            context.info("Generating 'world'")?;
+            Ok(Value::from("world"))
+        }
+        fn greet<E:Environment>(state: &State<E::Value>, greet: String, context: Context<E>) -> Result<Value, Error> {
+            let what = state.try_into_string()?;
+            context.info(&format!("Greeting {what}"))?;
+            Ok(Value::from(format!("{greet}, {what}!")))
+        }
+        let cr = &mut env.command_registry;
+        register_command!(cr, fn world(state, context) -> result).expect("register_command failed");
+        register_command!(cr, fn greet(state, greet: String = "Hello", context) -> result)
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        let state = evaluate(envref.clone(), "world/greet", None).await?;
+
+        let value = state.try_into_string()?;
+        assert_eq!(value, "Hello, world!");
+        Ok(())
+    }
+   
     #[tokio::test]
     async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
         type CommandEnvironment = SimpleEnvironment<Value>;
