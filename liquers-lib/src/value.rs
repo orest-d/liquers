@@ -1,5 +1,3 @@
-use egui::RichText;
-use serde::{Deserialize, Serialize};
 use serde_json;
 
 use liquers_core::{
@@ -12,7 +10,6 @@ use liquers_core::{
 };
 
 use liquers_core::error::Error;
-use polars::prelude::DataFrame;
 use std::{
     borrow::Cow,
     collections::BTreeMap,
@@ -67,16 +64,16 @@ pub enum Value {
         value: Key,
     },
     Image {
-        value: RasterImage,
+        value: crate::image::raster_image::RasterImage,
     },
     PolarsDataFrame {
-        value: Arc<DataFrame>,
+        value: Arc<polars::frame::DataFrame>,
     },
     UiCommand {
-        value: UiCommand,
+        value: crate::egui::UiCommand,
     },
     Widget {
-        value: Arc<std::sync::Mutex<dyn WidgetValue>>,
+        value: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>,
     },
 }
 impl Default for Value {
@@ -86,7 +83,7 @@ impl Default for Value {
 }
 
 impl Value {
-    pub fn from_image(image: RasterImage) -> Self {
+    pub fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
         Value::Image { value: image }
     }
     pub fn from_ui<F>(f: F) -> Self
@@ -94,90 +91,14 @@ impl Value {
         F: FnMut(&mut egui::Ui) -> Result<(), Error> + Send + 'static,
     {
         Value::UiCommand {
-            value: UiCommand::new(f),
+            value: crate::egui::UiCommand::new(f),
         }
     }
-    pub fn from_widget(widget: Arc<std::sync::Mutex<dyn WidgetValue>>) -> Self {
+    pub fn from_widget(widget: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>) -> Self {
         Value::Widget { value: widget }
     }
-    pub fn show(&self, ui: &mut egui::Ui) {
-        match self {
-            Value::UiCommand { value } => {
-                value.execute(ui);
-            }
-            Value::Widget { value } => {
-                let mut widget = value.lock().expect("Failed to lock widget mutex");
-                widget.show(ui);
-            }
-            Value::None {} => {
-                ui.label(RichText::new("None").italics());
-            }
-            Value::Bool { value } => {
-                ui.label(RichText::new(format!("Bool: {}", value)).italics());
-            }
-            Value::I32 { value } => {
-                ui.label(RichText::new(format!("I32: {}", value)).italics());
-            }
-            Value::I64 { value } => {
-                ui.label(RichText::new(format!("I64: {}", value)).italics());
-            }
-            Value::F64 { value } => {
-                ui.label(RichText::new(format!("F64: {}", value)).italics());
-            }
-            Value::Text { value } => {
-                ui.label(value);
-            }
-            Value::Array { value } => {
-                ui.label(RichText::new("Array").italics());
-            }
-            Value::Object { value } => {
-                ui.label(RichText::new("Object").italics());
-            }
-            Value::Bytes { value } => {
-                ui.label(RichText::new(format!("Bytes: {} bytes", value.len())).italics());
-            }
-            Value::Metadata { value } => todo!(),
-            Value::AssetInfo { value } => todo!(),
-            Value::Recipe { value } => todo!(),
-            Value::CommandMetadata { value } => todo!(),
-            Value::Query { value } => todo!(),
-            Value::Key { value } => todo!(),
-            Value::Image { value } => todo!(),
-            Value::PolarsDataFrame { value } => todo!(),
-        }
-    }
 }
 
-type UiClosure = Box<dyn FnMut(&mut egui::Ui) -> Result<(), Error> + Send>;
-#[derive(Clone)]
-pub struct UiCommand {
-    value: Arc<std::sync::Mutex<UiClosure>>,
-}
-
-impl UiCommand {
-    pub fn new<F>(f: F) -> Self
-    where
-        F: FnMut(&mut egui::Ui) -> Result<(), Error> + Send + 'static,
-    {
-        UiCommand {
-            value: Arc::new(std::sync::Mutex::new(Box::new(f))),
-        }
-    }
-
-    pub fn execute(&self, ui: &mut egui::Ui) {
-        let mut closure = self.value.lock().unwrap();
-        let res = (closure)(ui);
-        if let Err(e) = res {
-            let _ = display_error(ui, &e);
-        }
-    }
-}
-
-impl std::fmt::Debug for UiCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UiCommand")
-    }
-}
 
 impl ValueInterface for Value {
     fn none() -> Self {
@@ -643,223 +564,4 @@ impl DefaultValueSerializer for Value {
             )),
         }
     }
-}
-use eframe::egui;
-use image::{self, ImageEncoder};
-use resvg::usvg::{Options, Tree};
-use tiny_skia::Pixmap;
-use usvg::Transform;
-
-use crate::egui::widgets::{WidgetValue, display_error};
-
-/// A simple RGBA raster image with f32 channels per pixel.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct RasterImage {
-    pub width: usize,
-    pub height: usize,
-    pub pixels: Vec<(f32, f32, f32, f32)>, // (r, g, b, a) for each pixel
-}
-
-impl RasterImage {
-    /// Load a RasterImage from a PNG file.
-    pub fn from_png(path: &str) -> image::ImageResult<Self> {
-        let img = image::open(path)?.to_rgba8();
-        let (width, height) = img.dimensions();
-        let pixels = img
-            .pixels()
-            .map(|p| {
-                let [r, g, b, a] = p.0;
-                (
-                    r as f32 / 255.0,
-                    g as f32 / 255.0,
-                    b as f32 / 255.0,
-                    a as f32 / 255.0,
-                )
-            })
-            .collect();
-        Ok(Self {
-            width: width as usize,
-            height: height as usize,
-            pixels,
-        })
-    }
-
-    /// Load a RasterImage from PNG bytes.
-    pub fn from_png_bytes(bytes: &[u8]) -> image::ImageResult<Self> {
-        let img = image::load_from_memory(bytes)?.to_rgba8();
-        let (width, height) = img.dimensions();
-        let pixels = img
-            .pixels()
-            .map(|p| {
-                let [r, g, b, a] = p.0;
-                (
-                    r as f32 / 255.0,
-                    g as f32 / 255.0,
-                    b as f32 / 255.0,
-                    a as f32 / 255.0,
-                )
-            })
-            .collect();
-        Ok(Self {
-            width: width as usize,
-            height: height as usize,
-            pixels,
-        })
-    }
-
-    /// Load a RasterImage from an SVG file, rendered at the given size.
-    pub fn from_svg(path: &str, width: u32, height: u32) -> Result<Self, String> {
-        // Read SVG data
-        let svg_data = std::fs::read(path).map_err(|e| e.to_string())?;
-        let opt = Options::default();
-        let rtree = Tree::from_data(&svg_data, &opt).map_err(|e| format!("{:?}", e))?;
-
-        // Render SVG to pixmap
-        let mut pixmap = Pixmap::new(width, height).ok_or("Failed to create pixmap")?;
-        resvg::render(&rtree, Transform::default(), &mut pixmap.as_mut());
-
-        // Convert pixmap to RasterImage
-        let mut pixels = Vec::with_capacity((width * height) as usize);
-        for p in pixmap.pixels() {
-            let r = p.red();
-            let g = p.green();
-            let b = p.blue();
-            let a = p.alpha();
-            pixels.push((
-                r as f32 / 255.0,
-                g as f32 / 255.0,
-                b as f32 / 255.0,
-                a as f32 / 255.0,
-            ));
-        }
-        Ok(Self {
-            width: width as usize,
-            height: height as usize,
-            pixels,
-        })
-    }
-
-    /// Render the image in egui at the given zoom factor.
-    pub fn show(&self, ui: &mut egui::Ui, id: egui::Id, zoom: f32) {
-        // Convert to egui::ColorImage
-        let mut rgba_u8: Vec<u8> = Vec::with_capacity(self.width * self.height * 4);
-        for &(r, g, b, a) in &self.pixels {
-            rgba_u8.push((r.clamp(0.0, 1.0) * 255.0) as u8);
-            rgba_u8.push((g.clamp(0.0, 1.0) * 255.0) as u8);
-            rgba_u8.push((b.clamp(0.0, 1.0) * 255.0) as u8);
-            rgba_u8.push((a.clamp(0.0, 1.0) * 255.0) as u8);
-        }
-        let color_image =
-            egui::ColorImage::from_rgba_unmultiplied([self.width, self.height], &rgba_u8);
-
-        let texture = ui.ctx().load_texture(
-            format!("raster_image_{:?}", id),
-            color_image,
-            Default::default(),
-        );
-
-        let size = egui::Vec2::new(self.width as f32 * zoom, self.height as f32 * zoom);
-        let im = egui::Image::from_texture(&texture).fit_to_exact_size(size);
-        ui.add(im);
-    }
-
-    /// Encode the RasterImage as PNG and return the bytes.
-    pub fn to_png_bytes(&self) -> Result<Vec<u8>, image::ImageError> {
-        use image::{codecs::png::PngEncoder, ColorType, Rgba, RgbaImage};
-        let mut img = RgbaImage::new(self.width as u32, self.height as u32);
-        for (i, &(r, g, b, a)) in self.pixels.iter().enumerate() {
-            let x = (i % self.width) as u32;
-            let y = (i / self.width) as u32;
-            img.put_pixel(
-                x,
-                y,
-                Rgba([
-                    (r.clamp(0.0, 1.0) * 255.0) as u8,
-                    (g.clamp(0.0, 1.0) * 255.0) as u8,
-                    (b.clamp(0.0, 1.0) * 255.0) as u8,
-                    (a.clamp(0.0, 1.0) * 255.0) as u8,
-                ]),
-            );
-        }
-        let mut buf = Vec::new();
-        let encoder = PngEncoder::new(&mut buf);
-        encoder.write_image(
-            &img,
-            self.width as u32,
-            self.height as u32,
-            image::ExtendedColorType::Rgba8,
-        )?;
-        Ok(buf)
-    }
-
-    /// Create a new empty RasterImage with the specified dimensions and fill color.
-    /// The color can be any type that implements Into<(f32, f32, f32, f32)>.
-    pub fn new_filled<T: Into<(f32, f32, f32, f32)>>(
-        width: usize,
-        height: usize,
-        color: T,
-    ) -> Self {
-        let color = color.into();
-        let pixels = vec![color; width * height];
-        Self {
-            width,
-            height,
-            pixels,
-        }
-    }
-}
-
-/// Parse a color string (name or RRGGBB[AA] hex value, without #) into (r, g, b, a) as f32 tuple.
-/// Supports common color names and hex values like "ff0000" or "ff000080".
-pub fn parse_color(s: &str) -> Option<(f32, f32, f32, f32)> {
-    let s = s.trim().to_lowercase();
-    // Named colors
-    let named = match s.as_str() {
-        "black" => (0.0, 0.0, 0.0, 1.0),
-        "white" => (1.0, 1.0, 1.0, 1.0),
-        "red" => (1.0, 0.0, 0.0, 1.0),
-        "green" => (0.0, 1.0, 0.0, 1.0),
-        "blue" => (0.0, 0.0, 1.0, 1.0),
-        "yellow" => (1.0, 1.0, 0.0, 1.0),
-        "cyan" => (0.0, 1.0, 1.0, 1.0),
-        "magenta" => (1.0, 0.0, 1.0, 1.0),
-        "gray" | "grey" => (0.5, 0.5, 0.5, 1.0),
-        "orange" => (1.0, 0.65, 0.0, 1.0),
-        "purple" => (0.5, 0.0, 0.5, 1.0),
-        "brown" => (0.6, 0.4, 0.2, 1.0),
-        "pink" => (1.0, 0.75, 0.8, 1.0),
-        "lime" => (0.0, 1.0, 0.0, 1.0),
-        "navy" => (0.0, 0.0, 0.5, 1.0),
-        "teal" => (0.0, 0.5, 0.5, 1.0),
-        "olive" => (0.5, 0.5, 0.0, 1.0),
-        "maroon" => (0.5, 0.0, 0.0, 1.0),
-        "silver" => (0.75, 0.75, 0.75, 1.0),
-        _ => {
-            // Try hex without #
-            match s.len() {
-                6 => {
-                    // RRGGBB
-                    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
-                    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
-                    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-                    return Some((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0));
-                }
-                8 => {
-                    // RRGGBBAA
-                    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
-                    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
-                    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-                    let a = u8::from_str_radix(&s[6..8], 16).ok()?;
-                    return Some((
-                        r as f32 / 255.0,
-                        g as f32 / 255.0,
-                        b as f32 / 255.0,
-                        a as f32 / 255.0,
-                    ));
-                }
-                _ => return None,
-            }
-        }
-    };
-    Some(named)
 }
