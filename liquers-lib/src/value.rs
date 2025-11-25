@@ -381,7 +381,7 @@ impl ValueInterface for Value {
     }
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
-        todo!("Implement from_recipe with correct type");
+        Value::Recipe { value: recipe }
     }
 
     fn from_query(query: &liquers_core::query::Query) -> Self {

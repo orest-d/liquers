@@ -10,6 +10,7 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
 liquers-core={path="../liquers-core"}
+liquers-macro={path="../liquers-macro"}
 serde = "1.0.181"
 serde_derive = "1.0.181"
 serde_json = "1.0.104"
