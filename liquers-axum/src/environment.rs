@@ -7,7 +7,7 @@ use liquers_core::{
     commands::CommandRegistry,
     context::{Context, EnvRef, Environment, Session, User},
     error::Error,
-    query::{Key, TryToQuery},
+    query::Key,
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     store::{AsyncStore, AsyncStoreWrapper, FileStore},
@@ -25,7 +25,7 @@ pub struct ServerEnvironment {
     async_store: Arc<Box<dyn AsyncStore>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider>>>,
+    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
 }
 
 pub type ServerEnvRef = EnvRef<ServerEnvironment>;
@@ -101,7 +101,7 @@ impl Environment for ServerEnvironment {
         .boxed()
     }
 
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
@@ -111,6 +111,7 @@ impl Environment for ServerEnvironment {
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
     }
+    
 }
 
 pub struct ServerPayloadData {}

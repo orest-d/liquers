@@ -40,7 +40,6 @@
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
 //!
 
-use std::env;
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
@@ -48,7 +47,7 @@ use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context::Context;
-use crate::interpreter::{apply_plan, apply_plan_new, IsVolatile};
+use crate::interpreter::IsVolatile;
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
@@ -56,7 +55,7 @@ use crate::{
     error::Error,
     metadata::{Metadata, Status},
     query::{Key, Query},
-    recipes::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
+    recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     value::DefaultValueSerializer,
 };
@@ -1306,7 +1305,6 @@ pub struct DefaultAssetManager<E: Environment> {
     envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
-    //recipe_provider: std::sync::OnceLock<DefaultRecipeProvider<E>>,
     job_queue: Arc<JobQueue<E>>,
 }
 
@@ -1361,7 +1359,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         asset
     }
 
-    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<E>>> {
         self.envref
             .get()
             .expect("Environment not set in AssetStore")
@@ -1455,7 +1453,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if store.contains(key).await? {
                 store.get_asset_info(key).await
             } else {
-                self.get_recipe_provider().get_asset_info(key).await
+                self.get_recipe_provider().get_asset_info(key, self.get_envref()).await
             }
         }
     }
@@ -1514,7 +1512,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
-        self.get_recipe_provider().recipe_opt(key).await
+        self.get_recipe_provider().recipe_opt(key, self.get_envref()).await
     }
 
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
@@ -1541,7 +1539,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if store.contains(key).await? {
             return Ok(true);
         }
-        self.get_recipe_provider().contains(key).await
+        self.get_recipe_provider().contains(key, self.get_envref()).await
     }
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {
@@ -1552,7 +1550,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let store = self.get_envref().get_async_store();
         let mut names = self
             .get_recipe_provider()
-            .assets_with_recipes(key)
+            .assets_with_recipes(key, self.get_envref())
             .await?
             .into_iter()
             .map(|resourcename| resourcename.name)
@@ -1592,7 +1590,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if store.is_dir(&subkey).await? {
                 let recipes = self
                     .get_recipe_provider()
-                    .assets_with_recipes(&subkey)
+                    .assets_with_recipes(&subkey, self.get_envref())
                     .await?;
                 for resourcename in recipes {
                     keys.insert(subkey.join(resourcename.name));

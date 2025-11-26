@@ -14,7 +14,7 @@ pub struct DefaultEnvironment<V: ValueInterface> {
     async_store: Arc<Box<dyn AsyncStore>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider>>>,
+    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
 }
 
 impl<V: ValueInterface> Default for DefaultEnvironment<V> {
@@ -40,6 +40,31 @@ impl<V: ValueInterface> DefaultEnvironment<V> {
     }
     pub fn with_async_store(&mut self, store: Box<dyn AsyncStore>) -> &mut Self {
         self.async_store = Arc::new(store);
+        self
+    }
+
+    pub fn with_recipe_provider(
+        &mut self,
+        provider: Arc<Box<dyn AsyncRecipeProvider<Self>>>,
+    ) -> &mut Self {
+        self.recipe_provider = Some(provider);
+        self
+    }
+
+    pub fn with_default_recipe_provider(
+        &mut self
+    ) -> &mut Self {
+        
+        let provider: Arc<Box<dyn AsyncRecipeProvider<Self>>> = Arc::new(Box::new(liquers_core::recipes::DefaultRecipeProvider));
+        self.recipe_provider = Some(provider);
+        self
+    }
+    pub fn with_trivial_recipe_provider(
+        &mut self
+    ) -> &mut Self {
+        
+        let provider: Arc<Box<dyn AsyncRecipeProvider<Self>>> = Arc::new(Box::new(liquers_core::recipes::TrivialRecipeProvider));
+        self.recipe_provider = Some(provider);
         self
     }
 }
@@ -91,7 +116,7 @@ impl<V: ValueInterface> Environment for DefaultEnvironment<V> {
         .boxed()
     }
     
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }

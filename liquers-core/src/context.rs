@@ -55,7 +55,7 @@ pub trait Environment: Sized + Sync + Send + 'static {
 
     fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>>;
 
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>>;
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>>;
 
     fn create_session(&self, user: User) -> Self::SessionType;
 
@@ -100,7 +100,7 @@ impl<E: Environment> EnvRef<E> {
         self.0.get_asset_manager()
     }
 
-    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<E>>> {
         self.0.get_recipe_provider()
     }
 
@@ -323,7 +323,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider>>>,
+    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
 }
 
 impl<V: ValueInterface> Default for SimpleEnvironment<V> {
@@ -406,7 +406,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         .boxed()
     }
     
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
@@ -429,7 +429,7 @@ pub struct SimpleEnvironmentWithPayload<V: ValueInterface,P: Clone +  Send + Syn
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider>>>,
+    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
     _payload: std::marker::PhantomData<P>,
 }
 
@@ -514,7 +514,7 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Environment for Simple
         .boxed()
     }
     
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider>> {
+    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }

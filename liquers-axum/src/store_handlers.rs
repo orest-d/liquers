@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 use liquers_core::{
-    assets::AssetManager, context::Environment, metadata::Metadata, parse::parse_key, recipes::DefaultRecipeProvider
+    assets::AssetManager, metadata::Metadata, parse::parse_key
 };
 use serde::{Deserialize, Serialize};
 

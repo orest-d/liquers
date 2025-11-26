@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, marker::PhantomData};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -266,25 +266,25 @@ impl From<&Key> for Recipe {
 }
 
 #[async_trait]
-pub trait AsyncRecipeProvider: Send + Sync {
+pub trait AsyncRecipeProvider<E:Environment>: Send + Sync {
     /// Returns true if folder represented by key has recipes
-    async fn has_recipes(&self, key: &Key) -> Result<bool, Error>;
+    async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error>;
     /// Returns a list of assets that have recipes in the folder represented by key
-    async fn assets_with_recipes(&self, key: &Key) -> Result<Vec<ResourceName>, Error>;
+    async fn assets_with_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<Vec<ResourceName>, Error>;
     /// Returns the plan for the asset represented by key
-    async fn recipe_plan(&self, key: &Key) -> Result<Plan, Error>;
+    async fn recipe_plan(&self, key: &Key, envref: EnvRef<E>) -> Result<Plan, Error>;
     /// Returns the recipe for the asset represented by key
     /// Errors if no recipe is found
-    async fn recipe(&self, key: &Key) -> Result<Recipe, Error>;
+    async fn recipe(&self, key: &Key, envref: EnvRef<E>) -> Result<Recipe, Error>;
     /// Returns a recipe if available, None otherwise
     /// Error can still occur e.g. for an IO error.
-    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error>;
+    async fn recipe_opt(&self, key: &Key, envref: EnvRef<E>) -> Result<Option<Recipe>, Error>;
     /// Returns true if the asset represented by key has a recipe
-    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+    async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
         if let Some(name) = key.filename() {
             let parent_key = key.parent();
-            if self.has_recipes(&parent_key).await? {
-                let recipes = self.assets_with_recipes(&parent_key).await?;
+            if self.has_recipes(&parent_key, envref.clone()).await? {
+                let recipes = self.assets_with_recipes(&parent_key, envref.clone()).await?;
                 return Ok(recipes.iter().any(|resourcename| resourcename == name));
             } else {
                 return Ok(false);
@@ -295,8 +295,8 @@ pub trait AsyncRecipeProvider: Send + Sync {
     }
     /// Returns asset info for the asset represented by key
     /// This is a true asset info only if the asset is not available.
-    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
-        let recipe = self.recipe(key).await?;
+    async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
+        let recipe = self.recipe(key, envref).await?;
         let mut asset_info = recipe.get_asset_info()?;
         asset_info.key = Some(key.clone());
         Ok(asset_info)
@@ -306,43 +306,37 @@ pub trait AsyncRecipeProvider: Send + Sync {
 pub struct TrivialRecipeProvider;
 
 #[async_trait]
-impl AsyncRecipeProvider for TrivialRecipeProvider {
-    async fn assets_with_recipes(&self, _key: &Key) -> Result<Vec<ResourceName>, Error> {
+impl<E:Environment> AsyncRecipeProvider<E> for TrivialRecipeProvider {
+    async fn assets_with_recipes(&self, _key: &Key, _envref:EnvRef<E>) -> Result<Vec<ResourceName>, Error> {
         Ok(Vec::new())
     }
 
-    async fn recipe_plan(&self, key: &Key) -> Result<Plan, Error> {
+    async fn recipe_plan(&self, key: &Key, _envref:EnvRef<E>) -> Result<Plan, Error> {
         return Err(
             Error::general_error(format!("No recipe plans defined by the trivial recipe provider; key '{}'", key)).with_key(key),
         );
     }
 
-    async fn recipe(&self, key: &Key) -> Result<Recipe, Error> {
+    async fn recipe(&self, key: &Key, _envref:EnvRef<E>) -> Result<Recipe, Error> {
         return Err(
             Error::general_error(format!("No recipes defined by the trivial recipe provider; key '{}'", key)).with_key(key),
         );
     }
 
-    async fn recipe_opt(&self, _key: &Key) -> Result<Option<Recipe>, Error> {
+    async fn recipe_opt(&self, _key: &Key, _envref:EnvRef<E>) -> Result<Option<Recipe>, Error> {
         Ok(None)
     }
 
-    async fn has_recipes(&self, _key: &Key) -> Result<bool, Error> {
+    async fn has_recipes(&self, _key: &Key, _envref:EnvRef<E>) -> Result<bool, Error> {
         Ok(false)
     }
 }
 
-pub struct DefaultRecipeProvider<E: Environment> {
-    envref: EnvRef<E>,
-}
+pub struct DefaultRecipeProvider;
 
-impl<E: Environment> DefaultRecipeProvider<E> {
-    pub fn new(envref: EnvRef<E>) -> Self {
-        DefaultRecipeProvider { envref }
-    }
-    pub async fn get_recipes(&self, key: &Key) -> Result<RecipeList, Error> {
-        let mut recipes: RecipeList = self
-            .envref
+impl DefaultRecipeProvider {
+    pub async fn get_recipes<E:Environment>(&self, key: &Key, envref:EnvRef<E>) -> Result<RecipeList, Error> {
+        let mut recipes: RecipeList = envref
             .get_async_store()
             .get_bytes(&key.join("recipes.yaml"))
             .await
@@ -362,10 +356,10 @@ impl<E: Environment> DefaultRecipeProvider<E> {
 }
 
 #[async_trait]
-impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
-    async fn assets_with_recipes(&self, key: &Key) -> Result<Vec<ResourceName>, Error> {
-        if self.has_recipes(key).await? {
-            let recipes = self.get_recipes(key).await?;
+impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
+    async fn assets_with_recipes(&self, key: &Key, envref:EnvRef<E>) -> Result<Vec<ResourceName>, Error> {
+        if self.has_recipes(key, envref.clone()).await? {
+            let recipes = self.get_recipes(key, envref.clone()).await?;
             let mut assets = Vec::new();
             for recipe in recipes.recipes {
                 if let Ok(Some(filename)) = recipe.filename() {
@@ -381,14 +375,14 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
     // TODO: Not used at the moment - consider removing
     /// Convenience method to get a plan for a recipe
     /// It fetches the recipe (if available) and uses [Recipe::to_plan] to convert it to a plan.
-    async fn recipe_plan(&self, key: &Key) -> Result<Plan, Error> {
+    async fn recipe_plan(&self, key: &Key, envref:EnvRef<E>) -> Result<Plan, Error> {
         if let Some(filename) = key.filename() {
-            let recipes = self.get_recipes(&key.parent()).await?;
+            let recipes = self.get_recipes(&key.parent(), envref.clone()).await?;
             let recipe = recipes.get(&filename.name).ok_or(
                 Error::general_error(format!("No recipe found for key {}", key)).with_key(key),
             )?;
             recipe
-                .to_plan(self.envref.get_command_metadata_registry())
+                .to_plan(envref.get_command_metadata_registry())
                 .map_err(|e| e.with_key(key))
         } else {
             return Err(
@@ -397,9 +391,9 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
         }
     }
 
-    async fn recipe(&self, key: &Key) -> Result<Recipe, Error> {
+    async fn recipe(&self, key: &Key, envref:EnvRef<E>) -> Result<Recipe, Error> {
         if let Some(filename) = key.filename() {
-            let recipes = self.get_recipes(&key.parent()).await?;
+            let recipes = self.get_recipes(&key.parent(), envref).await?;
             recipes.get(&filename.name).map_or(
                 Err(Error::general_error(format!("No recipe found for key {}", key)).with_key(key)),
                 |recipe| Ok(recipe.clone()),
@@ -411,19 +405,19 @@ impl<E: Environment> AsyncRecipeProvider for DefaultRecipeProvider<E> {
         }
     }
 
-    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
+    async fn recipe_opt(&self, key: &Key, envref:EnvRef<E>) -> Result<Option<Recipe>, Error> {
         if let Some(filename) = key.filename() {
             let parent_key = key.parent();
-            if self.has_recipes(&parent_key).await? {
-                let recipes = self.get_recipes(&parent_key).await?;
+            if self.has_recipes(&parent_key, envref.clone()).await? {
+                let recipes = self.get_recipes(&parent_key, envref).await?;
                 return Ok(recipes.get(&filename.name).cloned());
             }
         }
         Ok(None)
     }
 
-    async fn has_recipes(&self, key: &Key) -> Result<bool, Error> {
-        self.envref
+    async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
+        envref
             .get_async_store()
             .contains(&key.join("recipes.yaml"))
             .await
