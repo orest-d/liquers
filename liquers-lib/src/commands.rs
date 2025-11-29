@@ -37,3 +37,9 @@ pub fn register_commands(mut env:DefaultEnvironment<Value>) -> Result<DefaultEnv
     
     Ok(env)
 }
+
+pub fn register_all_commands(mut env:DefaultEnvironment<Value>) -> Result<DefaultEnvironment<Value>, Error> {
+    env = register_commands(env)?;
+    env = crate::egui::commands::register_commands(env)?;
+    Ok(env)
+}

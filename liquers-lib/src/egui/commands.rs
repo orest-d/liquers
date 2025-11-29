@@ -6,8 +6,12 @@ use liquers_core::{
     state::State,
     value::ValueInterface,
 };
+use liquers_macro::register_command;
 
-use crate::egui::{UIValueExtension, widgets::display_asset_info};
+use crate::{
+    egui::{widgets::display_asset_info, UIValueExtension},
+    environment::CommandRegistryAccess,
+};
 
 pub fn label<E: Environment>(
     _state: &State<E::Value>,
@@ -40,18 +44,40 @@ where
     ))))
 }
 
-pub fn show_asset_info<E: Environment>(state: &State<E::Value>) -> Result<E::Value, Error> 
+pub fn show_asset_info<E: Environment>(state: &State<E::Value>, context:Context<E>) -> Result<E::Value, Error>
 where
     E::Value: UIValueExtension,
 {
-    println!(
-        "asset_info command called, state type: {}",
-        state.data.type_name()
-    );
+    context.info("Showing asset info in GUI")?;
     let asset_info = state.metadata.get_asset_info()?;
-    println!("\nAsset Info: {:?}\n", asset_info);
+    context.info(&format!("\nAsset Info: {:?}\n", asset_info))?;
     Ok(E::Value::from_ui(move |ui| {
         display_asset_info(ui, &asset_info);
         Ok(())
     }))
+}
+
+pub fn register_commands(
+    mut env: crate::environment::DefaultEnvironment<crate::value::Value>,
+) -> Result<crate::environment::DefaultEnvironment<crate::value::Value>, Error> {
+    let cr = env.get_mut_command_registry();
+
+    type CommandEnvironment = crate::environment::DefaultEnvironment<crate::value::Value>;
+    register_command!(cr,
+        fn label(state, text:String, context) -> result
+        label: "Show label"
+        doc: "Show text as a GUI label"
+    )?;
+    register_command!(cr,
+        fn text_editor(state, context) -> result
+        label: "Text editor"
+        doc: "Show a text editor widget for editing text identified by a key; state must contain a key"
+    )?;
+    register_command!(cr,
+        fn show_asset_info(state, context) -> result
+        label: "Show asset info"
+        doc: "Show information about an asset sourced from the state metadata"
+    )?;
+
+    Ok(env)
 }
