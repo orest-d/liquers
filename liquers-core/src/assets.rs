@@ -49,7 +49,6 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 use crate::context::Context;
 use crate::interpreter::IsVolatile;
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
-use crate::value::ValueInterface;
 use crate::{
     context::{EnvRef, Environment},
     error::Error,
@@ -1199,11 +1198,20 @@ impl<E: Environment> AssetRef<E> {
                     Error::general_error(format!("Failed to send JobFinished message: {}", e))
                 })?;
         } else {
-            lock.set_status(status);
-            eprintln!(
-                "WARNING: Asset {} set_state called with non-ready state, status set to {:?}",
-                lock.id, lock.status
-            );
+            let res = lock.set_status(status);
+            if res.is_err() {
+                eprintln!(
+                    "WARNING: Asset {} set_state failed to set status: {}",
+                    lock.id,
+                    res.err().unwrap()
+                );
+            }
+            else{
+                eprintln!(
+                    "WARNING: Asset {} set_state called with non-ready state, status set to {:?}",
+                    lock.id, lock.status
+                );
+            }
         }
         Ok(())
     }

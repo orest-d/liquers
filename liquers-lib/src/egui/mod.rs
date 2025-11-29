@@ -6,6 +6,7 @@ use liquers_core::error::Error;
 use crate::{egui::widgets::display_error, value::Value};
 
 pub mod widgets;
+pub mod commands;
 
 type UiClosure = Box<dyn FnMut(&mut egui::Ui) -> Result<(), Error> + Send>;
 #[derive(Clone)]
@@ -41,9 +42,25 @@ impl std::fmt::Debug for UiCommand {
 
 pub trait UIValueExtension{
     fn show(&self, ui: &mut egui::Ui);
+    fn from_ui<F>(f: F) -> Self
+    where
+        F: FnMut(&mut egui::Ui) -> Result<(), Error> + Send + 'static;
+
+    fn from_widget(widget: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>) -> Self;
 }
 
 impl UIValueExtension for Value {
+    fn from_ui<F>(f: F) -> Self
+    where
+        F: FnMut(&mut egui::Ui) -> Result<(), Error> + Send + 'static,
+    {
+        Value::UiCommand {
+            value: crate::egui::UiCommand::new(f),
+        }
+    }
+    fn from_widget(widget: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>) -> Self {
+        Value::Widget { value: widget }
+    }
     fn show(&self, ui: &mut egui::Ui) {
         match self {
             Value::UiCommand { value } => {

@@ -1,5 +1,5 @@
 use liquers_core::{
-    command_metadata::CommandKey, context::{Context, Environment, SimpleEnvironment}, error::Error, interpreter::evaluate, state::State, value::Value
+    context::{Context, Environment, SimpleEnvironment}, error::Error, interpreter::evaluate, state::State, value::Value
 };
 use liquers_macro::*;
 

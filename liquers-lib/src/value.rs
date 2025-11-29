@@ -86,17 +86,6 @@ impl Value {
     pub fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
         Value::Image { value: image }
     }
-    pub fn from_ui<F>(f: F) -> Self
-    where
-        F: FnMut(&mut egui::Ui) -> Result<(), Error> + Send + 'static,
-    {
-        Value::UiCommand {
-            value: crate::egui::UiCommand::new(f),
-        }
-    }
-    pub fn from_widget(widget: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>) -> Self {
-        Value::Widget { value: widget }
-    }
 }
 
 
@@ -371,6 +360,14 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "f64")),
         }
     }
+    fn try_into_key(&self) -> Result<liquers_core::query::Key, Error> {
+        match self {
+            Value::Text { value } => Ok(liquers_core::parse::parse_key(value)?),
+            Value::Query{ value: q } => q.key().ok_or(Error::conversion_error(self.identifier(), "key")),
+            Value::Key{ value: k } => Ok(k.clone()),
+            _ => Err(Error::conversion_error(self.identifier(), "key")),
+        }
+    }
 
     fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
         Value::Metadata { value: metadata }
@@ -393,6 +390,7 @@ impl ValueInterface for Value {
     fn from_key(key: &liquers_core::query::Key) -> Self {
         Value::Key { value: key.clone() }
     }
+    
 }
 
 impl TryFrom<&Value> for i32 {

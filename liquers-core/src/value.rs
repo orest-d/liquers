@@ -158,6 +158,9 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
 
     /// Try into boolean
     fn try_into_bool(&self) -> Result<bool, Error>;
+
+    /// Try into key
+    fn try_into_key(&self) -> Result<crate::query::Key, Error>;
     
     /// String identifier of the state type
     /// Several types can be linked to the same identifier.
@@ -479,6 +482,14 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "f64")),
         }
     }
+    fn try_into_key(&self) -> Result<crate::query::Key, Error> {
+        match self {
+            Value::Text(s) => Ok(crate::parse::parse_key(s)?),
+            Value::Query(q) => q.key().ok_or(Error::conversion_error(self.identifier(), "key")),
+            Value::Key(k) => Ok(k.clone()),
+            _ => Err(Error::conversion_error(self.identifier(), "key")),
+        }
+    }
     
     fn from_metadata(metadata: MetadataRecord) -> Self {
         Value::Metadata(metadata)
@@ -498,8 +509,7 @@ impl ValueInterface for Value {
     
     fn from_key(key: &crate::query::Key) -> Self {
         Value::Key(key.clone())
-    }
-    
+    }    
 
 }
 

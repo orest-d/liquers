@@ -286,7 +286,7 @@ impl<E: Environment> Context<E> {
         self.assetref.set_state(state).await
     }
 
-    pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
+    pub async fn set_error(&self, error: Error) -> Result<(), Error> {
         self.assetref.set_error(error).await
     }
 }
