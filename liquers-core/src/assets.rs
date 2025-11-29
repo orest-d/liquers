@@ -347,6 +347,7 @@ impl<E: Environment> AssetData<E> {
         eprintln!("Trying fast track for asset {}", self.id());
         if !self.is_resource()? {
             // TODO: support for quick plans
+            eprintln!("Asset {} is not a resource, cannot fast track", self.id());
             return Ok(false); // If asset is not a resource, it can't be just loaded
         }
 
@@ -408,6 +409,9 @@ impl<E: Environment> AssetData<E> {
                     return Err(Error::general_error(format!("Inconsistent status of asset {}: Asset is stored, having binary size {}, but it has status: {:?}",
                     self.id(), binary.len(), self.status)).with_key(&key));
                 }
+            }
+            else {
+                eprintln!("Asset {} does not exist in the store", self.id());
             }
         }
         Ok(false)

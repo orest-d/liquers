@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::RichText;
 use liquers_core::error::Error;
 
-use crate::{egui::widgets::display_error, value::Value};
+use crate::{egui::widgets::{display_asset_info, display_error, display_styled_query}, value::Value};
 
 pub mod widgets;
 pub mod commands;
@@ -98,11 +98,19 @@ impl UIValueExtension for Value {
                 ui.label(RichText::new(format!("Bytes: {} bytes", value.len())).italics());
             }
             Value::Metadata { value } => todo!(),
-            Value::AssetInfo { value } => todo!(),
+            Value::AssetInfo { value } => {
+                display_asset_info(ui, value);
+            }
             Value::Recipe { value } => todo!(),
             Value::CommandMetadata { value } => todo!(),
-            Value::Query { value } => todo!(),
-            Value::Key { value } => todo!(),
+            Value::Query { value } => {
+                ui.label("Query:");
+                display_styled_query(ui, value.clone());
+            },
+            Value::Key { value } => {
+                ui.label("Key:");
+                display_styled_query(ui, value.clone());
+            },
             Value::Image { value } => todo!(),
             Value::PolarsDataFrame { value } => todo!(),
         }
