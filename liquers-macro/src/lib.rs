@@ -12,6 +12,39 @@ enum DefaultValue {
     Query(String),
 }
 
+impl Parse for DefaultValue {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(syn::LitStr) {
+            let lit: syn::LitStr = input.parse()?;
+            Ok(DefaultValue::Str(lit.value()))
+        } else if input.peek(syn::LitBool) {
+            let lit: syn::LitBool = input.parse()?;
+            Ok(DefaultValue::Bool(lit.value))
+        } else if input.peek(syn::LitInt) {
+            let lit: syn::LitInt = input.parse()?;
+            let val = lit.base10_parse::<i64>()?;
+            Ok(DefaultValue::Int(val))
+        } else if input.peek(syn::LitFloat) {
+            let lit: syn::LitFloat = input.parse()?;
+            let val = lit.base10_parse::<f64>()?;
+            Ok(DefaultValue::Float(val))
+        } else if input.peek(syn::Ident) {
+            let ident: syn::Ident = input.parse()?;
+            match ident.to_string().as_str() {
+                "query" => {
+                    let lit: syn::LitStr = input.parse()?; // TODO: Validate query
+                    Ok(DefaultValue::Query(lit.value()))
+                }
+                id @ _ => Err(input.error(format!(
+                    "Unsupported default value type starting with literal {id}"
+                ))),
+            }
+        } else {
+            Err(input.error("Unsupported default value type"))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct CommandPreset {
     action: String,
@@ -252,7 +285,7 @@ impl CommandParameter {
                 ..
             } => quote! {
                 liquers_core::command_metadata::CommandParameterValue::Query(
-                    #value.to_string()
+                    liquers_core::query::TryToQuery::try_to_query(#value)?
                 )
             },
             _ => {
@@ -1023,8 +1056,13 @@ impl Parse for CommandSignature {
         let state_parameter = StateParameter::parse(&content)?;
 
         let mut parameters = Vec::new();
-        while content.peek(syn::Token![,]) {
-            content.parse::<syn::Token![,]>()?;
+        while (parameters.is_empty() && state_parameter == StateParameter::None) || content.peek(syn::Token![,]) {
+            if (!parameters.is_empty()) || state_parameter != StateParameter::None{
+                content.parse::<syn::Token![,]>()?;
+            }
+            if content.is_empty() {
+                break;
+            }
             parameters.push(content.parse()?);
         }
         input.parse::<syn::Token![->]>()?;
@@ -1105,39 +1143,6 @@ impl Parse for StateParameter {
             }
         } else {
             Ok(StateParameter::None)
-        }
-    }
-}
-
-impl Parse for DefaultValue {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        if input.peek(syn::LitStr) {
-            let lit: syn::LitStr = input.parse()?;
-            Ok(DefaultValue::Str(lit.value()))
-        } else if input.peek(syn::LitBool) {
-            let lit: syn::LitBool = input.parse()?;
-            Ok(DefaultValue::Bool(lit.value))
-        } else if input.peek(syn::LitInt) {
-            let lit: syn::LitInt = input.parse()?;
-            let val = lit.base10_parse::<i64>()?;
-            Ok(DefaultValue::Int(val))
-        } else if input.peek(syn::LitFloat) {
-            let lit: syn::LitFloat = input.parse()?;
-            let val = lit.base10_parse::<f64>()?;
-            Ok(DefaultValue::Float(val))
-        } else if input.peek(syn::Ident) {
-            let ident: syn::Ident = input.parse()?;
-            match ident.to_string().as_str() {
-                "query" => {
-                    let lit: syn::LitStr = input.parse()?; // TODO: Validate query
-                    Ok(DefaultValue::Query(lit.value()))
-                }
-                id @ _ => Err(input.error(format!(
-                    "Unsupported default value type starting with literal {id}"
-                ))),
-            }
-        } else {
-            Err(input.error("Unsupported default value type"))
         }
     }
 }
@@ -1410,6 +1415,7 @@ mod tests {
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
+
     #[test]
     fn test_parse_preset_command_signature_statement() {
         let stmt: CommandSignatureStatement = syn::parse_quote! {
@@ -1532,6 +1538,57 @@ mod tests {
         assert!(info_string.contains("\"abc/def\""));
         assert!(info_string.contains(
             "argument_type : liquers_core :: command_metadata :: ArgumentType :: String"
+        ));
+    }
+
+    #[test]
+    fn test_command_signature_with_default_query_value_any() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: Value = query "abc/def") -> result
+        };
+
+        // Find the parameter 'a'
+        let param = sig.parameters.iter().find_map(|p| {
+            if let CommandParameter::Param {
+                name,
+                default_value,
+                ..
+            } = p
+            {
+                if name == "a" {
+                    return Some(default_value);
+                }
+            }
+            None
+        });
+
+        assert_eq!(
+            param,
+            Some(&Some(DefaultValue::Query("abc/def".to_string())))
+        );
+
+        let param = sig
+            .parameters
+            .iter()
+            .find(|p| {
+                if let CommandParameter::Param { name, .. } = p {
+                    name == "a"
+                } else {
+                    false
+                }
+            })
+            .unwrap();
+
+        let info_tokens = param.argument_info_expression().unwrap();
+        let info_string = info_tokens.to_string();
+
+        assert!(info_string.contains("name : \"a\""));
+        assert!(info_string.contains(
+            "default : liquers_core :: command_metadata :: CommandParameterValue :: Query"
+        ));
+        assert!(info_string.contains("\"abc/def\""));
+        assert!(info_string.contains(
+            "argument_type : liquers_core :: command_metadata :: ArgumentType :: Any"
         ));
     }
 
@@ -1721,6 +1778,50 @@ mod tests {
         assert!(tokens_str.contains("cm . with_doc (\"This is a test function\") ;"));
         assert!(tokens_str.contains("cm . next = vec ! ["));
         assert!(tokens_str.contains("liquers_core :: command_metadata :: CommandPreset :: new (\"nextaction1\" , \"nextaction1\" , \"\")"));
+    }
+
+    #[test]
+    fn test_nostate_command_registration1() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn nostate() -> result
+        };
+
+        let tokens = sig.command_registration();
+
+        let tokens_str = tokens.to_string();
+        //println!("{}",tokens_str)
+    }
+
+        #[test]
+    fn test_nostate_command_registration2() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn nostate(context) -> result
+        };
+
+        let tokens = sig.command_registration();
+
+        let tokens_str = tokens.to_string();
+        println!("{}",tokens_str)
+
+    }
+
+    
+    #[test]
+    fn test_config_command_registration() {
+        let sig: CommandSignature = syn::parse_quote! {
+            async fn config(
+                default: Value = query "-R/config/config.yaml/-/from_yaml",
+                context
+            ) -> result
+            label:    "Config"
+            doc:      "Returns the default configuration parameters."
+        };
+
+        let tokens = sig.command_registration();
+
+        let tokens_str = tokens.to_string();
+        println!("{}",tokens_str)
+
     }
 
     #[test]
