@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use liquers_core::{context::{Context, Environment}, error::Error, state::State, value::ValueInterface};
 use liquers_macro::register_command;
 
-use crate::{environment::{CommandRegistryAccess, DefaultEnvironment}, value::Value};
+use crate::{environment::{CommandRegistryAccess, DefaultEnvironment}, value::{Value, simple::SimpleValue}};
 
 /// Generic command trying to convert any value to text representation.
 pub fn to_text<E:Environment>(state: &State<E::Value>, _context:Context<E>) -> Result<E::Value, Error> {
@@ -18,6 +20,28 @@ pub fn to_metadata<E:Environment>(state: &State<E::Value>, _context:Context<E>) 
     }
 } 
 
+pub fn from_yaml<E:Environment<Value = Value>>(state: &State<E::Value>, context:Context<E>) -> Result<E::Value, Error>
+{
+    let x = &*(state.data);
+    match x {
+        Value::Base(SimpleValue::Text { value }) => {
+            context.info("Parsing yaml string");
+            let v: SimpleValue = serde_yaml::from_str(&value)
+                .map_err(|e| Error::general_error(format!("Error parsing yaml string: {e}")))?;
+            Ok(Value::new_base(v))
+        }
+        Value::Base(SimpleValue::Bytes{value: b}) => {
+            context.info("Parsing yaml bytes");
+            let v: SimpleValue = serde_yaml::from_slice(b)
+                .map_err(|e| Error::general_error(format!("Error parsing yaml bytes: {e}")))?;
+            Ok(Value::new_base(v))
+        }
+        _ => {
+            context.info("Keeping original value unchanged");
+            Ok(x.clone())
+        }
+    }
+}
 
 pub fn register_commands(mut env:DefaultEnvironment<Value>) -> Result<DefaultEnvironment<Value>, Error> {
     let cr = env.get_mut_command_registry();

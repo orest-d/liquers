@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::RichText;
 use liquers_core::error::Error;
 
-use crate::{egui::widgets::{display_asset_info, display_error, display_styled_query}, value::Value};
+use crate::{egui::widgets::{display_asset_info, display_error, display_styled_query}, value::{ExtValue, Value, simple::SimpleValue}};
 
 pub mod widgets;
 pub mod commands;
@@ -54,65 +54,65 @@ impl UIValueExtension for Value {
     where
         F: FnMut(&mut egui::Ui) -> Result<(), Error> + Send + 'static,
     {
-        Value::UiCommand {
+        Self::new_extended(ExtValue::UiCommand {
             value: crate::egui::UiCommand::new(f),
-        }
+        })
     }
     fn from_widget(widget: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>) -> Self {
-        Value::Widget { value: widget }
+        Self::new_extended(ExtValue::Widget { value: widget })
     }
     fn show(&self, ui: &mut egui::Ui) {
         match self {
-            Value::UiCommand { value } => {
+            Self::Extended(ExtValue::UiCommand { value }) => {
                 value.execute(ui);
             }
-            Value::Widget { value } => {
+            Self::Extended(ExtValue::Widget { value }) => {
                 let mut widget = value.lock().expect("Failed to lock widget mutex");
                 widget.show(ui);
             }
-            Value::None {} => {
+            Self::Extended(ExtValue::Image { value }) => todo!(),
+            Self::Extended(ExtValue::PolarsDataFrame { value }) => todo!(),
+            Self::Base(SimpleValue::None {}) => {
                 ui.label(RichText::new("None").italics());
             }
-            Value::Bool { value } => {
+            Self::Base(SimpleValue::Bool { value }) => {
                 ui.label(RichText::new(format!("Bool: {}", value)).italics());
             }
-            Value::I32 { value } => {
+            Self::Base(SimpleValue::I32 { value }) => {
                 ui.label(RichText::new(format!("I32: {}", value)).italics());
             }
-            Value::I64 { value } => {
+            Self::Base(SimpleValue::I64 { value }) => {
                 ui.label(RichText::new(format!("I64: {}", value)).italics());
             }
-            Value::F64 { value } => {
+            Self::Base(SimpleValue::F64 { value }) => {
                 ui.label(RichText::new(format!("F64: {}", value)).italics());
             }
-            Value::Text { value } => {
+            Self::Base(SimpleValue::Text { value }) => {
                 ui.label(value);
             }
-            Value::Array { value } => {
+            Self::Base(SimpleValue::Array { value }) => {
                 ui.label(RichText::new("Array").italics());
             }
-            Value::Object { value } => {
+            Self::Base(SimpleValue::Object { value }) => {
                 ui.label(RichText::new("Object").italics());
             }
-            Value::Bytes { value } => {
+            Self::Base(SimpleValue::Bytes { value }) => {
                 ui.label(RichText::new(format!("Bytes: {} bytes", value.len())).italics());
             }
-            Value::Metadata { value } => todo!(),
-            Value::AssetInfo { value } => {
+            Self::Base(SimpleValue::Metadata { value }) => todo!(),
+            Self::Base(SimpleValue::AssetInfo { value }) => {
                 display_asset_info(ui, value);
             }
-            Value::Recipe { value } => todo!(),
-            Value::CommandMetadata { value } => todo!(),
-            Value::Query { value } => {
+            Self::Base(SimpleValue::Recipe { value }) => todo!(),
+            Self::Base(SimpleValue::CommandMetadata { value }) => todo!(),
+            Self::Base(SimpleValue::Query { value }) => {
                 ui.label("Query:");
                 display_styled_query(ui, value.clone());
             },
-            Value::Key { value } => {
+            Self::Base(SimpleValue::Key { value }) => {
                 ui.label("Key:");
                 display_styled_query(ui, value.clone());
             },
-            Value::Image { value } => todo!(),
-            Value::PolarsDataFrame { value } => todo!(),
         }
     }
 }

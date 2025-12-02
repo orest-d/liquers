@@ -14,7 +14,6 @@ use crate::{
 };
 
 pub fn label<E: Environment>(
-    _state: &State<E::Value>,
     text: String,
     _context: Context<E>,
 ) -> Result<E::Value, Error>
@@ -64,7 +63,7 @@ pub fn register_commands(
 
     type CommandEnvironment = crate::environment::DefaultEnvironment<crate::value::Value>;
     register_command!(cr,
-        fn label(state, text:String, context) -> result
+        fn label(txt : String, context) -> result
         label: "Show label"
         doc: "Show text as a GUI label"
     )?;
