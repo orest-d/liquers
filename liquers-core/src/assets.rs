@@ -1457,7 +1457,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
-        if self.assets.contains(key) {
+        if self.assets.contains_async(key).await {
             let assetref = self.get(key).await?;
             assetref.get_asset_info().await
         } else {
