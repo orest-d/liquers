@@ -826,6 +826,11 @@ impl<'c> PlanBuilder<'c> {
                             .steps
                             .push(Step::GetAssetMetadata(rqs.key.clone()));
                     }
+                    "r" | "recipe" => {
+                        self.plan
+                            .steps
+                            .push(Step::GetAssetRecipe(rqs.key.clone()));
+                    }
                     "data" | "value" => {
                         self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
                     }
