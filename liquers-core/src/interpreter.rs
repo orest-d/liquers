@@ -8,7 +8,7 @@ use crate::{
     commands::{CommandArguments, CommandExecutor},
     context::{Context, EnvRef, Environment},
     error::Error,
-    metadata::{LogEntry, Metadata, Status},
+    metadata::{LogEntry, Metadata},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
     query::{Key, Query, TryToQuery},
@@ -28,36 +28,7 @@ pub fn make_plan<E: Environment, Q: TryToQuery>(
 }
 
 // TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
-
 pub fn apply_plan<E: Environment>(
-    plan: Plan,
-    envref: EnvRef<E>,
-    context: Context<E>,
-    input_state: State<<E as Environment>::Value>,
-) -> std::pin::Pin<
-    Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
->
-//impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
-{
-    async move {
-        let mut state = input_state;
-        for i in 0..plan.len() {
-            let step = plan[i].clone();
-            let ctx = context.clone_context().await;
-            let envref1 = envref.clone();
-            let output_state = async move { do_step(envref1, step, state, ctx).await }.await?;
-            state = output_state.with_metadata(context.get_metadata().await?.into());
-        }
-        if state.status().is_none() {
-            // TODO: This is a hack, should be done via context and asset
-            state.set_status(Status::Ready)?; // TODO: status should be changed via the context and asset
-        }
-        Ok(state)
-    }
-    .boxed()
-}
-
-pub fn apply_plan_new<E: Environment>(
     plan: Plan,
     input_state: State<E::Value>,
     context: Context<E>,
@@ -71,7 +42,7 @@ pub fn apply_plan_new<E: Environment>(
             let step = plan[i].clone();
             let envref1 = envref.clone();
             let context1 = context.clone();
-            let res = async move { do_step_new(step, state, context1, envref1).await }.await?;
+            let res = async move { do_step(step, state, context1, envref1).await }.await?;
             state = State::new().with_data((*res).clone()).with_metadata(context.get_metadata().await?.into());
         }
         Ok(state.data.clone())
@@ -82,145 +53,6 @@ pub fn apply_plan_new<E: Environment>(
 
 
 pub fn do_step<E: Environment>(
-    envref: EnvRef<E>,
-    step: Step,
-    input_state: State<<E as Environment>::Value>,
-    context: Context<E>,
-) -> std::pin::Pin<
-    Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
->
-//BoxFuture<'static, Result<State<<E as NGEnvironment>::Value>, Error>>
-{
-    match step {
-        Step::GetResource(key) => async move {
-            let store = envref.get_async_store();
-            let (data, metadata) = store.get(&key).await?;
-            let value = <<E as Environment>::Value as ValueInterface>::from_bytes(data);
-            Ok(State::new().with_data(value).with_metadata(metadata))
-        }
-        .boxed(),
-        Step::GetResourceMetadata(key) => async move {
-            let store = envref.get_async_store();
-            let metadata_value = store.get_metadata(&key).await?;
-            if let Some(metadata_value) = metadata_value.metadata_record() {
-                let value =
-                    <<E as Environment>::Value as ValueInterface>::from_metadata(metadata_value);
-                Ok(State::new().with_data(value))
-            } else {
-                Err(Error::general_error(format!(
-                    "Resource metadata is in legacy format: {}",
-                    key
-                )))
-            }
-        }
-        .boxed(),
-        Step::Evaluate(q) => {
-            let query = q.clone();
-            async move {
-                let context = Context::new(AssetRef::new_from_recipe(
-                    0,
-                    (&query).into(),
-                    envref.clone(),
-                ))
-                .await; // TODO: Fix assetref
-                let plan = make_plan(envref.clone(), query)?;
-                let input_state = State::<<E as Environment>::Value>::new();
-                apply_plan(plan, envref.clone(), context, input_state).await
-            }
-            .boxed()
-        }
-        Step::Action {
-            ref realm,
-            ref ns,
-            ref action_name,
-            position,
-            parameters,
-        } => {
-            let commannd_key = CommandKey::new(realm, ns, action_name);
-            let mut arguments = CommandArguments::<E>::new(parameters.clone());
-            arguments.action_position = position.clone();
-            async move {
-                for (i, param) in parameters.0.iter().enumerate() {
-                    if let Some(arg_query) = param.link() {
-                        let arg_value = envref
-                            .get_asset_manager()
-                            .get_asset(&arg_query)
-                            .await?
-                            .get()
-                            .await?;
-                        arguments.set_value(i, arg_value.data.clone());
-                    }
-                }
-                let ce = envref.get_command_executor();
-                /*
-                ce.execute(
-                    &CommandKey::new(realm, ns, action_name),
-                    &input_state,
-                    &mut arguments,
-                    context.clone_context(),
-                )?
-                */
-                let result = ce
-                    .execute_async(
-                        &commannd_key,
-                        input_state,
-                        arguments,
-                        context.clone_context().await,
-                    )
-                    .await;
-                match result {
-                    Ok(result) => {
-                        let state = State::<<E as Environment>::Value>::new()
-                            .with_data(result)
-                            .with_metadata(context.get_metadata().await?.into());
-                        Ok(state)
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-            .boxed()
-        }
-        Step::Filename(name) => async move {
-            context.set_filename(&name.name).await?;
-            Ok(input_state)
-        }
-        .boxed(),
-        Step::Info(m) => {            
-            let res = context.info(&m);
-            async move {res?; Ok(input_state) }.boxed()
-        }
-        Step::Warning(m) => {
-            let res = context.warning(&m);
-            async move {res?; Ok(input_state) }.boxed()
-        }
-        Step::Error(m) => {
-            let res = context.error(&m);
-            async move {res?; Ok(input_state) }.boxed()
-        }
-        Step::SetCwd(key) => {
-            context.set_cwd_key(Some(key.clone()));
-            async move { Ok(input_state) }.boxed()
-        }
-        Step::Plan(plan) => async move {
-            let state = apply_plan(plan, envref.clone(), context, input_state).await?;
-            Ok(state)
-        }
-        .boxed(),
-        Step::GetAsset(key) => async move {
-            let envref1 = envref.clone();
-            let asset_store = envref1.get_asset_manager();
-            let asset = asset_store.get(&key).await?;
-            let asset_state = asset.get().await?;
-            Ok(asset_state)
-        }
-        .boxed(),
-        Step::GetAssetBinary(_key) => todo!(),
-        Step::GetAssetMetadata(_key) => todo!(),
-        Step::UseKeyValue(_key) => todo!(),
-    }
-}
-
-pub fn do_step_new<E: Environment>(
     step: Step,
     input: State<E::Value>,
     context: Context<E>,
@@ -366,32 +198,25 @@ pub fn do_step_new<E: Environment>(
             }
         }
         .boxed(),
+        Step::GetAssetRecipe(key) => async move {
+            let envref1 = envref.clone();
+            let asset_store = envref1.get_asset_manager();
+            if let Some(recipe) = asset_store.recipe_opt(&key).await? {
+                let recipe_value = <<E as Environment>::Value as ValueInterface>::from_recipe(recipe);
+                Ok(Arc::new(recipe_value))
+            }
+            else{
+                let none = <<E as Environment>::Value as ValueInterface>::none();
+                Ok(Arc::new(none))
+            }
+        }
+        .boxed(),
         Step::UseKeyValue(key) => async move {
             let value = E::Value::from_key(&key);
             Ok(Arc::new(value))
         }
         .boxed(),
     }
-}
-
-pub fn evaluate_plan<E: Environment>(
-    plan: Plan,
-    envref: EnvRef<E>,
-    assetref: AssetRef<E>,
-) -> std::pin::Pin<
-    Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send + 'static>,
-> {
-    async move {
-        let context = Context::new(assetref).await;
-        apply_plan(
-            plan,
-            envref.clone(),
-            context,
-            State::<<E as Environment>::Value>::new(),
-        )
-        .await
-    }
-    .boxed()
 }
 
 pub fn evaluate<E: Environment, Q: TryToQuery>(
@@ -416,7 +241,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         .await
         */
         let input_state = State::<<E as Environment>::Value>::new();
-        let res = apply_plan_new(plan, input_state, context.clone(), envref).await?;
+        let res = apply_plan(plan, input_state, context.clone(), envref).await?;
         Ok(State::new().with_data((*res).clone()).with_metadata(context.get_metadata().await?.into()))
     }
     .boxed()
@@ -527,6 +352,9 @@ impl<E: Environment> IsVolatile<E> for Step {
             }
             Step::GetAssetMetadata(key) => {
                 env.get_asset_manager().is_volatile(&key).await
+            }
+            Step::GetAssetRecipe(key) => {
+                env.get_asset_manager().is_volatile(&key).await // TODO: not sure when a recipe itself is volatile
             }
             Step::GetResource(key) => {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)");

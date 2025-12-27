@@ -392,14 +392,14 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use crate::interpreter::apply_plan_new;
+        use crate::interpreter::apply_plan;
 
         async move {
             let plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
-            let res = apply_plan_new(plan, input_state, context, envref).await?;
+            let res = apply_plan(plan, input_state, context, envref).await?;
 
             Ok(res)
         }
@@ -500,14 +500,14 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Environment for Simple
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use crate::interpreter::apply_plan_new;
+        use crate::interpreter::apply_plan;
 
         async move {
             let plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
-            let res = apply_plan_new(plan, input_state, context, envref).await?;
+            let res = apply_plan(plan, input_state, context, envref).await?;
 
             Ok(res)
         }
