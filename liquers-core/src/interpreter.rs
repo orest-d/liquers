@@ -100,6 +100,12 @@ pub fn do_step<E: Environment>(
             }
         }
         .boxed(),
+        Step::GetResourceDirectory(key) => async move {
+            let store = envref.get_async_store();
+            let d = store.listdir_asset_info(&key).await?;
+            Ok(Arc::new(<<E as Environment>::Value as ValueInterface>::from_asset_info(d)))
+        }
+        .boxed(),
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
@@ -209,6 +215,13 @@ pub fn do_step<E: Environment>(
                 let none = <<E as Environment>::Value as ValueInterface>::none();
                 Ok(Arc::new(none))
             }
+        }
+        .boxed(),
+        Step::GetAssetDirectory(key) => async move {
+            let envref1 = envref.clone();
+            let asset_store = envref1.get_asset_manager();
+            let d = asset_store.listdir_asset_info(&key).await?;
+            Ok(Arc::new(<<E as Environment>::Value as ValueInterface>::from_asset_info(d)))
         }
         .boxed(),
         Step::UseKeyValue(key) => async move {
@@ -356,6 +369,9 @@ impl<E: Environment> IsVolatile<E> for Step {
             Step::GetAssetRecipe(key) => {
                 env.get_asset_manager().is_volatile(&key).await // TODO: not sure when a recipe itself is volatile
             }
+            Self::GetAssetDirectory(_) => {
+                Ok(true) // TODO: Is asset directory volatilile?
+            }
             Step::GetResource(key) => {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)");
                 // TODO: support for resource volatility check
@@ -365,6 +381,9 @@ impl<E: Environment> IsVolatile<E> for Step {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (B)");
                 // TODO: support for resource volatility check
                 Ok(false)
+            }
+            Self::GetResourceDirectory(_) => {
+                Ok(true) // TODO: Is directory volatilile?
             }
             Step::Evaluate(query) => {
                 query.is_volatile(env).await
