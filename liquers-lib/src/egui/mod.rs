@@ -101,7 +101,18 @@ impl UIValueExtension for Value {
             }
             Self::Base(SimpleValue::Metadata { value }) => todo!(),
             Self::Base(SimpleValue::AssetInfo { value }) => {
-                display_asset_info(ui, value);
+                if value.is_empty() {
+                    ui.label(RichText::new("Asset Info: <empty>").italics());
+                } else {
+                    if value.len() == 1 {
+                        display_asset_info(ui, &value[0]);
+                    } else {
+                        for (i, ai) in value.iter().enumerate() {
+                            ui.label(RichText::new(format!("Asset Info [{}]:", i)).italics());
+                            display_asset_info(ui, ai);
+                        }
+                    }
+                }
             }
             Self::Base(SimpleValue::Recipe { value }) => todo!(),
             Self::Base(SimpleValue::CommandMetadata { value }) => todo!(),

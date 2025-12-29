@@ -20,6 +20,17 @@ pub fn to_metadata<E:Environment>(state: &State<E::Value>, _context:Context<E>) 
     }
 } 
 
+/// Generic command trying to extract metadata from the state.
+pub fn to_assetinfo<E:Environment>(state: &State<E::Value>, _context:Context<E>) -> Result<E::Value, Error> {
+    if let Some(metadata) = state.metadata.metadata_record() {
+        Ok(E::Value::from_asset_info(vec![metadata.get_asset_info()]))
+    }
+    else{
+        Err(Error::general_error("Legacy metadata not supported in to_assetinfo command".to_string()))
+    }
+} 
+
+
 pub fn from_yaml<E:Environment<Value = Value>>(state: &State<E::Value>, context:Context<E>) -> Result<E::Value, Error>
 {
     let x = &*(state.data);

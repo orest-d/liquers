@@ -50,7 +50,7 @@ pub enum SimpleValue {
         value: MetadataRecord,
     },
     AssetInfo {
-        value: AssetInfo,
+        value: Vec<AssetInfo>,
     },
     Recipe {
         value: Recipe,
@@ -336,7 +336,7 @@ impl ValueInterface for SimpleValue {
         SimpleValue::Metadata { value: metadata }
     }
 
-    fn from_asset_info(asset_info: AssetInfo) -> Self {
+    fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self {
         SimpleValue::AssetInfo { value: asset_info }
     }
 

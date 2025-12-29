@@ -205,7 +205,7 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface fo
         CombinedValue::Base(BaseValue::from_metadata(metadata))
     }
 
-    fn from_asset_info(asset_info: AssetInfo) -> Self {
+    fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self {
         CombinedValue::Base(BaseValue::from_asset_info(asset_info))
     }
 

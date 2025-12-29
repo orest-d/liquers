@@ -25,7 +25,7 @@ pub enum Value {
     Object(BTreeMap<String, Value>),
     Bytes(Vec<u8>),
     Metadata(MetadataRecord),
-    AssetInfo(AssetInfo),
+    AssetInfo(Vec<AssetInfo>),
     Recipe(Recipe),
     CommandMetadata(CommandMetadata),
     Query(crate::query::Query),
@@ -109,7 +109,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     fn from_metadata(metadata: MetadataRecord) -> Self;
 
     /// From asset info
-    fn from_asset_info(asset_info: AssetInfo) -> Self;
+    fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self;
 
     /// From recipe
     fn from_recipe(recipe: Recipe) -> Self;
@@ -495,7 +495,7 @@ impl ValueInterface for Value {
         Value::Metadata(metadata)
     }
     
-    fn from_asset_info(asset_info: AssetInfo) -> Self {
+    fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self {
         Value::AssetInfo(asset_info)
     }
     
