@@ -830,6 +830,16 @@ impl<'c> PlanBuilder<'c> {
                             .steps
                             .push(Step::GetAssetMetadata(rqs.key.clone()));
                     }
+                    "dir" | "directory" => {
+                        self.plan
+                            .steps
+                            .push(Step::GetAssetDirectory(rqs.key.clone()));
+                    }
+                    "sdir" | "store_directory" => {
+                        self.plan
+                            .steps
+                            .push(Step::GetResourceDirectory(rqs.key.clone()));
+                    }
                     "r" | "recipe" => {
                         self.plan
                             .steps
