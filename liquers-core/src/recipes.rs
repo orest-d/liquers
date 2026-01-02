@@ -296,6 +296,7 @@ pub trait AsyncRecipeProvider<E:Environment>: Send + Sync {
     /// Returns asset info for the asset represented by key
     /// This is a true asset info only if the asset is not available.
     async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
+        println!("Getting asset info for recipe at key {}", key);
         let recipe = self.recipe(key, envref).await?;
         let mut asset_info = recipe.get_asset_info()?;
         asset_info.key = Some(key.clone());
@@ -379,7 +380,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
         if let Some(filename) = key.filename() {
             let recipes = self.get_recipes(&key.parent(), envref.clone()).await?;
             let recipe = recipes.get(&filename.name).ok_or(
-                Error::general_error(format!("No recipe found for key {}", key)).with_key(key),
+                Error::general_error(format!("No recipe found for key {} (recipe plan)", key)).with_key(key),
             )?;
             recipe
                 .to_plan(envref.get_command_metadata_registry())

@@ -43,6 +43,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
+use futures::lock;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
@@ -63,13 +64,23 @@ use crate::{
 /// Message for internal service communication (reliable, for control)
 #[derive(Debug, Clone)]
 pub enum AssetServiceMessage {
+    /// Job has been submitted to the queue
     JobSubmitted,
+    /// Job has started execution
     JobStarted,
+    /// Log message has been emitted
     LogMessage(LogEntry),
+    /// Primary progress has been updated
     UpdatePrimaryProgress(ProgressEntry),
+    /// Secondary progress has been updated
     UpdateSecondaryProgress(ProgressEntry),
+    /// Job is requested to be cancelled
     Cancel,
+    /// Error occured, job will finish
     ErrorOccurred(Error),
+    /// Job is about to finish - only some houskeeping remains
+    JobFinishing,
+    /// Job is finished, no further action will be taken
     JobFinished,
 }
 
@@ -88,7 +99,7 @@ pub enum AssetNotificationMessage {
     JobFinished,
 }
 
-pub struct MetadataSaver{
+pub struct MetadataSaver {
     metadata: Mutex<Option<Metadata>>,
     interval: std::time::Duration,
     last_save: Option<std::time::Instant>,
@@ -103,7 +114,7 @@ impl MetadataSaver {
         }
     }
     // TODO: Make a proper save immediately task
-/*
+    /*
     pub async fn save(&mut self, metadata: &Metadata, envref: EnvRef<impl Environment>) -> Result<(), Error> {
         tokio::spawn(async move{
             self.save_task(metadata, envref);
@@ -111,12 +122,15 @@ impl MetadataSaver {
         Ok(())
     }
     */
-    async fn save_task(&mut self, metadata: &Metadata, envref: EnvRef<impl Environment>) -> Result<(), Error> {
+    async fn save_task(
+        &mut self,
+        metadata: &Metadata,
+        envref: EnvRef<impl Environment>,
+    ) -> Result<(), Error> {
         let mut lock = self.metadata.lock().await;
-        if lock.is_some(){
+        if lock.is_some() {
             *lock = Some(metadata.clone());
-        }
-        else{
+        } else {
             if self.can_save_now() {
                 let store = envref.get_async_store();
                 if let Some(key) = metadata.key()? {
@@ -124,13 +138,12 @@ impl MetadataSaver {
                     self.last_save = Some(std::time::Instant::now());
                 }
                 *lock = None;
-            }
-            else{
+            } else {
                 *lock = Some(metadata.clone());
                 drop(lock);
                 tokio::time::sleep(self.duration_to_next_save()).await;
                 let mut lock = self.metadata.lock().await;
-                if let Some(metadata) = lock.take(){
+                if let Some(metadata) = lock.take() {
                     let store = envref.get_async_store();
                     if let Some(key) = metadata.key()? {
                         store.set_metadata(&key, &metadata).await?;
@@ -151,7 +164,7 @@ impl MetadataSaver {
     }
 
     fn duration_to_next_save(&self) -> std::time::Duration {
-        if let Some(duration) = self.duration_since_last_save(){
+        if let Some(duration) = self.duration_since_last_save() {
             if duration >= self.interval {
                 std::time::Duration::from_secs(0)
             } else {
@@ -163,7 +176,7 @@ impl MetadataSaver {
     }
 
     fn can_save_now(&self) -> bool {
-        if let Some(duration) = self.duration_since_last_save(){
+        if let Some(duration) = self.duration_since_last_save() {
             duration >= self.interval
         } else {
             true
@@ -266,8 +279,7 @@ impl<E: Environment> AssetData<E> {
     pub fn get_envref(&self) -> EnvRef<E> {
         self.envref.clone()
     }
-   
- 
+
     async fn save_metadata_to_store_now(&self) -> Result<(), Error> {
         let envref = self.get_envref();
         let store = envref.get_async_store();
@@ -278,8 +290,8 @@ impl<E: Environment> AssetData<E> {
             Ok(()) // No key => nowhere and no need to save
         }
     }
-  
-    async fn save_metadata_to_store(&self) -> Result<(), Error>{
+
+    async fn save_metadata_to_store(&self) -> Result<(), Error> {
         // TODO: prevent too frequent saving
         self.save_metadata_to_store_now().await?;
         Ok(())
@@ -410,8 +422,7 @@ impl<E: Environment> AssetData<E> {
                     return Err(Error::general_error(format!("Inconsistent status of asset {}: Asset is stored, having binary size {}, but it has status: {:?}",
                     self.id(), binary.len(), self.status)).with_key(&key));
                 }
-            }
-            else {
+            } else {
                 eprintln!("Asset {} does not exist in the store", self.id());
             }
         }
@@ -450,13 +461,36 @@ impl<E: Environment> AssetData<E> {
     /// Poll the current state without any async operations.
     /// Returns None if data or metadata is not available.
     pub fn poll_state(&self) -> Option<State<E::Value>> {
-        if let Some(data) = &self.data {
-            Some(State {
-                data: data.clone(),
-                metadata: Arc::new(self.metadata.clone()),
-            })
-        } else {
-            None
+        match self.status {
+            Status::None => None,
+            Status::Directory => {
+                Some(State {
+                    data: Arc::new(E::Value::none()),
+                    metadata: Arc::new(self.metadata.clone()),
+                })
+            },
+            Status::Recipe => None,
+            Status::Submitted => None,
+            Status::Dependencies => None,
+            Status::Processing => None,
+            Status::Partial => None,
+            Status::Error | Status::Cancelled  => {
+                Some(State {
+                    data: Arc::new(E::Value::none()),
+                    metadata: Arc::new(self.metadata.clone()),
+                })
+            }
+            Status::Storing => None,
+            Status::Ready | Status::Expired | Status::Source=> {
+                if let Some(data) = &self.data {
+                    Some(State {
+                        data: data.clone(),
+                        metadata: Arc::new(self.metadata.clone()),
+                    })
+                } else {
+                    None
+                }
+            },
         }
     }
 
@@ -648,7 +682,13 @@ impl<E: Environment> AssetRef<E> {
                     let _ = notification_tx.send(AssetNotificationMessage::JobStarted);
                 }
                 AssetServiceMessage::JobFinished => {
-                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+                    panic!("JobFinished message not expected in process_service_messages");
+                    //                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+                    return Ok(());
+                }
+                AssetServiceMessage::JobFinishing => {
+                    // The message should not be sent, otherwise finishing is before results are recorder in the asset
+                    // let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
                     return Ok(());
                 }
                 AssetServiceMessage::ErrorOccurred(error) => {
@@ -699,13 +739,21 @@ impl<E: Environment> AssetRef<E> {
             res = self.wait_to_finish() => res,
             res = self.evaluate_and_store() => res
         };
+        println!(
+            "Asset {} evaluation finished, waiting for service messages to complete",
+            self.id()
+        );
         self.service_sender()
             .await
-            .send(AssetServiceMessage::JobFinished)
+            .send(AssetServiceMessage::JobFinishing)
             .ok();
         let psm_result = psm.await;
+        println!(
+            "Asset {} process_service_messages task joined",
+            self.id()
+        );
         match psm_result {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => {println!("Asset {} process_service_messages task finished successfully", self.id());}
             Ok(Err(e)) => {
                 result = Err(e);
             }
@@ -728,12 +776,21 @@ impl<E: Environment> AssetRef<E> {
         }
 
         if let Err(e) = &result {
+            println!(
+                "Asset {} evaluation finished with error: {}",
+                self.id(),
+                e
+            );
             let mut lock = self.data.write().await;
             lock.data = None;
             lock.status = Status::Error;
             lock.binary = None;
             lock.metadata = Metadata::from_error(e.clone());
         } else {
+            println!(
+                "Asset {} evaluation finished without an error",
+                self.id(),
+            );
             async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
                 eprintln!(
                     "Trying to set asset {} to ready - status {:?}",
@@ -771,14 +828,40 @@ impl<E: Environment> AssetRef<E> {
                 Status::Partial => {
                     try_to_set_ready(self.clone()).await;
                 }
-                Status::Error => todo!(),
-                Status::Storing => todo!(),
+                Status::Error => {
+                    let mut lock = self.data.write().await;
+                    lock.data = None;
+                    lock.binary = None;
+                    let _ = lock.metadata.add_log_entry(LogEntry::error(
+                        "Asset ended in error status after evaluation".to_string(),
+                    ));
+                }
+                Status::Storing => {
+                    let mut lock = self.data.write().await;
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                        "Asset ended in status 'Storing' after evaluation".to_string(),
+                    ));
+                }
                 Status::Ready => {}
                 Status::Expired => {}
                 Status::Cancelled => {}
                 Status::Source => {}
                 Status::Directory => {}
             }
+        }
+        self.service_sender()
+            .await
+            .send(AssetServiceMessage::JobFinished)
+            .ok();
+        {
+            let mut lock = self.data.write().await;
+            println!(
+                "Asset {} sending JobFinished notification",
+                self.id()
+            );
+            lock.notification_tx
+                .send(AssetNotificationMessage::JobFinished)
+                .ok();
         }
         result
     }
@@ -796,7 +879,7 @@ impl<E: Environment> AssetRef<E> {
         };
         self.service_sender()
             .await
-            .send(AssetServiceMessage::JobFinished)
+            .send(AssetServiceMessage::JobFinishing)
             .ok();
         let psm_result = psm.await;
         match psm_result {
@@ -866,14 +949,36 @@ impl<E: Environment> AssetRef<E> {
                 Status::Partial => {
                     try_to_set_ready(self.clone()).await;
                 }
-                Status::Error => todo!(),
-                Status::Storing => todo!(),
+                Status::Error => {
+                    let mut lock = self.data.write().await;
+                    lock.data = None;
+                    lock.binary = None;
+                    let _ = lock.metadata.add_log_entry(LogEntry::error(
+                        "Asset ended in error status after evaluation".to_string(),
+                    ));
+                }
+                Status::Storing => {
+                    let mut lock = self.data.write().await;
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                        "Asset ended in status 'Storing' after evaluation".to_string(),
+                    ));
+                }
                 Status::Ready => {}
                 Status::Directory => {}
                 Status::Expired => {}
                 Status::Cancelled => {}
                 Status::Source => {}
             }
+        }
+        self.service_sender()
+            .await
+            .send(AssetServiceMessage::JobFinished)
+            .ok();
+        {
+            let mut lock = self.data.write().await;
+            lock.notification_tx
+                .send(AssetNotificationMessage::JobFinished)
+                .ok();
         }
         result
     }
@@ -886,6 +991,7 @@ impl<E: Environment> AssetRef<E> {
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
         let (input_state, recipe) = self.initial_state_and_recipe().await;
 
+        println!("Evaluating recipe {:?}", &recipe);
         let envref = self.get_envref().await;
         /*
         let plan = {
@@ -898,7 +1004,9 @@ impl<E: Environment> AssetRef<E> {
                                                         //let res = apply_plan(plan, envref, context, input_state).await?;
                                                         //let res = apply_plan_new(
                                                         //    plan, input_state, context, envref).await?;
+        println!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
+        println!("Recipe evaluated, result: {:?}", &res);
 
         Ok(State {
             data: res,
@@ -914,6 +1022,25 @@ impl<E: Environment> AssetRef<E> {
                 lock.data = Some(state.data.clone());
                 lock.metadata = (*state.metadata).clone();
                 lock.status = state.metadata.status();
+                match lock.status {
+                    Status::None
+                    | Status::Recipe
+                    | Status::Submitted
+                    | Status::Dependencies
+                    | Status::Processing
+                    | Status::Storing => {
+                        // here is a value, so this is probably an old state - mark as ready
+                        lock.status = Status::Ready;
+                        lock.metadata.set_status(Status::Ready)?;
+                    }
+                    Status::Ready => {}
+                    Status::Partial => {}
+                    Status::Error => {}
+                    Status::Directory => {}
+                    Status::Cancelled => {}
+                    Status::Source => {}
+                    Status::Expired => {}
+                }
                 let _ = lock
                     .notification_tx
                     .send(AssetNotificationMessage::ValueProduced);
@@ -930,6 +1057,7 @@ impl<E: Environment> AssetRef<E> {
                 Ok(())
             }
             Err(e) => {
+                println!("Error during evaluation of asset {}: {}", self.id(), e);
                 let mut lock = self.data.write().await;
                 lock.data = None;
                 lock.metadata.with_error(e.clone());
@@ -995,7 +1123,7 @@ impl<E: Environment> AssetRef<E> {
         lock.save_metadata_to_store().await
     }
 
-    /* 
+    /*
     async fn save_metadata_to_store(&self) -> Result<(), Error> {
         let lock = self.data.read().await;
 
@@ -1078,6 +1206,11 @@ impl<E: Environment> AssetRef<E> {
 
         loop {
             let notification = rx.borrow().clone();
+            println!(
+                "Getting asset {} state, current notification: {:?}",
+                self.id(),
+                notification
+            );
             match notification {
                 AssetNotificationMessage::ValueProduced => {
                     if let Some(state) = self.poll_state().await {
@@ -1165,7 +1298,8 @@ impl<E: Environment> AssetRef<E> {
     pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
         println!("Setting value for asset {}", self.id());
         let mut lock = self.data.write().await;
-        lock.metadata.with_type_identifier(value.identifier().to_string());
+        lock.metadata
+            .with_type_identifier(value.identifier().to_string());
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
         lock.set_status(Status::Ready);
@@ -1175,9 +1309,9 @@ impl<E: Environment> AssetRef<E> {
             .notification_tx
             .send(AssetNotificationMessage::ValueProduced);
         lock.service_sender()
-            .send(AssetServiceMessage::JobFinished)
+            .send(AssetServiceMessage::JobFinishing)
             .map_err(|e| {
-                Error::general_error(format!("Failed to send JobFinished message: {}", e))
+                Error::general_error(format!("Failed to send JobFinishing message: {}", e))
             })?;
         Ok(())
     }
@@ -1199,9 +1333,9 @@ impl<E: Environment> AssetRef<E> {
                 .notification_tx
                 .send(AssetNotificationMessage::ValueProduced);
             lock.service_sender()
-                .send(AssetServiceMessage::JobFinished)
+                .send(AssetServiceMessage::JobFinishing)
                 .map_err(|e| {
-                    Error::general_error(format!("Failed to send JobFinished message: {}", e))
+                    Error::general_error(format!("Failed to send JobFinishing message: {}", e))
                 })?;
         } else {
             let res = lock.set_status(status);
@@ -1211,8 +1345,7 @@ impl<E: Environment> AssetRef<E> {
                     lock.id,
                     res.err().unwrap()
                 );
-            }
-            else{
+            } else {
                 eprintln!(
                     "WARNING: Asset {} set_state called with non-ready state, status set to {:?}",
                     lock.id, lock.status
@@ -1467,7 +1600,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if store.contains(key).await? {
                 store.get_asset_info(key).await
             } else {
-                self.get_recipe_provider().get_asset_info(key, self.get_envref()).await
+                self.get_recipe_provider()
+                    .get_asset_info(key, self.get_envref())
+                    .await
             }
         }
     }
@@ -1526,7 +1661,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
-        self.get_recipe_provider().recipe_opt(key, self.get_envref()).await
+        self.get_recipe_provider()
+            .recipe_opt(key, self.get_envref())
+            .await
     }
 
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
@@ -1553,7 +1690,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if store.contains(key).await? {
             return Ok(true);
         }
-        self.get_recipe_provider().contains(key, self.get_envref()).await
+        self.get_recipe_provider()
+            .contains(key, self.get_envref())
+            .await
     }
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {

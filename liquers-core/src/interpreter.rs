@@ -33,24 +33,27 @@ pub fn apply_plan<E: Environment>(
     input_state: State<E::Value>,
     context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>>
+) -> std::pin::Pin<
+    Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>,
+>
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
         let mut state = input_state;
         for i in 0..plan.len() {
+            println!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
             let envref1 = envref.clone();
             let context1 = context.clone();
             let res = async move { do_step(step, state, context1, envref1).await }.await?;
-            state = State::new().with_data((*res).clone()).with_metadata(context.get_metadata().await?.into());
+            state = State::new()
+                .with_data((*res).clone())
+                .with_metadata(context.get_metadata().await?.into());
         }
         Ok(state.data.clone())
-
     }
     .boxed()
 }
-
 
 pub fn do_step<E: Environment>(
     step: Step,
@@ -106,7 +109,9 @@ pub fn do_step<E: Environment>(
             let d = store.listdir_asset_info(&key).await?;
             println!("Got resource directory: {:?}", d);
 
-            Ok(Arc::new(<<E as Environment>::Value as ValueInterface>::from_asset_info(d)))
+            Ok(Arc::new(
+                <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
+            ))
         }
         .boxed(),
         Step::Evaluate(q) => {
@@ -211,10 +216,10 @@ pub fn do_step<E: Environment>(
             let envref1 = envref.clone();
             let asset_store = envref1.get_asset_manager();
             if let Some(recipe) = asset_store.recipe_opt(&key).await? {
-                let recipe_value = <<E as Environment>::Value as ValueInterface>::from_recipe(recipe);
+                let recipe_value =
+                    <<E as Environment>::Value as ValueInterface>::from_recipe(recipe);
                 Ok(Arc::new(recipe_value))
-            }
-            else{
+            } else {
                 let none = <<E as Environment>::Value as ValueInterface>::none();
                 Ok(Arc::new(none))
             }
@@ -222,9 +227,11 @@ pub fn do_step<E: Environment>(
         .boxed(),
         Step::GetAssetDirectory(key) => async move {
             let envref1 = envref.clone();
-            let asset_store = envref1.get_asset_manager();
-            let d = asset_store.listdir_asset_info(&key).await?;
-            Ok(Arc::new(<<E as Environment>::Value as ValueInterface>::from_asset_info(d)))
+            let asset_manager = envref1.get_asset_manager();
+            let d = asset_manager.listdir_asset_info(&key).await?;
+            Ok(Arc::new(
+                <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
+            ))
         }
         .boxed(),
         Step::UseKeyValue(key) => async move {
@@ -258,7 +265,9 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         */
         let input_state = State::<<E as Environment>::Value>::new();
         let res = apply_plan(plan, input_state, context.clone(), envref).await?;
-        Ok(State::new().with_data((*res).clone()).with_metadata(context.get_metadata().await?.into()))
+        Ok(State::new()
+            .with_data((*res).clone())
+            .with_metadata(context.get_metadata().await?.into()))
     }
     .boxed()
 }
@@ -291,7 +300,7 @@ pub fn evaluate_simple_template<E: Environment>(
     .boxed()
 }
 
-pub(crate) trait IsVolatile<E:Environment>{
+pub(crate) trait IsVolatile<E: Environment> {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error>;
 }
 
@@ -329,7 +338,7 @@ impl<E: Environment> IsVolatile<E> for Plan {
 
 impl<E: Environment> IsVolatile<E> for Recipe {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
-        if self.volatile{
+        if self.volatile {
             return Ok(true);
         }
         let plan = self.to_plan(env.get_command_metadata_registry())?;
@@ -347,8 +356,17 @@ impl<E: Environment> IsVolatile<E> for Query {
 impl<E: Environment> IsVolatile<E> for Step {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
         match self {
-            Step::Action { realm, ns, action_name, position: _, parameters } => {
-                if let Some(cmd) = env.get_command_metadata_registry().find_command(&realm, &ns, action_name) {
+            Step::Action {
+                realm,
+                ns,
+                action_name,
+                position: _,
+                parameters,
+            } => {
+                if let Some(cmd) =
+                    env.get_command_metadata_registry()
+                        .find_command(&realm, &ns, action_name)
+                {
                     if cmd.volatile {
                         return Ok(true);
                     }
@@ -360,15 +378,9 @@ impl<E: Environment> IsVolatile<E> for Step {
                     Ok(false)
                 }
             }
-            Step::GetAsset(key) => {
-                env.get_asset_manager().is_volatile(&key).await
-            }
-            Step::GetAssetBinary(key) => {
-                env.get_asset_manager().is_volatile(&key).await
-            }
-            Step::GetAssetMetadata(key) => {
-                env.get_asset_manager().is_volatile(&key).await
-            }
+            Step::GetAsset(key) => env.get_asset_manager().is_volatile(&key).await,
+            Step::GetAssetBinary(key) => env.get_asset_manager().is_volatile(&key).await,
+            Step::GetAssetMetadata(key) => env.get_asset_manager().is_volatile(&key).await,
             Step::GetAssetRecipe(key) => {
                 env.get_asset_manager().is_volatile(&key).await // TODO: not sure when a recipe itself is volatile
             }
@@ -379,7 +391,7 @@ impl<E: Environment> IsVolatile<E> for Step {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)");
                 // TODO: support for resource volatility check
                 Ok(false)
-            },
+            }
             Step::GetResourceMetadata(key) => {
                 eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (B)");
                 // TODO: support for resource volatility check
@@ -388,16 +400,12 @@ impl<E: Environment> IsVolatile<E> for Step {
             Self::GetResourceDirectory(_) => {
                 Ok(true) // TODO: Is directory volatilile?
             }
-            Step::Evaluate(query) => {
-                query.is_volatile(env).await
-            }
+            Step::Evaluate(query) => query.is_volatile(env).await,
             Step::Filename(_) => Ok(false),
             Step::Info(_) => Ok(false),
             Step::Warning(_) => Ok(false),
             Step::Error(_) => Ok(false),
-            Step::Plan(plan) => {
-                plan.is_volatile(env).await
-            },
+            Step::Plan(plan) => plan.is_volatile(env).await,
             Step::SetCwd(_) => Ok(false),
             Step::UseKeyValue(_) => Ok(false),
         }
@@ -462,17 +470,24 @@ mod tests {
         Ok(())
     }
 
-     #[tokio::test]
+    #[tokio::test]
     async fn test_generic_hello_world() -> Result<(), Box<dyn std::error::Error>> {
         type CommandEnvironment = SimpleEnvironment<Value>;
         let mut env = SimpleEnvironment::<Value>::new();
 
         // Register "hello" command
-        fn world<E:Environment>(_state: &State<E::Value>, context: Context<E>) -> Result<Value, Error> {
+        fn world<E: Environment>(
+            _state: &State<E::Value>,
+            context: Context<E>,
+        ) -> Result<Value, Error> {
             context.info("Generating 'world'")?;
             Ok(Value::from("world"))
         }
-        fn greet<E:Environment>(state: &State<E::Value>, greet: String, context: Context<E>) -> Result<Value, Error> {
+        fn greet<E: Environment>(
+            state: &State<E::Value>,
+            greet: String,
+            context: Context<E>,
+        ) -> Result<Value, Error> {
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
             Ok(Value::from(format!("{greet}, {what}!")))
@@ -490,7 +505,7 @@ mod tests {
         assert_eq!(value, "Hello, world!");
         Ok(())
     }
-   
+
     #[tokio::test]
     async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
         type CommandEnvironment = SimpleEnvironment<Value>;
@@ -574,6 +589,7 @@ mod tests {
             greet: String,
             context: Context<CommandEnvironment>,
         ) -> Result<Value, Error> {
+            println!("greet command called");
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
             let upper = context
@@ -628,14 +644,17 @@ mod tests {
             Ok(Value::from(format!("{greet}, {upper_text}!")))
         }
         let cr = &mut env.command_registry;
-        register_command!(cr, fn word(state, payload: String injected) -> result).expect("register_command failed");
+        register_command!(cr, fn word(state, payload: String injected) -> result)
+            .expect("register_command failed");
         register_command!(cr, fn upper(state) -> result).expect("register_command failed");
         register_command!(cr, async fn greet(state, greet: String = "Hello", context) -> result)
             .expect("register_command failed");
 
         let envref = env.to_ref();
 
-        let asset = envref.evaluate_immediately("word/greet-Ciao", "Earth".into()).await?;
+        let asset = envref
+            .evaluate_immediately("word/greet-Ciao", "Earth".into())
+            .await?;
         let state = asset.get().await?;
         println!("Metadata: {:?}", state.metadata);
 
@@ -645,4 +664,83 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_dir() {
+        use crate::context::{EnvRef, Environment, SimpleEnvironment};
+        use crate::metadata::Metadata;
+        use crate::parse::parse_key;
+        use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+        use crate::value::Value;
+
+        // Create a MemoryStore and populate it with recipes.yaml
+        let memory_store = MemoryStore::new(&Key::new());
+
+        // Create a recipe list
+        let mut recipe_list = crate::recipes::RecipeList::new();
+        recipe_list.add_recipe(
+            super::Recipe::new(
+                "-R/hello/test.txt/-/file1.txt".to_string(),
+                "Test Recipe".to_string(),
+                "A test recipe".to_string(),
+            )
+            .unwrap(),
+        );
+        recipe_list.add_recipe(
+            super::Recipe::new(
+                "-R/data/another.json/-/file2.txt".to_string(),
+                "Another Recipe".to_string(),
+                "Another test recipe".to_string(),
+            )
+            .unwrap(),
+        );
+
+        // Serialize to YAML
+        let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
+        println!("recipes.yaml content:\n{}", yaml_content);
+
+        // Store the recipes.yaml in the MemoryStore at folder/recipes.yaml
+        let recipes_key = parse_key("folder/recipes.yaml").unwrap();
+        let metadata = Metadata::new();
+        memory_store
+            .set(&recipes_key, yaml_content.as_bytes(), &metadata)
+            .unwrap();
+        memory_store
+            .set(
+                &parse_key("hello/test.txt").unwrap(),
+                "Hello, world!".as_bytes(),
+                &metadata,
+            )
+            .unwrap();
+
+        // Wrap the MemoryStore with AsyncStoreWrapper
+        let async_store = AsyncStoreWrapper(memory_store);
+
+        // Create a SimpleEnvironment and set the async store
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(async_store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+
+        let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
+
+        let a = envref.evaluate("-R-dir/folder").await.unwrap();
+        let s = a.get().await.expect("Failed to get asset state");
+
+        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        assert!(!s.is_error().unwrap());
+        if let Value::AssetInfo(a) = &*s.data {
+            assert_eq!(a.len(), 3);
+            let names: std::collections::HashSet<String> = a
+                .iter()
+                .map(|x| x.filename.as_ref().unwrap().clone())
+                .collect();
+            //println!("Names: {:?}", names);
+            assert!(names.contains(&"recipes.yaml".to_string()));
+            assert!(names.contains(&"file1.txt".to_string()));
+            assert!(names.contains(&"file2.txt".to_string()));
+        } else {
+            panic!("Expected AssetInfo value");
+        }
+    }
 }

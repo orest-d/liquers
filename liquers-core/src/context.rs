@@ -235,15 +235,19 @@ impl<E: Environment> Context<E> {
             .map_err(|e| Error::general_error(format!("Failed to send log message: {}", e)))
     }
     pub fn debug(&self, message: &str) -> Result<(), Error> {
+        eprintln!("DEBUG:   {}", message);
         self.add_log_entry(LogEntry::debug(message.to_string()))
     }
     pub fn info(&self, message: &str) -> Result<(), Error> {
+        eprintln!("INFO:    {}", message);
         self.add_log_entry(LogEntry::info(message.to_string()))
     }
     pub fn warning(&self, message: &str) -> Result<(), Error> {
+        eprintln!("WARNING: {}", message);
         self.add_log_entry(LogEntry::warning(message.to_string()))
     }
     pub fn error(&self, message: &str) -> Result<(), Error> {
+        eprintln!("ERROR:   {}", message);
         self.add_log_entry(LogEntry::error(message.to_string()))
     }
     pub async fn clone_context(&self) -> Self {
@@ -346,6 +350,10 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::new(store);
+        self
+    }
+    pub fn with_recipe_provider(&mut self, provider: Box<dyn AsyncRecipeProvider<Self>>) -> &mut Self {
+        self.recipe_provider = Some(Arc::new(provider));
         self
     }
     #[cfg(feature = "async_store")]
@@ -454,6 +462,10 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> SimpleEnvironmentWithP
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::new(store);
+        self
+    }
+    pub fn with_recipe_provider(&mut self, provider: Box<dyn AsyncRecipeProvider<Self>>) -> &mut Self {
+        self.recipe_provider = Some(Arc::new(provider));
         self
     }
     #[cfg(feature = "async_store")]

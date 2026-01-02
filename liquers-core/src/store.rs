@@ -975,7 +975,7 @@ impl Store for MemoryStore {
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let keys = self.listdir_keys(key)?;
-        Ok(keys.iter().map(|x| x.to_string()).collect())
+        Ok(keys.iter().filter_map(|x| x.filename().map(|xx| xx.to_string())).collect())
     }
 
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
