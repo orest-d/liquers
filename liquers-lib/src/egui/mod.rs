@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::RichText;
 use liquers_core::error::Error;
 
-use crate::{egui::widgets::{display_asset_info, display_error, display_styled_query}, value::{ExtValue, Value, simple::SimpleValue}};
+use crate::{egui::widgets::{display_asset_info, display_asset_info_table, display_error, display_styled_query}, value::{ExtValue, Value, simple::SimpleValue}};
 
 pub mod widgets;
 pub mod commands;
@@ -107,10 +107,7 @@ impl UIValueExtension for Value {
                     if value.len() == 1 {
                         display_asset_info(ui, &value[0]);
                     } else {
-                        for (i, ai) in value.iter().enumerate() {
-                            ui.label(RichText::new(format!("Asset Info [{}]:", i)).italics());
-                            display_asset_info(ui, ai);
-                        }
+                        display_asset_info_table(ui, &value);
                     }
                 }
             }

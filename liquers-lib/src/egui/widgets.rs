@@ -612,3 +612,116 @@ fn format_file_size(size: u64) -> String {
         format!("{:.1} {}", size_f, UNITS[unit_index])
     }
 }
+
+/// Display a table of AssetInfo items with columns for key properties
+/// Returns the response and optionally the index of a clicked row
+pub fn display_asset_info_table(
+    ui: &mut egui::Ui,
+    assets: &[AssetInfo],
+) -> Option<usize> {
+    use egui_extras::{Column, TableBuilder};
+
+    let text_height = egui::TextStyle::Body
+        .resolve(ui.style())
+        .size
+        .max(ui.spacing().interact_size.y);
+
+    let mut clicked_row: Option<usize> = None;
+
+    let table = TableBuilder::new(ui)
+        .striped(true)
+        .resizable(true)
+        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::auto()) // Icon
+        .column(Column::auto()) // Status
+        .column(Column::initial(200.0).at_least(100.0).resizable(true)) // Name/Title
+        .column(Column::auto()) // Size
+        .column(Column::initial(150.0).at_least(80.0).resizable(true)) // Progress
+        .column(Column::remainder()) // Message
+        .min_scrolled_height(0.0);
+
+    let _table_output = table
+        .header(20.0, |mut header| {
+            header.col(|ui| {
+                ui.strong("");
+            });
+            header.col(|ui| {
+                ui.strong("Status");
+            });
+            header.col(|ui| {
+                ui.strong("Name");
+            });
+            header.col(|ui| {
+                ui.strong("Size");
+            });
+            header.col(|ui| {
+                ui.strong("Progress");
+            });
+            header.col(|ui| {
+                ui.strong("Message");
+            });
+        })
+        .body(|mut body| {
+            for (row_index, asset_info) in assets.iter().enumerate() {
+                body.row(text_height, |mut row| {
+                    // Icon column
+                    row.col(|ui| {
+                        if !asset_info.unicode_icon.is_empty() {
+                            ui.label(&asset_info.unicode_icon);
+                        }
+                    });
+
+                    // Status column
+                    row.col(|ui| {
+                        if let Some(error) = &asset_info.error_data {
+                            display_status(ui, asset_info.status).on_hover_ui(|ui| {
+                                display_error(ui, error);
+                            });
+                        } else {
+                            display_status(ui, asset_info.status);
+                        }
+                    });
+
+                    // Name/Title column
+                    row.col(|ui| {
+                        let name = if !asset_info.title.is_empty() {
+                            asset_info.title.clone()
+                        } else if let Some(filename) = &asset_info.filename {
+                            filename.clone()
+                        } else if let Some(key) = &asset_info.key {
+                            key.encode()
+                        } else {
+                            "<unnamed>".to_string()
+                        };
+                        
+                        if ui.selectable_label(false, name).clicked() {
+                            clicked_row = Some(row_index);
+                        }
+                    });
+
+                    // Size column
+                    row.col(|ui| {
+                        if let Some(file_size) = asset_info.file_size {
+                            ui.label(format_file_size(file_size))
+                                .on_hover_text(format!("{} bytes", file_size));
+                        } else {
+                            ui.label("-");
+                        }
+                    });
+
+                    // Progress column
+                    row.col(|ui| {
+                        display_progress(ui, &asset_info.progress);
+                    });
+
+                    // Message column
+                    row.col(|ui| {
+                        if !asset_info.message.is_empty() {
+                            ui.label(&asset_info.message);
+                        }
+                    });
+                });
+            }
+        });
+    clicked_row
+}

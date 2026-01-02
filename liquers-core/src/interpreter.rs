@@ -101,8 +101,11 @@ pub fn do_step<E: Environment>(
         }
         .boxed(),
         Step::GetResourceDirectory(key) => async move {
+            println!("Getting resource directory for key {:?}", key);
             let store = envref.get_async_store();
             let d = store.listdir_asset_info(&key).await?;
+            println!("Got resource directory: {:?}", d);
+
             Ok(Arc::new(<<E as Environment>::Value as ValueInterface>::from_asset_info(d)))
         }
         .boxed(),

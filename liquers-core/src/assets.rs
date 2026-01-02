@@ -49,6 +49,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 use crate::context::Context;
 use crate::interpreter::IsVolatile;
 use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
+use crate::value::ValueInterface;
 use crate::{
     context::{EnvRef, Environment},
     error::Error,
@@ -1164,6 +1165,7 @@ impl<E: Environment> AssetRef<E> {
     pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
         println!("Setting value for asset {}", self.id());
         let mut lock = self.data.write().await;
+        lock.metadata.with_type_identifier(value.identifier().to_string());
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
         lock.set_status(Status::Ready);

@@ -1,4 +1,5 @@
 
+use liquers_core::value::ValueInterface;
 use liquers_core::{
     error::ErrorType,
     value::DefaultValueSerializer,
@@ -34,9 +35,27 @@ pub enum ExtValue {
 }
 
 
-impl ExtValue {
-    pub fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
+pub trait ExtValueInterface {
+    fn from_image(image: crate::image::raster_image::RasterImage) -> Self;
+    fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self;
+    fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error>;
+}
+
+impl ExtValueInterface for ExtValue {
+    fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
         ExtValue::Image { value: image }
+    }
+    fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self {
+        ExtValue::PolarsDataFrame {
+            value: Arc::new(df),
+        }
+    }
+    fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
+        match self {
+            ExtValue::PolarsDataFrame { value } => Ok(value.clone()),
+            _ => Err(Error::conversion_error(self.identifier().as_ref(), "Polars dataframe")
+            ),
+        }
     }
 }
 
@@ -110,3 +129,30 @@ impl DefaultValueSerializer for ExtValue {
 }
 
 pub type Value = CombinedValue<SimpleValue, ExtValue>;
+
+impl From<SimpleValue> for Value {
+    fn from(simple: SimpleValue) -> Self {
+        Value::Base(simple)
+    }
+}
+
+impl From<ExtValue> for Value {
+    fn from(ext: ExtValue) -> Self {
+        Value::Extended(ext)
+    }
+}
+
+impl ExtValueInterface for Value {
+    fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
+        Value::Extended(ExtValue::from_image(image))
+    }
+    fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self {
+        Value::Extended(ExtValue::from_polars_dataframe(df))
+    }
+    fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
+        match self {
+            Value::Extended(ext) => ext.as_polars_dataframe(),
+            _ => Err(Error::conversion_error(self.identifier().as_ref(), "Polars dataframe")),
+        }
+    }
+}
