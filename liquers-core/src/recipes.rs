@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -473,7 +473,7 @@ impl RecipeList {
 mod test {
     use crate::{
         command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry},
-        plan::{ParameterValue, Step},
+        plan::{ParameterValue, Step}, query::Key,
     };
 
     use super::RecipeList;
@@ -545,4 +545,104 @@ mod test {
             serde_yaml::to_string(&recipelist).unwrap()
         );
     }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_default_recipe_provider() {
+        use crate::context::{EnvRef, Environment, SimpleEnvironment};
+        use crate::metadata::Metadata;
+        use crate::parse::parse_key;
+        use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+        use crate::value::Value;
+
+        // Create a MemoryStore and populate it with recipes.yaml
+        let memory_store = MemoryStore::new(&Key::new());
+        
+        // Create a recipe list
+        let mut recipe_list = RecipeList::new();
+        recipe_list.add_recipe(
+            super::Recipe::new(
+                "-R/hello/test.txt".to_string(),
+                "Test Recipe".to_string(),
+                "A test recipe".to_string(),
+            )
+            .unwrap(),
+        );
+        recipe_list.add_recipe(
+            super::Recipe::new(
+                "-R/data/another.json".to_string(),
+                "Another Recipe".to_string(),
+                "Another test recipe".to_string(),
+            )
+            .unwrap(),
+        );
+
+        // Serialize to YAML
+        let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
+        println!("recipes.yaml content:\n{}", yaml_content);
+
+        // Store the recipes.yaml in the MemoryStore at folder/recipes.yaml
+        let recipes_key = parse_key("folder/recipes.yaml").unwrap();
+        let metadata = Metadata::new();
+        memory_store
+            .set(&recipes_key, yaml_content.as_bytes(), &metadata)
+            .unwrap();
+        memory_store
+            .set(&parse_key("hello/test.txt").unwrap(), "Hello, world!".as_bytes(), &metadata)
+            .unwrap();
+
+        // Wrap the MemoryStore with AsyncStoreWrapper
+        let async_store = AsyncStoreWrapper(memory_store);
+
+        // Create a SimpleEnvironment and set the async store
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(async_store));
+        let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
+
+        // Create a DefaultRecipeProvider
+        let provider = super::DefaultRecipeProvider;
+
+        // Test has_recipes
+        let folder_key = parse_key("folder").unwrap();
+        let has_recipes = super::AsyncRecipeProvider::has_recipes(&provider, &folder_key, envref.clone()).await.unwrap();
+        assert!(has_recipes, "Should have recipes in folder");
+
+        // Test get_recipes
+        let recipes = provider.get_recipes(&folder_key, envref.clone()).await.unwrap();
+        assert_eq!(recipes.len(), 2, "Should have 2 recipes");
+
+        // Test assets_with_recipes
+        let assets = super::AsyncRecipeProvider::assets_with_recipes(&provider, &folder_key, envref.clone()).await.unwrap();
+        assert_eq!(assets.len(), 2, "Should have 2 assets with recipes");
+        
+        let asset_names: Vec<String> = assets.iter().map(|a| a.name.clone()).collect();
+        assert!(asset_names.contains(&"test.txt".to_string()));
+        assert!(asset_names.contains(&"another.json".to_string()));
+
+        // Test recipe
+        let test_recipe_key = parse_key("folder/test.txt").unwrap();
+        let recipe = super::AsyncRecipeProvider::recipe(&provider, &test_recipe_key, envref.clone()).await.unwrap();
+        assert_eq!(recipe.title, "Test Recipe");
+        assert_eq!(recipe.description, "A test recipe");
+        
+        // Verify CWD was set correctly
+        assert_eq!(recipe.cwd, Some("folder".to_string()));
+
+        // Test recipe_opt with existing recipe
+        let recipe_opt = super::AsyncRecipeProvider::recipe_opt(&provider, &test_recipe_key, envref.clone()).await.unwrap();
+        assert!(recipe_opt.is_some());
+
+        // Test recipe_opt with non-existing recipe
+        let nonexistent_key = parse_key("folder/nonexistent.txt").unwrap();
+        let recipe_opt = super::AsyncRecipeProvider::recipe_opt(&provider, &nonexistent_key, envref.clone()).await.unwrap();
+        assert!(recipe_opt.is_none());
+
+        // Test contains
+        let contains = super::AsyncRecipeProvider::contains(&provider, &test_recipe_key, envref.clone()).await.unwrap();
+        assert!(contains, "Should contain test.txt recipe");
+
+        let not_contains = super::AsyncRecipeProvider::contains(&provider, &nonexistent_key, envref.clone()).await.unwrap();
+        assert!(!not_contains, "Should not contain nonexistent.txt recipe");
+    }
+
 }
