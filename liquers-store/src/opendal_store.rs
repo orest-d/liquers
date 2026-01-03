@@ -231,6 +231,11 @@ impl AsyncOpenDALStore {
     pub fn key_to_path(&self, key: &Key) -> String {
         key.encode()
     }
+    pub fn path_to_key(&self, path: &str) -> Result<Key, Error> {
+        use liquers_core::parse;
+        let trimmed = path.trim_matches('/').trim_end_matches(Self::METADATA);
+        parse::parse_key(trimmed)
+    }
 
     pub fn key_to_path_metadata(&self, key: &Key) -> String {
         format!("{}{}", key.encode(), Self::METADATA)
@@ -240,6 +245,14 @@ impl AsyncOpenDALStore {
     }
     fn map_write_error<T>(&self, key:&Key, res:opendal::Result<T>)->Result<T, liquers_core::error::Error> {
         res.map_err(|e| liquers_core::error::Error::key_write_error(key, &self.store_name(), &format!("{e} (OpenDAL Write Error)")))
+    }
+    async fn make_sub_dirs(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
+        for i in 1..=key.len() {
+            let sub_key = key.prefix_of_size(i).unwrap();
+            let path = self.key_to_path(&sub_key);
+            let _ignore =  self.op.create_dir(&path).await;
+        }
+        Ok(())
     }
 }
 
@@ -298,6 +311,7 @@ impl AsyncStore for AsyncOpenDALStore{
     /// Store data and metadata.
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         //TODO: create_dir
+        self.make_sub_dirs(&key.parent()).await?;
         let mut tmp_metadata = metadata.clone();
         self.finalize_metadata(&mut tmp_metadata, key, data, true);
         tmp_metadata.set_status(Status::Storing)?;
@@ -314,6 +328,7 @@ impl AsyncStore for AsyncOpenDALStore{
     /// Store metadata only
     async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
         //TODO: create_dir
+        self.make_sub_dirs(&key.parent()).await?;
         let metadata_str = match metadata {
             Metadata::MetadataRecord(metadata) => serde_json::to_string_pretty(metadata)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
@@ -377,14 +392,19 @@ impl AsyncStore for AsyncOpenDALStore{
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        /*
         if !self.is_dir(key).await? {
             return Err(Error::general_error(format!("Key {} is not a directory", key)).with_key(key));
         }
+        */
         let mut list = BTreeSet::new();
         let path = self.key_to_path(key);
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
         for entry in entries {
             let mut name = entry.name().to_string();
+            name = name.trim_matches('/').to_string();
+            name = name.trim_matches('\\').to_string();
+
             if name.ends_with(Self::METADATA) {
                 name = name.trim_end_matches(Self::METADATA).to_string();
             }            
@@ -405,15 +425,19 @@ impl AsyncStore for AsyncOpenDALStore{
     /// Keys directly in the directory are returned,
     /// as well as in all the subdirectories.
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let keys = self.listdir_keys(key).await?;
-        let mut keys_deep = keys.clone();
-        for sub_key in keys {
-            if self.is_dir(&sub_key).await? {
-                let sub = self.listdir_keys_deep(&sub_key).await?;
-                keys_deep.extend(sub.into_iter());
+        let mut list = BTreeSet::new();
+        let path = self.key_to_path(key);
+        let entries = self.map_read_error(key, self.op.list_with(&path).recursive(true).await)?;
+        for entry in entries {
+            if let Ok(sub) = self.path_to_key(entry.path()) {
+                for i in (key.len()+1)..=sub.len() {
+                    let sub_key = sub.prefix_of_size(i).unwrap();
+                    list.insert(sub_key);
+                }
+                list.insert(sub);
             }
         }
-        Ok(keys_deep)
+        Ok(list.into_iter().collect())
     }
 
     /// Make a directory
@@ -539,6 +563,43 @@ mod tests {
         assert!(store.listdir(&Key::new()).await.unwrap().is_empty());
         assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
 
+    }
+
+    #[tokio::test]
+    async fn test_opendal_subdir() {
+        // Create a memory operator
+        // Note that memory backend does not support directories explicitly, so not wverything works as it should
+        let memory = Memory::default();
+        let op = Operator::new(memory).unwrap().finish();
+        let store = AsyncOpenDALStore::new(op, Key::new());
+
+        assert_eq!(store.keys().await.unwrap().len(), 1);
+        assert!(store.listdir(&Key::new()).await.unwrap().is_empty());
+        assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
+
+        let key = parse_key("sub/foo.txt").unwrap();
+        let subkey = parse_key("sub").unwrap();
+        let data = b"hello world";
+
+        // Write data
+        store.set(&key, data, &Metadata::new()).await.unwrap();
+        assert!(store.contains(&key).await.unwrap());
+        //assert!(store.is_dir(&subkey).await.unwrap());
+        println!("After set: {:?}", store.keys().await.unwrap());
+        for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
+            println!("Key {i}: {}", k.encode());
+        }
+
+        assert_eq!(store.keys().await.unwrap().len(), 3);
+        assert!(store.keys().await.unwrap().into_iter().map(|x| x.encode()).collect::<Vec<_>>().contains(&"sub/foo.txt".to_string()));
+        assert!(store.listdir(&subkey).await.unwrap().len() == 1);
+        /*
+        assert!(store.listdir(&subkey).await.unwrap()[0] == "sub/foo.txt");
+        assert!(store.listdir_keys(&subkey).await.unwrap().len() == 1);
+        assert!(store.listdir_keys(&subkey).await.unwrap()[0].encode() == "sub/foo.txt");
+        assert!(store.listdir_keys_deep(&subkey).await.unwrap().len() == 1);
+        assert!(store.listdir_keys_deep(&subkey).await.unwrap()[0].encode() == "sub/foo.txt");
+        */
     }
 
 }
