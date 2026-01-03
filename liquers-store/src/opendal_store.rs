@@ -424,6 +424,9 @@ impl AsyncStore for AsyncOpenDALStore{
         let path = self.key_to_path(key).trim_end_matches('/').to_string()+"/"; // Ensure trailing slash for directory
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
         for entry in entries {
+            if self.path_to_key(entry.path())? == *key {
+                continue;
+            }
             let mut name = entry.name().to_string();
             name = name.trim_matches('/').to_string();
             name = name.trim_matches('\\').to_string();
@@ -638,13 +641,18 @@ mod tests {
         for (i, k) in store.listdir(&parse_key("src").unwrap()).await.unwrap().into_iter().enumerate() {
             println!("Item {i}: {k}");
         }
+        for (i, k) in store.listdir_keys(&parse_key("src").unwrap()).await.unwrap().into_iter().enumerate() {
+            println!("KEY Item {i}: {k}");
+        }
         let mut env = SimpleEnvironment::<Value>::new();
         env.with_async_store(store);
 
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
+        println!("----------------------------");
         let a = envref.evaluate("-R-dir/src").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
+        println!("----------------------------");
         if let Value::AssetInfo(a) = &*s.data {
             let names: std::collections::HashSet<String> = a
                 .iter()
