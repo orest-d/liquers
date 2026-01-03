@@ -438,3 +438,61 @@ impl AsyncStore for AsyncOpenDALStore{
     }
 
 }
+
+#[cfg(feature = "async_store")]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use liquers_core::metadata::{Metadata, MetadataRecord};
+    use liquers_core::parse::parse_key;
+    use opendal::services::Memory;
+    use opendal::Operator;
+
+    #[tokio::test]
+    async fn test_async_opendal_store_memory_basic() {
+        // Create a memory operator
+        let memory = Memory::default();
+        let op = Operator::new(memory).unwrap().finish();
+        let store = AsyncOpenDALStore::new(op, Key::new());
+        let key = parse_key("foo.txt").unwrap();
+        let data = b"hello world";
+
+        // Write data
+        store.set(&key, data, &Metadata::new()).await.unwrap();
+
+        // Read data
+        let (read_data, read_metadata) = store.get(&key).await.unwrap();
+        assert_eq!(read_data, data);
+        assert!(matches!(read_metadata, Metadata::MetadataRecord(_)));
+
+        // Remove data
+        store.remove(&key).await.unwrap();
+        let result = store.get(&key).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_async_opendal_store_metadata() {
+        let memory = Memory::default();
+        let op = Operator::new(memory).unwrap().finish();
+        let store = AsyncOpenDALStore::new(op, parse_key("").unwrap());
+        let key = parse_key("bar.txt").unwrap();
+        let data = b"testdata";
+        let mut metadata = MetadataRecord::new();
+        metadata
+            .with_title("Test Title".into())
+            .with_filename("bar.txt".into());
+
+        // Write data and metadata
+        store.set(&key, data, &metadata.into()).await.unwrap();
+
+        // Read metadata
+        let read_metadata = store.get_metadata(&key).await.unwrap();
+        if let Metadata::MetadataRecord(m) = read_metadata {
+            assert_eq!(m.title, "Test Title");
+            assert_eq!(m.filename(), Some("bar.txt".to_string()));
+        } else {
+            panic!("Expected MetadataRecord");
+        }
+    }
+}

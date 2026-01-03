@@ -13,10 +13,14 @@ serde = "1.0.181"
 serde_derive = "1.0.181"
 serde_json = "1.0.104"
 serde_yaml = "0.9.33"
-opendal = "0.54.1"
+opendal = "0.55.0"
 bytes = "1.8.0"
 async-trait = "0.1.80"
 
 [features]
 default=["async_store"]
 async_store=[]
+
+[dev-dependencies]
+tokio = {version="1.47.1", features = ["full"]}
+liquers-macro={path="../liquers-macro"}
