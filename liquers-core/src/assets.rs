@@ -1415,9 +1415,11 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// Only info of assets present directly in the directory are returned,
     /// subdirectories are not traversed.
     async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+        println!("Listing asset info in directory {}", key);
         let keys = self.listdir_keys(key).await?;
         let mut asset_info = Vec::new();
         for k in keys {
+            println!("Getting asset info for key {}", k);
             let info = self.get_asset_info(&k).await?;
             asset_info.push(info);
         }
@@ -1597,7 +1599,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             assetref.get_asset_info().await
         } else {
             let store = self.get_envref().get_async_store();
+            println!("Checking if store contains key {} {:?}", key, store.contains(key).await);
             if store.contains(key).await? {
+                println!("Getting asset info from store for key {}", key);
                 store.get_asset_info(key).await
             } else {
                 let rp = self.get_recipe_provider();

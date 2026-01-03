@@ -24,3 +24,4 @@ async_store=[]
 [dev-dependencies]
 tokio = {version="1.47.1", features = ["full"]}
 liquers-macro={path="../liquers-macro"}
+opendal = { version = "0.55", features = ["services-fs"] }

@@ -304,7 +304,28 @@ impl AsyncStore for AsyncOpenDALStore{
                 "Metadata parsing error",
             ))
         } else {
-            Err(Error::key_not_found(key))
+            let path = self.key_to_path(key);
+            if self.map_read_error(key, self.op.exists(&path).await)? {
+                let stat = self.map_read_error(key, self.op.stat(&path).await)?;
+                if stat.is_dir() {
+                    let mut metadata = self.default_metadata(key, true);
+                    // FIXME: This currently does not work due to some bug with handling '/'
+                    // Anyway, it may be too expensive to list directory contents here.
+                    //metadata.children = self.listdir_asset_info(key).await.unwrap_or_default();
+                    return Ok(Metadata::MetadataRecord(metadata));
+                } else {
+                    let mut metadata = self.default_metadata(key, false);
+                    metadata.warning(&format!("Metadata file {} does not exist.", path));
+                    metadata.warning("New metadata has been created. (get_metadata)");
+                    let mut metadata = Metadata::MetadataRecord(metadata);
+                    let data = self.get_bytes(key).await?;
+                    self.finalize_metadata(&mut metadata, key, &data, false);
+                    //self.set_metadata(key, &metadata)?;
+                    return Ok(metadata);
+                }
+            } else {
+                Err(Error::key_not_found(key))
+            }
         }
     }
 
@@ -384,7 +405,9 @@ impl AsyncStore for AsyncOpenDALStore{
     /// List or iterator of all keys
     async fn keys(&self) -> Result<Vec<Key>, Error> {
         let mut keys = self.listdir_keys_deep(&self.key_prefix()).await?;
-        keys.push(self.key_prefix().to_owned());
+        if !keys.contains(&self.key_prefix()) {
+            keys.push(self.key_prefix().to_owned());
+        }
         Ok(keys)
     }
 
@@ -398,7 +421,7 @@ impl AsyncStore for AsyncOpenDALStore{
         }
         */
         let mut list = BTreeSet::new();
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key).trim_end_matches('/').to_string()+"/"; // Ensure trailing slash for directory
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
         for entry in entries {
             let mut name = entry.name().to_string();
@@ -470,8 +493,10 @@ impl AsyncStore for AsyncOpenDALStore{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use liquers_core::context::{EnvRef, Environment, SimpleEnvironment};
     use liquers_core::metadata::{Metadata, MetadataRecord};
     use liquers_core::parse::parse_key;
+    use liquers_core::value::Value;
     use opendal::services::Memory;
     use opendal::Operator;
 
@@ -600,6 +625,36 @@ mod tests {
         assert!(store.listdir_keys_deep(&subkey).await.unwrap().len() == 1);
         assert!(store.listdir_keys_deep(&subkey).await.unwrap()[0].encode() == "sub/foo.txt");
         */
+    }
+    #[tokio::test]
+    async fn test_opendal_localfs() {
+        let op = opendal::Operator::new(opendal::services::Fs::default().root(".")).expect("OpenDAL FS store").finish();
+        let store: Box<dyn AsyncStore> = Box::new(AsyncOpenDALStore::new(op, Key::new()));
+        for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
+            println!("Key {i}: {} {}", k.encode(), store.contains(&k).await.unwrap());
+            assert!(store.contains(&k).await.unwrap());
+            println!("Asset info: {:?}", store.get_asset_info(&k).await.unwrap().filename);
+        }
+        for (i, k) in store.listdir(&parse_key("src").unwrap()).await.unwrap().into_iter().enumerate() {
+            println!("Item {i}: {k}");
+        }
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(store);
+
+        let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
+
+        let a = envref.evaluate("-R-dir/src").await.unwrap();
+        let s = a.get().await.expect("Failed to get asset state");
+        if let Value::AssetInfo(a) = &*s.data {
+            let names: std::collections::HashSet<String> = a
+                .iter()
+                .map(|x| x.filename.as_ref().unwrap().clone())
+                .collect();
+            println!("Names: {:?}", names);
+        } else {
+            println!("Expected AssetInfo value, got {:?}", s.data);
+        }
+
     }
 
 }
