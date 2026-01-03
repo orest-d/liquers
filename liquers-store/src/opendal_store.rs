@@ -377,6 +377,9 @@ impl AsyncStore for AsyncOpenDALStore{
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        if !self.is_dir(key).await? {
+            return Err(Error::general_error(format!("Key {} is not a directory", key)).with_key(key));
+        }
         let mut list = BTreeSet::new();
         let path = self.key_to_path(key);
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
@@ -405,7 +408,7 @@ impl AsyncStore for AsyncOpenDALStore{
         let keys = self.listdir_keys(key).await?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
-            if self.is_dir(&key).await? {
+            if self.is_dir(&sub_key).await? {
                 let sub = self.listdir_keys_deep(&sub_key).await?;
                 keys_deep.extend(sub.into_iter());
             }
@@ -495,4 +498,47 @@ mod tests {
             panic!("Expected MetadataRecord");
         }
     }
+
+    #[tokio::test]
+    async fn test_opendal_dir() {
+        // Create a memory operator
+        let memory = Memory::default();
+        let op = Operator::new(memory).unwrap().finish();
+        let store = AsyncOpenDALStore::new(op, Key::new());
+
+        assert_eq!(store.keys().await.unwrap().len(), 1);
+        assert!(store.listdir(&Key::new()).await.unwrap().is_empty());
+        assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
+
+        let key = parse_key("foo.txt").unwrap();
+        let data = b"hello world";
+
+        // Write data
+        store.set(&key, data, &Metadata::new()).await.unwrap();
+        println!("After set: {:?}", store.keys().await.unwrap());
+        for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
+            println!("Key {i}: {}", k.encode());
+        }
+
+        assert_eq!(store.keys().await.unwrap().len(), 2);
+        assert!(store.keys().await.unwrap().into_iter().map(|x| x.encode()).collect::<Vec<_>>().contains(&"foo.txt".to_string()));
+        assert!(store.listdir(&Key::new()).await.unwrap().len() == 1);
+        assert!(store.listdir(&Key::new()).await.unwrap()[0] == "foo.txt");
+        assert!(store.listdir_keys(&Key::new()).await.unwrap().len() == 1);
+        assert!(store.listdir_keys(&Key::new()).await.unwrap()[0].encode() == "foo.txt");
+        assert!(store.listdir_keys_deep(&Key::new()).await.unwrap().len() == 1);
+        assert!(store.listdir_keys_deep(&Key::new()).await.unwrap()[0].encode() == "foo.txt");
+
+
+        // Remove data
+        store.remove(&key).await.unwrap();
+        let result = store.get(&key).await;
+        assert!(result.is_err());
+
+        assert_eq!(store.keys().await.unwrap().len(), 1);
+        assert!(store.listdir(&Key::new()).await.unwrap().is_empty());
+        assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
+
+    }
+
 }
