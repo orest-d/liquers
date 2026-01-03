@@ -342,10 +342,7 @@ impl DefaultRecipeProvider {
             .get_bytes(&key.join("recipes.yaml"))
             .await
             .map_or(
-                Err(
-                    Error::general_error(format!("No recipes found for folder {}", key))
-                        .with_key(key),
-                ),
+                Ok(RecipeList::new()),
                 |bytes| {
                     serde_yaml::from_slice(&bytes)
                         .map_err(|e| Error::general_error(format!("Error parsing recipes: {}", e)))

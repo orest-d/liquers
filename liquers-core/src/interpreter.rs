@@ -743,4 +743,119 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_dir_no_recipe_yaml() {
+        use crate::context::{EnvRef, Environment, SimpleEnvironment};
+        use crate::metadata::Metadata;
+        use crate::parse::parse_key;
+        use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+        use crate::value::Value;
+
+        // Create a MemoryStore and populate it with recipes.yaml
+        let memory_store = MemoryStore::new(&Key::new());
+
+        memory_store
+            .set(
+                &parse_key("folder/test.txt").unwrap(),
+                "Hello, world!".as_bytes(),
+                &Metadata::new(),
+            )
+            .unwrap();
+
+        // Wrap the MemoryStore with AsyncStoreWrapper
+        let async_store = AsyncStoreWrapper(memory_store);
+
+        // Create a SimpleEnvironment and set the async store
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(async_store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider));
+
+        let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
+
+        let a = envref.evaluate("-R-dir/folder").await.unwrap();
+        let s = a.get().await.expect("Failed to get asset state");
+
+        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        assert!(!s.is_error().unwrap());
+        if let Value::AssetInfo(a) = &*s.data {
+            assert_eq!(a.len(), 1);
+            let names: std::collections::HashSet<String> = a
+                .iter()
+                .map(|x| x.filename.as_ref().unwrap().clone())
+                .collect();
+            //println!("Names: {:?}", names);
+            assert!(names.contains(&"test.txt".to_string()));
+        } else {
+            panic!("Expected AssetInfo value");
+        }
+
+        let a = envref.evaluate("-R-dir").await.unwrap();
+        let s = a.get().await.expect("Failed to get asset state");
+
+        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        assert!(!s.is_error().unwrap());
+        if let Value::AssetInfo(a) = &*s.data {
+            assert_eq!(a.len(), 1);
+            let names: std::collections::HashSet<String> = a
+                .iter()
+                .map(|x| x.filename.as_ref().unwrap().clone())
+                .collect();
+            //println!("Names: {:?}", names);
+            assert!(names.contains(&"folder".to_string()));
+        } else {
+            panic!("Expected AssetInfo value");
+        }
+
+    }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_dir_no_recipe_provider() {
+        use crate::context::{EnvRef, Environment, SimpleEnvironment};
+        use crate::metadata::Metadata;
+        use crate::parse::parse_key;
+        use crate::store::{AsyncStore, AsyncStoreWrapper, MemoryStore, Store};
+        use crate::value::Value;
+
+        // Create a MemoryStore and populate it with recipes.yaml
+        let memory_store = MemoryStore::new(&Key::new());
+
+
+        // Wrap the MemoryStore with AsyncStoreWrapper
+        let async_store = AsyncStoreWrapper(memory_store);
+        async_store.set(
+            &parse_key("file1.txt").unwrap(),
+            "File 1 contents".as_bytes(),
+            &Metadata::new(),
+        ).await.unwrap();
+
+        // Create a SimpleEnvironment and set the async store
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(async_store));
+
+        let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
+
+        let a = envref.evaluate("-R-dir").await.unwrap();
+        let s = a.get().await.expect("Failed to get asset state");
+
+        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        assert!(!s.is_error().unwrap());
+        if let Value::AssetInfo(a) = &*s.data {
+            assert_eq!(a.len(), 1);
+            let names: std::collections::HashSet<String> = a
+                .iter()
+                .map(|x| x.filename.as_ref().unwrap().clone())
+                .collect();
+            //println!("Names: {:?}", names);
+            assert!(names.contains(&"file1.txt".to_string()));
+        } else {
+            panic!("Expected AssetInfo value");
+        }
+    }
+
 }

@@ -418,7 +418,8 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
-        panic!("No recipe provider configured in SimpleEnvironment");
+        eprintln!("No recipe provider configured in SimpleEnvironment");
+        Arc::new(Box::new(crate::recipes::TrivialRecipeProvider))
     }
     
     fn init_with_envref(&self, envref: EnvRef<Self>) {

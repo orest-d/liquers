@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -949,7 +950,10 @@ impl Store for MemoryStore {
 
     fn contains(&self, key: &Key) -> Result<bool, Error> {
         let mem = self.data.read().unwrap();
-        Ok(mem.contains_key(key))
+        if mem.contains_key(key){
+            return Ok(true);
+        }
+        Ok(self.is_dir(key)?)
     }
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
@@ -983,10 +987,10 @@ impl Store for MemoryStore {
         let n = key.len() + 1;
         let keys = mem
             .keys()
-            .filter(|k| k.has_key_prefix(key) && k.len() == n)
-            .cloned()
-            .collect::<Vec<_>>();
-        Ok(keys)
+            .filter(|k| k.has_key_prefix(key))
+            .filter_map(|k| k.prefix_of_size(n))
+            .collect::<BTreeSet<_>>();
+        Ok(keys.into_iter().collect())
     }
 
     fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {

@@ -1260,6 +1260,19 @@ impl Key {
         true
     }
 
+    /// Return a new key with a prefix of exactly n elements.
+    /// If the key has less than n elements, return None.
+    pub fn prefix_of_size(&self, n: usize) -> Option<Self> {
+        let mut key = Vec::new();
+        if self.len() < n {
+            return None;
+        }
+        for x in self.iter().take(n) {
+            key.push(x.clone());
+        }
+        Some(Key(key))
+    }
+
     /// Append a name as a new element at the end of the key
     pub fn join<S: AsRef<str>>(&self, name: S) -> Self {
         let mut key = self.clone();

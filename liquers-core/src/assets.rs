@@ -1600,9 +1600,16 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if store.contains(key).await? {
                 store.get_asset_info(key).await
             } else {
-                self.get_recipe_provider()
-                    .get_asset_info(key, self.get_envref())
-                    .await
+                let rp = self.get_recipe_provider();
+                if rp.contains(key, self.get_envref()).await? {
+                    rp.get_asset_info(key, self.get_envref()).await
+                }
+                else{
+                    Err(Error::general_error(format!(
+                        "Asset not found for key {} (get_asset_info)",
+                        key
+                    )).with_key(key))
+                }
             }
         }
     }
