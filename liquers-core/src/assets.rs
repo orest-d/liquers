@@ -49,7 +49,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context::Context;
 use crate::interpreter::IsVolatile;
-use crate::metadata::{AssetInfo, LogEntry, ProgressEntry};
+use crate::metadata::{AssetInfo, LogEntry, MetadataRecord, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
     context::{EnvRef, Environment},
@@ -251,10 +251,10 @@ impl<E: Environment> AssetData<E> {
         } else {
             Arc::new(None)
         };
-        let assetinfo = recipe
+        let mut assetinfo = recipe
             .get_asset_info()
             .unwrap_or_else(|_| AssetInfo::default());
-
+        assetinfo.type_identifier = initial_state.type_identifier().to_string();
         let asset = AssetData {
             id,
             envref,
@@ -464,9 +464,11 @@ impl<E: Environment> AssetData<E> {
         match self.status {
             Status::None => None,
             Status::Directory => {
+                let mut metadata = self.metadata.clone();
+                metadata.with_type_identifier("dir".to_string()); 
                 Some(State {
                     data: Arc::new(E::Value::none()),
-                    metadata: Arc::new(self.metadata.clone()),
+                    metadata: Arc::new(metadata),
                 })
             },
             Status::Recipe => None,
@@ -475,17 +477,21 @@ impl<E: Environment> AssetData<E> {
             Status::Processing => None,
             Status::Partial => None,
             Status::Error | Status::Cancelled  => {
+                let mut metadata = self.metadata.clone();
                 Some(State {
                     data: Arc::new(E::Value::none()),
-                    metadata: Arc::new(self.metadata.clone()),
+                    metadata: Arc::new(metadata),
                 })
             }
             Status::Storing => None,
             Status::Ready | Status::Expired | Status::Source=> {
                 if let Some(data) = &self.data {
+                    let mut metadata = self.metadata.clone();
+                    metadata.with_type_identifier(data.identifier().to_string()); 
+
                     Some(State {
                         data: data.clone(),
-                        metadata: Arc::new(self.metadata.clone()),
+                        metadata: Arc::new(metadata),
                     })
                 } else {
                     None
@@ -497,9 +503,13 @@ impl<E: Environment> AssetData<E> {
     /// Poll the current binary data and metadata without any async operations.
     /// Returns None if binary or metadata is not available.
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        let mut metadata = self.metadata.clone();
+        if let Some(data) = self.data.as_ref() {
+            metadata.with_type_identifier(data.identifier().to_string());
+        } 
         self.binary
             .clone()
-            .zip(Some(Arc::new(self.metadata.clone())))
+            .zip(Some(Arc::new(metadata)))
     }
 
     /// Reset the asset data, binary and metadata.
@@ -1008,20 +1018,26 @@ impl<E: Environment> AssetRef<E> {
         let res = envref.apply_recipe(input_state, recipe, context).await?;
         println!("Recipe evaluated, result: {:?}", &res);
 
+        let mut metadata = self.data.read().await.metadata.clone();
+        if let Some(data) = self.data.read().await.data.as_ref() {
+            metadata.with_type_identifier(data.identifier().to_string());
+        }
         Ok(State {
             data: res,
-            metadata: Arc::new(self.data.read().await.metadata.clone()),
+            metadata: Arc::new(metadata),
         })
     }
 
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
         let res = self.evaluate_recipe().await;
         match res {
-            Ok(state) => {
+            Ok(State{data, metadata}) => {
                 let mut lock = self.data.write().await;
-                lock.data = Some(state.data.clone());
-                lock.metadata = (*state.metadata).clone();
-                lock.status = state.metadata.status();
+                let mut metadata_clone = (*metadata).clone();
+                metadata_clone.with_type_identifier(data.identifier().to_string()).clone();
+                lock.data = Some(data);
+                lock.status = metadata_clone.status();
+                lock.metadata = metadata_clone;
                 match lock.status {
                     Status::None
                     | Status::Recipe
@@ -1322,7 +1338,9 @@ impl<E: Environment> AssetRef<E> {
     ) -> Result<(), Error> {
         println!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
-        lock.data = Some(state.data.clone());
+        let data = state.data.clone();
+        lock.metadata.with_type_identifier(data.identifier().to_string());
+        lock.data = Some(data);
         lock.metadata = (*state.metadata).clone();
         lock.binary = None; // Invalidate binary
                             // TODO: Update metadata with value info
@@ -1618,8 +1636,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
     /// Create an ad-hoc asset applied to a value
     async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error> {
-        let metadata = Arc::new(Metadata::new());
-        let initial_state = State::from_value_and_metadata(to, metadata);
+        let mut metadata = MetadataRecord::new();
+        metadata.with_type_identifier(to.identifier().to_string());
+        let initial_state = State::from_value_and_metadata(to, Arc::new(metadata.into()));
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
@@ -1636,8 +1655,9 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         to: E::Value,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
-        let metadata = Arc::new(Metadata::new());
-        let initial_state = State::from_value_and_metadata(to, metadata);
+        let mut metadata = MetadataRecord::new();
+        metadata.with_type_identifier(to.identifier().to_string());
+        let initial_state = State::from_value_and_metadata(to, Arc::new(metadata.into()));
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future

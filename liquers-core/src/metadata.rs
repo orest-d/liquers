@@ -369,6 +369,7 @@ impl AssetInfo {
             ..Self::default()
         }
     }
+
     /// Sets the key.
     /// Note that a query and filename (if available in the key) is also set.
     pub fn with_key(&mut self, key: Key) -> &mut Self {
@@ -1214,11 +1215,13 @@ impl Metadata {
     pub fn with_error(&mut self, e: Error) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("type_identifier".to_string(), Value::String("error".to_string()));
                 o.insert("is_error".to_string(), Value::Bool(true));
                 o.insert("message".to_string(), Value::String(e.to_string()));
                 self
             }
             Metadata::MetadataRecord(m) => {
+                m.type_identifier = "error".to_string();
                 m.with_error(e);
                 self
             }

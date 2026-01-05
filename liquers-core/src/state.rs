@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use crate::{error::Error, metadata::{AssetInfo, Metadata, Status}, value::ValueInterface};
 
@@ -30,7 +30,8 @@ impl<V: ValueInterface> State<V> {
         }
     }
 
-    pub fn with_metadata(self, metadata: Metadata) -> Self {
+    pub fn with_metadata(self, mut metadata: Metadata) -> Self {
+        metadata.with_type_identifier(self.data.identifier().to_string());
         State {
             data: self.data,
             metadata: Arc::new(metadata),
@@ -92,6 +93,12 @@ impl<V: ValueInterface> State<V> {
             self.data.default_extension().to_string()
         }
     }
+
+    /// Get type identifier from data.
+    pub fn type_identifier(&self) -> Cow<'static, str> {
+        self.data.identifier()
+    }
+
 
     /// Get the data format
     /// Wrapper for metadata.get_data_format()

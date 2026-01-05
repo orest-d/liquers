@@ -165,12 +165,12 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     /// String identifier of the state type
     /// Several types can be linked to the same identifier.
     /// The identifier must be cross-platform
-    fn identifier(&self) -> Cow<'static, str>;
+    fn identifier(&self) -> Cow<'static, str>; // TODO: Rename to type_identifier?
 
     /// String name of the stored type
     /// The type_name is more detailed than identifier.
     /// The identifier does not need to be cross-platform, it serves more for information and debugging
-    fn type_name(&self) -> Cow<'static, str>;
+    fn type_name(&self) -> Cow<'static, str>; // TODO: Rename to detailed_type_identifier?
 
     /// Default file extension; determines the default data format
     /// Must be consistent with the default_media_type.
@@ -689,7 +689,14 @@ pub trait DefaultValueSerializer
 where
     Self: Sized,
 {
+    /// Serialize to bytes using the specified data format
+    /// data format typically is a file extension like "json", "txt",
+    /// but it can be more specific like "csv:comma"
     fn as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error>;
+
+    /// Deserialize from bytes using the specified data format and type identifier
+    /// An empty type identifier means that the type identifier is not known
+    /// and the deserializer should try to infer the type from the data format.
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, data_format: &str)
         -> Result<Self, Error>;
 }
@@ -734,6 +741,7 @@ impl DefaultValueSerializer for Value {
             )),
         }
     }
+
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, data_format: &str) -> Result<Self, Error> {
         match data_format {
             "json" => serde_json::from_slice(b).map_err(|e| {
@@ -745,6 +753,7 @@ impl DefaultValueSerializer for Value {
             "txt" | "html" | "rs" | "py" | "css" | "js" => {
                 let s = String::from_utf8_lossy(b);
                 match type_identifier {
+                    "" => Ok(Value::Text(s.to_string())),
                     "generic" => Ok(Value::Text(s.to_string())),
                     "text" => Ok(Value::Text(s.to_string())),
                     "i32" => s.parse::<i32>().map(Value::I32).map_err(|e| {

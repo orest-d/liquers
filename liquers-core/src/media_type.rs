@@ -1,3 +1,5 @@
+/// Map file extensions to media types
+/// For unknown extensions, returns "application/octet-stream"
 pub fn file_extension_to_media_type(extension: &str) -> &str {
     match extension {
         "7z" => "application/x-7z-compressed",
