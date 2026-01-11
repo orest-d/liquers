@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::RichText;
 use liquers_core::error::Error;
 
-use crate::{egui::widgets::{display_asset_info, display_asset_info_table, display_error, display_styled_query}, value::{ExtValue, Value, simple::SimpleValue}};
+use crate::{egui::widgets::{display_asset_info, display_asset_info_table, display_error, display_recipe, display_styled_query}, value::{ExtValue, Value, simple::SimpleValue}};
 
 pub mod widgets;
 pub mod commands;
@@ -111,7 +111,9 @@ impl UIValueExtension for Value {
                     }
                 }
             }
-            Self::Base(SimpleValue::Recipe { value }) => todo!(),
+            Self::Base(SimpleValue::Recipe { value }) => {
+                display_recipe(ui, value);
+            },
             Self::Base(SimpleValue::CommandMetadata { value }) => todo!(),
             Self::Base(SimpleValue::Query { value }) => {
                 ui.label("Query:");

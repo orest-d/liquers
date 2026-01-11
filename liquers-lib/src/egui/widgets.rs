@@ -1,3 +1,71 @@
+use liquers_core::recipes::Recipe;
+/// Display a complete Recipe structure in egui, showing all fields in a user-friendly way
+pub fn display_recipe(ui: &mut egui::Ui, recipe: &Recipe) -> egui::Response {
+    use egui::Color32;
+    ui.vertical(|ui| {
+        // Header with icon and title
+        ui.horizontal(|ui| {
+            let icon = recipe.unicode_icon();
+            if !icon.is_empty() {
+                ui.label(egui::RichText::new(icon).size(20.0));
+            }
+            ui.heading(&recipe.title);
+            if recipe.volatile {
+                ui.colored_label(Color32::YELLOW, "volatile");
+            }
+        });
+        if !recipe.description.is_empty() {
+            ui.label(egui::RichText::new(&recipe.description).italics());
+        }
+        ui.separator();
+        // Query
+        ui.horizontal(|ui| {
+            ui.colored_label(Color32::LIGHT_GRAY, "Query:");
+            if let Ok(query) = recipe.get_query() {
+                crate::egui::widgets::display_styled_query(ui, query);
+            } else {
+                ui.colored_label(Color32::RED, "Invalid query");
+            }
+        });
+        // CWD
+        if let Some(cwd) = &recipe.cwd {
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::LIGHT_GRAY, "CWD:");
+                ui.label(cwd);
+            });
+        }
+        // Arguments
+        if !recipe.arguments.is_empty() {
+            ui.separator();
+            ui.strong("Arguments:");
+            for (k, v) in &recipe.arguments {
+                ui.horizontal(|ui| {
+                    ui.colored_label(Color32::LIGHT_BLUE, k);
+                    ui.label(format!("{}", v));
+                });
+            }
+        }
+        // Links
+        if !recipe.links.is_empty() {
+            ui.separator();
+            ui.strong("Links:");
+            for (k, v) in &recipe.links {
+                ui.horizontal(|ui| {
+                    ui.colored_label(Color32::LIGHT_GREEN, k);
+                    ui.label(v);
+                });
+            }
+        }
+        // Data format
+        if let Ok(fmt) = recipe.data_format() {
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::LIGHT_GRAY, "Data format:");
+                ui.label(fmt);
+            });
+        }
+    })
+    .response
+}
 use std::{fmt::Display, sync::Arc};
 
 use egui::{text::LayoutJob, Align, Color32, FontSelection, RichText, Style, TextEdit, Widget};
