@@ -458,6 +458,7 @@ impl RecipeList {
             if recipe.cwd.is_none() {
                 recipe.cwd = Some(cwd.clone());
             } else {
+                println!("Recipe already has CWD set to {:?}", recipe.cwd);
                 return Err(Error::not_supported(
                     "CWD can't be explicitly specified in a recipe".to_owned(),
                 ));
