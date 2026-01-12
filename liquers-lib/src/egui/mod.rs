@@ -7,6 +7,7 @@ use crate::{egui::widgets::{display_asset_info, display_asset_info_table, displa
 
 pub mod widgets;
 pub mod commands;
+pub mod dataframe;
 
 type UiClosure = Box<dyn FnMut(&mut egui::Ui) -> Result<(), Error> + Send>;
 #[derive(Clone)]
@@ -71,7 +72,10 @@ impl UIValueExtension for Value {
                 widget.show(ui);
             }
             Self::Extended(ExtValue::Image { value }) => todo!(),
-            Self::Extended(ExtValue::PolarsDataFrame { value }) => todo!(),
+            Self::Extended(ExtValue::PolarsDataFrame { value }) => {
+                let mut sort_state: Option<(usize, bool)> = None;
+                crate::egui::dataframe::display_polars_dataframe(ui, &value, &mut sort_state);
+            }
             Self::Base(SimpleValue::None {}) => {
                 ui.label(RichText::new("None").italics());
             }
