@@ -1,6 +1,7 @@
 use egui::{Color32, RichText};
 use polars::prelude::*;
 use egui_extras::{TableBuilder, Column};
+use chrono::NaiveDate;
 
 /// Display a polars DataFrame as a sortable table in egui.
 /// Data types are indicated by color:
@@ -35,10 +36,11 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
 
     let missing_icon = |ui: &mut egui::Ui| {
         // Show a yellow 'ⁿ̷ₐ' as missing value indicator
-        ui.label(RichText::new("ⁿ̷ₐ").color(Color32::YELLOW));
+        ui.label(RichText::new("ⁿ̷ₐ").color(Color32::ORANGE));
     };
 
     let light_green = Color32::from_rgb(144, 238, 144); // light green for unsigned integers
+    let cyan = Color32::from_rgb(0, 255, 255); // cyan for temporal types
 
     ui.vertical(|ui| {
         TableBuilder::new(ui)
@@ -193,17 +195,17 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                         }
                                     }
                                     DataType::Date => {
-                                        let v = col.date().unwrap().phys.get(row_idx);
-                                        if let Some(val) = v {
-                                            ui.label(format!("{val}"));
+                                        let v = col.date().unwrap().to_string("%Y-%m-%d").unwrap();
+                                        if let Some(val) = v.get(row_idx) {
+                                            ui.label(RichText::new(val).color(cyan));
                                         } else {
                                             missing_icon(ui);
                                         }
                                     }
                                     DataType::Datetime(_time_unit, _time_zone) => {
-                                        let v = col.datetime().unwrap().phys.get(row_idx);
-                                        if let Some(val) = v {
-                                            ui.label(format!("{val}"));
+                                        let v = col.datetime().unwrap().to_string("%Y-%m-%d %H:%M:%S").unwrap();
+                                        if let Some(val) = v.get(row_idx) {
+                                            ui.label(RichText::new(val).color(cyan));
                                         } else {
                                             missing_icon(ui);
                                         }

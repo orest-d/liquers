@@ -28,3 +28,4 @@ usvg = "0.45.1"
 tiny-skia = "0.11"
 futures = "0.3.31"
 egui_extras = "0.33.3"
+chrono = { version = "0.4.42", features = ["alloc"] }
