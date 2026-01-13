@@ -1011,7 +1011,8 @@ impl<E: Environment> AssetRef<E> {
                     (input_state, recipe)
                 }
                 else{
-                    println!("Delegating evaluation of asset {} to asset {}", self.id(), asset.id());
+                    println!("Delegating evaluation of asset {} to asset {} - FIXME", self.id(), asset.id());
+                    // FIXME: !!! this should make sure that the recipe starts in the queue, otherwise it might lead to deadlock
                     return asset.get().await;    
                 }
             }
