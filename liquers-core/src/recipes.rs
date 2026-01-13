@@ -1,3 +1,4 @@
+use std::fmt;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
@@ -206,6 +207,15 @@ impl Recipe {
         asset_info.status = Status::Recipe;
         asset_info.unicode_icon = self.unicode_icon();
         Ok(asset_info)
+    }
+}
+
+impl fmt::Display for Recipe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match serde_yaml::to_string(self) {
+            Ok(yaml) => write!(f, "{}", yaml),
+            Err(e) => write!(f, "<Failed to serialize Recipe: {}>", e),
+        }
     }
 }
 

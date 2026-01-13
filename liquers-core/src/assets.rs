@@ -999,7 +999,26 @@ impl<E: Environment> AssetRef<E> {
     }
 
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
-        let (input_state, recipe) = self.initial_state_and_recipe().await;
+        let (input_state, recipe) = {
+            let (input_state, recipe) = self.initial_state_and_recipe().await;
+            if let Ok(Some(key)) = recipe.key(){
+                let envref = self.get_envref().await;
+                let manager = envref.get_asset_manager();
+                let asset = manager.get(&key).await?;
+                if asset.id() == self.id(){
+                    let recipe = envref.clone().get_recipe_provider().recipe(&key, envref).await?;
+                    println!("Evaluating asset {} using its own recipe for key {}:\n{}\n", self.id(), key, recipe);
+                    (input_state, recipe)
+                }
+                else{
+                    println!("Delegating evaluation of asset {} to asset {}", self.id(), asset.id());
+                    return asset.get().await;    
+                }
+            }
+            else{
+                (input_state, recipe)
+            }
+        };
 
         println!("Evaluating recipe {:?}", &recipe);
         let envref = self.get_envref().await;
@@ -2193,6 +2212,58 @@ mod tests {
         assert_eq!(b.as_ref(), b"Hello, WORLD!");
     }
 
+     #[tokio::test]
+    async fn test_apply_immediately_with_recipe() {
+        use crate::context::{Environment, SimpleEnvironment};
+        use crate::metadata::Metadata;
+        use crate::parse::parse_key;
+        use crate::recipes::{Recipe, RecipeList, DefaultRecipeProvider};
+        use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+        use crate::value::Value;
+        use crate::command_metadata::CommandKey;
+
+        // 1. Create a recipe with a query "hello/hello.txt"
+        let recipe = Recipe::new(
+            "hello/hello.txt".to_string(),
+            "Test Hello Recipe".to_string(),
+            "A hello recipe".to_string(),
+        ).unwrap();
+
+        // 2. Add recipe to a RecipeList and serialize to YAML
+        let mut recipe_list = RecipeList::new();
+        recipe_list.add_recipe(recipe);
+        let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
+
+        // 3. Set it into memory store under key test/recipes.yaml
+        let recipes_key = parse_key("test/recipes.yaml").unwrap();
+        let metadata = Metadata::new();
+        let memory_store = MemoryStore::new(&parse_key("").unwrap());
+        memory_store.set(&recipes_key, yaml_content.as_bytes(), &metadata).unwrap();
+
+        // 4. Set the memory store in environment wrapped as AsyncStore
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(memory_store)));
+
+        // 5. Set DefaultAssetProvider as the asset provider for env
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+
+        // 6. Register a command hello returning "Hello, world!"
+        let key = CommandKey::new_name("hello");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        // 7. Evaluate a query "-R/test/hello.txt"
+        let envref = env.to_ref();
+        let asset = envref.evaluate("-R/test/hello.txt").await.unwrap();
+        let state = asset.get().await.expect("Failed to get asset state");
+
+        // 8. Check the result
+        let value = state.try_into_string().unwrap();
+        assert_eq!(value, "Hello, world!");
+        assert!(!state.is_error().unwrap());
+    }
+   
     #[tokio::test]
     async fn test_apply_immediately_with_payload() {
         let query = parse_query("test").unwrap();
