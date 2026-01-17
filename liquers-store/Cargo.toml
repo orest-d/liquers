@@ -16,10 +16,12 @@ serde_yaml = "0.9.33"
 opendal = "0.55.0"
 bytes = "1.8.0"
 async-trait = "0.1.80"
+toml = { version = "0.8", optional = true }
 
 [features]
 default=["async_store"]
 async_store=[]
+toml=["dep:toml"]
 
 [dev-dependencies]
 tokio = {version="1.47.1", features = ["full"]}

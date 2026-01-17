@@ -592,8 +592,8 @@ impl<T: Store + std::marker::Sync> AsyncStore for AsyncStoreWrapper<T> {
     /// Returns true when this store supports the supplied key.
     /// This allows layering Stores, e.g. by with_overlay, with_fallback
     /// and store selectively certain data (keys) in certain stores.
-    fn is_supported(&self, _key: &Key) -> bool {
-        false
+    fn is_supported(&self, key: &Key) -> bool {
+        self.0.is_supported(key)
     }
 }
 
@@ -1234,8 +1234,8 @@ pub struct AsyncStoreRouter {
 
 #[cfg(feature = "async_store")]
 impl AsyncStoreRouter {
-    pub fn new() -> StoreRouter {
-        StoreRouter { stores: Vec::new() }
+    pub fn new() -> AsyncStoreRouter {
+        AsyncStoreRouter { stores: Vec::new() }
     }
 
     pub fn add_store(&mut self, store: Box<dyn AsyncStore>) {
