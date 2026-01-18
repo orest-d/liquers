@@ -465,18 +465,18 @@ impl<E: Environment> AssetData<E> {
             Status::None => None,
             Status::Directory => {
                 let mut metadata = self.metadata.clone();
-                metadata.with_type_identifier("dir".to_string()); 
+                metadata.with_type_identifier("dir".to_string());
                 Some(State {
                     data: Arc::new(E::Value::none()),
                     metadata: Arc::new(metadata),
                 })
-            },
+            }
             Status::Recipe => None,
             Status::Submitted => None,
             Status::Dependencies => None,
             Status::Processing => None,
             Status::Partial => None,
-            Status::Error | Status::Cancelled  => {
+            Status::Error | Status::Cancelled => {
                 let mut metadata = self.metadata.clone();
                 Some(State {
                     data: Arc::new(E::Value::none()),
@@ -484,10 +484,10 @@ impl<E: Environment> AssetData<E> {
                 })
             }
             Status::Storing => None,
-            Status::Ready | Status::Expired | Status::Source=> {
+            Status::Ready | Status::Expired | Status::Source => {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
-                    metadata.with_type_identifier(data.identifier().to_string()); 
+                    metadata.with_type_identifier(data.identifier().to_string());
 
                     Some(State {
                         data: data.clone(),
@@ -496,7 +496,7 @@ impl<E: Environment> AssetData<E> {
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 
@@ -506,10 +506,8 @@ impl<E: Environment> AssetData<E> {
         let mut metadata = self.metadata.clone();
         if let Some(data) = self.data.as_ref() {
             metadata.with_type_identifier(data.identifier().to_string());
-        } 
-        self.binary
-            .clone()
-            .zip(Some(Arc::new(metadata)))
+        }
+        self.binary.clone().zip(Some(Arc::new(metadata)))
     }
 
     /// Reset the asset data, binary and metadata.
@@ -758,12 +756,14 @@ impl<E: Environment> AssetRef<E> {
             .send(AssetServiceMessage::JobFinishing)
             .ok();
         let psm_result = psm.await;
-        println!(
-            "Asset {} process_service_messages task joined",
-            self.id()
-        );
+        println!("Asset {} process_service_messages task joined", self.id());
         match psm_result {
-            Ok(Ok(())) => {println!("Asset {} process_service_messages task finished successfully", self.id());}
+            Ok(Ok(())) => {
+                println!(
+                    "Asset {} process_service_messages task finished successfully",
+                    self.id()
+                );
+            }
             Ok(Err(e)) => {
                 result = Err(e);
             }
@@ -786,21 +786,14 @@ impl<E: Environment> AssetRef<E> {
         }
 
         if let Err(e) = &result {
-            println!(
-                "Asset {} evaluation finished with error: {}",
-                self.id(),
-                e
-            );
+            println!("Asset {} evaluation finished with error: {}", self.id(), e);
             let mut lock = self.data.write().await;
             lock.data = None;
             lock.status = Status::Error;
             lock.binary = None;
             lock.metadata = Metadata::from_error(e.clone());
         } else {
-            println!(
-                "Asset {} evaluation finished without an error",
-                self.id(),
-            );
+            println!("Asset {} evaluation finished without an error", self.id(),);
             async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
                 eprintln!(
                     "Trying to set asset {} to ready - status {:?}",
@@ -865,10 +858,7 @@ impl<E: Environment> AssetRef<E> {
             .ok();
         {
             let mut lock = self.data.write().await;
-            println!(
-                "Asset {} sending JobFinished notification",
-                self.id()
-            );
+            println!("Asset {} sending JobFinished notification", self.id());
             lock.notification_tx
                 .send(AssetNotificationMessage::JobFinished)
                 .ok();
@@ -1001,22 +991,33 @@ impl<E: Environment> AssetRef<E> {
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
-            if let Ok(Some(key)) = recipe.key(){
+            if let Ok(Some(key)) = recipe.key() {
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
                 let asset = manager.get(&key).await?;
-                if asset.id() == self.id(){
-                    let recipe = envref.clone().get_recipe_provider().recipe(&key, envref).await?;
-                    println!("Evaluating asset {} using its own recipe for key {}:\n{}\n", self.id(), key, recipe);
+                if asset.id() == self.id() {
+                    let recipe = envref
+                        .clone()
+                        .get_recipe_provider()
+                        .recipe(&key, envref)
+                        .await?;
+                    println!(
+                        "Evaluating asset {} using its own recipe for key {}:\n{}\n",
+                        self.id(),
+                        key,
+                        recipe
+                    );
                     (input_state, recipe)
-                }
-                else{
-                    println!("Delegating evaluation of asset {} to asset {} - FIXME", self.id(), asset.id());
+                } else {
+                    println!(
+                        "Delegating evaluation of asset {} to asset {} - FIXME",
+                        self.id(),
+                        asset.id()
+                    );
                     // FIXME: !!! this should make sure that the recipe starts in the queue, otherwise it might lead to deadlock
-                    return asset.get().await;    
+                    return asset.get().await;
                 }
-            }
-            else{
+            } else {
                 (input_state, recipe)
             }
         };
@@ -1051,10 +1052,12 @@ impl<E: Environment> AssetRef<E> {
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
         let res = self.evaluate_recipe().await;
         match res {
-            Ok(State{data, metadata}) => {
+            Ok(State { data, metadata }) => {
                 let mut lock = self.data.write().await;
                 let mut metadata_clone = (*metadata).clone();
-                metadata_clone.with_type_identifier(data.identifier().to_string()).clone();
+                metadata_clone
+                    .with_type_identifier(data.identifier().to_string())
+                    .clone();
                 lock.data = Some(data);
                 lock.status = metadata_clone.status();
                 lock.metadata = metadata_clone;
@@ -1359,7 +1362,8 @@ impl<E: Environment> AssetRef<E> {
         println!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
         let data = state.data.clone();
-        lock.metadata.with_type_identifier(data.identifier().to_string());
+        lock.metadata
+            .with_type_identifier(data.identifier().to_string());
         lock.data = Some(data);
         lock.metadata = (*state.metadata).clone();
         lock.binary = None; // Invalidate binary
@@ -1635,7 +1639,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             assetref.get_asset_info().await
         } else {
             let store = self.get_envref().get_async_store();
-            println!("Checking if store contains key {} {:?}", key, store.contains(key).await);
+            println!(
+                "Checking if store contains key {} {:?}",
+                key,
+                store.contains(key).await
+            );
             if store.contains(key).await? {
                 println!("Getting asset info from store for key {}", key);
                 store.get_asset_info(key).await
@@ -1643,12 +1651,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 let rp = self.get_recipe_provider();
                 if rp.contains(key, self.get_envref()).await? {
                     rp.get_asset_info(key, self.get_envref()).await
-                }
-                else{
+                } else {
                     Err(Error::general_error(format!(
                         "Asset not found for key {} (get_asset_info)",
                         key
-                    )).with_key(key))
+                    ))
+                    .with_key(key))
                 }
             }
         }
@@ -1934,6 +1942,10 @@ impl<E: Environment + 'static> JobQueue<E> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use tokio::time::sleep;
+
     use super::*;
     use crate::command_metadata::CommandKey;
     use crate::context::{SimpleEnvironment, SimpleEnvironmentWithPayload};
@@ -2213,22 +2225,23 @@ mod tests {
         assert_eq!(b.as_ref(), b"Hello, WORLD!");
     }
 
-     #[tokio::test]
-    async fn test_apply_immediately_with_recipe() {
+    #[tokio::test]
+    async fn test_evaluate_with_recipe() {
+        use crate::command_metadata::CommandKey;
         use crate::context::{Environment, SimpleEnvironment};
         use crate::metadata::Metadata;
         use crate::parse::parse_key;
-        use crate::recipes::{Recipe, RecipeList, DefaultRecipeProvider};
+        use crate::recipes::{DefaultRecipeProvider, Recipe, RecipeList};
         use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
         use crate::value::Value;
-        use crate::command_metadata::CommandKey;
 
         // 1. Create a recipe with a query "hello/hello.txt"
         let recipe = Recipe::new(
             "hello/hello.txt".to_string(),
             "Test Hello Recipe".to_string(),
             "A hello recipe".to_string(),
-        ).unwrap();
+        )
+        .unwrap();
 
         // 2. Add recipe to a RecipeList and serialize to YAML
         let mut recipe_list = RecipeList::new();
@@ -2239,7 +2252,9 @@ mod tests {
         let recipes_key = parse_key("test/recipes.yaml").unwrap();
         let metadata = Metadata::new();
         let memory_store = MemoryStore::new(&parse_key("").unwrap());
-        memory_store.set(&recipes_key, yaml_content.as_bytes(), &metadata).unwrap();
+        memory_store
+            .set(&recipes_key, yaml_content.as_bytes(), &metadata)
+            .unwrap();
 
         // 4. Set the memory store in environment wrapped as AsyncStore
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -2251,20 +2266,30 @@ mod tests {
         // 6. Register a command hello returning "Hello, world!"
         let key = CommandKey::new_name("hello");
         env.command_registry
-            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .register_command(key.clone(), |_, _, _| {
+                std::thread::sleep(Duration::from_millis(1000));
+                Ok(Value::from("Hello, world!"))
+            })
             .expect("register_command failed");
 
         // 7. Evaluate a query "-R/test/hello.txt"
         let envref = env.to_ref();
-        let asset = envref.evaluate("-R/test/hello.txt").await.unwrap();
-        let state = asset.get().await.expect("Failed to get asset state");
+        let asset1 = envref.evaluate("-R/test/hello.txt").await.unwrap();
+        let asset2 = envref.evaluate("-R/test/hello.txt").await.unwrap();
+        let state1 = asset1.get().await.expect("Failed to get asset state");
 
         // 8. Check the result
-        let value = state.try_into_string().unwrap();
+        let value = state1.try_into_string().unwrap();
         assert_eq!(value, "Hello, world!");
-        assert!(!state.is_error().unwrap());
+        assert!(!state1.is_error().unwrap());
+
+        // 9. Check the result again to ensure caching works
+        let state2 = asset2.get().await.expect("Failed to get asset state");
+        let value = state2.try_into_string().unwrap();
+        assert_eq!(value, "Hello, world!");
+        assert!(!state2.is_error().unwrap());
     }
-   
+
     #[tokio::test]
     async fn test_apply_immediately_with_payload() {
         let query = parse_query("test").unwrap();
