@@ -742,6 +742,54 @@ Content-Type: application/json
 
 ---
 
+#### 4.1.15 DELETE /api/store/data/{*key}
+
+Remove resource at the specified key (file or directory).
+
+**Request:**
+```
+DELETE /liquer/api/store/data/path/to/resource
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "OK",
+  "message": "Resource removed",
+  "key": "path/to/resource",
+  "result": {
+    "removed": true
+  }
+}
+```
+
+---
+
+#### 4.1.16 DELETE /api/store/entry/{*key}
+
+Remove resource (equivalent to DELETE /api/store/data).
+
+**Request:**
+```
+DELETE /liquer/api/store/entry/path/to/resource
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "OK",
+  "message": "Resource removed",
+  "key": "path/to/resource",
+  "result": {
+    "removed": true
+  }
+}
+```
+
+**Note:** This endpoint is semantically equivalent to `DELETE /api/store/data/{*key}`.
+
+---
+
 ### 4.2 Store Module Trait
 
 The Store API module is implemented as a generic builder that accepts any `Environment`:
@@ -808,29 +856,31 @@ The following table shows all endpoints across Store API, Assets API, and Recipe
 
 | Method | Store API | Assets API | Recipes API | Description |
 |--------|-----------|------------|-------------|-------------|
-| GET | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | — | Retrieve resource data only |
-| GET | `/api/store/metadata/{*key}` | `/api/assets/metadata/{*query}` | — | Retrieve resource metadata only |
+| GET | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | `/api/recipes/data/{*key}` | Retrieve resource data only |
+| GET | `/api/store/metadata/{*key}` | `/api/assets/metadata/{*query}` | `/api/recipes/metadata/{*key}` | Retrieve resource metadata only |
 | GET | `/api/store/listdir/{*key}` | `/api/assets/listdir/{*query}` | `/api/recipes/listdir` | List resources in directory/namespace |
-| GET | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | — | Retrieve both data and metadata (efficient combined access) |
+| GET | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | `/api/recipes/entry/{*key}` | Retrieve both data and metadata (efficient combined access) |
 | POST | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | — | Set both data and metadata (efficient combined write) |
-| POST | `/api/store/data/{*key}` | — | — | Store data at key |
-| POST | `/api/store/metadata/{*key}` | — | — | Store metadata at key |
-| DELETE | `/api/store/data/{*key}` | — | — | Remove resource (file or directory) |
-| GET | `/api/store/remove/{*key}` | — | — | Remove resource (GET-based alternative) |
+| POST | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | — | Store data at key/query |
+| POST | `/api/store/metadata/{*key}` | `/api/assets/metadata/{*query}` | — | Store metadata at key/query |
+| DELETE | `/api/store/data/{*key}` | `/api/assets/data/{*query}` | — | Remove resource (file/directory or cached asset value) |
+| DELETE | `/api/store/entry/{*key}` | `/api/assets/entry/{*query}` | — | Remove resource (same as DELETE data) |
+| GET | `/api/store/remove/{*key}` | `/api/assets/remove/{*query}` | — | Remove resource (GET-based alternative) |
 | GET | `/api/store/makedir/{*key}` | — | — | Create directory |
 | DELETE | `/api/store/removedir/{*key}` | — | — | Remove directory (explicit endpoint) |
 | GET | `/api/store/removedir/{*key}` | — | — | Remove directory (GET-based alternative) |
 | POST | `/api/store/upload/{*key}` | — | — | Upload files via multipart form data |
-| GET | — | — | `/api/recipes/get/{name}` | Retrieve recipe definition by name |
-| GET | — | — | `/api/recipes/resolve/{name}` | Resolve recipe to execution plan |
+| GET | — | — | `/api/recipes/resolve/{*key}` | Resolve recipe to execution plan |
 | WebSocket | — | `/ws/assets/{*query}` | — | Subscribe to real-time asset notifications |
 
 **Notes:**
 - Store API uses `{*key}` path parameter (path-like string)
 - Assets API uses `{*query}` path parameter (may include commands)
-- Recipes API uses `{name}` path parameter (recipe name)
+- Recipes API uses `{*key}` path parameter (path-like string, same as Store API)
 - GET-based write operations (remove, makedir, removedir) can be disabled via builder configuration
 - WebSocket endpoint is unique to Assets API for real-time status updates
+- **DELETE behavior for Assets API:** Deleting an asset with a recipe (via DELETE data or DELETE entry) removes only the cached value, not the recipe definition. The asset status returns to `Status::Recipe`, allowing re-computation on next access.
+- **DELETE entry semantics:** DELETE entry is equivalent to DELETE data for both Store and Assets APIs
 
 ---
 
@@ -943,7 +993,123 @@ GET /liquer/api/assets/listdir/path/to/dir
 
 ---
 
-#### 5.1.4 GET /api/assets/entry/{*query}
+#### 5.1.4 POST /api/assets/data/{*query}
+
+Store asset data directly (bypasses computation, sets asset as externally sourced).
+
+**Request:**
+```
+POST /liquer/api/assets/data/path/to/query
+Content-Type: application/json
+
+{"result": "data"}
+```
+
+**Success Response (201):**
+```json
+{
+  "status": "OK",
+  "message": "Asset data stored",
+  "query": "/path/to/query",
+  "result": {
+    "stored": true
+  }
+}
+```
+
+**Asset Status:**
+When data is successfully stored, the asset status is changed to `Source` (externally set asset).
+
+**Implementation Note:**
+This endpoint requires `AssetManager::set()` or similar implementation. May return NotImplemented error until fully implemented.
+
+---
+
+#### 5.1.5 POST /api/assets/metadata/{*query}
+
+Store asset metadata directly.
+
+**Request:**
+```
+POST /liquer/api/assets/metadata/path/to/query
+Content-Type: application/json
+
+{
+  "status": "Ready",
+  "type_identifier": "application/json",
+  "message": "Externally set metadata"
+}
+```
+
+**Success Response (201):**
+```json
+{
+  "status": "OK",
+  "message": "Asset metadata stored",
+  "query": "/path/to/query",
+  "result": {
+    "stored": true
+  }
+}
+```
+
+---
+
+#### 5.1.6 DELETE /api/assets/data/{*query}
+
+Remove cached asset value. If the asset has an associated recipe, the recipe is not deleted - only the cached value is removed, and the asset status returns to `Status::Recipe`.
+
+**Request:**
+```
+DELETE /liquer/api/assets/data/path/to/query
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "OK",
+  "message": "Asset value removed",
+  "query": "/path/to/query",
+  "result": {
+    "removed": true,
+    "new_status": "Recipe"
+  }
+}
+```
+
+**Behavior:**
+- **Asset with recipe:** Cached value removed, status returns to `Status::Recipe`, asset can be recomputed on next access
+- **Asset without recipe:** Asset removed entirely, status becomes `Status::None`
+
+---
+
+#### 5.1.7 DELETE /api/assets/entry/{*query}
+
+Remove cached asset value (equivalent to DELETE /api/assets/data).
+
+**Request:**
+```
+DELETE /liquer/api/assets/entry/path/to/query
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "OK",
+  "message": "Asset value removed",
+  "query": "/path/to/query",
+  "result": {
+    "removed": true,
+    "new_status": "Recipe"
+  }
+}
+```
+
+**Note:** This endpoint is semantically equivalent to `DELETE /api/assets/data/{*query}`.
+
+---
+
+#### 5.1.8 GET /api/assets/entry/{*query}
 
 Retrieve both asset data and metadata in a single unified structure (uses same `DataEntry` structure as Store API).
 
@@ -1024,7 +1190,7 @@ Same as Store API (see section 4.1.13):
 
 ---
 
-#### 5.1.5 POST /api/assets/entry/{*query}
+#### 5.1.9 POST /api/assets/entry/{*query}
 
 Set asset data and metadata directly (bypasses computation, sets asset as externally sourced).
 
@@ -1381,8 +1547,10 @@ REVIEW NOTE: This API should be an interface to `AsyncRecipeProvider` trait defi
 
 **CHANGE SUMMARY**: Clarified that Recipes API is a direct HTTP interface to `AsyncRecipeProvider` trait methods:
 - `GET /api/recipes/listdir` maps to `AsyncRecipeProvider::assets_with_recipes()`
-- `GET /api/recipes/get/{name}` maps to `AsyncRecipeProvider::recipe()` or `recipe_opt()`
-- `GET /api/recipes/resolve/{name}` maps to `AsyncRecipeProvider::recipe_plan()`
+- `GET /api/recipes/data/{*key}` maps to `AsyncRecipeProvider::recipe()` or `recipe_opt()`
+- `GET /api/recipes/metadata/{*key}` maps to `AsyncRecipeProvider::recipe()` with metadata extraction
+- `GET /api/recipes/entry/{*key}` maps to `AsyncRecipeProvider::recipe()` with combined data and metadata
+- `GET /api/recipes/resolve/{*key}` maps to `AsyncRecipeProvider::recipe_plan()`
 - Additional method `has_recipes()` not exposed directly but used internally
 - `contains()` method not exposed as separate endpoint
 - Implementation should delegate directly to the `AsyncRecipeProvider` obtained from `Environment::get_recipe_provider()`
@@ -1405,11 +1573,11 @@ REVIEW NOTE: Filtering by namespace is not needed.
 
 **CHANGE SUMMARY**: Removed namespace filtering from Recipes API:
 - `namespace` query parameter removed from `GET /api/recipes/listdir` endpoint
-- `namespace` query parameter removed from `GET /api/recipes/get/{name}` endpoint
-- Recipe names are globally unique within an `AsyncRecipeProvider` instance
+- `namespace` query parameter removed from `GET /api/recipes/data/{*key}` endpoint
+- Recipe keys are globally unique within an `AsyncRecipeProvider` instance
 - Namespace concept not present in `AsyncRecipeProvider` trait
 - Response examples updated to remove namespace field
-- If namespace-like organization is needed, it should be encoded in the recipe name itself (e.g., "reports/summary")
+- If namespace-like organization is needed, it should be encoded in the recipe key itself (e.g., "reports/summary")
 - Updated sections 6.1.1 and 6.1.2 to reflect this change
 
 **Success Response (200):**
@@ -1437,13 +1605,13 @@ REVIEW NOTE: Filtering by namespace is not needed.
 
 ---
 
-#### 6.1.2 GET /api/recipes/get/{name}
+#### 6.1.2 GET /api/recipes/data/{*key}
 
-Retrieve a specific recipe definition.
+Retrieve a specific recipe definition (data only).
 
 **Request:**
 ```
-GET /liquer/api/recipes/get/data_pipeline
+GET /liquer/api/recipes/data/data_pipeline
 ```
 
 **Success Response (200):**
@@ -1479,6 +1647,119 @@ REVIEW NOTE: There is no recipe type field. Recipe is a JSON representation of `
 - Response format should match the Serde serialization of the `Recipe` struct directly
 - Example response updated in section 6.1.2 to show actual Recipe struct format
 - Fields with empty/default values may be omitted due to `skip_serializing_if` attributes
+
+**Error Response (404):**
+```json
+{
+  "status": "ERROR",
+  "error": {
+    "type": "KeyNotFound",
+    "message": "Recipe 'data_pipeline' not found"
+  }
+}
+```
+
+---
+
+#### 6.1.3 GET /api/recipes/metadata/{*key}
+
+Retrieve metadata for a specific recipe.
+
+**Request:**
+```
+GET /liquer/api/recipes/metadata/data_pipeline
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "OK",
+  "result": {
+    "name": "data_pipeline",
+    "title": "Standard Data Processing Pipeline",
+    "description": "Loads CSV, filters rows, and aggregates data",
+    "volatile": false
+  },
+  "message": "Recipe metadata retrieved"
+}
+```
+
+**Note:** Metadata includes summary information from the Recipe struct (name, title, description, volatile flag).
+
+---
+
+#### 6.1.4 GET /api/recipes/entry/{*key}
+
+Retrieve both recipe data and metadata in a single unified structure (uses same `DataEntry` structure as Store and Assets APIs).
+
+**Request:**
+```
+GET /liquer/api/recipes/entry/data_pipeline?format=cbor
+Accept: application/cbor
+```
+
+**Format Selection:**
+Same as Store and Assets APIs (see section 4.1.13):
+1. URL query parameter: `?format=cbor` (takes precedence)
+2. Accept header: `Accept: application/cbor`
+3. Default: CBOR if neither is specified
+
+**Success Response (200) - JSON format:**
+```json
+{
+  "status": "OK",
+  "message": "Recipe retrieved",
+  "result": {
+    "metadata": {
+      "name": "data_pipeline",
+      "title": "Standard Data Processing Pipeline",
+      "description": "Loads CSV, filters rows, and aggregates data",
+      "volatile": false
+    },
+    "data": "eyJxdWVyeSI6ICIvbG9hZC1jc3YvZmlsdGVyLXJvd3MvYWdncmVnYXRlIiwgLi4ufQ=="
+  }
+}
+```
+
+**Note:** The `data` field contains the base64-encoded JSON serialization of the complete `Recipe` struct when using JSON format. For CBOR and bincode formats, the Recipe struct is encoded directly as binary.
+
+---
+
+#### 6.1.5 GET /api/recipes/resolve/{*key}
+
+Resolve a recipe to an execution plan.
+
+**Request:**
+```
+GET /liquer/api/recipes/resolve/data_pipeline
+```
+
+**Success Response (200):**
+```json
+{
+  "status": "OK",
+  "result": {
+    "actions": [
+      {
+        "name": "load-csv",
+        "arguments": {"filename": "data.csv"}
+      },
+      {
+        "name": "filter-rows",
+        "arguments": {"threshold": 100}
+      },
+      {
+        "name": "aggregate",
+        "arguments": {}
+      }
+    ],
+    "query": "/load-csv/filter-rows/aggregate"
+  },
+  "message": "Recipe resolved to execution plan"
+}
+```
+
+**Note:** This endpoint maps to `AsyncRecipeProvider::recipe_plan()`. The returned plan shows the sequence of actions that would be executed for this recipe.
 
 **Error Response (404):**
 ```json
