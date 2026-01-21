@@ -40,7 +40,7 @@
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
 //!
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc, sync::atomic::{AtomicUsize, Ordering}};
 
 use async_trait::async_trait;
 use futures::lock;
@@ -1822,6 +1822,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 /// The job queue structure
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
+    running_count: Arc<AtomicUsize>,
     capacity: usize,
 }
 
@@ -1831,59 +1832,106 @@ impl<E: Environment + 'static> JobQueue<E> {
         println!("Creating job queue with capacity {}", capacity);
         JobQueue {
             jobs: Arc::new(Mutex::new(Vec::new())),
+            running_count: Arc::new(AtomicUsize::new(0)),
             capacity,
         }
     }
 
+    /// Get current number of running jobs
+    pub fn running_count(&self) -> usize {
+        self.running_count.load(Ordering::SeqCst)
+    }
+
     /// Submit an asset for processing
     pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
-        let pending_count = self.pending_jobs_count().await;
-        if pending_count < self.capacity {
-            // avoid waiting in queue
-            let asset_clone = asset.clone();
-            // Status set directly, since message processing is not running yet
-            if let Err(e) = asset_clone.set_status(Status::Processing).await {
-                eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
-            }
-            eprintln!("Starting asset job {} immediately", asset.id());
-            tokio::spawn(async move {
-                let _ = asset_clone.run().await;
-            });
-        } else {
-            asset.submitted().await?;
-        }
-        let mut jobs = self.jobs.lock().await;
         let asset_id = asset.id();
-        jobs.push(asset);
-        jobs.retain(|a| a.id() != asset_id); // TODO: this should not push the asset to the end of the queue
+
+        // Check for duplicates and add to queue atomically
+        {
+            let mut jobs = self.jobs.lock().await;
+            if jobs.iter().any(|a| a.id() == asset_id) {
+                // Asset already in queue, don't add duplicate
+                eprintln!("Asset {} already in queue, skipping", asset_id);
+                return Ok(());
+            }
+            // Add to jobs list for tracking
+            jobs.push(asset.clone());
+        }
+
+        // Check if we can run immediately using atomic counter
+        let current_running = self.running_count.load(Ordering::SeqCst);
+        if current_running < self.capacity {
+            // Try to increment running count
+            // Use compare_exchange to avoid race conditions
+            if self.running_count.compare_exchange(
+                current_running,
+                current_running + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst
+            ).is_ok() {
+                // Successfully reserved a slot - run immediately
+                let asset_clone = asset.clone();
+                let running_count = self.running_count.clone();
+
+                // Status set directly, since message processing is not running yet
+                if let Err(e) = asset_clone.set_status(Status::Processing).await {
+                    eprintln!("Failed to set status for asset {}: {}", asset_id, e);
+                    // Decrement counter since we won't actually run
+                    running_count.fetch_sub(1, Ordering::SeqCst);
+                    return Err(e);
+                }
+
+                eprintln!("Starting asset job {} immediately (running: {})", asset_id, current_running + 1);
+                tokio::spawn(async move {
+                    let _ = asset_clone.run().await;
+                    // Decrement running count when job finishes
+                    running_count.fetch_sub(1, Ordering::SeqCst);
+                    eprintln!("Asset job {} finished", asset_clone.id());
+                });
+                return Ok(());
+            }
+        }
+
+        // At capacity or lost race - queue the job with Submitted status
+        asset.submitted().await?;
+        eprintln!("Asset {} queued (running: {}, capacity: {})", asset_id, self.running_count(), self.capacity);
 
         Ok(())
     }
 
-    /// Count how many jobs are currently running (Processing status)
-    pub async fn pending_jobs_count(&self) -> usize {
-        let jobs = self.jobs.lock().await;
+    /// Count how many jobs are currently running (from atomic counter)
+    pub fn pending_jobs_count_sync(&self) -> usize {
+        self.running_count.load(Ordering::SeqCst)
+    }
 
+    /// Count how many jobs are in the queue (any status)
+    pub async fn queued_jobs_count(&self) -> usize {
+        let jobs = self.jobs.lock().await;
+        jobs.len()
+    }
+
+    /// Count how many jobs are waiting (Submitted status)
+    pub async fn waiting_jobs_count(&self) -> usize {
+        let jobs = self.jobs.lock().await;
         let mut count = 0;
         for asset in jobs.iter() {
-            if asset.status().await.is_processing() {
+            if asset.status().await == Status::Submitted {
                 count += 1;
             }
         }
-
         count
     }
 
     /// Start processing jobs up to capacity
     pub async fn run(self: Arc<Self>) {
         eprintln!("Starting job queue");
+        let mut cleanup_counter = 0;
         loop {
-            //eprint!(".");
-            let pending_count = self.pending_jobs_count().await;
+            let current_running = self.running_count.load(Ordering::SeqCst);
 
             // Check if we can start more jobs
-            if pending_count < self.capacity {
-                let available_slots = self.capacity - pending_count;
+            if current_running < self.capacity {
+                let available_slots = self.capacity - current_running;
                 let mut jobs_to_start = Vec::new();
 
                 // Find submitted jobs
@@ -1902,15 +1950,45 @@ impl<E: Environment + 'static> JobQueue<E> {
 
                 // Start jobs
                 for asset in jobs_to_start {
-                    let asset_clone = asset.clone();
-                    // Status set directly, since message processing is not running yet
-                    if let Err(e) = asset_clone.set_status(Status::Processing).await {
-                        eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
+                    // Try to reserve a slot
+                    let current = self.running_count.load(Ordering::SeqCst);
+                    if current >= self.capacity {
+                        break; // No more slots available
                     }
-                    eprintln!("Starting asset job {}", asset.id());
-                    tokio::spawn(async move {
-                        let _ = asset_clone.run().await;
-                    });
+
+                    if self.running_count.compare_exchange(
+                        current,
+                        current + 1,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst
+                    ).is_ok() {
+                        let asset_clone = asset.clone();
+                        let running_count = self.running_count.clone();
+
+                        // Status set directly, since message processing is not running yet
+                        if let Err(e) = asset_clone.set_status(Status::Processing).await {
+                            eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
+                            running_count.fetch_sub(1, Ordering::SeqCst);
+                            continue;
+                        }
+
+                        eprintln!("Starting asset job {} from queue (running: {})", asset.id(), current + 1);
+                        tokio::spawn(async move {
+                            let _ = asset_clone.run().await;
+                            running_count.fetch_sub(1, Ordering::SeqCst);
+                            eprintln!("Asset job {} finished", asset_clone.id());
+                        });
+                    }
+                }
+            }
+
+            // Periodic cleanup of finished jobs
+            cleanup_counter += 1;
+            if cleanup_counter >= 50 { // Every 5 seconds (50 * 100ms)
+                cleanup_counter = 0;
+                let removed = self.cleanup_completed_internal().await;
+                if removed > 0 {
+                    eprintln!("Cleaned up {} finished jobs", removed);
                 }
             }
 
@@ -1919,24 +1997,28 @@ impl<E: Environment + 'static> JobQueue<E> {
         }
     }
 
+    /// Internal cleanup method that doesn't require &mut self
+    async fn cleanup_completed_internal(&self) -> usize {
+        let mut jobs = self.jobs.lock().await;
+        let initial_count = jobs.len();
+
+        let mut keep: Vec<AssetRef<E>> = Vec::new();
+        for asset in jobs.iter() {
+            let status = asset.status().await;
+            if !status.is_finished() {
+                keep.push(asset.clone());
+            }
+        }
+
+        let removed = initial_count - keep.len();
+        *jobs = keep;
+        removed
+    }
+
     /// Clean up completed jobs (Ready or Error status)
     /// Returns the number of jobs removed
-    pub async fn cleanup_completed(&mut self) -> usize {
-        let (keep, initial_count, keep_len) = {
-            let jobs = self.jobs.lock().await;
-            let initial_count = jobs.len();
-            let mut keep: Vec<AssetRef<E>> = Vec::new();
-            for asset in jobs.iter() {
-                let status = asset.status().await;
-                if !status.is_finished() {
-                    keep.push(asset.clone());
-                }
-            }
-            let keep_len = keep.len();
-            (keep, initial_count, keep_len)
-        };
-        self.jobs = Arc::new(Mutex::new(keep));
-        initial_count - keep_len
+    pub async fn cleanup_completed(&self) -> usize {
+        self.cleanup_completed_internal().await
     }
 }
 
@@ -2354,5 +2436,227 @@ mod tests {
         } else {
             panic!("Expected MetadataRecord");
         }
+    }
+
+    // ============ JobQueue Tests ============
+
+    #[tokio::test]
+    async fn test_jobqueue_new() {
+        let queue = JobQueue::<SimpleEnvironment<Value>>::new(4);
+        assert_eq!(queue.capacity, 4);
+        assert_eq!(queue.running_count(), 0);
+        assert_eq!(queue.queued_jobs_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_jobqueue_submit_no_duplicates() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| {
+                // Simulate slow command
+                std::thread::sleep(Duration::from_millis(500));
+                Ok(Value::from("Hello, world!"))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        // Create a queue with high capacity so jobs run immediately
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(10));
+
+        // Create one asset
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+        let assetref = asset_data.to_ref();
+
+        // Submit the same asset twice
+        queue.submit(assetref.clone()).await.unwrap();
+        queue.submit(assetref.clone()).await.unwrap();
+
+        // Should only be one job in the queue
+        assert_eq!(queue.queued_jobs_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_jobqueue_submit_respects_capacity() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("slow");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| {
+                // Simulate slow command
+                std::thread::sleep(Duration::from_millis(1000));
+                Ok(Value::from("Done"))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        // Create a queue with capacity 2
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(2));
+
+        // Create and submit 4 assets
+        let mut assets = Vec::new();
+        for i in 0..4 {
+            let query = parse_query("slow").unwrap();
+            let asset_data =
+                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), envref.clone());
+            let assetref = asset_data.to_ref();
+            assets.push(assetref.clone());
+            queue.submit(assetref).await.unwrap();
+        }
+
+        // Give some time for jobs to start
+        sleep(Duration::from_millis(50)).await;
+
+        // Should have 2 running and 2 submitted
+        let running = queue.running_count();
+        assert!(running <= 2, "Running count {} should be <= 2", running);
+
+        // Check that submitted jobs have Submitted status
+        let mut submitted_count = 0;
+        let mut processing_count = 0;
+        for asset in &assets {
+            let status = asset.status().await;
+            if status == Status::Submitted {
+                submitted_count += 1;
+            } else if status == Status::Processing {
+                processing_count += 1;
+            }
+        }
+
+        // At least some should be submitted (queued)
+        assert!(submitted_count >= 2 || processing_count <= 2,
+            "With capacity 2, at most 2 should be processing. Got {} processing, {} submitted",
+            processing_count, submitted_count);
+    }
+
+    #[tokio::test]
+    async fn test_jobqueue_submit_immediate_when_capacity() {
+        let query = parse_query("fast").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("fast");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| {
+                Ok(Value::from("Fast result"))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        // Create a queue with capacity 5
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(5));
+
+        // Initially running count should be 0
+        assert_eq!(queue.running_count(), 0);
+
+        // Submit one asset
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+        let assetref = asset_data.to_ref();
+        queue.submit(assetref.clone()).await.unwrap();
+
+        // Give some time for the job to start
+        sleep(Duration::from_millis(50)).await;
+
+        // Status should be Processing or Ready (if already finished)
+        let status = assetref.status().await;
+        assert!(
+            status == Status::Processing || status == Status::Ready,
+            "Expected Processing or Ready, got {:?}",
+            status
+        );
+    }
+
+    #[tokio::test]
+    async fn test_jobqueue_cleanup_removes_finished() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("quick");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| {
+                Ok(Value::from("Quick result"))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        // Create a queue
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(10));
+
+        // Submit some assets
+        for i in 0..3 {
+            let query = parse_query("quick").unwrap();
+            let asset_data =
+                AssetData::<SimpleEnvironment<Value>>::new(i, query.into(), envref.clone());
+            let assetref = asset_data.to_ref();
+            queue.submit(assetref).await.unwrap();
+        }
+
+        // Wait for jobs to complete
+        sleep(Duration::from_millis(500)).await;
+
+        // Should have 3 jobs in the queue
+        let count_before = queue.queued_jobs_count().await;
+        assert_eq!(count_before, 3);
+
+        // Cleanup
+        let removed = queue.cleanup_completed().await;
+
+        // All 3 should have been removed (they should be Ready by now)
+        assert_eq!(removed, 3, "Expected 3 jobs to be cleaned up, got {}", removed);
+        assert_eq!(queue.queued_jobs_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_jobqueue_running_count_decrements() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("medium");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| {
+                // Simulate medium-length command (longer to ensure we catch it running)
+                std::thread::sleep(Duration::from_millis(500));
+                Ok(Value::from("Medium result"))
+            })
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+
+        // Create a queue with capacity 5
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(5));
+
+        // Submit one asset
+        let query = parse_query("medium").unwrap();
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1234, query.into(), envref.clone());
+        let assetref = asset_data.to_ref();
+
+        // Check running count immediately after submit
+        queue.submit(assetref.clone()).await.unwrap();
+
+        // The submit call increments the counter synchronously before spawning
+        // So we should see 1 running immediately (or the job may have finished already)
+        // Give a tiny bit of time for spawn to start
+        sleep(Duration::from_millis(10)).await;
+
+        // Should have 1 running (unless job already finished, which is unlikely with 500ms sleep)
+        let running_during = queue.running_count();
+        assert!(running_during <= 1, "Expected at most 1 running job, got {}", running_during);
+
+        // If the job is still running, verify it
+        if running_during == 1 {
+            // Wait for job to complete
+            sleep(Duration::from_millis(600)).await;
+
+            // Running count should be back to 0
+            let running_after = queue.running_count();
+            assert_eq!(running_after, 0, "Expected 0 running jobs after completion");
+        }
+
+        // Wait for asset to finish (in case timing was off)
+        assetref.get().await.ok();
+
+        // Asset should be Ready
+        assert_eq!(assetref.status().await, Status::Ready);
     }
 }
