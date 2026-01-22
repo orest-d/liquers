@@ -7,49 +7,79 @@ This specification describes the extension of AssetManager to support setting da
 ## Motivation
 
 Currently, assets can only be created through query evaluation or recipe execution. There are scenarios where external data should be injected directly:
-- Loading data from external sources as "source" assets
-- Testing by providing mock data
 - Manual overrides of computed results
+- Loading user-defined data or data from external sources as "source" assets
+- Modifications of generated data/setup
+- Testing by providing mock data
 - Caching pre-computed values from external systems
-- Modifications of generated data/setup.
+- Non-serializable data that can only exist in memory (GPU tensors, live connections, etc.)
 
-In these cases, it should be clear that this data is not generated, but entered or modified by the user. This is indicated by state as Source or Override.
+In these cases, it should be clear that this data is not generated, but entered or modified by the user. This is indicated by status as `Source` or `Override`.
 
-## Requirements
+## Core Operations
 
-### Core Functionality
+### Two Set Operations
 
-1. **Set Operation**: Add methods to `AssetManager` trait:
-   - `async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error>`
-   - `async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error>`
+The AssetManager provides two complementary set operations:
 
-2. **Key-Only Constraint**: Only key assets (assets identified by a Key or with a Query that is equivalent to a key via `query.key()`) are settable. Non-key queries should return an error.
+#### 1. `set()` - Binary Data Setting
 
-3. **Asset Not in Memory**: If the asset is not currently tracked by AssetManager:
-   - Store the serialized data and metadata directly to the store
-   - Set status to `Source` (no recipe) or `Override` (if recipe exists in recipe provider)
-   - The asset will be loaded from store on next access
+```rust
+async fn set(&self, key: &Key, binary: &[u8], metadata: MetadataRecord) -> Result<(), Error>
+```
 
-4. **Asset Submitted/In-Progress**: If the asset exists in AssetManager with status `Submitted`, `Dependencies`, or `Processing`:
-   - Do this by calling a new `cancel()` method on AssetRef
-   - Wait for cancellation to complete (this is what `cancel().await?` should do)
-   - Replace data and metadata with new values
-   - Set appropriate status (`Override`)
+- Sets binary (serialized) representation and metadata
+- Clears any existing deserialized `data` field in AssetData
+- Data can be reconstructed later via deserialization
+- **Store only**: Does NOT create AssetRef in memory; writes directly to store
+- Asset will be loaded from store on next access
 
-1. **Asset Finished**: If the asset exists with any finished status (`Ready`, `Error`, `Expired`, `Cancelled`, `Source`):
-   - Replace data and metadata with new values
-   - Determine new status:
-     - `Source`: if recipe does NOT exist for this key
-     - `Override`: if recipe DOES exist for this key
-   - Invalidate binary representation
+#### 2. `set_state()` - State Setting
 
-2. **Metadata-Only Update**: `set_metadata` should:
-   - Update only metadata fields
-   - Preserve existing data unchanged
-   - Fail with error if asset has no data yet (status is `None`, `Recipe`, `Submitted`, etc.)
+```rust
+async fn set_state(&self, key: &Key, state: State<V>) -> Result<(), Error>
+```
 
-All updates should send notification through the notification channel.
+- Sets deserialized data and metadata from State
+- Clears any existing `binary` field in AssetData
+- **Memory + Store**: Creates new AssetRef with State AND serializes to store
+- Supports non-serializable data (see Non-Serializable Data section)
+- Data immediately available in memory for fast access
 
+### Key-Only Constraint
+
+Only `Key` type is accepted (strict). Queries must be converted to Key by the caller first. This is enforced by the method signatures.
+
+### Metadata Requirements
+
+Both operations require `MetadataRecord` (not the `Metadata` enum which includes `LegacyMetadata`).
+
+**Mandatory fields:**
+- `data_format` - Required for deserialization (e.g., "json", "csv", "bin")
+- `type_identifier` - Required to know what Value type to deserialize into
+
+**Auto-updated fields:**
+- `updated` timestamp - Set automatically to current time
+- Log entry added - Records "Data set externally" or similar
+
+## Status Determination
+
+### Status Preservation Rules
+
+When setting data, the status is determined as follows:
+
+1. **Input status is `Expired`**: Preserved as `Expired` (respected, not changed)
+2. **Input status is `Error`**: Preserved as `Error` with special handling:
+   - Value/data is set to None
+   - Binary data is ignored (not stored; existing binary deleted from store)
+   - Only metadata is stored (with error information)
+3. **All other input statuses**: Determined by recipe existence:
+   - `Source` - if NO recipe exists for this key
+   - `Override` - if recipe DOES exist for this key
+
+### Status Fixed at Set-Time
+
+The status is determined once at set time based on current recipe existence. Later recipe changes do NOT automatically update the status.
 
 ### New Status: Override
 
@@ -58,7 +88,6 @@ Add `Override` status to the `Status` enum in `metadata.rs`:
 ```rust
 /// Asset has data that overrides the recipe calculation.
 /// The recipe exists but was not used to calculate this data.
-/// Override can be cleared to recalculate using the recipe.
 Override,
 ```
 
@@ -68,31 +97,87 @@ Status properties:
 - `is_processing()`: false
 - `can_have_tracked_dependencies()`: false
 
-### Clear Override Operation (remove)
+## Concurrency and Locking
 
-Add a method to remove data from AssetManager. As a side-effect this would clear Override status and trigger recalculation:
+### Lock During Set
+
+When `set()` or `set_state()` is called:
+- Acquire lock on the key
+- Second caller waits until first completes
+- No "last write wins" race conditions
+
+### In-Flight Asset Handling
+
+If the asset exists in AssetManager with status `Submitted`, `Dependencies`, or `Processing`:
+
+1. Set `cancelled = true` flag on AssetData (prevents orphan writes)
+2. Send `Cancel` message to service channel
+3. **Immediately** remove AssetRef from AssetManager
+4. Proceed with set operation
+5. Orphaned task (if still running) will check `cancelled` flag and silently drop results
+
+### Cancelled Flag Safety Mechanism
+
+The `cancelled: bool` flag on AssetData prevents race conditions with long-running, non-cooperative commands (e.g., ML training in Python):
 
 ```rust
-async fn remove(&self, key: &Key) -> Result<(), Error>
+pub struct AssetData<E: Environment> {
+    // ... existing fields ...
+
+    /// If true, this asset has been cancelled and should not write results.
+    cancelled: bool,
+}
 ```
 
-```rust
-async fn remove_asset(&self, query: &Query) -> Result<(), Error>
-```
+**Write prevention points** (all must check `cancelled` flag):
+- `ValueProduced` handler
+- Store write operations
+- Status updates
 
-Behavior:
-- Send notification `Removed` to the `AssetData`
-- lock `AssetData` on `AssetRef`, remove data and binary in the `AssetData`, then the `AssetData` is removed from the `AssetManager`, remove data from store and finally - This does NOT trigger recalculation.
+## Error Recovery
+
+If set operation fails mid-way (e.g., store write fails):
+
+1. Delete data from both store and AssetManager (best effort)
+2. If deletion also fails, add that error to the existing error
+3. Return the error to caller
+
+This ensures no partial/inconsistent state remains.
+
+## Dependency Invalidation (future enhancement)
+NOTE: Dependency tracking is not implemented yet, this is a design of a future behaviour.
+
+When `set()` or `set_state()` modifies an existing asset:
+
+1. Find all dependents (assets that depend on this key)
+2. Set their status to `Expired`
+3. Add warning to their log: "Expired due to user changing dependency key"
+4. **Full cascade**: If A→B→C and we set(C), both B and A become `Expired`
+5. **Synchronous**: set() blocks until all dependents are invalidated
+
+## Store Routing
+
+When multiple stores exist in a StoreRouter:
+- Use standard router logic: first prefix match
+- The store whose prefix matches the key receives the write
+
+## Notifications
+
+Setting an asset triggers notifications:
+
+1. `Cancelling` - sent when cancel is initiated (if asset was processing)
+2. `Cancelled` - sent after AssetRef is removed
+3. Subscribers (including WebSocket) should request new AssetRef after receiving these
+
+WebSocket service is responsible for:
+- Getting new AssetRef after cancellation
+- Subscribing to new notification channel
+- Notifying WebSocket subscribers of the change with new asset ID and status
 
 ## Cancellation Mechanism
 
-Use the existing `Cancel` message should be send to the service channel.
-The processing task should listen and gracefully shut down.
-Processing task should send `Canceling` immediately after the `Cancel` message is received from the service channel.
-After gracefully finishing, `Canceled` message should be sent to notofocation channel
-and finally `JobFinished`.
+### Cancel Method on AssetRef
 
-This can be done via cancel method:
 ```rust
 impl AssetRef {
     pub async fn cancel(&self) -> Result<(), Error>
@@ -100,15 +185,72 @@ impl AssetRef {
 ```
 
 This method:
-- Sets an `Cancel` message to the service channel.
-- Waits (with timeout) for status to change to `Cancelled` or `JobFinished` on notification channel.
-- Returns Ok even if timeout occurs (best-effort)
+1. Check if asset is being evaluated (`Submitted`, `Dependencies`, or `Processing`) - otherwise return Ok
+2. Set `cancelled = true` on AssetData
+3. Send `Cancel` message to the service channel
+4. Wait (with timeout) for status to change to `Cancelled` or `JobFinished` on notification channel
+5. Return Ok even if timeout occurs (best-effort)
+
+### Processing Task Behavior
+
+The processing task should:
+1. Listen for `Cancel` message on service channel
+2. Send `Cancelling` notification immediately upon receiving Cancel
+3. Gracefully shut down
+4. Send `Cancelled` notification
+5. Send `JobFinished` notification
+
+## Remove Operations
+
+Remove asset data from AssetManager and store:
+
+```rust
+async fn remove(&self, key: &Key) -> Result<(), Error>
+async fn remove_asset(&self, query: &Query) -> Result<(), Error>
+```
+
+Behavior:
+1. Send `Removed` notification to AssetData
+2. Lock AssetData on AssetRef
+3. Remove data and binary in AssetData
+4. Remove AssetData from AssetManager
+5. Remove data from store
+6. Does NOT trigger recalculation
+
+## Non-Serializable Data
+
+`set_state()` supports non-serializable values (GPU tensors, live connections, Python objects with native resources).
+
+### Behavior
+
+1. Create AssetRef with State in memory
+2. Attempt serialization to store
+3. If serialization fails: store metadata only (no binary), mark `binary_available: false`
+4. Asset only retrievable while AssetRef exists in memory
+
+### Eviction Handling
+
+Memory uses LRU eviction (configurable). When non-serializable asset is evicted:
+
+1. **With recipe**: Re-execute recipe to regenerate data
+2. **Without recipe (Source)**: Data lost permanently, `get()` returns error
+
+See Issue #4 (NON-SERIALIZABLE) and Issue #5 (SOURCE-EVICTION) for future improvements.
+
+## Volatile Assets
+
+Setting data on a volatile asset:
+- Works the same as non-volatile
+- Asset becomes non-volatile with `Source` or `Override` status
+- Rationale: User-specified data is always non-volatile
+
+Exception: If user explicitly sets with `Expired` status, that is respected.
 
 ## Data Validation
 
 **No validation is performed** when setting data. The data is stored as-is. Deserialization errors will occur when the asset is read if the data is incompatible with the expected type.
 
-Rationale: Validation would require type-specific knowledge and dependencies, adding complexity. The type system at read time will catch mismatches.
+Rationale: Validation would require potentially costly de-serialization, adding complexity.
 
 ## Implementation Details
 
@@ -117,111 +259,77 @@ Rationale: Validation would require type-specific knowledge and dependencies, ad
 1. **`liquers-core/src/metadata.rs`**
    - Add `Override` status to `Status` enum
    - Update `has_data()`, `is_finished()`, etc. to handle `Override`
-   - Update status serialization/deserialization
 
 2. **`liquers-core/src/assets.rs`**
+   - Add `cancelled: bool` field to `AssetData`
    - Add `set()` method to `AssetManager` trait
-   - Add `set_metadata()` method to `AssetManager` trait
-   - Add `clear_override()` method to `AssetManager` trait
-   - Add `cancel()` method to `AssetRef` impl (if notification channel insufficient)
-   - Implement these methods in `DefaultAssetManager`
+   - Add `set_state()` method to `AssetManager` trait
+   - Add `remove()` and `remove_asset()` methods
+   - Add `cancel()` method to `AssetRef` impl
+   - Implement in `DefaultAssetManager`
 
 3. **`liquers-core/src/error.rs`**
-   - Add error types:
-     - `SetNonKeyAsset`: trying to set data for non-key query
-     - `MetadataOnlyWithoutData`: trying to set metadata on asset without data
-     - `ClearOverrideNotOverride`: trying to clear override on non-override asset
-     - `ClearOverrideNoRecipe`: trying to clear override when no recipe exists
+   - No new error types should be necessary
 
-4. **`liquers-py/src/assets.rs`** (Python bindings)
-   - Add Python bindings for new methods
-   - Expose `set`, `set_metadata`, `clear_override` on Python AssetManager wrapper
+4. **Python bindings** - Out of scope for now
 
-5. **`liquers-axum/src/main.rs`** or handlers (Web API)
-   - Add REST API endpoints:
-     - `PUT /api/asset/{key}` - set data and metadata
-     - `PATCH /api/asset/{key}/metadata` - set metadata only
-     - `DELETE /api/asset/{key}/override` - clear override
-   - Add authentication/authorization checks (if applicable)
+5. **Web API** - Handled via WEB_API_SPECIFICATION.md, including:
+   - `POST /api/assets/data/{key}` - set binary
+   - `DELETE /api/assets/data/{key}` - remove
+   - `GET /api/assets/remove/{key}` - remove
+   - `POST /api/assets/cancel/{key}` - cancel
 
 6. **Tests**
-   - `liquers-core/src/assets.rs` - Unit tests for set operations
-   - `liquers-core/tests/` - Integration tests for set/clear override workflow
-   - Test scenarios:
-     - Set on non-existent asset
-     - Set on in-progress asset (cancellation)
-     - Set on finished asset
-     - Override status transitions
-     - Clear override and recalculation
-     - Metadata-only updates
-     - Error cases (non-key query, no data, etc.)
+   - Set on non-existent asset without recipe (→ Source)
+   - Set on non-existent asset with recipe (→ Override)
+   - Set on in-progress asset (cancellation flow)
+   - Set on finished asset
+   - Set with Expired status (preserved)
+   - Set with Error status (preserved, no data stored)
+   - Dependency invalidation cascade
+   - Concurrent set operations (locking)
+   - Remove asset without recipe
+   - Remove overridden asset with recipe
 
 ### Implementation Steps
 
 1. Add `Override` status to `Status` enum and update helper methods
-2. Add error types for new failure cases
-3. Add `cancel()` method to `AssetRef` (internal implementation)
+2. Add `cancelled` flag to `AssetData`
+3. Add `cancel()` method to `AssetRef`
 4. Implement `set()` in `DefaultAssetManager`:
-   - Validate key-only constraint
-   - Check if asset exists in memory
-   - Handle different status cases
-   - Determine Source vs Override status
-   - Store to store if not in memory
-5. Implement `set_metadata()` in `DefaultAssetManager`
-6. Implement `clear_override()` in `DefaultAssetManager`
-7. Add Python bindings
-8. Add REST API endpoints
-9. Write comprehensive tests
-
-## Edge Cases and Considerations
-
-### Volatile Assets
-Volatile assets are recreated on every access. Setting data on a volatile asset:
-- would work the same way as on non-volatile asset
-- Asset may effectively become non-volatile, having Override status
-  Justification: Data set by the user are always non-volatile.
-
-### Concurrent Access
-Multiple requests to set the same asset concurrently:
-- Last write wins
-- No extra locking or transaction semantics at AssetManager level should be needed. Unique key has only associated (at most) one `AssetData` object with multiple `AssetRef`, which is effectively `Arc<RwLock<AssetData>>`. 
-- Store implementations may provide atomicity of stored data.
-
-### Recipe Changes
-If recipe changes after Override is set:
-- Override status remains until explicitly removed
-- Recipe change does not automatically invalidate override
-
-### Dependencies
-When an asset with `Override` status has dependents:
-- Dependents should be invalidated/recalculated
-- Note that store changes can't triggering invalidation. Current design breaks dependency tracking in case if changes are done in the store, therefore assets access is preferred.
-- **TODO**: Define invalidation mechanism (future work, not in scope for this spec)
-
-## Open Questions
-
-1. Should we track who/what set the override (provenance)?
-   - This can be done by `Metadata` - the future Session mechanism should set the user automatically in the metadata.
-
-2. Should there be bulk set operations for efficiency?
-   - No bulk, but there should be binary and State setting:
-     - There should be `set_bin(&Key, Vec<u8>, MetadataRecord)>)`
-     - and set(Key, State)
-
-3. Should setting data on a volatile asset be an error or warning?
-   - Data on volatile may be set with `Expired` state.
-   - This should be done if metadata passed to set have volatile flag.
-   - The same should actually be done in store too...
-
-4. How to handle store failures during set?
-   - Set should set both data and metadata and set the data in store. The whole thing should be an atomic operation. In case of a failure, everything should be removed before returning a failure.
+   - Acquire lock on key
+   - Check if asset exists in memory; if processing, cancel
+   - Determine status (Expired preserved, else Source/Override)
+   - Write to store
+   - Update timestamp and add log entry
+   - Trigger dependency invalidation
+5. Implement `set_state()` in `DefaultAssetManager`:
+   - Acquire lock on key
+   - Check if asset exists in memory; if processing, cancel
+   - Create new AssetRef with State
+   - Attempt serialization to store (handle non-serializable gracefully)
+   - Update timestamp and add log entry
+   - Trigger dependency invalidation
+6. Implement `remove()` and `remove_asset()`
+7. Write comprehensive tests
 
 ## Future Enhancements
 
-1. **Provenance Tracking**: Record who/what/when data was set
-2. **Invalidation Cascade**: Automatically invalidate dependent assets when set
-3. **Audit Logging**: (low priority) Track all set operations for debugging and compliance
-4. **Bulk Operations**: (low priority) Efficient batch setting of multiple assets
+1. **Key-Level ACL**: Access control for who can set which keys (Issue #7)
+2. **Upload Size Limits**: Configurable max binary size (Issue #6)
+3. **Provenance Tracking**: Record who/what/when data was set (via Session mechanism)
+4. **Audit Logging**: Track all set operations for debugging and compliance
+5. **Background Set**: Async version that returns immediately
+6. **Metadata Consistency Validation**: Validate data_format/type_identifier/media_type consistency (Issue #2)
+
+## Related Issues
+
+- Issue #2: METADATA-CONSISTENCY - Validation of metadata fields
+- Issue #3: CANCEL-SAFETY - Cancelled flag implementation details
+- Issue #4: NON-SERIALIZABLE - Non-serializable data support
+- Issue #5: SOURCE-EVICTION - Handling evicted non-serializable Source assets
+- Issue #6: UPLOAD-SIZE-LIMIT - Binary size limits
+- Issue #7: KEY-LEVEL-ACL - Access control
 
 ## References
 
@@ -229,3 +337,4 @@ When an asset with `Override` status has dependents:
 - Asset lifecycle: `liquers-core/src/assets.rs`
 - Status enum: `liquers-core/src/metadata.rs`
 - Error types: `liquers-core/src/error.rs`
+- Issues: `specs/ISSUES.md`

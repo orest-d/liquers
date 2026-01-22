@@ -1355,6 +1355,10 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// Set the complete state of the asset
+    /// This is not a public method and should not be used outside the core.
+    /// Only certain assets are allowed to be set (overriden) by the user.
+    /// Use AssetManager::set_state instead.
     pub(crate) async fn set_state(
         &self,
         state: State<<E as Environment>::Value>,
