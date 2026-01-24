@@ -40,6 +40,10 @@ pub enum Status {
     Cancelled,
     /// Asset is the source of the data. It is ready, and has neither dependencies nor a recipe.
     Source,
+    /// Asset has data that overrides the recipe calculation.
+    /// The recipe exists but was not used to calculate this data.
+    /// Override can be cleared to recalculate using the recipe.
+    Override,
 }
 
 impl Default for Status {
@@ -67,6 +71,7 @@ impl Status {
             Status::Storing => false,
             Status::Dependencies => false,
             Status::Directory => false,
+            Status::Override => true,
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -84,6 +89,7 @@ impl Status {
             Status::Storing => true,
             Status::Dependencies => false,
             Status::Directory => false,
+            Status::Override => false,
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -103,6 +109,7 @@ impl Status {
             Status::Storing => false,
             Status::Dependencies => false,
             Status::Directory => true,
+            Status::Override => true,
         }
     }
 
@@ -126,6 +133,7 @@ impl Status {
             Status::Storing => false,
             Status::Dependencies => false,
             Status::Directory => false,
+            Status::Override => false,
         }
     }
 

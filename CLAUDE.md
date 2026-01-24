@@ -85,6 +85,8 @@ mod tests {
 - Unit tests in same file, integration tests in `tests/`
 - Use `parse_key()`, `parse_query()` helpers for test setup
 - Memory stores for testing: `MemoryStore::new(&Key::new())`
+- Memory store needs to be wrapped as async store.
+- Check existing unittests on how full flow is done: Environment is created with a memory store, RecipeProvider, command registration and finally query evaluation and result extraction.
 
 ## Constraints
 

@@ -220,6 +220,11 @@ pub struct AssetData<E: Environment> {
     /// to be created in python
     pub(crate) save_in_background: bool,
 
+    /// If true, this asset has been cancelled and should not write results.
+    /// Any ValueProduced or store write attempts should be silently dropped.
+    /// This is used to prevent race conditions when cancelling long-running tasks.
+    cancelled: bool,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -269,6 +274,7 @@ impl<E: Environment> AssetData<E> {
             binary: None,
             metadata: assetinfo.into(),
             save_in_background: true,
+            cancelled: false,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -391,7 +397,7 @@ impl<E: Environment> AssetData<E> {
                     self.status = metadata.status();
                     self.metadata = metadata;
                     match self.status {
-                        Status::Ready | Status::Source => {
+                        Status::Ready | Status::Source | Status::Override => {
                             self.notification_tx
                                 .send(AssetNotificationMessage::JobFinished)
                                 .map_err(|e| {
@@ -484,7 +490,7 @@ impl<E: Environment> AssetData<E> {
                 })
             }
             Status::Storing => None,
-            Status::Ready | Status::Expired | Status::Source => {
+            Status::Ready | Status::Expired | Status::Source | Status::Override => {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
                     metadata.with_type_identifier(data.identifier().to_string());
@@ -498,6 +504,16 @@ impl<E: Environment> AssetData<E> {
                 }
             }
         }
+    }
+
+    /// Check if the asset has been cancelled
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+
+    /// Set the cancelled flag
+    pub fn set_cancelled(&mut self, cancelled: bool) {
+        self.cancelled = cancelled;
     }
 
     /// Poll the current binary data and metadata without any async operations.
@@ -850,6 +866,7 @@ impl<E: Environment> AssetRef<E> {
                 Status::Cancelled => {}
                 Status::Source => {}
                 Status::Directory => {}
+                Status::Override => {}
             }
         }
         self.service_sender()
@@ -968,6 +985,7 @@ impl<E: Environment> AssetRef<E> {
                 Status::Expired => {}
                 Status::Cancelled => {}
                 Status::Source => {}
+                Status::Override => {}
             }
         }
         self.service_sender()
@@ -1079,6 +1097,7 @@ impl<E: Environment> AssetRef<E> {
                     Status::Cancelled => {}
                     Status::Source => {}
                     Status::Expired => {}
+                    Status::Override => {}
                 }
                 let _ = lock
                     .notification_tx
@@ -1227,6 +1246,75 @@ impl<E: Environment> AssetRef<E> {
     pub(crate) async fn service_sender(&self) -> mpsc::UnboundedSender<AssetServiceMessage> {
         let lock = self.data.read().await;
         lock.service_sender()
+    }
+
+    /// Cancel the asset processing.
+    /// This method:
+    /// 1. Checks if asset is being evaluated (Submitted, Dependencies, or Processing) - otherwise returns Ok
+    /// 2. Sets cancelled = true on AssetData to prevent orphan writes
+    /// 3. Sends Cancel message to the service channel
+    /// 4. Waits (with timeout) for status to change to Cancelled or JobFinished on notification channel
+    /// 5. Returns Ok even if timeout occurs (best-effort)
+    pub async fn cancel(&self) -> Result<(), Error> {
+        let status = self.status().await;
+
+        // Check if asset is in a cancellable state
+        match status {
+            Status::Submitted | Status::Dependencies | Status::Processing | Status::Partial => {
+                // Asset is being evaluated, proceed with cancellation
+            }
+            _ => {
+                // Already finished or not started, nothing to cancel
+                return Ok(());
+            }
+        }
+
+        // Set cancelled flag to prevent orphan writes
+        {
+            let mut lock = self.data.write().await;
+            lock.set_cancelled(true);
+        }
+
+        // Send cancel message
+        let service_sender = self.service_sender().await;
+        let _ = service_sender.send(AssetServiceMessage::Cancel);
+
+        // Wait for cancellation with timeout
+        let mut rx = self.subscribe_to_notifications().await;
+        let timeout = tokio::time::Duration::from_secs(5);
+
+        let result = tokio::time::timeout(timeout, async {
+            loop {
+                let notification = rx.borrow().clone();
+                match notification {
+                    AssetNotificationMessage::JobFinished => {
+                        return Ok(());
+                    }
+                    AssetNotificationMessage::StatusChanged(Status::Cancelled) => {
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                if rx.changed().await.is_err() {
+                    // Channel closed
+                    return Ok(());
+                }
+            }
+        })
+        .await;
+
+        // Return Ok even on timeout (best-effort cancellation)
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Ok(()), // Timeout, but still return Ok
+        }
+    }
+
+    /// Check if the asset has been cancelled
+    pub async fn is_cancelled(&self) -> bool {
+        let lock = self.data.read().await;
+        lock.is_cancelled()
     }
 
     /// Get the final state of the asset.
@@ -1437,7 +1525,40 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// Check if resource is volatile
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error>;
     async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
+
+    /// Remove asset data from AssetManager and store.
+    /// This does NOT trigger recalculation.
     async fn remove(&self, key: &Key) -> Result<(), Error>;
+
+    /// Remove asset for a query (resolves to key first)
+    async fn remove_asset(&self, query: &Query) -> Result<(), Error> {
+        if let Some(key) = query.key() {
+            self.remove(&key).await
+        } else {
+            Err(Error::general_error(format!(
+                "Cannot remove asset for non-key query: {}",
+                query
+            )))
+        }
+    }
+
+    /// Set binary data and metadata for a key asset.
+    /// - Sets binary representation and clears any existing deserialized data
+    /// - Store only: Does NOT create AssetRef in memory; writes directly to store
+    /// - Status is determined by recipe existence (Source/Override) unless input status is Expired or Error
+    async fn set(
+        &self,
+        key: &Key,
+        binary: &[u8],
+        metadata: MetadataRecord,
+    ) -> Result<(), Error>;
+
+    /// Set State (data + metadata) for a key asset.
+    /// - Sets deserialized data and metadata from State
+    /// - Memory + Store: Creates new AssetRef with State AND serializes to store
+    /// - Supports non-serializable data (store metadata only if serialization fails)
+    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error>;
+
     /// Get asset info
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>;
 
@@ -1741,8 +1862,167 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         self.get(key).await
     }
 
-    async fn remove(&self, _key: &Key) -> Result<(), Error> {
-        // TODO: Does nothing??
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        // 1. Check if asset exists in memory and cancel if processing
+        if self.assets.contains_async(key).await {
+            if let Some(asset_entry) = self.assets.get_async(key).await {
+                let asset_ref = asset_entry.get().clone();
+                drop(asset_entry);
+
+                // Cancel if processing
+                asset_ref.cancel().await?;
+            }
+
+            // Remove from assets map
+            let _ = self.assets.remove_async(key).await;
+        }
+
+        // 2. Remove from store
+        let store = self.get_envref().get_async_store();
+        if store.contains(key).await? {
+            store.remove(key).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn set(
+        &self,
+        key: &Key,
+        binary: &[u8],
+        mut metadata: MetadataRecord,
+    ) -> Result<(), Error> {
+        // 1. Cancel any existing processing asset for this key
+        if self.assets.contains_async(key).await {
+            if let Some(asset_entry) = self.assets.get_async(key).await {
+                let asset_ref = asset_entry.get().clone();
+                drop(asset_entry);
+
+                // Cancel if processing
+                asset_ref.cancel().await?;
+            }
+
+            // Remove from assets map (set() is store-only, no AssetRef created)
+            let _ = self.assets.remove_async(key).await;
+        }
+
+        // 2. Determine status based on input status and recipe existence
+        let input_status = metadata.status;
+        let final_status = match input_status {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            _ => {
+                // Check if recipe exists
+                if self.recipe_opt(key).await?.is_some() {
+                    Status::Override
+                } else {
+                    Status::Source
+                }
+            }
+        };
+        metadata.status = final_status;
+
+        // 3. Update timestamp and add log entry
+        metadata.set_updated_now();
+        metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+
+        // 4. Handle Error status specially - store empty binary with metadata
+        let store = self.get_envref().get_async_store();
+        if final_status == Status::Error {
+            // Store empty binary with error metadata
+            store
+                .set(key, &[], &metadata.clone().into())
+                .await?;
+        } else {
+            // Store binary and metadata
+            store
+                .set(key, binary, &metadata.clone().into())
+                .await
+                .map_err(|e| {
+                    // On failure, try to clean up (best effort)
+                    // Note: We can't do async cleanup in map_err, so just return the error
+                    e
+                })?;
+        }
+
+        Ok(())
+    }
+
+    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
+        // 1. Cancel any existing processing asset for this key
+        if self.assets.contains_async(key).await {
+            if let Some(asset_entry) = self.assets.get_async(key).await {
+                let asset_ref = asset_entry.get().clone();
+                drop(asset_entry);
+
+                // Cancel if processing
+                asset_ref.cancel().await?;
+            }
+
+            // Remove from assets map
+            let _ = self.assets.remove_async(key).await;
+        }
+
+        // 2. Determine status based on input status and recipe existence
+        let input_status = state.metadata.status();
+        let final_status = match input_status {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            _ => {
+                // Check if recipe exists
+                if self.recipe_opt(key).await?.is_some() {
+                    Status::Override
+                } else {
+                    Status::Source
+                }
+            }
+        };
+
+        // 3. Create metadata record with updated status, timestamp, and log entry
+        let mut metadata = state.metadata.as_ref().clone();
+        metadata.set_status(final_status)?;
+        metadata.set_updated_now()?;
+        metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+
+        // 4. Create new AssetRef with the state
+        let recipe: Recipe = key.into();
+        let mut asset_data = AssetData::new_ext(
+            self.next_id(),
+            recipe,
+            State::new(), // Empty initial state
+            self.get_envref(),
+        );
+        asset_data.data = Some(Arc::new(state.data.as_ref().clone()));
+        asset_data.metadata = metadata.clone();
+        asset_data.status = final_status;
+        asset_data.binary = None; // Clear binary, we have the data
+
+        let asset_ref = asset_data.to_ref();
+
+        // 5. Store in assets map
+        let _ = self
+            .assets
+            .insert_async(key.clone(), asset_ref.clone())
+            .await;
+
+        // 6. Handle Error status specially - store empty binary with metadata
+        let store = self.get_envref().get_async_store();
+        if final_status == Status::Error {
+            // Store empty binary with error metadata
+            store.set(key, &[], &metadata.into()).await?;
+        } else {
+            // 7. Try to serialize and store (handle non-serializable gracefully)
+            match state.as_bytes() {
+                Ok(binary) => {
+                    store.set(key, &binary, &metadata.into()).await?;
+                }
+                Err(_) => {
+                    // Non-serializable data - store metadata only
+                    store.set_metadata(key, &metadata.into()).await?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -2662,5 +2942,139 @@ mod tests {
 
         // Asset should be Ready
         assert_eq!(assetref.status().await, Status::Ready);
+    }
+
+    #[tokio::test]
+    async fn test_set_without_recipe() {
+        // Set binary data on a key without a recipe - should become Source
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+
+        let key = parse_key("test/set_source").unwrap();
+        let binary = b"test data".to_vec();
+        let mut metadata = MetadataRecord::new();
+        metadata.type_identifier = "text".to_string();
+        metadata.data_format = Some("txt".to_string());
+
+        let manager = envref.get_asset_manager();
+        manager.set(&key, &binary, metadata).await.unwrap();
+
+        // Check the data was stored correctly
+        let store = envref.get_async_store();
+        assert!(store.contains(&key).await.unwrap());
+
+        let (stored_binary, stored_metadata) = store.get(&key).await.unwrap();
+        assert_eq!(stored_binary, binary);
+        assert_eq!(stored_metadata.status(), Status::Source);
+    }
+
+    #[tokio::test]
+    async fn test_set_with_expired_status() {
+        // Set with Expired status - should preserve Expired
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+
+        let key = parse_key("test/set_expired").unwrap();
+        let binary = b"expired data".to_vec();
+        let mut metadata = MetadataRecord::new();
+        metadata.type_identifier = "text".to_string();
+        metadata.data_format = Some("txt".to_string());
+        metadata.status = Status::Expired;
+
+        let manager = envref.get_asset_manager();
+        manager.set(&key, &binary, metadata).await.unwrap();
+
+        let store = envref.get_async_store();
+        let (_, stored_metadata) = store.get(&key).await.unwrap();
+        assert_eq!(stored_metadata.status(), Status::Expired);
+    }
+
+    #[tokio::test]
+    async fn test_set_with_error_status() {
+        // Set with Error status - should preserve Error and not store binary
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+
+        let key = parse_key("test/set_error").unwrap();
+        let binary = b"this should not be stored".to_vec();
+        let mut metadata = MetadataRecord::new();
+        metadata.type_identifier = "text".to_string();
+        metadata.data_format = Some("txt".to_string());
+        metadata.status = Status::Error;
+        metadata.message = "Test error".to_string();
+
+        let manager = envref.get_asset_manager();
+        manager.set(&key, &binary, metadata).await.unwrap();
+
+        let store = envref.get_async_store();
+        // For error status, empty binary is stored with metadata
+        let (stored_binary, stored_metadata) = store.get(&key).await.unwrap();
+        assert_eq!(stored_metadata.status(), Status::Error);
+        assert!(stored_binary.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_set_state_without_recipe() {
+        // Set state on a key without a recipe - should become Source
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+
+        let key = parse_key("test/set_state_source").unwrap();
+        let value = Value::from("test state value");
+        let mut metadata = MetadataRecord::new();
+        metadata.type_identifier = value.identifier().to_string();
+        metadata.data_format = Some("txt".to_string());
+        let state = State::from_value_and_metadata(value, Arc::new(metadata.into()));
+
+        let manager = envref.get_asset_manager();
+        manager.set_state(&key, state).await.unwrap();
+
+        // Check the asset is in memory with correct status
+        let asset = manager.get(&key).await.unwrap();
+        assert_eq!(asset.status().await, Status::Source);
+
+        // Should also be in store
+        let store = envref.get_async_store();
+        assert!(store.contains(&key).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_remove_asset() {
+        // First set an asset, then remove it
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+
+        let key = parse_key("test/to_remove").unwrap();
+        let binary = b"to be removed".to_vec();
+        let mut metadata = MetadataRecord::new();
+        metadata.type_identifier = "text".to_string();
+        metadata.data_format = Some("txt".to_string());
+
+        let manager = envref.get_asset_manager();
+        manager.set(&key, &binary, metadata).await.unwrap();
+
+        // Verify it exists
+        let store = envref.get_async_store();
+        assert!(store.contains(&key).await.unwrap());
+
+        // Remove it
+        manager.remove(&key).await.unwrap();
+
+        // Verify it's gone from store
+        assert!(!store.contains(&key).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_override_status() {
+        // Test that Override status has correct properties
+        assert!(Status::Override.has_data());
+        assert!(Status::Override.is_finished());
+        assert!(!Status::Override.is_processing());
+        assert!(!Status::Override.can_have_tracked_dependencies());
     }
 }
