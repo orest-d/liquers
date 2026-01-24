@@ -261,9 +261,7 @@ impl CommandParameter {
                 quote! {
                     liquers_core::command_metadata::CommandParameterValue::Value(
                         serde_json::Value::Number(
-                            serde_json::Number::from_i64(#value).unwrap_or(
-                                serde_json::Number::from_i64(0).unwrap()
-                            )
+                            serde_json::Number::from(#value)
                         )
                     )
                 }

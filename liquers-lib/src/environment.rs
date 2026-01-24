@@ -62,10 +62,19 @@ impl<V: ValueInterface> DefaultEnvironment<V> {
     pub fn with_trivial_recipe_provider(
         &mut self
     ) -> &mut Self {
-        
+
         let provider: Arc<Box<dyn AsyncRecipeProvider<Self>>> = Arc::new(Box::new(liquers_core::recipes::TrivialRecipeProvider));
         self.recipe_provider = Some(provider);
         self
+    }
+
+}
+
+// Specialized impl for DefaultEnvironment<Value> to add polars command registration
+impl DefaultEnvironment<crate::value::Value> {
+    /// Register polars commands (only available for DefaultEnvironment<Value>)
+    pub fn register_polars_commands(&mut self) -> Result<(), Error> {
+        crate::polars::register_commands(self)
     }
 }
 
