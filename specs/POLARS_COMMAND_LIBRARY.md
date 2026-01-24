@@ -213,6 +213,32 @@ Out of scope.
 - `-R/data/sales.txt/-/from_csv-semicolon` (semicolon-separated)
 - `-R/data/sales.txt/-/from_csv-pipe` (pipe-separated)
 
+**Note on `from_csv` vs automatic detection**:
+
+With the `try_to_polars_dataframe` utility, many operations can work directly without explicit `from_csv`:
+
+- **Explicit `from_csv` needed when**:
+  - Custom separator required (tab, semicolon, pipe, etc.)
+  - Need to override metadata-detected format
+  - Starting a new DataFrame pipeline
+
+- **Automatic detection works when**:
+  - File has `.csv` extension (metadata indicates CSV format)
+  - Using standard comma separator
+  - Chaining operations after an explicit load
+
+**Examples**:
+```
+# Explicit - required for custom separator
+-R/data/sales.tsv/-/from_csv-tab/head-10
+
+# Automatic - works if sales.csv has proper extension
+-R/data/sales.csv/-/head-10
+
+# Mixed - explicit first, then automatic
+-R/data/sales.csv/-/from_csv/select_columns-date-amount/head-10
+```
+
 ---
 
 ## Command Usage Examples
@@ -229,14 +255,190 @@ Filter sales where amount > 1000 and status is completed, select specific column
 
 ## Implementation Notes
 
+### Overview
+
+All Polars commands follow a consistent pattern:
+1. **Extract DataFrame** from state using `try_to_polars_dataframe(state)?`
+2. **Perform operation** using Polars methods
+3. **Return result** wrapped in `Value::from_polars_dataframe(df)`
+
+The `try_to_polars_dataframe` utility function is the foundation of the entire command library, providing automatic DataFrame extraction from multiple sources.
+
 ### General Principles
 
 1. **State Parameter**: Commands receive `state: &State<V>`
-   - Extract DataFrame: `state.as_polars_dataframe()?`
+   - Extract DataFrame: Use `try_to_polars_dataframe(&state)?` utility function
    - Return DataFrame: `V::from_polars_dataframe(df)`
    - Handle Arc wrapper transparently
 
-2. **Parameter Parsing**:
+2. **DataFrame Extraction Utility** (`util.rs`):
+
+   All polars commands should use the `try_to_polars_dataframe` utility function to convert State into a DataFrame. This function:
+
+   **Signature**:
+   ```rust
+   pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
+       state: &State<V>
+   ) -> Result<Arc<polars::frame::DataFrame>, Error>
+   ```
+
+   **Logic**:
+   1. **Direct conversion**: First try `state.data.as_polars_dataframe()`
+      - If successful, return the DataFrame immediately
+      - This handles the case where state already contains a PolarsDataFrame
+
+   2. **Deserialization from binary/text**:
+      - If direct conversion fails, check if value is Text or Bytes
+      - Inspect `state.metadata.get_data_format()` to determine format
+      - Attempt deserialization based on format:
+
+   **Supported formats**:
+   - `"csv"`: Parse as CSV using `polars::io::CsvReader::new()`
+     - For Text: parse string directly
+     - For Bytes: wrap in cursor and parse
+   - `"parquet"`: Parse as Parquet using `polars::io::ParquetReader`
+     - Requires Bytes value
+   - `"json"` (future): Parse as JSON
+   - Other formats: Return error with helpful message
+
+   **Error handling**:
+   - If value is not DataFrame, Text, or Bytes: `"Cannot convert {type} to DataFrame"`
+   - If format is unknown: `"Unsupported data format '{format}' for DataFrame conversion. Supported: csv, parquet"`
+   - If deserialization fails: `"Failed to parse {format} as DataFrame: {error}"`
+
+   **Example implementation skeleton**:
+   ```rust
+   pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
+       state: &State<V>
+   ) -> Result<Arc<polars::frame::DataFrame>, Error> {
+       // Try direct conversion first
+       if let Ok(df) = state.data.as_polars_dataframe() {
+           return Ok(df);
+       }
+
+       // Get data format from metadata
+       let format = state.metadata.get_data_format();
+
+       // Try deserialization based on value type and format
+       match format.as_str() {
+           "csv" => {
+               // Try to get as text or bytes
+               if let Ok(text) = state.data.try_into_string() {
+                   let df = CsvReader::new(Cursor::new(text.as_bytes()))
+                       .has_header(true)
+                       .finish()
+                       .map_err(|e| Error::general_error(
+                           format!("Failed to parse CSV as DataFrame: {}", e)
+                       ))?;
+                   return Ok(Arc::new(df));
+               }
+               // Handle bytes similarly...
+           },
+           "parquet" => {
+               // Get bytes and parse as parquet
+               // ...
+           },
+           _ => {
+               return Err(Error::general_error(
+                   format!("Unsupported data format '{}' for DataFrame conversion. Supported: csv, parquet", format)
+               ));
+           }
+       }
+
+       Err(Error::conversion_error(
+           state.data.identifier().as_ref(),
+           "Polars DataFrame"
+       ))
+   }
+   ```
+
+   **Usage in commands**:
+
+   All polars commands should follow this pattern:
+
+   ```rust
+   use crate::polars::util::try_to_polars_dataframe;
+   use liquers_core::{state::State, error::Error};
+
+   // Example 1: Simple command (head)
+   fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
+       let df = try_to_polars_dataframe(state)?;
+       let result = df.head(Some(n as usize));
+       Ok(Value::from_polars_dataframe(result))
+   }
+
+   // Example 2: Command with error handling (select_columns)
+   fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
+       let df = try_to_polars_dataframe(state)?;
+
+       let col_names: Vec<&str> = columns.split('-').map(|s| s.trim()).collect();
+
+       // Check all columns exist
+       for col in &col_names {
+           if !df.get_column_names().contains(col) {
+               return Err(Error::general_error(format!(
+                   "Column '{}' not found in DataFrame. Available columns: {:?}",
+                   col, df.get_column_names()
+               )));
+           }
+       }
+
+       let result = df.select(col_names)
+           .map_err(|e| Error::general_error(format!("Failed to select columns: {}", e)))?;
+
+       Ok(Value::from_polars_dataframe(result))
+   }
+
+   // Example 3: Comparison filter with type-aware parsing (gt)
+   fn gt(state: &State<Value>, column: String, value_str: String) -> Result<Value, Error> {
+       let df = try_to_polars_dataframe(state)?;
+
+       // Verify column exists
+       let schema = df.schema();
+       let dtype = schema.get(&column)
+           .ok_or_else(|| Error::general_error(format!(
+               "Column '{}' not found in DataFrame", column
+           )))?;
+
+       // Parse value based on column type
+       let filter_expr = match dtype {
+           DataType::Int64 => {
+               let val = value_str.trim().parse::<i64>()
+                   .map_err(|_| Error::general_error(format!(
+                       "Cannot parse '{}' as Int64 for column '{}'", value_str, column
+                   )))?;
+               col(&column).gt(lit(val))
+           },
+           DataType::Float64 => {
+               let val = value_str.trim().parse::<f64>()
+                   .map_err(|_| Error::general_error(format!(
+                       "Cannot parse '{}' as Float64 for column '{}'", value_str, column
+                   )))?;
+               col(&column).gt(lit(val))
+           },
+           _ => {
+               return Err(Error::general_error(format!(
+                   "Comparison 'gt' not supported for column '{}' of type {:?}",
+                   column, dtype
+               )));
+           }
+       };
+
+       let result = df.filter(&filter_expr)
+           .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
+
+       Ok(Value::from_polars_dataframe(result))
+   }
+   ```
+
+   **Key benefits of `try_to_polars_dataframe`**:
+   - Commands work transparently with DataFrames already in memory
+   - Commands can also load DataFrames from CSV/Parquet in binary/text state
+   - Single extraction point for all DataFrame operations
+   - Consistent error messages
+   - Enables chaining: `-R/data.csv/-/from_csv/head-10` is equivalent to `-R/data.csv/-/head-10` if metadata indicates CSV format
+
+3. **Parameter Parsing**:
    - Parsing of arguments is done by the framework.   
    - Column names: split by "-", trim whitespace
    - Single vs. multiple: e.g., `select_columns-col1-col2-col3`
@@ -244,7 +446,7 @@ Filter sales where amount > 1000 and status is completed, select specific column
    - Default values can be specified with the `register_command!` DSL.
    - Numeric arguments parsed as i32, u64, f64 as needed
 
-3. **Seeding for Random Operations**:
+4. **Seeding for Random Operations**:
    - Commands `sample` and `shuffle` accept optional seed parameter (u64)
    - Polars supports `seed: Option<u64>` in `sample_n()`, `sample_frac()`, etc.
    - When seed is provided, operations are reproducible across runs
@@ -252,12 +454,13 @@ Filter sales where amount > 1000 and status is completed, select specific column
    - Example: `sample-10-42` uses seed 42, `shuffle-12345` uses seed 12345
    - Seed must be valid u64; invalid seeds should return error with clear message
 
-4. **Error Handling**:
-   - Use `Error::command_error()` for operation failures
-   - Provide context: "Failed to filter: column 'amount' not found"
-   - Never unwrap Polars operations
+5. **Error Handling**:
+   - Use `Error::general_error()` or `Error::execution_error()` for operation failures
+   - The interpreter will automatically add command context to all errors
+   - Provide clear, specific error messages: "Column 'amount' not found in DataFrame"
+   - Never unwrap Polars operations - always use `?` or `map_err()`
 
-5. **Type Conversion**:
+6. **Type Conversion**:
    - Data types as strings: `"int"`, `"float"`, `"string"`, `"date"`, `"datetime"`
    - Map to Polars `DataType` enum
 
@@ -539,14 +742,19 @@ To minimize dependencies and enable incremental testing:
 
 ### Step 1: Foundation & Utilities (1-2 days)
 1. **Module setup**: Create `liquers-lib/src/polars/mod.rs` and submodules
-2. **Utility functions** (`util.rs`):
+2. **Core utility function** (`util.rs`):
+   - **`try_to_polars_dataframe<V>(state: &State<V>) -> Result<Arc<DataFrame>, Error>`** - The primary utility that all commands use to extract DataFrames from State
+     - Tries direct conversion via `as_polars_dataframe()` first
+     - Falls back to deserialization from Text/Bytes based on metadata `data_format`
+     - Supports CSV and Parquet formats
+3. **Parsing utilities** (`util.rs`):
    - `parse_date(s: &str) -> Result<NaiveDate>`
    - `parse_datetime(s: &str) -> Result<NaiveDateTime>`
    - `parse_boolean(s: &str) -> Result<bool>`
    - `parse_separator(s: &str) -> Result<u8>` (for CSV)
    - `column_exists_check(df, column_name)` helper
-3. **Type detection helper**: Function to inspect column dtype and parse comparison values
-4. **Test utilities**: Sample DataFrame generators for testing
+4. **Type detection helper**: Function to inspect column dtype and parse comparison values
+5. **Test utilities**: Sample DataFrame generators for testing
 
 ### Step 2: I/O Operations (1 day)
 5. **`from_csv`** - Essential for loading test data
