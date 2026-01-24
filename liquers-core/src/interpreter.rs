@@ -146,6 +146,14 @@ pub fn do_step<E: Environment>(
             let ce = envref.get_command_executor();
             ce.execute_async(&command_key, input, arguments, context)
                 .await
+                .map_err(|e| {
+                    // Only set command_key if not already set (to preserve inner command errors)
+                    if e.command_key.is_none() {
+                        e.with_command_key(&command_key).with_position(&position)
+                    } else {
+                        e.with_position(&position)
+                    }
+                })
                 .map(|v| Arc::new(v))
         }
         .boxed(),

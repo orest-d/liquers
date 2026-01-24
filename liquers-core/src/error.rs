@@ -1,5 +1,6 @@
 use itertools::Itertools;
 
+use crate::command_metadata::CommandKey;
 use crate::query::ActionRequest;
 use crate::query::Key;
 use crate::query::Position;
@@ -38,6 +39,8 @@ pub struct Error {
     // TODO: deal with the query and key positions not starting at 0
     pub query: Option<String>,
     pub key: Option<String>,
+    #[serde(skip)]
+    pub command_key: Option<CommandKey>,
 }
 
 impl Error {
@@ -48,6 +51,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
 
@@ -58,6 +62,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
 
@@ -80,6 +85,13 @@ impl Error {
         self.query = Some(key.encode());
         self
     }
+    /// Enriches an error with command execution context.
+    /// This is typically called by the interpreter to add command information to errors
+    /// returned from command execution.
+    pub fn with_command_key(mut self, command_key: &CommandKey) -> Self {
+        self.command_key = Some(command_key.clone());
+        self
+    }
     /// Constructs an error with the `NotAvailable` error type.
     /// This can be used when Option is converted to a result type.
     /// This is used e.g. in cache or store when the requested data is not available.    
@@ -90,6 +102,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     /// Returns true if the requested item is not available.
@@ -105,6 +118,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn not_supported(message: String) -> Self {
@@ -114,6 +128,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn action_not_registered(action: &ActionRequest, namespaces: &Vec<String>) -> Self {
@@ -127,6 +142,7 @@ impl Error {
             position: action.position.clone(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn missing_argument(i: usize, name: &str, position: &Position) -> Self {
@@ -136,6 +152,7 @@ impl Error {
             position: position.clone(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn conversion_error<W: Display, T: Display>(what: W, to: T) -> Self {
@@ -145,6 +162,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn conversion_error_with_message<W: Display, T: Display>(
@@ -158,6 +176,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn conversion_error_at_position<W: Display, T: Display>(
@@ -171,6 +190,7 @@ impl Error {
             position: position.clone(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn key_parse_error(key: &str, err: &str, position: &Position) -> Self {
@@ -180,6 +200,7 @@ impl Error {
             position: position.clone(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn query_parse_error(query: &str, err: &str, position: &Position) -> Self {
@@ -189,6 +210,7 @@ impl Error {
             position: position.clone(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn general_error(message: String) -> Self {
@@ -198,6 +220,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn unexpected_error(message: String) -> Self {
@@ -207,6 +230,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
 
@@ -225,6 +249,7 @@ impl Error {
             position: action_position.clone(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn key_not_found(key: &Key) -> Self {
@@ -234,6 +259,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
     pub fn key_not_supported(key: &Key, store_name:&str) -> Self {
@@ -243,6 +269,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),
+            command_key: None,
         }
     }
     pub fn key_read_error(key: &Key, store_name:&str, message: &(impl Display + ?Sized)) -> Self {
@@ -252,6 +279,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),
+            command_key: None,
         }
     }
     pub fn key_write_error(key: &Key, store_name:&str, message: &(impl Display + ?Sized)) -> Self {
@@ -261,6 +289,7 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),
+            command_key: None,
         }
     }
     pub fn execution_error(message: String) -> Self {
@@ -270,16 +299,33 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
         }
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.position.is_unknown() {
-            write!(f, "{}", self.message)
+        let message = if let Some(ref command_key) = self.command_key {
+            let name = if command_key.name.is_empty() {
+                "unnamed"
+            } else {
+                &command_key.name
+            };
+
+            if !command_key.realm.is_empty() || !command_key.namespace.is_empty() {
+                format!("Command '{}' ({}) failed: {}", name, command_key, self.message)
+            } else {
+                format!("Command '{}' failed: {}", name, self.message)
+            }
         } else {
-            write!(f, "{} at {}", self.message, self.position)
+            self.message.clone()
+        };
+
+        if self.position.is_unknown() {
+            write!(f, "{}", message)
+        } else {
+            write!(f, "{} at {}", message, self.position)
         }
     }
 }
@@ -287,5 +333,78 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn description(&self) -> &str {
         &self.message
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_with_command_key_simple() {
+        let key = CommandKey::new("", "", "filter");
+        let err = Error::general_error("Column not found".to_string())
+            .with_command_key(&key);
+
+        assert_eq!(err.error_type, ErrorType::General);
+        assert_eq!(err.command_key, Some(key));
+        assert_eq!(err.to_string(), "Command 'filter' failed: Column not found");
+    }
+
+    #[test]
+    fn test_with_command_key_with_namespace() {
+        let key = CommandKey::new("", "polars", "select");
+        let err = Error::general_error("Invalid column".to_string())
+            .with_command_key(&key);
+
+        assert_eq!(err.command_key, Some(key.clone()));
+        let display_str = err.to_string();
+        assert!(display_str.contains("Command 'select'"));
+        assert!(display_str.contains("-polars-select"));
+        assert!(display_str.contains("failed: Invalid column"));
+    }
+
+    #[test]
+    fn test_with_command_key_preserves_error_type() {
+        let key = CommandKey::new("", "", "parse");
+        let source_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let err = Error::from_error(ErrorType::ExecutionError, source_err)
+            .with_command_key(&key);
+
+        assert_eq!(err.error_type, ErrorType::ExecutionError);
+        assert!(err.to_string().contains("Command 'parse' failed:"));
+        assert!(err.to_string().contains("file missing"));
+    }
+
+    #[test]
+    fn test_with_command_key_unnamed() {
+        let key = CommandKey::new("", "", "");
+        let err = Error::general_error("Something went wrong".to_string())
+            .with_command_key(&key);
+
+        let display_str = err.to_string();
+        assert!(display_str.contains("Command 'unnamed' failed:"));
+        assert!(display_str.contains("Something went wrong"));
+    }
+
+    #[test]
+    fn test_with_command_key_and_position() {
+        let key = CommandKey::new("", "", "test");
+        let pos = Position::new(0, 2, 5); // line 2, column 5
+        let err = Error::general_error("Test error".to_string())
+            .with_command_key(&key)
+            .with_position(&pos);
+
+        let display_str = err.to_string();
+        assert!(display_str.contains("Command 'test' failed: Test error"));
+        assert!(display_str.contains("at line 2, position 5"));
+    }
+
+    #[test]
+    fn test_error_without_command_key() {
+        let err = Error::general_error("No command context".to_string());
+
+        assert_eq!(err.command_key, None);
+        assert_eq!(err.to_string(), "No command context");
     }
 }

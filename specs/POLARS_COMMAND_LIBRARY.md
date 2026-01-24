@@ -1,5 +1,29 @@
 # Polars Command Library Specification
 
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Query Format](#query-format)
+3. [Module Structure](#module-structure)
+4. [Command Reference](#command-reference)
+   - [Column Selection](#column-selection-1-argument)
+   - [Row Slicing](#row-slicing-0-3-arguments)
+   - [Comparison Filters](#comparison-filters)
+   - [Sorting](#sorting-1-2-arguments-column-direction)
+   - [Aggregations](#aggregations---full-dataframe)
+   - [Reshaping](#reshaping-varies)
+   - [Column Operations](#column-operations-2-3-arguments)
+   - [Row/Column Info](#rowcolumn-info-0-arguments)
+   - [I/O Operations](#io-operations)
+5. [Command Usage Examples](#command-usage-examples)
+6. [Implementation Notes](#implementation-notes)
+   - [General Principles](#general-principles)
+   - [Type-Aware Comparison Value Parsing](#type-aware-comparison-value-parsing)
+   - [Edge Cases & Error Handling](#edge-cases--error-handling)
+7. [Phase 1 Implementation (MVP)](#phase-1-implementation-mvp)
+8. [Recommended Implementation Order](#recommended-implementation-order)
+9. [Related Documentation](#related-documentation)
+
 ## Overview
 
 This specification defines a command library wrapping essential Polars DataFrame functionality for Liquers. The library enables users to perform efficient data transformations using Polars' vectorized operations and parallel evaluation.
@@ -26,7 +50,7 @@ Where:
 
 Example:
 ```
--R/data/sales.csv/-/from_csv-t/select-date-amount-status/gt-amount-1000/eq-status-completed/head-10
+-R/data/sales.csv/-/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
 ```
 
 ## Module Structure
@@ -66,9 +90,11 @@ liquers-lib/src/polars/
 
 **Example**: `head-10`, `slice-10-5`, `sample-10`, `sample-10-42` (with seed 42), `shuffle`, `shuffle-42` (with seed 42)
 
-### Comparison Filters (2 arguments: column-value)
+### Comparison Filters
 
 Filter rows where condition is true. Can be chained for AND logic.
+
+#### Value Comparison (2 arguments: column-value)
 
 | Command | Description | Polars Operator | Example |
 |---------|-------------|-----------------|---------|
@@ -78,13 +104,33 @@ Filter rows where condition is true. Can be chained for AND logic.
 | `gte` | Greater than or equal | `>=` | `gte-age-18` |
 | `lt` | Less than | `<` | `lt-price-50` |
 | `lte` | Less than or equal | `<=` | `lte-inventory-10` |
-| `contains` | String contains substring | `str.contains()` | `contains-name-john` |
-| `startswith` | String starts with prefix | `str.starts_with()` | `startswith-code-us` |
-| `endswith` | String ends with suffix | `str.ends_with()` | `endswith-file-csv` |
-| `isnull` | Is null | `is_null()` | `isnull-email` |
-| `notnull` | Is not null | `is_not_null()` | `notnull-phone` |
-| `min_rows` | Rows where column has minimum value (numeric or string) |  | `min_rows-price` |
-| `max_rows` | Rows where column has maximum value (numeric or string) |  | `max_rows-price` |
+
+#### String Predicates (2 arguments: column-value)
+
+| Command | Description | Polars Operator | Example |
+|---------|-------------|-----------------|---------|
+| `contains` | String contains substring (case-sensitive) | `str.contains()` | `contains-name-john` |
+| `startswith` | String starts with prefix (case-sensitive) | `str.starts_with()` | `startswith-code-us` |
+| `endswith` | String ends with suffix (case-sensitive) | `str.ends_with()` | `endswith-file-csv` |
+
+#### Null Checks (1 argument: column)
+
+| Command | Description | Polars Operator | Example |
+|---------|-------------|-----------------|---------|
+| `isnull` | Filter rows where column is null | `is_null()` | `isnull-email` |
+| `notnull` | Filter rows where column is not null | `is_not_null()` | `notnull-phone` |
+
+#### Min/Max Row Filters (1 argument: column)
+
+| Command | Description | Implementation | Example |
+|---------|-------------|----------------|---------|
+| `min_rows` | Return all rows where column equals its minimum value | `df.filter(col(column).eq(col(column).min()))` | `min_rows-price` |
+| `max_rows` | Return all rows where column equals its maximum value | `df.filter(col(column).eq(col(column).max()))` | `max_rows-price` |
+
+**Notes:**
+- `min_rows`/`max_rows` return **all rows** with the min/max value (not just one)
+- Works for numeric, string (lexicographic), and date/datetime columns
+- If multiple rows have the same min/max, all are returned
 
 **Example chain**: `-R/sales.csv/-/gt-amount-1000/eq-status-completed`
 
@@ -108,9 +154,10 @@ Apply to entire DataFrame (no arguments):
 | `min` | Minimum of all numeric columns | `df.min()` |
 | `max` | Maximum of all numeric columns | `df.max()` |
 | `std` | Standard deviation of numeric columns | `df.std()` |
+| `count` | Count non-null values per column | `df.count()` |
 | `describe` | Statistical summary | `df.describe()` |
 
-**Example**: `sum` returns DataFrame with row sums
+**Example**: `sum` returns single-row DataFrame with column sums
 
 ### Grouping & Aggregation
 
@@ -156,11 +203,15 @@ Out of scope.
 
 | Command | Arguments | Description | Polars Method | Notes |
 |---------|-----------|-------------|---------------|-------|
-| `from_csv` | separator | Read CSV from key (must have a header)  | `CsvReader::from_path()` | State provides path |
-| `to_csv` | *(none)* | Write DataFrame as CSV string | `df.write_csv()` | Returns string or bytes |
+| `from_csv` | `[separator]` | Read CSV from key (assumes header row) | `CsvReader::from_path()` | Default separator: comma. Options: "comma", "tab", "semicolon", "pipe", or single char |
+| `to_csv` | *(none)* | Write DataFrame as CSV string | `df.write_csv()` | Returns string with comma separator |
 | `from_parquet` | *(none)* | Read Parquet from key | `ParquetReader::new()` | State provides path |
 
-**Example**: `-R/data/sales_csv.txt/-/from_csv` (path from resource)
+**Examples**:
+- `-R/data/sales.csv/-/from_csv` (default comma separator)
+- `-R/data/sales.tsv/-/from_csv-tab` (tab-separated)
+- `-R/data/sales.txt/-/from_csv-semicolon` (semicolon-separated)
+- `-R/data/sales.txt/-/from_csv-pipe` (pipe-separated)
 
 ---
 
@@ -186,6 +237,7 @@ Filter sales where amount > 1000 and status is completed, select specific column
    - Handle Arc wrapper transparently
 
 2. **Parameter Parsing**:
+   - Parsing of arguments is done by the framework.   
    - Column names: split by "-", trim whitespace
    - Single vs. multiple: e.g., `select_columns-col1-col2-col3`
    - Optional arguments: provide defaults (e.g., `head` defaults to 5)
@@ -201,13 +253,227 @@ Filter sales where amount > 1000 and status is completed, select specific column
    - Seed must be valid u64; invalid seeds should return error with clear message
 
 4. **Error Handling**:
-   - Use `Error::general_error()` for operation failures
+   - Use `Error::command_error()` for operation failures
    - Provide context: "Failed to filter: column 'amount' not found"
    - Never unwrap Polars operations
 
 5. **Type Conversion**:
    - Data types as strings: `"int"`, `"float"`, `"string"`, `"date"`, `"datetime"`
    - Map to Polars `DataType` enum
+
+### Type-Aware Comparison Value Parsing
+
+Comparison commands (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`) automatically convert the string argument to match the column's data type. The implementation should:
+
+1. **Inspect the column's `dtype`** from the DataFrame schema
+2. **Parse the comparison value** according to the detected type
+3. **Return clear errors** if parsing fails
+
+#### Numeric Columns (Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, Float32, Float64)
+
+- Parse argument as the matching numeric type
+- **Example**: `gt-amount-1000` parses "1000" as i64 if `amount` is Int64
+- **Error if parsing fails**: `"Cannot parse '1000x' as Int64 for column 'amount'"`
+- **Whitespace**: Trim before parsing
+
+```rust
+// Implementation approach
+let column_dtype = df.schema().get(&column_name)?;
+match column_dtype {
+    DataType::Int64 => {
+        let value = arg.trim().parse::<i64>()
+            .map_err(|_| Error::general_error(format!("Cannot parse '{}' as Int64 for column '{}'", arg, column_name)))?;
+        // Create filter expression
+    }
+    // ... other numeric types
+}
+```
+
+#### Date Columns
+
+Support three formats (tried in order until one succeeds):
+
+1. **`YYYYMMDD`** (compact, no separators): `"20240115"`
+2. **`YYYY-MM-DD`** (ISO 8601 standard): `"2024-01-15"`
+3. **`YYYY_MM_DD`** (underscore separator): `"2024_01_15"`
+
+**Examples**:
+- `gt-order_date-20240115`
+- `gte-order_date-2024-01-15`
+- `lt-delivery_date-2024_12_31`
+
+**Error if none match**: `"Cannot parse '2024/01/15' as Date (use YYYYMMDD, YYYY-MM-DD, or YYYY_MM_DD)"`
+
+```rust
+// Implementation approach
+fn parse_date(s: &str) -> Result<NaiveDate, Error> {
+    // Try YYYYMMDD
+    if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) {
+        return NaiveDate::parse_from_str(s, "%Y%m%d")
+            .map_err(|_| Error::general_error(format!("Invalid date format: {}", s)));
+    }
+    // Try YYYY-MM-DD
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Ok(date);
+    }
+    // Try YYYY_MM_DD
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y_%m_%d") {
+        return Ok(date);
+    }
+    Err(Error::general_error(format!(
+        "Cannot parse '{}' as Date (use YYYYMMDD, YYYY-MM-DD, or YYYY_MM_DD)", s
+    )))
+}
+```
+
+#### DateTime Columns
+
+Support ISO 8601 and compact formats:
+
+1. **`YYYY-MM-DD HH:MM:SS`** (ISO with space): `"2024-01-15 14:30:00"`
+2. **`YYYY-MM-DDTHH:MM:SS`** (ISO with T separator): `"2024-01-15T14:30:00"`
+3. **`YYYYMMDDHHMMSS`** (compact): `"20240115143000"`
+
+**Examples**:
+- `gt-timestamp-2024-01-15T14:30:00`
+- `gte-created_at-20240115143000`
+
+**Optional microseconds**: Support `.SSS` or `.SSSSSS` suffix
+- `"2024-01-15 14:30:00.123"`
+- `"2024-01-15T14:30:00.123456"`
+
+**Error**: `"Cannot parse '2024/01/15 14:30' as DateTime (use ISO 8601 or YYYYMMDDHHMMSS)"`
+
+#### String Columns
+
+- **Use argument as-is** (no conversion)
+- **Case-sensitive** comparison
+- **Whitespace preserved** (no trimming for string values)
+- **Example**: `eq-status-completed` matches "completed" but not "Completed" or " completed"
+
+**String predicates** (`contains`, `startswith`, `endswith`):
+- Also case-sensitive
+- `contains-name-john` matches "john" in "johnny" but not "John"
+
+#### Boolean Columns
+
+Accept multiple representations (case-insensitive):
+
+| Input | Parsed As |
+|-------|-----------|
+| `true`, `t`, `1` | `true` |
+| `false`, `f`, `0` | `false` |
+
+**Examples**:
+- `eq-active-true`
+- `eq-active-t`
+- `eq-verified-1`
+- `ne-deleted-false`
+
+**Error**: `"Cannot parse 'yes' as Boolean (use true/false, t/f, or 1/0)"`
+
+#### Null Handling in Comparisons
+
+- **Nulls are filtered out** by comparison operators (standard SQL behavior)
+- `gt-amount-1000` on a column with nulls: nulls never match the condition
+- To explicitly check for nulls, use `isnull-column` or `notnull-column`
+- **Recommended pattern** for data quality: `notnull-amount/gt-amount-1000`
+
+### Edge Cases & Error Handling
+
+#### Column Name Validation
+
+**Missing column**:
+- Error: `"Column 'foo' not found in DataFrame. Available columns: [a, b, c]"`
+- Check exists before operations: `df.schema().contains_key(&column_name)`
+
+**Empty column name**:
+- Error: `"Column name cannot be empty"`
+
+#### Empty DataFrame Handling
+
+**Slicing operations** (`head`, `tail`, `slice`):
+- Return empty DataFrame (no error)
+- `head-10` on 0-row DataFrame returns 0 rows
+
+**Aggregations** (`sum`, `mean`, `min`, `max`):
+- Return single-row DataFrame with null/NaN values (Polars default)
+
+**Min/Max row filters** (`min_rows`, `max_rows`):
+- Return empty DataFrame if input is empty
+- No error
+
+**Filters** (`eq`, `gt`, etc.):
+- Return empty DataFrame (no rows match)
+
+#### Type Mismatch Errors
+
+**String comparison on numeric column**:
+- `eq-amount-thousand` where `amount` is Int64
+- Error: `"Cannot parse 'thousand' as Int64 for column 'amount'"`
+
+**Numeric comparison on string column**:
+- `gt-name-100` where `name` is String
+- Error: `"Cannot compare String column 'name' with numeric operator 'gt'. Use string predicates like 'contains' or cast column first."`
+- **Alternative**: Allow lexicographic comparison (implementation choice)
+
+**Date comparison on non-date column**:
+- Auto-detect based on parsing success vs. column dtype
+- If column is String and value looks like date, error with helpful message
+
+#### String Comparison Behavior
+
+**Case sensitivity**:
+- All string comparisons are **case-sensitive** by default
+- `eq-status-completed` does NOT match "Completed"
+- Future enhancement: add case-insensitive variants (`eq_i`, `contains_i`)
+
+**Whitespace handling**:
+- String values are **NOT trimmed**
+- `eq-status-completed` does NOT match " completed " (with spaces)
+- Numeric parsing DOES trim: `gt-amount- 100 ` (parses as 100)
+
+**Partial matches**:
+- `eq`, `ne`: exact match only
+- `contains`: substring match
+- `startswith`, `endswith`: prefix/suffix match
+
+#### Numeric Edge Cases
+
+**Integer overflow**:
+- `gt-id-99999999999999999999999999` (exceeds i64::MAX)
+- Error: `"Cannot parse '99999999999999999999999999' as Int64: number too large"`
+
+**Float precision**:
+- `eq-price-1.234567890123456789`
+- Parse as f64 (limited precision)
+- Note: Exact equality on floats is fragile; prefer `gte`/`lte` range checks
+
+**Negative numbers**:
+- `lt-temperature--10` (double dash for negative)
+- **Problem**: Conflicts with separator syntax
+- **Solution**: Use underscores or parentheses (out of scope for MVP)
+- **Workaround**: Use `lte-temperature--11` or data preprocessing
+
+#### Separator Argument Parsing
+
+**`from_csv` separator options**:
+- Recognized keywords: `"comma"`, `"tab"`, `"semicolon"`, `"pipe"`
+- Single character: any single char (e.g., `from_csv-|` for pipe)
+- Error for invalid: `"Invalid separator 'xyz'. Use 'comma', 'tab', 'semicolon', 'pipe', or single character."`
+
+#### Error Message Format
+
+All errors should follow this pattern:
+
+```
+"<Operation> failed: <reason>. <suggestion>"
+```
+
+**Examples**:
+- `"Filter 'gt' failed: Cannot parse 'abc' as Int64 for column 'amount'. Check column type and value format."`
+- `"Column selection failed: Column 'foo' not found. Available columns: [bar, baz]."`
+- `"CSV read failed: File not found at '/data/sales.csv'. Check resource path."`
 
 ### Chaining & Composition
 
@@ -235,21 +501,26 @@ Each command:
 Essential commands covering 80% of use cases:
 
 **Selection & Slicing** (5):
-- `select_columns`, `drop`, `head`, `tail`, `slice`
+- `select_columns`, `drop_columns`, `head`, `tail`, `slice`
 
 **Filtering** (6):
 - `eq`, `ne`, `gt`, `gte`, `lt`, `lte`
 
-**Sorting** (2):
+**Sorting** (1):
 - `sort`
 
-**Aggregations** (5):
-- `sum`, `mean`, `min`, `max`, `count`
+**Aggregations** (6):
+- `sum`, `mean`, `min`, `max`, `count`, `describe`
+
+**Info** (2):
+- `shape`, `nrows`
 
 **I/O** (2):
 - `from_csv`, `to_csv`
 
 **Total MVP**: ~22 commands
+
+**Note**: Additional filter variants (`isnull`, `notnull`, `min_rows`, `max_rows`, string predicates) and reshaping operations (`transpose`, `unique`) are Phase 2.
 
 ---
 
@@ -259,6 +530,77 @@ Essential commands covering 80% of use cases:
 - Reshaping: `explode`, `transpose`, `unique`
 - Additional I/O: JSON, Parquet
 - Advanced aggregations: `median`, `std`, `describe`
+
+---
+
+## Recommended Implementation Order
+
+To minimize dependencies and enable incremental testing:
+
+### Step 1: Foundation & Utilities (1-2 days)
+1. **Module setup**: Create `liquers-lib/src/polars/mod.rs` and submodules
+2. **Utility functions** (`util.rs`):
+   - `parse_date(s: &str) -> Result<NaiveDate>`
+   - `parse_datetime(s: &str) -> Result<NaiveDateTime>`
+   - `parse_boolean(s: &str) -> Result<bool>`
+   - `parse_separator(s: &str) -> Result<u8>` (for CSV)
+   - `column_exists_check(df, column_name)` helper
+3. **Type detection helper**: Function to inspect column dtype and parse comparison values
+4. **Test utilities**: Sample DataFrame generators for testing
+
+### Step 2: I/O Operations (1 day)
+5. **`from_csv`** - Essential for loading test data
+6. **`to_csv`** - Enables output inspection
+7. **Test**: Load CSV, verify DataFrame structure
+
+### Step 3: Selection & Slicing (1 day)
+8. **`select_columns`** - Core data selection
+9. **`head`**, **`tail`** - Basic slicing (simple, no type parsing)
+10. **`slice`** - Range-based slicing
+11. **Test**: Chain operations: `from_csv/select_columns-col1-col2/head-10`
+
+### Step 4: Info Commands (0.5 days)
+12. **`shape`**, **`nrows`**, **`ncols`** - Metadata queries
+13. **Test**: Verify output format (Value conversion)
+
+### Step 5: Comparison Filters - Numeric (1-2 days)
+14. Implement type-aware value parsing for **numeric types only**
+15. **`eq`**, **`ne`**, **`gt`**, **`gte`**, **`lt`**, **`lte`** for Int/Float columns
+16. **Test**: Filter numeric columns with various operators
+17. **Test edge cases**: Parse errors, missing columns, null handling
+
+### Step 6: Comparison Filters - Dates (1 day)
+18. Extend type-aware parsing to **Date columns**
+19. Test all three date formats (YYYYMMDD, YYYY-MM-DD, YYYY_MM_DD)
+20. **Test**: Filter date columns, verify format fallbacks
+
+### Step 7: Comparison Filters - Strings & Booleans (1 day)
+21. Extend to **String** and **Boolean** columns
+22. Implement **string predicates**: `contains`, `startswith`, `endswith`
+23. **Test**: Case-sensitive matching, whitespace handling
+
+### Step 8: Sorting & Aggregations (1 day)
+24. **`sort`** - Single column sorting with direction flag
+25. **Aggregations**: `sum`, `mean`, `min`, `max`, `count`, `describe`
+26. **Test**: Sort by different column types, verify aggregation outputs
+
+### Step 9: Null Checks & Min/Max Rows (0.5 days)
+27. **`isnull`**, **`notnull`** - Simple null filtering
+28. **`min_rows`**, **`max_rows`** - Find rows with extreme values
+29. **Test**: Multiple rows with same min/max
+
+### Step 10: Integration Testing & Refinement (1 day)
+30. **Complex query chains**: Combine filters, sorts, aggregations
+31. **Error message refinement**: Ensure all errors are clear and helpful
+32. **Documentation examples**: Verify all examples in spec work
+33. **Edge case coverage**: Empty DataFrames, all-null columns, etc.
+
+### Total Estimated Effort: 8-10 days for MVP
+
+**Dependencies for implementation**:
+- `polars` crate with features: `csv-file`, `parquet`, `dtype-date`, `dtype-datetime`
+- `chrono` for date/datetime parsing (or use Polars' native parsing)
+- Existing Liquers infrastructure: `State`, `Value`, `Error`, `register_command!`
 
 ---
 
