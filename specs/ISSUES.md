@@ -10,7 +10,7 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 | 2 | METADATA-CONSISTENCY | Open | MetadataRecord fields need consistency validation |
 | 3 | CANCEL-SAFETY | Open | Cancelled flag needed to prevent writes from orphaned tasks |
 | 4 | NON-SERIALIZABLE | Open | Support for non-serializable data in set_state() |
-| 5 | SOURCE-EVICTION | Open | Non-serializable Source assets lost permanently on eviction |
+| 5 | STICKY-ASSETS | Open | Source/Override assets need eviction resistance for reliable storage |
 | 6 | UPLOAD-SIZE-LIMIT | Open | Configurable size limits for set() binary uploads |
 | 7 | KEY-LEVEL-ACL | Open | Access control for set()/set_state() operations |
 
@@ -276,61 +276,119 @@ Step 2 will fail for non-serializable data.
 
 ---
 
-## Issue 5: SOURCE-EVICTION
+## Issue 5: STICKY-ASSETS
 
 **Status:** Open
 
-**Summary:** Non-serializable Source assets are lost permanently when evicted from memory.
+**Summary:** Source and Override status assets need eviction resistance to prevent data loss and enable reliable AppState storage.
 
 ### Problem
 
-When `set_state()` is called without a recipe (creating a Source asset) and the data is non-serializable:
-1. The State exists only in memory (AssetRef)
-2. It cannot be persisted to store
-3. When LRU eviction removes the AssetRef, the data is gone
+**Core issue:** AssetManager's LRU eviction can remove Source and Override assets from memory, causing permanent data loss.
+
+**Scenario 1: Non-serializable Source assets**
+When `set_state()` creates a Source asset with non-serializable data:
+1. State exists only in memory (AssetRef)
+2. Cannot be persisted to store (e.g., database connections, GPU tensors)
+3. LRU eviction removes the AssetRef
 4. Next `get()` fails - no store data to reload, no recipe to re-execute
+5. Data lost permanently
 
-Currently: `get()` returns an error indicating data was lost permanently.
+**Scenario 2: UI AppState storage** (see UI_INTERFACE_FSD.md)
+The UI interface design uses AssetManager's hierarchical structure for application state:
+- Each UIElement is a separate Source/Override asset
+- Handle = asset key path (e.g., `/ui/elements/window1/left_pane`)
+- Eviction of UIElement asset breaks UI state
+- Benefits (concurrency, transparency) require assets to stay in memory
 
-This is a data loss scenario that users may not expect.
+**Common cause:** Source assets have no recipe to regenerate. Override assets represent user modifications. Both are non-derivable - losing them = data loss.
 
-### Proposed Solutions
+### Proposed Solution
 
-**Option A: Pin Source assets**
-- Non-serializable Source assets are never evicted (pinned in memory)
-- Risk: OOM if many large non-serializable Sources accumulate
-- Benefit: No unexpected data loss
+Make `Source` and `Override` status assets eviction-resistant by default:
+
+```rust
+impl AssetManager {
+    fn is_evictable(&self, asset: &AssetData) -> bool {
+        match asset.status {
+            Status::Source | Status::Override => false,  // Never evict
+            Status::Ready | Status::Stale => true,       // Normal eviction
+            Status::Processing | Status::Scheduled => false,  // Active work
+            Status::Error | Status::Expired => true,     // Can evict
+            _ => true,
+        }
+    }
+}
+```
+
+**Rationale:**
+- `Source` assets: No recipe to regenerate, user-provided data
+- `Override` assets: User modifications that override computed values
+- Both represent mutable, non-derivable state
+- `Ready`/`Stale` assets are derivable from recipes, safe to evict
+
+Assets can still be removed explicitly via `remove()` or `clear()` operations.
+
+### Alternative Approaches
+
+**Option A: Explicit sticky flag**
+```rust
+pub struct AssetData<E: Environment> {
+    sticky: bool,  // If true, resist LRU eviction
+}
+```
+More flexible but requires callers to remember to set it.
 
 **Option B: Require serializable for Source**
-- `set_state()` without recipe (Source) requires data to be serializable
-- Returns error if attempting to set non-serializable data without recipe
-- Rationale: If there's no recipe to regenerate, data MUST be persistable
+- `set_state()` without recipe requires data to be serializable
+- Returns error for non-serializable data without recipe
+- Too restrictive - blocks valid use cases (UI state, live connections)
 
-**Option C: Explicit acknowledgment**
-- Add parameter: `set_state(key, state, acknowledge_volatile: bool)`
-- If non-serializable + no recipe + `acknowledge_volatile = false` → error
-- Caller must explicitly acknowledge potential data loss
-
-**Option D: Transient status**
+**Option C: Transient status**
 - Add `Status::Transient` for non-serializable, non-recipe assets
-- Clear semantics: "this data exists only in memory and may be lost"
-- `get()` after eviction returns specific error about Transient asset
+- Clear semantics but doesn't prevent eviction issue
+
+### Benefits
+
+**For non-serializable data:**
+- No unexpected data loss from eviction
+- Reliable in-memory state management
+- Supports live resources (connections, handles)
+
+**For UI AppState:**
+- UIElement assets persist reliably in memory
+- Multi-threaded UI can access different elements concurrently
+- UI state visible in asset inspection tools
+- Asset cache provides optional persistence
 
 ### Considerations
 
-- Should there be monitoring/warnings when non-serializable Source assets are created?
-- Should eviction trigger a warning/event before data is lost?
-- Could there be a "serialize or lose" callback that attempts one last serialization before eviction?
+**Memory pressure:** What happens when sticky assets consume all available memory?
+- Option A: Allow eviction when critically low memory (with warning)
+- Option B: Return error when creating new sticky asset if memory full
+- Option C: Configurable max sticky asset count/size
+
+**Monitoring:**
+- Should sticky asset count/size be tracked and exposed?
+- Warning when non-serializable Source assets are created?
+- Event/log before attempting eviction of sticky asset?
+
+**Scope:**
+- Should both Source and Override be sticky, or only Source?
+  - Source = user-provided data (definitely sticky)
+  - Override = user override of computed value (also sticky for UX)
 
 ### Affected Files
 
-- `liquers-core/src/assets.rs` - Eviction logic, set_state() validation
-- `liquers-core/src/metadata.rs` - Potentially new Status variant
+- `liquers-core/src/assets.rs` - AssetManager eviction logic, `is_evictable()` method
+- `liquers-lib/src/ui/asset_provider.rs` - UIElement asset creation
+- Asset lifecycle documentation in specs/ASSETS.md
 
 ### Related
 
-- Issue 4 (NON-SERIALIZABLE) - parent issue for non-serializable support
-- Memory management and eviction strategies
+- Issue 4 (NON-SERIALIZABLE) - Support for non-serializable data in set_state()
+- UI_INTERFACE_FSD.md - AppState design using asset hierarchy
+- specs/ASSETS.md - Asset status and lifecycle documentation
 
 ---
 
