@@ -958,6 +958,17 @@ impl<'c> PlanBuilder<'c> {
 
         // Check if query ends with "q" instruction
         if query.is_q() {
+            // Validate that "q" has no arguments
+            if let Some(QuerySegment::Transform(tqs)) = query.segments.last() {
+                if let Some(q_action) = tqs.query.last() {
+                    if q_action.is_q() && !q_action.parameters.is_empty() {
+                        return Err(Error::not_supported(
+                            "The 'q' instruction does not accept any arguments".to_string(),
+                        ));
+                    }
+                }
+            }
+
             // Check if there's a filename to process separately
             let has_filename = query.filename().is_some();
             let filename = query.filename();
@@ -1567,5 +1578,22 @@ mod tests {
         } else {
             panic!("Expected Step::Filename, got {:?}", plan[1]);
         }
+    }
+
+    #[test]
+    fn test_q_instruction_with_arguments_error() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(
+            CommandMetadata::new("command1").with_argument(ArgumentInfo::any_argument("arg")),
+        );
+
+        // Parse query: command1-arg/q-invalid (q with argument - should error)
+        let query = parse_query("command1-arg/q-invalid").unwrap();
+        let result = PlanBuilder::new(query, &cr).build();
+
+        // Should return an error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("does not accept any arguments"));
     }
 }
