@@ -652,6 +652,9 @@ impl ActionRequest {
             None
         }
     }
+    pub fn is_q(&self) -> bool {
+        self.name == "q"
+    }
     pub fn encode(&self) -> String {
         if self.parameters.is_empty() {
             self.name.to_owned()
@@ -1008,6 +1011,10 @@ impl TransformQuerySegment {
     }
     pub fn last_ns(&self) -> Option<Vec<ActionParameter>> {
         self.query.iter().rev().find_map(|x| x.ns())
+    }
+    ///Returns true if the last action in the query is a "q" instruction.
+    pub fn is_q(&self) -> bool {
+        self.query.last().is_some_and(|x| x.is_q())
     }
 
     pub fn encode(&self) -> String {
@@ -1933,6 +1940,16 @@ impl Query {
     /// Returns the last namespace definition if available
     pub fn last_ns(&self) -> Option<Vec<ActionParameter>> {
         self.transform_query().and_then(|x| x.last_ns())
+    }
+
+    /// Returns true if the last action in the query is a "q" instruction.
+    pub fn is_q(&self) -> bool {
+        // Check the last segment
+        if let Some(QuerySegment::Transform(tqs)) = self.segments.last() {
+            tqs.is_q()
+        } else {
+            false
+        }
     }
 
     /// Returns the last transform query name if available

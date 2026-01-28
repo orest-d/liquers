@@ -122,6 +122,11 @@ pub fn do_step<E: Environment>(
             }
             .boxed()
         }
+        Step::UseQueryValue(query) => async move {
+            let value = E::Value::from_query(&query);
+            Ok(Arc::new(value))
+        }
+        .boxed(),
         Step::Action {
             realm,
             ns,
@@ -409,6 +414,7 @@ impl<E: Environment> IsVolatile<E> for Step {
                 Ok(true) // TODO: Is directory volatilile?
             }
             Step::Evaluate(query) => query.is_volatile(env).await,
+            Step::UseQueryValue(query) => Ok(false),
             Step::Filename(_) => Ok(false),
             Step::Info(_) => Ok(false),
             Step::Warning(_) => Ok(false),

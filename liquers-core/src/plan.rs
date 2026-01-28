@@ -32,6 +32,7 @@ pub enum Step {
     GetResourceMetadata(Key),
     GetResourceDirectory(Key),
     Evaluate(Query),
+    UseQueryValue(Query),
     Action {
         realm: String,
         ns: String,
@@ -83,6 +84,7 @@ impl Step {
             Step::GetResourceMetadata(_key) => false,
             Step::GetResourceDirectory(_key) => false,
             Step::Evaluate(_) => false,
+            Step::UseQueryValue(_) => false,
             Step::Action { .. } => false,
             Step::Filename(_resource_name) => true,
             Step::Info(_) => true,
@@ -924,12 +926,63 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    fn strip_q_instruction(&self, query: &Query) -> Query {
+        // Get the last segment
+        if let Some(QuerySegment::Transform(tqs)) = query.segments.last() {
+            // Check if last action in transform segment is "q"
+            if tqs.query.last().is_some_and(|a| a.is_q()) {
+                // Reconstruct query without the "q" action
+                let mut new_tqs = tqs.clone();
+                new_tqs.query.pop(); // Remove the "q" action
+
+                let mut new_segments = query.segments[..query.segments.len() - 1].to_vec();
+                if !new_tqs.is_empty() {
+                    new_segments.push(QuerySegment::Transform(new_tqs));
+                }
+
+                return Query {
+                    segments: new_segments,
+                    absolute: query.absolute,
+                    source: query.source.clone(),
+                };
+            }
+        }
+        query.clone()
+    }
+
     fn process_query(&mut self, query: &Query) -> Result<(), Error> {
         //println!("process query {}", query);
         if query.is_empty() || query.is_ns() {
-            println!("empty or ns");
             return Ok(());
         }
+
+        // Check if query ends with "q" instruction
+        if query.is_q() {
+            // Check if there's a filename to process separately
+            let has_filename = query.filename().is_some();
+            let filename = query.filename();
+
+            let query_without_q = self.strip_q_instruction(query);
+
+            // Strip filename from query_without_q if present
+            let query_without_q_and_filename = if has_filename {
+                query_without_q.without_filename()
+            } else {
+                query_without_q
+            };
+
+            if !query_without_q_and_filename.is_empty() {
+                self.plan.steps.push(Step::UseQueryValue(query_without_q_and_filename));
+            }
+
+            // Add filename as separate step if present
+            if let Some(filename) = filename {
+                self.plan.steps.push(Step::Filename(filename));
+            }
+
+            return Ok(());
+        }
+
         if let Some(rq) = query.resource_query() {
             //println!("RESOURCE {}", rq);
             self.process_resource_query(&rq)?;
@@ -938,7 +991,6 @@ impl<'c> PlanBuilder<'c> {
         if let Some(transform) = query.transform_query() {
             //println!("TRANSFORM {}", &transform);
             if let Some(action) = transform.action() {
-                println!("ACTION {}", &action);
                 let mut query = query.clone();
                 query.segments = Vec::new();
                 self.process_action(&query, &action)?;
@@ -951,7 +1003,6 @@ impl<'c> PlanBuilder<'c> {
                     .push(Step::Filename(transform.filename.unwrap().clone()));
                 return Ok(());
             }
-            println!("Longer transform query");
         }
 
         let (p, q) = query.predecessor();
@@ -960,7 +1011,14 @@ impl<'c> PlanBuilder<'c> {
 
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
-                if self.expand_predecessors {
+                // Check if predecessor ends with "q" instruction
+                if p.is_q() {
+                    // Strip the "q" instruction and create Step::UseQueryValue
+                    let query_without_q = self.strip_q_instruction(p);
+                    if !query_without_q.is_empty() {
+                        self.plan.steps.push(Step::UseQueryValue(query_without_q));
+                    }
+                } else if self.expand_predecessors {
                     self.process_query(p)?;
                 } else {
                     self.plan.steps.push(Step::Evaluate(p.clone()));
@@ -974,7 +1032,7 @@ impl<'c> PlanBuilder<'c> {
                     return Ok(());
                 }
                 QuerySegment::Transform(ref tqs) => {
-                    if tqs.is_empty() || tqs.is_ns() {
+                    if tqs.is_empty() || tqs.is_ns() || tqs.is_q() {
                         return Ok(());
                     }
                     if let Some(action) = tqs.action() {
@@ -1426,5 +1484,88 @@ mod tests {
         let (p1, p2) = plan.split();
         assert_eq!(p1.len(), 1);
         assert_eq!(p2.len(), 0);
+    }
+
+    #[test]
+    fn test_q_instruction_plan() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(
+            CommandMetadata::new("command1").with_argument(ArgumentInfo::any_argument("arg")),
+        );
+        cr.add_command(
+            CommandMetadata::new("command2").with_argument(ArgumentInfo::any_argument("arg")),
+        );
+
+        // Parse query: -R/data/test.csv/-/command1-arg/q/command2-arg
+        let query = parse_query("-R/data/test.csv/-/command1-arg/q/command2-arg").unwrap();
+        let plan = PlanBuilder::new(query, &cr).build().unwrap();
+
+        // Verify plan has 2 steps
+        assert_eq!(plan.len(), 2);
+
+        // Step 1 should be Step::UseQueryValue
+        if let Step::UseQueryValue(q) = &plan[0] {
+            assert_eq!(q.encode(), "-R/data/test.csv/-/command1-arg");
+        } else {
+            panic!("Expected Step::UseQueryValue, got {:?}", plan[0]);
+        }
+
+        // Step 2 should be Step::Action(command2-arg)
+        if let Step::Action { action_name, .. } = &plan[1] {
+            assert_eq!(action_name, "command2");
+        } else {
+            panic!("Expected Step::Action, got {:?}", plan[1]);
+        }
+    }
+
+    #[test]
+    fn test_q_instruction_at_end() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(
+            CommandMetadata::new("command1").with_argument(ArgumentInfo::any_argument("arg")),
+        );
+
+        // Parse query: command1-arg/q (q at the end)
+        let query = parse_query("command1-arg/q").unwrap();
+        let plan = PlanBuilder::new(query, &cr).build().unwrap();
+
+        // Should have 1 step: UseQueryValue
+        assert_eq!(plan.len(), 1);
+
+        // Step should be Step::UseQueryValue
+        if let Step::UseQueryValue(q) = &plan[0] {
+            assert_eq!(q.encode(), "command1-arg");
+        } else {
+            panic!("Expected Step::UseQueryValue, got {:?}", plan[0]);
+        }
+    }
+
+    #[test]
+    fn test_q_instruction_with_filename() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(
+            CommandMetadata::new("command1").with_argument(ArgumentInfo::any_argument("arg")),
+        );
+
+        // Parse query: command1-arg/q/result.txt
+        let query = parse_query("command1-arg/q/result.txt").unwrap();
+        let plan = PlanBuilder::new(query, &cr).build().unwrap();
+
+        // Should have 2 steps: UseQueryValue and Filename
+        assert_eq!(plan.len(), 2);
+
+        // Step 1 should be Step::UseQueryValue
+        if let Step::UseQueryValue(q) = &plan[0] {
+            assert_eq!(q.encode(), "command1-arg");
+        } else {
+            panic!("Expected Step::UseQueryValue, got {:?}", plan[0]);
+        }
+
+        // Step 2 should be Step::Filename
+        if let Step::Filename(name) = &plan[1] {
+            assert_eq!(name.name, "result.txt");
+        } else {
+            panic!("Expected Step::Filename, got {:?}", plan[1]);
+        }
     }
 }
