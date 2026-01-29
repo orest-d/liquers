@@ -766,6 +766,13 @@ pub struct CommandMetadata {
     /// Default is false.
     pub volatile: bool,
 
+    /// If true, then the command is asynchronous.
+    /// Asynchronous commands are registered via `register_async_command()` and return futures.
+    /// Default is false.
+    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default)]
+    pub is_async: bool,
+
     /// Definition of the command, see [CommandDefinition].
     /// Commands are normally registered and defined in the environment via a [crate::commands2::CommandExecutor].
     /// They can however also be defined as aliases to other commands.
@@ -786,6 +793,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            is_async: false,
             definition: CommandDefinition::Registered,
             next: Vec::new(),
             filename: "".to_string(),
@@ -813,6 +821,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            is_async: false,
             definition: CommandDefinition::Registered,
             next: Vec::new(),
             filename: "".to_string(),
@@ -886,7 +895,11 @@ impl CommandMetadata {
     pub fn with_filename(&mut self, filename: &str) -> &mut Self {
         self.filename = filename.to_string();
         self
-    }    
+    }
+    pub fn with_async(&mut self, is_async: bool) -> &mut Self {
+        self.is_async = is_async;
+        self
+    }
 }
 
 // TODO: Refactor CommandMetadataRegistry to use realm/ns hierarchy and CommandKey
@@ -976,5 +989,22 @@ impl CommandMetadataRegistry {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_with_async_setter() {
+        let mut cm = CommandMetadata::new("test_async");
+        assert_eq!(cm.is_async, false); // default
+
+        cm.with_async(true);
+        assert_eq!(cm.is_async, true);
+
+        cm.with_async(false);
+        assert_eq!(cm.is_async, false);
     }
 }

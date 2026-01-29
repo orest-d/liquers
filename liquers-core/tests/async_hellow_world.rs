@@ -21,6 +21,17 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
     register_command!(cr, async fn greet(state, greet: String = "Hello") -> result)
          .expect("register_command failed");
 
+    // Verify metadata for async command
+    use liquers_core::command_metadata::CommandKey;
+    let greet_key = CommandKey::new_name("greet");
+    let greet_metadata = cr.command_metadata_registry.get(greet_key).unwrap();
+    assert!(greet_metadata.is_async, "greet command should be marked as async");
+
+    // Verify metadata for sync command
+    let world_key = CommandKey::new_name("world");
+    let world_metadata = cr.command_metadata_registry.get(world_key).unwrap();
+    assert!(!world_metadata.is_async, "world command should not be marked as async");
+
     let envref = env.to_ref();
 
     let state = evaluate(envref.clone(), "world/greet", None).await?;

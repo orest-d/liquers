@@ -164,6 +164,21 @@ impl CommandMetadata {
             serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(CommandMetadata(a))
     }
+
+    #[getter]
+    fn is_async(&self) -> bool {
+        self.0.is_async
+    }
+
+    #[getter]
+    fn cache(&self) -> bool {
+        self.0.cache
+    }
+
+    #[getter]
+    fn volatile(&self) -> bool {
+        self.0.volatile
+    }
 }
 
 #[pyclass]

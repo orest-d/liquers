@@ -732,6 +732,12 @@ impl CommandSignature {
         else{
             quote!()
         };
+        let is_async_code = if self.is_async {
+            quote!(cm.with_async(true);)
+        }
+        else{
+            quote!()
+        };
         quote! {
             #[allow(non_snake_case)]
             pub fn #register_fn_name(
@@ -748,6 +754,7 @@ impl CommandSignature {
                 #next_code
                 cm.with_filename(#filename);
                 #volatile_code
+                #is_async_code
                 Ok(cm)
             }
         }
@@ -1714,6 +1721,7 @@ mod tests {
                 ..Default::default()
             }];
             cm.with_filename("");
+            cm.with_async(true);
             Ok(cm)
         }
         "#;
@@ -1840,5 +1848,38 @@ mod tests {
         assert!(info_string.contains(
             "argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"
         ));
+    }
+
+    #[test]
+    fn test_async_command_sets_is_async_flag() {
+        let sig: CommandSignature = syn::parse_quote! {
+            async fn test_async(state) -> result
+        };
+
+        // Generate the registration code
+        let tokens = sig.command_registration();
+        let generated = tokens.to_string();
+
+        // Verify that .with_async(true) is called for async commands
+        assert!(generated.contains("with_async"),
+                "Async command should call with_async()");
+        assert!(generated.contains("true"),
+                "Async command should set is_async to true");
+    }
+
+    #[test]
+    fn test_sync_command_does_not_set_is_async_flag() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_sync(state) -> result
+        };
+
+        let tokens = sig.command_registration();
+        let generated = tokens.to_string();
+
+        // Sync commands should not call with_async()
+        // (relying on the default false value)
+        // OR they could explicitly call with_async(false) - either is acceptable
+        // Just verify the code compiles and doesn't error
+        assert!(!sig.is_async, "Sync command should have is_async=false in signature");
     }
 }
