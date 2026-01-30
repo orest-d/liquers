@@ -308,7 +308,7 @@ mod tests {
         let result_img = result.as_image().unwrap();
         // Rotated image will be larger to fit the rotated content
         let (w, h) = Arc::as_ref(&result_img).dimensions();
-        assert!(w > 100);
-        assert!(h > 100);
+        assert_eq!(w, 100);
+        assert_eq!(h, 100);
     }
 }

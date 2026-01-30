@@ -159,6 +159,9 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     /// Try into boolean
     fn try_into_bool(&self) -> Result<bool, Error>;
 
+    /// Try into bytes
+    fn try_into_bytes(&self) -> Result<Vec<u8>, Error>;
+
     /// Try into key
     fn try_into_key(&self) -> Result<crate::query::Key, Error>;
     
@@ -488,6 +491,14 @@ impl ValueInterface for Value {
             Value::Query(q) => q.key().ok_or(Error::conversion_error(self.identifier(), "key")),
             Value::Key(k) => Ok(k.clone()),
             _ => Err(Error::conversion_error(self.identifier(), "key")),
+        }
+    }
+
+    fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
+        match self {
+            Value::Bytes(b) => Ok(b.clone()),
+            Value::Text(t) => Ok(t.as_bytes().to_vec()),
+            _ => Err(Error::conversion_error(self.identifier(), "bytes")),
         }
     }
     

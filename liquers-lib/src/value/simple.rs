@@ -332,6 +332,14 @@ impl ValueInterface for SimpleValue {
         }
     }
 
+    fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
+        match self {
+            SimpleValue::Bytes { value: b } => Ok(b.clone()),
+            SimpleValue::Text { value: t } => Ok(t.as_bytes().to_vec()),
+            _ => Err(Error::conversion_error(self.identifier(), "bytes")),
+        }
+    }
+
     fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
         SimpleValue::Metadata { value: metadata }
     }
@@ -353,6 +361,7 @@ impl ValueInterface for SimpleValue {
     fn from_key(key: &liquers_core::query::Key) -> Self {
         SimpleValue::Key { value: key.clone() }
     }
+    
     
 }
 

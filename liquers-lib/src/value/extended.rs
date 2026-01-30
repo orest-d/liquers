@@ -201,6 +201,13 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface fo
         }
     }
 
+    fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_bytes(),
+            _ => Err(Error::conversion_error(self.type_name(), "bytes")),
+        }
+    }
+
     fn from_metadata(metadata: liquers_core::metadata::MetadataRecord) -> Self {
         CombinedValue::Base(BaseValue::from_metadata(metadata))
     }
@@ -219,7 +226,8 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface fo
 
     fn from_key(key: &liquers_core::query::Key) -> Self {
         CombinedValue::Base(BaseValue::from_key(key))
-    }    
+    }
+          
 }
 
 /* 

@@ -103,9 +103,7 @@ mod tests {
         let state = State::new().with_data(Value::from_image(Arc::new(img)));
         let result = to_png(&state).unwrap();
 
-        // Verify it's bytes via State
-        let result_state = State::new().with_data(result);
-        let bytes = result_state.as_bytes().unwrap();
+        let bytes = result.try_into_bytes().unwrap();
         assert!(!bytes.is_empty());
 
         // Verify PNG header
@@ -119,8 +117,7 @@ mod tests {
         let result = to_jpeg(&state, 85).unwrap();
 
         // Verify it's bytes via State
-        let result_state = State::new().with_data(result);
-        let bytes = result_state.as_bytes().unwrap();
+        let bytes = result.try_into_bytes().unwrap();
         assert!(!bytes.is_empty());
 
         // Verify JPEG header

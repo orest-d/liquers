@@ -1,4 +1,4 @@
-use liquers_core::{error::Error, state::State};
+use liquers_core::{error::Error, state::State, value::ValueInterface};
 use crate::value::{ExtValueInterface, Value};
 use std::sync::Arc;
 use image::DynamicImage;
@@ -7,9 +7,7 @@ use super::util::{normalize_format, format_to_image_format};
 /// Load image from bytes with auto-detected format.
 /// Input state should contain binary data (bytes).
 pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
-    let bytes = state.as_bytes().map_err(|e| {
-        Error::general_error(format!("from_bytes expects binary input: {}", e))
-    })?;
+    let bytes = state.data.try_into_bytes()?;
 
     let img = image::load_from_memory(&bytes).map_err(|e| {
         Error::general_error(format!("Failed to load image from bytes: {}", e))
@@ -21,9 +19,7 @@ pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
 /// Load image from bytes with explicitly specified format.
 /// Input state should contain binary data (bytes).
 pub fn from_format(state: &State<Value>, format_str: String) -> Result<Value, Error> {
-    let bytes = state.as_bytes().map_err(|e| {
-        Error::general_error(format!("from_format expects binary input: {}", e))
-    })?;
+    let bytes = state.data.try_into_bytes()?;
 
     let normalized_format = normalize_format(&format_str)?;
     let img_format = format_to_image_format(&normalized_format)?;
