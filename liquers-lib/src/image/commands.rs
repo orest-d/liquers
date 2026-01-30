@@ -213,13 +213,163 @@ pub fn register_commands(
         ns: "img"
     )?;
 
+    // ==== Phase 2 Commands ====
+
+    // Format Conversion (Phase 2)
+    register_command!(cr,
+        fn to_webp(state) -> result
+        label: "To WebP"
+        doc: "Convert image to WebP format (returns bytes)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn to_gif(state) -> result
+        label: "To GIF"
+        doc: "Convert image to GIF format (returns bytes)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn to_bmp(state) -> result
+        label: "To BMP"
+        doc: "Convert image to BMP format (returns bytes)"
+        ns: "img"
+    )?;
+
+    // Color Operations (Phase 2)
+    register_command!(cr,
+        fn gamma(state, gamma_value: f32) -> result
+        label: "Gamma correction"
+        doc: "Apply gamma correction (gamma > 1 darkens, < 1 brightens)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn saturate(state, factor: f32) -> result
+        label: "Saturate"
+        doc: "Adjust color saturation (1.0 = no change, > 1 = more, < 1 = less)"
+        ns: "img"
+    )?;
+
+    // Filtering Operations (Phase 2)
+    register_command!(cr,
+        fn median(state, radius: u32) -> result
+        label: "Median filter"
+        doc: "Apply median filter for noise reduction (radius in pixels)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn boxfilt(state, radius: u32) -> result
+        label: "Box filter"
+        doc: "Apply box/mean filter for blur (radius in pixels)"
+        ns: "img"
+    )?;
+
+    // Morphological Operations (Phase 2)
+    register_command!(cr,
+        fn erode(state, radius: u32) -> result
+        label: "Erode"
+        doc: "Morphological erosion (shrink bright regions, radius in pixels)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn dilate(state, radius: u32) -> result
+        label: "Dilate"
+        doc: "Morphological dilation (expand bright regions, radius in pixels)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn opening(state, radius: u32) -> result
+        label: "Opening"
+        doc: "Morphological opening (remove noise, radius in pixels)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn closing(state, radius: u32) -> result
+        label: "Closing"
+        doc: "Morphological closing (fill holes, radius in pixels)"
+        ns: "img"
+    )?;
+
+    // Drawing Operations (Phase 2)
+    register_command!(cr,
+        fn draw_line(state, x1: i32, y1: i32, x2: i32, y2: i32, color_str: String) -> result
+        label: "Draw line"
+        doc: "Draw line from (x1,y1) to (x2,y2) with specified color"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn draw_rect(state, x: i32, y: i32, width: u32, height: u32, color_str: String) -> result
+        label: "Draw rectangle"
+        doc: "Draw rectangle outline at (x,y) with specified dimensions and color"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn draw_filled_rect(state, x: i32, y: i32, width: u32, height: u32, color_str: String) -> result
+        label: "Draw filled rectangle"
+        doc: "Draw filled rectangle at (x,y) with specified dimensions and color"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn draw_circle(state, x: i32, y: i32, radius: i32, color_str: String) -> result
+        label: "Draw circle"
+        doc: "Draw circle outline at (x,y) with specified radius and color"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn draw_filled_circle(state, x: i32, y: i32, radius: i32, color_str: String) -> result
+        label: "Draw filled circle"
+        doc: "Draw filled circle at (x,y) with specified radius and color"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn draw_text(state, x: i32, y: i32, text: String, size: f32, color_str: String) -> result
+        label: "Draw text"
+        doc: "Draw text at (x,y) with specified font size and color"
+        ns: "img"
+    )?;
+
+    // Edge Detection (Phase 2)
+    register_command!(cr,
+        fn sobel(state) -> result
+        label: "Sobel edge detection"
+        doc: "Apply Sobel edge detection (horizontal + vertical edges)"
+        ns: "img"
+    )?;
+
+    register_command!(cr,
+        fn canny(state, low_threshold: f32, high_threshold: f32) -> result
+        label: "Canny edge detection"
+        doc: "Apply Canny edge detection with low and high thresholds"
+        ns: "img"
+    )?;
+
     Ok(env)
 }
 
 // Re-export command functions for testing and direct use
+// Phase 1 commands
 pub use super::io::{from_bytes, from_format, svg_to_image};
 pub use super::format::{to_png, to_jpeg, to_dataurl, color_format};
 pub use super::geometric::{resize, resize_by, thumb, crop, rotate, rot90, rot180, rot270, fliph, flipv};
 pub use super::color::{gray, invert, brighten, contrast, huerot};
 pub use super::filtering::{blur, sharpen};
 pub use super::info::{dims, width, height, colortype};
+
+// Phase 2 commands
+pub use super::format::{to_webp, to_gif, to_bmp};
+pub use super::color::{gamma, saturate};
+pub use super::filtering::{median, boxfilt};
+pub use super::morphology::{erode, dilate, opening, closing};
+pub use super::drawing::{draw_line, draw_rect, draw_filled_rect, draw_circle, draw_filled_circle, draw_text};
+pub use super::edges::{sobel, canny};

@@ -17,5 +17,13 @@ pub mod filtering;
 #[cfg(feature = "image-support")]
 pub mod info;
 
+// Phase 2 image command modules (requires image-support feature)
+#[cfg(feature = "image-support")]
+pub mod morphology;
+#[cfg(feature = "image-support")]
+pub mod drawing;
+#[cfg(feature = "image-support")]
+pub mod edges;
+
 #[cfg(feature = "image-support")]
 pub mod commands;

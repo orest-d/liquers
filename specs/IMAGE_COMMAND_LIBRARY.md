@@ -302,7 +302,7 @@ liquers-lib/src/image/
 | `rot270` | *(none)* | Rotate 270° clockwise (90° counter-clockwise) | `DynamicImage::rotate270()` | 1 |
 | `fliph` | *(none)* | Flip horizontally | `DynamicImage::fliph()` | 1 |
 | `flipv` | *(none)* | Flip vertically | `DynamicImage::flipv()` | 1 |
-| `rotate` | `angle-[method]` | Rotate by arbitrary angle in degrees (method: nearest, bilinear; default: bilinear) | `imageproc::geometric_transformations::rotate_about_center()` | 1 |
+| `rotate` | `angle` | Rotate by arbitrary angle in degrees (clockwise is positive, uses bilinear interpolation) | `imageproc::geometric_transformations::rotate()` | 1 |
 | `affine` | `a-b-c-d-e-f` | Apply affine transform matrix | `imageproc::geometric_transformations::affine()` | Not supported |
 
 **Method Arguments** (for `resize`):
@@ -324,9 +324,8 @@ liquers-lib/src/image/
 - `rot90` (90° clockwise, fast)
 - `rot180` (180° rotation)
 - `rot270` (270° clockwise = 90° counter-clockwise)
-- `rotate-45` (rotate 45° with bilinear interpolation)
-- `rotate-45-bilinear` (explicit method)
-- `rotate-30-nearest` (rotate 30° with nearest neighbor, faster but lower quality)
+- `rotate-45` (rotate 45° clockwise with bilinear interpolation)
+- `rotate-30` (rotate 30° clockwise)
 - `rotate-~15` (rotate -15° = 15° counter-clockwise, tilde for negative)
 - `fliph` (flip horizontally)
 - `flipv` (flip vertically)
@@ -355,19 +354,15 @@ liquers-lib/src/image/
 
 | Command | Arguments | Description | imageproc Equivalent | Phase |
 |---------|-----------|-------------|---------------------|-------|
-| `blur` | `method-sigma` | Gaussian blur with sigma (method: gaussian; future: box, median, bilateral) | `imageproc::filter::gaussian_blur_f32()` | 1 |
-| `sharpen` | `amount` | Sharpen image (amount: sigma for unsharp mask) | `imageproc::filter::sharpen()` or custom | 1 |
+| `blur` | `sigma` | Gaussian blur with sigma value | `DynamicImage::blur()` | 1 |
+| `sharpen` | *(none)* | Sharpen image using 3x3 kernel | `imageproc::filter::filter3x3()` | 1 |
 | `median` | `radius` | Median filter (noise reduction, radius in pixels) | `imageproc::filter::median_filter()` | 2 |
 | `boxfilt` | `radius` | Box/mean filter (blur by averaging, radius in pixels) | Custom box filter | 2 |
 | `bilateral` | `sigma_color-sigma_space` | Bilateral filter (edge-preserving blur) | `imageproc::filter::bilateral_filter()` if available | Not supported |
 
-**Method Arguments** (for `blur`):
-- `gaussian` - Gaussian blur (default, smooth)
-- Future: `box`, `median`, `bilateral`
-
 **Examples**:
-- `blur-gaussian-2.5` (Gaussian blur with sigma=2.5)
-- `sharpen-1.5` (sharpen with sigma=1.5)
+- `blur-2.5` (Gaussian blur with sigma=2.5)
+- `sharpen` (sharpen using fixed 3x3 kernel)
 - `median-3` (Phase 2: median filter with radius 3)
 - `boxfilt-5` (Phase 2: box filter with radius 5)
 
@@ -463,7 +458,7 @@ Colors can be specified as:
 | **Geometric** | `rot270` | - | Rotate 270° CW | 1 | Medium |
 | **Geometric** | `fliph` | - | Flip horizontal | 1 | Medium |
 | **Geometric** | `flipv` | - | Flip vertical | 1 | Medium |
-| **Geometric** | `rotate` | `angle-[method]` | Rotate arbitrary angle | 1 | High |
+| **Geometric** | `rotate` | `angle` | Rotate arbitrary angle | 1 | High |
 | **Geometric** | `affine` | `a-b-c-d-e-f` | Affine transform | Not supported | - |
 | **Color** | `gray` | - | Convert to grayscale | 1 | High |
 | **Color** | `invert` | - | Invert colors | 1 | Medium |
@@ -472,8 +467,8 @@ Colors can be specified as:
 | **Color** | `huerot` | `degrees` | Rotate hue | 1 | Medium |
 | **Color** | `gamma` | `value` | Gamma correction | 2 | Low |
 | **Color** | `saturate` | `factor` | Adjust saturation | 2 | Low |
-| **Filter** | `blur` | `method-sigma` | Gaussian blur | 1 | High |
-| **Filter** | `sharpen` | `amount` | Sharpen image | 1 | High |
+| **Filter** | `blur` | `sigma` | Gaussian blur | 1 | High |
+| **Filter** | `sharpen` | - | Sharpen image | 1 | High |
 | **Filter** | `median` | `radius` | Median filter | 2 | Medium |
 | **Filter** | `boxfilt` | `radius` | Box/mean filter | 2 | Low |
 | **Filter** | `bilateral` | `sigma_color-sigma_space` | Bilateral filter | Not supported | - |
@@ -534,6 +529,15 @@ Colors can be specified as:
    - `"tiff"`, `"tif"`: Parse as TIFF
    - `"ico"`: Parse as ICO
    - `"binary"`, `"bin"`, `"b"`, or missing: Auto-detect format using `image::load_from_memory()`
+
+   **IMPORTANT**: `SimpleValue::as_bytes()` must also support binary format. Add this case to handle Bytes values:
+   ```rust
+   "bin" | "binary" | "" => match self {
+       SimpleValue::Bytes { value } => Ok(value.clone()),
+       _ => Err(...)
+   }
+   ```
+   Without this, image commands that return bytes (to_png, to_jpeg) will fail when the state is serialized.
 
    **Error handling**:
    - If value is not Image or Bytes: `"Cannot convert {type} to Image. Expected Image or Bytes."`
@@ -603,16 +607,16 @@ Colors can be specified as:
    // Example 1: Simple transformation (gray)
    fn gray(state: &State<Value>) -> Result<Value, Error> {
        let img = try_to_image(state)?;
-       let result = img.grayscale();
-       Ok(Value::from_image(result))
+       let result = Arc::as_ref(&img).grayscale();
+       Ok(Value::from_image(Arc::new(result)))
    }
 
    // Example 1a: Command with numeric parameter (brighten)
    // Note: Framework decodes ~10 to -10, so command receives actual i32 value
    fn brighten(state: &State<Value>, value: i32) -> Result<Value, Error> {
        let img = try_to_image(state)?;
-       let result = img.brighten(value);
-       Ok(Value::from_image(result))
+       let result = Arc::as_ref(&img).brighten(value);
+       Ok(Value::from_image(Arc::new(result)))
    }
 
    // Example 1b: Color format conversion (color_format)
@@ -620,19 +624,19 @@ Colors can be specified as:
        let img = try_to_image(state)?;
 
        let result = match format.as_str() {
-           "rgb8" => img.to_rgb8().into(),
-           "rgba8" => img.to_rgba8().into(),
-           "luma8" => img.to_luma8().into(),
-           "luma_alpha8" => img.to_luma_alpha8().into(),
-           "rgb16" => img.to_rgb16().into(),
-           "rgba16" => img.to_rgba16().into(),
+           "rgb8" => Arc::as_ref(&img).to_rgb8().into(),
+           "rgba8" => Arc::as_ref(&img).to_rgba8().into(),
+           "luma8" => Arc::as_ref(&img).to_luma8().into(),
+           "luma_alpha8" => Arc::as_ref(&img).to_luma_alpha8().into(),
+           "rgb16" => Arc::as_ref(&img).to_rgb16().into(),
+           "rgba16" => Arc::as_ref(&img).to_rgba16().into(),
            // Future: rgb32f, rgba32f if supported
            _ => return Err(Error::general_error(
                format!("Invalid color format '{}'. Use: rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16", format)
            )),
        };
 
-       Ok(Value::from_image(result))
+       Ok(Value::from_image(Arc::new(result)))
    }
 
    // Example 2: Parameterized operation (resize)
@@ -652,12 +656,12 @@ Colors can be specified as:
 
        if width == 0 || height == 0 {
            return Err(Error::general_error(
-               "Image dimensions must be greater than 0"
+               "Image dimensions must be greater than 0".to_string()
            ));
        }
 
-       let result = img.resize_exact(width, height, filter);
-       Ok(Value::from_image(result))
+       let result = Arc::as_ref(&img).resize_exact(width, height, filter);
+       Ok(Value::from_image(Arc::new(result)))
    }
 
    // Example 2b: Resize by percentage (resize_by)
@@ -667,7 +671,7 @@ Colors can be specified as:
        // Validate percentage
        if percent <= 0.0 {
            return Err(Error::general_error(
-               "Resize percentage must be greater than 0"
+               "Resize percentage must be greater than 0".to_string()
            ));
        }
 
@@ -684,13 +688,13 @@ Colors can be specified as:
        };
 
        // Calculate new dimensions
-       let (width, height) = img.dimensions();
+       let (width, height) = Arc::as_ref(&img).dimensions();
        let scale = percent / 100.0;
        let new_width = ((width as f32 * scale).round() as u32).max(1);
        let new_height = ((height as f32 * scale).round() as u32).max(1);
 
-       let result = img.resize_exact(new_width, new_height, filter);
-       Ok(Value::from_image(result))
+       let result = Arc::as_ref(&img).resize_exact(new_width, new_height, filter);
+       Ok(Value::from_image(Arc::new(result)))
    }
 
    // Example 3: Format conversion (to_jpeg)
@@ -699,63 +703,42 @@ Colors can be specified as:
 
        if quality == 0 || quality > 100 {
            return Err(Error::general_error(
-               "JPEG quality must be between 1 and 100"
+               "JPEG quality must be between 1 and 100".to_string()
            ));
        }
 
-       let mut buf = Vec::new();
-       let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
-       encoder.encode_image(&img)
+       // Convert to RGB if needed (JPEG doesn't support alpha)
+       let rgb_img = Arc::as_ref(&img).to_rgb8();
+
+       let mut buffer = Vec::new();
+       let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+           std::io::Cursor::new(&mut buffer),
+           quality,
+       );
+
+       rgb_img.write_with_encoder(encoder)
            .map_err(|e| Error::general_error(format!("Failed to encode JPEG: {}", e)))?;
 
-       Ok(Value::from_bytes(buf))
+       Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
    }
 
-   // Example 4: Arbitrary rotation with method parameter (rotate)
-   fn rotate(state: &State<Value>, angle: f32, method: String) -> Result<Value, Error> {
-       use imageproc::geometric_transformations::{rotate_about_center, Interpolation};
-
+   // Example 4: Arbitrary rotation (rotate)
+   // Note: imageproc::rotate() rotates in-place without expanding the canvas
+   fn rotate(state: &State<Value>, angle: f32) -> Result<Value, Error> {
        let img = try_to_image(state)?;
 
-       // Parse interpolation method
-       let interpolation = match method.as_str() {
-           "nearest" => Interpolation::Nearest,
-           "bilinear" => Interpolation::Bilinear,
-           _ => return Err(Error::general_error(
-               format!("Invalid rotation method '{}'. Use: nearest, bilinear", method)
-           )),
-       };
+       let dim = Arc::as_ref(&img).dimensions();
+       let center = (dim.0 as f32 / 2.0, dim.1 as f32 / 2.0);
+       // Note: imageproc rotation is counter-clockwise, so we negate the angle
+       let result = imageproc::geometric_transformations::rotate(
+           &Arc::as_ref(&img).to_rgba8(),
+           center,
+           (-angle).to_radians(),
+           imageproc::geometric_transformations::Interpolation::Bilinear,
+           image::Rgba([0, 0, 0, 0]),
+       );
 
-       // Convert angle to radians (imageproc expects radians)
-       let angle_radians = angle.to_radians();
-
-       // Rotate - need to handle different color types
-       let result = match img.as_ref() {
-           DynamicImage::ImageRgb8(rgb) => {
-               let rotated = rotate_about_center(rgb, angle_radians, interpolation, image::Rgb([0, 0, 0]));
-               DynamicImage::ImageRgb8(rotated)
-           }
-           DynamicImage::ImageRgba8(rgba) => {
-               let rotated = rotate_about_center(rgba, angle_radians, interpolation, image::Rgba([0, 0, 0, 0]));
-               DynamicImage::ImageRgba8(rotated)
-           }
-           DynamicImage::ImageLuma8(luma) => {
-               let rotated = rotate_about_center(luma, angle_radians, interpolation, image::Luma([0]));
-               DynamicImage::ImageLuma8(rotated)
-           }
-           DynamicImage::ImageLumaA8(luma_a) => {
-               let rotated = rotate_about_center(luma_a, angle_radians, interpolation, image::LumaA([0, 0]));
-               DynamicImage::ImageLumaA8(rotated)
-           }
-           // Handle other color types by converting to RGBA8
-           _ => {
-               let rgba = img.to_rgba8();
-               let rotated = rotate_about_center(&rgba, angle_radians, interpolation, image::Rgba([0, 0, 0, 0]));
-               DynamicImage::ImageRgba8(rotated)
-           }
-       };
-
-       Ok(Value::from_image(result))
+       Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(result))))
    }
    ```
 
@@ -796,11 +779,11 @@ register_command!(cr,
     namespace: "img"
 )?;
 
-// Register rotate with method enum and default
+// Register rotate (no method parameter, uses bilinear by default)
 register_command!(cr,
-    fn rotate(state, angle: f32, method: String = "bilinear") -> result
+    fn rotate(state, angle: f32) -> result
     label: "Rotate by angle"
-    doc: "Rotate image by arbitrary angle in degrees"
+    doc: "Rotate image by arbitrary angle in degrees (clockwise is positive, uses bilinear interpolation)"
 )?;
 ```
 
@@ -980,14 +963,14 @@ fn to_dataurl(state: &State<Value>, format_str: String) -> Result<Value, Error> 
 
     // Encode to bytes
     let mut buf = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut buf), img_format)
+    Arc::as_ref(&img).write_to(&mut std::io::Cursor::new(&mut buf), img_format)
         .map_err(|e| Error::general_error(format!("Failed to encode image: {}", e)))?;
 
     // Base64 encode
     let b64 = general_purpose::STANDARD.encode(&buf);
     let data_url = format!("data:{};base64,{}", mime_type, b64);
 
-    Ok(Value::from_string(data_url))
+    Ok(Value::from(data_url))
 }
 ```
 
@@ -1022,7 +1005,7 @@ impl DefaultValueSerializer for ExtValue {
                     .map_err(|e| Error::new(ErrorType::SerializationError, e.to_string()))?;
 
                 let mut buf = Vec::new();
-                value.write_to(&mut std::io::Cursor::new(&mut buf), img_format)
+                Arc::as_ref(&value).write_to(&mut std::io::Cursor::new(&mut buf), img_format)
                     .map_err(|e| Error::new(
                         ErrorType::SerializationError,
                         format!("Failed to serialize image: {}", e),
@@ -1221,7 +1204,7 @@ fn draw_line(state: &State<Value>, x1: i32, y1: i32, x2: i32, y2: i32, color_str
     let color = parse_color(&color_str)?;
 
     // Convert DynamicImage to mutable buffer (example with Rgba8)
-    let mut rgba_img = img.to_rgba8();
+    let mut rgba_img = Arc::as_ref(&img).to_rgba8();
 
     // Draw line using imageproc with native Rgba<u8> color
     draw_line_segment_mut(
@@ -1231,7 +1214,7 @@ fn draw_line(state: &State<Value>, x1: i32, y1: i32, x2: i32, y2: i32, color_str
         color
     );
 
-    Ok(Value::from_image(DynamicImage::ImageRgba8(rgba_img)))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(rgba_img))))
 }
 ```
 
@@ -1284,7 +1267,7 @@ use crate::image::util::DynamicImageEguiExt;
 
 // In a widget or UI command:
 let img: Arc<DynamicImage> = ...;
-img.show(ui, egui::Id::new("my_image"), 1.0);
+Arc::as_ref(&img).show(ui, egui::Id::new("my_image"), 1.0);
 ```
 
 **Integration with Widget System**:
@@ -1408,9 +1391,9 @@ Essential commands covering 80% of use cases:
 17. **`thumb`** - Aspect ratio preservation
 18. **`crop`** - With bounds checking
 19. **Rotation (fixed angles)**: `rot90`, `rot180`, `rot270`
-20. **Rotation (arbitrary angle)**: `rotate` with angle and method parameter (uses imageproc)
+20. **Rotation (arbitrary angle)**: `rotate` - rotates in-place without expanding canvas (uses imageproc::rotate with bilinear interpolation)
 21. **Flipping**: `fliph`, `flipv`
-22. **Test**: Chain transformations, verify dimensions, test rotation methods, test percentage scaling
+22. **Test**: Chain transformations, verify dimensions (note: rotate keeps original dimensions), test percentage scaling
 
 ### Step 6: Color Operations (1 day)
 23. **`gray`**, **`invert`**
@@ -1419,8 +1402,8 @@ Essential commands covering 80% of use cases:
 26. **Test**: Color transformations on various formats, test tilde syntax for negative brightness
 
 ### Step 7: Filtering (1-2 days)
-27. **`blur`** - Gaussian blur with sigma (uses imageproc)
-28. **`sharpen`** - Unsharp mask or imageproc sharpen
+27. **`blur`** - Gaussian blur with sigma parameter (uses DynamicImage::blur)
+28. **`sharpen`** - Fixed 3x3 sharpening kernel (uses imageproc::filter::filter3x3)
 29. **Test**: Filter effects on test images
 
 ### Step 8: SVG Rendering (1 day)

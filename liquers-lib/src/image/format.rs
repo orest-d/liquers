@@ -45,6 +45,48 @@ pub fn to_jpeg(state: &State<Value>, quality: u8) -> Result<Value, Error> {
     Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
 }
 
+/// Convert image to WebP format (returns WebP bytes).
+pub fn to_webp(state: &State<Value>) -> Result<Value, Error> {
+    let img = try_to_image(state)?;
+
+    let mut buffer = Vec::new();
+    Arc::as_ref(&img).write_to(
+        &mut std::io::Cursor::new(&mut buffer),
+        image::ImageFormat::WebP,
+    )
+    .map_err(|e| Error::general_error(format!("Failed to encode WebP: {}", e)))?;
+
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+}
+
+/// Convert image to GIF format (returns GIF bytes).
+pub fn to_gif(state: &State<Value>) -> Result<Value, Error> {
+    let img = try_to_image(state)?;
+
+    let mut buffer = Vec::new();
+    Arc::as_ref(&img).write_to(
+        &mut std::io::Cursor::new(&mut buffer),
+        image::ImageFormat::Gif,
+    )
+    .map_err(|e| Error::general_error(format!("Failed to encode GIF: {}", e)))?;
+
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+}
+
+/// Convert image to BMP format (returns BMP bytes).
+pub fn to_bmp(state: &State<Value>) -> Result<Value, Error> {
+    let img = try_to_image(state)?;
+
+    let mut buffer = Vec::new();
+    Arc::as_ref(&img).write_to(
+        &mut std::io::Cursor::new(&mut buffer),
+        image::ImageFormat::Bmp,
+    )
+    .map_err(|e| Error::general_error(format!("Failed to encode BMP: {}", e)))?;
+
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+}
+
 /// Convert image to base64 data URL with specified format.
 /// Format should be a file extension like "png", "jpeg", "webp", etc.
 pub fn to_dataurl(state: &State<Value>, format_str: String) -> Result<Value, Error> {
@@ -131,6 +173,46 @@ mod tests {
 
         assert!(to_jpeg(&state, 0).is_err());
         assert!(to_jpeg(&state, 101).is_err());
+    }
+
+    #[test]
+    fn test_to_webp() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+        let result = to_webp(&state).unwrap();
+
+        let bytes = result.try_into_bytes().unwrap();
+        assert!(!bytes.is_empty());
+
+        // Verify WebP header (RIFF...WEBP)
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WEBP");
+    }
+
+    #[test]
+    fn test_to_gif() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+        let result = to_gif(&state).unwrap();
+
+        let bytes = result.try_into_bytes().unwrap();
+        assert!(!bytes.is_empty());
+
+        // Verify GIF header
+        assert!(bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"));
+    }
+
+    #[test]
+    fn test_to_bmp() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+        let result = to_bmp(&state).unwrap();
+
+        let bytes = result.try_into_bytes().unwrap();
+        assert!(!bytes.is_empty());
+
+        // Verify BMP header
+        assert_eq!(&bytes[0..2], b"BM");
     }
 
     #[test]

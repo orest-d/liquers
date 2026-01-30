@@ -35,6 +35,40 @@ pub fn sharpen(state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(result))))
 }
 
+/// Apply median filter for noise reduction.
+/// Radius is in pixels.
+pub fn median(state: &State<Value>, radius: u32) -> Result<Value, Error> {
+    if radius == 0 {
+        return Err(Error::general_error(
+            "Median filter radius must be greater than 0".to_string(),
+        ));
+    }
+
+    let img = try_to_image(state)?;
+    let rgba_img = Arc::as_ref(&img).to_rgba8();
+    let result = imageproc::filter::median_filter(&rgba_img, radius, radius);
+
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(result))))
+}
+
+/// Apply box/mean filter (blur by averaging).
+/// Radius is in pixels.
+pub fn boxfilt(state: &State<Value>, radius: u32) -> Result<Value, Error> {
+    if radius == 0 {
+        return Err(Error::general_error(
+            "Box filter radius must be greater than 0".to_string(),
+        ));
+    }
+
+    let img = try_to_image(state)?;
+    let gray_img = Arc::as_ref(&img).to_luma8();
+
+    // box_filter returns Luma image
+    let result = imageproc::filter::box_filter(&gray_img, radius, radius);
+
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(result))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +118,41 @@ mod tests {
 
         let result_img = result.as_image().unwrap();
         assert_eq!(Arc::as_ref(&result_img).dimensions(), (20, 20));
+    }
+
+    #[test]
+    fn test_median() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+        let result = median(&state, 2).unwrap();
+
+        let result_img = result.as_image().unwrap();
+        assert_eq!(Arc::as_ref(&result_img).dimensions(), (20, 20));
+    }
+
+    #[test]
+    fn test_median_invalid_radius() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+
+        assert!(median(&state, 0).is_err());
+    }
+
+    #[test]
+    fn test_boxfilt() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+        let result = boxfilt(&state, 3).unwrap();
+
+        let result_img = result.as_image().unwrap();
+        assert_eq!(Arc::as_ref(&result_img).dimensions(), (20, 20));
+    }
+
+    #[test]
+    fn test_boxfilt_invalid_radius() {
+        let img = create_test_image();
+        let state = State::new().with_data(Value::from_image(Arc::new(img)));
+
+        assert!(boxfilt(&state, 0).is_err());
     }
 }

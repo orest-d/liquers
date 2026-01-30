@@ -68,13 +68,13 @@ pub fn format_to_mime_type(format: &str) -> Result<&'static str, Error> {
     }
 }
 
-/// Parse a color string (name or RRGGBB[AA] hex value, without #) into image::Rgba<u8>.
-/// Supports common color names and hex values like "ff0000" or "ff000080".
+/// Parse a color string (name or 0xRRGGBB[AA] hex value with 0x prefix) into image::Rgba<u8>.
+/// Supports common color names and hex values like "0xFF0000" or "0xFF000080".
 ///
 /// Examples:
 /// - "red" → Rgba([255, 0, 0, 255])
-/// - "ff0000" → Rgba([255, 0, 0, 255])
-/// - "ff000080" → Rgba([255, 0, 0, 128])
+/// - "0xFF0000" → Rgba([255, 0, 0, 255])
+/// - "0xFF000080" → Rgba([255, 0, 0, 128])
 pub fn parse_color(s: &str) -> Result<Rgba<u8>, Error> {
     let s = s.trim().to_lowercase();
 
@@ -100,43 +100,48 @@ pub fn parse_color(s: &str) -> Result<Rgba<u8>, Error> {
         "maroon" => (128, 0, 0, 255),
         "silver" => (192, 192, 192, 255),
         _ => {
-            // Try hex without #
-            match s.len() {
-                6 => {
-                    // RRGGBB
-                    let r = u8::from_str_radix(&s[0..2], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    let g = u8::from_str_radix(&s[2..4], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    let b = u8::from_str_radix(&s[4..6], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    (r, g, b, 255)
+            // Try hex with 0x prefix
+            if let Some(hex) = s.strip_prefix("0x") {
+                match hex.len() {
+                    6 => {
+                        // 0xRRGGBB
+                        let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad R component", s))
+                        })?;
+                        let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad G component", s))
+                        })?;
+                        let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad B component", s))
+                        })?;
+                        (r, g, b, 255)
+                    }
+                    8 => {
+                        // 0xRRGGBBAA
+                        let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad R component", s))
+                        })?;
+                        let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad G component", s))
+                        })?;
+                        let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad B component", s))
+                        })?;
+                        let a = u8::from_str_radix(&hex[6..8], 16).map_err(|_| {
+                            Error::general_error(format!("Invalid hex color '{}': bad A component", s))
+                        })?;
+                        (r, g, b, a)
+                    }
+                    _ => {
+                        return Err(Error::general_error(format!(
+                            "Invalid hex color '{}': expected 6 or 8 hex digits after 0x", s
+                        )))
+                    }
                 }
-                8 => {
-                    // RRGGBBAA
-                    let r = u8::from_str_radix(&s[0..2], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    let g = u8::from_str_radix(&s[2..4], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    let b = u8::from_str_radix(&s[4..6], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    let a = u8::from_str_radix(&s[6..8], 16).map_err(|_| {
-                        Error::general_error(format!("Invalid hex color format: {}", s))
-                    })?;
-                    (r, g, b, a)
-                }
-                _ => {
-                    return Err(Error::general_error(format!(
-                        "Invalid color '{}'. Use named color or hex format (RRGGBB or RRGGBBAA)",
-                        s
-                    )))
-                }
+            } else {
+                return Err(Error::general_error(format!(
+                    "Unknown color '{}'. Use named color or hex with 0x prefix (e.g., 0xFF0000)", s
+                )))
             }
         }
     };
@@ -187,14 +192,18 @@ mod tests {
         assert_eq!(parse_color("blue").unwrap(), Rgba([0, 0, 255, 255]));
         assert_eq!(parse_color("white").unwrap(), Rgba([255, 255, 255, 255]));
 
-        // Hex colors
-        assert_eq!(parse_color("ff0000").unwrap(), Rgba([255, 0, 0, 255]));
-        assert_eq!(parse_color("00ff00").unwrap(), Rgba([0, 255, 0, 255]));
-        assert_eq!(parse_color("ff000080").unwrap(), Rgba([255, 0, 0, 128]));
+        // Hex colors with 0x prefix
+        assert_eq!(parse_color("0xFF0000").unwrap(), Rgba([255, 0, 0, 255]));
+        assert_eq!(parse_color("0x00FF00").unwrap(), Rgba([0, 255, 0, 255]));
+        assert_eq!(parse_color("0xFF000080").unwrap(), Rgba([255, 0, 0, 128]));
+
+        // Case insensitive
+        assert_eq!(parse_color("0xff0000").unwrap(), Rgba([255, 0, 0, 255]));
 
         // Invalid colors
         assert!(parse_color("invalid").is_err());
-        assert!(parse_color("gg0000").is_err());
-        assert!(parse_color("ff00").is_err());
+        assert!(parse_color("0xGG0000").is_err());
+        assert!(parse_color("0xFF00").is_err());
+        assert!(parse_color("ff0000").is_err()); // Missing 0x prefix
     }
 }
