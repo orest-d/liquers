@@ -72,6 +72,33 @@ See `specs/REGISTER_COMMAND_FSD.md` for the complete DSL specification including
 - Injected parameters
 - Metadata statements (label, doc, namespace, realm, etc.)
 
+### Return Type Requirement
+
+**Important**: Command functions registered with the `register_command!` macro **must** return either:
+- `Result<Value, Error>` for concrete environments (when using `-> result`)
+- `Result<E::Value, Error>` for generic environments (when using `-> result`)
+- `Value` for concrete environments (when using `-> value`)
+- `E::Value` for generic environments (when using `-> value`)
+
+The macro **does not** support automatic conversion from other types. For example, a function returning `Result<i32, Error>` will fail to compile:
+
+```rust
+// ❌ This will NOT compile
+fn get_number(_state: &State<Value>) -> Result<i32, Error> {
+    Ok(42)
+}
+register_command!(cr, fn get_number(state) -> result)?;
+// Error: expected `Result<Value, Error>`, found `Result<i32, Error>`
+
+// ✅ Instead, wrap the value explicitly
+fn get_number(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(42))
+}
+register_command!(cr, fn get_number(state) -> result)?;
+```
+
+This restriction exists because the macro generates wrapper code that expects the exact return type. If you need to convert from other types, perform the conversion inside your function before returning.
+
 ### Common Examples
 
 **Sync command with state and parameter:**
