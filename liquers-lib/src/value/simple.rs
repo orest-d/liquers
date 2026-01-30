@@ -619,3 +619,29 @@ impl DefaultValueSerializer for SimpleValue {
     }
 }
 
+impl TryFrom<SimpleValue> for u32 {
+    type Error = Error;
+    fn try_from(value: SimpleValue) -> Result<Self, Self::Error> {
+        match value {
+            SimpleValue::I32 { value: x } => u32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "u32", &e.to_string())),
+            SimpleValue::I64 { value: x } => u32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "u32", &e.to_string())),
+            _ => Err(Error::conversion_error(value.type_name(), "u32")),
+        }
+    }
+}
+
+impl TryFrom<SimpleValue> for u8 {
+    type Error = Error;
+    fn try_from(value: SimpleValue) -> Result<Self, Self::Error> {
+        match value {
+            SimpleValue::I32 { value: x } => u8::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "u8", &e.to_string())),
+            SimpleValue::I64 { value: x } => u8::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "u8", &e.to_string())),
+            _ => Err(Error::conversion_error(value.type_name(), "u8")),
+        }
+    }
+}
+

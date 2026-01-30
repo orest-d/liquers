@@ -326,7 +326,33 @@ where bool: TryFrom<B, Error = Error>
         }
     }
 }
-    
+
+impl <B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for u32 
+where u32: TryFrom<B, Error = Error>
+{
+    type Error = Error; 
+
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
+        match value {
+            CombinedValue::Base(base) => u32::try_from(base),
+            _ => Err(Error::conversion_error(value.type_name(), "u32")),
+        }
+    }
+}
+
+impl <B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for u8
+where u8: TryFrom<B, Error = Error>
+{
+    type Error = Error; 
+
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
+        match value {
+            CombinedValue::Base(base) => u8::try_from(base),
+            _ => Err(Error::conversion_error(value.type_name(), "u8")),
+        }
+    }
+}
+
 impl<B:ValueInterface + Default + From<bool>,E:ValueExtension> From<bool> for CombinedValue<B,E> {
     fn from(value: bool) -> CombinedValue<B,E> {
         CombinedValue::Base(B::from(value))
@@ -344,6 +370,8 @@ where String: TryFrom<B, Error = Error>
         }
     }
 }   
+
+
 
 impl<B:ValueInterface + Default,E:ValueExtension> From<String> for CombinedValue<B,E> {
     fn from(value: String) -> CombinedValue<B,E> {

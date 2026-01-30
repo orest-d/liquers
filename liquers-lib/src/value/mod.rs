@@ -21,7 +21,7 @@ pub mod extended;
 #[derive(Debug, Clone)]
 pub enum ExtValue {
     Image {
-        value: crate::image::raster_image::RasterImage,
+        value: Arc<image::DynamicImage>,
     },
     PolarsDataFrame {
         value: Arc<polars::frame::DataFrame>,
@@ -36,14 +36,21 @@ pub enum ExtValue {
 
 
 pub trait ExtValueInterface {
-    fn from_image(image: crate::image::raster_image::RasterImage) -> Self;
+    fn from_image(image: Arc<image::DynamicImage>) -> Self;
+    fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error>;
     fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self;
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error>;
 }
 
 impl ExtValueInterface for ExtValue {
-    fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
+    fn from_image(image: Arc<image::DynamicImage>) -> Self {
         ExtValue::Image { value: image }
+    }
+    fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error> {
+        match self {
+            ExtValue::Image { value } => Ok(value.clone()),
+            _ => Err(Error::conversion_error(self.identifier().as_ref(), "Image")),
+        }
     }
     fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self {
         ExtValue::PolarsDataFrame {
@@ -143,8 +150,14 @@ impl From<ExtValue> for Value {
 }
 
 impl ExtValueInterface for Value {
-    fn from_image(image: crate::image::raster_image::RasterImage) -> Self {
+    fn from_image(image: Arc<image::DynamicImage>) -> Self {
         Value::Extended(ExtValue::from_image(image))
+    }
+    fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error> {
+        match self {
+            Value::Extended(ext) => ext.as_image(),
+            _ => Err(Error::conversion_error(self.identifier().as_ref(), "Image")),
+        }
     }
     fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self {
         Value::Extended(ExtValue::from_polars_dataframe(df))
