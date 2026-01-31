@@ -71,7 +71,9 @@ impl UIValueExtension for Value {
                 let mut widget = value.lock().expect("Failed to lock widget mutex");
                 widget.show(ui);
             }
-            Self::Extended(ExtValue::Image { value }) => todo!(),
+            Self::Extended(ExtValue::Image { value }) => {
+                crate::egui::widgets::display_image(ui, value);
+            },
             Self::Extended(ExtValue::PolarsDataFrame { value }) => {
                 let mut sort_state: Option<(usize, bool)> = None;
                 crate::egui::dataframe::display_polars_dataframe(ui, &value, &mut sort_state);

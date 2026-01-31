@@ -1,3 +1,4 @@
+use image::DynamicImage;
 use liquers_core::recipes::Recipe;
 /// Display a complete Recipe structure in egui, showing all fields in a user-friendly way
 pub fn display_recipe(ui: &mut egui::Ui, recipe: &Recipe) -> egui::Response {
@@ -793,4 +794,138 @@ pub fn display_asset_info_table(
             }
         });
     clicked_row
+}
+
+pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Response {
+    use egui::ColorImage;
+    use image::GenericImageView;
+
+    let (width, height) = value.dimensions();
+    let size = [width as f32, height as f32];
+
+    // Convert DynamicImage to ColorImage
+    let color_image = match value {
+        DynamicImage::ImageLuma8(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let luma = p[0];
+                    Color32::from_rgb(luma, luma, luma)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageLumaA8(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let luma = p[0];
+                    let alpha = p[1];
+                    Color32::from_rgba_unmultiplied(luma, luma, luma, alpha)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageRgb8(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| Color32::from_rgb(p[0], p[1], p[2]))
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageRgba8(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageLuma16(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let luma = (p[0] >> 8) as u8; // Downsample from 16-bit to 8-bit
+                    Color32::from_rgb(luma, luma, luma)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageLumaA16(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let luma = (p[0] >> 8) as u8; // Downsample from 16-bit to 8-bit
+                    let alpha = (p[1] >> 8) as u8;
+                    Color32::from_rgba_unmultiplied(luma, luma, luma, alpha)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageRgb16(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let r = (p[0] >> 8) as u8; // Downsample from 16-bit to 8-bit
+                    let g = (p[1] >> 8) as u8;
+                    let b = (p[2] >> 8) as u8;
+                    Color32::from_rgb(r, g, b)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageRgba16(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let r = (p[0] >> 8) as u8; // Downsample from 16-bit to 8-bit
+                    let g = (p[1] >> 8) as u8;
+                    let b = (p[2] >> 8) as u8;
+                    let a = (p[3] >> 8) as u8;
+                    Color32::from_rgba_unmultiplied(r, g, b, a)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageRgb32F(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let r = (p[0].clamp(0.0, 1.0) * 255.0) as u8; // Convert float to 8-bit
+                    let g = (p[1].clamp(0.0, 1.0) * 255.0) as u8;
+                    let b = (p[2].clamp(0.0, 1.0) * 255.0) as u8;
+                    Color32::from_rgb(r, g, b)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        DynamicImage::ImageRgba32F(img) => {
+            let pixels: Vec<Color32> = img
+                .pixels()
+                .map(|p| {
+                    let r = (p[0].clamp(0.0, 1.0) * 255.0) as u8; // Convert float to 8-bit
+                    let g = (p[1].clamp(0.0, 1.0) * 255.0) as u8;
+                    let b = (p[2].clamp(0.0, 1.0) * 255.0) as u8;
+                    let a = (p[3].clamp(0.0, 1.0) * 255.0) as u8;
+                    Color32::from_rgba_unmultiplied(r, g, b, a)
+                })
+                .collect();
+            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+        _ => {
+            // Fallback for any unsupported image format: convert to RGBA8
+            let rgba8 = value.to_rgba8();
+            let pixels: Vec<Color32> = rgba8
+                .pixels()
+                .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                .collect();
+            ColorImage::from_rgba_unmultiplied([rgba8.width() as usize, rgba8.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+        }
+    };
+
+    let texture = ui.ctx().load_texture(
+        "dynamic_image",
+        color_image,
+        egui::TextureOptions::default()
+    );
+    ui.add(egui::Image::new(&texture).fit_to_exact_size(size.into()))
 }
