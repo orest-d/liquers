@@ -586,4 +586,189 @@ method: enum("value1", "value2", "value3") = "default" (label: "Label", gui: Enu
 
 ## Future Issues
 
+### Payload Injection - Command Registration Macro Enhancement
+
+**Status:** Future enhancement
+**Category:** Macro / Payload System
+**Priority:** Medium
+**Affects:** `liquers-macro`, `liquers-core`
+
+**Description:**
+
+Currently, to use the `injected` keyword with payload types or newtypes, users must manually implement `InjectedFromContext` for each type. This is verbose and error-prone due to Rust's trait coherence rules preventing blanket implementations.
+
+**Current Limitation:**
+
+```rust
+// 1. Define payload type
+#[derive(Clone)]
+pub struct MyPayload {
+    pub user_id: String,
+    pub window_id: u64,
+}
+
+impl PayloadType for MyPayload {}
+
+// 2. Manually implement InjectedFromContext (required!)
+impl<E: Environment<Payload = MyPayload>> InjectedFromContext<E> for MyPayload {
+    fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
+        context.get_payload_clone().ok_or(Error::general_error(format!(
+            "No payload in context for injected parameter {}", name
+        )))
+    }
+}
+
+// 3. For newtypes, also manually implement InjectedFromContext
+pub struct UserId(pub String);
+
+impl ExtractFromPayload<MyPayload> for UserId {
+    fn extract_from_payload(payload: &MyPayload) -> Result<Self, Error> {
+        Ok(UserId(payload.user_id.clone()))
+    }
+}
+
+impl InjectedFromContext<MyEnvironment> for UserId {
+    fn from_context(_name: &str, context: Context<MyEnvironment>) -> Result<Self, Error> {
+        let payload = context.get_payload_clone()
+            .ok_or_else(|| Error::general_error("No payload".to_string()))?;
+        UserId::extract_from_payload(&payload)
+    }
+}
+```
+
+**Why This Is Necessary:**
+
+Rust's trait coherence rules prevent having both:
+- Blanket impl: `impl<E: Environment> InjectedFromContext<E> for E::Payload`
+- User impl: `impl InjectedFromContext<MyEnv> for MyNewtype`
+
+Because Rust cannot prove that `MyNewtype` is never `E::Payload` for some environment, even with the `PayloadType` marker trait.
+
+**Proposed Solutions:**
+
+**Option 1: Derive macro for payload types**
+```rust
+#[derive(Clone, PayloadType, InjectedFromContext)]
+pub struct MyPayload {
+    pub user_id: String,
+    pub window_id: u64,
+}
+// Auto-generates InjectedFromContext impl
+```
+
+**Option 2: Helper macro**
+```rust
+impl_injected_payload!(MyPayload);
+// Generates the boilerplate InjectedFromContext impl
+```
+
+**Option 3: Enhanced `register_command!` macro with field extraction**
+```rust
+register_command!(cr, fn my_cmd(
+    state,
+    user_id: String injected from payload.user_id,  // Extract field directly
+    window_id: u64 injected from payload.window_id
+) -> result)?;
+```
+
+This would eliminate the need for newtypes and manual `InjectedFromContext` implementations.
+
+**Option 4: Code generation at registration time**
+```rust
+register_command_with_payload!(cr, fn my_cmd(
+    state,
+    user_id: extract String from payload.user_id,
+    window_id: extract u64 from payload.window_id
+) -> result)?;
+```
+
+**Recommended Approach:**
+
+Option 3 (field extraction in macro) is most user-friendly and follows the existing `register_command!` DSL pattern. Implementation would:
+1. Parse `injected from payload.field_name` syntax
+2. Generate wrapper code to extract field from payload
+3. Pass extracted value to command function
+4. No need for newtypes or manual trait implementations
+
+**Benefits:**
+1. **Less boilerplate**: No manual trait implementations needed
+2. **Type safety**: Compile-time field access validation
+3. **Clearer intent**: Syntax explicitly shows field extraction
+4. **Backward compatible**: Existing `injected` keyword still works for full payload
+
+**Workaround Until Implemented:**
+
+Users must manually implement `InjectedFromContext` for all payload types and newtypes as documented in `specs/PAYLOAD_GUIDE.md` and demonstrated in `liquers-core/tests/injection.rs`.
+
+**Related Files:**
+- `liquers-core/src/commands.rs` - Trait definitions
+- `liquers-macro/src/lib.rs` - Command registration macro
+- `liquers-core/tests/injection.rs` - Test examples showing manual implementation
+- `specs/PAYLOAD_GUIDE.md` - User documentation
+- `specs/REGISTER_COMMAND_FSD.md` - Macro syntax specification
+
+---
+
+### Payload Inheritance in Nested Evaluations
+
+**Status:** Not implemented
+**Category:** Context / Assets
+**Priority:** Low
+**Affects:** `liquers-core/src/context.rs`, `liquers-core/src/assets.rs`
+
+**Description:**
+
+When a command calls `context.evaluate()` to execute a nested query, the payload from the parent context is not automatically passed to the child query. This means nested queries cannot access injected parameters.
+
+**Example:**
+```rust
+async fn parent_cmd(
+    _state: State<Value>,
+    user_id: UserId,  // Has access to payload
+    context: Context<E>,
+) -> Result<Value, Error> {
+    // Nested query - will NOT have access to payload
+    let child = context.evaluate(&parse_query("/-/child_cmd")?).await?;
+    // child_cmd cannot use injected parameters!
+}
+```
+
+**Why This Happens:**
+
+`context.evaluate()` calls `asset_manager.get_asset()` which goes through the standard asset creation pipeline. This pipeline doesn't have access to the parent command's payload because:
+1. Assets are shared across multiple users/contexts
+2. The asset manager is designed to work without execution-specific context
+3. Caching would be impossible if assets depended on ephemeral payload data
+
+**Possible Solutions:**
+
+1. **Add `context.evaluate_with_payload()`** - Explicitly pass payload to nested queries
+   ```rust
+   let child = context.evaluate_with_payload(
+       &parse_query("/-/child_cmd")?,
+       context.get_payload_clone()
+   ).await?;
+   ```
+
+2. **Store payload in Context and thread through asset creation** - More invasive architectural change
+
+3. **Document as intentional limitation** - Encourage users to pass data explicitly through query parameters or state
+
+**Recommended Approach:**
+
+Option 3 (document as limitation) is most pragmatic. Payload inheritance is conceptually problematic for caching and asset sharing. Users should pass data through:
+- Query parameters: `/-/child_cmd-${value}`
+- State transformation: Pass computed values via state chain
+
+**Workaround:**
+
+Pass data explicitly through query parameters or state instead of relying on payload inheritance.
+
+**Related Files:**
+- `liquers-core/src/context.rs` - Context implementation
+- `liquers-core/src/assets.rs` - AssetManager
+- `liquers-core/tests/injection.rs` - Test documenting limitation (test: `test_payload_not_inherited_in_nested_evaluation`)
+
+---
+
 *Add new issues below this line*

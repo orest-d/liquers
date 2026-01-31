@@ -46,7 +46,7 @@ pub trait Environment: Sized + Sync + Send + 'static {
     type Value: ValueInterface;
     type CommandExecutor: CommandExecutor<Self>;
     type SessionType: Session;
-    type Payload: Clone +  Send + Sync + 'static;
+    type Payload: crate::commands::PayloadType;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
     fn get_command_executor(&self) -> &Self::CommandExecutor;
@@ -431,7 +431,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 
 /// Simple environment with payload and configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
-pub struct SimpleEnvironmentWithPayload<V: ValueInterface,P: Clone +  Send + Sync + 'static> {
+pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
     store: Arc<Box<dyn Store>>,
     #[cfg(feature = "async_store")]
     async_store: Arc<Box<dyn crate::store::AsyncStore>>,
@@ -442,13 +442,13 @@ pub struct SimpleEnvironmentWithPayload<V: ValueInterface,P: Clone +  Send + Syn
     _payload: std::marker::PhantomData<P>,
 }
 
-impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Default for SimpleEnvironmentWithPayload<V,P> {
+impl<V: ValueInterface, P: crate::commands::PayloadType> Default for SimpleEnvironmentWithPayload<V, P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> SimpleEnvironmentWithPayload<V,P> {
+impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPayload<V, P> {
     pub fn new() -> Self {
         SimpleEnvironmentWithPayload {
             store: Arc::new(Box::new(NoStore)),
@@ -479,7 +479,7 @@ impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> SimpleEnvironmentWithP
     }
 }
 
-impl<V: ValueInterface,P: Clone +  Send + Sync + 'static> Environment for SimpleEnvironmentWithPayload<V,P> {
+impl<V: ValueInterface, P: crate::commands::PayloadType> Environment for SimpleEnvironmentWithPayload<V, P> {
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;

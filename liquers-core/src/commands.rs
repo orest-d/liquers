@@ -336,16 +336,68 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
     }
 }
 
+/// Marker trait to distinguish actual payload types from newtypes that extract from payload.
+///
+/// Implement this for your payload types. You must also manually implement `InjectedFromContext`
+/// for your payload type to enable injection via the `injected` keyword.
+///
+/// For newtypes that extract from payload, implement `ExtractFromPayload` and `InjectedFromContext`.
+pub trait PayloadType: Clone + Send + Sync + 'static {}
+
+/// Trait for types that can be extracted from a payload.
+/// Implement this for newtypes that extract specific fields from a payload.
+/// You must also implement `InjectedFromContext` manually for each newtype.
+pub trait ExtractFromPayload<P>: Sized {
+    fn extract_from_payload(payload: &P) -> Result<Self, Error>;
+}
+
+/// Trait for types that can be injected from context.
+///
+/// # Implementation
+///
+/// For payload types, implement as:
+/// ```ignore
+/// impl<E: Environment<Payload = YourPayload>> InjectedFromContext<E> for YourPayload {
+///     fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
+///         context.get_payload_clone().ok_or(Error::general_error(format!(
+///             "No payload in context for injected parameter {}", name
+///         )))
+///     }
+/// }
+/// ```
+///
+/// For newtypes extracting from payload, implement as:
+/// ```ignore
+/// impl InjectedFromContext<YourEnvironment> for YourNewtype {
+///     fn from_context(_name: &str, context: Context<YourEnvironment>) -> Result<Self, Error> {
+///         let payload = context.get_payload_clone()
+///             .ok_or_else(|| Error::general_error("No payload".to_string()))?;
+///         YourNewtype::extract_from_payload(&payload)
+///     }
+/// }
+/// ```
 pub trait InjectedFromContext<E: Environment>: Sized {
     fn from_context(name: &str, context: Context<E>) -> Result<Self, Error>;
 }
 
-impl<E: Environment> InjectedFromContext<E> for E::Payload
-{
+/// Unit type is a valid payload (for environments without payload)
+impl PayloadType for () {}
+
+/// Unit type can be injected (always succeeds with ())
+impl<E: Environment<Payload = ()>> InjectedFromContext<E> for () {
+    fn from_context(_name: &str, _context: Context<E>) -> Result<Self, Error> {
+        Ok(())
+    }
+}
+
+/// String is a valid payload type (commonly used for simple cases)
+impl PayloadType for String {}
+
+/// String payload can be injected
+impl<E: Environment<Payload = String>> InjectedFromContext<E> for String {
     fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
         context.get_payload_clone().ok_or(Error::general_error(format!(
-            "No payload in context for injected parameter {}",
-            name
+            "No payload in context for injected parameter {}", name
         )))
     }
 }
