@@ -8,7 +8,7 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 |---|-----|--------|---------|
 | 1 | VOLATILE-METADATA | Open | State metadata lacks volatility information |
 | 2 | METADATA-CONSISTENCY | Open | MetadataRecord fields need consistency validation |
-| 3 | CANCEL-SAFETY | Open | Cancelled flag needed to prevent writes from orphaned tasks |
+| 3 | CANCEL-SAFETY | **Closed** | Cancelled flag needed to prevent writes from orphaned tasks |
 | 4 | NON-SERIALIZABLE | Open | Support for non-serializable data in set_state() |
 | 5 | STICKY-ASSETS | Open | Source/Override assets need eviction resistance for reliable storage |
 | 6 | UPLOAD-SIZE-LIMIT | Open | Configurable size limits for set() binary uploads |
@@ -141,9 +141,28 @@ Currently there is no validation that these fields are:
 
 ## Issue 3: CANCEL-SAFETY
 
-**Status:** Open
+**Status:** Closed
 
 **Summary:** A `cancelled` flag is needed on AssetData to prevent orphaned tasks from writing after cancellation.
+
+### Resolution
+
+Implemented cancel-safety checks in `liquers-core/src/assets.rs`:
+
+1. **`evaluate_and_store()` method**: Added check for `is_cancelled()` flag before calling `save_to_store()`. If cancelled, the store write is silently skipped and the method returns successfully.
+
+2. **`save_to_store()` method**: Added two cancelled checks:
+   - At the start of the method before any work begins
+   - After serialization (which can be slow), before the actual store write
+
+   This double-check pattern ensures that cancellation requests that arrive during serialization are still honored.
+
+3. **API Endpoint**: Added `POST /api/assets/cancel/{*query}` endpoint specification to `specs/WEB_API_SPECIFICATION.md`. The endpoint:
+   - Initiates cancellation for assets in cancellable states (Submitted, Dependencies, Processing)
+   - Returns success with `cancelled: true` or `cancelled: false` depending on asset state
+   - Returns 404 if asset not found
+
+The existing infrastructure (`cancelled` flag, `set_cancelled()`, `is_cancelled()`, `cancel_evaluation()`) was already in place. This fix adds the missing write-prevention checks that were specified in the original issue.
 
 ### Problem
 

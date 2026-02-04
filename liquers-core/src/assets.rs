@@ -1103,7 +1103,19 @@ impl<E: Environment> AssetRef<E> {
                     .notification_tx
                     .send(AssetNotificationMessage::ValueProduced);
                 let save_in_background = lock.save_in_background;
+                let cancelled = lock.is_cancelled();
                 drop(lock);
+
+                // Check cancelled flag before writing to store (cancel-safety)
+                // This prevents orphaned tasks from overwriting data after cancellation
+                if cancelled {
+                    println!(
+                        "Asset {} cancelled, skipping store write",
+                        self.id()
+                    );
+                    return Ok(());
+                }
+
                 let assetref = self.clone();
                 if save_in_background {
                     tokio::spawn(async move {
@@ -1148,6 +1160,16 @@ impl<E: Environment> AssetRef<E> {
     }
 
     async fn save_to_store(&self) -> Result<(), Error> {
+        // Check cancelled flag before writing to store (cancel-safety)
+        // This prevents orphaned tasks from overwriting data after cancellation
+        if self.is_cancelled().await {
+            println!(
+                "Asset {} cancelled, skipping store write in save_to_store",
+                self.id()
+            );
+            return Ok(());
+        }
+
         let mut x = self.poll_binary().await;
         if x.is_none() {
             x = self.serialize_to_binary().await?;
@@ -1155,6 +1177,15 @@ impl<E: Environment> AssetRef<E> {
 
         if let Some((data, metadata)) = x {
             let lock = self.data.read().await;
+
+            // Double-check cancelled flag after potentially long serialization
+            if lock.is_cancelled() {
+                println!(
+                    "Asset {} cancelled after serialization, skipping store write",
+                    self.id()
+                );
+                return Ok(());
+            }
 
             let envref = lock.get_envref();
             let store = envref.get_async_store();

@@ -871,6 +871,7 @@ The following table shows all endpoints across Store API, Assets API, and Recipe
 | GET | `/api/store/removedir/{*key}` | — | — | Remove directory (GET-based alternative) |
 | POST | `/api/store/upload/{*key}` | — | — | Upload files via multipart form data |
 | GET | — | — | `/api/recipes/resolve/{*key}` | Resolve recipe to execution plan |
+| POST | — | `/api/assets/cancel/{*query}` | — | Cancel running asset computation |
 | WebSocket | — | `/ws/assets/{*query}` | — | Subscribe to real-time asset notifications |
 
 **Notes:**
@@ -1106,6 +1107,84 @@ DELETE /liquer/api/assets/entry/path/to/query
 ```
 
 **Note:** This endpoint is semantically equivalent to `DELETE /api/assets/data/{*query}`.
+
+---
+
+#### 5.1.7.1 POST /api/assets/cancel/{*query}
+
+Cancel an asset that is currently being evaluated. This endpoint initiates cancellation of a running computation.
+
+**Request:**
+```
+POST /liquer/api/assets/cancel/path/to/query
+```
+
+**Cancellation Flow:**
+
+When cancellation is requested:
+1. The `cancelled` flag is set on the asset to prevent orphaned writes
+2. A `Cancel` message is sent to the asset's service channel
+3. The asset status transitions to `Cancelled` (or remains in current state if already finished)
+4. Any pending store write operations are silently dropped
+
+**Success Response (200) - Cancellation initiated:**
+```json
+{
+  "status": "OK",
+  "message": "Cancellation initiated",
+  "query": "/path/to/query",
+  "result": {
+    "cancelled": true,
+    "previous_status": "Processing"
+  }
+}
+```
+
+**Success Response (200) - Asset not in cancellable state:**
+```json
+{
+  "status": "OK",
+  "message": "Asset not in cancellable state",
+  "query": "/path/to/query",
+  "result": {
+    "cancelled": false,
+    "current_status": "Ready"
+  }
+}
+```
+
+**Cancellable States:**
+
+Assets can only be cancelled when in one of these statuses:
+- `Submitted` - Job has been submitted but not started
+- `Dependencies` - Waiting for dependencies to resolve
+- `Processing` - Actively being computed
+
+Assets in other states (e.g., `Ready`, `Error`, `None`, `Recipe`) are not cancellable.
+
+**Error Response (404) - Asset not found:**
+```json
+{
+  "status": "ERROR",
+  "error": {
+    "type": "KeyNotFound",
+    "message": "Asset 'path/to/query' not found",
+    "query": "/path/to/query"
+  }
+}
+```
+
+**Cancel Safety:**
+
+This endpoint implements cancel-safety to prevent race conditions:
+- Once cancelled, any `ValueProduced` events from orphaned tasks are ignored
+- Store write operations check the `cancelled` flag before writing
+- This ensures that a `set()` or `set_state()` operation following cancellation is not overwritten by an orphaned task
+
+**Implementation Note:**
+
+This endpoint requires `AssetRef::cancel_evaluation()` method from `liquers_core::assets`.
+The method sets the `cancelled` flag, sends the cancel signal, and waits for acknowledgment with a configurable timeout.
 
 ---
 
