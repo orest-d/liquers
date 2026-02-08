@@ -13,6 +13,7 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 | 5 | STICKY-ASSETS | Open | Source/Override assets need eviction resistance for reliable storage |
 | 6 | UPLOAD-SIZE-LIMIT | Open | Configurable size limits for set() binary uploads |
 | 7 | KEY-LEVEL-ACL | Open | Access control for set()/set_state() operations |
+| 8 | VALUE-LIST-SUPPORT | Open | ValueInterface may need extension for returning lists of integers from lui commands |
 
 ---
 
@@ -506,3 +507,39 @@ Currently `set()` and `set_state()` have no access control. Any caller can set a
 ### Related
 
 - Authentication/authorization system design (broader scope)
+
+---
+
+## Issue 8: VALUE-LIST-SUPPORT
+
+**Status:** Open
+
+**Summary:** ValueInterface may need extension to support returning lists of integers from lui navigation commands.
+
+### Problem
+
+The `lui` namespace commands `children` and `roots` need to return lists of UIHandle values (as integers). The `Value` type supports lists (`Value::List`), but `ValueInterface` may not provide convenient methods for constructing lists of integers or extracting them.
+
+### Context
+
+Navigation commands in the `lui` namespace (Phase 1 UI Interface) return:
+- Single handles as `i64` (e.g., `parent`, `next`, `prev`)
+- Lists of handles as lists of `i64` (e.g., `children`, `roots`)
+
+These return values may be consumed by embedded queries, so they need to flow cleanly through the value system.
+
+### Investigation Needed
+
+1. Can `Value::from(vec![1i64, 2, 3])` produce a `Value::List`?
+2. Does `ValueInterface` have `from_list` / `try_into_list` methods?
+3. If not, what methods need to be added?
+4. Does `ExtValue` (in liquers-lib) need corresponding extensions?
+
+### Affected Files
+
+- `liquers-core/src/value.rs` - ValueInterface trait, Value enum
+- `liquers-lib/src/value/mod.rs` - ExtValue extensions
+
+### Related
+
+- UI Interface Phase 1 FSD - lui namespace commands
