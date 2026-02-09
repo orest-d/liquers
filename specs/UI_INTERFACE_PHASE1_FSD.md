@@ -4,15 +4,15 @@
 
 Query-driven UI state management for Liquers. Phase 1 establishes the core abstractions
 for managing a tree of UI elements via commands, with lazy evaluation through the
-Asset system and optional egui rendering.
+Asset system and egui rendering.
 
 **Phase 1 Goals:**
-- Define `UIElement` trait (element identity, data, cloning, optional rendering)
-- Define `AppState` trait (tree structure, navigation, modification, evaluation trigger)
+- Define `UIElement` trait (element identity, data, cloning, lifecycle, rendering)
+- Define `AppState` trait (tree structure, navigation, modification, extract-render-replace)
 - Define `UIPayload` trait (injection bridge between payload and AppState)
 - Define element lifecycle (lazy: add creates source, rendering triggers evaluation)
-- Implement `AssetDisplayUIElement` for evaluation progress display
-- Implement `DisplayElement` for wrapping evaluated Values
+- Implement `AssetViewElement` for unified progress/value/error display
+- Implement `Placeholder` for stubs and reserved positions
 - Implement `lui` namespace commands for tree manipulation
 - Implement utility functions for target/reference resolution
 - Establish unit test patterns covering all layers
@@ -94,7 +94,7 @@ kinds of elements (windows, panels, display wrappers, asset status indicators, e
 
 UIElement instances are stored in AppState as `Box<dyn UIElement>` and are serializable
 via the `typetag` crate. UIElement instances flow through the value system as
-`ExtValue::UIElement { value: Arc<dyn UIElement> }` (see §5).
+`ExtValue::UIElement { value: Arc<dyn UIElement> }` (see §6).
 
 **Location:** `liquers-lib/src/ui/element.rs`
 
@@ -103,33 +103,69 @@ via the `typetag` crate. UIElement instances flow through the value system as
 ```rust
 #[typetag::serde]
 pub trait UIElement: Send + Sync + std::fmt::Debug {
-    /// Machine-readable type name, e.g. "placeholder", "display", "asset_display".
+    /// Machine-readable type name, e.g. "Placeholder", "AssetViewElement".
     /// Used for logging, debugging, element type identification, and error messages.
     /// Must be constant for a given implementation (not instance-dependent).
-    fn type_name(&self) -> &str;
+    fn type_name(&self) -> &'static str;
 
-    /// Human-readable title for the element.
-    /// Used in tree visualization, tab titles, window titles, and error messages.
-    /// May vary per instance.
-    /// Default: returns type_name.
-    /// For elements created from evaluated State, this should default to the
-    /// metadata title from the generating query's result (MetadataRecord.title).
+    /// Per-instance handle, None until init is called.
+    /// Every implementation stores `handle: Option<UIHandle>` internally.
+    fn handle(&self) -> Option<UIHandle>;
+
+    /// Set the handle. Called by init. Must not be called more than once.
+    fn set_handle(&mut self, handle: UIHandle);
+
+    /// True if init has been called (handle is Some).
+    fn is_initialised(&self) -> bool {
+        self.handle().is_some()
+    }
+
+    /// Human-readable title. Defaults to type_name().
+    /// Set initially from MetadataRecord.title (by the add command),
+    /// can be overridden in init() or later by commands.
     fn title(&self) -> String {
         self.type_name().to_string()
     }
 
+    /// Override the title.
+    fn set_title(&mut self, title: String);
+
     /// Create a boxed clone of this element.
     /// Required because Clone is not object-safe.
-    /// Used when:
-    /// - Extracting from Arc<dyn UIElement> (value system) into Box<dyn UIElement> (AppState)
-    /// - The replace operation needs to return the old element
     fn clone_boxed(&self) -> Box<dyn UIElement>;
 
-    /// Render this element using egui.
-    /// Default implementation displays the title as a label.
-    /// Implementations override this for custom rendering.
-    #[cfg(feature = "egui")]
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+    /// Called once after the element is registered in AppState.
+    /// Default: stores the handle via set_handle.
+    /// Implementations can override to inspect the tree (read-only)
+    /// during initialization.
+    ///
+    /// `app_state` is a read-only reference to the AppState (the lock
+    /// is already held by the caller; the element has been temporarily
+    /// extracted so there is no self-referential borrow).
+    fn init(
+        &mut self,
+        handle: UIHandle,
+        _app_state: &dyn AppState,
+    ) -> Result<(), Error> {
+        self.set_handle(handle);
+        Ok(())
+    }
+
+    /// React to a framework-agnostic update message.
+    /// Default: no-op. Elements override to handle asset notifications,
+    /// timer ticks, etc.
+    fn update(&mut self, _message: &UpdateMessage) -> UpdateResponse {
+        UpdateResponse::Unchanged
+    }
+
+    /// Render in egui. Handle is available via self.handle().
+    /// app_state is an Arc<Mutex> — the element locks it only if needed.
+    /// The caller does NOT hold the lock when calling this method.
+    fn show_in_egui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) -> egui::Response {
         ui.label(self.title())
     }
 }
@@ -143,21 +179,33 @@ evaluated query result, the title defaults to the metadata title of the State. F
 elements without a generating State (e.g., manually constructed), title() falls back
 to type_name().
 
-**`show()` behind `#[cfg(feature = "egui")]`.** Phase 1 includes egui rendering as an
-optional feature. Each UIElement implementation provides its own `show()` method for
-egui rendering. The default renders the title as a label. This avoids the need for
-external downcasting-based dispatch — the element itself knows how to render.
+**Handle on element.** The handle is immutable once assigned. `set_handle` is called
+only by `init`. Knowing the handle is important for show methods that need to identify
+themselves when interacting with AppState (e.g., reading children).
 
-For future rendering frameworks (ratatui, web), additional cfg-gated methods can be
-added to the trait (e.g., `#[cfg(feature = "ratatui")] fn render(...)`).
+**`set_title`.** Title is a mutable property. Set from MetadataRecord.title by default
+(in the `add` command, before init), overridable in init or by commands.
 
-**No `as_any` / `as_any_mut`.** With `show()` on the trait, downcasting is not the
-primary rendering mechanism. If element-specific data access is needed from framework
-code, it can be added as a Phase 2 extension.
+**`init` takes `&dyn AppState`.** This is object-safe and provides everything UIPayload
+offers (handle passed separately, tree readable via AppState). The AppState trait is
+object-safe (no generic methods, no Self returns). The caller holds the lock and has
+temporarily extracted the element, so there is no self-referential borrow.
 
-**No `id: UIHandle` field.** UIElement does not know its own handle. The handle is
-assigned and managed by AppState. When rendering or event handling needs the handle,
-it is provided as context by the caller.
+**`show_in_egui` instead of `show`.** The method name includes the framework to leave
+room for future platform-specific methods (e.g., `show_in_ratatui`). The signature
+takes `Arc<tokio::sync::Mutex<dyn AppState>>` — the caller does NOT hold the lock. The
+element can lock AppState if it needs to read children, etc.
+
+**`tokio::sync::Mutex`.** Used for AppState wrapping to ensure consistent locking
+semantics across async command execution. Commands use `.lock().await`. For
+synchronous contexts (egui render loop), `blocking_lock()` is used — this is safe
+because the render loop runs on the main thread, outside the tokio runtime.
+The lock discipline from §12.4 applies — never hold across `.await` points beyond
+the initial acquisition.
+
+**No `as_any` / `as_any_mut`.** With `show_in_egui()` on the trait, downcasting is
+not the primary rendering mechanism. If element-specific data access is needed from
+framework code, it can be added as a Phase 2 extension.
 
 **`Debug` supertrait.** Required for meaningful error messages and tree visualization.
 `typetag` already requires Serialize + Deserialize; Debug adds diagnostic capability.
@@ -173,10 +221,90 @@ All UIElement implementations must:
 - Be serializable via `serde` (required by typetag) — or use `#[serde(skip)]` for
   non-serializable fields with appropriate defaults
 - Provide `clone_boxed` (typically by deriving `Clone`)
+- Store `handle: Option<UIHandle>` and `title_text: String` fields
 
 UIElement implementations must NOT:
-- Store their own UIHandle (handle is an AppState concept)
 - Store child/parent relationships (topology owned by AppState)
+
+### 2.4 UpdateMessage and UpdateResponse
+
+Framework-agnostic update messaging for elements.
+
+```rust
+/// Framework-agnostic update messages delivered to elements.
+pub enum UpdateMessage {
+    /// Asset notification from the evaluation system.
+    AssetNotification(AssetNotificationMessage),
+    /// Periodic timer tick.
+    Timer { elapsed_ms: u64 },
+    /// Custom application-defined message.
+    Custom(Box<dyn std::any::Any + Send>),
+}
+
+/// Element's response to an update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateResponse {
+    /// No visual change — framework may skip repaint.
+    Unchanged,
+    /// Element state changed — framework should repaint.
+    NeedsRepaint,
+}
+```
+
+- **Asset notifications** are framework-agnostic: the background listener task
+  delivers `AssetNotification` messages to the element via AppState.
+- **Timer** is framework-agnostic: AppState or a coordinator delivers ticks.
+- **Keyboard/mouse** are framework-specific: handled within `show_in_egui` (egui
+  processes input during rendering) or via platform-specific trait methods.
+
+### 2.5 Rendering Pattern — Extract-Render-Replace
+
+The `show_in_egui` method takes `Arc<Mutex<dyn AppState>>` but the caller does NOT
+hold the lock. To render an element, the framework uses the extract-render-replace
+pattern:
+
+```rust
+pub fn render_element(
+    ui: &mut egui::Ui,
+    handle: UIHandle,
+    app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+) {
+    // 1. Extract element from AppState (blocking_lock is safe here:
+    //    egui render loop runs on the main thread, outside the tokio runtime)
+    let element = {
+        let mut state = app_state.blocking_lock();
+        state.take_element(handle)
+    };
+    // Lock released
+
+    match element {
+        Ok(mut element) => {
+            // 2. Render (element can lock AppState if needed)
+            element.show_in_egui(ui, app_state.clone());
+
+            // 3. Put element back
+            let mut state = app_state.blocking_lock();
+            let _ = state.put_element(handle, element);
+        }
+        Err(_) => {
+            ui.label(format!("Element {:?} not found", handle));
+        }
+    }
+}
+```
+
+AppState provides two helper methods to support this pattern:
+
+```rust
+fn take_element(&mut self, handle: UIHandle) -> Result<Box<dyn UIElement>, Error>;
+fn put_element(&mut self, handle: UIHandle, element: Box<dyn UIElement>) -> Result<(), Error>;
+```
+
+**`take_element`** removes the element from the node (setting it to None) and returns
+it. The node remains in the tree with its topology intact.
+
+**`put_element`** places an element back into a node. The node must exist and currently
+have no element (i.e., it was previously taken).
 
 ---
 
@@ -193,196 +321,153 @@ Placeholder is NOT required by the core lifecycle (nodes without elements are
 represented by `element: None` in NodeData). It exists as a convenience.
 
 ```rust
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Placeholder {
-    /// Optional label for debugging (e.g. the query text).
-    pub label: Option<String>,
+    handle: Option<UIHandle>,
+    title_text: String,
+}
+
+impl Placeholder {
+    pub fn new() -> Self {
+        Self {
+            handle: None,
+            title_text: "Placeholder".to_string(),
+        }
+    }
+
+    pub fn with_title(mut self, title: String) -> Self {
+        self.title_text = title;
+        self
+    }
 }
 
 #[typetag::serde]
 impl UIElement for Placeholder {
-    fn type_name(&self) -> &str { "placeholder" }
+    fn type_name(&self) -> &'static str { "Placeholder" }
 
-    fn title(&self) -> String {
-        match &self.label {
-            Some(label) => format!("placeholder({})", label),
-            Option::None => "placeholder".to_string(),
-        }
-    }
+    fn handle(&self) -> Option<UIHandle> { self.handle }
+    fn set_handle(&mut self, handle: UIHandle) { self.handle = Some(handle); }
+
+    fn title(&self) -> String { self.title_text.clone() }
+    fn set_title(&mut self, title: String) { self.title_text = title; }
 
     fn clone_boxed(&self) -> Box<dyn UIElement> { Box::new(self.clone()) }
-
-    #[cfg(feature = "egui")]
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(self.title());
-        }).response
-    }
 }
 ```
 
-### 3.2 DisplayElement
+### 3.2 AssetViewElement
 
-Wraps an evaluated Value for display. Created when evaluation produces a non-UIElement
-value (text, number, DataFrame, image, etc.).
+General-purpose viewer for evaluated values. Covers the full asset lifecycle
+in a single element — replaces both the progress indicator and the result display.
 
-**The value field wraps the actual `Value` type** (CombinedValue<SimpleValue, ExtValue>),
-not `serde_json::Value`. Values are often large files or calculation results and should
-not be serialized as part of UI configuration.
+This replaces the previous `DisplayElement` (v4.0 §3.2) and `AssetDisplayUIElement`
+(v4.0 §3.3) with a unified element that manages the full progress→value/error lifecycle.
 
 ```rust
-#[derive(Clone, Debug)]
-pub struct DisplayElement {
-    /// Human-readable title, typically from MetadataRecord.title.
-    pub title_text: String,
-
-    /// Type identifier of the value (e.g. "text", "i64", "image", "polars_dataframe").
-    pub type_identifier: String,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssetViewElement {
+    handle: Option<UIHandle>,
+    title_text: String,
+    type_identifier: String,
 
     /// The wrapped Value. Skipped during serialization.
-    /// After deserialization this is None — the node needs re-evaluation.
     #[serde(skip)]
-    pub value: Option<Arc<Value>>,
-}
-```
+    value: Option<Arc<Value>>,
 
-**Serialization behavior:** The `value` field is `#[serde(skip)]`. When serialized,
-only `title_text` and `type_identifier` are stored. After deserialization, `value` is
-`None`. AppState detects this and schedules re-evaluation from the node's ElementSource.
-
-**Custom Serialize/Deserialize:** Because `#[derive(Serialize, Deserialize)]` cannot
-be used directly (Arc<Value> is not Serialize), DisplayElement implements Serialize and
-Deserialize manually. The implementation serializes `title_text` and `type_identifier`
-only, and deserializes with `value: None`.
-
-```rust
-#[typetag::serde]
-impl UIElement for DisplayElement {
-    fn type_name(&self) -> &str { "display" }
-
-    fn title(&self) -> String {
-        self.title_text.clone()
-    }
-
-    fn clone_boxed(&self) -> Box<dyn UIElement> { Box::new(self.clone()) }
-
-    #[cfg(feature = "egui")]
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        match &self.value {
-            Some(value) => {
-                // Delegate to UIValueExtension::show for the actual value
-                value.show(ui);
-                ui.label("") // placeholder response
-            }
-            Option::None => {
-                ui.label(format!("{} (not loaded)", self.title_text))
-            }
-        }
-    }
-}
-```
-
-**Note on egui rendering:** The `show()` method delegates to the existing
-`UIValueExtension::show()` trait from `liquers-lib/src/egui/mod.rs`, which already
-handles rendering for Image, PolarsDataFrame, Widget, and SimpleValue types.
-
-### 3.3 AssetDisplayUIElement
-
-Shows evaluation progress while a query is being evaluated asynchronously. Created
-by AppState when it triggers evaluation of a node's ElementSource. Replaced by the
-evaluation result (UIElement or DisplayElement) when evaluation completes.
-
-Based on the existing `AssetStatus<E>` widget pattern in `liquers-lib/src/egui/widgets.rs`.
-
-```rust
-#[derive(Clone, Debug)]
-pub struct AssetDisplayUIElement {
-    /// The query being evaluated.
-    pub query_text: String,
-
-    /// Current asset status information, updated by a background listener task.
-    /// Wrapped in std::sync::RwLock for thread-safe reads during rendering.
-    #[serde(skip)]
-    pub asset_info: Arc<std::sync::RwLock<Option<AssetInfo>>>,
+    /// Current display mode.
+    view_mode: AssetViewMode,
 
     /// Error message if evaluation failed.
     #[serde(skip)]
-    pub error_message: Arc<std::sync::RwLock<Option<String>>>,
+    error_message: Option<String>,
+
+    /// Live progress info, updated by background listener.
+    #[serde(skip)]
+    progress_info: Option<AssetInfo>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AssetViewMode {
+    /// Show evaluation progress (spinner, progress bar).
+    Progress,
+    /// Show the value (text, image, dataframe, etc.).
+    Value,
+    /// Show metadata (log, status, query, etc.).
+    Metadata,
+    /// Show error details.
+    Error,
 }
 ```
 
-**Serialization behavior:** Like DisplayElement, the live fields are `#[serde(skip)]`.
-After deserialization, only `query_text` survives. The node needs re-evaluation.
+**Lifecycle:**
+1. Created in `Progress` mode when evaluation starts (`new_progress`)
+2. Created in `Value` mode when a pre-evaluated value is available (`new_value`)
+3. Receives `UpdateMessage::AssetNotification` — updates `progress_info`
+4. On completion: receives the Value via `set_value()`, transitions to `Value` mode
+5. On error: transitions to `Error` mode automatically via `set_error()`
+6. User can switch to `Metadata` or `Error` mode via UI controls
 
-**Custom Serialize/Deserialize:** Serializes only `query_text`. Deserializes with
-`asset_info: None`, `error_message: None`.
+**update() implementation:**
+```rust
+fn update(&mut self, message: &UpdateMessage) -> UpdateResponse {
+    match message {
+        UpdateMessage::AssetNotification(notif) => {
+            match notif {
+                AssetNotificationMessage::ErrorOccurred(err) => {
+                    self.set_error(err.message.clone());
+                }
+                AssetNotificationMessage::JobFinished => {}
+                AssetNotificationMessage::PrimaryProgressUpdated(_) => {}
+                // All other variants: no-op
+                _ => {}
+            }
+            UpdateResponse::NeedsRepaint
+        }
+        UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
+        UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+    }
+}
+```
+
+**show_in_egui renders based on view_mode:**
+- `Progress`: spinner + progress bar (delegates to existing `display_progress`)
+- `Value`: delegates to `UIValueExtension::show()` for the wrapped Value
+- `Metadata`: shows asset info details
+- `Error`: red error message with details
+
+### 3.3 Background Listener Update Path
+
+When AppState spawns a background listener for an evaluating node, the listener
+delivers updates to the element via AppState:
 
 ```rust
-#[typetag::serde]
-impl UIElement for AssetDisplayUIElement {
-    fn type_name(&self) -> &str { "asset_display" }
+// Background task (pseudocode):
+loop {
+    rx.changed().await;
+    let notification = rx.borrow().clone();
 
-    fn title(&self) -> String {
-        let info = self.asset_info.read().ok();
-        let title = info.as_ref()
-            .and_then(|lock| lock.as_ref())
-            .map(|ai| ai.title.clone());
-        match title {
-            Some(t) if !t.is_empty() => t,
-            _ => format!("evaluating: {}", self.query_text),
-        }
+    let mut state = app_state.blocking_lock();
+    if let Some(element) = state.get_element_mut(handle) {
+        let response = element.update(
+            &UpdateMessage::AssetNotification(notification.clone())
+        );
+        // If NeedsRepaint, signal the framework (e.g., egui ctx.request_repaint())
     }
 
-    fn clone_boxed(&self) -> Box<dyn UIElement> { Box::new(self.clone()) }
+    if notification.is_finished() { break; }
+}
 
-    #[cfg(feature = "egui")]
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let error = self.error_message.read().ok()
-            .and_then(|lock| lock.clone());
-        if let Some(err) = error {
-            return ui.colored_label(egui::Color32::RED, err);
-        }
-
-        let info = self.asset_info.read().ok()
-            .and_then(|lock| lock.clone());
-        match info {
-            Some(ai) => {
-                ui.horizontal(|ui| {
-                    if ai.status.is_processing() {
-                        ui.spinner();
-                    }
-                    ui.label(&ai.title);
-                    if !ai.message.is_empty() {
-                        ui.label(&ai.message);
-                    }
-                    // Show progress if available
-                    if ai.progress.total > 0 {
-                        let frac = ai.progress.done as f32 / ai.progress.total as f32;
-                        ui.add(egui::ProgressBar::new(frac));
-                    }
-                }).response
-            }
-            Option::None => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(format!("Evaluating: {}", self.query_text));
-                }).response
-            }
-        }
-    }
+// On completion: update element with final value
+let asset_value = asset_ref.get().await?;
+let mut state = app_state.blocking_lock();
+if let Some(element) = state.get_element_mut(handle) {
+    // For AssetViewElement: set value, transition to Value mode
 }
 ```
 
-**Background listener:** When AppState creates an AssetDisplayUIElement, it also spawns
-a background tokio task that subscribes to the asset's notification channel
-(`asset_ref.subscribe_to_notifications()`). This task:
-1. Updates `asset_info` when `AssetNotificationMessage` arrives
-2. Updates `error_message` on `ErrorOccurred`
-3. Runs until the asset status `is_finished()`
-
-The background task does NOT replace the element. Element replacement is handled by
-the evaluation completion callback in AppState (see §6.4).
+The background listener updates the element in-place rather than creating
+a separate progress element and replacing it. For non-AssetViewElement types, the
+old replacement pattern can still be used.
 
 ### 3.4 Creating Custom UIElement Implementations
 
@@ -392,21 +477,31 @@ typically in egui-specific or application-specific code.
 ```rust
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Panel {
-    pub title_text: String,
-    pub content_query: Option<String>,
+    handle: Option<UIHandle>,
+    title_text: String,
+    content_query: Option<String>,
 }
 
 #[typetag::serde]
 impl UIElement for Panel {
-    fn type_name(&self) -> &str { "panel" }
+    fn type_name(&self) -> &'static str { "Panel" }
+
+    fn handle(&self) -> Option<UIHandle> { self.handle }
+    fn set_handle(&mut self, handle: UIHandle) { self.handle = Some(handle); }
+
     fn title(&self) -> String { self.title_text.clone() }
+    fn set_title(&mut self, title: String) { self.title_text = title; }
+
     fn clone_boxed(&self) -> Box<dyn UIElement> { Box::new(self.clone()) }
 
-    #[cfg(feature = "egui")]
-    fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+    fn show_in_egui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) -> egui::Response {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.heading(&self.title_text);
-            // Render children via AppState (handle passed externally)
+            // Render children via AppState (handle available via self.handle())
         }).response
     }
 }
@@ -434,48 +529,7 @@ but no element.
 ```rust
 pub trait AppState: Send + Sync {
 
-    // ── Navigation ──────────────────────────────────────────────────
-
-    /// All root elements (no parent). Order is deterministic (sorted by handle).
-    fn roots(&self) -> Vec<UIHandle>;
-
-    /// Parent of the given element, or None if it is a root.
-    fn parent(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
-
-    /// Ordered children of the given element.
-    fn children(&self, handle: UIHandle) -> Result<Vec<UIHandle>, Error>;
-
-    /// Sibling at a relative offset among the parent's children.
-    /// offset == 0 returns the element itself.
-    /// Returns Ok(None) if root (no siblings) or index out of range.
-    fn sibling(&self, handle: UIHandle, offset: i32) -> Result<Option<UIHandle>, Error>;
-
-    /// Previous sibling (offset -1).
-    fn previous_sibling(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
-
-    /// Next sibling (offset +1).
-    fn next_sibling(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
-
-    // ── Element access ──────────────────────────────────────────────
-
-    /// Access the UIElement at this handle.
-    /// Returns None if the node exists but has no element yet (pending evaluation).
-    fn get_element(&self, handle: UIHandle) -> Result<Option<&dyn UIElement>, Error>;
-
-    /// Mutable access to the UIElement at this handle.
-    /// Returns None if the node exists but has no element yet.
-    fn get_element_mut(&mut self, handle: UIHandle) -> Result<Option<&mut dyn UIElement>, Error>;
-
-    /// Access the generating source for this handle.
-    fn get_source(&self, handle: UIHandle) -> Result<&ElementSource, Error>;
-
-    /// Update the generating source for this handle.
-    fn set_source(&mut self, handle: UIHandle, source: ElementSource) -> Result<(), Error>;
-
-    /// Check if a node exists and has no element (pending evaluation).
-    fn is_pending(&self, handle: UIHandle) -> Result<bool, Error>;
-
-    // ── Modification ────────────────────────────────────────────────
+    // ── Node creation ──────────────────────────────────────────────
 
     /// Create a new node with source but no element (pending evaluation).
     /// If parent is Some, inserts as child at the given index.
@@ -488,59 +542,103 @@ pub trait AppState: Send + Sync {
         source: ElementSource,
     ) -> Result<UIHandle, Error>;
 
-    /// Set the element at a handle. Used when evaluation completes.
-    /// The node must already exist. Replaces any existing element.
+    /// Create a new node with both source and element.
+    /// Convenience: add_node + set_element.
+    fn insert_node(
+        &mut self,
+        parent: Option<UIHandle>,
+        index: usize,
+        source: ElementSource,
+        element: Box<dyn UIElement>,
+    ) -> Result<UIHandle, Error>;
+
+    // ── Element access ──────────────────────────────────────────────
+
+    /// Access the UIElement at this handle.
+    /// Returns None if the node exists but has no element yet (pending).
+    fn get_element(&self, handle: UIHandle) -> Result<Option<&dyn UIElement>, Error>;
+
+    /// Mutable access to the UIElement at this handle.
+    /// Returns None if the node exists but has no element yet.
+    fn get_element_mut(
+        &mut self,
+        handle: UIHandle,
+    ) -> Result<Option<&mut dyn UIElement>, Error>;
+
+    /// Set or replace the element at a handle.
+    /// The node must already exist. Calls element.init(handle, self).
     fn set_element(
         &mut self,
         handle: UIHandle,
         element: Box<dyn UIElement>,
     ) -> Result<(), Error>;
 
-    /// Insert a new node with both source and element.
-    /// Convenience method combining add_node + set_element.
-    fn insert_child(
-        &mut self,
-        parent: UIHandle,
-        index: usize,
-        source: ElementSource,
-        element: Box<dyn UIElement>,
-    ) -> Result<UIHandle, Error>;
-
-    /// Add a new root element with both source and element.
-    fn add_root(
-        &mut self,
-        source: ElementSource,
-        element: Box<dyn UIElement>,
-    ) -> Result<UIHandle, Error>;
-
-    /// Remove element and its entire subtree recursively.
-    /// Returns the removed element (if any).
-    fn remove(&mut self, handle: UIHandle) -> Result<Option<Box<dyn UIElement>>, Error>;
-
-    /// Replace element at `handle`, keeping same handle and position.
-    /// Old element's children are recursively removed.
-    /// New element starts with no children.
-    /// Returns the old element (if any).
-    fn replace(
+    /// Extract the element from a node (for extract-render-replace).
+    /// The node remains in the tree with element set to None.
+    fn take_element(
         &mut self,
         handle: UIHandle,
-        source: ElementSource,
+    ) -> Result<Box<dyn UIElement>, Error>;
+
+    /// Put an element back into a node (after extract-render-replace).
+    /// The node must exist and currently have no element.
+    fn put_element(
+        &mut self,
+        handle: UIHandle,
         element: Box<dyn UIElement>,
-    ) -> Result<Option<Box<dyn UIElement>>, Error>;
+    ) -> Result<(), Error>;
+
+    // ── Node access ─────────────────────────────────────────────────
+
+    /// Get the node data (for validation, etc.).
+    fn get_node(&self, handle: UIHandle) -> Result<&NodeData, Error>;
+
+    /// Get the generating source for this handle.
+    fn get_source(&self, handle: UIHandle) -> Result<&ElementSource, Error>;
+
+    // ── Navigation ──────────────────────────────────────────────────
+
+    /// All root elements (no parent). Order is deterministic.
+    fn roots(&self) -> Vec<UIHandle>;
+
+    /// Parent of the given element, or None if it is a root.
+    fn parent(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
+
+    /// Ordered children of the given element.
+    fn children(&self, handle: UIHandle) -> Result<Vec<UIHandle>, Error>;
+
+    /// First child of the given element.
+    fn first_child(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
+
+    /// Last child of the given element.
+    fn last_child(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
+
+    /// Next sibling of the given element.
+    fn next_sibling(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
+
+    /// Previous sibling of the given element.
+    fn previous_sibling(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error>;
+
+    // ── Modification ────────────────────────────────────────────────
+
+    /// Remove element and its entire subtree recursively.
+    fn remove(&mut self, handle: UIHandle) -> Result<(), Error>;
 
     // ── Active element ──────────────────────────────────────────────
 
     /// The currently active element (receives keyboard events, etc.).
-    fn active(&self) -> Option<UIHandle>;
+    fn active_handle(&self) -> Option<UIHandle>;
 
     /// Set the active element.
-    fn set_active(&mut self, handle: Option<UIHandle>) -> Result<(), Error>;
+    fn set_active_handle(&mut self, handle: Option<UIHandle>);
 
     // ── Pending nodes ───────────────────────────────────────────────
 
     /// All handles that have a source but no element (pending evaluation).
-    /// Used by initialization and post-deserialization to trigger evaluation.
     fn pending_nodes(&self) -> Vec<UIHandle>;
+
+    /// Total number of nodes in the tree.
+    fn node_count(&self) -> usize;
 }
 ```
 
@@ -551,30 +649,31 @@ pub trait AppState: Send + Sync {
   creates a node from a query, the element starts as `None`. Evaluation populates it.
 
 - **`add_node` creates nodes without elements.** This is the primitive used by the
-  `add` command for deferred evaluation. `insert_child` and `add_root` combine node
-  creation with element assignment for cases where the element is already available.
+  `add` command for deferred evaluation. `insert_node` combines node creation with
+  element assignment for cases where the element is already available.
 
 - **`set_element` populates a pending node.** Called when evaluation completes to
-  place the result (AssetDisplayUIElement during evaluation, then the final element).
+  place the result. Calls `element.init(handle, self)` before storing, so elements
+  receive their handle and can inspect the tree during initialization.
+
+- **`take_element`/`put_element` for extract-render-replace.** Enables rendering
+  without holding the AppState lock. See §2.5.
 
 - **`pending_nodes()` for batch initialization.** After construction or deserialization,
   AppState (or the framework) calls this to find all nodes that need evaluation and
   triggers their evaluation. This is the platform-independent initialization path.
 
 - **Relationships owned by AppState, not by elements.** UIElement implementations
-  contain no parent/children fields.
-
-- **`replace` keeps the handle.** The element at the given handle is swapped out.
-  Children of the old element are recursively removed. The new element starts with
-  no children.
+  contain no parent/children fields (only their handle).
 
 - **`remove` is recursive.** Removing an element removes its entire subtree.
-  ElementSource and element are also removed.
 
 - **Active element** is a dedicated field. At most one element is active globally.
 
-- **No `Serialize + DeserializeOwned` bound on trait.** Serialization is handled
-  by the concrete implementation (see §10). The trait focuses on the operational API.
+- **`tokio::sync::Mutex` wrapping.** AppState is wrapped in `Arc<tokio::sync::Mutex<dyn AppState>>`
+  for shared ownership. Commands use `.lock().await` for async-safe access.
+  Synchronous contexts (egui rendering) use `blocking_lock()`, which is safe when
+  called from outside the tokio runtime (e.g., the eframe main thread).
 
 ### 4.3 Phase 1 Implementation: DirectAppState
 
@@ -585,33 +684,35 @@ atomic counter.
 
 #### NodeData
 
-Internal per-node storage (implementation detail, not part of the trait):
+Per-node storage (public struct for access):
 
 ```rust
-#[derive(Serialize, Deserialize)]
-struct NodeData {
-    parent: Option<UIHandle>,
-    children: Vec<UIHandle>,
-    source: ElementSource,
+pub struct NodeData {
+    pub parent: Option<UIHandle>,
+    pub children: Vec<UIHandle>,
+    pub source: ElementSource,
     /// None = pending evaluation. Populated by set_element.
-    element: Option<Box<dyn UIElement>>,
+    pub element: Option<Box<dyn UIElement>>,
 }
 ```
 
 #### DirectAppState
 
 ```rust
-#[derive(Serialize, Deserialize)]
 pub struct DirectAppState {
     nodes: HashMap<UIHandle, NodeData>,
-    #[serde(with = "atomic_u64_serde")]
     next_id: AtomicU64,
     active_handle: Option<UIHandle>,
 }
 ```
 
-Note: `AtomicU64` requires a custom serde module (`atomic_u64_serde`) that
-serializes/deserializes the inner u64. This is a one-time helper.
+**Serialization:** Uses a custom `DirectAppStateSnapshot` intermediary to handle
+`AtomicU64` serialization (AtomicU64 → u64 on serialize, u64 → AtomicU64 on
+deserialize).
+
+**`set_element` init protocol:** When `set_element(handle, element)` is called,
+it stores the element and then calls `element.init(handle, self)` to allow the
+element to set its handle and inspect the tree.
 
 ### 4.4 Evaluation Triggering
 
@@ -623,19 +724,16 @@ Evaluation is triggered in these situations:
 1. **After initialization** — when the application starts and nodes are created
    with `add_node` (e.g., top-level window query)
 2. **After deserialization** — nodes that lost their element during serialization
-   (DisplayElement with `value: None`, AssetDisplayUIElement without live data)
 3. **During rendering** — when a renderer encounters a pending node
 
-The evaluation process is asynchronous and uses the Asset system (see §6).
+The evaluation process is asynchronous and uses the Asset system (see §7).
 AppState does not perform evaluation itself — it delegates to the Environment's
 asset manager. The concrete mechanism:
 
 ```rust
 impl DirectAppState {
     /// Trigger evaluation of all pending nodes.
-    /// Called after initialization or deserialization.
     /// `evaluate_fn` is called for each pending node with (handle, query_text).
-    /// The callback is responsible for spawning async evaluation tasks.
     pub fn evaluate_pending<F>(&self, evaluate_fn: F)
     where
         F: Fn(UIHandle, String),
@@ -657,20 +755,12 @@ impl DirectAppState {
 }
 ```
 
-The caller provides the evaluation callback, which typically:
-1. Submits the query to the asset manager
-2. Creates an AssetDisplayUIElement and places it at the handle via `set_element`
-3. Spawns a background task to monitor the asset and replace the element when done
-
-This pattern keeps AppState decoupled from the Environment type parameter while
-ensuring the platform-independent flow lives in AppState.
-
 ---
 
 ## 5. UIPayload Trait
 
 Bridge between the payload system and AppState. Allows commands to access the
-element tree and the current element handle via injection.
+element tree and the current element handle via the context.
 
 **Location:** `liquers-lib/src/ui/payload.rs`
 
@@ -678,46 +768,37 @@ element tree and the current element handle via injection.
 
 ```rust
 pub trait UIPayload: PayloadType {
-    /// The concrete AppState implementation.
-    type State: AppState;
-
     /// The currently focused UI element handle, if any.
     fn handle(&self) -> Option<UIHandle>;
 
     /// Shared application state containing the element tree.
-    fn app_state(&self) -> Arc<tokio::sync::Mutex<Self::State>>;
+    fn app_state(&self) -> Arc<tokio::sync::Mutex<dyn AppState>>;
 }
 ```
 
 **Key design points:**
-- Associated type `State` (not `dyn AppState`). Each application has one AppState
-  implementation. This enables deserialization and avoids trait object overhead.
-- `Arc<tokio::sync::Mutex<...>>` for shared ownership and async-safe locking.
+- `Arc<tokio::sync::Mutex<dyn AppState>>` for shared ownership. `tokio::sync::Mutex`
+  ensures consistent async locking for commands; `blocking_lock()` for sync contexts.
 - `handle()` returns `None` when no element is focused (e.g., background tasks).
+- No associated type for AppState — uses `dyn AppState` for flexibility.
 
 ### 5.2 SimpleUIPayload
 
 Minimal concrete payload for applications that only need UI state.
 
-**Location:** `liquers-lib/src/ui/payload.rs`
-
 ```rust
 #[derive(Clone)]
 pub struct SimpleUIPayload {
     current_handle: Option<UIHandle>,
-    app_state: Arc<tokio::sync::Mutex<DirectAppState>>,
+    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
 }
 
-impl PayloadType for SimpleUIPayload {}
-
 impl UIPayload for SimpleUIPayload {
-    type State = DirectAppState;
-
     fn handle(&self) -> Option<UIHandle> {
         self.current_handle
     }
 
-    fn app_state(&self) -> Arc<tokio::sync::Mutex<DirectAppState>> {
+    fn app_state(&self) -> Arc<tokio::sync::Mutex<dyn AppState>> {
         self.app_state.clone()
     }
 }
@@ -728,40 +809,11 @@ impl UIPayload for SimpleUIPayload {
 **AppStateRef** — injects the shared AppState from payload:
 
 ```rust
-pub struct AppStateRef(pub Arc<tokio::sync::Mutex<DirectAppState>>);
-
-impl<E: Environment> InjectedFromContext<E> for AppStateRef
-where
-    E::Payload: UIPayload<State = DirectAppState>,
-{
-    fn from_context(_name: &str, context: Context<E>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
-            .ok_or_else(|| Error::general_error("No payload available".to_string()))?;
-        Ok(AppStateRef(payload.app_state()))
-    }
-}
+pub struct AppStateRef(pub Arc<tokio::sync::Mutex<dyn AppState>>);
 ```
 
-**UIHandle** — injects the current element handle from any UIPayload:
-
-```rust
-impl<E: Environment> InjectedFromContext<E> for UIHandle
-where
-    E::Payload: UIPayload,
-{
-    fn from_context(_name: &str, context: Context<E>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
-            .ok_or_else(|| Error::general_error("No payload available".to_string()))?;
-        payload.handle()
-            .ok_or_else(|| Error::general_error(
-                "No current UI handle in payload".to_string()
-            ))
-    }
-}
-```
-
-Note: `AppStateRef` is tied to `DirectAppState` (acceptable for Phase 1).
-`UIHandle` injection is generic over any `UIPayload`.
+Note: In Phase 1, `AppStateRef` is not used for injection via `InjectedFromContext`.
+Instead, commands access AppState through the `UIPayload` trait on the context.
 
 ---
 
@@ -769,8 +821,7 @@ Note: `AppStateRef` is tied to `DirectAppState` (acceptable for Phase 1).
 
 UIElements need to flow through the Liquers value pipeline: a command produces a
 UIElement, the pipeline carries it as a `Value`, and the `add` command extracts it
-for storage in AppState. This section specifies how UIElement integrates with the
-existing two-layer value system (`SimpleValue` + `ExtValue`).
+for storage in AppState.
 
 ### 6.1 ExtValue Variant
 
@@ -779,8 +830,8 @@ pub enum ExtValue {
     Image { value: Arc<image::DynamicImage> },
     PolarsDataFrame { value: Arc<polars::frame::DataFrame> },
     UiCommand { value: crate::egui::UiCommand },
-    Widget { value: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>> },
-    UIElement { value: Arc<dyn UIElement> },  // NEW
+    Widget { value: Arc<tokio::sync::Mutex<dyn crate::egui::widgets::WidgetValue>> },
+    UIElement { value: Arc<dyn UIElement> },
 }
 ```
 
@@ -794,8 +845,6 @@ pub enum ExtValue {
 
 ```rust
 pub trait ExtValueInterface {
-    // ... existing methods (from_image, as_image, from_polars_dataframe, ...) ...
-
     fn from_ui_element(element: Arc<dyn UIElement>) -> Self;
     fn as_ui_element(&self) -> Result<Arc<dyn UIElement>, Error>;
 }
@@ -803,48 +852,23 @@ pub trait ExtValueInterface {
 
 ### 6.3 ValueExtension Additions
 
-The UIElement variant needs entries in all `ValueExtension` match arms:
+The UIElement variant has entries in all `ValueExtension` match arms:
 
 ```rust
 ExtValue::UIElement { .. } => {
     // identifier():          "ui_element"
     // type_name():           "ui_element"
-    // default_extension():   "json"
-    // default_filename():    "element.json"
-    // default_media_type():  "application/json"
+    // default_extension():   "ui"
+    // default_filename():    "element.ui"
+    // default_media_type():  "application/octet-stream"
 }
 ```
 
 ### 6.4 DefaultValueSerializer
 
 `ExtValue` uses `DefaultValueSerializer` (not serde derives) for byte conversion.
-For the UIElement variant:
-
-- **`as_bytes("json")`**: `clone_boxed()` then `serde_json::to_vec(&boxed)` — typetag
-  handles the `Box<dyn UIElement>` serialization, producing JSON with a `"type"` tag.
-- **`deserialize_from_bytes(b, "ui_element", "json")`**: `serde_json::from_slice::<Box<dyn UIElement>>(b)`
-  then wrap in `Arc`.
-- Other formats: error.
-
-### 6.5 Creating UIElement Values from Commands
-
-A command that produces a UIElement for the tree:
-
-```rust
-fn create_panel(title: String) -> Result<Value, Error> {
-    let element: Arc<dyn UIElement> = Arc::new(Panel {
-        title_text: title,
-        content_query: None,
-    });
-    Ok(Value::from(ExtValue::UIElement { value: element }))
-}
-```
-
-Usage: `create_panel-My%20Panel/q/ns-lui/add`
-
-The `/q/` causes `create_panel-My%20Panel` to be evaluated first, producing a
-`State<Value>` where the Value is `ExtValue::UIElement`. This State is then passed
-as the state argument to the `add` command (see §7.3 Path A).
+For Phase 1, the UIElement variant returns `Err(SerializationError)` for all formats.
+JSON serialization via typetag is available in Phase 2 if needed.
 
 ---
 
@@ -860,15 +884,13 @@ Each node in AppState stores:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| handle | `UIHandle` | Unique identity, assigned by AppState |
 | parent | `Option<UIHandle>` | Parent in the tree (None for roots) |
 | children | `Vec<UIHandle>` | Ordered children |
 | source | `ElementSource` | How this element was/will be generated |
 | element | `Option<Box<dyn UIElement>>` | The element, or None if pending |
 
-The handle is immutable for the node's lifetime. Parent and children are managed
-by AppState's modification methods. Source can be updated via `set_source`.
-Element can be set via `set_element` or `replace`.
+The handle is the key in the HashMap (not stored in NodeData). The element stores
+its own handle internally (set during `init()`).
 
 ### 7.2 Lifecycle Overview
 
@@ -876,28 +898,27 @@ Element can be set via `set_element` or `replace`.
 ┌─────────────────────────────────────────────────────────────────────┐
 │  1. add command creates node:                                       │
 │     handle + ElementSource::Query("some/query") + element: None     │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
+└────────────────────────────────┬────────────────────────────────────┘
+                                 │
+                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  2. Rendering/init encounters pending node (element == None)        │
-│     → AppState triggers async evaluation via Asset system           │
-│     → AssetDisplayUIElement placed at handle (shows progress)       │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
+│     → Triggers async evaluation via Asset system                    │
+│     → AssetViewElement in Progress mode placed at handle            │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 │
+                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  3. Evaluation completes (Asset status → Ready)                     │
 │     → Result Value inspected:                                       │
 │       • ExtValue::UIElement → extract via clone_boxed()             │
-│       • Any other Value → wrap in DisplayElement                    │
-│     → AssetDisplayUIElement replaced at handle                      │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
+│       • Any other Value → AssetViewElement transitions to Value mode │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 │
+                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  4. Element is now live:                                            │
-│     → Renders via show() on each frame                              │
+│     → Renders via show_in_egui() on each frame                      │
 │     → Can be replaced (add-instead), removed, or re-evaluated       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -924,24 +945,15 @@ some/query/q/ns-lui/add-after-last-parent
 
 3. The `add` command:
    a. **Extracts the generating query** from `State.metadata` → `MetadataRecord.query`.
-      This is the text `"some/query"` — the source for later re-evaluation.
    b. **Checks the Value type:**
-      - If `ExtValue::UIElement`: the element is available immediately. Creates node
-        with both source and element (via `insert_child` or `add_root`). No deferred
-        evaluation needed.
-      - If any other Value type: creates node with `ElementSource::Query(query_text)`
-        and `element: None` (via `add_node`). The value from `/q/` is discarded —
-        the query will be re-evaluated through the Asset system, which provides
-        progress tracking and status updates.
-   c. **Resolves position** using the 3-arg model (see §8).
-   d. **Inserts** via `add_node` or `insert_child` / `add_root` / `replace` as appropriate.
+      - If `ExtValue::UIElement`: extract via `clone_boxed()`, store immediately
+        in AppState with both source and element.
+      - If any other Value type: wrap in an `AssetViewElement::new_value()` with the
+        value wrapped in `Arc`. Store immediately.
+   c. **Resolves position** using the 2-arg model (position_word + reference_word).
+   d. **Inserts** via `add_node` + `set_element`.
 
-4. The `add` command returns the new handle as `Value::from(handle.0 as i64)`.
-
-**Why discard the eager result for non-UIElement values?** The Asset system provides
-progress tracking, cancellation, and caching. Re-evaluating through Assets ensures
-consistent lifecycle management. For UIElement values, the element is lightweight
-(configuration, not data) and is stored immediately.
+4. The `add` command returns the new handle as `Value::from(format!("{}", handle.0))`.
 
 #### Path B: Manual Construction
 
@@ -951,11 +963,9 @@ AppState without going through the pipeline.
 ```rust
 let mut app_state = DirectAppState::new();
 
-// Add a root panel (element available immediately)
-let root = app_state.add_root(
-    ElementSource::None,
-    Box::new(Panel { title_text: "Root".into(), content_query: None }),
-)?;
+// Add a root node with element
+let root = app_state.add_node(None, 0, ElementSource::None)?;
+app_state.set_element(root, Box::new(Placeholder::new().with_title("Root".into())))?;
 
 // Add a child with deferred evaluation
 let child = app_state.add_node(
@@ -968,9 +978,8 @@ let child = app_state.add_node(
 
 #### Path C: Deserialization
 
-A saved AppState is loaded from JSON/YAML. Nodes whose elements were non-serializable
-(DisplayElement with value: None, AssetDisplayUIElement without live data) need
-re-evaluation.
+A saved AppState is loaded from JSON/YAML. Nodes whose elements had non-serializable
+data need re-evaluation.
 
 ```rust
 let json = std::fs::read_to_string("layout.json")?;
@@ -979,50 +988,14 @@ let app_state: DirectAppState = serde_json::from_str(&json)?;
 // Trigger re-evaluation of pending nodes
 app_state.evaluate_pending(|handle, query_text| {
     // Spawn async evaluation task for each pending node
-    // (see §7.4 for the evaluation process)
 });
 ```
 
 After deserialization:
-- Nodes with serializable elements (Placeholder, Panel, etc.) are immediately usable.
-- Nodes with DisplayElement have `value: None` — detected as needing re-evaluation
-  (the element exists but is stale; DisplayElement's show() displays "not loaded").
+- Nodes with fully serializable elements (Placeholder) are immediately usable.
+- Nodes with AssetViewElement have `value: None` — display "not loaded".
 - Nodes with `element: None` need evaluation from their ElementSource.
 - Handle counter state is preserved (new handles don't collide).
-
-#### Path D: Compound Widget Construction
-
-Specialized commands that create multi-element subtrees (e.g., orthodox commander
-with container + two panes) manipulate AppState directly via the injected
-`AppStateRef`:
-
-```rust
-async fn create_orthodox_commander(
-    app_state_ref: AppStateRef,
-    handle: UIHandle,
-) -> Result<Value, Error> {
-    let mut app_state = app_state_ref.0.lock().await;
-
-    // Create container as child of current element
-    let container = app_state.insert_child(
-        handle, 0,
-        ElementSource::None,
-        Box::new(OrthodoxCommander { /* ... */ }),
-    )?;
-
-    // Add two panes with deferred evaluation
-    let _left = app_state.add_node(
-        Some(container), 0,
-        ElementSource::Query("file_list-home".into()),
-    )?;
-    let _right = app_state.add_node(
-        Some(container), 1,
-        ElementSource::Query("file_list-home".into()),
-    )?;
-
-    Ok(Value::from(container.0 as i64))
-}
-```
 
 ### 7.4 Evaluation Process
 
@@ -1032,70 +1005,48 @@ post-deserialization), the process uses the Asset system:
 1. **Submit query to asset manager.** The query text from ElementSource is submitted
    as an asset evaluation request. This returns an `AssetRef<E>`.
 
-2. **Create AssetDisplayUIElement.** An AssetDisplayUIElement is created with the
-   `AssetRef`'s notification channel data and placed at the handle via
-   `app_state.set_element(handle, Box::new(asset_display))`.
+2. **Create AssetViewElement.** An AssetViewElement is created in Progress mode
+   and placed at the handle via `app_state.set_element(handle, Box::new(asset_view))`.
 
-3. **Spawn background listener.** A tokio task subscribes to the asset's notification
-   channel (`asset_ref.subscribe_to_notifications()`). It updates the
-   AssetDisplayUIElement's `asset_info` and `error_message` fields as notifications
-   arrive.
+3. **Spawn background listener.** A background task subscribes to the asset's
+   notification channel. It updates the AssetViewElement via
+   `element.update(&UpdateMessage::AssetNotification(notif))`.
 
 4. **On completion** (asset status `is_finished()`):
    a. Read the asset value.
    b. **Classify the value:**
       - If `ExtValue::UIElement { value }`: call `value.clone_boxed()` to produce
-        `Box<dyn UIElement>`.
-      - If any other Value: create `DisplayElement` with:
-        - `title_text` from `MetadataRecord.title`
-        - `type_identifier` from the value's `identifier()`
-        - `value` wrapping the `Arc<Value>`
-   c. **Replace** the AssetDisplayUIElement at the handle:
-      `app_state.set_element(handle, final_element)`.
+        `Box<dyn UIElement>`. Replace the AssetViewElement.
+      - If any other Value: call `asset_view.set_value(Arc::new(value))` to
+        transition to Value mode.
+   c. Signal the framework to repaint.
 
-5. **On error:** The AssetDisplayUIElement's `error_message` is set. The element
-   remains at the handle, displaying the error. The user can trigger re-evaluation
-   (Phase 2: refresh command).
+5. **On error:** The AssetViewElement's `set_error()` is called. The element
+   remains at the handle, displaying the error in Error mode.
 
 ### 7.5 Element Access
 
 #### Read Access
 
-Framework-specific rendering loops read elements from a locked AppState:
-
-```rust
-let app_state = app_state_ref.0.lock().await;
-
-match app_state.get_element(handle)? {
-    Some(element) => {
-        // Element is available — render it
-        // With egui feature: element.show(ui)
-    }
-    Option::None => {
-        // Pending evaluation — trigger it
-        // Or render a default spinner
-    }
-}
-```
+Framework-specific rendering loops use the extract-render-replace pattern (§2.5)
+rather than locking AppState for the duration of rendering.
 
 #### Write Access (Element Mutation)
 
-With `show(&mut self, ...)`, the rendering framework needs mutable access:
+Commands and background tasks access elements through the locked AppState:
 
 ```rust
-let mut app_state = app_state_ref.0.lock().await;
+let mut app_state = app_state_arc.lock().await;
 
 if let Some(element) = app_state.get_element_mut(handle)? {
-    #[cfg(feature = "egui")]
-    element.show(ui);
+    element.update(&message);
 }
 ```
 
 ### 7.6 Replacement
 
-Replace swaps the element and source at a handle, keeping the handle and its position
-in the tree. The old element's children are recursively removed, and the new element
-starts with no children.
+Replace swaps the element at a handle via the `instead` position word in the
+`add` command. The handle and its position in the tree are kept.
 
 Via `lui` commands: `new_query/q/ns-lui/add-instead-current`
 
@@ -1104,16 +1055,16 @@ Via `lui` commands: `new_query/q/ns-lui/add-instead-current`
 Remove deletes a node and its entire subtree. The node's handle is removed from its
 parent's children list. ElementSource and element are both deleted.
 
-Via `lui` commands: `ns-lui/remove` (removes current), `ns-lui/remove-42` (removes handle 42)
+Via `lui` commands: `ns-lui/remove-current` or `ns-lui/remove-42`
 
 ### 7.8 Lifecycle Summary Table
 
 | State | element | Trigger | Transition |
 |-------|---------|---------|------------|
 | Pending | None | Rendering / init | → Evaluating |
-| Evaluating | AssetDisplayUIElement | Asset completes | → Live |
-| Live | UIElement / DisplayElement | User action | → Replaced / Removed |
-| Stale | DisplayElement(value: None) | After deserialization | → Evaluating |
+| Evaluating | AssetViewElement(Progress) | Asset completes | → Live |
+| Live | UIElement / AssetViewElement(Value) | User action | → Replaced / Removed |
+| Stale | AssetViewElement(value: None) | After deserialization | → Evaluating |
 
 ---
 
@@ -1130,23 +1081,23 @@ Standalone utility functions that resolve command arguments to tree positions.
 | Word | Meaning |
 |------|---------|
 | `current` | Current element from payload |
-| `parent` | Parent of context handle |
-| `next` | Next sibling of context |
-| `prev` | Previous sibling of context |
-| `first` | First child of context |
-| `last` | Last child of context |
-| `root` | Root ancestor of current element |
+| `parent` | Parent of current element |
+| `next` | Next sibling of current |
+| `prev` | Previous sibling of current |
+| `first` | First child of current |
+| `last` | Last child of current |
+| `root` | First root element |
 | `<number>` | Direct handle by numeric ID |
 
 **Position words** — used by the `add` command's first argument:
 
 | Word | Meaning |
 |------|---------|
-| `before` | Before target in parent's child list |
-| `after` | After target in parent's child list |
-| `instead` | Replace target element (keep handle) |
-
-The two vocabularies are **disjoint** — no word appears in both sets.
+| `before` | Before reference in parent's child list |
+| `after` | After reference in parent's child list |
+| `instead` | Replace reference element (keep handle) |
+| `first` | Insert as first child of reference |
+| `last` / `child` | Insert as last child of reference |
 
 **Naming constraint:** No hyphens in vocabulary words. The `-` character is the
 argument separator in query syntax.
@@ -1154,69 +1105,65 @@ argument separator in query syntax.
 ### 8.2 Functions
 
 ```rust
-/// Resolve a navigation word relative to a context handle.
-/// Used for both target and reference resolution.
+/// Resolve a navigation word relative to a current handle.
 pub fn resolve_navigation(
-    spec: &str,
-    context_handle: UIHandle,
-    app_state: &impl AppState,
+    app_state: &dyn AppState,
+    word: &str,
+    current: Option<UIHandle>,
 ) -> Result<UIHandle, Error>;
 
-/// Resolve a position word relative to a target handle.
+/// Resolve a position word relative to a reference handle.
 /// Returns an InsertionPoint describing where to place the new element.
 pub fn resolve_position(
-    spec: &str,
-    target_handle: UIHandle,
-    app_state: &impl AppState,
+    position_word: &str,
+    reference: UIHandle,
 ) -> Result<InsertionPoint, Error>;
 
+/// Convert an InsertionPoint to (parent, position) arguments for add_node.
+pub fn insertion_point_to_add_args(
+    app_state: &dyn AppState,
+    point: &InsertionPoint,
+) -> Result<(Option<UIHandle>, usize), Error>;
+
 pub enum InsertionPoint {
-    /// Insert as child of parent at the given index.
-    At(UIHandle, usize),
-    /// Replace the element at this handle.
-    Replace(UIHandle),
+    FirstChild(UIHandle),
+    LastChild(UIHandle),
+    Before(UIHandle),
+    After(UIHandle),
+    Instead(UIHandle),
+    Root,
 }
 ```
 
 ### 8.3 Resolution Flow
 
-For `add-<position>-<target>-<reference>`:
+For `add-<position_word>-<reference_word>`:
 
-1. `let anchor = resolve_navigation(reference, current_handle, &app_state)?;`
-2. `let target = resolve_navigation(target, anchor, &app_state)?;`
-3. `let insertion = resolve_position(position, target, &app_state)?;`
+1. `let reference = resolve_navigation(&app_state, reference_word, current)?;`
+2. `let insertion = resolve_position(position_word, reference)?;`
+3. Handle `Instead` separately (replace); for others, convert to `(parent, index)`.
 
 ### 8.4 Position Resolution Rules
 
-| Position | Target | Result |
-|----------|--------|--------|
-| `before` | handle H | `At(H.parent, H.index_in_parent)` |
-| `after` | handle H | `At(H.parent, H.index_in_parent + 1)` |
-| `instead` | handle H | `Replace(H)` |
+| Position | Reference | Result |
+|----------|-----------|--------|
+| `before` | handle H | `Before(H)` → `(H.parent, H.index_in_parent)` |
+| `after` | handle H | `After(H)` → `(H.parent, H.index_in_parent + 1)` |
+| `instead` | handle H | `Instead(H)` — replace element at H |
+| `first` | handle H | `FirstChild(H)` → `(H, 0)` |
+| `last` / `child` | handle H | `LastChild(H)` → `(H, children.len())` |
 
 ### 8.5 Edge Cases
 
-- **`first`/`last` on element with no children:** When used as target in `add` commands
-  (e.g., `add-after-last-current` on an element with no children), the `add` command
-  detects this and falls back to `insert_child(reference, 0, ...)` (append as first child).
-  When used in `remove` or standalone navigation commands, this is an error.
+- **`parent` on root:** Error: `"Current element has no parent"`
 
-- **`root`:** Resolves to the root ancestor of the current element (walks up the
-  parent chain), not the first root globally.
+- **`next`/`prev` with no sibling:** Error with direction context.
 
-- **`parent` on root:** Error: `"Cannot resolve 'parent': element {handle} is a root element"`
-
-- **`next`/`prev` with no sibling:** Error with context about which element and direction.
-
-- **`before`/`after` on root:** Error: `"Cannot resolve 'before': element {handle} is a root (no parent)"`
+- **`before`/`after` on root:** Error: `"Cannot insert before/after a root element"`
 
 - **Invalid number:** Error: `"Element not found: {number}"`
 
-### 8.6 Error Messages
-
-All resolution errors must include context: the spec being resolved, the handle
-involved, and why resolution failed. Example:
-`"Cannot resolve 'parent': element 3 (PaneA) is a root element"`
+- **Unknown word:** Error listing valid options.
 
 ---
 
@@ -1231,87 +1178,89 @@ namespace.
 
 - `ns-lui` — switch to lui namespace (required before lui commands)
 - `/q/` — wraps preceding query: evaluates it and passes result as state
-- `~X~...~E` — embedded query in a parameter
 - `-` — argument separator within a command
 
 Example: `show_some_widget/q/ns-lui/add-after-last-parent`
 
-See `PROJECT_OVERVIEW.md` §Query Language for full syntax.
-
 ### 9.2 Command Table
 
-| Command | State | Arg 1 | Arg 2 | Arg 3 | Returns |
-|---------|-------|-------|-------|-------|---------|
-| `add` | Value (query via `/q/`) | position = `"after"` | target = `"last"` | reference = `"current"` | handle (i64) |
-| `remove` | — | target = `"current"` | reference = `"current"` | — | handle (i64) |
-| `children` | — | target = `"current"` | reference = `"current"` | — | list of i64 |
-| `first` | — | target = `"current"` | reference = `"current"` | — | i64 or none |
-| `last` | — | target = `"current"` | reference = `"current"` | — | i64 or none |
-| `parent` | — | target = `"current"` | reference = `"current"` | — | i64 or none |
-| `next` | — | target = `"current"` | reference = `"current"` | — | i64 or none |
-| `prev` | — | target = `"current"` | reference = `"current"` | — | i64 or none |
-| `roots` | — | — | — | — | list of i64 |
-| `activate` | — | target = `"current"` | reference = `"current"` | — | handle (i64) |
+| Command | State | Arg 1 | Arg 2 | Returns |
+|---------|-------|-------|-------|---------|
+| `add` | Value (query via `/q/`) | position_word | reference_word | handle (string) |
+| `remove` | — | target_word | — | none |
+| `children` | — | target_word | — | comma-separated handles |
+| `first` | — | target_word | — | handle (string) |
+| `last` | — | target_word | — | handle (string) |
+| `parent` | — | target_word | — | handle (string) |
+| `next` | — | target_word | — | handle (string) |
+| `prev` | — | target_word | — | handle (string) |
+| `roots` | — | — | — | comma-separated handles |
+| `activate` | — | target_word | — | handle (string) |
 
 ### 9.3 `add` Command Semantics
 
-The `add` command takes 3 arguments (position, target, reference) with defaults
-`after`, `last`, `current`. The full lifecycle is specified in §7.3 Path A.
+The `add` command takes 2 arguments (position_word, reference_word). The full
+lifecycle is specified in §7.3 Path A.
 
 **Value classification:**
 
-- **Value is `ExtValue::UIElement`:** Extract via `clone_boxed()`, store immediately
-  in AppState with both source and element.
-- **Value is any other type:** Store only the source query (from `State.metadata.query`),
-  set element to None. Evaluation deferred to rendering/initialization.
+- **Value is `ExtValue::UIElement`:** Extract via `clone_boxed()`, store immediately.
+- **Value is any other type:** Wrap in `AssetViewElement::new_value()` with `Arc<Value>`.
 
 **ElementSource extraction:**
 
-The `add` command reads `State.metadata` → `MetadataRecord.query`. If the query is
-non-empty, it uses `ElementSource::Query(query.encode())`. Otherwise `ElementSource::None`.
+The `add` command reads `State.metadata` → `MetadataRecord` → `asset_info.query`.
+If the query is non-empty, it uses `ElementSource::Query(query.encode())`.
+Otherwise `ElementSource::None`.
 
-**Position `instead`** = replace. The target element's handle and position are kept;
-its children are recursively removed; the new node replaces the old one.
+**Position `instead`** = replace. The element at the target handle is swapped out.
 
-### 9.4 Worked Examples
+### 9.4 `remove`, Navigation, `activate`
 
-Tree:
-```
-Root (1)
-├── Window (2)
-│   ├── PaneA (3)  ← current
-│   └── PaneB (4)
-└── Window2 (6)
-```
-
-| Command | Position | Target | Ref | Resolved (parent, idx) | Effect |
-|---------|----------|--------|-----|------------------------|--------|
-| `add` | after | last(3)=none | 3 | (3, 0) | First child of PaneA |
-| `add-after-last-parent` | after | last(2)=4 | parent(3)=2 | (2, 2) | After PaneB |
-| `add-before-first-parent` | before | first(2)=3 | parent(3)=2 | (2, 0) | Before PaneA |
-| `add-before-current` | before | 3 | 3 | (2, 0) | Before PaneA |
-| `add-after-current` | after | 3 | 3 | (2, 1) | After PaneA |
-| `add-instead-current` | instead | 3 | 3 | Replace(3) | Replace PaneA |
-| `add-before-4` | before | 4 | 3 | (2, 1) | Between PaneA and PaneB |
-| `add-after-last-2` | after | last(2)=4 | 2 | (2, 2) | After PaneB |
-
-### 9.5 `remove`, Navigation, `activate`
-
-`remove` uses 2-arg target+reference resolution (same navigation vocabulary) to
-identify the element. Removes it and its entire subtree.
+`remove` resolves the target element via `resolve_navigation` and removes it
+and its entire subtree.
 
 Navigation commands (`children`, `first`, `last`, `parent`, `next`, `prev`, `roots`)
-use the same 2-arg target+reference pattern. They return handle values as integers
-or lists of integers.
+resolve the target and return handle values as strings.
 
-`activate` sets the active element field in AppState. Uses 2-arg target+reference
-to identify which element to activate.
+`activate` sets the active element field in AppState.
 
-### 9.6 Return Types
+### 9.5 Registration
 
-- Single handles: returned as `i64` via `Value::from(handle.0 as i64)`
-- Lists of handles: returned as `Value::List` of integers (see Issue 8: VALUE-LIST-SUPPORT)
-- `None` results (e.g., `parent` of root): returned as `Value::None`
+Commands are registered via the `register_lui_commands!` macro, which is exported
+from `liquers-lib`. The caller must define `type CommandEnvironment = ...` with a
+concrete environment type whose Payload implements UIPayload.
+
+```rust
+#[macro_export]
+macro_rules! register_lui_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::ui::commands::*;
+
+        register_command!($cr,
+            fn add(state, context, position_word: String, reference_word: String) -> result
+            namespace: "lui"
+            label: "Add element"
+            doc: "Add a new element to the UI tree"
+        )?;
+
+        register_command!($cr,
+            fn remove(state, context, target_word: String) -> result
+            namespace: "lui"
+            label: "Remove element"
+            doc: "Remove an element from the UI tree"
+        )?;
+
+        // ... children, first, last, parent, next, prev, roots, activate
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+```
+
+**Note:** Commands are async. They use `tokio::sync::Mutex` with `.lock().await`
+for brief in-memory operations. The lock is never held across other `.await` points.
 
 ---
 
@@ -1319,65 +1268,26 @@ to identify which element to activate.
 
 ### 10.1 Approach
 
-DirectAppState implements `Serialize + Deserialize` via serde. `dyn UIElement` is
-serializable via the `typetag` crate. The entire tree is serialized:
+DirectAppState is serializable via serde. `dyn UIElement` is serializable via the
+`typetag` crate. The entire tree is serialized:
 - Tree topology (parent-child relationships, child ordering)
-- Handle counter state
+- Handle counter state (via DirectAppStateSnapshot intermediary)
 - Per-node `ElementSource` (query text serialized as string)
 - Per-node `Option<Box<dyn UIElement>>` (via typetag, None for pending nodes)
 - Active element handle
 
-No prescribed format — any serde-compatible format works (JSON, YAML preferred for
-readability).
-
-### 10.2 Non-Serializable Elements
+### 10.2 Non-Serializable Fields
 
 Some UIElement implementations contain non-serializable data:
-- **DisplayElement**: wraps `Arc<Value>` which is not Serialize. The `value` field
-  uses `#[serde(skip)]` and becomes `None` after deserialization.
-- **AssetDisplayUIElement**: wraps `Arc<RwLock<...>>` for live progress data. These
-  fields use `#[serde(skip)]` and become `None` after deserialization.
+- **AssetViewElement**: wraps `Arc<Value>` which is not Serialize. The `value`,
+  `error_message`, and `progress_info` fields use `#[serde(skip)]` and become
+  `None`/default after deserialization.
 
 After deserialization, these elements exist in a **stale** state. They have their
-metadata (title, type identifier, query text) but lack live data. AppState detects
-stale elements and schedules re-evaluation.
+serializable metadata (title, view_mode) but lack live data. AppState detects stale
+elements via `pending_nodes()` and schedules re-evaluation.
 
-**Detection of stale elements:** A node is considered stale if:
-- `element` is `None` (explicit pending state), OR
-- `element` is `Some` but the element's non-serializable fields are empty AND
-  the node has a non-None `ElementSource`
-
-For Phase 1, the simplest approach: after deserialization, treat all nodes with
-`ElementSource::Query` or `ElementSource::Recipe` as candidates for re-evaluation.
-Nodes whose elements are already live can be skipped (the element will signal this).
-
-### 10.3 Serializable Copy (Alternative Approach)
-
-For scenarios where stale elements cause issues, AppState can create a serializable
-copy of itself:
-
-```rust
-impl DirectAppState {
-    /// Create a copy suitable for serialization.
-    /// Nodes with non-serializable elements have their element set to None.
-    pub fn to_serializable(&self) -> DirectAppState {
-        let mut copy = self.clone();
-        for node in copy.nodes.values_mut() {
-            if let Some(element) = &node.element {
-                if element.type_name() == "display" || element.type_name() == "asset_display" {
-                    node.element = None;
-                }
-            }
-        }
-        copy
-    }
-}
-```
-
-This ensures the serialized output contains only fully-serializable elements.
-After deserialization, `evaluate_pending()` re-evaluates nodes with `element: None`.
-
-### 10.4 typetag Serialization Format
+### 10.3 typetag Serialization Format
 
 When typetag serializes a `Box<dyn UIElement>`, it produces a tagged representation.
 In JSON:
@@ -1385,292 +1295,287 @@ In JSON:
 ```json
 {
   "type": "Placeholder",
-  "label": "file_list-home"
+  "handle": [42],
+  "title_text": "My Panel"
 }
 ```
 
 The `"type"` field is added by typetag and maps to the concrete struct name. On
-deserialization, typetag uses this tag to find the correct type's Deserialize impl
-in its runtime registry.
+deserialization, typetag uses this tag to find the correct type's Deserialize impl.
 
 **Requirement:** Every UIElement implementation must have `#[typetag::serde]` on its
 impl block. If an implementation is defined in a separate crate, that crate must be
 linked for typetag to discover it.
 
-### 10.5 Dependencies
+### 10.4 Dependencies
 
 - `serde`, `serde_json` — serialization framework
 - `typetag` — serialization of `dyn UIElement` trait objects
-- `UIHandle`, `ElementSource` — must derive `Serialize, Deserialize`
-- `Recipe` — uses existing `liquers_core::recipes::Recipe` (already Serialize + Deserialize)
+- `UIHandle`, `ElementSource` — derive `Serialize, Deserialize`
+- `Recipe` — uses existing `liquers_core::recipes::Recipe`
 
 ---
 
-## 11. Command Registration
-
-**Location:** `liquers-lib/src/ui/commands.rs`
-
-### 11.1 Environment Type
-
-```rust
-type CommandEnvironment = SimpleEnvironmentWithPayload<Value, SimpleUIPayload>;
-```
-
-### 11.2 Command Functions
-
-Functions are defined separately, named without namespace prefix. Namespace is set
-in registration metadata. All lui commands are **async** (need `.lock().await` on
-the tokio Mutex).
-
-```rust
-async fn add(
-    state: State<Value>,
-    app_state_ref: AppStateRef,
-    handle: UIHandle,
-    position: String,
-    target: String,
-    reference: String,
-) -> Result<Value, Error> { ... }
-
-async fn remove(
-    app_state_ref: AppStateRef,
-    handle: UIHandle,
-    target: String,
-    reference: String,
-) -> Result<Value, Error> { ... }
-
-// Navigation commands follow similar pattern (no state, 2 args)
-```
-
-### 11.3 Registration
-
-```rust
-pub fn register_lui_commands(env: &mut CommandEnvironment) -> Result<(), Error> {
-    let cr = env.get_mut_command_registry();
-
-    register_command!(cr,
-        async fn add(state,
-            app_state_ref: AppStateRef injected,
-            handle: UIHandle injected,
-            position: String = "after",
-            target: String = "last",
-            reference: String = "current"
-        ) -> result
-        namespace: "lui"
-        doc: "Add element to UI tree"
-    )?;
-
-    register_command!(cr,
-        async fn remove(
-            app_state_ref: AppStateRef injected,
-            handle: UIHandle injected,
-            target: String = "current",
-            reference: String = "current"
-        ) -> result
-        namespace: "lui"
-        doc: "Remove element and subtree"
-    )?;
-
-    // ... children, first, last, parent, next, prev, roots, activate
-
-    Ok(())
-}
-```
-
-### 11.4 Lock Discipline
-
-**Rule:** Locks on AppState must never be held across `.await` points. Acquire the
-lock, perform synchronous operations, drop the guard, then perform any async work
-(sub-query evaluation, etc.). This is a correctness requirement to prevent deadlocks.
-
----
-
-## 12. Sync/Async Design
+## 11. Sync/Async Design
 
 | Component | Sync/Async | Rationale |
 |-----------|-----------|-----------|
 | AppState trait methods | Sync | In-memory operations, no I/O |
-| Mutex wrapping | `tokio::sync::Mutex` | Prevents deadlock with sub-queries |
-| `lui` commands | Async | Need `.lock().await` |
-| Utility functions (`resolve_*`) | Sync | Operate on already-locked `&impl AppState` |
+| Mutex wrapping | `tokio::sync::Mutex` | Consistent async locking for commands |
+| `lui` commands | Async | Use `.lock().await` on tokio Mutex |
+| Utility functions (`resolve_*`) | Sync | Operate on `&dyn AppState` reference |
+| egui rendering | Sync | Uses `blocking_lock()` (outside tokio runtime) |
 | Evaluation triggering | Async | Asset evaluation is async |
 | Background listeners | Async (tokio tasks) | Monitor asset notifications |
 
+### 11.4 Lock Discipline
+
+**Rule:** When used in async contexts, locks on AppState must never be held across
+`.await` points. Acquire the lock, perform synchronous operations, drop the guard,
+then perform any async work. This is a correctness requirement to prevent deadlocks.
+
 ---
 
-## 13. Testing Strategy
+## 12. Testing Strategy
 
-### 13.1 Layer 1: AppState (sync, no framework)
+### 12.1 Layer 1: AppState (sync, no framework)
 
 Test `DirectAppState` directly. No environment, no payload, no queries.
 
-Covers: tree operations (add_node, insert_child, remove, replace, set_element),
-navigation (parent, children, siblings), pending_nodes detection, edge cases
-(empty children, root operations), child ordering preservation, active element.
+Covers: tree operations (add_node, insert_node, remove, set_element, take/put_element),
+navigation (parent, children, siblings, first/last child), pending_nodes detection,
+edge cases (empty children, root operations), child ordering preservation, active element,
+serialization round-trip.
 
-### 13.2 Layer 2: Utility Functions (sync, no framework)
+### 12.2 Layer 2: Utility Functions (sync, no framework)
 
-Test `resolve_navigation` and `resolve_position` against a pre-built AppState.
+Test `resolve_navigation` and `resolve_position` against a pre-built DirectAppState.
 
 Covers: all navigation words, all position words, error messages for edge cases,
-disjoint vocabulary validation.
+`insertion_point_to_add_args` conversion.
 
-### 13.3 Layer 3: Full Query Evaluation (async, full framework)
+### 12.3 Layer 3: Full Query Evaluation (async, full framework)
 
 Test end-to-end: environment → command registration → payload → query evaluation
 → inspect AppState.
 
 Pattern:
 1. Create `DirectAppState` with initial elements
-2. Wrap in `Arc<tokio::sync::Mutex<...>>`
+2. Wrap in `Arc<tokio::sync::Mutex<dyn AppState>>`
 3. Create `SimpleUIPayload` with handle + app_state
-4. Create `CommandEnvironment`, call `register_lui_commands`
-5. Evaluate query via `envref.evaluate_immediately(query, payload).await`
+4. Create environment, call `register_lui_commands!`
+5. Evaluate query
 6. Lock app_state, verify tree state
 
-Key scenarios:
-
-| Test | Query | Verifies |
-|------|-------|----------|
-| Add creates node | `widget/q/ns-lui/add` | Node created with source, UIElement stored immediately |
-| Add defers non-UIElement | `echo-hello/q/ns-lui/add` | Node created with source, element: None |
-| Add as sibling | `widget/q/ns-lui/add-after-current` | Position=after |
-| Add to specific handle | `widget/q/ns-lui/add-after-last-42` | Numeric handle |
-| Replace | `widget/q/ns-lui/add-instead-current` | Same handle kept, children removed |
-| Remove | `ns-lui/remove` | Subtree removal |
-| Navigate parent | `ns-lui/parent` | Returns parent handle as i64 |
-| Navigate children | `ns-lui/children` | Returns list of i64 |
-| Activate | `ns-lui/activate` | Active element updated |
-| Pending detection | After add with query | `pending_nodes()` includes handle |
-| Error: no handle | query without payload handle | Injection error |
-| Error: parent of root | `ns-lui/parent-root` | Meaningful error message |
-
-### 13.4 Layer 4: Serialization Round-Trip
+### 12.4 Layer 4: Serialization Round-Trip
 
 Test that DirectAppState serializes and deserializes correctly:
 - Topology preserved
 - Handle counter preserved
-- Serializable elements (Placeholder, Panel) survive round-trip
-- Non-serializable elements (DisplayElement) lose their value field
-- `pending_nodes()` correctly identifies nodes needing re-evaluation after deserialization
-
-### 13.5 Test Dependencies
-
-- No egui dependency. UIElement instances use `Placeholder` or a test-only `TestElement`.
-- Manual tree construction (no builder utilities).
-- `q` instruction behavior already tested in liquers-core.
+- Serializable elements (Placeholder) survive round-trip
+- Non-serializable fields lost (AssetViewElement.value)
+- `pending_nodes()` correctly identifies nodes needing re-evaluation
 
 ---
 
-## 14. Required Actions List
+## 13. Required Actions List
 
 Derived from use cases in `UI_INTERFACE_FSD.md`. Shows how the `lui` command
 semantics express each action.
 
-### 14.1 Orthodox Commander
+### 13.1 Orthodox Commander
 
 | Action | Query | Notes |
 |--------|-------|-------|
-| Create layout | Specialized command in egui namespace, not `lui` | Creates container + two panes (see §7.3 Path D) |
-| Navigate folder (update pane source) | `new_path/-/oc_list/q/ns-lui/add-instead-current` | Replace current pane content |
-| View file in sibling pane | `file/-/view/q/ns-lui/add-instead-next` | Replace next sibling |
-| View file in sibling of elem 42 | `file/-/view/q/ns-lui/add-instead-next-42` | Explicit reference |
+| Create layout | Specialized command, not `lui` | Creates container + two panes |
+| Navigate folder | `new_path/-/oc_list/q/ns-lui/add-instead-current` | Replace current pane |
+| View file in sibling | `file/-/view/q/ns-lui/add-instead-next` | Replace next sibling |
 | Switch active pane | `ns-lui/activate-next` | Activate next sibling |
 
-### 14.2 Tab View
+### 13.2 Tab View
 
 | Action | Query | Notes |
 |--------|-------|-------|
-| Add tab | `tab_query/q/ns-lui/add-after-last-current` | Append child to tab container |
-| Close current tab | `ns-lui/remove` | Remove current tab element |
-| Close specific tab | `ns-lui/remove-42` | Remove by handle |
+| Add tab | `tab_query/q/ns-lui/add-last-current` | Append child to container |
+| Close current tab | `ns-lui/remove-current` | Remove current tab |
 | Switch to next tab | `ns-lui/activate-next` | Same pattern as pane switching |
 | Switch to specific tab | `ns-lui/activate-42` | By handle |
 
-### 14.3 General
-
-| Action | Query | Notes |
-|--------|-------|-------|
-| Add root window | `window_query/q/ns-lui/add` with no current | Needs design for "add root" case |
-| Get all roots | `ns-lui/roots` | Returns list of handles |
-| Inspect tree | `ns-lui/children` / `ns-lui/parent` / etc. | Navigation commands |
-
 ---
 
-## 15. Phase 2 Backlog
+## 14. Phase 2 Backlog
 
 Items explicitly deferred from Phase 1:
 
 - **`move` (reparent)** — move an element to a different parent without remove+add
-- **`set_source`** — change generating source without replacing element (preserves children).
-  Requires designing reparenting. Find a use case where preserving children is needed.
-- **Handle stability on serialization round-trip** — ensure handles don't change.
-  Widgets may store handles that would become invalid.
-- **Extended `remove` semantics** — remove by query match (pass query as state)
-- **Human-readable layout files** — use serialized AppState as a GUI layout specification
+- **`set_source`** — change generating source without replacing element
+- **Handle stability on serialization round-trip** — ensure handles don't change
+- **Extended `remove` semantics** — remove by query match
+- **Human-readable layout files** — serialized AppState as GUI layout specification
 - **Command aliases** — e.g., `replace` for `add-instead-current`
-- **State as reference** — pass navigation result as state for chaining (e.g., `parent/parent` = grandparent)
-- **State as query-based lookup** — find element by generating query, use as reference
-- **Child cycling** — `cycle_active` or similar for cycling among children (Tab key in orthodox commander).
-  May use UI framework's native focus system instead.
-- **Refresh command** — re-evaluate ElementSource and replace element with result.
-- **Configurable evaluation behavior** — choose between immediate display vs. deferred evaluation
-- **`as_any` / `as_any_mut` downcasting** — for framework-specific element data access
-  beyond what `show()` provides. Add when a concrete use case requires it.
-- **Lifecycle hooks** — callbacks on element events (added to tree, removed, focused, etc.)
-- **Timers and periodic re-evaluation** — event processing loop in AppState
-- **ratatui rendering** — `#[cfg(feature = "ratatui")] fn render(...)` on UIElement
+- **Child cycling** — `cycle_active` for cycling among children
+- **Refresh command** — re-evaluate ElementSource and replace element
+- **`as_any` / `as_any_mut` downcasting** — for element-specific data access
+- **Lifecycle hooks** — callbacks on element events
+- **Timers and periodic re-evaluation** — event processing loop
+- **ratatui rendering** — `show_in_ratatui(...)` on UIElement
+- **Dioxus/Leptos integration** — adapter pattern for reactive frameworks
+- **Web rendering** — `show_in_browser(...)` on UIElement
 
 ---
 
-## 16. Dependencies
+## 15. Platform Design Notes
+
+Brief design sketches for future rendering targets, created to validate the core
+UIElement trait design. These are NOT Phase 1 deliverables.
+
+### 15.1 ratatui
+
+```rust
+fn show_in_ratatui(
+    &mut self,
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+);
+```
+
+- ratatui renders synchronously in a loop; `&mut self` + `Mutex` works.
+- Elements compute sub-layouts for children using `ratatui::layout::Layout`.
+- Input events delivered via `crossterm::event::read()` in the main loop.
+- **No design issues identified.** The `&mut self` + `Arc<Mutex<dyn AppState>>`
+  pattern maps naturally to ratatui's stateful widget model.
+
+### 15.2 Dioxus / Leptos (Reactive Frameworks)
+
+```rust
+fn show_in_dioxus(&self) -> dioxus::Element;
+```
+
+- Reactive frameworks use functional components with signals, not `&mut self`.
+- **Design tension:** `show_in_dioxus` needs `&self` (not `&mut self`).
+- **Resolution:** The `update()` trait method handles mutation (framework-agnostic).
+  The reactive show method reads state immutably. A `DioxusAdapter` component wraps
+  `Arc<Mutex<dyn AppState>>` + `UIHandle`.
+- **Phase 2 consideration:** Adding `fn show_data(&self) -> ShowData` as a
+  framework-agnostic method that returns renderable data.
+
+### 15.3 Generic Web (Browser)
+
+```rust
+fn show_in_browser(&self, doc: &web_sys::Document, container: &web_sys::Element);
+```
+
+- Web rendering creates/updates DOM elements.
+- **Design tension:** DOM is persistent, unlike immediate-mode (egui).
+- **Resolution:** Elements create DOM subtrees and update them on `update()`.
+- **Serialization advantage:** typetag serialization means AppState can be sent
+  over the wire (server-rendered initial state, hydrated on the client).
+- The `handle()` on UIElement is useful for generating stable DOM IDs.
+
+### 15.4 Cross-Platform Design Validation Summary
+
+| Aspect | egui | ratatui | Dioxus/Leptos | Web |
+|--------|------|---------|---------------|-----|
+| `&mut self` show | Yes | Yes | No (`&self`) | Partial |
+| `Arc<Mutex<AppState>>` | Yes | Yes | Via adapter | Yes |
+| `update()` trait method | Yes | Yes | Yes | Yes |
+| `handle()` on element | Useful | Useful | Useful | Essential |
+| `typetag` serialization | Save/load | Save/load | SSR hydration | Wire transfer |
+| Input handling | In show | Separate loop | Signals | DOM events |
+
+**Conclusion:** The core trait design is sound for all platforms. The main tension is
+`&mut self` vs `&self` for reactive frameworks, addressable via adapter pattern.
+
+---
+
+## 16. Egui Application Pattern
+
+### 16.1 Application Structure
+
+```rust
+struct MyApp {
+    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+    runtime: tokio::runtime::Runtime,
+}
+```
+
+### 16.2 Initialization Flow
+
+1. Create `DirectAppState::new()`
+2. Wrap in `Arc<Mutex<dyn AppState>>`
+3. Create environment, register commands + `lui` commands
+4. Add root node: `app_state.add_node(None, 0, ElementSource::Query(...))`
+5. Call `app_state.evaluate_pending(|handle, query| { /* spawn eval task */ })`
+
+### 16.3 Render Loop (eframe::App)
+
+```rust
+impl eframe::App for MyApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let roots = {
+                let state = self.app_state.blocking_lock();
+                state.roots()
+            };
+            for handle in roots {
+                render_element(ui, handle, &self.app_state);
+            }
+        });
+    }
+}
+```
+
+Uses the extract-render-replace pattern from §2.5.
+
+---
+
+## 17. Dependencies
 
 ### Cargo.toml additions for `liquers-lib`
 
 ```toml
 [dependencies]
 typetag = "0.2"
-tokio = { version = "1", features = ["sync"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 ```
 
 ---
 
-## 17. File Structure
+## 18. File Structure
 
 ```
 liquers-lib/src/ui/
 ├── mod.rs              # Module declaration and re-exports
 ├── handle.rs           # UIHandle type
-├── element.rs          # UIElement trait, ElementSource, Placeholder, DisplayElement, AssetDisplayUIElement
-├── app_state.rs        # AppState trait, DirectAppState implementation, NodeData
-├── payload.rs          # UIPayload trait, SimpleUIPayload, injection newtypes
+├── element.rs          # UIElement trait, ElementSource, Placeholder, AssetViewElement
+├── app_state.rs        # AppState trait, DirectAppState, NodeData
+├── payload.rs          # UIPayload trait, SimpleUIPayload, AppStateRef
 ├── resolve.rs          # resolve_navigation, resolve_position, InsertionPoint
-└── commands.rs         # lui namespace commands, registration
+└── commands.rs         # lui namespace commands, register_lui_commands! macro
 ```
 
 ---
 
-## 18. Success Criteria
+## 19. Success Criteria
 
 Phase 1 is complete when:
 
-1. `UIElement` trait compiles with typetag, `title()` and `clone_boxed()` work in tests
-2. `Placeholder`, `DisplayElement`, `AssetDisplayUIElement` serialize/deserialize correctly
-3. `AppState` trait compiles with all specified methods including `pending_nodes()`
+1. `UIElement` trait compiles with typetag, `handle()`, `title()`, `clone_boxed()` work in tests
+2. `Placeholder`, `AssetViewElement` serialize/deserialize correctly
+3. `AppState` trait compiles with all specified methods including `take_element`/`put_element`
 4. `DirectAppState` passes all Layer 1 tests (CRUD, navigation, pending detection)
 5. `resolve_navigation` and `resolve_position` pass all Layer 2 tests
-6. `UIPayload` trait and `SimpleUIPayload` work with injection
-7. All `lui` commands registered and passing Layer 3 tests
+6. `UIPayload` trait and `SimpleUIPayload` work with command contexts
+7. All `lui` commands registered and passing tests
 8. `ExtValue::UIElement` variant integrated with value system
 9. `activate` command works, active element field persists through serialization
 10. Serialization round-trip preserves topology, sources, and serializable elements
-11. `evaluate_pending()` correctly identifies nodes needing re-evaluation
-12. (If egui feature enabled) `show()` renders Placeholder, DisplayElement, AssetDisplayUIElement
+11. `pending_nodes()` correctly identifies nodes needing re-evaluation
+12. `show_in_egui()` renders Placeholder and AssetViewElement (all modes)
+13. Extract-render-replace pattern implemented via `render_element()`
 
 ---
 
-*Specification version: 4.0*
-*Date: 2026-02-08*
-*Supersedes: UI_INTERFACE_PHASE1_FSD v3.0, v2.1, v1 (Corrected), UI_PAYLOAD_DESIGN v1*
+*Specification version: 5.0*
+*Date: 2026-02-09*
+*Supersedes: UI_INTERFACE_PHASE1_FSD v4.0, v3.0, v2.1, v1 (Corrected), UI_PAYLOAD_DESIGN v1*

@@ -78,6 +78,9 @@ impl UIValueExtension for Value {
                 let mut sort_state: Option<(usize, bool)> = None;
                 crate::egui::dataframe::display_polars_dataframe(ui, &value, &mut sort_state);
             }
+            Self::Extended(ExtValue::UIElement { value }) => {
+                ui.label(format!("UIElement: {}", value.type_name()));
+            }
             Self::Base(SimpleValue::None {}) => {
                 ui.label(RichText::new("None").italics());
             }
