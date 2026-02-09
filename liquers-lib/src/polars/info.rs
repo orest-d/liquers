@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use super::util::try_to_polars_dataframe;
 
 /// Get DataFrame shape (rows and columns)
-fn shape(state: &State<Value>) -> Result<Value, Error> {
+pub fn shape(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let (nrows, ncols) = df.shape();
@@ -22,21 +22,21 @@ fn shape(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get number of rows
-fn nrows(state: &State<Value>) -> Result<Value, Error> {
+pub fn nrows(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let nrows = df.height() as i32;
     Ok(Value::from(nrows))
 }
 
 /// Get number of columns
-fn ncols(state: &State<Value>) -> Result<Value, Error> {
+pub fn ncols(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let ncols = df.width() as i32;
     Ok(Value::from(ncols))
 }
 
 /// Get DataFrame schema (column names and types)
-fn schema(state: &State<Value>) -> Result<Value, Error> {
+pub fn schema(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let schema = df.schema();
@@ -49,37 +49,51 @@ fn schema(state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::Base(SimpleValue::Object { value: map }))
 }
 
-/// Register info commands
+/// Register polars info commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_info_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::polars::info::*;
+
+        register_command!($cr,
+            fn shape(state) -> result
+            namespace: "pl"
+            label: "Shape"
+            doc: "Get DataFrame shape (rows and columns)"
+        )?;
+
+        register_command!($cr,
+            fn nrows(state) -> result
+            namespace: "pl"
+            label: "Number of rows"
+            doc: "Get number of rows in DataFrame"
+        )?;
+
+        register_command!($cr,
+            fn ncols(state) -> result
+            namespace: "pl"
+            label: "Number of columns"
+            doc: "Get number of columns in DataFrame"
+        )?;
+
+        register_command!($cr,
+            fn schema(state) -> result
+            namespace: "pl"
+            label: "Schema"
+            doc: "Get DataFrame schema (column names and types)"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// Backward-compatible wrapper calling the `register_polars_info_commands!` macro.
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
-    register_command!(cr,
-        fn shape(state) -> result
-        namespace: "pl"
-        label: "Shape"
-        doc: "Get DataFrame shape (rows and columns)"
-    )?;
-
-    register_command!(cr,
-        fn nrows(state) -> result
-        namespace: "pl"
-        label: "Number of rows"
-        doc: "Get number of rows in DataFrame"
-    )?;
-
-    register_command!(cr,
-        fn ncols(state) -> result
-        namespace: "pl"
-        label: "Number of columns"
-        doc: "Get number of columns in DataFrame"
-    )?;
-
-    register_command!(cr,
-        fn schema(state) -> result
-        namespace: "pl"
-        label: "Schema"
-        doc: "Get DataFrame schema (column names and types)"
-    )?;
-
+    register_polars_info_commands!(cr)?;
     Ok(())
 }

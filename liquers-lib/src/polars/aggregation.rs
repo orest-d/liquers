@@ -8,7 +8,7 @@ use crate::environment::CommandRegistryAccess;
 use super::util::try_to_polars_dataframe;
 
 /// Sum of all numeric columns
-fn sum(state: &State<Value>) -> Result<Value, Error> {
+pub fn sum(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Use lazy evaluation to compute sum
@@ -24,7 +24,7 @@ fn sum(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Mean of all numeric columns
-fn mean(state: &State<Value>) -> Result<Value, Error> {
+pub fn mean(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Use lazy evaluation to compute mean
@@ -40,7 +40,7 @@ fn mean(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Median of all numeric columns
-fn median(state: &State<Value>) -> Result<Value, Error> {
+pub fn median(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Use lazy evaluation to compute median
@@ -56,7 +56,7 @@ fn median(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Minimum of all numeric columns
-fn min(state: &State<Value>) -> Result<Value, Error> {
+pub fn min(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Use lazy evaluation to compute min
@@ -72,7 +72,7 @@ fn min(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Maximum of all numeric columns
-fn max(state: &State<Value>) -> Result<Value, Error> {
+pub fn max(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Use lazy evaluation to compute max
@@ -88,7 +88,7 @@ fn max(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Standard deviation of all numeric columns
-fn std(state: &State<Value>) -> Result<Value, Error> {
+pub fn std(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Use lazy evaluation to compute std
@@ -104,7 +104,7 @@ fn std(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Count non-null values per column
-fn count(state: &State<Value>) -> Result<Value, Error> {
+pub fn count(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Create a new dataframe with count for each column
@@ -123,7 +123,7 @@ fn count(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Statistical summary of DataFrame
-fn describe(state: &State<Value>) -> Result<Value, Error> {
+pub fn describe(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     // Compute basic statistics using lazy evaluation
@@ -162,65 +162,79 @@ fn describe(state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from_polars_dataframe(result))
 }
 
-/// Register aggregation commands
+/// Register polars aggregation commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_aggregation_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::polars::aggregation::*;
+
+        register_command!($cr,
+            fn sum(state) -> result
+            namespace: "pl"
+            label: "Sum"
+            doc: "Sum of all numeric columns"
+        )?;
+
+        register_command!($cr,
+            fn mean(state) -> result
+            namespace: "pl"
+            label: "Mean"
+            doc: "Mean of all numeric columns"
+        )?;
+
+        register_command!($cr,
+            fn median(state) -> result
+            namespace: "pl"
+            label: "Median"
+            doc: "Median of all numeric columns"
+        )?;
+
+        register_command!($cr,
+            fn min(state) -> result
+            namespace: "pl"
+            label: "Minimum"
+            doc: "Minimum of all numeric columns"
+        )?;
+
+        register_command!($cr,
+            fn max(state) -> result
+            namespace: "pl"
+            label: "Maximum"
+            doc: "Maximum of all numeric columns"
+        )?;
+
+        register_command!($cr,
+            fn std(state) -> result
+            namespace: "pl"
+            label: "Standard Deviation"
+            doc: "Standard deviation of all numeric columns"
+        )?;
+
+        register_command!($cr,
+            fn count(state) -> result
+            namespace: "pl"
+            label: "Count"
+            doc: "Count non-null values per column"
+        )?;
+
+        register_command!($cr,
+            fn describe(state) -> result
+            namespace: "pl"
+            label: "Describe"
+            doc: "Statistical summary of DataFrame"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// Backward-compatible wrapper calling the `register_polars_aggregation_commands!` macro.
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
-    register_command!(cr,
-        fn sum(state) -> result
-        namespace: "pl"
-        label: "Sum"
-        doc: "Sum of all numeric columns"
-    )?;
-
-    register_command!(cr,
-        fn mean(state) -> result
-        namespace: "pl"
-        label: "Mean"
-        doc: "Mean of all numeric columns"
-    )?;
-
-    register_command!(cr,
-        fn median(state) -> result
-        namespace: "pl"
-        label: "Median"
-        doc: "Median of all numeric columns"
-    )?;
-
-    register_command!(cr,
-        fn min(state) -> result
-        namespace: "pl"
-        label: "Minimum"
-        doc: "Minimum of all numeric columns"
-    )?;
-
-    register_command!(cr,
-        fn max(state) -> result
-        namespace: "pl"
-        label: "Maximum"
-        doc: "Maximum of all numeric columns"
-    )?;
-
-    register_command!(cr,
-        fn std(state) -> result
-        namespace: "pl"
-        label: "Standard Deviation"
-        doc: "Standard deviation of all numeric columns"
-    )?;
-
-    register_command!(cr,
-        fn count(state) -> result
-        namespace: "pl"
-        label: "Count"
-        doc: "Count non-null values per column"
-    )?;
-
-    register_command!(cr,
-        fn describe(state) -> result
-        namespace: "pl"
-        label: "Describe"
-        doc: "Statistical summary of DataFrame"
-    )?;
-
+    register_polars_aggregation_commands!(cr)?;
     Ok(())
 }

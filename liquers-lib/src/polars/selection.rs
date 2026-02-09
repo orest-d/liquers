@@ -11,7 +11,7 @@ use super::util::{check_column_exists, try_to_polars_dataframe};
 ///
 /// Arguments:
 /// - columns: Column names separated by dashes (e.g., "col1-col2-col3")
-fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
+pub fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let col_names: Vec<&str> = columns.split('-').map(|s| s.trim()).collect();
@@ -32,7 +32,7 @@ fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Error>
 ///
 /// Arguments:
 /// - columns: Column names separated by dashes (e.g., "col1-col2")
-fn drop_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
+pub fn drop_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let col_names: Vec<&str> = columns.split('-').map(|s| s.trim()).collect();
@@ -52,7 +52,7 @@ fn drop_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
 ///
 /// Arguments:
 /// - n: Number of rows (default: 5)
-fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
+pub fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let num_rows = n.max(0) as usize;
 
@@ -64,7 +64,7 @@ fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
 ///
 /// Arguments:
 /// - n: Number of rows (default: 5)
-fn tail(state: &State<Value>, n: i32) -> Result<Value, Error> {
+pub fn tail(state: &State<Value>, n: i32) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let num_rows = n.max(0) as usize;
 
@@ -77,7 +77,7 @@ fn tail(state: &State<Value>, n: i32) -> Result<Value, Error> {
 /// Arguments:
 /// - offset: Starting row index (0-based)
 /// - length: Number of rows to extract
-fn slice(state: &State<Value>, offset: i32, length: i32) -> Result<Value, Error> {
+pub fn slice(state: &State<Value>, offset: i32, length: i32) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let offset_i64 = offset.max(0) as i64;
@@ -87,44 +87,58 @@ fn slice(state: &State<Value>, offset: i32, length: i32) -> Result<Value, Error>
     Ok(Value::from_polars_dataframe(result))
 }
 
-/// Register selection and slicing commands
+/// Register polars selection commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_selection_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::polars::selection::*;
+
+        register_command!($cr,
+            fn select_columns(state, columns: String) -> result
+            namespace: "pl"
+            label: "Select columns"
+            doc: "Select columns by name (separated by dashes)"
+        )?;
+
+        register_command!($cr,
+            fn drop_columns(state, columns: String) -> result
+            namespace: "pl"
+            label: "Drop columns"
+            doc: "Remove columns by name (separated by dashes)"
+        )?;
+
+        register_command!($cr,
+            fn head(state, n: i32 = 5) -> result
+            namespace: "pl"
+            label: "Get first rows"
+            doc: "Return first N rows (default: 5)"
+        )?;
+
+        register_command!($cr,
+            fn tail(state, n: i32 = 5) -> result
+            namespace: "pl"
+            label: "Get last rows"
+            doc: "Return last N rows (default: 5)"
+        )?;
+
+        register_command!($cr,
+            fn slice(state, offset: i32, length: i32) -> result
+            namespace: "pl"
+            label: "Slice rows"
+            doc: "Extract rows by range (offset, length)"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// Backward-compatible wrapper calling the `register_polars_selection_commands!` macro.
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
-    register_command!(cr,
-        fn select_columns(state, columns: String) -> result
-        namespace: "pl"
-        label: "Select columns"
-        doc: "Select columns by name (separated by dashes)"
-    )?;
-
-    register_command!(cr,
-        fn drop_columns(state, columns: String) -> result
-        namespace: "pl"
-        label: "Drop columns"
-        doc: "Remove columns by name (separated by dashes)"
-    )?;
-
-    register_command!(cr,
-        fn head(state, n: i32 = 5) -> result
-        namespace: "pl"
-        label: "Get first rows"
-        doc: "Return first N rows (default: 5)"
-    )?;
-
-    register_command!(cr,
-        fn tail(state, n: i32 = 5) -> result
-        namespace: "pl"
-        label: "Get last rows"
-        doc: "Return last N rows (default: 5)"
-    )?;
-
-    register_command!(cr,
-        fn slice(state, offset: i32, length: i32) -> result
-        namespace: "pl"
-        label: "Slice rows"
-        doc: "Extract rows by range (offset, length)"
-    )?;
-
+    register_polars_selection_commands!(cr)?;
     Ok(())
 }

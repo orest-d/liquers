@@ -12,6 +12,22 @@ pub mod info;
 use liquers_core::error::Error;
 use crate::{environment::CommandRegistryAccess, value::Value};
 
+/// Register all polars commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_commands {
+    ($cr:expr) => {{
+        $crate::register_polars_io_commands!($cr)?;
+        $crate::register_polars_selection_commands!($cr)?;
+        $crate::register_polars_filtering_commands!($cr)?;
+        $crate::register_polars_sorting_commands!($cr)?;
+        $crate::register_polars_aggregation_commands!($cr)?;
+        $crate::register_polars_info_commands!($cr)?;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
 /// Register all Polars commands in the "pl" namespace
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     // I/O commands

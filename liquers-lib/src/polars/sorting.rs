@@ -13,7 +13,7 @@ use super::util::{check_column_exists, try_to_polars_dataframe};
 /// Arguments:
 /// - column: Column name to sort by
 /// - ascending (optional): "t" or "true" for ascending (default), "f" or "false" for descending
-fn sort(state: &State<Value>, column: String, ascending: String) -> Result<Value, Error> {
+pub fn sort(state: &State<Value>, column: String, ascending: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -46,16 +46,30 @@ fn sort(state: &State<Value>, column: String, ascending: String) -> Result<Value
     Ok(Value::from_polars_dataframe(result))
 }
 
-/// Register sorting commands
+/// Register polars sorting commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_sorting_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::polars::sorting::*;
+
+        register_command!($cr,
+            fn sort(state, column: String, ascending: String = "t") -> result
+            namespace: "pl"
+            label: "Sort by column"
+            doc: "Sort DataFrame by column. Use 't'/'true' for ascending (default), 'f'/'false' for descending"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// Backward-compatible wrapper calling the `register_polars_sorting_commands!` macro.
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
-    register_command!(cr,
-        fn sort(state, column: String, ascending: String = "t") -> result
-        namespace: "pl"
-        label: "Sort by column"
-        doc: "Sort DataFrame by column. Use 't'/'true' for ascending (default), 'f'/'false' for descending"
-    )?;
-
+    register_polars_sorting_commands!(cr)?;
     Ok(())
 }

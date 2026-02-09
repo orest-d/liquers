@@ -13,7 +13,7 @@ use super::util::{parse_separator, try_to_polars_dataframe};
 ///
 /// Arguments:
 /// - separator: "comma" (default), "tab", "semicolon", "pipe", or single char
-fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error> {
+pub fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error> {
     // Parse separator (empty string means default comma)
     let sep = if separator.is_empty() {
         b','
@@ -36,7 +36,7 @@ fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error> {
 }
 
 /// Write DataFrame to CSV string
-fn to_csv(state: &State<Value>) -> Result<Value, Error> {
+pub fn to_csv(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let mut buffer = Vec::new();
@@ -51,26 +51,39 @@ fn to_csv(state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from(csv_string))
 }
 
-/// Register I/O commands
+/// Register polars I/O commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_io_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::polars::io::*;
+
+        register_command!($cr,
+            fn from_csv(state, separator: String = "") -> result
+            namespace: "pl"
+            label: "Load DataFrame from CSV"
+            doc: "Parse CSV data into a Polars DataFrame. Supports custom separators: comma (default), tab, semicolon, pipe."
+            filename: "data.csv"
+        )?;
+
+        register_command!($cr,
+            fn to_csv(state) -> result
+            namespace: "pl"
+            label: "Export DataFrame to CSV"
+            doc: "Convert DataFrame to CSV string with comma separator"
+            filename: "data.csv"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// Backward-compatible wrapper calling the `register_polars_io_commands!` macro.
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
-
-    register_command!(cr,
-        fn from_csv(state, separator: String = "") -> result
-        namespace: "pl"
-        label: "Load DataFrame from CSV"
-        doc: "Parse CSV data into a Polars DataFrame. Supports custom separators: comma (default), tab, semicolon, pipe."
-        filename: "data.csv"
-    )?;
-
-    register_command!(cr,
-        fn to_csv(state) -> result
-        namespace: "pl"
-        label: "Export DataFrame to CSV"
-        doc: "Convert DataFrame to CSV string with comma separator"
-        filename: "data.csv"
-    )?;
-
+    register_polars_io_commands!(cr)?;
     Ok(())
 }

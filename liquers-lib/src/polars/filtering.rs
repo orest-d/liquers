@@ -155,7 +155,7 @@ fn parse_comparison_value(
 }
 
 /// Equal to filter
-fn eq(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
+pub fn eq(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -173,7 +173,7 @@ fn eq(state: &State<Value>, column: String, value: String) -> Result<Value, Erro
 }
 
 /// Not equal to filter
-fn ne(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
+pub fn ne(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -191,7 +191,7 @@ fn ne(state: &State<Value>, column: String, value: String) -> Result<Value, Erro
 }
 
 /// Greater than filter
-fn gt(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
+pub fn gt(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -209,7 +209,7 @@ fn gt(state: &State<Value>, column: String, value: String) -> Result<Value, Erro
 }
 
 /// Greater than or equal filter
-fn gte(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
+pub fn gte(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -227,7 +227,7 @@ fn gte(state: &State<Value>, column: String, value: String) -> Result<Value, Err
 }
 
 /// Less than filter
-fn lt(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
+pub fn lt(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -245,7 +245,7 @@ fn lt(state: &State<Value>, column: String, value: String) -> Result<Value, Erro
 }
 
 /// Less than or equal filter
-fn lte(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
+pub fn lte(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
 
@@ -262,51 +262,65 @@ fn lte(state: &State<Value>, column: String, value: String) -> Result<Value, Err
     Ok(Value::from_polars_dataframe(result))
 }
 
-/// Register filtering commands
+/// Register polars filtering commands via macro.
+///
+/// The caller must define `type CommandEnvironment = ...` in scope before invoking.
+#[macro_export]
+macro_rules! register_polars_filtering_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::polars::filtering::*;
+
+        register_command!($cr,
+            fn eq(state, column: String, value: String) -> result
+            namespace: "pl"
+            label: "Equal to"
+            doc: "Filter rows where column equals value"
+        )?;
+
+        register_command!($cr,
+            fn ne(state, column: String, value: String) -> result
+            namespace: "pl"
+            label: "Not equal to"
+            doc: "Filter rows where column does not equal value"
+        )?;
+
+        register_command!($cr,
+            fn gt(state, column: String, value: String) -> result
+            namespace: "pl"
+            label: "Greater than"
+            doc: "Filter rows where column is greater than value"
+        )?;
+
+        register_command!($cr,
+            fn gte(state, column: String, value: String) -> result
+            namespace: "pl"
+            label: "Greater than or equal"
+            doc: "Filter rows where column is greater than or equal to value"
+        )?;
+
+        register_command!($cr,
+            fn lt(state, column: String, value: String) -> result
+            namespace: "pl"
+            label: "Less than"
+            doc: "Filter rows where column is less than value"
+        )?;
+
+        register_command!($cr,
+            fn lte(state, column: String, value: String) -> result
+            namespace: "pl"
+            label: "Less than or equal"
+            doc: "Filter rows where column is less than or equal to value"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// Backward-compatible wrapper calling the `register_polars_filtering_commands!` macro.
 pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
-    register_command!(cr,
-        fn eq(state, column: String, value: String) -> result
-        namespace: "pl"
-        label: "Equal to"
-        doc: "Filter rows where column equals value"
-    )?;
-
-    register_command!(cr,
-        fn ne(state, column: String, value: String) -> result
-        namespace: "pl"
-        label: "Not equal to"
-        doc: "Filter rows where column does not equal value"
-    )?;
-
-    register_command!(cr,
-        fn gt(state, column: String, value: String) -> result
-        namespace: "pl"
-        label: "Greater than"
-        doc: "Filter rows where column is greater than value"
-    )?;
-
-    register_command!(cr,
-        fn gte(state, column: String, value: String) -> result
-        namespace: "pl"
-        label: "Greater than or equal"
-        doc: "Filter rows where column is greater than or equal to value"
-    )?;
-
-    register_command!(cr,
-        fn lt(state, column: String, value: String) -> result
-        namespace: "pl"
-        label: "Less than"
-        doc: "Filter rows where column is less than value"
-    )?;
-
-    register_command!(cr,
-        fn lte(state, column: String, value: String) -> result
-        namespace: "pl"
-        label: "Less than or equal"
-        doc: "Filter rows where column is less than or equal to value"
-    )?;
-
+    register_polars_filtering_commands!(cr)?;
     Ok(())
 }

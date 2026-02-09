@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use liquers_core::{assets::DefaultAssetManager, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{Context, EnvRef, Environment, SimpleSession, User}, error::Error, recipes::{AsyncRecipeProvider, Recipe}, state::State, store::{AsyncStore, NoAsyncStore}, value::ValueInterface};
+use liquers_core::{assets::DefaultAssetManager, command_metadata::CommandMetadataRegistry, commands::{CommandRegistry, PayloadType}, context::{Context, EnvRef, Environment, SimpleSession, User}, error::Error, recipes::{AsyncRecipeProvider, Recipe}, state::State, store::{AsyncStore, NoAsyncStore}, value::ValueInterface};
 
 pub trait CommandRegistryAccess: Environment {
     fn get_mut_command_registry(&mut self) -> &mut CommandRegistry<Self>;
@@ -10,32 +10,34 @@ pub trait CommandRegistryAccess: Environment {
 
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
-pub struct DefaultEnvironment<V: ValueInterface> {
+pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> {
     async_store: Arc<Box<dyn AsyncStore>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
     recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
+    _payload: std::marker::PhantomData<P>,
 }
 
-impl<V: ValueInterface> Default for DefaultEnvironment<V> {
+impl<V: ValueInterface, P: PayloadType> Default for DefaultEnvironment<V, P> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V: ValueInterface> CommandRegistryAccess for DefaultEnvironment<V> {
+impl<V: ValueInterface, P: PayloadType> CommandRegistryAccess for DefaultEnvironment<V, P> {
     fn get_mut_command_registry(&mut self) -> &mut CommandRegistry<Self> {
         &mut self.command_registry
     }
 }
 
-impl<V: ValueInterface> DefaultEnvironment<V> {
+impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
     pub fn new() -> Self {
         DefaultEnvironment {
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(Box::new(NoAsyncStore)),
             asset_store: Arc::new(Box::new(DefaultAssetManager::new())),
             recipe_provider: None,
+            _payload: std::marker::PhantomData,
         }
     }
     pub fn with_async_store(&mut self, store: Box<dyn AsyncStore>) -> &mut Self {
@@ -54,7 +56,7 @@ impl<V: ValueInterface> DefaultEnvironment<V> {
     pub fn with_default_recipe_provider(
         &mut self
     ) -> &mut Self {
-        
+
         let provider: Arc<Box<dyn AsyncRecipeProvider<Self>>> = Arc::new(Box::new(liquers_core::recipes::DefaultRecipeProvider));
         self.recipe_provider = Some(provider);
         self
@@ -78,11 +80,11 @@ impl DefaultEnvironment<crate::value::Value> {
     }
 }
 
-impl<V: ValueInterface> Environment for DefaultEnvironment<V> {
+impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P> {
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
-    type Payload = ();
+    type Payload = P;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -124,14 +126,14 @@ impl<V: ValueInterface> Environment for DefaultEnvironment<V> {
         }
         .boxed()
     }
-    
+
     fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
         panic!("No recipe provider configured in SimpleEnvironment");
     }
-    
+
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
     }
