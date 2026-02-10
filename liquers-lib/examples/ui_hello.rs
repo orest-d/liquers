@@ -15,7 +15,8 @@ use liquers_core::state::State;
 use liquers_macro::register_command;
 
 use liquers_lib::ui::{
-    AppState, AssetViewElement, DirectAppState, ElementSource, render_element,
+    AppState, AssetViewElement, DirectAppState, ElementSource, UIContext, app_message_channel,
+    render_element, try_sync_lock,
 };
 use liquers_lib::value::Value;
 
@@ -30,7 +31,7 @@ fn hello(_state: &State<Value>) -> Result<Value, Error> {
 // ─── eframe App ─────────────────────────────────────────────────────────────
 
 struct HelloApp {
-    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+    ui_context: UIContext,
     // Keep the runtime alive so background tasks (if any) can run.
     _runtime: tokio::runtime::Runtime,
 }
@@ -41,10 +42,7 @@ impl HelloApp {
         // the runtime context is available during the full app lifecycle.
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-        // All environment/evaluation setup must happen inside block_on
-        // because SimpleEnvironment::new() internally calls tokio::spawn
-        // (via DefaultAssetManager).
-        let app_state_arc = runtime.block_on(async {
+        let ui_context = runtime.block_on(async {
             // 1. Set up environment and register the hello command.
             let mut env = SimpleEnvironment::<Value>::new();
             let cr = &mut env.command_registry;
@@ -70,14 +68,15 @@ impl HelloApp {
                 .set_element(root_handle, element)
                 .expect("Failed to set element");
 
-            // 4. Wrap AppState in Arc<tokio::sync::Mutex>.
+            // 4. Wrap AppState in Arc<tokio::sync::Mutex> and create UIContext.
             let app_state_arc: Arc<tokio::sync::Mutex<dyn AppState>> =
                 Arc::new(tokio::sync::Mutex::new(app_state));
-            app_state_arc
+            let (msg_tx, _msg_rx) = app_message_channel();
+            UIContext::new(app_state_arc, msg_tx)
         });
 
         Self {
-            app_state: app_state_arc,
+            ui_context,
             _runtime: runtime,
         }
     }
@@ -90,12 +89,16 @@ impl eframe::App for HelloApp {
             ui.separator();
 
             // Render all root elements using extract-render-replace.
-            let roots = {
-                let state = self.app_state.blocking_lock();
-                state.roots()
+            let roots = match try_sync_lock(self.ui_context.app_state()) {
+                Ok(state) => state.roots(),
+                Err(_) => {
+                    ui.spinner();
+                    ctx.request_repaint();
+                    return;
+                }
             };
             for handle in roots {
-                render_element(ui, handle, &self.app_state);
+                render_element(ui, handle, &self.ui_context);
             }
         });
     }

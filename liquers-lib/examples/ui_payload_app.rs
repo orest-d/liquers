@@ -10,12 +10,12 @@ use std::sync::Arc;
 use liquers_core::context::{Context, EnvRef, Environment};
 use liquers_core::error::Error;
 use liquers_core::state::State;
-use liquers_core::value::ValueInterface;
 use liquers_macro::register_command;
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::{
-    AppState, AssetViewElement, DirectAppState, ElementSource, UIHandle, render_element,
+    AppMessage, AppMessageReceiver, AppState, AssetViewElement, DirectAppState, ElementSource,
+    UIContext, UIHandle, app_message_channel, render_element, try_sync_lock,
 };
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::value::Value;
@@ -39,7 +39,8 @@ fn setup_commands(env: &mut DefaultEnvironment<Value, SimpleUIPayload>) -> Resul
 // ─── eframe App ─────────────────────────────────────────────────────────────
 
 struct PayloadApp {
-    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+    ui_context: UIContext,
+    message_rx: AppMessageReceiver,
     envref: EnvRef<DefaultEnvironment<Value, SimpleUIPayload>>,
     _runtime: tokio::runtime::Runtime,
 }
@@ -49,7 +50,7 @@ impl PayloadApp {
         let runtime = tokio::runtime::Runtime::new()
             .expect("Failed to create tokio runtime");
 
-        let (app_state_arc, envref) = runtime.block_on(async {
+        let (ui_context, message_rx, envref) = runtime.block_on(async {
             // 1. Create payload-aware environment and register commands.
             let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
             env.with_trivial_recipe_provider();
@@ -93,11 +94,16 @@ impl PayloadApp {
                     .expect("Failed to set element");
             }
 
-            (app_state_arc, envref)
+            // 7. Create message channel and UIContext.
+            let (msg_tx, msg_rx) = app_message_channel();
+            let ui_context = UIContext::new(app_state_arc, msg_tx);
+
+            (ui_context, msg_rx, envref)
         });
 
         Self {
-            app_state: app_state_arc,
+            ui_context,
+            message_rx,
             envref,
             _runtime: runtime,
         }
@@ -106,7 +112,7 @@ impl PayloadApp {
     /// Evaluate a query for a given handle asynchronously.
     fn evaluate_node(&self, handle: UIHandle, query: &str) {
         let envref = self.envref.clone();
-        let app_state = self.app_state.clone();
+        let app_state = self.ui_context.app_state().clone();
         let query = query.to_string();
 
         self._runtime.spawn(async move {
@@ -140,24 +146,58 @@ impl PayloadApp {
 
 impl eframe::App for PayloadApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Drain pending messages from the channel.
+        while let Ok(msg) = self.message_rx.try_recv() {
+            match msg {
+                AppMessage::SubmitQuery { handle, query } => {
+                    self.evaluate_node(handle, &query);
+                }
+                AppMessage::Quit => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                AppMessage::EvaluatePending => {
+                    let pending = match try_sync_lock(self.ui_context.app_state()) {
+                        Ok(state) => state.pending_nodes(),
+                        Err(_) => vec![],
+                    };
+                    for handle in pending {
+                        let source = match try_sync_lock(self.ui_context.app_state()) {
+                            Ok(state) => state.get_source(handle).ok().cloned(),
+                            Err(_) => None,
+                        };
+                        if let Some(ElementSource::Query(q)) = source {
+                            self.evaluate_node(handle, &q);
+                        }
+                    }
+                }
+                AppMessage::Serialize { path: _ } | AppMessage::Deserialize { path: _ } => {
+                    // Not implemented in this example.
+                }
+            }
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Liquers UI Payload App");
             ui.separator();
 
             // Render all root elements using extract-render-replace.
-            let roots = {
-                let state = self.app_state.blocking_lock();
-                state.roots()
+            let roots = match try_sync_lock(self.ui_context.app_state()) {
+                Ok(state) => state.roots(),
+                Err(_) => {
+                    ui.spinner();
+                    ctx.request_repaint();
+                    return;
+                }
             };
             for handle in roots {
-                render_element(ui, handle, &self.app_state);
+                render_element(ui, handle, &self.ui_context);
             }
 
             ui.separator();
             if ui.button("Re-evaluate hello").clicked() {
-                let first_root = {
-                    let state = self.app_state.blocking_lock();
-                    state.roots().first().cloned()
+                let first_root = match try_sync_lock(self.ui_context.app_state()) {
+                    Ok(state) => state.roots().first().cloned(),
+                    Err(_) => None,
                 };
                 if let Some(root) = first_root {
                     self.evaluate_node(root, "hello");

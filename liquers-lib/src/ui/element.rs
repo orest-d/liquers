@@ -6,6 +6,7 @@ use liquers_core::error::Error;
 use liquers_core::metadata::AssetInfo;
 
 use super::handle::UIHandle;
+use super::ui_context::UIContext;
 
 // ─── ElementSource ──────────────────────────────────────────────────────────
 
@@ -93,10 +94,13 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
     }
 
     /// Render in egui. The caller does NOT hold the AppState lock.
+    ///
+    /// The `UIContext` provides access to `AppState` (via `try_sync_lock`)
+    /// and a message channel for submitting async work (e.g. query evaluation).
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
-        _app_state: Arc<tokio::sync::Mutex<dyn super::app_state::AppState>>,
+        _ctx: &UIContext,
     ) -> egui::Response {
         ui.label(self.title())
     }
@@ -331,7 +335,7 @@ impl UIElement for AssetViewElement {
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
-        _app_state: Arc<tokio::sync::Mutex<dyn super::app_state::AppState>>,
+        _ctx: &UIContext,
     ) -> egui::Response {
         match &self.view_mode {
             AssetViewMode::Progress => {
@@ -381,30 +385,46 @@ impl UIElement for AssetViewElement {
 // ─── Rendering Helper ───────────────────────────────────────────────────────
 
 /// Extract-render-replace pattern for rendering an element.
-/// The caller does NOT hold the AppState lock.
+///
+/// Uses `try_sync_lock` instead of `blocking_lock` for WASM compatibility.
+/// If the lock is held by an async task (rare on native, impossible on WASM),
+/// a placeholder is shown and a repaint is requested for the next frame.
 pub fn render_element(
     ui: &mut egui::Ui,
     handle: UIHandle,
-    app_state: &Arc<tokio::sync::Mutex<dyn super::app_state::AppState>>,
+    ctx: &UIContext,
 ) {
-    // 1. Extract element from AppState (blocking_lock is safe here:
-    //    egui render loop runs on the main thread, outside the tokio runtime)
-    let element = {
-        let mut state = app_state.blocking_lock();
-        state.take_element(handle)
+    // 1. Extract element from AppState via try_lock.
+    let element = match super::try_sync_lock(ctx.app_state()) {
+        Ok(mut state) => state.take_element(handle),
+        Err(_) => {
+            // Lock held by async task — show placeholder, repaint next frame.
+            ui.label(format!("Loading {:?}...", handle));
+            ui.ctx().request_repaint();
+            return;
+        }
     };
 
     match element {
         Ok(mut element) => {
-            // 2. Render (element can lock AppState if it needs to read children, etc.)
-            element.show_in_egui(ui, app_state.clone());
+            // 2. Render (element can access AppState via ctx if needed).
+            element.show_in_egui(ui, ctx);
 
-            // 3. Put element back
-            let mut state = app_state.blocking_lock();
-            let _ = state.put_element(handle, element);
+            // 3. Put element back.
+            match super::try_sync_lock(ctx.app_state()) {
+                Ok(mut state) => {
+                    let _ = state.put_element(handle, element);
+                }
+                Err(_) => {
+                    // Very rare: lock acquired between take and put by async task.
+                    // Element is temporarily orphaned. Request repaint to retry.
+                    ui.ctx().request_repaint();
+                    // TODO: consider a "limbo" buffer to hold orphaned elements
+                }
+            }
         }
         Err(_) => {
-            // Element missing — show placeholder
+            // Element missing — show placeholder.
             ui.label(format!("Element {:?} not found", handle));
         }
     }

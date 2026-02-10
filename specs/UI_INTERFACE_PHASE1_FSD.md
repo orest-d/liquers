@@ -159,12 +159,13 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
     }
 
     /// Render in egui. Handle is available via self.handle().
-    /// app_state is an Arc<Mutex> — the element locks it only if needed.
-    /// The caller does NOT hold the lock when calling this method.
+    /// The caller does NOT hold the AppState lock when calling this method.
+    /// The UIContext provides access to AppState (via try_sync_lock)
+    /// and a message channel for submitting async work (e.g. query evaluation).
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
-        _app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+        _ctx: &UIContext,
     ) -> egui::Response {
         ui.label(self.title())
     }
@@ -193,13 +194,22 @@ temporarily extracted the element, so there is no self-referential borrow.
 
 **`show_in_egui` instead of `show`.** The method name includes the framework to leave
 room for future platform-specific methods (e.g., `show_in_ratatui`). The signature
-takes `Arc<tokio::sync::Mutex<dyn AppState>>` — the caller does NOT hold the lock. The
-element can lock AppState if it needs to read children, etc.
+takes `&UIContext` — the caller does NOT hold the lock. The element can access
+AppState via `try_sync_lock(ctx.app_state())` if it needs to read children, and
+can submit async work (e.g. query evaluation) via `ctx.submit_query()`.
+
+**`UIContext`.** Bundles `Arc<tokio::sync::Mutex<dyn AppState>>` and an
+`AppMessageSender` (unbounded mpsc channel). Passed to `show_in_egui` so elements
+can both read state and submit async work without needing access to the tokio
+runtime or `EnvRef` directly.
 
 **`tokio::sync::Mutex`.** Used for AppState wrapping to ensure consistent locking
 semantics across async command execution. Commands use `.lock().await`. For
-synchronous contexts (egui render loop), `blocking_lock()` is used — this is safe
-because the render loop runs on the main thread, outside the tokio runtime.
+synchronous contexts (egui render loop), `try_lock()` (via `try_sync_lock()` helper)
+is used instead of `blocking_lock()` for WASM compatibility. On WASM (single-threaded),
+`try_lock()` never fails during synchronous rendering because no other task can be
+running concurrently. On native, failure is extremely rare (async commands hold locks
+for microseconds). On failure, a placeholder is shown and a repaint is requested.
 The lock discipline from §12.4 applies — never hold across `.await` points beyond
 the initial acquisition.
 
@@ -259,32 +269,42 @@ pub enum UpdateResponse {
 
 ### 2.5 Rendering Pattern — Extract-Render-Replace
 
-The `show_in_egui` method takes `Arc<Mutex<dyn AppState>>` but the caller does NOT
-hold the lock. To render an element, the framework uses the extract-render-replace
-pattern:
+The `show_in_egui` method takes `&UIContext` but the caller does NOT hold the lock.
+To render an element, the framework uses the extract-render-replace pattern with
+`try_sync_lock` for WASM compatibility:
 
 ```rust
 pub fn render_element(
     ui: &mut egui::Ui,
     handle: UIHandle,
-    app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ctx: &UIContext,
 ) {
-    // 1. Extract element from AppState (blocking_lock is safe here:
-    //    egui render loop runs on the main thread, outside the tokio runtime)
-    let element = {
-        let mut state = app_state.blocking_lock();
-        state.take_element(handle)
+    // 1. Extract element from AppState via try_lock.
+    let element = match try_sync_lock(ctx.app_state()) {
+        Ok(mut state) => state.take_element(handle),
+        Err(_) => {
+            // Lock held by async task — show placeholder, repaint next frame.
+            ui.label(format!("Loading {:?}...", handle));
+            ui.ctx().request_repaint();
+            return;
+        }
     };
-    // Lock released
 
     match element {
         Ok(mut element) => {
-            // 2. Render (element can lock AppState if needed)
-            element.show_in_egui(ui, app_state.clone());
+            // 2. Render (element can access AppState via ctx if needed).
+            element.show_in_egui(ui, ctx);
 
-            // 3. Put element back
-            let mut state = app_state.blocking_lock();
-            let _ = state.put_element(handle, element);
+            // 3. Put element back.
+            match try_sync_lock(ctx.app_state()) {
+                Ok(mut state) => {
+                    let _ = state.put_element(handle, element);
+                }
+                Err(_) => {
+                    // Very rare: lock acquired between take and put.
+                    ui.ctx().request_repaint();
+                }
+            }
         }
         Err(_) => {
             ui.label(format!("Element {:?} not found", handle));
@@ -497,11 +517,12 @@ impl UIElement for Panel {
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
-        _app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+        ctx: &UIContext,
     ) -> egui::Response {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.heading(&self.title_text);
-            // Render children via AppState (handle available via self.handle())
+            // Render children via ctx.app_state() (handle available via self.handle())
+            // Submit async work via ctx.submit_query(handle, "query")
         }).response
     }
 }
@@ -672,8 +693,9 @@ pub trait AppState: Send + Sync {
 
 - **`tokio::sync::Mutex` wrapping.** AppState is wrapped in `Arc<tokio::sync::Mutex<dyn AppState>>`
   for shared ownership. Commands use `.lock().await` for async-safe access.
-  Synchronous contexts (egui rendering) use `blocking_lock()`, which is safe when
-  called from outside the tokio runtime (e.g., the eframe main thread).
+  Synchronous contexts (egui rendering) use `try_sync_lock()` (a `try_lock()` wrapper)
+  for WASM compatibility. On failure (rare on native, impossible on WASM), a placeholder
+  is shown and the next frame is requested. See §2.2 for details.
 
 ### 4.3 Phase 1 Implementation: DirectAppState
 
@@ -1324,9 +1346,10 @@ linked for typetag to discover it.
 | Mutex wrapping | `tokio::sync::Mutex` | Consistent async locking for commands |
 | `lui` commands | Async | Use `.lock().await` on tokio Mutex |
 | Utility functions (`resolve_*`) | Sync | Operate on `&dyn AppState` reference |
-| egui rendering | Sync | Uses `blocking_lock()` (outside tokio runtime) |
+| egui rendering | Sync | Uses `try_sync_lock()` for WASM compatibility |
 | Evaluation triggering | Async | Asset evaluation is async |
 | Background listeners | Async (tokio tasks) | Monitor asset notifications |
+| Task spawning | `spawn_ui_task()` | Native: `tokio::spawn`, WASM: `spawn_local` |
 
 ### 11.4 Lock Discipline
 
@@ -1489,48 +1512,271 @@ fn show_in_browser(&self, doc: &web_sys::Document, container: &web_sys::Element)
 
 ---
 
-## 16. Egui Application Pattern
+## 16. Command Registration Macros
 
-### 16.1 Application Structure
+### 16.1 Macro Pattern
+
+All command domains expose `#[macro_export]` registration macros following a
+consistent pattern. The caller defines `type CommandEnvironment = ...;` in scope
+before invoking the macro:
 
 ```rust
-struct MyApp {
-    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
-    runtime: tokio::runtime::Runtime,
+type CommandEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
+
+let cr = env.get_mut_command_registry();
+register_core_commands!(cr)?;
+```
+
+Each macro uses `$crate::` paths for full re-export safety and produces
+`Ok::<(), liquers_core::error::Error>(())` at the end, so callers use `?` to
+propagate errors.
+
+**Internal structure of a registration macro:**
+
+```rust
+#[macro_export]
+macro_rules! register_<domain>_commands {
+    ($cr:expr) => {{
+        use liquers_macro::register_command;
+        use $crate::<module>::*;
+
+        register_command!($cr,
+            fn command_name(state, arg: Type) -> result
+            namespace: "ns"
+            label: "Human label"
+            doc: "Description"
+        )?;
+
+        Ok::<(), liquers_core::error::Error>(())
+    }};
 }
 ```
 
-### 16.2 Initialization Flow
+**Important constraint:** The `register_command!` proc macro generates code
+containing the `?` operator. This means registration macros must be called from
+a context where `?` can propagate to a `Result` return type. They **cannot** be
+expanded directly inside `async { }` blocks that return non-`Result` types.
+Use a separate `fn setup_commands() -> Result<(), Error>` function when needed
+inside async initialization.
 
-1. Create `DirectAppState::new()`
-2. Wrap in `Arc<Mutex<dyn AppState>>`
-3. Create environment, register commands + `lui` commands
-4. Add root node: `app_state.add_node(None, 0, ElementSource::Query(...))`
-5. Call `app_state.evaluate_pending(|handle, query| { /* spawn eval task */ })`
+### 16.2 Available Registration Macros
 
-### 16.3 Render Loop (eframe::App)
+| Macro | Module | Namespace | Notes |
+|-------|--------|-----------|-------|
+| `register_core_commands!` | `commands` | (default) | `to_text`, `to_metadata` |
+| `register_egui_commands!` | `egui::commands` | (default) | `label`, `text_editor`, `show_asset_info` |
+| `register_image_commands!` | `image::commands` | (default) | ~40 image ops (requires `image-support` feature) |
+| `register_polars_commands!` | `polars` | `pl` | Aggregate: calls all 6 sub-macros below |
+| `register_polars_io_commands!` | `polars::io` | `pl` | `from_csv`, `to_csv` |
+| `register_polars_selection_commands!` | `polars::selection` | `pl` | `select_columns`, `drop_columns`, `head`, `tail`, `slice` |
+| `register_polars_filtering_commands!` | `polars::filtering` | `pl` | `eq`, `ne`, `gt`, `gte`, `lt`, `lte` |
+| `register_polars_sorting_commands!` | `polars::sorting` | `pl` | `sort` |
+| `register_polars_aggregation_commands!` | `polars::aggregation` | `pl` | `sum`, `mean`, `median`, `min`, `max`, `std`, `count`, `describe` |
+| `register_polars_info_commands!` | `polars::info` | `pl` | `shape`, `nrows`, `ncols`, `schema` |
+| `register_lui_commands!` | `ui::commands` | `lui` | UI tree manipulation (requires `UIPayload`) |
+
+### 16.3 Master Registration Macro
+
+`register_all_commands!` registers all command domains in one call:
+
+```rust
+#[macro_export]
+macro_rules! register_all_commands {
+    ($cr:expr) => {{
+        $crate::register_core_commands!($cr)?;
+        $crate::register_egui_commands!($cr)?;
+        #[cfg(feature = "image-support")]
+        { $crate::register_image_commands!($cr)?; }
+        $crate::register_polars_commands!($cr)?;
+        $crate::register_lui_commands!($cr)?;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+```
+
+Since `register_all_commands!` includes `register_lui_commands!`, the
+`CommandEnvironment`'s `Payload` must implement `UIPayload`.
+
+**Backward compatibility:** The `register_all_commands_fn()` function registers
+all commands **except** lui commands, so it works with `DefaultEnvironment<Value>`
+(where `Payload = ()`). This function predates the macros and remains for
+environments that do not use UIPayload.
+
+### 16.4 Payload-Aware Environment
+
+`DefaultEnvironment` supports an optional payload type parameter:
+
+```rust
+pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> { ... }
+```
+
+The default `P = ()` preserves backward compatibility — existing code using
+`DefaultEnvironment<Value>` compiles unchanged. For UI applications, use
+`DefaultEnvironment<Value, SimpleUIPayload>` to enable payload-aware commands.
+
+### 16.5 evaluate_immediately with Payload
+
+The `evaluate_immediately` method on `EnvRef` evaluates a query synchronously
+(returning an `AssetRef`) with a payload attached. This is the mechanism for
+connecting UI commands to the element tree:
+
+```rust
+let payload = SimpleUIPayload::new(app_state.clone())
+    .with_handle(handle);
+let asset_ref = envref
+    .evaluate_immediately(&query, payload)
+    .await?;
+let state = asset_ref.get().await?;
+```
+
+The payload carries the `AppState` and the current element handle, making them
+available to commands via the context's `InjectedFromContext` mechanism.
+
+---
+
+## 17. Egui Application Pattern
+
+### 17.1 Application Structure
+
+```rust
+use liquers_lib::environment::DefaultEnvironment;
+use liquers_lib::ui::{UIContext, AppMessage, AppMessageReceiver, app_message_channel,
+                       try_sync_lock, render_element};
+use liquers_lib::ui::payload::SimpleUIPayload;
+use liquers_lib::value::Value;
+
+type CommandEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
+
+struct MyApp {
+    ui_context: UIContext,
+    message_rx: AppMessageReceiver,
+    envref: EnvRef<DefaultEnvironment<Value, SimpleUIPayload>>,
+    _runtime: tokio::runtime::Runtime,
+}
+```
+
+**UIContext** bundles `Arc<tokio::sync::Mutex<dyn AppState>>` and an `AppMessageSender`.
+It is passed to `render_element()` and `show_in_egui()` so that elements can both
+read state (via `try_sync_lock`) and submit async work (via `submit_query()`).
+
+**AppMessageReceiver** is drained in the `eframe::App::update()` method to process
+messages submitted by elements (e.g., query evaluation requests, quit).
+
+The tokio `Runtime` is created inside the eframe creation callback and stored
+in the app struct (`_runtime` field) to keep it alive for the application's
+lifetime. `SimpleEnvironment::new()` / `DefaultEnvironment::new()` call
+`tokio::spawn()` internally, so they must be called inside a tokio runtime context.
+
+### 17.2 Initialization Flow
+
+Command registration must happen in a separate function (not directly in an
+`async { }` block) because `register_command!` generates `?` operators:
+
+```rust
+fn setup_commands(env: &mut DefaultEnvironment<Value, SimpleUIPayload>) -> Result<(), Error> {
+    let cr = env.get_mut_command_registry();
+    register_command!(cr, fn hello(state) -> result)?;
+    liquers_lib::register_all_commands!(cr)?;
+    Ok(())
+}
+```
+
+Inside `runtime.block_on(async { ... })`:
+
+1. Create `DefaultEnvironment::<Value, SimpleUIPayload>::new()`
+2. Set recipe provider via `with_trivial_recipe_provider()`
+3. Call `setup_commands(&mut env)?` to register all commands
+4. Create `DirectAppState` with root node via `add_node`
+5. Wrap in `Arc<tokio::sync::Mutex<dyn AppState>>`
+6. Create `EnvRef` via `env.to_ref()`
+7. Evaluate root node using `evaluate_immediately` with `SimpleUIPayload`
+8. Set the resulting element in app_state via `set_element`
+
+**See `liquers-lib/examples/ui_payload_app.rs`** for a complete working example.
+
+### 17.3 Render Loop (eframe::App)
 
 ```rust
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 1. Drain pending messages from the channel.
+        while let Ok(msg) = self.message_rx.try_recv() {
+            match msg {
+                AppMessage::SubmitQuery { handle, query } => {
+                    self.evaluate_node(handle, &query);
+                }
+                AppMessage::Quit => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                AppMessage::EvaluatePending => { /* ... */ }
+                AppMessage::Serialize { .. } | AppMessage::Deserialize { .. } => { /* ... */ }
+            }
+        }
+
+        // 2. Render UI.
         egui::CentralPanel::default().show(ctx, |ui| {
-            let roots = {
-                let state = self.app_state.blocking_lock();
-                state.roots()
+            let roots = match try_sync_lock(self.ui_context.app_state()) {
+                Ok(state) => state.roots(),
+                Err(_) => {
+                    ui.spinner();
+                    ctx.request_repaint();
+                    return;
+                }
             };
             for handle in roots {
-                render_element(ui, handle, &self.app_state);
+                render_element(ui, handle, &self.ui_context);
             }
         });
     }
 }
 ```
 
-Uses the extract-render-replace pattern from §2.5.
+Uses `try_sync_lock` instead of `blocking_lock()` for WASM compatibility.
+Messages from elements (submitted via `UIContext::submit_query()` etc.) are
+drained at the start of each frame, before rendering.
+
+### 17.4 Async Re-evaluation
+
+To evaluate or re-evaluate a node asynchronously from the render loop, spawn
+a task on the tokio runtime:
+
+```rust
+fn evaluate_node(&self, handle: UIHandle, query: &str) {
+    let envref = self.envref.clone();
+    let app_state = self.app_state.clone();
+    let query = query.to_string();
+
+    self._runtime.spawn(async move {
+        let payload = SimpleUIPayload::new(app_state.clone())
+            .with_handle(handle);
+        let asset_ref = envref
+            .evaluate_immediately(&query, payload)
+            .await;
+        match asset_ref {
+            Ok(asset_ref) => {
+                match asset_ref.get().await {
+                    Ok(state) => {
+                        let value = Arc::new((*state.data).clone());
+                        let element = Box::new(AssetViewElement::new_value(
+                            "Result".to_string(), value,
+                        ));
+                        let mut locked = app_state.lock().await;
+                        if let Err(e) = locked.set_element(handle, element) {
+                            eprintln!("Failed to set element: {}", e);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to get result: {}", e),
+                }
+            }
+            Err(e) => eprintln!("Failed to evaluate: {}", e),
+        }
+    });
+}
+```
 
 ---
 
-## 17. Dependencies
+## 18. Dependencies
 
 ### Cargo.toml additions for `liquers-lib`
 
@@ -1541,22 +1787,24 @@ typetag = "0.2"
 
 ---
 
-## 18. File Structure
+## 19. File Structure
 
 ```
 liquers-lib/src/ui/
-├── mod.rs              # Module declaration and re-exports
+├── mod.rs              # Module declaration, re-exports, try_sync_lock, spawn_ui_task
 ├── handle.rs           # UIHandle type
 ├── element.rs          # UIElement trait, ElementSource, Placeholder, AssetViewElement
 ├── app_state.rs        # AppState trait, DirectAppState, NodeData
 ├── payload.rs          # UIPayload trait, SimpleUIPayload, AppStateRef
+├── message.rs          # AppMessage enum, channel types
+├── ui_context.rs       # UIContext struct (bundles AppState + message sender)
 ├── resolve.rs          # resolve_navigation, resolve_position, InsertionPoint
 └── commands.rs         # lui namespace commands, register_lui_commands! macro
 ```
 
 ---
 
-## 19. Success Criteria
+## 20. Success Criteria
 
 Phase 1 is complete when:
 
@@ -1576,6 +1824,7 @@ Phase 1 is complete when:
 
 ---
 
-*Specification version: 5.0*
-*Date: 2026-02-09*
-*Supersedes: UI_INTERFACE_PHASE1_FSD v4.0, v3.0, v2.1, v1 (Corrected), UI_PAYLOAD_DESIGN v1*
+*Specification version: 5.2*
+*Date: 2026-02-10*
+*Supersedes: UI_INTERFACE_PHASE1_FSD v5.1, v5.0, v4.0, v3.0, v2.1, v1 (Corrected), UI_PAYLOAD_DESIGN v1*
+*Changes in v5.2: UIContext replaces raw Arc<Mutex<AppState>> in show_in_egui and render_element. AppMessage/channel for sync→async communication. try_sync_lock replaces blocking_lock for WASM compatibility. spawn_ui_task for cross-platform task spawning. New files: message.rs, ui_context.rs.*
