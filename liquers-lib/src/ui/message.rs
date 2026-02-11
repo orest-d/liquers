@@ -14,8 +14,6 @@ pub enum AppMessage {
     Serialize { path: String },
     /// Load application state from disk.
     Deserialize { path: String },
-    /// Re-evaluate all nodes whose element is None.
-    EvaluatePending,
 }
 
 pub type AppMessageSender = tokio::sync::mpsc::UnboundedSender<AppMessage>;

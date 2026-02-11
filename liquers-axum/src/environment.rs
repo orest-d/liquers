@@ -4,7 +4,7 @@ use futures::FutureExt;
 use liquers_core::{
     assets::DefaultAssetManager,
     command_metadata::CommandMetadataRegistry,
-    commands::CommandRegistry,
+    commands::{CommandRegistry, PayloadType},
     context::{Context, EnvRef, Environment, Session, User},
     error::Error,
     query::Key,
@@ -124,3 +124,5 @@ impl ServerPayload {
         ServerPayload(Arc::new(Mutex::new(ServerPayloadData {})))
     }
 }
+
+impl PayloadType for ServerPayload {}

@@ -297,7 +297,7 @@ macro_rules! register_lui_commands {
         use $crate::ui::commands::*;
 
         register_command!($cr,
-            async fn add(state, context, position_word: String, reference_word: String) -> result
+            async fn add(state, context, position_word: String, reference_word: String = "current") -> result
             namespace: "lui"
             label: "Add element"
             doc: "Add a new element to the UI tree"

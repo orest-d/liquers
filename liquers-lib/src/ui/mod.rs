@@ -5,6 +5,7 @@ pub mod handle;
 pub mod message;
 pub mod payload;
 pub mod resolve;
+pub mod runner;
 pub mod ui_context;
 
 pub use app_state::{AppState, DirectAppState, NodeData};
@@ -15,6 +16,7 @@ pub use element::{
 pub use handle::UIHandle;
 pub use message::{AppMessage, AppMessageReceiver, AppMessageSender, app_message_channel};
 pub use payload::{AppStateRef, SimpleUIPayload, UIPayload};
+pub use runner::{AppRunner, ElementStatusInfo};
 pub use resolve::{
     insertion_point_to_add_args, resolve_navigation, resolve_position, InsertionPoint,
 };

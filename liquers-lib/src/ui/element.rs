@@ -89,7 +89,7 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
 
     /// React to a framework-agnostic update message.
     /// Default: no-op.
-    fn update(&mut self, _message: &UpdateMessage) -> UpdateResponse {
+    fn update(&mut self, _message: &UpdateMessage, _ctx: &UIContext) -> UpdateResponse {
         UpdateResponse::Unchanged
     }
 
@@ -189,9 +189,9 @@ pub struct AssetViewElement {
     /// Current display mode.
     view_mode: AssetViewMode,
 
-    /// Error message if evaluation failed.
+    /// Error from evaluation failure.
     #[serde(skip)]
-    error_message: Option<String>,
+    error: Option<liquers_core::error::Error>,
 
     /// Live progress info, updated by background listener.
     #[serde(skip)]
@@ -220,7 +220,7 @@ impl AssetViewElement {
             type_identifier: String::new(),
             value: None,
             view_mode: AssetViewMode::Progress,
-            error_message: None,
+            error: None,
             progress_info: None,
         }
     }
@@ -233,7 +233,20 @@ impl AssetViewElement {
             type_identifier: String::new(),
             value: Some(value),
             view_mode: AssetViewMode::Value,
-            error_message: None,
+            error: None,
+            progress_info: None,
+        }
+    }
+
+    /// Create in Error mode from an evaluation error.
+    pub fn new_error(error: liquers_core::error::Error) -> Self {
+        Self {
+            handle: None,
+            title_text: "Error".to_string(),
+            type_identifier: String::new(),
+            value: None,
+            view_mode: AssetViewMode::Error,
+            error: Some(error),
             progress_info: None,
         }
     }
@@ -242,12 +255,12 @@ impl AssetViewElement {
     pub fn set_value(&mut self, value: Arc<crate::value::Value>) {
         self.value = Some(value);
         self.view_mode = AssetViewMode::Value;
-        self.error_message = None;
+        self.error = None;
     }
 
-    /// Set an error message and switch to Error mode.
-    pub fn set_error(&mut self, message: String) {
-        self.error_message = Some(message);
+    /// Set an error and switch to Error mode.
+    pub fn set_error(&mut self, error: liquers_core::error::Error) {
+        self.error = Some(error);
         self.view_mode = AssetViewMode::Error;
     }
 
@@ -271,9 +284,14 @@ impl AssetViewElement {
         self.progress_info.as_ref()
     }
 
+    /// Get the error, if any.
+    pub fn error(&self) -> Option<&liquers_core::error::Error> {
+        self.error.as_ref()
+    }
+
     /// Get the error message, if any.
-    pub fn error_message(&self) -> Option<&str> {
-        self.error_message.as_deref()
+    pub fn error_message(&self) -> Option<String> {
+        self.error.as_ref().map(|e| e.to_string())
     }
 }
 
@@ -303,13 +321,13 @@ impl UIElement for AssetViewElement {
         Box::new(self.clone())
     }
 
-    fn update(&mut self, message: &UpdateMessage) -> UpdateResponse {
+    fn update(&mut self, message: &UpdateMessage, _ctx: &UIContext) -> UpdateResponse {
         match message {
             UpdateMessage::AssetNotification(notif) => {
                 use liquers_core::assets::AssetNotificationMessage;
                 match notif {
                     AssetNotificationMessage::ErrorOccurred(err) => {
-                        self.set_error(err.message.clone());
+                        self.set_error(err.clone());
                     }
                     AssetNotificationMessage::JobFinished => {
                         // Value mode transition happens externally via set_value
@@ -372,8 +390,8 @@ impl UIElement for AssetViewElement {
                 }
             }
             AssetViewMode::Error => {
-                if let Some(msg) = &self.error_message {
-                    ui.colored_label(egui::Color32::RED, msg)
+                if let Some(err) = &self.error {
+                    ui.colored_label(egui::Color32::RED, err.to_string())
                 } else {
                     ui.label("Unknown error")
                 }
@@ -500,9 +518,18 @@ mod tests {
     #[test]
     fn test_asset_view_element_set_error() {
         let mut e = AssetViewElement::new_progress("Test".to_string());
-        e.set_error("Something failed".to_string());
+        e.set_error(Error::general_error("Something failed".to_string()));
         assert_eq!(e.view_mode(), &AssetViewMode::Error);
-        assert_eq!(e.error_message(), Some("Something failed"));
+        assert!(e.error().is_some());
+        assert!(e.error_message().is_some());
+    }
+
+    #[test]
+    fn test_asset_view_element_new_error() {
+        let e = AssetViewElement::new_error(Error::general_error("eval failed".to_string()));
+        assert_eq!(e.view_mode(), &AssetViewMode::Error);
+        assert!(e.error().is_some());
+        assert_eq!(e.title(), "Error");
     }
 
     #[test]
@@ -534,8 +561,13 @@ mod tests {
 
     #[test]
     fn test_update_response_unchanged_default() {
+        let (tx, _rx) = super::super::message::app_message_channel();
+        let app_state: Arc<tokio::sync::Mutex<dyn super::super::app_state::AppState>> =
+            Arc::new(tokio::sync::Mutex::new(super::super::app_state::DirectAppState::new()));
+        let ctx = UIContext::new(app_state, tx);
+
         let mut p = Placeholder::new();
         let msg = UpdateMessage::Timer { elapsed_ms: 100 };
-        assert_eq!(p.update(&msg), UpdateResponse::Unchanged);
+        assert_eq!(p.update(&msg, &ctx), UpdateResponse::Unchanged);
     }
 }
