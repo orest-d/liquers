@@ -4,7 +4,6 @@ use std::sync::Arc;
 use liquers_core::assets::AssetRef;
 use liquers_core::context::{EnvRef, Environment};
 use liquers_core::error::Error;
-use liquers_core::state::State;
 
 use crate::value::{ExtValueInterface, Value};
 
@@ -55,6 +54,20 @@ where
         }
     }
 
+    /// Set an element on a node and call init() with a UIContext.
+    ///
+    /// This is the correct way to place elements — set_element on AppState
+    /// no longer calls init itself.
+    fn set_element_and_init(
+        state: &mut dyn AppState,
+        handle: UIHandle,
+        mut element: Box<dyn super::element::UIElement>,
+        ctx: &UIContext,
+    ) {
+        let _ = element.init(handle, ctx);
+        let _ = state.set_element(handle, element);
+    }
+
     /// Non-blocking run. Call every frame from the event loop.
     ///
     /// Does NOT hold the `app_state` lock across the entire call —
@@ -93,17 +106,22 @@ where
         while let Ok(msg) = self.message_rx.try_recv() {
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
+                    let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
+                        .with_handle(Some(handle));
+
                     // 1. Set progress element (quick lock)
                     {
                         let mut state = app_state.lock().await;
-                        let progress = Box::new(AssetViewElement::new_progress(query.clone()));
-                        let _ = state.set_element(handle, progress);
+                        Self::set_element_and_init(
+                            &mut *state,
+                            handle,
+                            Box::new(AssetViewElement::new_progress(query.clone())),
+                            &ui_context,
+                        );
                     }
 
                     // 2. Create payload with handle
-                    let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
-                        .with_handle(Some(handle));
-                    let payload: E::Payload = SimpleUIPayload::new(ui_context).into();
+                    let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
 
                     // 3. Evaluate inline — commands handle AppState themselves
                     match self.envref.evaluate_immediately(&query, payload).await {
@@ -113,9 +131,11 @@ where
                             if let Some(s) = state {
                                 if let Err(e) = s.error_result() {
                                     let mut app = app_state.lock().await;
-                                    let _ = app.set_element(
+                                    Self::set_element_and_init(
+                                        &mut *app,
                                         handle,
                                         Box::new(AssetViewElement::new_error(e)),
+                                        &ui_context,
                                     );
                                 }
                                 // Do NOT set element from result — commands did it
@@ -124,9 +144,11 @@ where
                         Err(e) => {
                             // 4. On error: set error element
                             let mut state = app_state.lock().await;
-                            let _ = state.set_element(
+                            Self::set_element_and_init(
+                                &mut *state,
                                 handle,
                                 Box::new(AssetViewElement::new_error(e)),
+                                &ui_context,
                             );
                         }
                     }
@@ -177,11 +199,18 @@ where
         }; // Lock released here
 
         for (handle, query) in pending {
+            let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
+                .with_handle(Some(handle));
+
             // 1. Set progress element (quick lock)
             {
                 let mut state = app_state.lock().await;
-                let progress = Box::new(AssetViewElement::new_progress(query.clone()));
-                let _ = state.set_element(handle, progress);
+                Self::set_element_and_init(
+                    &mut *state,
+                    handle,
+                    Box::new(AssetViewElement::new_progress(query.clone())),
+                    &ui_context,
+                );
             }
 
             // 2. Start async evaluation (no payload) — returns AssetRef immediately
@@ -192,44 +221,88 @@ where
                 }
                 Err(e) => {
                     let mut state = app_state.lock().await;
-                    let _ = state.set_element(handle, Box::new(AssetViewElement::new_error(e)));
+                    Self::set_element_and_init(
+                        &mut *state,
+                        handle,
+                        Box::new(AssetViewElement::new_error(e)),
+                        &ui_context,
+                    );
                 }
             }
         }
     }
 
     /// Phase 3: Poll in-flight evaluations and transition completed ones.
+    ///
+    /// When a value is not a UIElement, creates an `AssetViewElement::from_asset_ref`
+    /// to give the element its own notification channel for future updates.
     async fn poll_evaluating_nodes(
         &mut self,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
-        let handles: Vec<UIHandle> = self.evaluating.keys().copied().collect();
-        for handle in handles {
-            if let Some(asset_ref) = self.evaluating.get(&handle) {
-                if let Some(state) = asset_ref.try_poll_state() {
-                    self.evaluating.remove(&handle);
-                    let mut app = app_state.lock().await;
-                    match state.error_result() {
-                        Ok(()) => {
-                            match value_to_element(&state) {
-                                Ok(element) => {
-                                    let _ = app.set_element(handle, element);
-                                }
-                                Err(e) => {
-                                    let _ = app.set_element(
-                                        handle,
-                                        Box::new(AssetViewElement::new_error(e)),
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            let _ = app.set_element(
-                                handle,
-                                Box::new(AssetViewElement::new_error(e)),
-                            );
-                        }
+        // Collect handles of completed evaluations
+        let completed: Vec<UIHandle> = self
+            .evaluating
+            .iter()
+            .filter_map(|(handle, asset_ref)| {
+                if asset_ref.try_poll_state().is_some() {
+                    Some(*handle)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for handle in completed {
+            let asset_ref = match self.evaluating.remove(&handle) {
+                Some(ar) => ar,
+                None => continue,
+            };
+            let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
+                .with_handle(Some(handle));
+
+            // Poll state (already confirmed available above)
+            let state = match asset_ref.poll_state().await {
+                Some(s) => s,
+                None => continue,
+            };
+
+            let mut app = app_state.lock().await;
+            match state.error_result() {
+                Ok(()) => {
+                    // Check if value is already a UIElement
+                    if let Ok(ui_elem) = state.data.as_ui_element() {
+                        Self::set_element_and_init(
+                            &mut *app,
+                            handle,
+                            ui_elem.clone_boxed(),
+                            &ui_context,
+                        );
+                    } else {
+                        // Create AssetViewElement with live notification channel
+                        let title = {
+                            let t = state.metadata.title().to_string();
+                            if t.is_empty() { "View".to_string() } else { t }
+                        };
+                        // Drop lock before async call
+                        drop(app);
+                        let element = AssetViewElement::from_asset_ref::<E>(title, asset_ref).await;
+                        let mut app = app_state.lock().await;
+                        Self::set_element_and_init(
+                            &mut *app,
+                            handle,
+                            Box::new(element),
+                            &ui_context,
+                        );
                     }
+                }
+                Err(e) => {
+                    Self::set_element_and_init(
+                        &mut *app,
+                        handle,
+                        Box::new(AssetViewElement::new_error(e)),
+                        &ui_context,
+                    );
                 }
             }
         }
@@ -272,29 +345,3 @@ pub enum ElementStatusInfo {
     Error,
 }
 
-/// Convert an evaluated State into a UIElement.
-///
-/// If the value is already a UIElement (ExtValue::UIElement variant),
-/// clones it out. Otherwise wraps in an AssetViewElement in Value mode.
-fn value_to_element(state: &State<Value>) -> Result<Box<dyn super::element::UIElement>, Error> {
-    let value = &*state.data;
-
-    // Check if value is already a UIElement
-    if let Ok(ui_elem) = value.as_ui_element() {
-        return Ok(ui_elem.clone_boxed());
-    }
-
-    // Extract title from metadata
-    let title = state.metadata.title().to_string();
-    let title = if title.is_empty() {
-        "View".to_string()
-    } else {
-        title
-    };
-
-    // Wrap in AssetViewElement
-    Ok(Box::new(AssetViewElement::new_value(
-        title,
-        Arc::new(value.clone()),
-    )))
-}

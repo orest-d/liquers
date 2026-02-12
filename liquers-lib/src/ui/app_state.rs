@@ -1,18 +1,25 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
 use liquers_core::error::Error;
+use liquers_core::state::State;
+use liquers_core::value::ValueInterface;
 
-use super::element::{ElementSource, UIElement};
+use crate::value::{ExtValueInterface, Value};
+
+use super::element::{ElementSource, StateViewElement, UIElement};
 use super::handle::UIHandle;
+use super::resolve::{insertion_point_to_add_args, InsertionPoint};
 
 // ─── NodeData ───────────────────────────────────────────────────────────────
 
 /// Per-node data stored in AppState. Holds the element, source, and topology.
+/// Internal to DirectAppState — not part of the AppState trait interface.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NodeData {
+pub(crate) struct NodeData {
     /// Parent handle, or None for root nodes.
     pub parent: Option<UIHandle>,
     /// Ordered children.
@@ -76,7 +83,8 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
     /// Get a mutable reference to the element at this handle.
     fn get_element_mut(&mut self, handle: UIHandle) -> Result<Option<&mut Box<dyn UIElement>>, Error>;
 
-    /// Set the element for a node. Calls element.init() before storing.
+    /// Set the element for a node. Does NOT call init() — the caller
+    /// (typically AppRunner) is responsible for calling init() with a UIContext.
     fn set_element(&mut self, handle: UIHandle, element: Box<dyn UIElement>) -> Result<(), Error>;
 
     /// Temporarily remove the element from a node (for extract-render-replace).
@@ -87,16 +95,140 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
 
     // ── Node Data Access ─────────────────────────────────────────────────
 
-    /// Get a reference to the full NodeData.
-    fn get_node(&self, handle: UIHandle) -> Result<&NodeData, Error>;
+    /// Check whether a node with the given handle exists.
+    fn node_exists(&self, handle: UIHandle) -> bool {
+        self.get_source(handle).is_ok()
+    }
 
     /// Get the ElementSource for a node.
     fn get_source(&self, handle: UIHandle) -> Result<&ElementSource, Error>;
 
     // ── Tree Manipulation ────────────────────────────────────────────────
 
-    /// Remove a node and its subtree recursively. Returns the removed NodeData.
-    fn remove(&mut self, handle: UIHandle) -> Result<NodeData, Error>;
+    /// Remove a node and its subtree recursively.
+    fn remove(&mut self, handle: UIHandle) -> Result<(), Error>;
+
+    // ── InsertionPoint-Based Insertion ───────────────────────────────────
+
+    /// Insert a node with the given source at the specified insertion point.
+    /// Creates a node with element=None (pending evaluation).
+    /// For `Instead`: replaces the source, clears the element.
+    fn insert_source(
+        &mut self,
+        point: &InsertionPoint,
+        source: ElementSource,
+    ) -> Result<UIHandle, Error> {
+        match point {
+            InsertionPoint::Instead(target) => {
+                let handle = *target;
+                self.set_source(handle, source)?;
+                // Clear element to make it pending
+                if self.get_element(handle)?.is_some() {
+                    let _ = self.take_element(handle);
+                }
+                Ok(handle)
+            }
+            other => {
+                let (parent, pos) = insertion_point_to_add_args(self, other)?;
+                self.add_node(parent, pos, source)
+            }
+        }
+    }
+
+    /// Insert a pre-built element at the specified insertion point.
+    /// Creates a node with ElementSource::None and sets the element.
+    /// For `Instead`: replaces the element in place.
+    fn insert_element(
+        &mut self,
+        point: &InsertionPoint,
+        element: Box<dyn UIElement>,
+    ) -> Result<UIHandle, Error> {
+        match point {
+            InsertionPoint::Instead(target) => {
+                let handle = *target;
+                self.set_element(handle, element)?;
+                Ok(handle)
+            }
+            other => {
+                let (parent, pos) = insertion_point_to_add_args(self, other)?;
+                let handle = self.add_node(parent, pos, ElementSource::None)?;
+                self.set_element(handle, element)?;
+                Ok(handle)
+            }
+        }
+    }
+
+    /// Insert an element derived from a State<Value>.
+    ///
+    /// If the value is `ExtValue::UIElement`, extract and use `insert_element`.
+    /// Otherwise wrap in `StateViewElement`.
+    /// Source is `ElementSource::Query` from state metadata if available,
+    /// else `ElementSource::None`.
+    fn insert_state(
+        &mut self,
+        point: &InsertionPoint,
+        state: &State<Value>,
+    ) -> Result<UIHandle, Error> {
+        let value = &*state.data;
+
+        // Extract source from metadata query
+        let source = match state.metadata.query() {
+            Ok(q) => {
+                let encoded = q.encode();
+                if encoded.is_empty() {
+                    ElementSource::None
+                } else {
+                    ElementSource::Query(encoded)
+                }
+            }
+            Err(_) => ElementSource::None,
+        };
+
+        // Check if value is a UIElement
+        if let Ok(ui_elem) = value.as_ui_element() {
+            let element = ui_elem.clone_boxed();
+            let handle = self.insert_element(point, element)?;
+            // Also set the source if available
+            if !matches!(source, ElementSource::None) {
+                let _ = self.set_source(handle, source);
+            }
+            return Ok(handle);
+        }
+
+        // Check if value is specifically a Query variant → insert as pending source
+        // for lazy evaluation. Only match the Query variant (identifier "query"),
+        // not text strings that happen to be parseable as queries.
+        if value.identifier() == "query" {
+            if let Ok(query) = value.try_into_query() {
+                let query_source = ElementSource::Query(query.encode());
+                return self.insert_source(point, query_source);
+            }
+        }
+
+        // Wrap in StateViewElement
+        let element = Box::new(StateViewElement::from_state(state));
+        let handle = match point {
+            InsertionPoint::Instead(target) => {
+                let h = *target;
+                self.set_element(h, element)?;
+                if !matches!(source, ElementSource::None) {
+                    let _ = self.set_source(h, source);
+                }
+                h
+            }
+            other => {
+                let (parent, pos) = insertion_point_to_add_args(self, other)?;
+                let h = self.add_node(parent, pos, source)?;
+                self.set_element(h, element)?;
+                h
+            }
+        };
+
+        Ok(handle)
+    }
+
+    /// Set/replace the ElementSource for a node.
+    fn set_source(&mut self, handle: UIHandle, source: ElementSource) -> Result<(), Error>;
 
     // ── Navigation ───────────────────────────────────────────────────────
 
@@ -176,6 +308,13 @@ impl DirectAppState {
 
     fn generate_handle(&self) -> UIHandle {
         UIHandle(self.next_id.fetch_add(1, Ordering::SeqCst))
+    }
+
+    /// Private helper: get a reference to the full NodeData.
+    fn get_node(&self, handle: UIHandle) -> Result<&NodeData, Error> {
+        self.nodes
+            .get(&handle)
+            .ok_or_else(|| Error::general_error(format!("Node not found: {:?}", handle)))
     }
 
     /// Remove a subtree recursively (helper).
@@ -288,10 +427,7 @@ impl AppState for DirectAppState {
         Ok(node.element.as_mut())
     }
 
-    fn set_element(&mut self, handle: UIHandle, mut element: Box<dyn UIElement>) -> Result<(), Error> {
-        // Call init on the element before storing
-        element.init(handle, self)?;
-
+    fn set_element(&mut self, handle: UIHandle, element: Box<dyn UIElement>) -> Result<(), Error> {
         let node = self
             .nodes
             .get_mut(&handle)
@@ -319,17 +455,24 @@ impl AppState for DirectAppState {
         Ok(())
     }
 
-    fn get_node(&self, handle: UIHandle) -> Result<&NodeData, Error> {
-        self.nodes
-            .get(&handle)
-            .ok_or_else(|| Error::general_error(format!("Node not found: {:?}", handle)))
+    fn node_exists(&self, handle: UIHandle) -> bool {
+        self.nodes.contains_key(&handle)
     }
 
     fn get_source(&self, handle: UIHandle) -> Result<&ElementSource, Error> {
         Ok(&self.get_node(handle)?.source)
     }
 
-    fn remove(&mut self, handle: UIHandle) -> Result<NodeData, Error> {
+    fn set_source(&mut self, handle: UIHandle, source: ElementSource) -> Result<(), Error> {
+        let node = self
+            .nodes
+            .get_mut(&handle)
+            .ok_or_else(|| Error::general_error(format!("Node not found: {:?}", handle)))?;
+        node.source = source;
+        Ok(())
+    }
+
+    fn remove(&mut self, handle: UIHandle) -> Result<(), Error> {
         let node = self
             .nodes
             .get(&handle)
@@ -347,8 +490,7 @@ impl AppState for DirectAppState {
         }
 
         // Remove the node itself
-        let node = self
-            .nodes
+        self.nodes
             .remove(&handle)
             .ok_or_else(|| Error::general_error(format!("Node not found: {:?}", handle)))?;
 
@@ -362,7 +504,7 @@ impl AppState for DirectAppState {
             self.active_handle = None;
         }
 
-        Ok(node)
+        Ok(())
     }
 
     fn roots(&self) -> Vec<UIHandle> {
@@ -525,7 +667,8 @@ mod tests {
         let mut s = DirectAppState::new();
         let h = UIHandle(42);
         s.insert_node(h, None, 0, ElementSource::None).unwrap();
-        assert_eq!(s.get_node(h).unwrap().parent, None);
+        assert!(s.node_exists(h));
+        assert_eq!(s.parent(h).unwrap(), None);
 
         // next auto-generated handle must be > 42
         let h2 = s.add_node(None, 0, ElementSource::None).unwrap();
@@ -543,7 +686,7 @@ mod tests {
     // ── Element Access ────────────────────────────────────────────────────
 
     #[test]
-    fn test_set_element_calls_init() {
+    fn test_set_element_stores_without_init() {
         let mut s = DirectAppState::new();
         let h = s.add_node(None, 0, ElementSource::None).unwrap();
 
@@ -551,7 +694,8 @@ mod tests {
         s.set_element(h, placeholder).unwrap();
 
         let elem = s.get_element(h).unwrap().unwrap();
-        assert_eq!(elem.handle(), Some(h)); // init was called
+        // set_element no longer calls init — handle remains None
+        assert_eq!(elem.handle(), None);
         assert_eq!(elem.title(), "Test");
     }
 
@@ -677,7 +821,7 @@ mod tests {
 
         s.remove(c).unwrap();
         assert!(s.children(p).unwrap().is_empty());
-        assert!(s.get_node(c).is_err());
+        assert!(!s.node_exists(c));
     }
 
     #[test]
@@ -690,9 +834,9 @@ mod tests {
 
         s.remove(c1).unwrap();
 
-        assert!(s.get_node(c1).is_err());
-        assert!(s.get_node(c2).is_err());
-        assert!(s.get_node(c3).is_err());
+        assert!(!s.node_exists(c1));
+        assert!(!s.node_exists(c2));
+        assert!(!s.node_exists(c3));
         assert!(s.children(p).unwrap().is_empty());
     }
 
@@ -789,5 +933,186 @@ mod tests {
             handles.push(s.add_node(Some(p), 100, ElementSource::None).unwrap());
         }
         assert_eq!(s.children(p).unwrap(), handles);
+    }
+
+    // ── InsertionPoint-Based Insertion ────────────────────────────────
+
+    #[test]
+    fn test_insert_source_last_child() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(p, Box::new(Placeholder::new())).unwrap();
+
+        let h = s
+            .insert_source(
+                &InsertionPoint::LastChild(p),
+                ElementSource::Query("/-/hello".into()),
+            )
+            .unwrap();
+        assert_eq!(s.children(p).unwrap(), vec![h]);
+        assert!(s.get_element(h).unwrap().is_none()); // pending
+        assert!(matches!(
+            s.get_source(h).unwrap(),
+            ElementSource::Query(_)
+        ));
+    }
+
+    #[test]
+    fn test_insert_source_first_child() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        let c = s.add_node(Some(p), 0, ElementSource::None).unwrap();
+
+        let h = s
+            .insert_source(
+                &InsertionPoint::FirstChild(p),
+                ElementSource::Query("/-/q".into()),
+            )
+            .unwrap();
+        assert_eq!(s.children(p).unwrap(), vec![h, c]);
+    }
+
+    #[test]
+    fn test_insert_source_before() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        let c1 = s.add_node(Some(p), 100, ElementSource::None).unwrap();
+        let c2 = s.add_node(Some(p), 100, ElementSource::None).unwrap();
+
+        let h = s
+            .insert_source(&InsertionPoint::Before(c2), ElementSource::None)
+            .unwrap();
+        assert_eq!(s.children(p).unwrap(), vec![c1, h, c2]);
+    }
+
+    #[test]
+    fn test_insert_source_after() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        let c1 = s.add_node(Some(p), 100, ElementSource::None).unwrap();
+        let c2 = s.add_node(Some(p), 100, ElementSource::None).unwrap();
+
+        let h = s
+            .insert_source(&InsertionPoint::After(c1), ElementSource::None)
+            .unwrap();
+        assert_eq!(s.children(p).unwrap(), vec![c1, h, c2]);
+    }
+
+    #[test]
+    fn test_insert_source_instead_replaces_source_clears_element() {
+        let mut s = DirectAppState::new();
+        let h = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(h, Box::new(Placeholder::new())).unwrap();
+        assert!(s.get_element(h).unwrap().is_some());
+
+        let returned = s
+            .insert_source(
+                &InsertionPoint::Instead(h),
+                ElementSource::Query("/-/new".into()),
+            )
+            .unwrap();
+        assert_eq!(returned, h);
+        assert!(matches!(
+            s.get_source(h).unwrap(),
+            ElementSource::Query(_)
+        ));
+        // Element cleared — now pending
+        assert!(s.get_element(h).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_insert_source_root() {
+        let mut s = DirectAppState::new();
+        let h = s
+            .insert_source(&InsertionPoint::Root, ElementSource::None)
+            .unwrap();
+        assert!(s.node_exists(h));
+        assert_eq!(s.parent(h).unwrap(), None);
+    }
+
+    #[test]
+    fn test_insert_element_last_child() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+
+        let h = s
+            .insert_element(
+                &InsertionPoint::LastChild(p),
+                Box::new(Placeholder::new().with_title("Inserted".into())),
+            )
+            .unwrap();
+
+        let elem = s.get_element(h).unwrap().unwrap();
+        assert_eq!(elem.title(), "Inserted");
+        assert_eq!(s.children(p).unwrap(), vec![h]);
+    }
+
+    #[test]
+    fn test_insert_element_instead_replaces() {
+        let mut s = DirectAppState::new();
+        let h = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(h, Box::new(Placeholder::new().with_title("Old".into())))
+            .unwrap();
+
+        let returned = s
+            .insert_element(
+                &InsertionPoint::Instead(h),
+                Box::new(Placeholder::new().with_title("New".into())),
+            )
+            .unwrap();
+        assert_eq!(returned, h);
+        let elem = s.get_element(h).unwrap().unwrap();
+        assert_eq!(elem.title(), "New");
+    }
+
+    #[test]
+    fn test_insert_state_wraps_in_state_view() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+
+        let state = State { data: Arc::new(Value::from("test value")), metadata: Arc::new(liquers_core::metadata::Metadata::new()) };
+        let h = s
+            .insert_state(&InsertionPoint::LastChild(p), &state)
+            .unwrap();
+
+        let elem = s.get_element(h).unwrap().unwrap();
+        assert_eq!(elem.type_name(), "StateViewElement");
+    }
+
+    #[test]
+    fn test_insert_state_instead() {
+        let mut s = DirectAppState::new();
+        let h = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(h, Box::new(Placeholder::new())).unwrap();
+
+        let state = State { data: Arc::new(Value::from("replaced")), metadata: Arc::new(liquers_core::metadata::Metadata::new()) };
+        let returned = s
+            .insert_state(&InsertionPoint::Instead(h), &state)
+            .unwrap();
+        assert_eq!(returned, h);
+        let elem = s.get_element(h).unwrap().unwrap();
+        assert_eq!(elem.type_name(), "StateViewElement");
+    }
+
+    #[test]
+    fn test_set_source() {
+        let mut s = DirectAppState::new();
+        let h = s.add_node(None, 0, ElementSource::None).unwrap();
+        assert!(matches!(s.get_source(h).unwrap(), ElementSource::None));
+
+        s.set_source(h, ElementSource::Query("/-/hello".into()))
+            .unwrap();
+        assert!(matches!(
+            s.get_source(h).unwrap(),
+            ElementSource::Query(_)
+        ));
+    }
+
+    #[test]
+    fn test_set_source_not_found() {
+        let mut s = DirectAppState::new();
+        assert!(s
+            .set_source(UIHandle(99), ElementSource::None)
+            .is_err());
     }
 }

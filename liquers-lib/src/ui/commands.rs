@@ -5,15 +5,12 @@ use liquers_core::error::Error;
 use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
 
-use crate::value::{ExtValue, Value};
+use crate::value::Value;
 
 use super::app_state::AppState;
-use super::element::{ElementSource, UIElement};
 use super::handle::UIHandle;
 use super::payload::UIPayload;
-use super::resolve::{
-    insertion_point_to_add_args, resolve_navigation, resolve_position, InsertionPoint,
-};
+use super::resolve::{resolve_navigation, resolve_position};
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
@@ -35,11 +32,12 @@ where
 ///
 /// 2-arg model: add-<position_word>-<reference_word>
 /// - position_word: before, after, instead, first, last, child
-/// - reference_word: navigation word for the reference element
+/// - reference_word: navigation word for the reference element (default: "current")
 ///
-/// The input state's value becomes the element content:
-/// - If it's a UIElement, use it directly
-/// - Otherwise, wrap in an AssetViewElement
+/// The input state is inserted via `AppState::insert_state`, which handles:
+/// - UIElement extraction (if the value is `ExtValue::UIElement`)
+/// - StateViewElement wrapping (for plain values)
+/// - Source preservation from metadata
 pub async fn add<E: Environment<Value = Value>>(
     state: State<Value>,
     position_word: String,
@@ -52,60 +50,12 @@ where
     let (app_state_arc, current) = get_app_state_and_current(&context)?;
     let mut app_state = app_state_arc.lock().await;
 
-    // Resolve reference
     let reference = resolve_navigation(&*app_state, &reference_word, current)?;
-
-    // Resolve position
     let insertion = resolve_position(&position_word, reference)?;
 
-    // Extract source query from state metadata
-    let source = if let Some(metadata) = state.metadata.metadata_record() {
-        if let Some(query) = &metadata.get_asset_info().query {
-            ElementSource::Query(query.encode())
-        } else {
-            ElementSource::None
-        }
-    } else {
-        ElementSource::None
-    };
-
-    // Determine element from state value
-    let value = &*state.data;
-    let element: Box<dyn UIElement> = match value {
-        Value::Extended(ExtValue::UIElement { value: elem }) => elem.clone_boxed(),
-        Value::Extended(ExtValue::Image { .. })
-        | Value::Extended(ExtValue::PolarsDataFrame { .. })
-        | Value::Extended(ExtValue::UiCommand { .. })
-        | Value::Extended(ExtValue::Widget { .. })
-        | Value::Base(_) => {
-            let title = if let Some(metadata) = state.metadata.metadata_record() {
-                if !metadata.title.is_empty() {
-                    metadata.title.clone()
-                } else {
-                    "View".to_string()
-                }
-            } else {
-                "View".to_string()
-            };
-            let asset_view =
-                super::element::AssetViewElement::new_value(title, Arc::new(value.clone()));
-            Box::new(asset_view)
-        }
-    };
-
-    // Handle "instead" specially
-    let handle = match insertion {
-        InsertionPoint::Instead(target) => {
-            app_state.set_element(target, element)?;
-            target
-        }
-        other => {
-            let (parent, pos) = insertion_point_to_add_args(&*app_state, &other)?;
-            let handle = app_state.add_node(parent, pos, source)?;
-            app_state.set_element(handle, element)?;
-            handle
-        }
-    };
+    // Delegate to AppState's insert_state which handles UIElement detection,
+    // StateViewElement wrapping, and source preservation from metadata
+    let handle = app_state.insert_state(&insertion, &state)?;
 
     Ok(Value::from(format!("{}", handle.0)))
 }
@@ -113,8 +63,8 @@ where
 /// Remove an element from the UI tree.
 pub async fn remove<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -130,8 +80,8 @@ where
 /// Get children handles of the target element.
 pub async fn children<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -148,8 +98,8 @@ where
 /// Navigate to the first child of the target element.
 pub async fn first<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -167,8 +117,8 @@ where
 /// Navigate to the last child of the target element.
 pub async fn last<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -186,8 +136,8 @@ where
 /// Navigate to the parent of the target element.
 pub async fn parent<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -205,8 +155,8 @@ where
 /// Navigate to the next sibling of the target element.
 pub async fn next<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -224,8 +174,8 @@ where
 /// Navigate to the previous sibling of the target element.
 pub async fn prev<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -259,8 +209,8 @@ where
 /// Set the active (focused) element.
 pub async fn activate<E: Environment<Value = Value>>(
     _state: State<Value>,
-    context: Context<E>,
     target_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -303,43 +253,43 @@ macro_rules! register_lui_commands {
             doc: "Add a new element to the UI tree"
         )?;
         register_command!($cr,
-            async fn remove(state, context, target_word: String) -> result
+            async fn remove(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Remove element"
             doc: "Remove an element from the UI tree"
         )?;
         register_command!($cr,
-            async fn children(state, context, target_word: String) -> result
+            async fn children(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Children"
             doc: "Get children handles of target element"
         )?;
         register_command!($cr,
-            async fn first(state, context, target_word: String) -> result
+            async fn first(state, target_word: String, context) -> result
             namespace: "lui"
             label: "First child"
             doc: "Navigate to first child of target"
         )?;
         register_command!($cr,
-            async fn last(state, context, target_word: String) -> result
+            async fn last(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Last child"
             doc: "Navigate to last child of target"
         )?;
         register_command!($cr,
-            async fn parent(state, context, target_word: String) -> result
+            async fn parent(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Parent"
             doc: "Navigate to parent of target"
         )?;
         register_command!($cr,
-            async fn next(state, context, target_word: String) -> result
+            async fn next(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Next sibling"
             doc: "Navigate to next sibling of target"
         )?;
         register_command!($cr,
-            async fn prev(state, context, target_word: String) -> result
+            async fn prev(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Previous sibling"
             doc: "Navigate to previous sibling of target"
@@ -351,7 +301,7 @@ macro_rules! register_lui_commands {
             doc: "Get all root element handles"
         )?;
         register_command!($cr,
-            async fn activate(state, context, target_word: String) -> result
+            async fn activate(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Activate"
             doc: "Set the active element"

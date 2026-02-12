@@ -15,8 +15,8 @@ use liquers_core::state::State;
 use liquers_macro::register_command;
 
 use liquers_lib::ui::{
-    AppState, AssetViewElement, DirectAppState, ElementSource, UIContext, app_message_channel,
-    render_element, try_sync_lock,
+    AppState, AssetViewElement, DirectAppState, ElementSource, UIContext, UIElement,
+    app_message_channel, render_element, try_sync_lock,
 };
 use liquers_lib::value::Value;
 
@@ -63,9 +63,10 @@ impl HelloApp {
                 .expect("Failed to evaluate hello query");
 
             let value = Arc::new((*state.data).clone());
-            let element = Box::new(AssetViewElement::new_value("Hello".to_string(), value));
+            let mut element = AssetViewElement::new_value("Hello".to_string(), value);
+            element.set_handle(root_handle);
             app_state
-                .set_element(root_handle, element)
+                .set_element(root_handle, Box::new(element))
                 .expect("Failed to set element");
 
             // 4. Wrap AppState in Arc<tokio::sync::Mutex> and create UIContext.

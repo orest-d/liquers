@@ -475,7 +475,11 @@ impl ParameterValue {
                 pos.clone(),
             )),
             None => {
-                if allow_placeholders {
+                // Try to apply the default value first
+                let default = Self::from_arginfo(arginfo);
+                if !default.is_none() {
+                    Ok(default)
+                } else if allow_placeholders {
                     Ok(ParameterValue::Placeholder(arginfo.name.clone()))
                 } else {
                     Self::from_arginfo(arginfo).to_result(

@@ -74,6 +74,12 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> Default for Combi
 
 
 impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface for CombinedValue<BaseValue, Ext> {
+        fn try_into_query(&self) -> Result<liquers_core::query::Query, Error> {
+            match self {
+                CombinedValue::Base(base) => base.try_into_query(),
+                CombinedValue::Extended(_ext) => Err(Error::conversion_error("extended value", "Query")),
+            }
+        }
     fn none() -> Self {
         CombinedValue::Base(BaseValue::none())
     }

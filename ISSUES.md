@@ -771,4 +771,49 @@ Pass data explicitly through query parameters or state instead of relying on pay
 
 ---
 
+### `register_command!` Parameter Index Misalignment with Injected Parameters
+
+**Status:** Open (workaround available)
+**Category:** Macro / Command Framework
+**Priority:** High
+**Affects:** `liquers-macro/src/lib.rs`
+
+**Description:**
+
+`extract_all_parameters()` (line ~557) uses `enumerate()` over all parameters including `Context`. `command_arguments_expression()` (line ~774) uses `filter_map` to exclude `Context` from metadata. When `Context` is not the last parameter, the extractor index `i` doesn't match the metadata/values index.
+
+**Example:**
+
+```rust
+// BROKEN: context is not last
+fn remove(state, context, target_word: String)
+// Generates: arguments.get(1, "target_word")
+// But metadata has target_word at index 0
+```
+
+**Fix:**
+
+Use a separate counter for non-Context parameters in `extract_all_parameters()`:
+
+```rust
+let mut arg_index = 0;
+for p in &self.parameters {
+    extractors.push(p.parameter_extractor(arg_index));
+    if !matches!(p, CommandParameter::Context) {
+        arg_index += 1;
+    }
+}
+```
+
+**Workaround:** Always place `context` last in the macro DSL:
+
+```rust
+// CORRECT: context last
+register_command!(cr,
+    async fn remove(state, target_word: String, context) -> result
+)?;
+```
+
+---
+
 *Add new issues below this line*

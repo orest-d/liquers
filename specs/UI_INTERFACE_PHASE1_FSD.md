@@ -1621,7 +1621,8 @@ The `evaluate_immediately` method on `EnvRef` evaluates a query synchronously
 connecting UI commands to the element tree:
 
 ```rust
-let payload = SimpleUIPayload::new(app_state.clone())
+let ui_context = UIContext::new(app_state.clone(), msg_tx.clone());
+let payload = SimpleUIPayload::new(ui_context.clone())
     .with_handle(handle);
 let asset_ref = envref
     .evaluate_immediately(&query, payload)
@@ -1629,8 +1630,9 @@ let asset_ref = envref
 let state = asset_ref.get().await?;
 ```
 
-The payload carries the `AppState` and the current element handle, making them
-available to commands via the context's `InjectedFromContext` mechanism.
+The payload wraps a `UIContext` which holds the `AppState`, message sender, and
+current element handle, making them available to commands via the context's
+`InjectedFromContext` mechanism.
 
 ---
 
@@ -1743,11 +1745,12 @@ a task on the tokio runtime:
 ```rust
 fn evaluate_node(&self, handle: UIHandle, query: &str) {
     let envref = self.envref.clone();
-    let app_state = self.app_state.clone();
+    let ui_context = self.ui_context.clone();
+    let app_state = ui_context.app_state().clone();
     let query = query.to_string();
 
     self._runtime.spawn(async move {
-        let payload = SimpleUIPayload::new(app_state.clone())
+        let payload = SimpleUIPayload::new(ui_context.clone())
             .with_handle(handle);
         let asset_ref = envref
             .evaluate_immediately(&query, payload)

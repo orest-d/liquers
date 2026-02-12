@@ -8,10 +8,10 @@ pub mod resolve;
 pub mod runner;
 pub mod ui_context;
 
-pub use app_state::{AppState, DirectAppState, NodeData};
+pub use app_state::{AppState, DirectAppState};
 pub use element::{
-    AssetViewElement, AssetViewMode, ElementSource, Placeholder, UIElement, UpdateMessage,
-    UpdateResponse,
+    AssetViewElement, AssetViewMode, ElementSource, Placeholder, StateViewElement, UIElement,
+    UpdateMessage, UpdateResponse,
 };
 pub use handle::UIHandle;
 pub use message::{AppMessage, AppMessageReceiver, AppMessageSender, app_message_channel};

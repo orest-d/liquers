@@ -18,7 +18,12 @@ use std::{
     result::Result,
 };
 
-use crate::{command_metadata::CommandMetadata, metadata::MetadataRecord, parse::{Key, Query}, recipes::Recipe};
+use crate::{
+    command_metadata::CommandMetadata,
+    metadata::MetadataRecord,
+    parse::{Key, Query},
+    recipes::Recipe,
+};
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -150,7 +155,7 @@ impl Value {
             Value::Recipe { value } => Ok(format!("{:?}", value)),
             Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
             Value::Query { value } => Ok(value.__repr__()),
-            Value::Key { value } => Ok(value.__repr__ ()),
+            Value::Key { value } => Ok(value.__repr__()),
         }
     }
 }
@@ -164,28 +169,28 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
         Value::F64 { value } => Ok(value.to_object(py)),
         Value::Text { value } => Ok(value.to_object(py)),
         Value::Array { value } => {
-                        let list = PyList::empty_bound(py);
-                        for x in value {
-                            list.append(value_to_pyobject(x, py)?).map_err(|e| {
-                                liquers_core::error::Error::execution_error(format!(
-                                    "Error appending to python list: {e}"
-                                ))
-                            })?;
-                        }
-                        Ok(list.into())
+            let list = PyList::empty_bound(py);
+            for x in value {
+                list.append(value_to_pyobject(x, py)?).map_err(|e| {
+                    liquers_core::error::Error::execution_error(format!(
+                        "Error appending to python list: {e}"
+                    ))
+                })?;
             }
+            Ok(list.into())
+        }
         Value::Object { value } => {
-                let dict = PyDict::new_bound(py);
-                for (k, v) in value {
-                    let x = value_to_pyobject(v, py)?;
-                    dict.set_item(k, x).map_err(|e| {
-                        liquers_core::error::Error::execution_error(format!(
-                            "Error setting item '{k}' in python dictionary: {e}"
-                        ))
-                    })?;
-                }
-                Ok(dict.into())
+            let dict = PyDict::new_bound(py);
+            for (k, v) in value {
+                let x = value_to_pyobject(v, py)?;
+                dict.set_item(k, x).map_err(|e| {
+                    liquers_core::error::Error::execution_error(format!(
+                        "Error setting item '{k}' in python dictionary: {e}"
+                    ))
+                })?;
             }
+            Ok(dict.into())
+        }
         Value::Bytes { value } => Ok(value.to_object(py)),
         Value::Py { value } => Ok(value.clone_ref(py)),
         Value::Metadata { value } => Ok(value.clone().into_py(py)),
@@ -197,6 +202,15 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
 }
 
 impl ValueInterface for Value {
+    fn try_into_query(&self) -> Result<crate::parse::Query, Error> {
+        match self {
+            Value::Query { value } => Ok(value.clone()),
+            Value::Text { value: s } => crate::parse::parse(s)
+                .map(|q| q.0)
+                .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+            _ => Err(Error::conversion_error(self.identifier(), "Query")),
+        }
+    }
     fn none() -> Self {
         Value::None {}
     }
@@ -277,7 +291,7 @@ impl ValueInterface for Value {
             Value::Object { value: _ } => "dictionary".into(),
             Value::Bytes { value: _ } => "bytes".into(),
             Value::Py { value: _ } => "python_value".into(),
-            Value::Metadata { value: _} => "metadata".into(),
+            Value::Metadata { value: _ } => "metadata".into(),
             Value::Recipe { value: _ } => "recipe".into(),
             Value::CommandMetadata { value: _ } => "command_metadata".into(),
             Value::Query { value: _ } => "query".into(),
@@ -463,13 +477,13 @@ impl ValueInterface for Value {
             value: Recipe { inner: recipe },
         }
     }
-    
+
     fn from_query(query: &liquers_core::query::Query) -> Self {
         Value::Query {
-            value: Query ( query.clone() ),
+            value: Query(query.clone()),
         }
     }
-    
+
     fn from_key(key: &liquers_core::query::Key) -> Self {
         Value::Key {
             value: Key(key.clone()),

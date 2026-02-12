@@ -106,6 +106,7 @@ impl UIElement for ButtonElement {
         &mut self,
         ui: &mut egui::Ui,
         ctx: &UIContext,
+        _app_state: &mut dyn liquers_lib::ui::AppState,
     ) -> egui::Response {
         let response = ui.button(&self.button_label);
         if response.clicked() {
@@ -166,7 +167,8 @@ impl ButtonApp {
             //    - `ns-lui` switches to the `lui` namespace
             //    - `add-instead` (with default reference_word="current") replaces
             //       this element with an AssetViewElement wrapping the hello output.
-            let button = ButtonElement::new("Say Hello", "hello/q/ns-lui/add-instead-current");
+            let mut button = ButtonElement::new("Say Hello", "hello/ns-lui/add-instead-current");
+            button.set_handle(root_handle);
             direct_state
                 .set_element(root_handle, Box::new(button))
                 .expect("Failed to set ButtonElement");

@@ -37,6 +37,8 @@ pub enum Value {
 /// This is a central trait that defines the minimum set of operations
 /// that must be supported by the value type.
 pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static{
+        /// Try to get a Query out
+        fn try_into_query(&self) -> Result<crate::query::Query, Error>;
     /// Empty value
     fn none() -> Self;
 
@@ -230,6 +232,14 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
 }
 
 impl ValueInterface for Value {
+        fn try_into_query(&self) -> Result<crate::query::Query, Error> {
+            match self {
+                Value::Query(q) => Ok(q.clone()),
+                Value::Text(s) => crate::parse::parse_query(s)
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                _ => Err(Error::conversion_error(self.identifier(), "Query")),
+            }
+        }
     fn none() -> Self {
         Value::None
     }

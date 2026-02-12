@@ -73,6 +73,14 @@ impl Default for SimpleValue {
 
 
 impl ValueInterface for SimpleValue {
+        fn try_into_query(&self) -> Result<Query, Error> {
+            match self {
+                SimpleValue::Query { value } => Ok(value.clone()),
+                SimpleValue::Text { value: s } => liquers_core::parse::parse_query(s)
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                _ => Err(Error::conversion_error(self.identifier(), "Query")),
+            }
+        }
     fn none() -> Self {
         SimpleValue::None {}
     }

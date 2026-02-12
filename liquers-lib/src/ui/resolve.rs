@@ -97,7 +97,12 @@ pub fn resolve_navigation(
             })?;
             let handle = UIHandle(n);
             // Validate the handle exists
-            app_state.get_node(handle)?;
+            if !app_state.node_exists(handle) {
+                return Err(Error::general_error(format!(
+                    "Node not found: {:?}",
+                    handle
+                )));
+            }
             Ok(handle)
         }
     }
@@ -133,8 +138,8 @@ pub fn resolve_position(
 ///
 /// Returns (parent_handle, position_index).
 /// For `Instead`, the caller must handle replacement separately.
-pub fn insertion_point_to_add_args(
-    app_state: &dyn AppState,
+pub fn insertion_point_to_add_args<S: AppState + ?Sized>(
+    app_state: &S,
     point: &InsertionPoint,
 ) -> Result<(Option<UIHandle>, usize), Error> {
     match point {

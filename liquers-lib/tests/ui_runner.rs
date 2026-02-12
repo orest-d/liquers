@@ -15,6 +15,7 @@ use liquers_lib::ui::{
     app_message_channel, AppRunner, AppState, DirectAppState, ElementSource, ElementStatusInfo,
     UIContext, UIElement, UIHandle, UpdateMessage, UpdateResponse,
 };
+use liquers_core::value::ValueInterface;
 use liquers_lib::value::Value;
 
 // Required by register_command! and register_lui_commands! macros.
@@ -103,16 +104,17 @@ fn register_commands(env: &mut DefaultEnvironment<Value, SimpleUIPayload>) -> Re
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-/// Test the full widget interaction loop headlessly (no egui):
+/// Test the widget interaction with `/q/` (query-value) path:
 ///
-/// 1. TestWidget receives a Custom update → submits query via UIContext
+/// 1. TestWidget receives a Custom update → submits `hello/q/ns-lui/add-instead`
 /// 2. AppRunner processes SubmitQuery inline via evaluate_immediately
-/// 3. The `hello` command produces a value
-/// 4. The `add-instead` command (with default reference_word="current") replaces
-///    the element at the current handle with an AssetViewElement wrapping the value
-/// 5. After run(), the root element is an AssetViewElement (not the original TestWidget)
+/// 3. The `/q/` instruction wraps "hello" as a `Value::Query("hello")`
+/// 4. `add-instead` calls `insert_state`, which detects the Query value and creates
+///    a pending node with `ElementSource::Query("hello")` and element=None
+/// 5. AppRunner's Phase 2 picks up the pending node and starts async evaluation
+/// 6. After polling, the element becomes an AssetViewElement wrapping the actual value
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_widget_interaction_headless() {
+async fn test_widget_interaction_query_value() {
     // 1. Create environment with hello + lui commands
     let env = setup_env();
     let envref = env.to_ref();
@@ -123,8 +125,8 @@ async fn test_widget_interaction_headless() {
         .add_node(None, 0, ElementSource::None)
         .expect("add root node");
 
-    // 3. Set TestWidget on the root — its query will be submitted on Custom update
-    let widget = TestWidget::new("hello/ns-lui/add-instead");
+    // 3. Set TestWidget on the root — query uses /q/ to pass hello as a query value
+    let widget = TestWidget::new("hello/q/ns-lui/add-instead");
     direct_state
         .set_element(root_handle, Box::new(widget))
         .expect("set TestWidget");
@@ -148,12 +150,91 @@ async fn test_widget_interaction_headless() {
         state.put_element(root_handle, elem).expect("put element");
     }
 
+    // 6. Poll loop: first run() processes SubmitQuery → add-instead creates pending node,
+    //    subsequent runs evaluate the pending query and poll for completion.
+    let mut completed = false;
+    for _ in 0..200 {
+        runner.run(&app_state).await.expect("runner.run");
+
+        if !runner.has_evaluating() {
+            let state = app_state.lock().await;
+            if let Ok(Some(elem)) = state.get_element(root_handle) {
+                if elem.type_name() == "AssetViewElement" {
+                    // Verify the actual value
+                    if let Some(value) = elem.get_value() {
+                        if let Ok(text) = value.try_into_string() {
+                            if text == "Hello from test!" {
+                                completed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+
+    assert!(completed, "query-value evaluation should complete within timeout");
+
+    // 7. Verify final state
+    let state = app_state.lock().await;
+    assert_eq!(
+        runner.element_status(&*state, root_handle),
+        ElementStatusInfo::Ready
+    );
+    assert_eq!(state.roots().len(), 1);
+}
+
+/// Test the widget interaction with direct value path (no `/q/`):
+///
+/// 1. TestWidget receives a Custom update → submits `hello/ns-lui/add-instead`
+/// 2. AppRunner processes SubmitQuery inline via evaluate_immediately
+/// 3. `hello` is evaluated first, producing "Hello from test!" (a string value)
+/// 4. `add-instead` calls `insert_state`, which wraps the string in a StateViewElement
+/// 5. After a single run(), the root element is a StateViewElement (immediate, no polling)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_widget_interaction_direct_value() {
+    // 1. Create environment with hello + lui commands
+    let env = setup_env();
+    let envref = env.to_ref();
+
+    // 2. Create AppState with a root node (ElementSource::None = no auto-eval)
+    let mut direct_state = DirectAppState::new();
+    let root_handle = direct_state
+        .add_node(None, 0, ElementSource::None)
+        .expect("add root node");
+
+    // 3. Set TestWidget on the root — query does NOT use /q/, so hello runs first
+    let widget = TestWidget::new("hello/ns-lui/add-instead");
+    direct_state
+        .set_element(root_handle, Box::new(widget))
+        .expect("set TestWidget");
+
+    // 4. Wrap in Arc<Mutex>, create channel and runner
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+        Arc::new(tokio::sync::Mutex::new(direct_state));
+    let (msg_tx, msg_rx) = app_message_channel();
+    let ui_context =
+        UIContext::new(app_state.clone(), msg_tx.clone()).with_handle(Some(root_handle));
+    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+
+    // 5. Extract element → trigger update → put back
+    {
+        let mut state = app_state.lock().await;
+        let mut elem = state.take_element(root_handle).expect("take element");
+        let trigger = UpdateMessage::Custom(Box::new(()));
+        let response = elem.update(&trigger, &ui_context);
+        assert_eq!(response, UpdateResponse::NeedsRepaint);
+        state.put_element(root_handle, elem).expect("put element");
+    }
+
     // 6. Run AppRunner — processes SubmitQuery via evaluate_immediately.
-    //    The `add-instead` command sets the element at root_handle directly.
+    //    The `add-instead` command inserts a StateViewElement wrapping the hello output.
     runner.run(&app_state).await.expect("runner.run");
 
-    // 7. Verify: root element replaced by AssetViewElement, single root
-    assert!(!runner.has_evaluating(), "no in-flight evaluations");
+    // 7. Verify: root element replaced by StateViewElement with the actual value
     let state = app_state.lock().await;
     assert_eq!(
         runner.element_status(&*state, root_handle),
@@ -163,7 +244,14 @@ async fn test_widget_interaction_headless() {
         .get_element(root_handle)
         .expect("get element")
         .expect("element should be present");
-    assert_eq!(elem.type_name(), "AssetViewElement");
+    assert_eq!(elem.type_name(), "StateViewElement");
+
+    // Verify actual value
+    let value = elem.get_value().expect("element should have a value");
+    let text = value
+        .try_into_string()
+        .expect("value should be convertible to string");
+    assert_eq!(text, "Hello from test!");
     assert_eq!(state.roots().len(), 1);
 }
 
@@ -219,6 +307,13 @@ async fn test_pending_auto_evaluation() {
         .expect("get element")
         .expect("element should be present");
     assert_eq!(elem.type_name(), "AssetViewElement");
+
+    // 6. Verify actual value via get_value()
+    let value = elem.get_value().expect("element should have a value");
+    let text = value
+        .try_into_string()
+        .expect("value should be convertible to string");
+    assert_eq!(text, "Hello from test!");
 }
 
 /// Test that submitting an invalid query results in an AssetViewElement in Error mode.
