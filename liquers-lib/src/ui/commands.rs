@@ -42,9 +42,9 @@ where
 /// - Otherwise, wrap in an AssetViewElement
 pub async fn add<E: Environment<Value = Value>>(
     state: State<Value>,
-    context: Context<E>,
     position_word: String,
     reference_word: String,
+    context: Context<E>,
 ) -> Result<Value, Error>
 where
     E::Payload: UIPayload,
@@ -297,7 +297,7 @@ macro_rules! register_lui_commands {
         use $crate::ui::commands::*;
 
         register_command!($cr,
-            async fn add(state, context, position_word: String, reference_word: String = "current") -> result
+            async fn add(state, position_word: String, reference_word: String = "current", context) -> result
             namespace: "lui"
             label: "Add element"
             doc: "Add a new element to the UI tree"

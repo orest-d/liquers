@@ -479,7 +479,7 @@ impl ParameterValue {
                     Ok(ParameterValue::Placeholder(arginfo.name.clone()))
                 } else {
                     Self::from_arginfo(arginfo).to_result(
-                        || format!("Missing argument '{}'", arginfo.name),
+                        || format!("Missing argument '{}' (pop_value)", arginfo.name),
                         &param.position,
                     )
                 }
