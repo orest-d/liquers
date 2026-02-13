@@ -104,26 +104,19 @@ where
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
     ) {
         while let Ok(msg) = self.message_rx.try_recv() {
+            println!("AppRunner received message: {:?}", msg);
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
                     let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
                         .with_handle(Some(handle));
 
-                    // 1. Set progress element (quick lock)
-                    {
-                        let mut state = app_state.lock().await;
-                        Self::set_element_and_init(
-                            &mut *state,
-                            handle,
-                            Box::new(AssetViewElement::new_progress(query.clone())),
-                            &ui_context,
-                        );
-                    }
-
-                    // 2. Create payload with handle
+                    // 1. Create payload with handle
                     let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
 
-                    // 3. Evaluate inline — commands handle AppState themselves
+                    // 2. Evaluate inline — commands handle AppState themselves
+                    //    Do NOT set a progress element here: the command manipulates
+                    //    AppState directly, and overwriting the element on `handle`
+                    //    would destroy container elements (e.g. UISpecElement).
                     match self.envref.evaluate_immediately(&query, payload).await {
                         Ok(asset_ref) => {
                             // Wait for completion — evaluate_immediately completes inline
@@ -142,7 +135,7 @@ where
                             }
                         }
                         Err(e) => {
-                            // 4. On error: set error element
+                            // On error: set error element
                             let mut state = app_state.lock().await;
                             Self::set_element_and_init(
                                 &mut *state,

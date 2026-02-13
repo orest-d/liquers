@@ -143,6 +143,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         element: Box<dyn UIElement>,
     ) -> Result<UIHandle, Error> {
+        println!("Inserting element at {:?} with title {:?}", point, element.title());
         match point {
             InsertionPoint::Instead(target) => {
                 let handle = *target;
@@ -169,6 +170,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         state: &State<Value>,
     ) -> Result<UIHandle, Error> {
+        println!("Inserting state at {:?} with value: {:?}", point, state.data);
         let value = &*state.data;
 
         // Extract source from metadata query

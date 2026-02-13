@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Serialize, Deserialize};
 
 /// Type-safe handle for UI elements.
@@ -13,6 +15,18 @@ impl From<u64> for UIHandle {
 impl From<UIHandle> for u64 {
     fn from(handle: UIHandle) -> Self {
         handle.0
+    }
+}
+
+impl Default for UIHandle {
+    fn default() -> Self {
+        UIHandle(0)
+    }
+}
+
+impl Display for UIHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UIHandle({})", self.0)
     }
 }
 

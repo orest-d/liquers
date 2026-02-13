@@ -94,7 +94,7 @@ menu:
       query: "text-Help~.Use~.menu~.or~.shortcuts~.to~.navigate/q/ns-lui/add-instead"
 
 init:
-  - "text-Welcome~.to~.UISpec~.Demo!/q/ns-lui/add-child"
+  - "text-Welcome~.to~.UISpec~.Demo/q/ns-lui/add-child"
   - "numbers-5/q/ns-lui/add-child"
   - "table-3-4/q/ns-lui/add-child"
 
