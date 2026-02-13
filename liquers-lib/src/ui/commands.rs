@@ -11,6 +11,7 @@ use super::app_state::AppState;
 use super::handle::UIHandle;
 use super::payload::UIPayload;
 use super::resolve::{resolve_navigation, resolve_position};
+use super::widgets::ui_spec_element::{UISpec, UISpecElement};
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
@@ -223,6 +224,46 @@ where
     Ok(Value::from(format!("{}", target.0)))
 }
 
+/// Command: lui/ui_spec
+/// Creates UISpecElement from YAML spec in state
+pub fn ui_spec<E: Environment<Value = Value>>(
+    state: &State<Value>,
+    context: Context<E>,
+) -> Result<Value, Error> {
+    // 1. Extract YAML from state (text or bytes)
+    let yaml_str = state.try_into_string()
+        .or_else(|_| {
+            // Try bytes → UTF-8
+            state.as_bytes()
+                .and_then(|bytes| {
+                    String::from_utf8(bytes.to_vec())
+                        .map_err(|e| Error::general_error(format!("Invalid UTF-8: {}", e)))
+                })
+        })?;
+
+    // 2. Parse YAML → UISpec
+    let spec = UISpec::from_yaml(&yaml_str)?;
+
+    // 3. Validate shortcuts, warn via context if conflicts
+    if let Some(menu_spec) = &spec.menu {
+        let conflicts = menu_spec.validate_shortcuts();
+        for (shortcut, count) in conflicts {
+            context.warning(&format!(
+                "Keyboard shortcut '{}' defined {} times (will use first occurrence)",
+                shortcut, count
+            ));
+        }
+    }
+
+    // 4. Create element
+    let element = UISpecElement::from_spec("UI Spec".to_string(), spec);
+
+    // 5. Wrap in ExtValue::UIElement
+    Ok(Value::from(crate::value::ExtValue::UIElement {
+        value: Arc::new(element),
+    }))
+}
+
 // ─── Registration ───────────────────────────────────────────────────────────
 
 /// Register lui namespace commands.
@@ -305,6 +346,12 @@ macro_rules! register_lui_commands {
             namespace: "lui"
             label: "Activate"
             doc: "Set the active element"
+        )?;
+        register_command!($cr,
+            fn ui_spec(state, context) -> result
+            namespace: "lui"
+            label: "UI Spec"
+            doc: "Create UISpecElement from YAML specification"
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use egui::debug_text::print;
 use serde::{Deserialize, Serialize};
 
 use liquers_core::error::Error;
@@ -121,6 +122,7 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
         _ctx: &UIContext,
         _app_state: &mut dyn super::app_state::AppState,
     ) -> egui::Response {
+        println!("Showing element: {} - UNDEFINED show_in_egui", self.title());
         ui.label(self.title())
     }
 }
@@ -661,6 +663,8 @@ pub fn render_element(
     handle: UIHandle,
     ctx: &UIContext,
 ) {
+    println!("Rendering element with handle {:?}", handle);
+
     // 1. Acquire lock for the entire render cycle.
     let mut state = match super::try_sync_lock(ctx.app_state()) {
         Ok(guard) => guard,

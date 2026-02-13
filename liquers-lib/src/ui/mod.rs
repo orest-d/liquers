@@ -7,6 +7,7 @@ pub mod payload;
 pub mod resolve;
 pub mod runner;
 pub mod ui_context;
+pub mod widgets;
 
 pub use app_state::{AppState, DirectAppState};
 pub use element::{
@@ -21,6 +22,7 @@ pub use resolve::{
     insertion_point_to_add_args, resolve_navigation, resolve_position, InsertionPoint,
 };
 pub use ui_context::UIContext;
+pub use widgets::UISpecElement;
 
 pub use element::render_element;
 

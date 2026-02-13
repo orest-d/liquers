@@ -816,4 +816,217 @@ register_command!(cr,
 
 ---
 
+### Platform-Agnostic Keyboard Shortcut System
+
+**Status:** Design needed
+**Category:** UI / Architecture
+**Priority:** Medium
+**Affects:** `liquers-lib/src/ui/widgets/ui_spec_element.rs`, future UI backends
+
+**Description:**
+
+Currently, keyboard shortcut parsing and checking in UISpecElement is tightly coupled to egui's API (`egui::Key`, `egui::KeyboardShortcut`, `egui::Modifiers`). This creates portability issues when supporting multiple UI backends (ratatui, dioxus, iced, etc.).
+
+**Current Implementation:**
+
+```rust
+// In UISpecElement::check_shortcut() (egui-specific)
+fn check_shortcut(&self, ui: &egui::Ui, shortcut_str: &str) -> bool {
+    let parts: Vec<&str> = shortcut_str.split('+').collect();
+    let mut modifiers = egui::Modifiers::default();
+    let mut key_opt = None;
+
+    for part in parts {
+        match part {
+            "Ctrl" | "Control" => modifiers.ctrl = true,
+            "Shift" => modifiers.shift = true,
+            "Alt" => modifiers.alt = true,
+            "Command" | "Cmd" => modifiers.command = true,
+            _ => {
+                key_opt = egui::Key::from_name(part);
+            }
+        }
+    }
+
+    if let Some(key) = key_opt {
+        let shortcut = egui::KeyboardShortcut::new(modifiers, key);
+        ui.input_mut(|i| i.consume_shortcut(&shortcut))
+    } else {
+        false
+    }
+}
+```
+
+**Problems:**
+
+1. **Backend coupling**: Uses `egui::Key`, `egui::Modifiers`, `egui::KeyboardShortcut`, `egui::Ui`
+2. **No abstraction**: Cannot swap UI backends without rewriting shortcut logic
+3. **Duplicate code risk**: Each backend (ratatui, dioxus) would need its own shortcut parser
+4. **Testing difficulty**: Cannot test shortcuts without egui context
+
+**Proposed Solution:**
+
+Create a platform-agnostic keyboard shortcut system:
+
+**Option 1: Abstraction layer with backend adapters**
+
+```rust
+// Core abstraction (platform-agnostic)
+pub struct KeyboardShortcut {
+    modifiers: Modifiers,
+    key: Key,
+}
+
+pub struct Modifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub command: bool,  // macOS
+}
+
+pub enum Key {
+    A, B, C, /* ... */ Z,
+    F1, F2, /* ... */ F12,
+    Enter, Escape, Space, Tab,
+    // ... complete key enumeration
+}
+
+impl KeyboardShortcut {
+    /// Parse from string like "Ctrl+S", "Shift+Alt+F5"
+    pub fn parse(s: &str) -> Result<Self, Error> {
+        // Platform-agnostic parsing logic
+    }
+}
+
+// Backend adapters
+pub trait ShortcutBackend {
+    fn check_shortcut(&self, shortcut: &KeyboardShortcut) -> bool;
+}
+
+// egui adapter
+impl ShortcutBackend for egui::Ui {
+    fn check_shortcut(&self, shortcut: &KeyboardShortcut) -> bool {
+        // Convert to egui types and check
+        let egui_modifiers = egui::Modifiers {
+            ctrl: shortcut.modifiers.ctrl,
+            shift: shortcut.modifiers.shift,
+            alt: shortcut.modifiers.alt,
+            command: shortcut.modifiers.command,
+            ..Default::default()
+        };
+        let egui_key = key_to_egui(&shortcut.key);
+        let egui_shortcut = egui::KeyboardShortcut::new(egui_modifiers, egui_key);
+        self.input_mut(|i| i.consume_shortcut(&egui_shortcut))
+    }
+}
+
+// ratatui adapter (future)
+impl ShortcutBackend for RatatuiContext {
+    fn check_shortcut(&self, shortcut: &KeyboardShortcut) -> bool {
+        // Convert to ratatui event types
+    }
+}
+```
+
+**Option 2: Trait-based abstraction with generic UI types**
+
+```rust
+pub trait UIContext {
+    fn check_shortcut(&self, shortcut_str: &str) -> bool;
+}
+
+impl UIContext for egui::Ui {
+    fn check_shortcut(&self, shortcut_str: &str) -> bool {
+        // egui-specific implementation
+    }
+}
+
+// UISpecElement becomes generic over UIContext
+impl UISpecElement {
+    fn show_in_egui(&mut self, ui: &mut dyn UIContext, ...) {
+        // Backend-agnostic shortcut checking
+        if ui.check_shortcut("Ctrl+S") {
+            // ...
+        }
+    }
+}
+```
+
+**Option 3: Separate shortcut crate (recommended)**
+
+Create `liquers-shortcuts` crate:
+
+```rust
+// liquers-shortcuts/src/lib.rs
+pub struct KeyboardShortcut { /* platform-agnostic */ }
+
+impl KeyboardShortcut {
+    pub fn parse(s: &str) -> Result<Self, Error>;
+}
+
+// Feature-gated backend support
+#[cfg(feature = "egui")]
+pub mod egui_backend {
+    pub fn check_shortcut(ui: &egui::Ui, shortcut: &KeyboardShortcut) -> bool;
+    pub fn from_egui(egui_shortcut: &egui::KeyboardShortcut) -> KeyboardShortcut;
+    pub fn to_egui(shortcut: &KeyboardShortcut) -> egui::KeyboardShortcut;
+}
+
+#[cfg(feature = "ratatui")]
+pub mod ratatui_backend {
+    // Similar adapters for ratatui
+}
+
+#[cfg(feature = "dioxus")]
+pub mod dioxus_backend {
+    // Similar adapters for dioxus
+}
+```
+
+**Benefits:**
+
+1. **Portability**: UISpecElement can work with any UI backend
+2. **Testability**: Shortcuts can be tested without UI framework
+3. **Consistency**: Same shortcut format across all backends
+4. **Maintainability**: Centralized shortcut logic
+5. **Extensibility**: Easy to add new backends
+
+**Design Considerations:**
+
+1. **String format standard**: Use unified format ("Ctrl+S") across all backends
+2. **Platform differences**: Handle macOS Command vs Ctrl gracefully
+3. **Key name mapping**: Some keys may not exist on all platforms
+4. **Serialization**: Shortcuts should serialize/deserialize consistently
+5. **Performance**: Parsing should be efficient (maybe cache parsed shortcuts)
+
+**Implementation Priority:**
+
+- **Phase 1** (current): egui-specific implementation (get feature working)
+- **Phase 2** (future): Abstract to support ratatui
+- **Phase 3** (future): Abstract to support dioxus/other backends
+
+**Current Status:**
+
+Using egui-specific implementation in UISpecElement. Works for current needs but creates tech debt for future multi-backend support.
+
+**Next Steps:**
+
+1. Complete UISpecElement with egui-specific shortcuts (Phase 1)
+2. Design platform-agnostic abstraction (when 2nd backend needed)
+3. Refactor UISpecElement to use abstraction
+4. Create `liquers-shortcuts` crate (if 3+ backends planned)
+
+**Related:**
+
+- `liquers-lib/src/ui/widgets/ui_spec_element.rs` - Current implementation
+- `specs/menu-pane-layout/phase2-architecture.md` - UISpecElement design
+- `specs/UI_RATATUI_DESIGN_NOTES.md` - Future ratatui support
+- `specs/UI_WEB_DESIGN_NOTES.md` - Future web support (dioxus)
+
+**Workaround:**
+
+For now, accept egui coupling. When adding new backends, refactor to abstract API.
+
+---
+
 *Add new issues below this line*
