@@ -108,6 +108,15 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
     /// Remove a node and its subtree recursively.
     fn remove(&mut self, handle: UIHandle) -> Result<(), Error>;
 
+    /// Remove all children of a node (and their subtrees), keeping the node itself.
+    fn remove_children(&mut self, handle: UIHandle) -> Result<(), Error> {
+        let children = self.children(handle)?;
+        for child in children {
+            self.remove(child)?;
+        }
+        Ok(())
+    }
+
     // ── InsertionPoint-Based Insertion ───────────────────────────────────
 
     /// Insert a node with the given source at the specified insertion point.
@@ -121,6 +130,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         match point {
             InsertionPoint::Instead(target) => {
                 let handle = *target;
+                self.remove_children(handle)?;
                 self.set_source(handle, source)?;
                 // Clear element to make it pending
                 if self.get_element(handle)?.is_some() {
@@ -147,6 +157,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         match point {
             InsertionPoint::Instead(target) => {
                 let handle = *target;
+                self.remove_children(handle)?;
                 self.set_element(handle, element)?;
                 Ok(handle)
             }
@@ -212,6 +223,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         let handle = match point {
             InsertionPoint::Instead(target) => {
                 let h = *target;
+                self.remove_children(h)?;
                 self.set_element(h, element)?;
                 if !matches!(source, ElementSource::None) {
                     let _ = self.set_source(h, source);
@@ -1047,6 +1059,66 @@ mod tests {
         let elem = s.get_element(h).unwrap().unwrap();
         assert_eq!(elem.title(), "Inserted");
         assert_eq!(s.children(p).unwrap(), vec![h]);
+    }
+
+    #[test]
+    fn test_insert_source_instead_removes_children() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(p, Box::new(Placeholder::new())).unwrap();
+        let c1 = s.add_node(Some(p), 0, ElementSource::None).unwrap();
+        let c2 = s.add_node(Some(c1), 0, ElementSource::None).unwrap();
+
+        s.insert_source(
+            &InsertionPoint::Instead(p),
+            ElementSource::Query("/-/new".into()),
+        )
+        .unwrap();
+
+        // Children and grandchildren should be removed
+        assert!(!s.node_exists(c1));
+        assert!(!s.node_exists(c2));
+        assert!(s.children(p).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_insert_element_instead_removes_children() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(p, Box::new(Placeholder::new().with_title("Old".into())))
+            .unwrap();
+        let c1 = s.add_node(Some(p), 0, ElementSource::None).unwrap();
+        let _c2 = s.add_node(Some(c1), 0, ElementSource::None).unwrap();
+
+        s.insert_element(
+            &InsertionPoint::Instead(p),
+            Box::new(Placeholder::new().with_title("New".into())),
+        )
+        .unwrap();
+
+        let elem = s.get_element(p).unwrap().unwrap();
+        assert_eq!(elem.title(), "New");
+        assert!(!s.node_exists(c1));
+        assert!(s.children(p).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_insert_state_instead_removes_children() {
+        let mut s = DirectAppState::new();
+        let p = s.add_node(None, 0, ElementSource::None).unwrap();
+        s.set_element(p, Box::new(Placeholder::new())).unwrap();
+        let c1 = s.add_node(Some(p), 0, ElementSource::None).unwrap();
+
+        let state = State {
+            data: Arc::new(Value::from("replaced")),
+            metadata: Arc::new(liquers_core::metadata::Metadata::new()),
+        };
+        s.insert_state(&InsertionPoint::Instead(p), &state).unwrap();
+
+        assert!(!s.node_exists(c1));
+        assert!(s.children(p).unwrap().is_empty());
+        let elem = s.get_element(p).unwrap().unwrap();
+        assert_eq!(elem.type_name(), "StateViewElement");
     }
 
     #[test]
