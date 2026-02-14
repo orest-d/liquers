@@ -663,8 +663,6 @@ pub fn render_element(
     handle: UIHandle,
     ctx: &UIContext,
 ) {
-    println!("Rendering element with handle {:?}", handle);
-
     // 1. Acquire lock for the entire render cycle.
     let mut state = match super::try_sync_lock(ctx.app_state()) {
         Ok(guard) => guard,

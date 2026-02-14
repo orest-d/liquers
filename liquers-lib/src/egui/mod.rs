@@ -63,7 +63,6 @@ impl UIValueExtension for Value {
         Self::new_extended(ExtValue::Widget { value: widget })
     }
     fn show(&self, ui: &mut egui::Ui) {
-        println!("Showing Value: {:?}", self);
         match self {
             Self::Extended(ExtValue::UiCommand { value }) => {
                 value.execute(ui);
@@ -98,7 +97,6 @@ impl UIValueExtension for Value {
                 ui.label(RichText::new(format!("F64: {}", value)).italics());
             }
             Self::Base(SimpleValue::Text { value }) => {
-                println!("Displaying text value: {}", value);
                 ui.label(value);
             }
             Self::Base(SimpleValue::Array { value }) => {
