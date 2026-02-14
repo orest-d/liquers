@@ -76,6 +76,7 @@ impl UIElement for TestWidget {
             }
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
+            UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
         }
     }
 }

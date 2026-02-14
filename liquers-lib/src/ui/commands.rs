@@ -10,7 +10,8 @@ use crate::value::Value;
 use super::app_state::AppState;
 use super::handle::UIHandle;
 use super::payload::UIPayload;
-use super::resolve::{resolve_navigation, resolve_position};
+use super::resolve::{resolve_navigation, resolve_position, InsertionPoint};
+use super::widgets::query_console_element::QueryConsoleElement;
 use super::widgets::ui_spec_element::{UISpec, UISpecElement};
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
@@ -51,8 +52,22 @@ where
     let (app_state_arc, current) = get_app_state_and_current(&context)?;
     let mut app_state = app_state_arc.lock().await;
 
-    let reference = resolve_navigation(&*app_state, &reference_word, current)?;
-    let insertion = resolve_position(&position_word, reference)?;
+    // When reference_word is "current" and there is no current element,
+    // allow root creation for child/last/first position words.
+    let insertion = if reference_word == "current" && current.is_none() {
+        match position_word.as_str() {
+            "child" | "last" | "first" => InsertionPoint::Root,
+            other => {
+                return Err(Error::general_error(format!(
+                    "Cannot use position '{}' without a current element (no root exists)",
+                    other
+                )));
+            }
+        }
+    } else {
+        let reference = resolve_navigation(&*app_state, &reference_word, current)?;
+        resolve_position(&position_word, reference)?
+    };
 
     // Delegate to AppState's insert_state which handles UIElement detection,
     // StateViewElement wrapping, and source preservation from metadata
@@ -264,6 +279,16 @@ pub fn ui_spec<E: Environment<Value = Value>>(
     }))
 }
 
+/// Command: lui/query_console
+/// Creates a QueryConsoleElement from the input state (query text string).
+pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
+    let query_string = state.try_into_string()?;
+    let element = QueryConsoleElement::new("Query Console".to_string(), query_string);
+    Ok(Value::from(crate::value::ExtValue::UIElement {
+        value: Arc::new(element),
+    }))
+}
+
 // ─── Registration ───────────────────────────────────────────────────────────
 
 /// Register lui namespace commands.
@@ -352,6 +377,12 @@ macro_rules! register_lui_commands {
             namespace: "lui"
             label: "UI Spec"
             doc: "Create UISpecElement from YAML specification"
+        )?;
+        register_command!($cr,
+            fn query_console(state) -> result
+            namespace: "lui"
+            label: "Query Console"
+            doc: "Create an interactive query console element"
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};

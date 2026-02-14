@@ -15,13 +15,14 @@ pub use element::{
     UpdateMessage, UpdateResponse,
 };
 pub use handle::UIHandle;
-pub use message::{AppMessage, AppMessageReceiver, AppMessageSender, app_message_channel};
+pub use message::{AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot, app_message_channel};
 pub use payload::{AppStateRef, SimpleUIPayload, UIPayload};
 pub use runner::{AppRunner, ElementStatusInfo};
 pub use resolve::{
     insertion_point_to_add_args, resolve_navigation, resolve_position, InsertionPoint,
 };
 pub use ui_context::UIContext;
+pub use widgets::QueryConsoleElement;
 pub use widgets::UISpecElement;
 
 pub use element::render_element;

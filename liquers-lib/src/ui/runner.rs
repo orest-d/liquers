@@ -1,18 +1,25 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use liquers_core::assets::AssetRef;
+use liquers_core::assets::{AssetNotificationMessage, AssetRef};
 use liquers_core::context::{EnvRef, Environment};
 use liquers_core::error::Error;
+use liquers_core::metadata::Status;
 
 use crate::value::{ExtValueInterface, Value};
 
 use super::app_state::AppState;
-use super::element::{AssetViewElement, ElementSource};
+use super::element::{AssetViewElement, ElementSource, UpdateMessage};
 use super::handle::UIHandle;
-use super::message::{AppMessage, AppMessageReceiver, AppMessageSender};
+use super::message::{AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot};
 use super::payload::{SimpleUIPayload, UIPayload};
 use super::ui_context::UIContext;
+
+/// Entry in the monitoring map. Tracks a monitored asset and its notification channel.
+struct MonitoredAsset<E: Environment> {
+    asset_ref: AssetRef<E>,
+    notification_rx: tokio::sync::watch::Receiver<AssetNotificationMessage>,
+}
 
 /// Centralized message processing and non-blocking evaluation runner.
 ///
@@ -27,6 +34,7 @@ use super::ui_context::UIContext;
 pub struct AppRunner<E: Environment> {
     envref: EnvRef<E>,
     evaluating: HashMap<UIHandle, AssetRef<E>>,
+    monitoring: HashMap<UIHandle, MonitoredAsset<E>>,
     message_rx: AppMessageReceiver,
     sender: AppMessageSender,
 }
@@ -49,6 +57,7 @@ where
         Self {
             envref,
             evaluating: HashMap::new(),
+            monitoring: HashMap::new(),
             message_rx,
             sender,
         }
@@ -90,6 +99,9 @@ where
         // Phase 3: Poll evaluating nodes
         self.poll_evaluating_nodes(app_state).await;
 
+        // Phase 4: Poll monitored assets, push snapshots
+        self.poll_monitored_assets(app_state).await;
+
         Ok(())
     }
 
@@ -108,7 +120,7 @@ where
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
                     let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
-                        .with_handle(Some(handle));
+                        .with_handle(handle);
 
                     // 1. Create payload with handle
                     let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
@@ -123,26 +135,34 @@ where
                             let state = asset_ref.poll_state().await;
                             if let Some(s) = state {
                                 if let Err(e) = s.error_result() {
-                                    let mut app = app_state.lock().await;
-                                    Self::set_element_and_init(
-                                        &mut *app,
-                                        handle,
-                                        Box::new(AssetViewElement::new_error(e)),
-                                        &ui_context,
-                                    );
+                                    if let Some(h) = handle {
+                                        let mut app = app_state.lock().await;
+                                        Self::set_element_and_init(
+                                            &mut *app,
+                                            h,
+                                            Box::new(AssetViewElement::new_error(e)),
+                                            &ui_context,
+                                        );
+                                    } else {
+                                        eprintln!("Root query error (no handle): {}", e);
+                                    }
                                 }
                                 // Do NOT set element from result — commands did it
                             }
                         }
                         Err(e) => {
-                            // On error: set error element
-                            let mut state = app_state.lock().await;
-                            Self::set_element_and_init(
-                                &mut *state,
-                                handle,
-                                Box::new(AssetViewElement::new_error(e)),
-                                &ui_context,
-                            );
+                            // On error: set error element (if we have a handle)
+                            if let Some(h) = handle {
+                                let mut state = app_state.lock().await;
+                                Self::set_element_and_init(
+                                    &mut *state,
+                                    h,
+                                    Box::new(AssetViewElement::new_error(e)),
+                                    &ui_context,
+                                );
+                            } else {
+                                eprintln!("Root query error (no handle): {}", e);
+                            }
                         }
                     }
                 }
@@ -159,6 +179,10 @@ where
                 AppMessage::Deserialize { path: _ } => {
                     // Deserialization is application-specific.
                     // The app layer should handle this.
+                }
+                AppMessage::RequestAssetUpdates { handle, query } => {
+                    self.handle_request_asset_updates(handle, query, app_state)
+                        .await;
                 }
             }
         }
@@ -299,6 +323,160 @@ where
                 }
             }
         }
+    }
+
+    /// Handle RequestAssetUpdates: evaluate query, subscribe to notifications,
+    /// build initial snapshot, deliver to widget, store in monitoring map.
+    async fn handle_request_asset_updates(
+        &mut self,
+        handle: UIHandle,
+        query: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        // 1. Evaluate the query (async, returns AssetRef)
+        match self.envref.evaluate(&query).await {
+            Ok(asset_ref) => {
+                // 2. Subscribe to notifications
+                let notification_rx = asset_ref.subscribe_to_notifications().await;
+
+                // 3. Build initial snapshot
+                let snapshot = Self::build_snapshot(&asset_ref).await;
+
+                // 4. Deliver snapshot to element
+                let delivered = Self::deliver_snapshot(
+                    handle,
+                    snapshot,
+                    app_state,
+                    &self.sender,
+                )
+                .await;
+
+                // 5. Store in monitoring map (replaces existing if any)
+                if delivered {
+                    self.monitoring.insert(
+                        handle,
+                        MonitoredAsset {
+                            asset_ref,
+                            notification_rx,
+                        },
+                    );
+                }
+                // If element doesn't exist, don't start monitoring
+            }
+            Err(e) => {
+                // Build error snapshot and deliver
+                let error_snapshot = AssetSnapshot {
+                    value: None,
+                    metadata: liquers_core::metadata::Metadata::new(),
+                    error: Some(e),
+                    status: Status::Error,
+                };
+                Self::deliver_snapshot(handle, error_snapshot, app_state, &self.sender).await;
+            }
+        }
+    }
+
+    /// Phase 4: Poll all monitored assets for notification changes.
+    /// Build and deliver AssetSnapshot on change.
+    /// Remove entries where the element no longer exists (auto-stop).
+    async fn poll_monitored_assets(
+        &mut self,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let mut to_remove = Vec::new();
+
+        for (handle, monitored) in self.monitoring.iter_mut() {
+            // Check if notification has changed (non-blocking)
+            if monitored.notification_rx.has_changed().unwrap_or(false) {
+                // Acknowledge the change
+                monitored.notification_rx.borrow_and_update();
+
+                // Build fresh snapshot
+                let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
+
+                // Deliver to element
+                let delivered =
+                    Self::deliver_snapshot(*handle, snapshot, app_state, &self.sender).await;
+                if !delivered {
+                    to_remove.push(*handle);
+                }
+            } else {
+                // Even without notification changes, check if element still exists
+                let state = app_state.lock().await;
+                if !state.node_exists(*handle) {
+                    to_remove.push(*handle);
+                }
+            }
+        }
+
+        // Remove entries for elements that no longer exist (auto-stop)
+        for handle in to_remove {
+            self.monitoring.remove(&handle);
+        }
+    }
+
+    /// Build an AssetSnapshot from an AssetRef.
+    async fn build_snapshot(asset_ref: &AssetRef<E>) -> AssetSnapshot {
+        // Get status
+        let status = asset_ref.status().await;
+
+        // Try to get the state (non-blocking first, then blocking)
+        let state = asset_ref.try_poll_state();
+
+        let (value, error) = match &state {
+            Some(s) => {
+                let val = Some(s.data.clone());
+                let err = s.error_result().err();
+                (val, err)
+            }
+            None => (None, None),
+        };
+
+        // Get metadata (always available)
+        let metadata = asset_ref
+            .get_metadata()
+            .await
+            .unwrap_or_else(|_| liquers_core::metadata::Metadata::new());
+
+        AssetSnapshot {
+            value,
+            metadata,
+            error,
+            status,
+        }
+    }
+
+    /// Deliver an AssetSnapshot to an element via update().
+    /// Uses the extract-update-replace pattern to avoid holding the AppState lock
+    /// while calling update() (which requires a UIContext that references AppState).
+    /// Returns false if element no longer exists (caller should remove from monitoring).
+    async fn deliver_snapshot(
+        handle: UIHandle,
+        snapshot: AssetSnapshot,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+        sender: &AppMessageSender,
+    ) -> bool {
+        // Extract element from AppState (take_element errors if not found)
+        let mut element = {
+            let mut state = app_state.lock().await;
+            match state.take_element(handle) {
+                Ok(elem) => elem,
+                Err(_) => return false,
+            }
+        }; // Lock released
+
+        // Create UIContext and call update (lock not held)
+        let ctx = UIContext::new(app_state.clone(), sender.clone())
+            .with_handle(Some(handle));
+        let _response = element.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+
+        // Put element back
+        {
+            let mut state = app_state.lock().await;
+            let _ = state.put_element(handle, element);
+        }
+
+        true
     }
 
     /// Check the status of a specific element.

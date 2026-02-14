@@ -36,6 +36,9 @@ pub enum UpdateMessage {
     Timer { elapsed_ms: u64 },
     /// Custom application-defined message.
     Custom(Box<dyn std::any::Any + Send>),
+    /// Full asset snapshot pushed by AppRunner.
+    /// Delivered whenever the monitored asset's state changes.
+    AssetUpdate(super::message::AssetSnapshot),
 }
 
 /// Element's response to an update.
@@ -489,6 +492,7 @@ impl UIElement for AssetViewElement {
             }
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
         }
     }
 

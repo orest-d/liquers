@@ -53,7 +53,17 @@ impl UIContext {
     /// Submit a query for evaluation, binding results to the given handle.
     pub fn submit_query(&self, handle: UIHandle, query: impl Into<String>) {
         let _ = self.sender.send(AppMessage::SubmitQuery {
-            handle,
+            handle: Some(handle),
+            query: query.into(),
+        });
+    }
+
+    /// Submit a root query (no current handle).
+    /// Used when there is no existing element — e.g. creating the root element
+    /// from a query at startup.
+    pub fn submit_root_query(&self, query: impl Into<String>) {
+        let _ = self.sender.send(AppMessage::SubmitQuery {
+            handle: None,
             query: query.into(),
         });
     }

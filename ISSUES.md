@@ -1029,4 +1029,90 @@ For now, accept egui coupling. When adding new backends, refactor to abstract AP
 
 ---
 
+### CommandPreset Missing Namespace Field
+
+**Status:** Open
+**Category:** Command Metadata / Query System
+**Priority:** Medium
+**Affects:** `liquers-core/src/command_metadata.rs`
+
+**Description:**
+
+`CommandPreset` contains an `ActionRequest` (command name + parameters) but has no namespace (`ns`) field. When a preset is appended to a query, the namespace context is inherited from the preceding query's last `ns` action. If the preset's intended namespace differs from the active namespace, the wrong command will be resolved or the action will fail with "action not registered".
+
+**Example of the problem:**
+
+```rust
+// Query so far: /-/ns-polars/read_csv-data.csv
+// Active namespace: polars
+// Command's `next` preset: CommandPreset { action: "to_text", label: "To Text", description: "..." }
+// "to_text" is in the root namespace, not polars
+// Appending: /-/ns-polars/read_csv-data.csv/to_text
+// PlanBuilder resolves "to_text" in namespace [polars, "", root] — may find wrong command or fail
+```
+
+**Root cause:**
+
+`CommandPreset` (line 652) stores only `ActionRequest` which has `name` and `parameters` but no namespace:
+
+```rust
+pub struct CommandPreset {
+    pub action: ActionRequest,  // name + parameters, no namespace
+    pub label: String,
+    pub description: String,
+}
+```
+
+`ActionRequest` (line 625) also has no namespace:
+
+```rust
+pub struct ActionRequest {
+    pub name: String,
+    pub parameters: Vec<ActionParameter>,
+    pub position: Position,
+}
+```
+
+**Proposed fix:**
+
+Add an optional `ns` field to `CommandPreset`:
+
+```rust
+pub struct CommandPreset {
+    pub action: ActionRequest,
+    /// Namespace for the action. If Some, the preset should be preceded by `ns-<namespace>/`
+    /// when appended to a query. If None, the action uses the query's current namespace context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub ns: Option<String>,
+    pub label: String,
+    pub description: String,
+}
+```
+
+When building the query with the preset applied, if `ns` is `Some(namespace)` and the query's active namespace doesn't already include it, prepend `ns-<namespace>/` before the action.
+
+**Impact:**
+
+- `CommandPreset::new()` unchanged (ns defaults to None for backward compatibility)
+- `register_command!` macro's `next:` and `preset:` DSL may need syntax for specifying namespace
+- `find_next_presets()` utility function should handle ns injection when constructing output queries
+- Serialization: backward compatible (skip_serializing_if + default)
+
+**Workaround:**
+
+When defining `next` presets, include the `ns` action as part of the preset action string:
+```rust
+CommandPreset::new("ns-root/to_text", "To Text", "Convert to text")
+```
+This is fragile because `CommandPreset::new` parses the string as a query and extracts only the last action, losing the `ns` prefix.
+
+**Related:**
+- `liquers-core/src/command_metadata.rs` — CommandPreset, CommandMetadata.next
+- `liquers-core/src/plan.rs` — PlanBuilder.get_namespaces(), get_command_metadata()
+- `liquers-core/src/query.rs` — ActionRequest, Query.last_ns()
+- `specs/query-console-element/phase2-architecture.md` — find_next_presets() design
+
+---
+
 *Add new issues below this line*
