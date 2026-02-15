@@ -296,7 +296,11 @@ pub fn ui_spec<E: Environment<Value = Value>>(
 pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     let query_string = if state.is_none() {
         String::new()
-    } else {
+    }
+    else if let Ok(q) = state.data.try_into_query() {
+        q.encode()
+    }
+    else {
         state.try_into_string()?
     };
     let element = QueryConsoleElement::new("Query Console".to_string(), query_string);
