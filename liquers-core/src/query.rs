@@ -1937,9 +1937,14 @@ impl Query {
         self.transform_query().and_then(|x| x.ns())
     }
 
-    /// Returns the last namespace definition if available
+    /// Returns the last namespace definition if available.
+    /// Namespace is scoped to the last transform segment only.
     pub fn last_ns(&self) -> Option<Vec<ActionParameter>> {
-        self.transform_query().and_then(|x| x.last_ns())
+        if let Some(QuerySegment::Transform(tqs)) = self.segments.last() {
+            tqs.last_ns()
+        } else {
+            None
+        }
     }
 
     /// Returns true if the last action in the query is a "q" instruction.
