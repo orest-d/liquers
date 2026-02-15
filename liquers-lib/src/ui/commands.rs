@@ -11,6 +11,7 @@ use super::app_state::AppState;
 use super::handle::UIHandle;
 use super::payload::UIPayload;
 use super::resolve::{resolve_navigation, resolve_position, InsertionPoint};
+use super::widgets::markdown_element::MarkdownElement;
 use super::widgets::query_console_element::QueryConsoleElement;
 use super::widgets::ui_spec_element::{UISpec, UISpecElement};
 
@@ -291,6 +292,20 @@ pub fn ui_spec<E: Environment<Value = Value>>(
     }))
 }
 
+/// Command: lui/markdown
+/// Creates a MarkdownElement from the input state (markdown text string).
+pub fn markdown(state: &State<Value>) -> Result<Value, Error> {
+    let text = if state.is_none() {
+        String::new()
+    } else {
+        state.try_into_string()?
+    };
+    let element = MarkdownElement::new("Markdown".to_string(), text);
+    Ok(Value::from(crate::value::ExtValue::UIElement {
+        value: Arc::new(element),
+    }))
+}
+
 /// Command: lui/query_console
 /// Creates a QueryConsoleElement from the input state (query text string).
 pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
@@ -397,6 +412,12 @@ macro_rules! register_lui_commands {
             namespace: "lui"
             label: "UI Spec"
             doc: "Create UISpecElement from YAML specification"
+        )?;
+        register_command!($cr,
+            fn markdown(state) -> result
+            namespace: "lui"
+            label: "Markdown"
+            doc: "Create a markdown viewer element"
         )?;
         register_command!($cr,
             fn query_console(state) -> result

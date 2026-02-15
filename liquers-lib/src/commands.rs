@@ -1,6 +1,13 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 
-use liquers_core::{context::{Context, Environment}, error::Error, state::State, value::ValueInterface};
+use liquers_core::{
+    command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue},
+    context::{Context, Environment},
+    error::Error,
+    state::State,
+    value::ValueInterface,
+};
 use liquers_macro::register_command;
 
 use crate::{environment::{CommandRegistryAccess, DefaultEnvironment}, value::{Value, simple::SimpleValue}};
@@ -54,6 +61,133 @@ pub fn from_yaml<E:Environment<Value = Value>>(state: &State<E::Value>, context:
     }
 }
 
+fn argument_type_name(at: &ArgumentType) -> &str {
+    match at {
+        ArgumentType::String => "String",
+        ArgumentType::Integer => "Integer",
+        ArgumentType::Boolean => "Boolean",
+        ArgumentType::Float => "Float",
+        ArgumentType::IntegerOption => "Integer?",
+        ArgumentType::FloatOption => "Float?",
+        ArgumentType::Enum(e) => &e.name,
+        ArgumentType::Any => "Any",
+        ArgumentType::None => "None",
+        ArgumentType::GlobalEnum(s) => s.as_str(),
+    }
+}
+
+fn default_value_display(v: &CommandParameterValue) -> String {
+    match v {
+        CommandParameterValue::Value(val) => {
+            serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
+        }
+        CommandParameterValue::Query(q) => format!("`{}`", q.encode()),
+        CommandParameterValue::None => "\u{2014}".to_string(), // em-dash
+    }
+}
+
+/// Generate markdown documentation of registered commands.
+///
+/// - Both `namespace` and `command_name` empty: document all commands.
+/// - `namespace` non-empty, `command_name` empty: all commands in that namespace.
+/// - `command_name` non-empty: only the matching command (in `namespace`, or any if empty).
+pub fn commands_doc<E: Environment>(
+    _state: &State<E::Value>,
+    namespace: String,
+    command_name: String,
+    context: Context<E>,
+) -> Result<E::Value, Error> {
+    let envref = context.get_envref();
+    let registry = envref.get_command_metadata_registry();
+
+    // Group commands by namespace, applying filters
+    let mut by_namespace: BTreeMap<String, Vec<&liquers_core::command_metadata::CommandMetadata>> =
+        BTreeMap::new();
+    for cmd in &registry.commands {
+        let ns = if cmd.namespace.is_empty() {
+            "root".to_string()
+        } else {
+            cmd.namespace.clone()
+        };
+
+        // Filter by namespace
+        if !namespace.is_empty() && ns != namespace {
+            continue;
+        }
+        // Filter by command name
+        if !command_name.is_empty() && cmd.name != command_name {
+            continue;
+        }
+
+        by_namespace.entry(ns).or_default().push(cmd);
+    }
+
+    let mut md = String::new();
+    let _ = writeln!(md, "# Commands\n");
+
+    for (ns, commands) in &by_namespace {
+        let _ = writeln!(md, "## Namespace: `{}`\n", ns);
+
+        for cmd in commands {
+            let _ = writeln!(md, "### `{}`\n", cmd.name);
+
+            if !cmd.label.is_empty() {
+                let _ = writeln!(md, "*{}*\n", cmd.label);
+            }
+
+            if !cmd.doc.is_empty() {
+                let _ = writeln!(md, "> {}\n", cmd.doc);
+            }
+
+            match &cmd.definition {
+                CommandDefinition::Registered => {}
+                CommandDefinition::Alias {
+                    command,
+                    head_parameters: _,
+                } => {
+                    let alias_ns = if command.namespace.is_empty() {
+                        "root"
+                    } else {
+                        &command.namespace
+                    };
+                    let _ = writeln!(md, "Alias for `{}/{}`\n", alias_ns, command.name);
+                }
+            }
+
+            // Collect non-injected arguments
+            let visible_args: Vec<_> =
+                cmd.arguments.iter().filter(|a| !a.injected).collect();
+
+            if !visible_args.is_empty() {
+                let _ = writeln!(md, "| Label | Argument | Multiplicity | Type | Default |");
+                let _ = writeln!(md, "|-------|----------|--------------|------|---------|");
+                for arg in &visible_args {
+                    let multiplicity = if arg.multiple { "multiple" } else { "single" };
+                    let label = if arg.label.is_empty() {
+                        "\u{2014}"
+                    } else {
+                        &arg.label
+                    };
+                    let _ = writeln!(
+                        md,
+                        "| {} | `{}` | {} | {} | {} |",
+                        label,
+                        arg.name,
+                        multiplicity,
+                        argument_type_name(&arg.argument_type),
+                        default_value_display(&arg.default),
+                    );
+                }
+                let _ = writeln!(md);
+            }
+
+            let _ = writeln!(md, "---\n");
+        }
+    }
+
+    Ok(E::Value::from_string(md))
+}
+
 /// Register core commands via macro.
 ///
 /// The caller must define `type CommandEnvironment = ...` in scope before invoking.
@@ -73,6 +207,12 @@ macro_rules! register_core_commands {
             label: "To metadata"
             doc: "Extract metadata from input state"
             filename: "metadata.json"
+        )?;
+        register_command!($cr,
+            fn commands_doc(state, namespace: String = "", command_name: String = "", context) -> result
+            label: "Commands documentation"
+            doc: "Generate markdown documentation of registered commands"
+            filename: "commands.md"
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};
@@ -96,10 +236,7 @@ macro_rules! register_all_commands {
     ($cr:expr) => {{
         $crate::register_core_commands!($cr)?;
         $crate::register_egui_commands!($cr)?;
-        #[cfg(feature = "image-support")]
-        {
-            $crate::register_image_commands!($cr)?;
-        }
+        $crate::register_image_commands!($cr)?;
         $crate::register_polars_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
         Ok::<(), liquers_core::error::Error>(())

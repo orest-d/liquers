@@ -57,6 +57,11 @@ pub struct QueryConsoleElement {
     /// Cached next-command presets for the current query's last action.
     #[serde(skip)]
     next_presets: Vec<NextPreset>,
+
+    /// Extracted UIElement from the value, if the value is a UIElement variant.
+    /// Stored separately so we can call `show_in_egui(&mut self, ...)` on it.
+    #[serde(skip)]
+    ui_element: Option<Box<dyn UIElement>>,
 }
 
 impl QueryConsoleElement {
@@ -74,6 +79,7 @@ impl QueryConsoleElement {
             error: None,
             status: Status::None,
             next_presets: Vec::new(),
+            ui_element: None,
         }
     }
 
@@ -91,6 +97,7 @@ impl QueryConsoleElement {
         self.value = None;
         self.error = None;
         self.next_presets.clear();
+        self.ui_element = None;
         self.data_view = false;
 
         // Send message to AppRunner
@@ -229,11 +236,18 @@ impl QueryConsoleElement {
     }
 
     /// Render the content area: either data view or metadata pane.
-    fn show_content(&self, ui: &mut egui::Ui) {
+    fn show_content(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &UIContext,
+        app_state: &mut dyn AppState,
+    ) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.data_view && self.value.is_some() {
-                // Data view
-                if let Some(ref value) = self.value {
+                // If value is a UIElement, render it with show_in_egui
+                if let Some(ref mut element) = self.ui_element {
+                    element.show_in_egui(ui, ctx, app_state);
+                } else if let Some(ref value) = self.value {
                     use crate::egui::UIValueExtension;
                     let val: &Value = value.as_ref();
                     val.show(ui);
@@ -313,6 +327,15 @@ impl UIElement for QueryConsoleElement {
                 self.metadata = Some(snapshot.metadata.clone());
                 self.error = snapshot.error.clone();
                 self.status = snapshot.status;
+
+                // Extract UIElement from value if present
+                use crate::value::ExtValueInterface;
+                self.ui_element = self
+                    .value
+                    .as_ref()
+                    .and_then(|v| v.as_ui_element().ok())
+                    .map(|elem| elem.clone_boxed());
+
                 if self.value.is_some() {
                     self.data_view = true;
                 }
@@ -336,12 +359,12 @@ impl UIElement for QueryConsoleElement {
         &mut self,
         ui: &mut egui::Ui,
         ctx: &UIContext,
-        _app_state: &mut dyn AppState,
+        app_state: &mut dyn AppState,
     ) -> egui::Response {
         ui.vertical(|ui| {
             self.show_toolbar(ui, ctx);
             ui.separator();
-            self.show_content(ui);
+            self.show_content(ui, ctx, app_state);
         })
         .response
     }
