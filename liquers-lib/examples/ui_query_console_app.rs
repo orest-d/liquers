@@ -47,7 +47,8 @@ menu:
       label: New Console
       shortcut: Ctrl+N
       action:
-        query: "main_spec/ns-lui/query_console/ns-lui/add-child"
+        query: "ns-lui/query_console/q/add-child"
+#        query: "main_spec/q/ns-lui/query_console/add-child"
     - !separator null
     - !button
       label: Quit
@@ -58,11 +59,13 @@ menu:
     items:
     - !button
       label: About
-      action: null
-layout: !windows {}
-init:
-  - "main_spec/ns-lui/query_console/ns-lui/add-child"
+      action:
+        query: main_spec/q/ns-lui/add-child
+layout: windows
+#init:
+#  - "main_spec/q/ns-lui/query_console/add-child"
 "#;
+
 
 // ─── eframe App ──────────────────────────────────────────────────────────────
 
@@ -132,7 +135,8 @@ impl eframe::App for QueryConsoleApp {
         if !self.initialized {
             self.initialized = true;
             self.ui_context.submit_root_query(
-                "main_spec/ns-lui/ui_spec/ns-lui/add-child"
+                "main_spec/ns-lui/ui_spec/add-child"
+                //"ns-lui/query_console/add-child"
             );
         }
 

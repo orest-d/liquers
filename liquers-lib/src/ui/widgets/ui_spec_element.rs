@@ -66,6 +66,7 @@ pub enum TopLevelItem {
         icon: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shortcut: Option<String>,
+        #[serde(default)]
         action: MenuAction,
     },
 }
@@ -80,6 +81,7 @@ pub enum MenuItem {
         icon: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shortcut: Option<String>,
+        #[serde(default)]
         action: MenuAction,
     },
     Submenu {
@@ -91,12 +93,49 @@ pub enum MenuItem {
     Separator,
 }
 
-/// Menu action (query submission or quit)
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
+/// Menu action (query submission, quit, or no-op)
+///
+/// YAML formats:
+/// - `action: quit` → `MenuAction::Quit`
+/// - `action: { query: "..." }` → `MenuAction::Query("...")`
+/// - `action: null` or omitted → `MenuAction::None`
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum MenuAction {
-    Quit,                    // Unit variant first (serializes as string "quit")
-    Query { query: String }, // Struct variant (serializes as object)
+    #[default]
+    None,
+    Quit,
+    Query(String),
+}
+
+/// Helper for custom deserialization: accepts null, string ("quit"), or map ({query: "..."}).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum MenuActionDe {
+    Null(()),
+    String(String),
+    Query { query: String },
+}
+
+impl<'de> Deserialize<'de> for MenuAction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let de = MenuActionDe::deserialize(deserializer)?;
+        match de {
+            MenuActionDe::Null(()) => Ok(MenuAction::None),
+            MenuActionDe::String(s) => match s.as_str() {
+                "quit" => Ok(MenuAction::Quit),
+                "none" => Ok(MenuAction::None),
+                other => Err(serde::de::Error::custom(format!(
+                    "unknown menu action: '{}' (expected 'quit' or {{query: \"...\"}})",
+                    other
+                ))),
+            },
+            MenuActionDe::Query { query } => Ok(MenuAction::Query(query)),
+        }
+    }
 }
 
 /// Layout specification (how to arrange children)
@@ -228,7 +267,9 @@ fn collect_actions_from_top_level(
             shortcut, action, ..
         } => {
             if let Some(s) = shortcut {
-                shortcuts.entry(s.clone()).or_insert_with(|| action.clone());
+                if !matches!(action, MenuAction::None) {
+                    shortcuts.entry(s.clone()).or_insert_with(|| action.clone());
+                }
             }
         }
     }
@@ -243,7 +284,9 @@ fn collect_actions_from_menu_item(
             shortcut, action, ..
         } => {
             if let Some(s) = shortcut {
-                shortcuts.entry(s.clone()).or_insert_with(|| action.clone());
+                if !matches!(action, MenuAction::None) {
+                    shortcuts.entry(s.clone()).or_insert_with(|| action.clone());
+                }
             }
         }
         MenuItem::Submenu { items, .. } => {
@@ -323,11 +366,12 @@ impl UISpecElement {
             MenuAction::Quit => {
                 std::process::exit(0);
             }
-            MenuAction::Query { query } => {
+            MenuAction::Query(query) => {
                 if let Some(handle) = self.handle {
                     ctx.submit_query(handle, query.clone());
                 }
             }
+            MenuAction::None => {}
         }
     }
 
@@ -551,16 +595,26 @@ impl UIElement for UISpecElement {
             LayoutSpec::Windows => {
                 return ui
                     .horizontal(|ui| {
+                        let mut to_remove = Vec::new();
                         for child_handle in child_handles {
                             if let Ok(mut child) = app_state.take_element(child_handle) {
                                 let window_title = child.title();
+                                let mut open = true;
                                 egui::Window::new(window_title)
                                     .id(egui::Id::new(format!("window_{:?}", child_handle)))
+                                    .open(&mut open)
                                     .show(ui.ctx(), |ui| {
                                         child.show_in_egui(ui, ctx, app_state);
                                     });
-                                let _ = app_state.put_element(child_handle, child);
+                                if open {
+                                    let _ = app_state.put_element(child_handle, child);
+                                } else {
+                                    to_remove.push(child_handle);
+                                }
                             }
+                        }
+                        for handle in to_remove {
+                            let _ = app_state.remove(handle);
                         }
                     })
                     .response;

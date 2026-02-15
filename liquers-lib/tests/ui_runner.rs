@@ -357,3 +357,162 @@ async fn test_error_handling() {
         .expect("element should be present after error");
     assert_eq!(elem.type_name(), "AssetViewElement");
 }
+
+// ─── submit_root_query Tests ─────────────────────────────────────────────────
+
+const TEST_SPEC_YAML: &str = r#"
+layout: !vertical null
+init:
+  - "hello/ns-lui/add-child"
+"#;
+
+/// Return the test YAML spec.
+fn test_spec(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(TEST_SPEC_YAML))
+}
+
+/// Replicate the ui_query_console_app flow:
+///
+/// 1. Empty AppState (no root)
+/// 2. submit_root_query("test_spec/ns-lui/ui_spec/add-child")
+/// 3. AppRunner processes SubmitQuery → evaluate_immediately:
+///    - test_spec → YAML string
+///    - ns-lui → set namespace
+///    - ui_spec → parse YAML, create UISpecElement
+///    - add-child → insert_state with InsertionPoint::Root (since handle=None)
+/// 4. Verify root element is created (roots() is non-empty)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_submit_root_query_creates_root_element() {
+    // 1. Create environment with test_spec + lui commands
+    let mut env = setup_env();
+    {
+        let cr = env.get_mut_command_registry();
+        register_command!(cr, fn test_spec(state) -> result).expect("register test_spec");
+    }
+    let envref = env.to_ref();
+
+    // 2. Create empty AppState — no root node
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+        Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+
+    // 3. Create UIContext and AppRunner
+    let (msg_tx, msg_rx) = app_message_channel();
+    let ui_context = UIContext::new(app_state.clone(), msg_tx.clone());
+    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+
+    // 4. Verify no roots initially
+    {
+        let state = app_state.lock().await;
+        assert!(state.roots().is_empty(), "should start with no roots");
+    }
+
+    // 5. Submit root query — same pattern as ui_query_console_app
+    ui_context.submit_root_query("test_spec/ns-lui/ui_spec/add-child");
+
+    // 6. Run AppRunner — processes SubmitQuery via evaluate_immediately
+    runner.run(&app_state).await.expect("runner.run");
+
+    // 7. Verify: root element should be created
+    let state = app_state.lock().await;
+    let roots = state.roots();
+    assert!(
+        !roots.is_empty(),
+        "root element should be created after submit_root_query"
+    );
+
+    // 8. Verify root element is a UISpecElement
+    let root_handle = roots[0];
+    let elem = state
+        .get_element(root_handle)
+        .expect("get element")
+        .expect("root element should be present");
+    assert_eq!(
+        elem.type_name(),
+        "UISpecElement",
+        "root element should be a UISpecElement"
+    );
+
+    // 9. Verify handle is set on the element (init must have been called)
+    assert_eq!(
+        elem.handle(),
+        Some(root_handle),
+        "element handle should be set (init must be called after insertion)"
+    );
+}
+
+/// Test that the app's full YAML (menu bar, separators, actions) parses correctly.
+/// Uses the same YAML structure as ui_query_console_app but without init queries
+/// (init queries reference app-specific commands not available in this test env).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_submit_root_query_with_app_yaml() {
+    const APP_YAML: &str = r#"
+menu:
+  items:
+  - !menu
+    label: File
+    items:
+    - !button
+      label: New Console
+      shortcut: Ctrl+N
+      action:
+        query: "hello/q/ns-lui/add-child"
+    - !separator null
+    - !button
+      label: Quit
+      shortcut: Ctrl+Q
+      action: quit
+  - !menu
+    label: Help
+    items:
+    - !button
+      label: About
+      action: null
+layout: !windows null
+"#;
+
+    fn app_spec(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from(APP_YAML))
+    }
+
+    // 1. Create environment
+    let mut env = setup_env();
+    {
+        let cr = env.get_mut_command_registry();
+        register_command!(cr, fn app_spec(state) -> result).expect("register app_spec");
+    }
+    let envref = env.to_ref();
+
+    // 2. Empty AppState
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+        Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+
+    // 3. UIContext and AppRunner
+    let (msg_tx, msg_rx) = app_message_channel();
+    let ui_context = UIContext::new(app_state.clone(), msg_tx.clone());
+    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+
+    // 4. Submit root query
+    ui_context.submit_root_query("app_spec/ns-lui/ui_spec/add-child");
+
+    // 5. Run
+    runner.run(&app_state).await.expect("runner.run");
+
+    // 6. Verify root was created with correct type and handle
+    let state = app_state.lock().await;
+    let roots = state.roots();
+    assert!(
+        !roots.is_empty(),
+        "root element should be created (app YAML parse must succeed)"
+    );
+    let root_handle = roots[0];
+    let elem = state
+        .get_element(root_handle)
+        .expect("get element")
+        .expect("root element should be present");
+    assert_eq!(elem.type_name(), "UISpecElement");
+    assert_eq!(
+        elem.handle(),
+        Some(root_handle),
+        "element handle should be set"
+    );
+}

@@ -169,10 +169,17 @@ impl QueryConsoleElement {
                 }
             }
 
-            // Query text field (expanding)
+            // Query text field with syntax highlighting (expanding)
+            let qt = self.query_text.clone();
+            let mut layouter =
+                |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
+                    let layout_job = crate::egui::widgets::query_to_layout_job(&qt);
+                    ui.fonts_mut(|f| f.layout_job(layout_job))
+                };
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.query_text)
                     .desired_width(ui.available_width() - 200.0)
+                    .layouter(&mut layouter)
                     .hint_text("Enter query..."),
             );
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {

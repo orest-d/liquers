@@ -69,18 +69,18 @@ impl InteractiveSpecApp {
                                     label: "Add Hello".to_string(),
                                     icon: None,
                                     shortcut: Some("Ctrl+H".to_string()),
-                                    action: MenuAction::Query {
-                                        query: "hello/q/ns-lui/add-child".to_string(),
-                                    },
+                                    action: MenuAction::Query(
+                                        "hello/q/ns-lui/add-child".to_string(),
+                                    ),
                                 },
                                 MenuItem::Separator,
                                 MenuItem::Button {
                                     label: "Clear All".to_string(),
                                     icon: None,
                                     shortcut: Some("Ctrl+C".to_string()),
-                                    action: MenuAction::Query {
-                                        query: "ns-lui/children-current".to_string(),
-                                    },
+                                    action: MenuAction::Query(
+                                        "ns-lui/children-current".to_string(),
+                                    ),
                                 },
                             ],
                         },
@@ -88,9 +88,9 @@ impl InteractiveSpecApp {
                             label: "Quick Add".to_string(),
                             icon: None,
                             shortcut: None,
-                            action: MenuAction::Query {
-                                query: "hello/q/ns-lui/add-child".to_string(),
-                            },
+                            action: MenuAction::Query(
+                                "hello/q/ns-lui/add-child".to_string(),
+                            ),
                         },
                     ],
                 }),

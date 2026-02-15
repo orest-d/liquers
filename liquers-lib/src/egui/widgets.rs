@@ -422,7 +422,7 @@ fn styled_query_to_layout_job(styled_query: &StyledQuery) -> LayoutJob {
     layout_job
 }
 
-fn query_to_layout_job<Q: TryToQuery + Display + Clone>(q: Q) -> LayoutJob {
+pub fn query_to_layout_job<Q: TryToQuery + Display + Clone>(q: Q) -> LayoutJob {
     let rquery = q.clone().try_to_query();
     if let Ok(query) = rquery {
         let styled_query = StyledQuery::from(query);

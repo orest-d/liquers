@@ -73,6 +73,18 @@ where
     // StateViewElement wrapping, and source preservation from metadata
     let handle = app_state.insert_state(&insertion, &state)?;
 
+    // Call init() on the newly inserted element (if present).
+    // insert_state may create pending nodes (element=None) for Query sources,
+    // so only init if an element was actually set.
+    if let Ok(mut elem) = app_state.take_element(handle) {
+        let payload = context
+            .get_payload_clone()
+            .ok_or_else(|| Error::general_error("No UI payload available".to_string()))?;
+        let ui_ctx = payload.ui_context().clone().with_handle(Some(handle));
+        let _ = elem.init(handle, &ui_ctx);
+        let _ = app_state.put_element(handle, elem);
+    }
+
     Ok(Value::from(format!("{}", handle.0)))
 }
 
@@ -282,7 +294,11 @@ pub fn ui_spec<E: Environment<Value = Value>>(
 /// Command: lui/query_console
 /// Creates a QueryConsoleElement from the input state (query text string).
 pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
-    let query_string = state.try_into_string()?;
+    let query_string = if state.is_none() {
+        String::new()
+    } else {
+        state.try_into_string()?
+    };
     let element = QueryConsoleElement::new("Query Console".to_string(), query_string);
     Ok(Value::from(crate::value::ExtValue::UIElement {
         value: Arc::new(element),
