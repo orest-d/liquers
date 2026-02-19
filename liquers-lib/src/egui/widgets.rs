@@ -551,6 +551,7 @@ pub fn display_status(ui: &mut egui::Ui, status: Status) -> egui::Response {
         Status::Cancelled => ui.colored_label(Color32::RED, "Cancelled"),
         Status::Source => ui.colored_label(Color32::from_hex("#00ff73ff").unwrap(), "Source"),
         Status::Override => ui.colored_label(Color32::from_hex("#4cec0dff").unwrap(), "Override"),
+        Status::Volatile => ui.colored_label(Color32::from_hex("#9aee08ff").unwrap(), "Volatile"),
     }
 }
 

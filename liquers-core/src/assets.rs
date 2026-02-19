@@ -225,6 +225,9 @@ pub struct AssetData<E: Environment> {
     /// This is used to prevent race conditions when cancelling long-running tasks.
     cancelled: bool,
 
+    /// If true, this asset is volatile (computed from recipe/plan before execution)
+    is_volatile: bool,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -275,6 +278,7 @@ impl<E: Environment> AssetData<E> {
             metadata: assetinfo.into(),
             save_in_background: true,
             cancelled: false,
+            is_volatile: false,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -397,7 +401,7 @@ impl<E: Environment> AssetData<E> {
                     self.status = metadata.status();
                     self.metadata = metadata;
                     match self.status {
-                        Status::Ready | Status::Source | Status::Override => {
+                        Status::Ready | Status::Source | Status::Override | Status::Volatile => {
                             self.notification_tx
                                 .send(AssetNotificationMessage::JobFinished)
                                 .map_err(|e| {
@@ -410,7 +414,10 @@ impl<E: Environment> AssetData<E> {
                             eprintln!("Asset {} loaded successfully", self.id());
                             return Ok(true);
                         }
-                        _ => {
+                        Status::None | Status::Directory | Status::Recipe |
+                        Status::Submitted | Status::Dependencies | Status::Processing |
+                        Status::Partial | Status::Error | Status::Storing |
+                        Status::Expired | Status::Cancelled => {
                             self.notification_tx
                                 .send(AssetNotificationMessage::StatusChanged(self.status))
                                 .map_err(|e| {
@@ -490,7 +497,7 @@ impl<E: Environment> AssetData<E> {
                 })
             }
             Status::Storing => None,
-            Status::Ready | Status::Expired | Status::Source | Status::Override => {
+            Status::Ready | Status::Expired | Status::Source | Status::Override | Status::Volatile => {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
                     metadata.with_type_identifier(data.identifier().to_string());
@@ -598,7 +605,11 @@ impl<E: Environment> AssetRef<E> {
     }
 
     pub async fn create_context(&self) -> Context<E> {
-        Context::new(self.clone()).await
+        let is_volatile = {
+            let lock = self.data.read().await;
+            lock.is_volatile
+        };
+        Context::new(self.clone(), is_volatile).await
     }
 
     /// Get a string representation describing the asset
@@ -818,7 +829,18 @@ impl<E: Environment> AssetRef<E> {
                 );
                 let mut lock = assetref.data.write().await;
                 if lock.data.is_some() {
-                    lock.status = Status::Ready;
+                    if lock.is_volatile {
+                        lock.status = Status::Volatile;
+                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                            mr.status = Status::Volatile;
+                            mr.is_volatile = true;
+                        }
+                    } else {
+                        lock.status = Status::Ready;
+                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                            mr.status = Status::Ready;
+                        }
+                    }
                 } else {
                     lock.status = Status::Error;
                     let e = Error::unexpected_error(format!(
@@ -867,6 +889,7 @@ impl<E: Environment> AssetRef<E> {
                 Status::Source => {}
                 Status::Directory => {}
                 Status::Override => {}
+                Status::Volatile => {}
             }
         }
         self.service_sender()
@@ -937,7 +960,18 @@ impl<E: Environment> AssetRef<E> {
                 );
                 let mut lock = assetref.data.write().await;
                 if lock.data.is_some() {
-                    lock.status = Status::Ready;
+                    if lock.is_volatile {
+                        lock.status = Status::Volatile;
+                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                            mr.status = Status::Volatile;
+                            mr.is_volatile = true;
+                        }
+                    } else {
+                        lock.status = Status::Ready;
+                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                            mr.status = Status::Ready;
+                        }
+                    }
                 } else {
                     lock.status = Status::Error;
                     let e = Error::unexpected_error(format!(
@@ -986,6 +1020,7 @@ impl<E: Environment> AssetRef<E> {
                 Status::Cancelled => {}
                 Status::Source => {}
                 Status::Override => {}
+                Status::Volatile => {}
             }
         }
         self.service_sender()
@@ -1048,7 +1083,7 @@ impl<E: Environment> AssetRef<E> {
             recipe.to_plan(cmr)?
         };
         */
-        let context = Context::new(self.clone()).await; // TODO: reference to asset
+        let context = Context::new(self.clone(), recipe.volatile).await; // TODO: reference to asset
                                                         // TODO: Separate evaluation of dependencies
                                                         //let res = apply_plan(plan, envref, context, input_state).await?;
                                                         //let res = apply_plan_new(
@@ -1086,9 +1121,17 @@ impl<E: Environment> AssetRef<E> {
                     | Status::Dependencies
                     | Status::Processing
                     | Status::Storing => {
-                        // here is a value, so this is probably an old state - mark as ready
-                        lock.status = Status::Ready;
-                        lock.metadata.set_status(Status::Ready)?;
+                        // here is a value, so this is probably an old state - mark as ready or volatile
+                        if lock.is_volatile {
+                            lock.status = Status::Volatile;
+                            if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                                mr.status = Status::Volatile;
+                                mr.is_volatile = true;
+                            }
+                        } else {
+                            lock.status = Status::Ready;
+                            lock.metadata.set_status(Status::Ready)?;
+                        }
                     }
                     Status::Ready => {}
                     Status::Partial => {}
@@ -1098,6 +1141,7 @@ impl<E: Environment> AssetRef<E> {
                     Status::Source => {}
                     Status::Expired => {}
                     Status::Override => {}
+                    Status::Volatile => {}
                 }
                 let _ = lock
                     .notification_tx
@@ -1145,7 +1189,7 @@ impl<E: Environment> AssetRef<E> {
         let (input_state, recipe) = self.initial_state_and_recipe().await;
 
         let envref = self.get_envref().await;
-        let mut context = Context::new(self.clone()).await;
+        let mut context = Context::new(self.clone(), recipe.volatile).await;
         if let Some(payload) = payload {
             context.set_payload(payload);
         }
@@ -1294,7 +1338,9 @@ impl<E: Environment> AssetRef<E> {
             Status::Submitted | Status::Dependencies | Status::Processing | Status::Partial => {
                 // Asset is being evaluated, proceed with cancellation
             }
-            _ => {
+            Status::None | Status::Directory | Status::Recipe |
+            Status::Error | Status::Storing | Status::Ready |
+            Status::Expired | Status::Cancelled | Status::Source | Status::Override | Status::Volatile => {
                 // Already finished or not started, nothing to cancel
                 return Ok(());
             }
@@ -1346,6 +1392,62 @@ impl<E: Environment> AssetRef<E> {
     pub async fn is_cancelled(&self) -> bool {
         let lock = self.data.read().await;
         lock.is_cancelled()
+    }
+
+    /// Convert asset status to Override, preventing re-evaluation.
+    /// Behavior depends on current status:
+    /// - Directory, Source: No change (ignored)
+    /// - None, Recipe, Submitted, Dependencies, Processing, Error, Cancelled:
+    ///   Cancel if necessary, set value to Value::none(), set status to Override
+    /// - Partial, Storing, Expired, Volatile, Ready:
+    ///   Keep existing value, set status to Override
+    pub async fn to_override(&self) -> Result<(), Error> {
+        let mut data = self.data.write().await;
+
+        match data.status {
+            // Ignore these - no change
+            Status::Directory | Status::Source => {
+                // No-op
+            }
+
+            // In-progress or failed states: cancel, set to none value, mark Override
+            Status::None | Status::Recipe | Status::Submitted |
+            Status::Dependencies | Status::Processing |
+            Status::Error | Status::Cancelled => {
+                // Use existing cancel() method for in-flight evaluations
+                // Drop the write lock before calling cancel() to avoid deadlock
+                drop(data);
+
+                // Cancel using AssetRef::cancel() method
+                self.cancel().await?;
+
+                // Re-acquire write lock to set Override state
+                let mut data = self.data.write().await;
+
+                data.data = Some(Arc::new(E::Value::none()));
+                data.binary = None;
+                data.status = Status::Override;
+                if let Metadata::MetadataRecord(ref mut mr) = data.metadata {
+                    mr.status = Status::Override;
+                }
+            }
+
+            // States with data: keep value, mark Override
+            Status::Partial | Status::Storing | Status::Expired |
+            Status::Volatile | Status::Ready => {
+                data.status = Status::Override;
+                if let Metadata::MetadataRecord(ref mut mr) = data.metadata {
+                    mr.status = Status::Override;
+                }
+            }
+
+            // Already Override - no-op (idempotent)
+            Status::Override => {
+                // No-op
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the final state of the asset.
@@ -1460,7 +1562,15 @@ impl<E: Environment> AssetRef<E> {
             .with_type_identifier(value.identifier().to_string());
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
-        lock.set_status(Status::Ready);
+        if lock.is_volatile {
+            lock.status = Status::Volatile;
+            if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                mr.status = Status::Volatile;
+                mr.is_volatile = true;
+            }
+        } else {
+            lock.set_status(Status::Ready)?;
+        }
         // TODO: Store value in set_value
         // TODO: Update metadata with value info
         let _ = lock
@@ -1728,6 +1838,16 @@ impl<E: Environment> DefaultAssetManager<E> {
     async fn get_volatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for key {}", key);
         let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.get_envref());
+
+        // Set is_volatile flag in AssetData and Metadata
+        {
+            let mut data = asset_ref.data.write().await;
+            data.is_volatile = true;
+            if let Metadata::MetadataRecord(ref mut mr) = data.metadata {
+                mr.is_volatile = true;
+            }
+        }
+
         Ok(asset_ref)
     }
 
@@ -1756,6 +1876,16 @@ impl<E: Environment> DefaultAssetManager<E> {
     async fn get_volatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for query {}", query);
         let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.get_envref());
+
+        // Set is_volatile flag in AssetData and Metadata
+        {
+            let mut data = asset_ref.data.write().await;
+            data.is_volatile = true;
+            if let Metadata::MetadataRecord(ref mut mr) = data.metadata {
+                mr.is_volatile = true;
+            }
+        }
+
         Ok(asset_ref)
     }
 
@@ -1942,7 +2072,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let final_status = match input_status {
             Status::Expired => Status::Expired,
             Status::Error => Status::Error,
-            _ => {
+            Status::None | Status::Directory | Status::Recipe |
+            Status::Submitted | Status::Dependencies | Status::Processing |
+            Status::Partial | Status::Storing | Status::Ready |
+            Status::Cancelled | Status::Source | Status::Override | Status::Volatile => {
                 // Check if recipe exists
                 if self.recipe_opt(key).await?.is_some() {
                     Status::Override
@@ -1999,7 +2132,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let final_status = match input_status {
             Status::Expired => Status::Expired,
             Status::Error => Status::Error,
-            _ => {
+            Status::None | Status::Directory | Status::Recipe |
+            Status::Submitted | Status::Dependencies | Status::Processing |
+            Status::Partial | Status::Storing | Status::Ready |
+            Status::Cancelled | Status::Source | Status::Override | Status::Volatile => {
                 // Check if recipe exists
                 if self.recipe_opt(key).await?.is_some() {
                     Status::Override

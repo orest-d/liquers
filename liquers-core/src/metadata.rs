@@ -44,6 +44,10 @@ pub enum Status {
     /// The recipe exists but was not used to calculate this data.
     /// Override can be cleared to recalculate using the recipe.
     Override,
+    /// Asset has volatile value (use once, then expires).
+    /// Volatile assets are never cached and must be re-evaluated each time.
+    /// Similar to Expired, but indicates the value is currently valid for single use.
+    Volatile,
 }
 
 impl Default for Status {
@@ -72,6 +76,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => false,
             Status::Override => true,
+            Status::Volatile => true,  // Volatile has data (use once)
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -90,6 +95,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => false,
             Status::Override => false,
+            Status::Volatile => false,  // Like Expired, volatile is terminal
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -110,6 +116,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => true,
             Status::Override => true,
+            Status::Volatile => true,  // Volatile is finished state
         }
     }
 
@@ -134,6 +141,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => false,
             Status::Override => false,
+            Status::Volatile => false,  // Volatile is finished, not processing
         }
     }
 
@@ -368,6 +376,10 @@ pub struct AssetInfo {
     pub updated: String,
     /// Structure containing the error information
     pub error_data: Option<Error>,
+
+    /// If true, this asset is or will be volatile
+    #[serde(default)]  // Legacy support: old AssetInfo without this field defaults to false
+    pub is_volatile: bool,
 }
 
 impl AssetInfo {
@@ -449,6 +461,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.progress = vec![asset_info.progress];
         metadata.updated = asset_info.updated;
         metadata.error_data = asset_info.error_data;
+        metadata.is_volatile = asset_info.is_volatile;
         metadata
     }
 }
@@ -512,6 +525,12 @@ pub struct MetadataRecord {
     /// Children are populated if the value is a directory
     #[serde(default)]
     pub children: Vec<AssetInfo>,
+
+    /// If true, this value is known to be volatile even if status is not yet Volatile.
+    /// Useful for in-flight assets (Submitted, Dependencies, Processing) where final
+    /// value will be volatile when ready.
+    /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
+    pub is_volatile: bool,
 }
 
 mod query_format {
@@ -664,6 +683,7 @@ impl MetadataRecord {
             },
             updated: self.updated.clone(),
             error_data: self.error_data.clone(),
+            is_volatile: self.is_volatile,
         }
     }
 
@@ -897,6 +917,11 @@ impl MetadataRecord {
         self.updated = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         self
     }
+
+    /// Returns true if the value is or will be volatile
+    pub fn is_volatile(&self) -> bool {
+        self.is_volatile || self.status == Status::Volatile
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -939,6 +964,12 @@ impl Metadata {
                 m.unicode_icon = self.unicode_icon().to_string();
                 m.file_size = self.file_size();
                 m.is_dir = self.is_dir();
+                // Try to extract is_volatile from JSON, default to false if not present
+                m.is_volatile = if let Some(is_volatile) = o.get("is_volatile") {
+                    is_volatile.as_bool().unwrap_or(false)
+                } else {
+                    false
+                };
                 Ok(m)
             }
             Metadata::MetadataRecord(m) => Ok(m.get_asset_info()),
@@ -1513,10 +1544,75 @@ impl Metadata {
             Metadata::MetadataRecord(m) => Some(m.clone()),
         }
     }
+
+    /// Returns true if the value is or will be volatile.
+    /// For legacy metadata without is_volatile field or Status::Volatile,
+    /// defaults to false (non-volatile). Such cases should be detected in
+    /// the future and marked as expired or override by the user.
+    pub fn is_volatile(&self) -> bool {
+        match self {
+            Metadata::MetadataRecord(mr) => {
+                mr.is_volatile || mr.status == Status::Volatile
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                // Try to extract is_volatile from JSON, default to false if not present
+                if let Some(is_volatile) = o.get("is_volatile") {
+                    is_volatile.as_bool().unwrap_or(false)
+                } else {
+                    // Check if status is Volatile
+                    self.status() == Status::Volatile
+                }
+            }
+            Metadata::LegacyMetadata(_) => false,  // Non-object legacy: default non-volatile
+        }
+    }
 }
 
 impl From<MetadataRecord> for Metadata {
     fn from(m: MetadataRecord) -> Self {
         Metadata::MetadataRecord(m)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_status_volatile_has_data() {
+        let status = Status::Volatile;
+        assert!(status.has_data());
+    }
+
+    #[test]
+    fn test_status_volatile_is_finished() {
+        let status = Status::Volatile;
+        assert!(status.is_finished());
+    }
+
+    #[test]
+    fn test_status_volatile_cannot_track_dependencies() {
+        let status = Status::Volatile;
+        assert!(!status.can_have_tracked_dependencies());
+    }
+
+    #[test]
+    fn test_status_volatile_serialization() {
+        let status = Status::Volatile;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"Volatile\"");
+        let deserialized: Status = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Status::Volatile);
+    }
+
+    #[test]
+    fn test_metadata_record_is_volatile_helper() {
+        let mut mr = MetadataRecord::default();
+        mr.is_volatile = true;
+        assert!(mr.is_volatile());
+
+        mr.is_volatile = false;
+        mr.status = Status::Volatile;
+        assert!(mr.is_volatile());
     }
 }

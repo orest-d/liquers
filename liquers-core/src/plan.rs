@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use std::clone;
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::ops::Index;
 
@@ -13,7 +14,7 @@ use crate::command_metadata::{
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
     CommandParameterValue, EnumArgumentType,
 };
-use crate::context::EnvRef;
+use crate::context::{EnvRef, Environment};
 use crate::error::{Error, ErrorType};
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
@@ -727,6 +728,9 @@ pub struct PlanBuilder<'c> {
     plan: Plan,
     allow_placeholders: bool,
     expand_predecessors: bool,
+
+    /// Track volatility during plan building
+    is_volatile: bool,
 }
 
 // TODO: support cache
@@ -740,6 +744,7 @@ impl<'c> PlanBuilder<'c> {
             plan: Plan::new(),
             allow_placeholders: false,
             expand_predecessors: true, // TODO: expand_predecessors should be false by default
+            is_volatile: false,
         }
     }
     pub fn with_placeholders_allowed(mut self) -> Self {
@@ -755,10 +760,69 @@ impl<'c> PlanBuilder<'c> {
         self
     }
 
+    /// Mark plan as volatile and add explanatory Step::Info
+    fn mark_volatile(&mut self, reason: &str) {
+        if !self.is_volatile {
+            self.is_volatile = true;
+            self.plan.steps.push(Step::Info(reason.to_string()));
+        }
+    }
+
+    /// Helper: check if action command is volatile via CommandMetadata
+    fn is_action_volatile(&self, command_key: &CommandKey) -> bool {
+        if let Some(metadata) = self.command_registry.get(command_key.clone()) {
+            metadata.volatile
+        } else {
+            false
+        }
+    }
+
+    /// Helper: check if parameters contain links to volatile queries
+    fn check_parameters_for_volatile_links(&mut self, params: &ResolvedParameterValues) -> Result<(), Error> {
+        for param in &params.0 {
+            self.check_parameter_for_volatile_links(param)?;
+        }
+        Ok(())
+    }
+
+    /// Helper: recursively check a single parameter for volatile links
+    fn check_parameter_for_volatile_links(&mut self, param: &ParameterValue) -> Result<(), Error> {
+        match param {
+            ParameterValue::DefaultLink(_, query)
+            | ParameterValue::ParameterLink(_, query, _)
+            | ParameterValue::OverrideLink(_, query)
+            | ParameterValue::EnumLink(_, query, _) => {
+                // Build a sub-plan for the linked query and check if it's volatile
+                let mut link_pb = PlanBuilder::new(query.clone(), self.command_registry);
+                let link_plan = link_pb.build()?;
+                if link_plan.is_volatile {
+                    self.mark_volatile(&format!(
+                        "Volatile due to link parameter to volatile query: {}",
+                        query
+                    ));
+                }
+            }
+            ParameterValue::MultipleParameters(params) => {
+                // Recursively check nested parameters
+                for nested_param in params {
+                    self.check_parameter_for_volatile_links(nested_param)?;
+                }
+            }
+            _ => {
+                // Other parameter types don't affect volatility
+            }
+        }
+        Ok(())
+    }
+
     pub fn build(&mut self) -> Result<Plan, Error> {
         let query = self.query.clone();
         self.plan.query = query.clone();
         self.process_query(&query)?;
+
+        // Set is_volatile field from builder state
+        self.plan.is_volatile = self.is_volatile;
+
         Ok(self.plan.clone())
     }
 
@@ -887,20 +951,45 @@ impl<'c> PlanBuilder<'c> {
         query: &Query,
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
+        // Intercept 'v' instruction BEFORE normal action processing
+        if action_request.name == "v" {
+            self.mark_volatile("Volatile due to instruction 'v'");
+            return Ok(());  // Don't create Step::Action for 'v'
+        }
+
         let command_metadata = self.get_command_metadata(query, action_request)?;
+
+        // Check if command is volatile
+        let command_key = CommandKey {
+            realm: command_metadata.realm.clone(),
+            namespace: command_metadata.namespace.clone(),
+            name: command_metadata.name.clone(),
+        };
+        if self.is_action_volatile(&command_key) {
+            self.mark_volatile(&format!(
+                "Volatile due to command '{}/{}/{}'",
+                command_metadata.realm, command_metadata.namespace, command_metadata.name
+            ));
+        }
 
         match &command_metadata.definition {
             command_metadata::CommandDefinition::Registered => {
+                // Resolve parameters first
+                let parameters = ResolvedParameterValues::from_action(
+                    action_request,
+                    &command_metadata,
+                    self.allow_placeholders,
+                )?;
+
+                // Check parameters for links to volatile queries
+                self.check_parameters_for_volatile_links(&parameters)?;
+
                 self.plan.steps.push(Step::Action {
                     realm: command_metadata.realm.clone(),
                     ns: command_metadata.namespace.clone(),
                     action_name: action_request.name.clone(),
                     position: action_request.position.clone(),
-                    parameters: ResolvedParameterValues::from_action(
-                        action_request,
-                        &command_metadata,
-                        self.allow_placeholders,
-                    )?,
+                    parameters,
                 });
             }
             command_metadata::CommandDefinition::Alias {
@@ -912,17 +1001,24 @@ impl<'c> PlanBuilder<'c> {
                     "Alias command {} to {}",
                     original_key, &command
                 )));
+
+                // Resolve parameters first
+                let parameters = ResolvedParameterValues::from_action_extended(
+                    action_request,
+                    &command_metadata,
+                    head_parameters,
+                    self.allow_placeholders,
+                )?;
+
+                // Check parameters for links to volatile queries
+                self.check_parameters_for_volatile_links(&parameters)?;
+
                 self.plan.steps.push(Step::Action {
                     realm: command.realm.clone(),
                     ns: command.namespace.clone(),
                     action_name: command.name.clone(),
                     position: action_request.position.clone(),
-                    parameters: ResolvedParameterValues::from_action_extended(
-                        action_request,
-                        &command_metadata,
-                        head_parameters,
-                        self.allow_placeholders,
-                    )?,
+                    parameters,
                 });
             }
         }
@@ -1083,6 +1179,11 @@ impl<'c> PlanBuilder<'c> {
 pub struct Plan {
     pub query: Query,
     pub steps: Vec<Step>,
+
+    /// If true, this plan produces volatile results.
+    /// Computed during plan building via two-phase volatility detection.
+    /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
+    pub is_volatile: bool,
 }
 
 impl Default for Plan {
@@ -1096,6 +1197,7 @@ impl Plan {
         Plan {
             query: Query::new(),
             steps: Vec::new(),
+            is_volatile: false,  // Initialize to false
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1118,6 +1220,11 @@ impl Plan {
     }
     pub fn len(&self) -> usize {
         self.steps.len()
+    }
+
+    /// Set the volatile flag (called during plan building)
+    pub fn set_volatile(&mut self, is_volatile: bool) {
+        self.is_volatile = is_volatile;
     }
     /// Find index of the last action in the plan
     fn last_action_index(&self) -> Option<usize> {
@@ -1199,6 +1306,231 @@ impl Index<usize> for Plan {
     fn index(&self, index: usize) -> &Self::Output {
         &self.steps[index]
     }
+}
+
+/// Helper function: Find all asset dependencies of a plan (direct and indirect)
+/// Returns Error with specific key if circular dependency detected
+///
+/// # Dependency Semantics
+///
+/// - **UseKeyValue**: Does NOT create dependency. Creates a value with the key,
+///   but does not fetch the resource. No attempt to get the resource is made.
+///
+/// - **GetAssetRecipe**: Does NOT create circular dependency risk. Asset recipe
+///   is associated with the key, but it's a separate resource. In a dependency
+///   tree it is a leaf. Recipe does not have further dependencies.
+///
+/// - **GetResource**: Ambiguous. Fetches data directly from the store, bypassing
+///   dependency controls. Treated as no dependency for now, but flagged here.
+///   Using the store rather than assets bypasses the asset dependency system.
+///
+/// - **SetCwd**: Does NOT create dependency on its own, but impacts relative links.
+///   Requires complex evaluation: when a key/query is examined for circular dependency,
+///   must find valid Cwd (previous SetCwd step in the plan), expand the query to
+///   absolute form, and then assess the expanded query/key.
+///
+/// # Parameters
+/// - `cwd`: Optional current working directory for resolving relative keys
+pub(crate) fn find_dependencies<'a, E: Environment>(
+    envref: EnvRef<E>,
+    plan: &'a Plan,
+    stack: &'a mut Vec<Key>,
+    cwd: Option<Key>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HashSet<Key>, Error>> + Send + 'a>> {
+    Box::pin(async move {
+    let mut dependencies = HashSet::new();
+    let mut current_cwd = cwd;
+
+    for step in &plan.steps {
+        match step {
+            Step::GetAsset(key) => {
+                // Resolve key relative to cwd if needed
+                let resolved_key = if current_cwd.is_some() {
+                    // TODO: Implement key.resolve_relative(cwd) or similar
+                    key.clone()  // For now, use key as-is
+                } else {
+                    key.clone()
+                };
+
+                // Check for circular dependency
+                if stack.contains(&resolved_key) {
+                    return Err(Error::general_error(
+                        format!("Circular dependency detected: key {:?} appears in dependency chain", resolved_key)
+                    ).with_key(&resolved_key));
+                }
+
+                // Add to dependencies
+                dependencies.insert(resolved_key.clone());
+
+                // Push onto stack
+                stack.push(resolved_key.clone());
+
+                // Get recipe for this key (if it exists)
+                if let Ok(Some(recipe)) = envref.get_recipe_provider()
+                    .recipe_opt(&resolved_key, envref.clone())
+                    .await
+                {
+                    // Recursively find dependencies of this recipe
+                    if !recipe.query.is_empty() {
+                        if let Ok(recipe_query) = recipe.get_query() {
+                            // Build plan from recipe query
+                            let cmr = envref.get_command_metadata_registry();
+                            let mut pb = PlanBuilder::new(recipe_query, cmr);
+                            let recipe_plan = pb.build()?;
+                            let indirect_deps = find_dependencies(envref.clone(), &recipe_plan, stack, current_cwd.clone()).await?;
+                            dependencies.extend(indirect_deps);
+                        }
+                    }
+                }
+
+                // Pop from stack
+                stack.pop();
+            }
+            Step::GetAssetBinary(key) => {
+                // Same as GetAsset - creates dependency
+                let resolved_key = if current_cwd.is_some() {
+                    key.clone()
+                } else {
+                    key.clone()
+                };
+
+                if stack.contains(&resolved_key) {
+                    return Err(Error::general_error(
+                        format!("Circular dependency detected: key {:?} appears in dependency chain", resolved_key)
+                    ).with_key(&resolved_key));
+                }
+
+                dependencies.insert(resolved_key.clone());
+
+                stack.push(resolved_key.clone());
+
+                if let Ok(Some(recipe)) = envref.get_recipe_provider()
+                    .recipe_opt(&resolved_key, envref.clone())
+                    .await
+                {
+                    if !recipe.query.is_empty() {
+                        if let Ok(recipe_query) = recipe.get_query() {
+                            let cmr = envref.get_command_metadata_registry();
+                            let mut pb = PlanBuilder::new(recipe_query, cmr);
+                            let recipe_plan = pb.build()?;
+                            let indirect_deps = find_dependencies(envref.clone(), &recipe_plan, stack, current_cwd.clone()).await?;
+                            dependencies.extend(indirect_deps);
+                        }
+                    }
+                }
+
+                stack.pop();
+            }
+            Step::GetAssetMetadata(key) | Step::GetAssetDirectory(key) => {
+                // Similar to GetAsset, creates dependency
+                let resolved_key = if current_cwd.is_some() {
+                    key.clone()
+                } else {
+                    key.clone()
+                };
+
+                if stack.contains(&resolved_key) {
+                    return Err(Error::general_error(
+                        format!("Circular dependency detected: key {:?} appears in dependency chain", resolved_key)
+                    ).with_key(&resolved_key));
+                }
+
+                dependencies.insert(resolved_key);
+            }
+            Step::UseKeyValue(_key) => {
+                // Does NOT create dependency - just creates a value with the key
+                // No attempt to fetch the resource is made
+            }
+            Step::GetAssetRecipe(_key) => {
+                // Does NOT create circular dependency risk
+                // Recipe is a leaf in the dependency tree, has no further dependencies
+            }
+            Step::GetResource(_key) => {
+                // Ambiguous: fetches directly from store, bypassing dependency controls
+                // Treated as no dependency for now
+                // TODO: Consider flagging this as potential dependency bypass
+            }
+            Step::GetResourceMetadata(_key) => {
+                // Similar to GetResource - bypasses dependency system
+            }
+            Step::SetCwd(key) => {
+                // Update current working directory for subsequent relative key resolution
+                current_cwd = Some(key.clone());
+                // Does not create dependency on its own
+            }
+            Step::Evaluate(query) | Step::UseQueryValue(query) => {
+                // Resolve query relative to cwd if needed
+                let resolved_query = if current_cwd.is_some() {
+                    // TODO: Implement query.resolve_relative(cwd) or similar
+                    query.clone()  // For now, use query as-is
+                } else {
+                    query.clone()
+                };
+
+                // Convert query to plan, find its dependencies
+                let cmr = envref.get_command_metadata_registry();
+                let mut pb = PlanBuilder::new(resolved_query, cmr);
+                let eval_plan = pb.build()?;
+                let query_deps = find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone()).await?;
+                dependencies.extend(query_deps);
+            }
+            Step::Plan(nested_plan) => {
+                // Find dependencies of nested plan
+                let nested_deps = find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone()).await?;
+                dependencies.extend(nested_deps);
+            }
+            Step::Action { .. } => {
+                // No dependencies
+            }
+            Step::Info(_) | Step::Warning(_) | Step::Error(_) => {
+                // No dependencies
+            }
+            Step::Filename(_) => {
+                // No dependencies (just metadata)
+            }
+            Step::GetResourceDirectory(_key) => {
+                // Similar to GetResource - bypasses dependency system
+            }
+            // IMPORTANT: No default match arm - all Step variants must be explicit
+        }
+    }
+
+    Ok(dependencies)
+    })
+}
+
+/// Check if plan has volatile dependencies (Phase 2 check)
+/// Returns true if any dependency recipe is volatile
+pub(crate) async fn has_volatile_dependencies<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+) -> Result<bool, Error> {
+    // Only check if plan is not already marked volatile
+    if plan.is_volatile {
+        return Ok(true);
+    }
+
+    // Find all dependencies (no initial cwd)
+    let mut stack = Vec::new();
+    let dependencies = find_dependencies(envref.clone(), plan, &mut stack, None).await?;
+
+    // Check each dependency key for volatility
+    for key in dependencies {
+        if let Ok(Some(recipe)) = envref.get_recipe_provider()
+            .recipe_opt(&key, envref.clone())
+            .await
+        {
+            if recipe.volatile {
+                plan.is_volatile = true;
+                plan.steps.push(Step::Info(
+                    format!("Volatile due to dependency on volatile key: {:?}", key)
+                ));
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -1389,6 +1721,7 @@ mod tests {
                 Step::Warning("warn".to_string()),
                 Step::Error("err".to_string()),
             ],
+            is_volatile: false,
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -1408,6 +1741,7 @@ mod tests {
                 },
                 Step::Info("info".to_string()),
             ],
+            is_volatile: false,
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -1430,6 +1764,7 @@ mod tests {
                 Step::Warning("warn".to_string()),
                 Step::Filename(ResourceName::new("file.txt".to_string())),
             ],
+            is_volatile: false,
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -1451,6 +1786,7 @@ mod tests {
                 },
                 Step::Info("info2".to_string()),
             ],
+            is_volatile: false,
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -1482,6 +1818,7 @@ mod tests {
                 },
                 Step::Info("info".to_string()),
             ],
+            is_volatile: false,
         };
         assert_eq!(plan.split_index(), 2);
         let (p1, p2) = plan.split();
@@ -1494,6 +1831,7 @@ mod tests {
         let plan = Plan {
             query: Default::default(),
             steps: vec![Step::Evaluate(Default::default())],
+            is_volatile: false,
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -1599,5 +1937,234 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("does not accept any arguments"));
+    }
+
+    #[test]
+    fn test_plan_builder_mark_volatile() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+
+        // Initially not volatile
+        assert!(!builder.is_volatile);
+        assert_eq!(builder.plan.steps.len(), 0);
+
+        // Mark as volatile
+        builder.mark_volatile("Test reason");
+
+        // Should be volatile now
+        assert!(builder.is_volatile);
+        assert_eq!(builder.plan.steps.len(), 1);
+
+        // Verify Step::Info was added
+        match &builder.plan.steps[0] {
+            Step::Info(msg) => assert_eq!(msg, "Test reason"),
+            _ => panic!("Expected Step::Info"),
+        }
+
+        // Calling again should not add another Step::Info (idempotency)
+        builder.mark_volatile("Another reason");
+        assert_eq!(builder.plan.steps.len(), 1);
+    }
+
+    #[test]
+    fn test_is_action_volatile() {
+        let mut cr = CommandMetadataRegistry::new();
+
+        // Add volatile command
+        let mut volatile_cmd = CommandMetadata::new("volatile_cmd");
+        volatile_cmd.volatile = true;
+        cr.add_command(&volatile_cmd);
+
+        // Add non-volatile command
+        let normal_cmd = CommandMetadata::new("normal_cmd");
+        cr.add_command(&normal_cmd);
+
+        let query = parse_query("").unwrap();
+        let builder = PlanBuilder::new(query, &cr);
+
+        // Test volatile command
+        // Note: CommandMetadata stores namespace="root", so match it directly
+        let volatile_key = CommandKey {
+            realm: "".to_string(),
+            namespace: "root".to_string(),
+            name: "volatile_cmd".to_string(),
+        };
+        assert!(builder.is_action_volatile(&volatile_key));
+
+        // Test non-volatile command
+        let normal_key = CommandKey {
+            realm: "".to_string(),
+            namespace: "root".to_string(),
+            name: "normal_cmd".to_string(),
+        };
+        assert!(!builder.is_action_volatile(&normal_key));
+
+        // Test unknown command
+        let unknown_key = CommandKey {
+            realm: "".to_string(),
+            namespace: "root".to_string(),
+            name: "unknown_cmd".to_string(),
+        };
+        assert!(!builder.is_action_volatile(&unknown_key));
+    }
+
+    #[test]
+    fn test_plan_builder_sets_is_volatile() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("").unwrap();
+
+        // Test default case: is_volatile = false
+        let mut builder1 = PlanBuilder::new(query.clone(), &cr);
+        let plan1 = builder1.build().unwrap();
+        assert!(!plan1.is_volatile);
+
+        // Test when marked as volatile
+        let mut builder2 = PlanBuilder::new(query, &cr);
+        builder2.mark_volatile("Test volatility");
+        let plan2 = builder2.build().unwrap();
+        assert!(plan2.is_volatile);
+    }
+
+    #[test]
+    fn test_v_instruction_marks_volatile() {
+        let cr = CommandMetadataRegistry::new();
+        // Query with 'v' instruction
+        let query = parse_query("v").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+        let plan = builder.build().unwrap();
+
+        // Plan should be marked as volatile
+        assert!(plan.is_volatile);
+
+        // Should have Step::Info explaining why
+        assert!(plan.steps.iter().any(|step| {
+            matches!(step, Step::Info(msg) if msg.contains("Volatile due to instruction 'v'"))
+        }));
+    }
+
+    #[test]
+    fn test_v_instruction_no_action_step() {
+        let cr = CommandMetadataRegistry::new();
+        // Query with 'v' instruction
+        let query = parse_query("v").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+        let plan = builder.build().unwrap();
+
+        // Should NOT have a Step::Action for 'v'
+        assert!(!plan.steps.iter().any(|step| {
+            matches!(step, Step::Action { action_name, .. } if action_name == "v")
+        }));
+    }
+
+    #[test]
+    fn test_volatile_command_marks_volatile() {
+        let mut cr = CommandMetadataRegistry::new();
+
+        // Add a volatile command
+        let mut volatile_cmd = CommandMetadata::new("volatile_test");
+        volatile_cmd.volatile = true;
+        cr.add_command(&volatile_cmd);
+
+        // Query using the volatile command
+        let query = parse_query("volatile_test").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+        let plan = builder.build().unwrap();
+
+        // Plan should be marked as volatile
+        assert!(plan.is_volatile);
+
+        // Should have Step::Info explaining why
+        assert!(plan.steps.iter().any(|step| {
+            matches!(step, Step::Info(msg) if msg.contains("Volatile due to command"))
+        }));
+    }
+
+    #[test]
+    fn test_link_parameter_volatile() {
+        let cr = CommandMetadataRegistry::new();
+
+        // Create a PlanBuilder with an empty query
+        let query = parse_query("").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+
+        // Create ResolvedParameterValues with a link to a volatile query
+        let volatile_query = parse_query("v").unwrap();
+        let params = ResolvedParameterValues(vec![
+            ParameterValue::ParameterLink(
+                "test_param".to_string(),
+                volatile_query,
+                Position::unknown(),
+            ),
+        ]);
+
+        // Check parameters for volatile links
+        builder.check_parameters_for_volatile_links(&params).unwrap();
+
+        // Builder should now be marked as volatile
+        assert!(builder.is_volatile);
+
+        // Build the plan
+        let plan = builder.build().unwrap();
+
+        // Plan should be marked as volatile
+        assert!(plan.is_volatile);
+
+        // Should have Step::Info explaining why
+        assert!(plan.steps.iter().any(|step| {
+            matches!(step, Step::Info(msg) if msg.contains("Volatile due to link parameter"))
+        }));
+    }
+
+    #[test]
+    fn test_plan_is_volatile_field() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+
+        // Initially not volatile
+        assert!(!builder.is_volatile);
+
+        // Mark as volatile
+        builder.mark_volatile("test reason");
+        assert!(builder.is_volatile);
+
+        // Build the plan
+        let plan = builder.build().unwrap();
+        assert!(plan.is_volatile);
+    }
+
+    #[test]
+    fn test_plan_volatile_serialization() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("v").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+        let plan = builder.build().unwrap();
+
+        // Plan should be volatile due to 'v' instruction
+        assert!(plan.is_volatile);
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&plan).unwrap();
+        let deserialized: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.is_volatile, true);
+    }
+
+    #[test]
+    fn test_v_instruction_edge_case_with_q() {
+        let cr = CommandMetadataRegistry::new();
+
+        // Test 1: "v" alone should be volatile
+        let query1 = parse_query("v").unwrap();
+        let mut pb1 = PlanBuilder::new(query1, &cr);
+        let plan1 = pb1.build().unwrap();
+        assert!(plan1.is_volatile, "v should be volatile");
+
+        // Test 2: "v/q" should NOT be volatile
+        // "v/q" evaluates to Query("v"), which is a non-volatile query value
+        let query2 = parse_query("v/q").unwrap();
+        let mut pb2 = PlanBuilder::new(query2, &cr);
+        let plan2 = pb2.build().unwrap();
+        assert!(!plan2.is_volatile, "v/q should NOT be volatile (evaluates to Query value)");
     }
 }

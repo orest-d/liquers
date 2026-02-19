@@ -38,6 +38,13 @@ pub struct Recipe {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default = "false_default")]
     pub volatile: bool,
+    /// If true, this recipe has circular dependencies
+    /// Set by recipe provider during validation
+    #[serde(default)]
+    pub has_circular_dependencies: bool,
+    /// If has_circular_dependencies is true, this holds the key that caused the cycle
+    #[serde(default)]
+    pub circular_dependency_key: Option<Key>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -59,6 +66,8 @@ impl Recipe {
             links: HashMap::new(),
             cwd: None,
             volatile: false,
+            has_circular_dependencies: false,
+            circular_dependency_key: None,
         })
     }
 
@@ -229,6 +238,8 @@ impl From<&Query> for Recipe {
             links: HashMap::new(),
             cwd: None,
             volatile: false,
+            has_circular_dependencies: false,
+            circular_dependency_key: None,
         }
     }
 }
@@ -243,6 +254,8 @@ impl From<Query> for Recipe {
             links: HashMap::new(),
             cwd: None,
             volatile: false,
+            has_circular_dependencies: false,
+            circular_dependency_key: None,
         }
     }
 }
@@ -257,6 +270,8 @@ impl From<Key> for Recipe {
             links: HashMap::new(),
             cwd: None,
             volatile: false,
+            has_circular_dependencies: false,
+            circular_dependency_key: None,
         }
     }
 }
@@ -271,6 +286,8 @@ impl From<&Key> for Recipe {
             links: HashMap::new(),
             cwd: None,
             volatile: false,
+            has_circular_dependencies: false,
+            circular_dependency_key: None,
         }
     }
 }

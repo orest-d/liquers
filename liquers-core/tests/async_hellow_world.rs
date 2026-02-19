@@ -55,6 +55,17 @@ async fn test_q_instruction_evaluation() -> Result<(), Box<dyn std::error::Error
     type CommandEnvironment = SimpleEnvironment<Value>;
     let mut env = SimpleEnvironment::<Value>::new();
 
+    // Command that generates data
+    fn data(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("test-data"))
+    }
+
+    // Command that appends text to input
+    fn append(state: &State<Value>, text: String) -> Result<Value, Error> {
+        let input = state.try_into_string()?;
+        Ok(Value::from(format!("{}-{}", input, text)))
+    }
+
     // Command that accepts a query as input and converts it to string
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
         match state.data.as_ref() {
@@ -64,6 +75,8 @@ async fn test_q_instruction_evaluation() -> Result<(), Box<dyn std::error::Error
     }
 
     let cr = &mut env.command_registry;
+    register_command!(cr, fn data(state) -> result)?;
+    register_command!(cr, fn append(state, text: String) -> result)?;
     register_command!(cr, fn query_to_string(state) -> result)?;
 
     // Build a plan with q instruction

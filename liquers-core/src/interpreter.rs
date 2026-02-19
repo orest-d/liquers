@@ -10,21 +10,28 @@ use crate::{
     error::Error,
     metadata::{LogEntry, Metadata},
     parse::{SimpleTemplate, SimpleTemplateElement},
-    plan::{ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
+    plan::{has_volatile_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
     query::{Key, Query, TryToQuery},
     recipes::Recipe,
     state::State,
     value::ValueInterface,
 };
 
-pub fn make_plan<E: Environment, Q: TryToQuery>(
+pub async fn make_plan<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
     query: Q,
 ) -> Result<Plan, Error> {
     let rquery = query.try_to_query();
     let cmr = envref.get_command_metadata_registry();
     let mut pb = PlanBuilder::new(rquery?, cmr);
-    pb.build()
+
+    // Phase 1: Build plan, check commands and 'v' instruction
+    let mut plan = pb.build()?;
+
+    // Phase 2: Check asset dependencies for volatility
+    has_volatile_dependencies(envref, &mut plan).await?;
+
+    Ok(plan)
 }
 
 // TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
@@ -263,9 +270,9 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     let rquery = query.try_to_query();
     async move {
         let query = rquery?;
-        let plan = make_plan(envref.clone(), query.clone())?;
+        let plan = make_plan(envref.clone(), query.clone()).await?;
         let assetref = AssetRef::new_temporary(envref.clone());
-        let context = Context::new(assetref).await;
+        let context = Context::new(assetref, plan.is_volatile).await;
         context.set_cwd_key(cwd_key);
         /*
         apply_plan(
@@ -339,13 +346,10 @@ impl<E: Environment> IsVolatile<E> for ResolvedParameterValues {
 }
 
 impl<E: Environment> IsVolatile<E> for Plan {
-    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
-        for step in self.steps.iter() {
-            if Box::pin(step.is_volatile(env.clone())).await? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    async fn is_volatile(&self, _env: EnvRef<E>) -> Result<bool, Error> {
+        // Return cached value - Plan.is_volatile is always set during plan building (make_plan)
+        // No need to re-check steps; volatility is computed during Phase 1 and Phase 2
+        Ok(self.is_volatile)
     }
 }
 
@@ -361,7 +365,7 @@ impl<E: Environment> IsVolatile<E> for Recipe {
 
 impl<E: Environment> IsVolatile<E> for Query {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
-        let plan = make_plan(env.clone(), self.clone())?;
+        let plan = make_plan(env.clone(), self.clone()).await?;
         plan.is_volatile(env).await
     }
 }

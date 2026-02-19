@@ -163,10 +163,14 @@ pub struct Context<E: Environment> {
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
     service_tx: tokio::sync::mpsc::UnboundedSender<AssetServiceMessage>,
     pub payload: Option<E::Payload>,
+
+    /// If true, this context is evaluating a volatile asset.
+    /// Propagates to nested evaluations via context.evaluate()
+    is_volatile: bool,
 }
 
 impl<E: Environment> Context<E> {
-    pub async fn new(assetref: AssetRef<E>) -> Self {
+    pub async fn new(assetref: AssetRef<E>, is_volatile: bool) -> Self {
         let service_tx = assetref.service_sender().await;
         let envref = assetref.get_envref().await;
         Context {
@@ -175,6 +179,7 @@ impl<E: Environment> Context<E> {
             cwd_key: Arc::new(Mutex::new(None)),
             service_tx,
             payload: None,
+            is_volatile,  // Initialize from parameter
         }
     }
 
@@ -213,6 +218,26 @@ impl<E: Environment> Context<E> {
             .send(AssetServiceMessage::UpdatePrimaryProgress(progress))
             .map_err(|e| Error::general_error(format!("Failed to send progress message: {}", e)))
     }
+
+    /// Returns true if this context is evaluating a volatile asset
+    pub fn is_volatile(&self) -> bool {
+        self.is_volatile
+    }
+
+    /// Create child context for nested evaluation, inheriting volatility
+    /// NOTE: Context does NOT implement Clone trait (AssetRef prevents it).
+    /// This method manually constructs a new Context with cloned Arc references.
+    pub fn with_volatile(&self, volatile: bool) -> Self {
+        Context {
+            assetref: self.assetref.clone(),
+            envref: self.envref.clone(),
+            cwd_key: self.cwd_key.clone(),
+            service_tx: self.service_tx.clone(),
+            payload: self.payload.clone(),
+            is_volatile: volatile || self.is_volatile,  // Propagate if parent is volatile
+        }
+    }
+
     pub fn secondary_progress(&self, progress: ProgressEntry) -> Result<(), Error> {
         self.service_tx
             .send(AssetServiceMessage::UpdateSecondaryProgress(progress))
@@ -257,6 +282,7 @@ impl<E: Environment> Context<E> {
             cwd_key: self.cwd_key.clone(),
             service_tx: self.service_tx.clone(),
             payload: self.payload.clone(),
+            is_volatile: self.is_volatile,
         }
     }
     pub fn get_cwd_key(&self) -> Option<Key> {
@@ -303,6 +329,7 @@ impl<E: Environment> Clone for Context<E> {
             cwd_key: self.cwd_key.clone(),
             service_tx: self.service_tx.clone(),
             payload: self.payload.clone(),
+            is_volatile: self.is_volatile,
         }
     }
 }
