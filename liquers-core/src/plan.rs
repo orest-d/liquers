@@ -22,6 +22,100 @@ use crate::query::{
 };
 use crate::value::ValueInterface;
 
+fn normalize_namespace(ns: &str) -> &str {
+    if ns == "root" {
+        ""
+    } else {
+        ns
+    }
+}
+
+fn namespaces_for_query(query: &Query, cmr: &CommandMetadataRegistry) -> Result<Vec<String>, Error> {
+    let mut namespaces = Vec::new();
+    if let Some(ns) = query.last_ns() {
+        for x in ns.iter() {
+            match x {
+                ActionParameter::String(s, _) => namespaces.push(s.to_string()),
+                _ => {
+                    return Err(Error::not_supported(
+                        "Only string parameters are supported in ns".into(),
+                    ));
+                }
+            }
+        }
+    }
+    cmr.default_namespaces.iter().for_each(|x| {
+        namespaces.push(x.clone());
+    });
+    Ok(namespaces)
+}
+
+fn append_actions(query: &Query, actions: Vec<ActionRequest>) -> Query {
+    let mut q = query.clone();
+    match q.segments.last_mut() {
+        None => {
+            q.segments.push(QuerySegment::Transform(
+                crate::query::TransformQuerySegment {
+                    header: None,
+                    query: actions,
+                    filename: None,
+                },
+            ));
+        }
+        Some(QuerySegment::Resource(_)) => {
+            q.segments.push(QuerySegment::Transform(
+                crate::query::TransformQuerySegment {
+                    header: None,
+                    query: actions,
+                    filename: None,
+                },
+            ));
+        }
+        Some(QuerySegment::Transform(tqs)) => {
+            tqs.query.extend(actions);
+            // Appending actions invalidates transform filename.
+            tqs.filename = None;
+        }
+    }
+    q
+}
+
+/// Append an action request to a query with optional namespace injection.
+///
+/// The function first tries plain append. If the resolved command namespace does not
+/// match `ns` (treating `root` and empty namespace as equivalent), it prepends `ns-<ns>`
+/// before the action.
+pub fn append_action(
+    query: &Query,
+    ns: &str,
+    action: ActionRequest,
+    cmr: &CommandMetadataRegistry,
+) -> Result<Query, Error> {
+    let plain_query = append_actions(query, vec![action.clone()]);
+
+    let namespaces = namespaces_for_query(query, cmr)?;
+    let realm = query.last_transform_query_name().unwrap_or_default();
+    let resolved_plain = cmr.find_command_in_namespaces(&realm, &namespaces, &action.name);
+
+    let requested_ns = normalize_namespace(ns);
+    if resolved_plain
+        .as_ref()
+        .is_some_and(|m| normalize_namespace(&m.namespace) == requested_ns)
+    {
+        return Ok(plain_query);
+    }
+
+    if requested_ns.is_empty() {
+        return Ok(plain_query);
+    }
+
+    let ns_action =
+        ActionRequest::new("ns".to_string()).with_parameters(vec![ActionParameter::new_string(
+            requested_ns.to_string(),
+        )]);
+    Ok(append_actions(query, vec![ns_action, action]))
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Step {
     GetAsset(Key),
@@ -888,28 +982,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     fn get_namespaces(&self, query: &Query) -> Result<Vec<String>, Error> {
-        let mut namespaces = Vec::new();
-        if let Some(ns) = query.last_ns() {
-            for x in ns.iter() {
-                match x {
-                    ActionParameter::String(s, _) => namespaces.push(s.to_string()),
-                    _ => {
-                        return Err(Error::not_supported(
-                            "Only string parameters are supported in ns".into(),
-                        ));
-                    }
-                }
-            }
-        }
-        self.command_registry
-            .default_namespaces
-            .iter()
-            .for_each(|x| {
-                namespaces.push(x.clone());
-            });
-
-        // TODO: check if the namespaces are registered in command registry
-        Ok(namespaces)
+        namespaces_for_query(query, self.command_registry)
     }
 
     fn get_command_metadata(
@@ -1748,6 +1821,61 @@ mod tests {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn test_append_action_without_namespace_injection() {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut cmd = CommandMetadata::new("next");
+        cmd.namespace = "".to_string();
+        cmr.add_command(&cmd);
+
+        let query = parse_query("-R-bin/data.txt").unwrap();
+        let action = ActionRequest::new("next".to_string());
+        let appended = append_action(&query, "root", action, &cmr).unwrap();
+        assert_eq!(appended.encode(), "-R-bin/data.txt/next");
+    }
+
+    #[test]
+    fn test_append_action_with_namespace_injection() {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut cmd = CommandMetadata::new("next");
+        cmd.namespace = "lui".to_string();
+        cmr.add_command(&cmd);
+
+        let query = parse_query("-R-bin/data.txt").unwrap();
+        let action = ActionRequest::new("next".to_string());
+        let appended = append_action(&query, "lui", action, &cmr).unwrap();
+        assert_eq!(appended.encode(), "-R-bin/data.txt/ns-lui/next");
+    }
+
+    #[test]
+    fn test_append_action_clears_transform_filename() {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut cmd = CommandMetadata::new("next");
+        cmd.namespace = "".to_string();
+        cmr.add_command(&cmd);
+
+        let query = Query {
+            segments: vec![QuerySegment::Transform(crate::query::TransformQuerySegment {
+                header: None,
+                query: vec![ActionRequest::new("base".to_string())],
+                filename: Some(ResourceName::new("data.txt".to_string())),
+            })],
+            absolute: false,
+            source: crate::query::QuerySource::Unspecified,
+        };
+
+        let appended =
+            append_action(&query, "root", ActionRequest::new("next".to_string()), &cmr).unwrap();
+        if let Some(QuerySegment::Transform(tqs)) = appended.segments.last() {
+            assert!(tqs.filename.is_none());
+            assert_eq!(tqs.query.len(), 2);
+            assert_eq!(tqs.query[0].name, "base");
+            assert_eq!(tqs.query[1].name, "next");
+        } else {
+            panic!("Expected transform query segment");
+        }
     }
     #[test]
     fn test_pop_parameter_value() -> Result<(), Error> {

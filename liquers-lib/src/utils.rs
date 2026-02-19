@@ -64,26 +64,30 @@ pub fn find_next_presets(
     let base_query = query.trim_end_matches('/');
     let mut result = Vec::with_capacity(cmd_meta.next.len());
     for preset in &cmd_meta.next {
-        let encoded_action = preset.action.encode();
-
-        // Check if the preset action's command lives in a different namespace.
-        // First try finding it in the current namespace context.
-        let preset_meta = registry.find_command_in_namespaces("", &namespaces, &preset.action.name);
-        let full_query = if preset_meta.is_some() {
-            // Found in active namespace context — no prefix needed
-            format!("{}/{}", base_query, encoded_action)
+        let ns_hint = if !preset.ns.is_empty() {
+            preset.ns.clone()
         } else {
-            // Not in active namespaces — search all commands to find its namespace
-            let all_ns_meta = registry.commands.iter().find(|c| c.name == preset.action.name);
-            match all_ns_meta {
-                Some(m) if !m.namespace.is_empty() => {
-                    format!("{}/ns-{}/{}", base_query, m.namespace, encoded_action)
-                }
-                _ => {
-                    // Command not found at all — just append without prefix
-                    format!("{}/{}", base_query, encoded_action)
-                }
+            let preset_meta =
+                registry.find_command_in_namespaces("", &namespaces, &preset.action.name);
+            if preset_meta.is_some() {
+                "".to_string()
+            } else {
+                registry
+                    .commands
+                    .iter()
+                    .find(|c| c.name == preset.action.name)
+                    .map(|m| m.namespace.clone())
+                    .unwrap_or_default()
             }
+        };
+        let full_query = match liquers_core::plan::append_action(
+            &parsed,
+            &ns_hint,
+            preset.action.clone(),
+            registry,
+        ) {
+            Ok(q) => q.encode(),
+            Err(_) => format!("{}/{}", base_query, preset.action.encode()),
         };
 
         result.push(NextPreset {
@@ -143,6 +147,7 @@ mod tests {
         cmd.namespace = "".to_string();
         cmd.next.push(CommandPreset {
             action: ActionRequest::new("lowercase".to_string()),
+            ns: "".to_string(),
             label: "Lowercase".to_string(),
             description: "Convert to lowercase".to_string(),
         });
@@ -210,6 +215,7 @@ mod tests {
         cmd.namespace = "".to_string();
         cmd.next.push(CommandPreset {
             action: ActionRequest::new("special_cmd".to_string()),
+            ns: "special".to_string(),
             label: "Special".to_string(),
             description: "A special command".to_string(),
         });

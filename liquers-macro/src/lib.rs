@@ -314,6 +314,7 @@ impl EnumParameterSpec {
 #[derive(Debug, Clone, PartialEq)]
 struct CommandPreset {
     action: String,
+    ns: String,
     label: String,
     description: String,
 }
@@ -322,10 +323,12 @@ use quote::ToTokens;
 impl ToTokens for CommandPreset {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let action = &self.action;
+        let ns = &self.ns;
         let label = &self.label;
         let description = &self.description;
         tokens.extend(quote! {
             liquers_core::command_metadata::CommandPreset::new(#action, #label, #description)?
+                .with_namespace(#ns)
         });
     }
 }
@@ -339,6 +342,7 @@ impl Parse for CommandPreset {
         let action_lit: syn::LitStr = input.parse()?;
         let action = action_lit.value();
 
+        let mut ns = String::new();
         let mut label = action.clone();
         let mut description = String::new();
 
@@ -356,6 +360,7 @@ impl Parse for CommandPreset {
                 content.parse::<syn::Token![:]>()?;
                 let value: syn::LitStr = content.parse()?;
                 match ident.to_string().as_str() {
+                    "ns" => ns = value.value(),
                     "label" => label = value.value(),
                     "description" => description = value.value(),
                     other => {
@@ -373,6 +378,7 @@ impl Parse for CommandPreset {
 
         Ok(CommandPreset {
             action,
+            ns,
             label,
             description,
         })

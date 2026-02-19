@@ -15,12 +15,12 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 | 7 | KEY-LEVEL-ACL | Open | Access control for set()/set_state() operations |
 | 8 | VALUE-LIST-SUPPORT | Open | ValueInterface may need extension for returning lists of integers from lui commands |
 | 9 | IMAGE-DIMENSIONS-METADATA | Open | Store image dimensions in State metadata for efficient queries |
-| 10 | ENUM-ARGUMENT-TYPE | Open | Support EnumArgumentType in register_command! macro |
+| 10 | ENUM-ARGUMENT-TYPE | **Closed** | Support EnumArgumentType in register_command! macro |
 | 11 | PAYLOAD-INJECTION | Open | Payload field extraction syntax in register_command! macro |
 | 12 | PAYLOAD-INHERITANCE | Open | Payload inheritance in nested evaluations |
 | 13 | CONTEXT-PARAM-ORDER | Open | Parameter index misalignment with injected parameters in register_command! |
 | 14 | KEYBOARD-SHORTCUT-ABSTRACTION | Open | Platform-agnostic keyboard shortcut system for multiple UI backends |
-| 15 | PRESET-NAMESPACE | Open | CommandPreset missing namespace field |
+| 15 | PRESET-NAMESPACE | **Closed** | CommandPreset missing namespace field |
 
 ---
 
@@ -601,7 +601,7 @@ Currently, retrieving image dimensions requires loading and deserializing the fu
 
 ## Issue 10: ENUM-ARGUMENT-TYPE
 
-**Status:** Open
+**Status:** **Closed**
 
 **Summary:** Add enum-style arguments to register_command! macro for type-safe parameter validation.
 
@@ -926,7 +926,7 @@ pub mod dioxus_backend { /* ... */ }
 
 ## Issue 15: PRESET-NAMESPACE
 
-**Status:** Open
+**Status:** **Closed**
 
 **Summary:** CommandPreset lacks namespace field, causing wrong command resolution when preset namespace differs from query's active namespace.
 
@@ -936,12 +936,14 @@ pub mod dioxus_backend { /* ... */ }
 
 **Example:**
 ```rust
-// Query: /-/ns-polars/read_csv-data.csv
-// Active namespace: polars
-// Command's next preset: CommandPreset { action: "to_text", ... }
-// "to_text" is in root namespace, not polars
-// Appending: /-/ns-polars/read_csv-data.csv/to_text
-// PlanBuilder resolves "to_text" in [polars, "", root] — may find wrong command
+// Query: -R-bin/data/data.csv/-/ns-pl/from_csv
+// Active namespace: pl (Polars)
+// Command's next preset: CommandPreset { action: "add-child", label: "Show" }
+// "add" is in lui namespace, not pl (enabled through ns-pl), nor in default root namespace.
+// Appending: -R-bin/data/data.csv/-/ns-pl/from_csv/add-child
+// PlanBuilder resolves "add" in [polars, "", root] — may find wrong command or fail to find it
+// Desired behaviour:
+// Append also namespace: -R-bin/data/data.csv/-/ns-pl/from_csv/ns-lui/add-child
 ```
 
 ### Root Cause
@@ -966,13 +968,21 @@ pub struct CommandPreset {
     /// Namespace for the action. If Some, preset should be preceded by `ns-<namespace>/`
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub ns: Option<String>,
+    pub ns: String,
     pub label: String,
     pub description: String,
 }
 ```
 
-When building the query with the preset, if `ns` is `Some(namespace)` and differs from the query's active namespace, prepend `ns-<namespace>/` before the action.
+In plan module make a general purpose method to append action (ActionRequest) to a query:
+```rust
+pub fn append_action(query:&Query, ns:&str, action:ActionRequest, cmr:&CommandMetadataRegistry) -> Result<Query, Error>
+```
+It should follow the logic:
+1) try to append the action without the namespace (ns)
+2) Using the same logic as in the PlanBuilder try to resolve the action and verify that it yields the same namespace. (Note that "" and "root" are considered the same namespace.) CommandKey can be used for the comparison.
+3) If the action resolves to the same namespace, it is kept.
+4) Otherwise prepend `ns-<namespace>/` before the action and add this to the query.
 
 ### Impact
 

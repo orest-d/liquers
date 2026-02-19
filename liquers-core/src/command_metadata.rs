@@ -651,6 +651,11 @@ pub enum CommandDefinition {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CommandPreset {
     pub action: ActionRequest,
+    /// Optional namespace hint for the preset action.
+    /// Empty string means namespace is not specified.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
+    pub ns: String,
     pub label: String,
     pub description: String,
 }
@@ -671,9 +676,15 @@ impl CommandPreset {
                 )))?;
         Ok(CommandPreset {
             action,
+            ns: String::new(),
             label: label.to_string(),
             description: description.to_string(),
         })
+    }
+
+    pub fn with_namespace(mut self, ns: &str) -> Self {
+        self.ns = ns.to_string();
+        self
     }
 }
 // TODO: support input type
@@ -1006,5 +1017,14 @@ mod tests {
 
         cm.with_async(false);
         assert_eq!(cm.is_async, false);
+    }
+
+    #[test]
+    fn test_command_preset_namespace_default_and_setter() {
+        let preset = CommandPreset::new("next-1", "Next", "desc").unwrap();
+        assert_eq!(preset.ns, "");
+
+        let preset = preset.with_namespace("lui");
+        assert_eq!(preset.ns, "lui");
     }
 }
