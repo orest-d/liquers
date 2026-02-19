@@ -145,6 +145,14 @@ impl ValueInterface for SimpleValue {
         }
     }
 
+    fn from_array(values: Vec<Self>) -> Result<Self, Error> {
+        Ok(SimpleValue::Array { value: values })
+    }
+
+    fn from_object(values: BTreeMap<String, Self>) -> Result<Self, Error> {
+        Ok(SimpleValue::Object { value: values })
+    }
+
     fn identifier(&self) -> Cow<'static, str> {
         match self {
             SimpleValue::None {} => "generic".into(),
@@ -425,6 +433,14 @@ impl From<i64> for SimpleValue {
     }
 }
 
+impl From<Vec<i64>> for SimpleValue {
+    fn from(value: Vec<i64>) -> SimpleValue {
+        SimpleValue::Array {
+            value: value.into_iter().map(SimpleValue::from).collect(),
+        }
+    }
+}
+
 impl TryFrom<SimpleValue> for f64 {
     type Error = Error;
     fn try_from(value: SimpleValue) -> Result<Self, Self::Error> {
@@ -661,4 +677,3 @@ impl TryFrom<SimpleValue> for u8 {
         }
     }
 }
-

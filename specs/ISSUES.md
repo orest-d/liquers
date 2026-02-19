@@ -4,17 +4,17 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 
 ## Issue Index
 
-| # | ID | Status | Summary |
-|---|-----|--------|---------|
-| 1 | VOLATILE-METADATA              | **Closed**   | State metadata lacks volatility information |
-| 2 | METADATA-CONSISTENCY           | Open         | MetadataRecord fields need consistency validation |
-| 3 | CANCEL-SAFETY                  | **Closed**   | Cancelled flag needed to prevent writes from orphaned tasks |
-| 4 | NON-SERIALIZABLE               | Open         | Support for non-serializable data in set_state() |
-| 5 | STICKY-ASSETS                  | Open         | Source/Override assets need eviction resistance for reliable storage |
-| 6 | UPLOAD-SIZE-LIMIT              | Open         | Configurable size limits for set() binary uploads |
-| 7 | KEY-LEVEL-ACL                  | Open         | Access control for set()/set_state() operations |
-| 8 | VALUE-LIST-SUPPORT             | Open         | ValueInterface may need extension for returning lists of integers from lui commands |
-| 9 | IMAGE-DIMENSIONS-METADATA      | Open         | Store image dimensions in State metadata for efficient queries |
+| #  | ID                            | Status       | Summary |
+|----|-------------------------------|--------------|---------|
+| 1  | VOLATILE-METADATA             | **Closed**   | State metadata lacks volatility information |
+| 2  | METADATA-CONSISTENCY          | Open         | MetadataRecord fields need consistency validation |
+| 3  | CANCEL-SAFETY                 | **Closed**   | Cancelled flag needed to prevent writes from orphaned tasks |
+| 4  | NON-SERIALIZABLE              | Open         | Support for non-serializable data in set_state() |
+| 5  | STICKY-ASSETS                 | Open         | Source/Override assets need eviction resistance for reliable storage |
+| 6  | UPLOAD-SIZE-LIMIT             | Open         | Configurable size limits for set() binary uploads |
+| 7  | KEY-LEVEL-ACL                 | Open         | Access control for set()/set_state() operations |
+| 8  | VALUE-LIST-SUPPORT            | **Closed**   | ValueInterface may need extension for returning lists of integers from lui commands |
+| 9  | IMAGE-DIMENSIONS-METADATA     | Open         | Store image dimensions in State metadata for efficient queries |
 | 10 | ENUM-ARGUMENT-TYPE            | **Closed**   | Support EnumArgumentType in register_command! macro |
 | 11 | PAYLOAD-INJECTION             | **WONT_FIX** | Payload field extraction syntax in register_command! macro |
 | 12 | PAYLOAD-INHERITANCE           | **WONT_FIX** | Payload inheritance in nested evaluations |
@@ -519,7 +519,7 @@ Currently `set()` and `set_state()` have no access control. Any caller can set a
 
 ## Issue 8: VALUE-LIST-SUPPORT
 
-**Status:** Open
+**Status:** **Closed**
 
 **Summary:** ValueInterface may need extension to support returning lists of integers from lui navigation commands.
 

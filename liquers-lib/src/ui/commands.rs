@@ -29,6 +29,21 @@ where
     Ok((payload.app_state(), payload.handle()))
 }
 
+fn handles_to_value(handles: &[UIHandle]) -> Result<Value, Error> {
+    let mut ids = Vec::with_capacity(handles.len());
+    for h in handles {
+        let id = i64::try_from(h.0).map_err(|_| {
+            Error::conversion_error_with_message(
+                h.0,
+                "i64",
+                "UI handle does not fit into i64",
+            )
+        })?;
+        ids.push(id);
+    }
+    Ok(Value::from(ids))
+}
+
 // ─── Commands ───────────────────────────────────────────────────────────────
 
 /// Add a new element to the UI tree.
@@ -120,8 +135,7 @@ where
 
     let target = resolve_navigation(&*app_state, &target_word, current)?;
     let child_handles = app_state.children(target)?;
-    let handles_str: Vec<String> = child_handles.iter().map(|h| h.0.to_string()).collect();
-    Ok(Value::from(handles_str.join(",")))
+    handles_to_value(&child_handles)
 }
 
 /// Navigate to the first child of the target element.
@@ -231,8 +245,7 @@ where
     let app_state = app_state_arc.lock().await;
 
     let root_handles = app_state.roots();
-    let handles_str: Vec<String> = root_handles.iter().map(|h| h.0.to_string()).collect();
-    Ok(Value::from(handles_str.join(",")))
+    handles_to_value(&root_handles)
 }
 
 /// Set the active (focused) element.
@@ -427,4 +440,26 @@ macro_rules! register_lui_commands {
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use liquers_core::value::ValueInterface;
+
+    #[test]
+    fn handles_to_value_returns_json_array_of_i64() -> Result<(), Box<dyn std::error::Error>> {
+        let handles = vec![UIHandle(1), UIHandle(2), UIHandle(42)];
+        let value = handles_to_value(&handles)?;
+        let json = value.try_into_json_value()?;
+        assert_eq!(json, serde_json::json!([1, 2, 42]));
+        Ok(())
+    }
+
+    #[test]
+    fn handles_to_value_fails_on_i64_overflow() {
+        let handles = vec![UIHandle(u64::MAX)];
+        let res = handles_to_value(&handles);
+        assert!(res.is_err());
+    }
 }

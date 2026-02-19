@@ -293,6 +293,14 @@ impl<B:ValueInterface + Default + From<i64>,E:ValueExtension> From<i64> for Comb
     }
 }
 
+impl<B: ValueInterface + Default + From<Vec<i64>>, E: ValueExtension> From<Vec<i64>>
+    for CombinedValue<B, E>
+{
+    fn from(value: Vec<i64>) -> CombinedValue<B, E> {
+        CombinedValue::Base(B::from(value))
+    }
+}
+
 impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for f64
 where f64: TryFrom<B, Error = Error>
 {
@@ -414,4 +422,3 @@ impl<B:ValueInterface + Default,E:ValueExtension> DefaultValueSerializer for Com
         ))
     }
 }
-

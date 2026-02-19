@@ -200,6 +200,20 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     /// Try to get a JSON-serializable value
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;
 
+    /// Construct list value from child values.
+    fn from_array(_values: Vec<Self>) -> Result<Self, Error> {
+        Err(Error::not_supported(
+            "Array conversion not supported for this ValueInterface".to_string(),
+        ))
+    }
+
+    /// Construct object value from child values.
+    fn from_object(_values: BTreeMap<String, Self>) -> Result<Self, Error> {
+        Err(Error::not_supported(
+            "Object conversion not supported for this ValueInterface".to_string(),
+        ))
+    }
+
     /// Try to convert JSON value to value type
     fn try_from_json_value(value: &serde_json::Value) -> Result<Self, Error> {
         match value {
@@ -219,14 +233,20 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
                 }
             }
             serde_json::Value::String(s) => Ok(Self::new(s)),
-            serde_json::Value::Array(_a) => Err(Error::not_supported(
-                "JSON Array conversion not supported by default for a generic ValueInterface"
-                    .to_string(),
-            )),
-            serde_json::Value::Object(_o) => Err(Error::not_supported(
-                "JSON Object conversion not supported by default for a generic ValueInterface"
-                    .to_string(),
-            )),
+            serde_json::Value::Array(a) => {
+                let mut v = Vec::with_capacity(a.len());
+                for x in a {
+                    v.push(Self::try_from_json_value(x)?);
+                }
+                Self::from_array(v)
+            }
+            serde_json::Value::Object(o) => {
+                let mut m = BTreeMap::new();
+                for (k, v) in o {
+                    m.insert(k.clone(), Self::try_from_json_value(v)?);
+                }
+                Self::from_object(m)
+            }
         }
     }
 }
@@ -309,6 +329,14 @@ impl ValueInterface for Value {
             }
             _ => Err(Error::conversion_error(self.identifier(), "JSON value")),
         }
+    }
+
+    fn from_array(values: Vec<Self>) -> Result<Self, Error> {
+        Ok(Value::Array(values))
+    }
+
+    fn from_object(values: BTreeMap<String, Self>) -> Result<Self, Error> {
+        Ok(Value::Object(values))
     }
 
     fn identifier(&self) -> Cow<'static, str> {
@@ -583,6 +611,12 @@ impl TryFrom<Value> for i64 {
 impl From<i64> for Value {
     fn from(value: i64) -> Value {
         Value::I64(value)
+    }
+}
+
+impl From<Vec<i64>> for Value {
+    fn from(value: Vec<i64>) -> Value {
+        Value::Array(value.into_iter().map(Value::from).collect())
     }
 }
 
@@ -887,6 +921,14 @@ mod tests {
         } else {
             assert!(false);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_vec_i64() -> Result<(), Box<dyn std::error::Error>> {
+        let v = Value::from(vec![1_i64, 2_i64, 3_i64]);
+        let json = v.try_into_json_value()?;
+        assert_eq!(json, serde_json::json!([1, 2, 3]));
         Ok(())
     }
 }
