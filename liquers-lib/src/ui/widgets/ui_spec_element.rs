@@ -175,58 +175,62 @@ impl UISpec {
 impl MenuBarSpec {
     /// Extract all shortcuts, detect conflicts
     pub fn validate_shortcuts(&self) -> Vec<(String, usize)> {
-        let mut shortcuts = std::collections::HashMap::new();
+        use crate::ui::shortcuts::{find_conflicts, KeyboardShortcut};
+
+        let mut shortcut_strings = Vec::new();
         for item in &self.items {
-            collect_shortcuts_from_top_level(item, &mut shortcuts);
+            collect_shortcut_strings_from_top_level(item, &mut shortcut_strings);
         }
-        shortcuts
+
+        // Parse shortcuts and detect conflicts
+        let parsed: Vec<KeyboardShortcut> = shortcut_strings
+            .iter()
+            .filter_map(|s| KeyboardShortcut::parse(s).ok())
+            .collect();
+
+        let conflicts = find_conflicts(&parsed);
+        conflicts
             .into_iter()
-            .filter(|(_, count)| *count > 1)
+            .map(|(sc, count)| (sc.to_string(), count))
             .collect()
     }
 }
 
-fn collect_shortcuts_from_top_level(
-    item: &TopLevelItem,
-    shortcuts: &mut std::collections::HashMap<String, usize>,
-) {
+fn collect_shortcut_strings_from_top_level(item: &TopLevelItem, shortcuts: &mut Vec<String>) {
     match item {
         TopLevelItem::Menu {
             shortcut, items, ..
         } => {
             if let Some(s) = shortcut {
-                *shortcuts.entry(s.clone()).or_insert(0) += 1;
+                shortcuts.push(s.clone());
             }
             for menu_item in items {
-                collect_shortcuts_from_menu_item(menu_item, shortcuts);
+                collect_shortcut_strings_from_menu_item(menu_item, shortcuts);
             }
         }
         TopLevelItem::Button { shortcut, .. } => {
             if let Some(s) = shortcut {
-                *shortcuts.entry(s.clone()).or_insert(0) += 1;
+                shortcuts.push(s.clone());
             }
         }
     }
 }
 
-fn collect_shortcuts_from_menu_item(
-    item: &MenuItem,
-    shortcuts: &mut std::collections::HashMap<String, usize>,
-) {
+fn collect_shortcut_strings_from_menu_item(item: &MenuItem, shortcuts: &mut Vec<String>) {
     match item {
         MenuItem::Button { shortcut, .. } => {
             if let Some(s) = shortcut {
-                *shortcuts.entry(s.clone()).or_insert(0) += 1;
+                shortcuts.push(s.clone());
             }
         }
         MenuItem::Submenu {
             shortcut, items, ..
         } => {
             if let Some(s) = shortcut {
-                *shortcuts.entry(s.clone()).or_insert(0) += 1;
+                shortcuts.push(s.clone());
             }
             for menu_item in items {
-                collect_shortcuts_from_menu_item(menu_item, shortcuts);
+                collect_shortcut_strings_from_menu_item(menu_item, shortcuts);
             }
         }
         MenuItem::Separator => {}
@@ -376,44 +380,15 @@ impl UISpecElement {
     }
 
     fn check_shortcut(&self, ui: &egui::Ui, shortcut_str: &str) -> bool {
-        let parts: Vec<&str> = shortcut_str.split('+').collect();
-        if parts.is_empty() {
-            return false;
-        }
+        use crate::ui::shortcuts::KeyboardShortcut;
 
-        let mut modifiers = egui::Modifiers::default();
-        let mut key_opt = None;
-
-        for part in parts {
-            match part {
-                "Ctrl" | "Control" => modifiers.ctrl = true,
-                "Shift" => modifiers.shift = true,
-                "Alt" => modifiers.alt = true,
-                "Command" | "Cmd" => modifiers.command = true,
-                _ => {
-                    key_opt = Self::parse_key(part);
-                }
+        match KeyboardShortcut::parse(shortcut_str) {
+            Ok(shortcut) => {
+                let egui_shortcut = shortcut.to_egui();
+                ui.input_mut(|i| i.consume_shortcut(&egui_shortcut))
             }
+            Err(_) => false, // Invalid shortcut string
         }
-
-        if let Some(key) = key_opt {
-            let shortcut = egui::KeyboardShortcut::new(modifiers, key);
-            ui.input_mut(|i| i.consume_shortcut(&shortcut))
-        } else {
-            false
-        }
-    }
-
-    fn parse_key(key_str: &str) -> Option<egui::Key> {
-        // Use egui's built-in Key::from_name for most cases
-        egui::Key::from_name(key_str).or_else(|| {
-            // Handle common aliases not in egui's from_name
-            match key_str {
-                "Esc" => Some(egui::Key::Escape),
-                "Return" => Some(egui::Key::Enter),
-                _ => None,
-            }
-        })
     }
 }
 

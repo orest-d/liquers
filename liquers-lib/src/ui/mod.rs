@@ -6,6 +6,7 @@ pub mod message;
 pub mod payload;
 pub mod resolve;
 pub mod runner;
+pub mod shortcuts;
 pub mod ui_context;
 pub mod widgets;
 
@@ -21,6 +22,7 @@ pub use runner::{AppRunner, ElementStatusInfo};
 pub use resolve::{
     insertion_point_to_add_args, resolve_navigation, resolve_position, InsertionPoint,
 };
+pub use shortcuts::{find_conflicts, validate_shortcut_strings, Key, KeyboardShortcut, Modifiers};
 pub use ui_context::UIContext;
 pub use widgets::QueryConsoleElement;
 pub use widgets::UISpecElement;
