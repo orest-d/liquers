@@ -14,6 +14,13 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 | 6 | UPLOAD-SIZE-LIMIT | Open | Configurable size limits for set() binary uploads |
 | 7 | KEY-LEVEL-ACL | Open | Access control for set()/set_state() operations |
 | 8 | VALUE-LIST-SUPPORT | Open | ValueInterface may need extension for returning lists of integers from lui commands |
+| 9 | IMAGE-DIMENSIONS-METADATA | Open | Store image dimensions in State metadata for efficient queries |
+| 10 | ENUM-ARGUMENT-TYPE | Open | Support EnumArgumentType in register_command! macro |
+| 11 | PAYLOAD-INJECTION | Open | Payload field extraction syntax in register_command! macro |
+| 12 | PAYLOAD-INHERITANCE | Open | Payload inheritance in nested evaluations |
+| 13 | CONTEXT-PARAM-ORDER | Open | Parameter index misalignment with injected parameters in register_command! |
+| 14 | KEYBOARD-SHORTCUT-ABSTRACTION | Open | Platform-agnostic keyboard shortcut system for multiple UI backends |
+| 15 | PRESET-NAMESPACE | Open | CommandPreset missing namespace field |
 
 ---
 
@@ -543,3 +550,447 @@ These return values may be consumed by embedded queries, so they need to flow cl
 ### Related
 
 - UI Interface Phase 1 FSD - lui namespace commands
+
+---
+
+## Issue 9: IMAGE-DIMENSIONS-METADATA
+
+**Status:** Open
+
+**Summary:** Store image dimensions (width, height) in State metadata for efficient queries without deserializing image data.
+
+### Problem
+
+Currently, retrieving image dimensions requires loading and deserializing the full image. For large images or metadata-only queries, this is inefficient. Dimensions should be stored in `State.metadata` alongside the image data.
+
+### Proposed Solutions
+
+**Option A: Type-specific fields**
+- Add `metadata.image_width` and `metadata.image_height` fields to `Metadata` struct
+- Explicit, but requires schema changes for each value type
+
+**Option B: Generic properties map**
+- Use `metadata.properties["width"]` and `metadata.properties["height"]`
+- Flexible, but less type-safe
+
+**Option C: Dedicated metadata struct**
+- Add `metadata.image_info` struct with width/height/color_type/format fields
+- Clean separation, extensible for other image properties
+
+### Considerations
+
+- **Population timing**: During image load commands and transformations that change dimensions
+- **Consistency**: How to ensure metadata stays in sync with actual image after transformations
+- **Backward compatibility**: Handle existing assets without metadata (compute on-demand and cache)
+- **Other metadata**: Color type, file format, EXIF data, compression settings
+- **Generalization**: Similar pattern could apply to Polars DataFrames (row/column count, schema)
+- **Lazy vs eager**: Compute dimensions immediately or on first request
+
+### Affected Files
+
+- `liquers-core/src/metadata.rs` - Metadata structure
+- `liquers-lib/src/commands.rs` - Image command library
+- `specs/IMAGE_COMMAND_LIBRARY.md` - Image command design
+
+### Related
+
+- Issue 2 (METADATA-CONSISTENCY) - Metadata field validation
+- Polars DataFrames may need similar metadata enhancement
+
+---
+
+## Issue 10: ENUM-ARGUMENT-TYPE
+
+**Status:** Open
+
+**Summary:** Add enum-style arguments to register_command! macro for type-safe parameter validation.
+
+### Problem
+
+Many commands need parameters that accept one of a predefined set of string values (e.g., resize method: "nearest", "lanczos3", etc.). Currently, these are received as `String` and manually validated in each command, which is repetitive and doesn't provide command metadata about valid values.
+
+**Use cases:**
+- Image resize methods: `resize-800-600-lanczos3` (5 valid values)
+- Color formats: `color_format-rgba8` (8 valid values)
+- Rotation methods: `rotate-45-bilinear` (2 valid values)
+- Blur methods: `blur-gaussian-2.5` (3+ valid values)
+
+### Proposed Solution
+
+Add inline enum definition syntax to register_command! macro:
+
+```rust
+register_command!(cr,
+    fn resize(state, width: u32, height: u32,
+              method: enum("nearest", "triangle", "catmullrom", "gaussian", "lanczos3") = "lanczos3"
+                     (label: "Interpolation Method")) -> result
+    label: "Resize Image"
+    namespace: "img"
+)?;
+```
+
+**Macro generates:**
+1. Validation code that checks value against enum list
+2. `ArgumentType::Enum { values: vec![...] }` in metadata
+3. Auto-selected GUI based on value count (2-3 values: radio buttons, 4+ values: dropdown)
+4. Clear error messages listing all valid values
+
+### Considerations
+
+- **String validation**: Case-sensitive matching recommended for consistency
+- **GUI auto-selection**: 2-3 options → VerticalRadioEnum, 4+ options → EnumSelector
+- **Error messages**: Include parameter name and list of valid values
+- **Default values**: Support defaults like other parameter types
+- **Metadata storage**: Expose enum values via command introspection for help/docs
+- **Backward compatibility**: Existing String parameters continue to work
+
+### Affected Files
+
+- `liquers-core/src/command_metadata.rs` - Add `ArgumentType::Enum` variant
+- `liquers-macro/src/lib.rs` - Parse enum syntax and generate validation code
+- `specs/REGISTER_COMMAND_FSD.md` - Document enum syntax
+- `specs/COMMAND_REGISTRATION_GUIDE.md` - Add enum examples
+
+### Related
+
+- `specs/IMAGE_COMMAND_LIBRARY.md` - Primary use case for enum arguments
+- Issue 10 blocks implementation of image command library
+
+---
+
+## Issue 11: PAYLOAD-INJECTION
+
+**Status:** Open
+
+**Summary:** Add field extraction syntax to register_command! macro to simplify payload injection without manual trait implementations.
+
+### Problem
+
+Currently, using `injected` parameters with payload types or newtypes requires manually implementing `InjectedFromContext` for each type. This is verbose and error-prone due to Rust's trait coherence rules.
+
+**Current workaround:**
+```rust
+// 1. Define payload type
+#[derive(Clone)]
+pub struct MyPayload {
+    pub user_id: String,
+    pub window_id: u64,
+}
+
+impl PayloadType for MyPayload {}
+
+// 2. Manually implement InjectedFromContext (required)
+impl<E: Environment<Payload = MyPayload>> InjectedFromContext<E> for MyPayload {
+    fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
+        context.get_payload_clone().ok_or(Error::general_error(format!(
+            "No payload in context for injected parameter {}", name
+        )))
+    }
+}
+
+// 3. For newtypes, also implement InjectedFromContext
+pub struct UserId(pub String);
+impl ExtractFromPayload<MyPayload> for UserId { /* ... */ }
+impl InjectedFromContext<MyEnvironment> for UserId { /* ... */ }
+```
+
+### Proposed Solution
+
+Add field extraction syntax to register_command! macro:
+
+```rust
+register_command!(cr, fn my_cmd(
+    state,
+    user_id: String injected from payload.user_id,
+    window_id: u64 injected from payload.window_id
+) -> result)?;
+```
+
+This eliminates the need for newtypes and manual `InjectedFromContext` implementations. The macro generates wrapper code to extract fields from the payload.
+
+### Benefits
+
+1. **Less boilerplate**: No manual trait implementations needed
+2. **Type safety**: Compile-time field access validation
+3. **Clearer intent**: Syntax explicitly shows field extraction
+4. **Backward compatible**: Existing `injected` keyword still works for full payload
+
+### Affected Files
+
+- `liquers-macro/src/lib.rs` - Parse `injected from payload.field` syntax
+- `specs/REGISTER_COMMAND_FSD.md` - Document field extraction syntax
+- `specs/PAYLOAD_GUIDE.md` - Update user documentation
+
+### Related
+
+- `liquers-core/tests/injection.rs` - Test examples showing manual implementation
+
+---
+
+## Issue 12: PAYLOAD-INHERITANCE
+
+**Status:** Open
+
+**Summary:** Payload is not automatically passed to nested queries executed via context.evaluate().
+
+### Problem
+
+When a command calls `context.evaluate()` to execute a nested query, the payload from the parent context is not automatically passed to the child query. Nested queries cannot access injected parameters.
+
+**Example:**
+```rust
+async fn parent_cmd(
+    _state: State<Value>,
+    user_id: UserId,  // Has access to payload
+    context: Context<E>,
+) -> Result<Value, Error> {
+    // Nested query - will NOT have access to payload
+    let child = context.evaluate(&parse_query("/-/child_cmd")?).await?;
+    // child_cmd cannot use injected parameters!
+}
+```
+
+### Why This Happens
+
+`context.evaluate()` goes through the standard asset creation pipeline, which doesn't have access to the parent command's payload because:
+1. Assets are shared across multiple users/contexts
+2. Asset manager is designed to work without execution-specific context
+3. Caching would be impossible if assets depended on ephemeral payload data
+
+### Proposed Solutions
+
+**Option A: Add context.evaluate_with_payload()**
+```rust
+let child = context.evaluate_with_payload(
+    &parse_query("/-/child_cmd")?,
+    context.get_payload_clone()
+).await?;
+```
+
+**Option B: Store payload in Context and thread through asset creation** (more invasive)
+
+**Option C: Document as intentional limitation** (recommended)
+- Encourage passing data through query parameters or state instead
+- Simpler, avoids complexity with caching and asset sharing
+
+### Recommended Approach
+
+Option C (document as limitation). Payload inheritance is conceptually problematic for caching and asset sharing. Users should pass data through query parameters or state transformation.
+
+### Affected Files
+
+- `liquers-core/src/context.rs` - Context implementation
+- `liquers-core/src/assets.rs` - AssetManager
+- `liquers-core/tests/injection.rs` - Test documenting limitation
+
+---
+
+## Issue 13: CONTEXT-PARAM-ORDER
+
+**Status:** Open (workaround available)
+
+**Summary:** register_command! macro has parameter index misalignment when Context is not the last parameter.
+
+### Problem
+
+`extract_all_parameters()` (line ~557 in liquers-macro) uses `enumerate()` over all parameters including `Context`. `command_arguments_expression()` (line ~774) uses `filter_map` to exclude `Context` from metadata. When `Context` is not the last parameter, the extractor index doesn't match the metadata/values index.
+
+**Example:**
+```rust
+// BROKEN: context is not last
+fn remove(state, context, target_word: String)
+// Generates: arguments.get(1, "target_word")
+// But metadata has target_word at index 0
+```
+
+### Fix
+
+Use a separate counter for non-Context parameters in `extract_all_parameters()`:
+
+```rust
+let mut arg_index = 0;
+for p in &self.parameters {
+    extractors.push(p.parameter_extractor(arg_index));
+    if !matches!(p, CommandParameter::Context) {
+        arg_index += 1;
+    }
+}
+```
+
+### Workaround
+
+Always place `context` last in the macro DSL:
+
+```rust
+// CORRECT: context last
+register_command!(cr,
+    async fn remove(state, target_word: String, context) -> result
+)?;
+```
+
+### Affected Files
+
+- `liquers-macro/src/lib.rs` - Parameter extraction logic
+
+### Related
+
+- Documented in MEMORY.md as known workaround
+- `specs/REGISTER_COMMAND_FSD.md` - Macro syntax specification
+
+---
+
+## Issue 14: KEYBOARD-SHORTCUT-ABSTRACTION
+
+**Status:** Open
+
+**Summary:** Create platform-agnostic keyboard shortcut system to support multiple UI backends (egui, ratatui, dioxus).
+
+### Problem
+
+UISpecElement's keyboard shortcut parsing is tightly coupled to egui's API (`egui::Key`, `egui::KeyboardShortcut`, `egui::Modifiers`). This creates portability issues when supporting multiple UI backends.
+
+**Current implementation** (egui-specific):
+```rust
+fn check_shortcut(&self, ui: &egui::Ui, shortcut_str: &str) -> bool {
+    // Parses "Ctrl+S" using egui types
+    let key_opt = egui::Key::from_name(part);
+    let shortcut = egui::KeyboardShortcut::new(modifiers, key);
+    ui.input_mut(|i| i.consume_shortcut(&shortcut))
+}
+```
+
+**Problems:**
+1. Backend coupling - cannot swap UI backends without rewriting shortcut logic
+2. Duplicate code risk - each backend would need its own parser
+3. Testing difficulty - cannot test shortcuts without egui context
+
+### Proposed Solution
+
+Create `liquers-shortcuts` crate with platform-agnostic abstraction:
+
+```rust
+// Core abstraction (platform-agnostic)
+pub struct KeyboardShortcut {
+    modifiers: Modifiers,
+    key: Key,
+}
+
+impl KeyboardShortcut {
+    pub fn parse(s: &str) -> Result<Self, Error>;
+}
+
+// Feature-gated backend support
+#[cfg(feature = "egui")]
+pub mod egui_backend {
+    pub fn check_shortcut(ui: &egui::Ui, shortcut: &KeyboardShortcut) -> bool;
+}
+
+#[cfg(feature = "ratatui")]
+pub mod ratatui_backend { /* ... */ }
+
+#[cfg(feature = "dioxus")]
+pub mod dioxus_backend { /* ... */ }
+```
+
+### Benefits
+
+1. **Portability**: UISpecElement works with any UI backend
+2. **Testability**: Shortcuts testable without UI framework
+3. **Consistency**: Same shortcut format across all backends
+4. **Maintainability**: Centralized shortcut logic
+
+### Considerations
+
+- **String format standard**: Use unified format ("Ctrl+S") across all backends
+- **Platform differences**: Handle macOS Command vs Ctrl gracefully
+- **Key name mapping**: Some keys may not exist on all platforms
+- **Performance**: Cache parsed shortcuts
+
+### Implementation Priority
+
+- **Phase 1** (current): egui-specific implementation (get feature working)
+- **Phase 2** (future): Abstract when adding ratatui support
+- **Phase 3** (future): Support dioxus/other backends
+
+### Affected Files
+
+- `liquers-lib/src/ui/widgets/ui_spec_element.rs` - Current egui-specific implementation
+- New `liquers-shortcuts/` crate (future)
+
+### Related
+
+- `specs/UI_RATATUI_DESIGN_NOTES.md` - Future ratatui support
+- `specs/UI_WEB_DESIGN_NOTES.md` - Future web support (dioxus)
+
+---
+
+## Issue 15: PRESET-NAMESPACE
+
+**Status:** Open
+
+**Summary:** CommandPreset lacks namespace field, causing wrong command resolution when preset namespace differs from query's active namespace.
+
+### Problem
+
+`CommandPreset` contains an `ActionRequest` (command name + parameters) but has no namespace field. When a preset is appended to a query, the namespace context is inherited from the preceding query's last `ns` action. If the preset's intended namespace differs, the wrong command may be resolved.
+
+**Example:**
+```rust
+// Query: /-/ns-polars/read_csv-data.csv
+// Active namespace: polars
+// Command's next preset: CommandPreset { action: "to_text", ... }
+// "to_text" is in root namespace, not polars
+// Appending: /-/ns-polars/read_csv-data.csv/to_text
+// PlanBuilder resolves "to_text" in [polars, "", root] — may find wrong command
+```
+
+### Root Cause
+
+`CommandPreset` (line 652 in command_metadata.rs) stores only `ActionRequest`:
+
+```rust
+pub struct CommandPreset {
+    pub action: ActionRequest,  // name + parameters, no namespace
+    pub label: String,
+    pub description: String,
+}
+```
+
+### Proposed Fix
+
+Add optional namespace field to `CommandPreset`:
+
+```rust
+pub struct CommandPreset {
+    pub action: ActionRequest,
+    /// Namespace for the action. If Some, preset should be preceded by `ns-<namespace>/`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub ns: Option<String>,
+    pub label: String,
+    pub description: String,
+}
+```
+
+When building the query with the preset, if `ns` is `Some(namespace)` and differs from the query's active namespace, prepend `ns-<namespace>/` before the action.
+
+### Impact
+
+- `CommandPreset::new()` unchanged (ns defaults to None for backward compatibility)
+- `register_command!` macro's `next:` and `preset:` DSL may need syntax for specifying namespace
+- `find_next_presets()` utility function should handle ns injection
+- Serialization: backward compatible (skip_serializing_if + default)
+
+### Workaround
+
+Include `ns` action as part of preset string (fragile, may be lost during parsing).
+
+### Affected Files
+
+- `liquers-core/src/command_metadata.rs` - CommandPreset, CommandMetadata.next
+- `liquers-core/src/plan.rs` - PlanBuilder namespace resolution
+- `liquers-core/src/query.rs` - ActionRequest, Query.last_ns()
+
+### Related
+
+- `specs/query-console-element/phase2-architecture.md` - find_next_presets() design
