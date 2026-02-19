@@ -147,6 +147,68 @@ fn create_empty() -> Result<Value, Error> {
 register_command!(cr, fn create_empty() -> result)?;
 ```
 
+### Enum Parameters
+
+Use enum metadata to make allowed values explicit and avoid manual `String` validation in command code.
+
+**Inline string enum:**
+```rust
+register_command!(cr,
+    fn resize(state,
+        method: String = "lanczos3" (
+            enum: ["nearest", "triangle", "catmullrom", "gaussian", "lanczos3"]
+        )
+    ) -> result
+)?;
+```
+
+**Alias to mapped value:**
+```rust
+register_command!(cr,
+    fn rotate(state,
+        method: String = "bilinear" (
+            enum: {"linear" => "bilinear", "hq" => "lanczos3"}
+        )
+    ) -> result
+)?;
+```
+
+**Typed enum values:**
+```rust
+register_command!(cr,
+    fn quality(state,
+        preset: i32 = 2 (
+            enum(type: int): {"low" => 1, "med" => 2, "high" => 3}
+        )
+    ) -> result
+)?;
+```
+
+**Allow values outside declared aliases (`others: true`):**
+```rust
+register_command!(cr,
+    fn color(state,
+        c: String (
+            enum(type: string, others: true): ["red", "green", "blue"]
+        )
+    ) -> result
+)?;
+```
+
+**Global enum reference:**
+```rust
+register_command!(cr,
+    fn resize(state,
+        method: String (enum_ref: "img.resize_method")
+    ) -> result
+)?;
+```
+
+Notes:
+- `enum` and `enum_ref` cannot be used together.
+- Unknown enum aliases fail unless `others: true`.
+- If `gui:` is omitted, enum arguments default to `VerticalRadioEnum` (small sets) or `EnumSelector`.
+
 ---
 
 ## 2. Manual Registration

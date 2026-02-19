@@ -6,7 +6,7 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 
 | # | ID | Status | Summary |
 |---|-----|--------|---------|
-| 1 | VOLATILE-METADATA | Open | State metadata lacks volatility information |
+| 1 | VOLATILE-METADATA | **Closed** | State metadata lacks volatility information |
 | 2 | METADATA-CONSISTENCY | Open | MetadataRecord fields need consistency validation |
 | 3 | CANCEL-SAFETY | **Closed** | Cancelled flag needed to prevent writes from orphaned tasks |
 | 4 | NON-SERIALIZABLE | Open | Support for non-serializable data in set_state() |
@@ -26,7 +26,7 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 
 ## Issue 1: VOLATILE-METADATA
 
-**Status:** Open
+**Status:** **Closed**
 
 **Summary:** State metadata does not indicate if the State originates from a volatile asset.
 

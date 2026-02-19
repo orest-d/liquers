@@ -173,6 +173,63 @@ impl Display for ParameterValue {
 }
 
 impl ParameterValue {
+    fn parse_other_enum_value(
+        argument_name: &str,
+        raw_value: &str,
+        enum_type: &EnumArgumentType,
+        pos: &Position,
+    ) -> Result<Self, Error> {
+        let value = match enum_type {
+            EnumArgumentType::String | EnumArgumentType::Any => Value::String(raw_value.to_owned()),
+            EnumArgumentType::Integer | EnumArgumentType::IntegerOption => {
+                let x = raw_value.parse::<i64>().map_err(|_| {
+                    Error::conversion_error_with_message(
+                        raw_value.to_owned(),
+                        "integer",
+                        "Expected integer value for enum fallback",
+                    )
+                    .with_position(pos)
+                })?;
+                Value::Number(x.into())
+            }
+            EnumArgumentType::Float | EnumArgumentType::FloatOption => {
+                let x = raw_value.parse::<f64>().map_err(|_| {
+                    Error::conversion_error_with_message(
+                        raw_value.to_owned(),
+                        "float",
+                        "Expected float value for enum fallback",
+                    )
+                    .with_position(pos)
+                })?;
+                Value::Number(serde_json::Number::from_f64(x).ok_or(
+                    Error::conversion_error_with_message(
+                        raw_value.to_owned(),
+                        "float",
+                        "Float value is not representable",
+                    )
+                    .with_position(pos),
+                )?)
+            }
+            EnumArgumentType::Boolean => match raw_value.to_lowercase().as_str() {
+                "true" | "t" | "yes" | "y" | "1" => Value::Bool(true),
+                "false" | "f" | "no" | "n" | "0" => Value::Bool(false),
+                _ => {
+                    return Err(Error::conversion_error_with_message(
+                        raw_value.to_owned(),
+                        "boolean",
+                        "Expected boolean value for enum fallback",
+                    )
+                    .with_position(pos))
+                }
+            },
+        };
+        Ok(ParameterValue::ParameterValue(
+            argument_name.to_owned(),
+            value,
+            pos.to_owned(),
+        ))
+    }
+
     pub fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
         if arginfo.multiple {
             let mut values = Vec::new();
@@ -361,16 +418,20 @@ impl ParameterValue {
                 )),
                 CommandParameterValue::None => {
                     if e.others_allowed {
-                        Ok(ParameterValue::ParameterValue(
-                            arginfo.name.clone(),
-                            Value::String(s.to_owned()),
-                            pos.to_owned(),
-                        ))
+                        Self::parse_other_enum_value(&arginfo.name, s, &e.value_type, pos)
                     } else {
+                        let aliases = e
+                            .values
+                            .iter()
+                            .map(|v| v.alias.clone())
+                            .join(", ");
                         Err(Error::conversion_error_with_message(
                             s.to_owned(),
                             &e.name,
-                            &format!("Undefined enum {} in argument {}", e.name, arginfo.name),
+                            &format!(
+                                "Undefined enum value for argument {}. Valid values: {}",
+                                arginfo.name, aliases
+                            ),
                         )
                         .with_position(pos))
                     }
@@ -1642,6 +1703,51 @@ mod tests {
         assert_eq!(pv.value(), Some(Value::String("testarg".to_string())));
         let pv = ParameterValue::from_string(&arginfo, "", &Position::unknown()).unwrap();
         assert_eq!(pv.value(), Some(Value::String("".to_string())));
+    }
+
+    #[test]
+    fn test_enum_parameter_fallback_integer_value() {
+        let enum_arg = EnumArgument::new("quality")
+            .with_int_value("low", 1)
+            .with_int_value("high", 3)
+            .with_others_allowed()
+            .with_value_type(EnumArgumentType::Integer);
+        let arginfo = ArgumentInfo::argument("quality")
+            .with_type(ArgumentType::Enum(enum_arg))
+            .with_default(2);
+        let pv = ParameterValue::from_string(&arginfo, "42", &Position::unknown()).unwrap();
+        assert_eq!(pv.value(), Some(Value::Number(42.into())));
+    }
+
+    #[test]
+    fn test_enum_parameter_fallback_integer_value_error() {
+        let enum_arg = EnumArgument::new("quality")
+            .with_int_value("low", 1)
+            .with_int_value("high", 3)
+            .with_others_allowed()
+            .with_value_type(EnumArgumentType::Integer);
+        let arginfo = ArgumentInfo::argument("quality").with_type(ArgumentType::Enum(enum_arg));
+        let error = ParameterValue::from_string(&arginfo, "x", &Position::unknown()).unwrap_err();
+        assert!(
+            error.message.contains("Expected integer value for enum fallback"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn test_enum_parameter_undefined_alias_error_lists_values() {
+        let enum_arg = EnumArgument::new("mode")
+            .with_alternative("nearest")
+            .with_alternative("lanczos3");
+        let arginfo = ArgumentInfo::argument("mode").with_type(ArgumentType::Enum(enum_arg));
+        let error = ParameterValue::from_string(&arginfo, "unknown", &Position::unknown()).unwrap_err();
+        assert!(
+            error.message.contains("Valid values: nearest, lanczos3")
+                || error.message.contains("Valid values: lanczos3, nearest"),
+            "{}",
+            error.message
+        );
     }
     #[test]
     fn test_pop_parameter_value() -> Result<(), Error> {

@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::parse_macro_input;
 
@@ -41,6 +42,271 @@ impl Parse for DefaultValue {
             }
         } else {
             Err(input.error("Unsupported default value type"))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum EnumTypeSpec {
+    String,
+    Integer,
+    IntegerOption,
+    Float,
+    FloatOption,
+    Boolean,
+    Any,
+}
+
+impl EnumTypeSpec {
+    fn from_ident(ident: &syn::Ident) -> syn::Result<Self> {
+        match ident.to_string().as_str() {
+            "string" => Ok(EnumTypeSpec::String),
+            "int" => Ok(EnumTypeSpec::Integer),
+            "int_opt" => Ok(EnumTypeSpec::IntegerOption),
+            "float" => Ok(EnumTypeSpec::Float),
+            "float_opt" => Ok(EnumTypeSpec::FloatOption),
+            "bool" => Ok(EnumTypeSpec::Boolean),
+            "any" => Ok(EnumTypeSpec::Any),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("Unknown enum type '{}'", other),
+            )),
+        }
+    }
+
+    fn to_core_expression(&self) -> proc_macro2::TokenStream {
+        match self {
+            EnumTypeSpec::String => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::String }
+            }
+            EnumTypeSpec::Integer => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::Integer }
+            }
+            EnumTypeSpec::IntegerOption => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::IntegerOption }
+            }
+            EnumTypeSpec::Float => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::Float }
+            }
+            EnumTypeSpec::FloatOption => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::FloatOption }
+            }
+            EnumTypeSpec::Boolean => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::Boolean }
+            }
+            EnumTypeSpec::Any => quote! { liquers_core::command_metadata::EnumArgumentType::Any },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum EnumValueLiteral {
+    Str(String),
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Query(String),
+}
+
+impl Parse for EnumValueLiteral {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(syn::LitStr) {
+            let lit: syn::LitStr = input.parse()?;
+            Ok(EnumValueLiteral::Str(lit.value()))
+        } else if input.peek(syn::LitBool) {
+            let lit: syn::LitBool = input.parse()?;
+            Ok(EnumValueLiteral::Bool(lit.value))
+        } else if input.peek(syn::LitInt) {
+            let lit: syn::LitInt = input.parse()?;
+            Ok(EnumValueLiteral::Int(lit.base10_parse()?))
+        } else if input.peek(syn::LitFloat) {
+            let lit: syn::LitFloat = input.parse()?;
+            Ok(EnumValueLiteral::Float(lit.base10_parse()?))
+        } else if input.peek(syn::Ident) {
+            let ident: syn::Ident = input.parse()?;
+            match ident.to_string().as_str() {
+                "query" => {
+                    let lit: syn::LitStr = input.parse()?;
+                    Ok(EnumValueLiteral::Query(lit.value()))
+                }
+                other => Err(input.error(format!(
+                    "Unsupported enum value starting with identifier {}",
+                    other
+                ))),
+            }
+        } else {
+            Err(input.error("Unsupported enum value"))
+        }
+    }
+}
+
+impl EnumValueLiteral {
+    fn inferred_type(&self) -> EnumTypeSpec {
+        match self {
+            EnumValueLiteral::Str(_) => EnumTypeSpec::String,
+            EnumValueLiteral::Bool(_) => EnumTypeSpec::Boolean,
+            EnumValueLiteral::Int(_) => EnumTypeSpec::Integer,
+            EnumValueLiteral::Float(_) => EnumTypeSpec::Float,
+            EnumValueLiteral::Query(_) => EnumTypeSpec::Any,
+        }
+    }
+
+    fn to_cpv_expression(&self) -> proc_macro2::TokenStream {
+        match self {
+            EnumValueLiteral::Str(value) => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::String(#value.to_string())
+                )
+            },
+            EnumValueLiteral::Bool(value) => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::Bool(#value)
+                )
+            },
+            EnumValueLiteral::Int(value) => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::Number(serde_json::Number::from(#value))
+                )
+            },
+            EnumValueLiteral::Float(value) => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Value(
+                    serde_json::Value::Number(
+                        serde_json::Number::from_f64(#value).unwrap_or(
+                            serde_json::Number::from_f64(0.0).unwrap()
+                        )
+                    )
+                )
+            },
+            EnumValueLiteral::Query(value) => quote! {
+                liquers_core::command_metadata::CommandParameterValue::Query(
+                    liquers_core::query::TryToQuery::try_to_query(#value)?
+                )
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct EnumAlternativeSpec {
+    alias: String,
+    value: EnumValueLiteral,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum EnumParameterSpec {
+    Inline {
+        value_type: Option<EnumTypeSpec>,
+        others_allowed: bool,
+        values: Vec<EnumAlternativeSpec>,
+    },
+    Ref(String),
+}
+
+impl EnumParameterSpec {
+    fn count(&self) -> usize {
+        match self {
+            EnumParameterSpec::Inline { values, .. } => values.len(),
+            EnumParameterSpec::Ref(_) => 0,
+        }
+    }
+
+    fn has_alias(&self, alias: &str) -> bool {
+        match self {
+            EnumParameterSpec::Inline { values, .. } => values.iter().any(|x| x.alias == alias),
+            EnumParameterSpec::Ref(_) => false,
+        }
+    }
+
+    fn resolved_type(&self) -> syn::Result<EnumTypeSpec> {
+        match self {
+            EnumParameterSpec::Ref(_) => Ok(EnumTypeSpec::Any),
+            EnumParameterSpec::Inline {
+                value_type,
+                values,
+                ..
+            } => {
+                if let Some(value_type) = value_type {
+                    for value in values.iter().map(|x| &x.value) {
+                        let inferred = value.inferred_type();
+                        if inferred == EnumTypeSpec::Any {
+                            if *value_type != EnumTypeSpec::Any {
+                                return Err(syn::Error::new(
+                                    proc_macro2::Span::call_site(),
+                                    "query enum values require enum(type: any)",
+                                ));
+                            }
+                            continue;
+                        }
+                        if *value_type == EnumTypeSpec::Any {
+                            continue;
+                        }
+                        if inferred != *value_type {
+                            return Err(syn::Error::new(
+                                proc_macro2::Span::call_site(),
+                                "enum value type does not match enum(type: ...)",
+                            ));
+                        }
+                    }
+                    Ok(value_type.clone())
+                } else {
+                    let mut inferred_type: Option<EnumTypeSpec> = None;
+                    for v in values {
+                        let current = v.value.inferred_type();
+                        if current == EnumTypeSpec::Any {
+                            return Ok(EnumTypeSpec::Any);
+                        }
+                        if let Some(t) = &inferred_type {
+                            if *t != current {
+                                return Ok(EnumTypeSpec::Any);
+                            }
+                        } else {
+                            inferred_type = Some(current);
+                        }
+                    }
+                    Ok(inferred_type.unwrap_or(EnumTypeSpec::Any))
+                }
+            }
+        }
+    }
+
+    fn to_argument_type_expression(
+        &self,
+        parameter_name: &str,
+    ) -> syn::Result<proc_macro2::TokenStream> {
+        match self {
+            EnumParameterSpec::Ref(name) => Ok(quote! {
+                liquers_core::command_metadata::ArgumentType::GlobalEnum(#name.to_string())
+            }),
+            EnumParameterSpec::Inline {
+                others_allowed,
+                values,
+                ..
+            } => {
+                let value_type = self.resolved_type()?.to_core_expression();
+                let values_expr: Vec<proc_macro2::TokenStream> = values
+                    .iter()
+                    .map(|x| {
+                        let alias = &x.alias;
+                        let value = x.value.to_cpv_expression();
+                        quote! {
+                            liquers_core::command_metadata::EnumArgumentAlternative{
+                                alias: #alias.to_string(),
+                                value: #value
+                            }
+                        }
+                    })
+                    .collect();
+                Ok(quote! {
+                    liquers_core::command_metadata::ArgumentType::Enum(
+                        liquers_core::command_metadata::EnumArgument{
+                            name: #parameter_name.to_string(),
+                            values: vec![#(#values_expr),*],
+                            others_allowed: #others_allowed,
+                            value_type: #value_type
+                        }
+                    )
+                })
+            }
         }
     }
 }
@@ -179,6 +445,8 @@ enum CommandParameter {
         default_value: Option<DefaultValue>,
         label: Option<String>,
         gui: ArgumentGUIInfo,
+        gui_explicit: bool,
+        enum_spec: Option<EnumParameterSpec>,
     },
     Context,
 }
@@ -296,7 +564,15 @@ impl CommandParameter {
 
     pub fn argument_type_expression(&self) -> proc_macro2::TokenStream {
         match self {
-            CommandParameter::Param { ty, .. } => {
+            CommandParameter::Param {
+                ty, enum_spec, name, ..
+            } => {
+                if let Some(enum_spec) = enum_spec {
+                    let name_str = name.to_string();
+                    return enum_spec
+                        .to_argument_type_expression(&name_str)
+                        .unwrap_or_else(syn::Error::into_compile_error);
+                }
                 // Refactored helper: returns (is_option, Some(inner_ident)) or (false, Some(ident)) for plain types
                 fn is_option_of(ty: &syn::Type) -> (bool, Option<String>) {
                     if let syn::Type::Path(type_path) = ty {
@@ -391,6 +667,8 @@ impl CommandParameter {
                 default_value: _default_value,
                 label,
                 gui,
+                gui_explicit,
+                enum_spec,
             } => {
                 let name_str = name.to_string();
                 let default_label = name_str.replace('_', " ");
@@ -400,6 +678,30 @@ impl CommandParameter {
                     .unwrap_or(default_label.as_str());
                 let argument_type = self.argument_type_expression();
                 let default_value_expression = self.default_value_expression();
+                let gui_expr = if !*gui_explicit {
+                    if let Some(enum_spec) = enum_spec {
+                        match enum_spec {
+                            EnumParameterSpec::Ref(_) => quote! {
+                                liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector
+                            },
+                            EnumParameterSpec::Inline { .. } => {
+                                if enum_spec.count() <= 3 {
+                                    quote! {
+                                        liquers_core::command_metadata::ArgumentGUIInfo::VerticalRadioEnum
+                                    }
+                                } else {
+                                    quote! {
+                                        liquers_core::command_metadata::ArgumentGUIInfo::EnumSelector
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        quote! { #gui }
+                    }
+                } else {
+                    quote! { #gui }
+                };
 
                 Some(quote! {
                     liquers_core::command_metadata::ArgumentInfo{
@@ -409,7 +711,7 @@ impl CommandParameter {
                         argument_type: #argument_type,
                         multiple: false,
                         injected: #injected,
-                        gui_info: #gui,
+                        gui_info: #gui_expr,
                         ..Default::default()
                     }
                 })
@@ -494,15 +796,141 @@ impl Parse for CommandSignatureStatement {
     }
 }
 
+fn parse_inline_enum_parameter_spec(input: ParseStream) -> syn::Result<EnumParameterSpec> {
+    let mut value_type: Option<EnumTypeSpec> = None;
+    let mut others_allowed = false;
+
+    if input.peek(syn::token::Paren) {
+        let options;
+        syn::parenthesized!(options in input);
+        while !options.is_empty() {
+            let key: syn::Ident = options.call(syn::Ident::parse_any)?;
+            options.parse::<syn::Token![:]>()?;
+            match key.to_string().as_str() {
+                "type" => {
+                    let ty: syn::Ident = options.parse()?;
+                    value_type = Some(EnumTypeSpec::from_ident(&ty)?);
+                }
+                "others" => {
+                    let lit: syn::LitBool = options.parse()?;
+                    others_allowed = lit.value;
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        format!("Unknown enum option '{}'", other),
+                    ))
+                }
+            }
+            if options.peek(syn::Token![,]) {
+                options.parse::<syn::Token![,]>()?;
+            }
+        }
+    }
+
+    input.parse::<syn::Token![:]>()?;
+
+    let mut values = Vec::<EnumAlternativeSpec>::new();
+    if input.peek(syn::token::Bracket) {
+        let content;
+        syn::bracketed!(content in input);
+        while !content.is_empty() {
+            let alias: syn::LitStr = content.parse()?;
+            let alias_text = alias.value();
+            values.push(EnumAlternativeSpec {
+                alias: alias_text.clone(),
+                value: EnumValueLiteral::Str(alias_text),
+            });
+            if content.peek(syn::Token![,]) {
+                content.parse::<syn::Token![,]>()?;
+            }
+        }
+    } else if input.peek(syn::token::Brace) {
+        let content;
+        syn::braced!(content in input);
+        while !content.is_empty() {
+            let alias: syn::LitStr = content.parse()?;
+            content.parse::<syn::Token![=>]>()?;
+            let value: EnumValueLiteral = content.parse()?;
+            values.push(EnumAlternativeSpec {
+                alias: alias.value(),
+                value,
+            });
+            if content.peek(syn::Token![,]) {
+                content.parse::<syn::Token![,]>()?;
+            }
+        }
+    } else {
+        return Err(input.error("enum expects [\"a\", ...] or {\"alias\" => value, ...}"));
+    }
+
+    let mut aliases = std::collections::HashSet::<String>::new();
+    for alias in values.iter().map(|x| x.alias.clone()) {
+        if !aliases.insert(alias.clone()) {
+            return Err(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                format!("Duplicate enum alias '{}'", alias),
+            ));
+        }
+    }
+
+    Ok(EnumParameterSpec::Inline {
+        value_type,
+        others_allowed,
+        values,
+    })
+}
+
+fn default_value_fits_enum(
+    default: &Option<DefaultValue>,
+    enum_spec: &EnumParameterSpec,
+) -> syn::Result<()> {
+    let Some(default) = default else {
+        return Ok(());
+    };
+    match enum_spec {
+        EnumParameterSpec::Ref(_) => Ok(()),
+        EnumParameterSpec::Inline {
+            others_allowed, ..
+        } => match default {
+            DefaultValue::Str(value) => {
+                if enum_spec.has_alias(value) || *others_allowed {
+                    Ok(())
+                } else {
+                    Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Enum default string must match an alias (or use others: true)",
+                    ))
+                }
+            }
+            DefaultValue::Bool(_)
+            | DefaultValue::Int(_)
+            | DefaultValue::Float(_)
+            | DefaultValue::Query(_) => {
+                if *others_allowed {
+                    Ok(())
+                } else {
+                    Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Enum default literal requires others: true unless default is an alias string",
+                    ))
+                }
+            }
+        },
+    }
+}
+
 enum CommandParameterStatement {
     Label(String),
     Gui(ArgumentGUIInfo),
+    Enum(EnumParameterSpec),
+    EnumRef(String),
     Hint(String, String), // TODO: Implement hints
 }
 
 impl Parse for CommandParameterStatement {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let ident: syn::Ident = input.parse()?;
+        let ident: syn::Ident = input.call(syn::Ident::parse_any)?;
         match ident.to_string().as_str() {
             "label" => {
                 input.parse::<syn::Token![:]>()?;
@@ -513,6 +941,15 @@ impl Parse for CommandParameterStatement {
                 input.parse::<syn::Token![:]>()?;
                 let gui_info: ArgumentGUIInfo = input.parse()?;
                 Ok(CommandParameterStatement::Gui(gui_info))
+            }
+            "enum" => {
+                let enum_spec = parse_inline_enum_parameter_spec(input)?;
+                Ok(CommandParameterStatement::Enum(enum_spec))
+            }
+            "enum_ref" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandParameterStatement::EnumRef(lit.value()))
             }
             "hint" => {
                 // Parse: hint key_identifier: "Some hint"
@@ -1019,6 +1456,8 @@ impl Parse for CommandParameter {
 
                 let mut label = None;
                 let mut gui = ArgumentGUIInfo::TextField(20);
+                let mut gui_explicit = false;
+                let mut enum_spec: Option<EnumParameterSpec> = None;
                 if input.peek(syn::token::Paren) {
                     let content;
                     syn::parenthesized!(content in input);
@@ -1026,13 +1465,39 @@ impl Parse for CommandParameter {
                         let stmt: CommandParameterStatement = content.parse()?;
                         match stmt {
                             CommandParameterStatement::Label(l) => label = Some(l),
-                            CommandParameterStatement::Gui(g) => gui = g,
+                            CommandParameterStatement::Gui(g) => {
+                                gui = g;
+                                gui_explicit = true;
+                            }
+                            CommandParameterStatement::Enum(spec) => {
+                                if enum_spec.is_some() {
+                                    return Err(syn::Error::new(
+                                        name.span(),
+                                        "Duplicate enum/enum_ref specification",
+                                    ));
+                                }
+                                enum_spec = Some(spec);
+                            }
+                            CommandParameterStatement::EnumRef(spec) => {
+                                if enum_spec.is_some() {
+                                    return Err(syn::Error::new(
+                                        name.span(),
+                                        "Cannot combine enum and enum_ref",
+                                    ));
+                                }
+                                enum_spec = Some(EnumParameterSpec::Ref(spec));
+                            }
                             CommandParameterStatement::Hint(_, _) => {} // TODO: handle hints
                         }
                         if content.peek(syn::Token![,]) {
                             content.parse::<syn::Token![,]>()?;
                         }
                     }
+                }
+
+                if let Some(spec) = &enum_spec {
+                    let _ = spec.resolved_type()?;
+                    default_value_fits_enum(&default_value, spec)?;
                 }
 
                 Ok(CommandParameter::Param {
@@ -1042,6 +1507,8 @@ impl Parse for CommandParameter {
                     default_value,
                     label,
                     gui,
+                    gui_explicit,
+                    enum_spec,
                 })
             }
         } else {
@@ -1339,6 +1806,8 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            gui_explicit: false,
+            enum_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Integer };
@@ -1354,6 +1823,8 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            gui_explicit: false,
+            enum_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::IntegerOption };
@@ -1369,6 +1840,8 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            gui_explicit: false,
+            enum_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Float };
@@ -1384,6 +1857,8 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            gui_explicit: false,
+            enum_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOpt };
@@ -1399,6 +1874,8 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            gui_explicit: false,
+            enum_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::String };
@@ -1414,6 +1891,8 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            gui_explicit: false,
+            enum_spec: None,
         };
         let tokens = param.argument_type_expression();
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
@@ -1489,7 +1968,7 @@ mod tests {
         assert!(info_string.contains(
             "default : liquers_core :: command_metadata :: CommandParameterValue :: Value"
         ));
-        assert!(info_string.contains("Value (serde_json :: Value :: Number (serde_json :: Number :: from_i64 (42i64) . unwrap_or (serde_json :: Number :: from_i64 (0) . unwrap ())))"));
+        assert!(info_string.contains("serde_json :: Number :: from (42i64)"));
         assert!(info_string.contains(
             "argument_type : liquers_core :: command_metadata :: ArgumentType :: Integer"
         ));
@@ -1881,5 +2360,66 @@ mod tests {
         // OR they could explicitly call with_async(false) - either is acceptable
         // Just verify the code compiles and doesn't error
         assert!(!sig.is_async, "Sync command should have is_async=false in signature");
+    }
+
+    #[test]
+    fn test_parse_enum_list_metadata() {
+        let param: CommandParameter = syn::parse_quote! {
+            method: String (enum: ["nearest", "lanczos3"])
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("ArgumentType :: Enum"));
+        assert!(info.contains("alias : \"nearest\""));
+        assert!(info.contains("EnumArgumentType :: String"));
+        assert!(info.contains("others_allowed : false"));
+        assert!(info.contains("gui_info : liquers_core :: command_metadata :: ArgumentGUIInfo :: VerticalRadioEnum"));
+    }
+
+    #[test]
+    fn test_parse_enum_map_with_type_and_others() {
+        let param: CommandParameter = syn::parse_quote! {
+            quality: i32 (enum(type: int, others: true): {"low" => 1, "high" => 3})
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("ArgumentType :: Enum"));
+        assert!(info.contains("EnumArgumentType :: Integer"));
+        assert!(info.contains("others_allowed : true"));
+        assert!(info.contains("alias : \"low\""));
+    }
+
+    #[test]
+    fn test_parse_enum_ref_metadata() {
+        let param: CommandParameter = syn::parse_quote! {
+            method: String (enum_ref: "img.resize_method")
+        };
+        let info = param.argument_info_expression().unwrap().to_string();
+        assert!(info.contains("ArgumentType :: GlobalEnum (\"img.resize_method\""));
+        assert!(info.contains(
+            "gui_info : liquers_core :: command_metadata :: ArgumentGUIInfo :: EnumSelector"
+        ));
+    }
+
+    #[test]
+    fn test_enum_rejects_duplicate_alias() {
+        let parsed: syn::Result<CommandParameter> = syn::parse2(quote! {
+            method: String (enum: ["nearest", "nearest"])
+        });
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_enum_rejects_combined_enum_and_enum_ref() {
+        let parsed: syn::Result<CommandParameter> = syn::parse2(quote! {
+            method: String (enum: ["nearest"], enum_ref: "img.resize_method")
+        });
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_enum_default_alias_validation() {
+        let parsed: syn::Result<CommandParameter> = syn::parse2(quote! {
+            method: String = "unknown" (enum: ["nearest", "lanczos3"])
+        });
+        assert!(parsed.is_err());
     }
 }

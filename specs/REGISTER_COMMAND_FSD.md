@@ -92,7 +92,7 @@ Parameters are specified after the state parameter, separated by commas.
 ### Syntax
 
 ```
-<name>: <Type> [injected] [= <default_value>] [(label: "...", gui: ...)]
+<name>: <Type> [injected] [= <default_value>] [(label: "...", gui: ..., enum: ..., enum_ref: ...)]
 ```
 
 | Part | Required | Description |
@@ -156,6 +156,38 @@ register_command!(cr,
 |-----------|-------------|
 | `label: "..."` | Human-readable label for UI |
 | `gui: <GuiInfo>` | UI rendering hint |
+| `enum: <EnumSpec>` | Inline enum alternatives and mapping |
+| `enum_ref: "..."` | Reference a global enum by name |
+
+Enum metadata syntax:
+
+```text
+enum: ["a", "b", "c"]
+enum: {"alias" => "value", "hq" => query "path/to/query"}
+enum(type: int): {"low" => 1, "high" => 3}
+enum(type: string, others: true): ["red", "green", "blue"]
+enum_ref: "img.resize_method"
+```
+
+Enum type keywords supported in `enum(type: ...)`:
+- `string`
+- `int`
+- `int_opt`
+- `float`
+- `float_opt`
+- `bool`
+- `any`
+
+Validation rules:
+- `enum` and `enum_ref` are mutually exclusive.
+- aliases must be unique.
+- default value must match alias unless `others: true`.
+- explicit `type` must match mapped literal types.
+
+Runtime rules:
+- alias values are expanded to mapped values.
+- when `others: false`, unknown alias is rejected.
+- when `others: true`, fallback value is accepted only if compatible with enum type.
 
 ### GUI Info Variants
 
@@ -179,6 +211,10 @@ register_command!(cr,
 | `DateField` | `DateField 10` | Date input with width |
 | `Hide` | `Hide` | Hidden parameter |
 | `None` | `None` | No GUI info |
+
+When enum metadata is present and `gui:` is omitted, defaults are:
+- up to 3 alternatives: `VerticalRadioEnum`
+- 4+ alternatives or `enum_ref`: `EnumSelector`
 
 ---
 

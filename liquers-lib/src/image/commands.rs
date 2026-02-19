@@ -22,7 +22,12 @@ macro_rules! register_image_commands {
         )?;
 
         register_command!($cr,
-            fn from_format(state, format_str: String) -> result
+            fn from_format(
+                state,
+                format_str: String (
+                    enum(type: string, others: true): ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico"]
+                )
+            ) -> result
             label: "From format"
             doc: "Load image from bytes with explicitly specified format"
             ns: "img"
@@ -51,14 +56,24 @@ macro_rules! register_image_commands {
         )?;
 
         register_command!($cr,
-            fn to_dataurl(state, format_str: String = "png") -> result
+            fn to_dataurl(
+                state,
+                format_str: String = "png" (
+                    enum(type: string, others: true): ["png", "jpeg", "webp", "gif", "bmp", "tiff", "ico"]
+                )
+            ) -> result
             label: "To data URL"
             doc: "Convert image to base64 data URL with specified format (png, jpeg, webp, etc.)"
             ns: "img"
         )?;
 
         register_command!($cr,
-            fn color_format(state, format: String) -> result
+            fn color_format(
+                state,
+                format: String (
+                    enum: ["rgb8", "rgba8", "luma8", "luma_alpha8", "rgb16", "rgba16"]
+                )
+            ) -> result
             label: "Color format"
             doc: "Convert image color format (rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16)"
             ns: "img"
@@ -66,21 +81,41 @@ macro_rules! register_image_commands {
 
         // Geometric Transformations
         register_command!($cr,
-            fn resize(state, width: u32, height: u32, method: String = "lanczos3") -> result
+            fn resize(
+                state,
+                width: u32,
+                height: u32,
+                method: String = "lanczos3" (
+                    enum: ["nearest", "triangle", "catmullrom", "gaussian", "lanczos3"]
+                )
+            ) -> result
             label: "Resize"
             doc: "Resize image to exact dimensions in pixels"
             ns: "img"
         )?;
 
         register_command!($cr,
-            fn resize_by(state, percent: f32, method: String = "lanczos3") -> result
+            fn resize_by(
+                state,
+                percent: f32,
+                method: String = "lanczos3" (
+                    enum: ["nearest", "triangle", "catmullrom", "gaussian", "lanczos3"]
+                )
+            ) -> result
             label: "Resize by percentage"
             doc: "Resize image by percentage (uniform scaling)"
             ns: "img"
         )?;
 
         register_command!($cr,
-            fn thumb(state, max_width: u32, max_height: u32, method: String = "lanczos3") -> result
+            fn thumb(
+                state,
+                max_width: u32,
+                max_height: u32,
+                method: String = "lanczos3" (
+                    enum: ["nearest", "triangle", "catmullrom", "gaussian", "lanczos3"]
+                )
+            ) -> result
             label: "Thumbnail"
             doc: "Resize image preserving aspect ratio (fits within max dimensions)"
             ns: "img"
