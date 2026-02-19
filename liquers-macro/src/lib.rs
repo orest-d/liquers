@@ -998,13 +998,21 @@ struct CommandSignature {
 
 impl CommandSignature {
     pub fn extract_all_parameters(&self) -> proc_macro2::TokenStream {
-
         let extractors: Vec<proc_macro2::TokenStream> = match self.wrapper_version {
-            WrapperVersion::V2 => self
-                .parameters
-                .iter().enumerate()
-                .map(|(i, p)| p.parameter_extractor(i))
-                .collect(),
+            WrapperVersion::V2 => {
+                let mut extractors = Vec::new();
+                let mut arg_index = 0usize;
+                for p in self.parameters.iter() {
+                    extractors.push(p.parameter_extractor(arg_index));
+                    // Keep indexing aligned with command metadata arguments:
+                    // Context is not a command argument slot, but both normal and injected
+                    // parameters are.
+                    if matches!(p, CommandParameter::Param { .. }) {
+                        arg_index += 1;
+                    }
+                }
+                extractors
+            }
         };
         quote! {
             #(#extractors)*
@@ -1702,6 +1710,45 @@ mod tests {
             let a__par: i32 = arguments.get(0usize, "a")?;
             let b__par: String = arguments.get_injected(1usize, "b", context.clone())?;
             let c__par: f64 = arguments.get(2usize, "c")?;
+        };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn extract_all_parameters_with_context_first() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, context, a: i32) -> result
+        };
+        let tokens = sig.extract_all_parameters();
+        let expected = quote! {
+            let a__par: i32 = arguments.get(0usize, "a")?;
+        };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn extract_all_parameters_with_context_middle_and_injected() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32, context, b: String injected, c: f64) -> result
+        };
+        let tokens = sig.extract_all_parameters();
+        let expected = quote! {
+            let a__par: i32 = arguments.get(0usize, "a")?;
+            let b__par: String = arguments.get_injected(1usize, "b", context.clone())?;
+            let c__par: f64 = arguments.get(2usize, "c")?;
+        };
+        assert_eq!(tokens.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn extract_all_parameters_with_context_last() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32, b: String injected, context) -> result
+        };
+        let tokens = sig.extract_all_parameters();
+        let expected = quote! {
+            let a__par: i32 = arguments.get(0usize, "a")?;
+            let b__par: String = arguments.get_injected(1usize, "b", context.clone())?;
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }

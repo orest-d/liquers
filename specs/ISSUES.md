@@ -6,21 +6,21 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 
 | # | ID | Status | Summary |
 |---|-----|--------|---------|
-| 1 | VOLATILE-METADATA | **Closed** | State metadata lacks volatility information |
-| 2 | METADATA-CONSISTENCY | Open | MetadataRecord fields need consistency validation |
-| 3 | CANCEL-SAFETY | **Closed** | Cancelled flag needed to prevent writes from orphaned tasks |
-| 4 | NON-SERIALIZABLE | Open | Support for non-serializable data in set_state() |
-| 5 | STICKY-ASSETS | Open | Source/Override assets need eviction resistance for reliable storage |
-| 6 | UPLOAD-SIZE-LIMIT | Open | Configurable size limits for set() binary uploads |
-| 7 | KEY-LEVEL-ACL | Open | Access control for set()/set_state() operations |
-| 8 | VALUE-LIST-SUPPORT | Open | ValueInterface may need extension for returning lists of integers from lui commands |
-| 9 | IMAGE-DIMENSIONS-METADATA | Open | Store image dimensions in State metadata for efficient queries |
-| 10 | ENUM-ARGUMENT-TYPE | **Closed** | Support EnumArgumentType in register_command! macro |
-| 11 | PAYLOAD-INJECTION | Open | Payload field extraction syntax in register_command! macro |
-| 12 | PAYLOAD-INHERITANCE | Open | Payload inheritance in nested evaluations |
-| 13 | CONTEXT-PARAM-ORDER | Open | Parameter index misalignment with injected parameters in register_command! |
-| 14 | KEYBOARD-SHORTCUT-ABSTRACTION | Open | Platform-agnostic keyboard shortcut system for multiple UI backends |
-| 15 | PRESET-NAMESPACE | **Closed** | CommandPreset missing namespace field |
+| 1 | VOLATILE-METADATA              | **Closed**   | State metadata lacks volatility information |
+| 2 | METADATA-CONSISTENCY           | Open         | MetadataRecord fields need consistency validation |
+| 3 | CANCEL-SAFETY                  | **Closed**   | Cancelled flag needed to prevent writes from orphaned tasks |
+| 4 | NON-SERIALIZABLE               | Open         | Support for non-serializable data in set_state() |
+| 5 | STICKY-ASSETS                  | Open         | Source/Override assets need eviction resistance for reliable storage |
+| 6 | UPLOAD-SIZE-LIMIT              | Open         | Configurable size limits for set() binary uploads |
+| 7 | KEY-LEVEL-ACL                  | Open         | Access control for set()/set_state() operations |
+| 8 | VALUE-LIST-SUPPORT             | Open         | ValueInterface may need extension for returning lists of integers from lui commands |
+| 9 | IMAGE-DIMENSIONS-METADATA      | Open         | Store image dimensions in State metadata for efficient queries |
+| 10 | ENUM-ARGUMENT-TYPE            | **Closed**   | Support EnumArgumentType in register_command! macro |
+| 11 | PAYLOAD-INJECTION             | **WONT_FIX** | Payload field extraction syntax in register_command! macro |
+| 12 | PAYLOAD-INHERITANCE           | **WONT_FIX** | Payload inheritance in nested evaluations |
+| 13 | CONTEXT-PARAM-ORDER           | **Closed**   | Parameter index misalignment with injected parameters in register_command! |
+| 14 | KEYBOARD-SHORTCUT-ABSTRACTION | Open         | Platform-agnostic keyboard shortcut system for multiple UI backends |
+| 15 | PRESET-NAMESPACE              | **Closed**   | CommandPreset missing namespace field |
 
 ---
 
@@ -660,9 +660,11 @@ register_command!(cr,
 
 ## Issue 11: PAYLOAD-INJECTION
 
-**Status:** Open
+**Status:** **WONT_FIX**
 
 **Summary:** Add field extraction syntax to register_command! macro to simplify payload injection without manual trait implementations.
+
+**WONT_FIX**: It is sufficient to access the payload via context.
 
 ### Problem
 
@@ -729,9 +731,11 @@ This eliminates the need for newtypes and manual `InjectedFromContext` implement
 
 ## Issue 12: PAYLOAD-INHERITANCE
 
-**Status:** Open
+**Status:** **WONT_FIX**
+
 
 **Summary:** Payload is not automatically passed to nested queries executed via context.evaluate().
+Option C is fine - or maybe Option A can be implemented when needed.
 
 ### Problem
 
@@ -787,7 +791,7 @@ Option C (document as limitation). Payload inheritance is conceptually problemat
 
 ## Issue 13: CONTEXT-PARAM-ORDER
 
-**Status:** Open (workaround available)
+**Status:** **Closed** (workaround available)
 
 **Summary:** register_command! macro has parameter index misalignment when Context is not the last parameter.
 

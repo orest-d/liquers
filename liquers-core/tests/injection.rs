@@ -264,6 +264,19 @@ fn greet_user(
     Ok(Value::from(format!("{}, {}!", greeting, user_id.0)))
 }
 
+// Pattern 9b: Mixed regular + injected parameters with explicit context in middle
+fn greet_user_with_context(
+    _state: &State<Value>,
+    context: Context<TestEnvironment>,
+    user_id: UserId,
+    greeting: String,
+) -> Result<Value, Error> {
+    let payload = context
+        .get_payload_clone()
+        .ok_or_else(|| Error::general_error("No payload for greet_user_with_context".to_string()))?;
+    Ok(Value::from(format!("{}, {}@{}!", greeting, user_id.0, payload.window_id)))
+}
+
 // Pattern 10: Async command with injection
 async fn async_get_user(_state: State<Value>, user_id: UserId) -> Result<Value, Error> {
     // Simulate async work
@@ -517,6 +530,32 @@ async fn test_mixed_regular_and_injected_parameters() -> Result<(), Box<dyn std:
     let result = state.try_into_string()?;
 
     assert_eq!(result, "Hello, ian!");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_context_middle_with_regular_and_injected_parameters(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut env = TestEnvironment::new();
+    let cr = &mut env.command_registry;
+
+    register_command!(cr, fn greet_user_with_context(
+        state,
+        context,
+        user_id: UserId injected,
+        greeting: String
+    ) -> result)?;
+
+    let envref = env.to_ref();
+    let payload = TestPayload::new("kate", 77);
+
+    let asset = envref
+        .evaluate_immediately("/-/greet_user_with_context-Hello", payload)
+        .await?;
+    let state = asset.get().await?;
+    let result = state.try_into_string()?;
+
+    assert_eq!(result, "Hello, kate@77!");
     Ok(())
 }
 
