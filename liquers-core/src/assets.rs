@@ -53,7 +53,7 @@ use crate::metadata::{AssetInfo, LogEntry, MetadataRecord, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{
     context::{EnvRef, Environment},
-    error::Error,
+    error::{Error, ErrorType},
     metadata::{Metadata, Status},
     query::{Key, Query},
     recipes::{AsyncRecipeProvider, Recipe},
@@ -97,6 +97,18 @@ pub enum AssetNotificationMessage {
     PrimaryProgressUpdated(ProgressEntry),
     SecondaryProgressUpdated(ProgressEntry),
     JobFinished,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistenceStatus {
+    /// No persistence attempt has been made yet.
+    None,
+    /// Value and metadata have been persisted.
+    Persisted,
+    /// Value cannot be serialized in current representation.
+    NonSerializable,
+    /// Persistence was attempted but failed.
+    NotPersisted,
 }
 
 pub struct MetadataSaver {
@@ -228,6 +240,11 @@ pub struct AssetData<E: Environment> {
     /// If true, this asset is volatile (computed from recipe/plan before execution)
     is_volatile: bool,
 
+    /// Tracks persistence lifecycle for value-producing paths.
+    persistence_status: PersistenceStatus,
+    /// Last persistence error, when relevant.
+    last_persistence_error: Option<Error>,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -279,6 +296,8 @@ impl<E: Environment> AssetData<E> {
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
+            persistence_status: PersistenceStatus::None,
+            last_persistence_error: None,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -541,9 +560,33 @@ impl<E: Environment> AssetData<E> {
         self.binary = None;
         self.metadata = Metadata::new().into();
         self.status = Status::None;
+        self.persistence_status = PersistenceStatus::None;
+        self.last_persistence_error = None;
         self.notification_tx
             .send(AssetNotificationMessage::Initial)
             .ok();
+    }
+
+    fn set_persistence_status(&mut self, status: PersistenceStatus, error: Option<Error>) {
+        self.persistence_status = status;
+        self.last_persistence_error = error.clone();
+        match status {
+            PersistenceStatus::None | PersistenceStatus::Persisted => {}
+            PersistenceStatus::NonSerializable | PersistenceStatus::NotPersisted => {
+                let detail = if let Some(e) = error.as_ref() {
+                    e.to_string()
+                } else {
+                    "No additional error details available".to_owned()
+                };
+                let message = format!(
+                    "Persistence status {:?} for {}: {}",
+                    status,
+                    self.asset_reference(),
+                    detail
+                );
+                let _ = self.metadata.add_log_entry(LogEntry::warning(message));
+            }
+        }
     }
 
     /// Get the unique id of the asset
@@ -630,6 +673,55 @@ impl<E: Environment> AssetRef<E> {
     pub async fn get_metadata(&self) -> Result<Metadata, Error> {
         let lock = self.data.read().await;
         Ok(lock.metadata.clone())
+    }
+
+    pub async fn persistence_status(&self) -> PersistenceStatus {
+        let lock = self.data.read().await;
+        lock.persistence_status
+    }
+
+    async fn set_persistence_status(&self, status: PersistenceStatus, error: Option<Error>) {
+        let mut lock = self.data.write().await;
+        lock.set_persistence_status(status, error);
+    }
+
+    fn classify_persistence_error(error: &Error) -> PersistenceStatus {
+        match error.error_type {
+            ErrorType::SerializationError => PersistenceStatus::NonSerializable,
+            _ => PersistenceStatus::NotPersisted,
+        }
+    }
+
+    async fn record_persistence_result(&self, result: Result<(), Error>) {
+        match result {
+            Ok(()) => {
+                self.set_persistence_status(PersistenceStatus::Persisted, None)
+                    .await;
+            }
+            Err(error) => {
+                let status = Self::classify_persistence_error(&error);
+                self.set_persistence_status(status, Some(error)).await;
+            }
+        }
+    }
+
+    async fn persist_with_status_tracking(&self, save_in_background: bool, cancelled: bool) {
+        if cancelled {
+            self.set_persistence_status(PersistenceStatus::None, None)
+                .await;
+            return;
+        }
+
+        let assetref = self.clone();
+        if save_in_background {
+            tokio::spawn(async move {
+                let result = assetref.save_to_store().await;
+                assetref.record_persistence_result(result).await;
+            });
+        } else {
+            let result = self.save_to_store().await;
+            self.record_persistence_result(result).await;
+        }
     }
 
     /// Inform the asset that it has been submitted
@@ -1152,24 +1244,8 @@ impl<E: Environment> AssetRef<E> {
                 let cancelled = lock.is_cancelled();
                 drop(lock);
 
-                // Check cancelled flag before writing to store (cancel-safety)
-                // This prevents orphaned tasks from overwriting data after cancellation
-                if cancelled {
-                    println!(
-                        "Asset {} cancelled, skipping store write",
-                        self.id()
-                    );
-                    return Ok(());
-                }
-
-                let assetref = self.clone();
-                if save_in_background {
-                    tokio::spawn(async move {
-                        let _ = assetref.save_to_store().await;
-                    });
-                } else {
-                    let _ = self.save_to_store().await;
-                }
+                self.persist_with_status_tracking(save_in_background, cancelled)
+                    .await;
                 Ok(())
             }
             Err(e) => {
@@ -1557,16 +1633,19 @@ impl<E: Environment> AssetRef<E> {
         } else {
             lock.set_status(Status::Ready)?;
         }
-        // TODO: Store value in set_value
-        // TODO: Update metadata with value info
         let _ = lock
             .notification_tx
             .send(AssetNotificationMessage::ValueProduced);
+        let save_in_background = lock.save_in_background;
+        let cancelled = lock.is_cancelled();
         lock.service_sender()
             .send(AssetServiceMessage::JobFinishing)
             .map_err(|e| {
                 Error::general_error(format!("Failed to send JobFinishing message: {}", e))
             })?;
+        drop(lock);
+        self.persist_with_status_tracking(save_in_background, cancelled)
+            .await;
         Ok(())
     }
 
@@ -1581,16 +1660,15 @@ impl<E: Environment> AssetRef<E> {
         println!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
         let data = state.data.clone();
-        lock.metadata
-            .with_type_identifier(data.identifier().to_string());
-        lock.metadata
-            .with_type_name(data.type_name().to_string());
         lock.data = Some(data);
-        lock.metadata = (*state.metadata).clone();
+        let mut merged_metadata = (*state.metadata).clone();
+        merged_metadata.with_type_identifier(state.data.identifier().to_string());
+        merged_metadata.with_type_name(state.data.type_name().to_string());
+        lock.metadata = merged_metadata;
         lock.binary = None; // Invalidate binary
-                            // TODO: Update metadata with value info
-                            // TODO: Store state in store
         let status = lock.metadata.status();
+        let save_in_background = lock.save_in_background;
+        let cancelled = lock.is_cancelled();
         if status == Status::Ready {
             let _ = lock
                 .notification_tx
@@ -1615,6 +1693,9 @@ impl<E: Environment> AssetRef<E> {
                 );
             }
         }
+        drop(lock);
+        self.persist_with_status_tracking(save_in_background, cancelled)
+            .await;
         Ok(())
     }
 
@@ -2558,8 +2639,24 @@ mod tests {
     use crate::metadata::{Metadata, MetadataRecord};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
-    use crate::store::{AsyncStoreWrapper, MemoryStore};
+    use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
     use crate::value::{Value, ValueInterface};
+
+    struct FailingSetStore;
+
+    impl Store for FailingSetStore {
+        fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+            Err(Error::key_write_error(
+                key,
+                "FailingSetStore",
+                "intentional store set failure",
+            ))
+        }
+
+        fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn test_asset_data_basics() {
@@ -3321,5 +3418,113 @@ mod tests {
         assert!(Status::Override.is_finished());
         assert!(!Status::Override.is_processing());
         assert!(!Status::Override.can_have_tracked_dependencies());
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_store_failure_keeps_value_and_sets_warning() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(FailingSetStore)));
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key, |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let query = parse_query("test/out.txt").unwrap();
+        let mut recipe: Recipe = query.into();
+        recipe.cwd = Some("a/b".to_string());
+
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(9001, recipe, envref.clone());
+        asset_data.save_in_background = false;
+        let assetref = asset_data.to_ref();
+
+        assetref.run().await.unwrap();
+        let state = assetref.get().await.unwrap();
+        assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
+        assert_eq!(
+            assetref.persistence_status().await,
+            PersistenceStatus::NotPersisted
+        );
+
+        let metadata = assetref.get_metadata().await.unwrap();
+        if let Metadata::MetadataRecord(meta) = metadata {
+            let warning = meta.log.iter().find(|entry| {
+                entry.message.contains("Persistence status NotPersisted")
+                    && entry.message.contains("intentional store set failure")
+            });
+            assert!(
+                warning.is_some(),
+                "Expected persistence warning with complete error details"
+            );
+        } else {
+            panic!("Expected MetadataRecord");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_missing_store_key_sets_warning_and_returns_value() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key, |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let query = parse_query("test").unwrap();
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(9002, query.into(), envref.clone());
+        asset_data.save_in_background = false;
+        let assetref = asset_data.to_ref();
+
+        assetref.run().await.unwrap();
+        let state = assetref.get().await.unwrap();
+        assert_eq!(state.try_into_string().unwrap(), "Hello, world!");
+        assert_eq!(
+            assetref.persistence_status().await,
+            PersistenceStatus::NotPersisted
+        );
+
+        let metadata = assetref.get_metadata().await.unwrap();
+        if let Metadata::MetadataRecord(meta) = metadata {
+            let warning = meta.log.iter().find(|entry| {
+                entry.message.contains("Persistence status NotPersisted")
+                    && entry.message.contains("Cannot determine key to store asset")
+            });
+            assert!(
+                warning.is_some(),
+                "Expected warning for missing store key persistence failure"
+            );
+        } else {
+            panic!("Expected MetadataRecord");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_set_value_persists_when_possible_and_marks_persisted() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+
+        let query = parse_query("dummy/value.txt").unwrap();
+        let mut recipe: Recipe = query.into();
+        recipe.cwd = Some("persist".to_owned());
+        let store_key = recipe.store_to_key().unwrap().unwrap();
+
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(9003, recipe, envref.clone());
+        asset_data.save_in_background = false;
+        let assetref = asset_data.to_ref();
+
+        assetref.set_value(Value::from("Persist me")).await.unwrap();
+
+        assert_eq!(
+            assetref.persistence_status().await,
+            PersistenceStatus::Persisted
+        );
+        let store = envref.get_async_store();
+        assert!(store.contains(&store_key).await.unwrap());
+        let (data, _) = store.get(&store_key).await.unwrap();
+        assert_eq!(data, b"Persist me");
     }
 }
