@@ -347,6 +347,9 @@ pub struct AssetInfo {
     pub status: Status,
     /// Type identifier of the value
     pub type_identifier: String,
+    /// Detailed type name of the value (runtime/debug oriented)
+    #[serde(default)]
+    pub type_name: String,
     /// Data format of the value - format how the data was serialized.
     /// Whenever possible, this is a filename extension. It may be different from the file extension though,
     /// e.g. if the file extension is ambiguous.
@@ -448,6 +451,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.key = asset_info.key;
         metadata.status = asset_info.status;
         metadata.type_identifier = asset_info.type_identifier;
+        metadata.type_name = asset_info.type_name;
         metadata.data_format = asset_info.data_format;
         metadata.message = asset_info.message;
         metadata.title = asset_info.title;
@@ -493,6 +497,9 @@ pub struct MetadataRecord {
     pub status: Status,
     /// Type identifier of the value
     pub type_identifier: String,
+    /// Detailed type name of the value (runtime/debug oriented)
+    #[serde(default)]
+    pub type_name: String,
     /// Data format of the value - format how the data was serialized.
     /// Whenever possible, this is a filename extension. It may be different from the file extension though,
     /// e.g. if the file extension is ambiguous.
@@ -666,6 +673,7 @@ impl MetadataRecord {
             key: self.key.clone(),
             status: self.status,
             type_identifier: self.type_identifier.clone(),
+            type_name: self.type_name.clone(),
             data_format: self.data_format.clone(),
             message: self.message.clone(),
             title: self.title.clone(),
@@ -717,6 +725,11 @@ impl MetadataRecord {
     }
     pub fn with_type_identifier(&mut self, type_identifier: String) -> &mut Self {
         self.type_identifier = type_identifier;
+        self.set_updated_now();
+        self
+    }
+    pub fn with_type_name(&mut self, type_name: String) -> &mut Self {
+        self.type_name = type_name;
         self.set_updated_now();
         self
     }
@@ -803,11 +816,18 @@ impl MetadataRecord {
     pub fn type_identifier(&self) -> String {
         self.type_identifier.to_string()
     }
+    pub fn type_name(&self) -> String {
+        self.type_name.to_string()
+    }
     pub fn filename(&self) -> Option<String> {
         self.filename.clone()
     }
     pub fn set_filename(&mut self, filename: &str) {
         self.filename = Some(filename.to_string());
+        self.media_type = crate::media_type::file_extension_to_media_type(
+            self.extension().unwrap_or("".to_string()).as_str(),
+        )
+        .to_owned();
     }
     pub fn extension(&self) -> Option<String> {
         if let Some(filename) = &self.filename {
@@ -832,6 +852,7 @@ impl MetadataRecord {
         } else {
             self.filename = Some(format!("file.{}", extension));
         }
+        self.media_type = crate::media_type::file_extension_to_media_type(extension).to_owned();
     }
     pub fn get_media_type(&self) -> String {
         if self.media_type.is_empty() {
@@ -954,6 +975,7 @@ impl Metadata {
                 }
                 m.status = self.status();
                 m.type_identifier = self.type_identifier().unwrap_or("".to_string());
+                m.type_name = self.type_name().unwrap_or("".to_string());
                 m.data_format = Some(self.get_data_format());
                 m.message = self.message().to_string();
                 m.title = self.title().to_string();
@@ -1148,6 +1170,28 @@ impl Metadata {
             }
         }
     }
+    pub fn with_type_name(&mut self, type_name: String) -> &mut Self {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("type_name".to_string(), Value::String(type_name));
+                self
+            }
+            Metadata::MetadataRecord(m) => {
+                m.with_type_name(type_name);
+                self
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.type_name = type_name;
+                *self = Metadata::MetadataRecord(m);
+                self
+            }
+
+            _ => {
+                panic!("Cannot set type_name on unsupported legacy metadata")
+            }
+        }
+    }
     pub fn type_identifier(&self) -> Result<String, Error> {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -1168,6 +1212,34 @@ impl Metadata {
             _ => {
                 let error = Error::general_error(
                     "type_identifier is not defined in non-object legacy metadata".to_string(),
+                );
+                if let Ok(query) = self.query() {
+                    Err(error.with_query(&query))
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+    pub fn type_name(&self) -> Result<String, Error> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(Value::String(type_name)) = o.get("type_name") {
+                    Ok(type_name.to_string())
+                } else {
+                    let error =
+                        Error::general_error("type_name not found in legacy metadata".to_string());
+                    if let Ok(query) = self.query() {
+                        Err(error.with_query(&query))
+                    } else {
+                        Err(error)
+                    }
+                }
+            }
+            Metadata::MetadataRecord(m) => Ok(m.type_name()),
+            _ => {
+                let error = Error::general_error(
+                    "type_name is not defined in non-object legacy metadata".to_string(),
                 );
                 if let Ok(query) = self.query() {
                     Err(error.with_query(&query))

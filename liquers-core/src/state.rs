@@ -15,23 +15,34 @@ pub struct State<V: ValueInterface> {
 }
 
 impl<V: ValueInterface> State<V> {
+    fn sync_metadata_with_value(metadata: &mut Metadata, value: &V) {
+        metadata.with_type_identifier(value.identifier().to_string());
+        metadata.with_type_name(value.type_name().to_string());
+    }
+
     /// Creates a new State with an empty value and default metadata.
     pub fn new() -> State<V> {
+        let data = Arc::new(V::none());
+        let mut metadata = Metadata::new();
+        Self::sync_metadata_with_value(&mut metadata, &data);
         State {
-            data: Arc::new(V::none()),
-            metadata: Arc::new(Metadata::new()),
+            data,
+            metadata: Arc::new(metadata),
         }
     }
     /// Creates a new State with the given value and metadata.
     pub fn from_value_and_metadata(value: V, metadata: Arc<Metadata>) -> State<V> {
+        let data = Arc::new(value);
+        let mut metadata_value = (*metadata).clone();
+        Self::sync_metadata_with_value(&mut metadata_value, &data);
         State {
-            data: Arc::new(value),
-            metadata,
+            data,
+            metadata: Arc::new(metadata_value),
         }
     }
 
     pub fn with_metadata(self, mut metadata: Metadata) -> Self {
-        metadata.with_type_identifier(self.data.identifier().to_string());
+        Self::sync_metadata_with_value(&mut metadata, &self.data);
         State {
             data: self.data,
             metadata: Arc::new(metadata),
@@ -51,26 +62,22 @@ impl<V: ValueInterface> State<V> {
     pub fn from_error(error: Error) -> Self {
         let mut metadata = Metadata::new();
         metadata.with_error(error);
-        State {
-            data: Arc::new(V::none()),
-            metadata: Arc::new(metadata),
-        }
+        let data = Arc::new(V::none());
+        Self::sync_metadata_with_value(&mut metadata, &data);
+        State { data, metadata: Arc::new(metadata) }
     }
     
     pub fn with_data(self, value: V) -> Self {
+        let mut metadata = (*self.metadata).clone();
+        Self::sync_metadata_with_value(&mut metadata, &value);
         State {
             data: Arc::new(value),
-            metadata: self.metadata,
+            metadata: Arc::new(metadata),
         }
     }
 
     pub fn with_string(&self, text: &str) -> Self {
-        let mut metadata = (*self.metadata).clone();
-        metadata.with_type_identifier("text".to_owned());
-        State {
-            data: Arc::new(V::new(text)),
-            metadata: Arc::new(metadata),
-        }
+        self.clone().with_data(V::new(text))
     }
     pub fn as_bytes(&self) -> Result<Vec<u8>, Error> {
         self.data.as_bytes(&self.metadata.get_data_format())

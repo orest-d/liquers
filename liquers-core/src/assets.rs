@@ -501,6 +501,7 @@ impl<E: Environment> AssetData<E> {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
                     metadata.with_type_identifier(data.identifier().to_string());
+                    metadata.with_type_name(data.type_name().to_string());
 
                     Some(State {
                         data: data.clone(),
@@ -1095,6 +1096,7 @@ impl<E: Environment> AssetRef<E> {
         let mut metadata = self.data.read().await.metadata.clone();
         if let Some(data) = self.data.read().await.data.as_ref() {
             metadata.with_type_identifier(data.identifier().to_string());
+            metadata.with_type_name(data.type_name().to_string());
         }
         Ok(State {
             data: res,
@@ -1110,7 +1112,7 @@ impl<E: Environment> AssetRef<E> {
                 let mut metadata_clone = (*metadata).clone();
                 metadata_clone
                     .with_type_identifier(data.identifier().to_string())
-                    .clone();
+                    .with_type_name(data.type_name().to_string());
                 lock.data = Some(data);
                 lock.status = metadata_clone.status();
                 lock.metadata = metadata_clone;
@@ -1275,24 +1277,6 @@ impl<E: Environment> AssetRef<E> {
         }
     }
     */
-
-    /// Deserialize the binary data into the asset's data field.
-    /// Returns true if the deserialization was successful.
-    async fn deserialize_from_binary(&self) -> Result<bool, Error> {
-        let mut lock = self.data.write().await;
-        let value = {
-            if let Some(binary) = &lock.binary {
-                let type_identifier = lock.metadata.type_identifier()?;
-                let extension = lock.metadata.extension().unwrap_or("bin".to_string());
-                E::Value::deserialize_from_bytes(binary, &type_identifier, &extension)
-            } else {
-                return Ok(false);
-            }
-        }?;
-
-        lock.data = Some(Arc::new(value));
-        Ok(true)
-    }
 
     /// Serialize the asset's data into binary form
     /// Data format from the metadata is used
@@ -1560,6 +1544,8 @@ impl<E: Environment> AssetRef<E> {
         let mut lock = self.data.write().await;
         lock.metadata
             .with_type_identifier(value.identifier().to_string());
+        lock.metadata
+            .with_type_name(value.type_name().to_string());
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
         if lock.is_volatile {
@@ -1597,6 +1583,8 @@ impl<E: Environment> AssetRef<E> {
         let data = state.data.clone();
         lock.metadata
             .with_type_identifier(data.identifier().to_string());
+        lock.metadata
+            .with_type_name(data.type_name().to_string());
         lock.data = Some(data);
         lock.metadata = (*state.metadata).clone();
         lock.binary = None; // Invalidate binary
@@ -2053,6 +2041,49 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         binary: &[u8],
         mut metadata: MetadataRecord,
     ) -> Result<(), Error> {
+        fn validate_required_metadata_fields(
+            key: &Key,
+            metadata: &MetadataRecord,
+        ) -> Result<(), Error> {
+            if metadata.type_identifier.trim().is_empty() {
+                return Err(Error::general_error(
+                    "Metadata type_identifier must not be empty".to_string(),
+                )
+                .with_key(key));
+            }
+            if metadata.type_name.trim().is_empty() {
+                return Err(
+                    Error::general_error("Metadata type_name must not be empty".to_string())
+                        .with_key(key),
+                );
+            }
+            Ok(())
+        }
+
+        fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
+            let effective_data_format = metadata.get_data_format();
+            if let Some(extension) = metadata.extension() {
+                if extension != effective_data_format {
+                    metadata.add_log_entry(LogEntry::warning(format!(
+                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
+                    )));
+                }
+            }
+
+            let expected_media_type =
+                crate::media_type::file_extension_to_media_type(&effective_data_format);
+            if !metadata.media_type.trim().is_empty()
+                && metadata.media_type != expected_media_type
+            {
+                metadata.add_log_entry(LogEntry::warning(format!(
+                    "media_type '{}' differs from expected '{}' for data_format '{}'",
+                    metadata.media_type, expected_media_type, effective_data_format
+                )));
+            } else if metadata.media_type.trim().is_empty() {
+                metadata.media_type = expected_media_type.to_string();
+            }
+        }
+
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -2085,6 +2116,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
         };
         metadata.status = final_status;
+        validate_required_metadata_fields(key, &metadata)?;
+        add_soft_consistency_warnings(&mut metadata);
 
         // 3. Update timestamp and add log entry
         metadata.set_updated_now();
@@ -2113,6 +2146,44 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
+        fn validate_required_metadata_fields(key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            if metadata.type_identifier()?.trim().is_empty() {
+                return Err(Error::general_error(
+                    "Metadata type_identifier must not be empty".to_string(),
+                )
+                .with_key(key));
+            }
+            if metadata.type_name()?.trim().is_empty() {
+                return Err(
+                    Error::general_error("Metadata type_name must not be empty".to_string())
+                        .with_key(key),
+                );
+            }
+            Ok(())
+        }
+
+        fn add_soft_consistency_warnings(metadata: &mut Metadata) -> Result<(), Error> {
+            let effective_data_format = metadata.get_data_format();
+            if let Some(extension) = metadata.extension() {
+                if extension != effective_data_format {
+                    metadata.add_log_entry(LogEntry::warning(format!(
+                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
+                    )))?;
+                }
+            }
+
+            let expected_media_type =
+                crate::media_type::file_extension_to_media_type(&effective_data_format);
+            let media_type = metadata.get_media_type();
+            if !media_type.trim().is_empty() && media_type != expected_media_type {
+                metadata.add_log_entry(LogEntry::warning(format!(
+                    "media_type '{}' differs from expected '{}' for data_format '{}'",
+                    media_type, expected_media_type, effective_data_format
+                )))?;
+            }
+            Ok(())
+        }
+
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -2148,6 +2219,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // 3. Create metadata record with updated status, timestamp, and log entry
         let mut metadata = state.metadata.as_ref().clone();
         metadata.set_status(final_status)?;
+        validate_required_metadata_fields(key, &metadata)?;
+        add_soft_consistency_warnings(&mut metadata)?;
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
 
@@ -3122,6 +3195,7 @@ mod tests {
         let binary = b"test data".to_vec();
         let mut metadata = MetadataRecord::new();
         metadata.type_identifier = "text".to_string();
+        metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
 
         let manager = envref.get_asset_manager();
@@ -3147,6 +3221,7 @@ mod tests {
         let binary = b"expired data".to_vec();
         let mut metadata = MetadataRecord::new();
         metadata.type_identifier = "text".to_string();
+        metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
         metadata.status = Status::Expired;
 
@@ -3169,6 +3244,7 @@ mod tests {
         let binary = b"this should not be stored".to_vec();
         let mut metadata = MetadataRecord::new();
         metadata.type_identifier = "text".to_string();
+        metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
         metadata.status = Status::Error;
         metadata.message = "Test error".to_string();
@@ -3194,6 +3270,7 @@ mod tests {
         let value = Value::from("test state value");
         let mut metadata = MetadataRecord::new();
         metadata.type_identifier = value.identifier().to_string();
+        metadata.type_name = value.type_name().to_string();
         metadata.data_format = Some("txt".to_string());
         let state = State::from_value_and_metadata(value, Arc::new(metadata.into()));
 
@@ -3220,6 +3297,7 @@ mod tests {
         let binary = b"to be removed".to_vec();
         let mut metadata = MetadataRecord::new();
         metadata.type_identifier = "text".to_string();
+        metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
 
         let manager = envref.get_asset_manager();

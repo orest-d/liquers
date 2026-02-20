@@ -245,8 +245,8 @@ impl<V: ValueInterface, BC: BinCache> Cache<V> for SerializingCache<V, BC> {
             .get_metadata(query)
             .ok_or(Error::not_available().with_query(query))?;
         let type_identifier = metadata.type_identifier()?;
-        let extension = metadata.extension().unwrap_or("b".to_owned()); // TODO: what is the default extension ?
-        let value = V::deserialize_from_bytes(&b, &type_identifier, &extension)?;
+        let data_format = metadata.get_data_format();
+        let value = V::deserialize_from_bytes(&b, &type_identifier, &data_format)?;
         Ok(State::from_value_and_metadata(value, metadata))
     }
 

@@ -7,14 +7,14 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 | #  | ID                            | Status       | Summary |
 |----|-------------------------------|--------------|---------|
 | 1  | VOLATILE-METADATA             | **Closed**   | State metadata lacks volatility information |
-| 2  | METADATA-CONSISTENCY          | Open         | MetadataRecord fields need consistency validation |
+| 2  | METADATA-CONSISTENCY          | **Closed**   | Metadata consistency and State-level type synchronization implemented |
 | 3  | CANCEL-SAFETY                 | **Closed**   | Cancelled flag needed to prevent writes from orphaned tasks |
 | 4  | NON-SERIALIZABLE              | Open         | Support for non-serializable data in set_state() |
 | 5  | STICKY-ASSETS                 | Open         | Source/Override assets need eviction resistance for reliable storage |
 | 6  | UPLOAD-SIZE-LIMIT             | Open         | Configurable size limits for set() binary uploads |
-| 7  | KEY-LEVEL-ACL                 | Open         | Access control for set()/set_state() operations |
+| 7  | KEY-LEVEL-ACL                 | **FEATURE**  | Access control for set()/set_state() operations |
 | 8  | VALUE-LIST-SUPPORT            | **Closed**   | ValueInterface may need extension for returning lists of integers from lui commands |
-| 9  | IMAGE-DIMENSIONS-METADATA     | Open         | Store image dimensions in State metadata for efficient queries |
+| 9  | IMAGE-DIMENSIONS-METADATA     | **FEATURE**  | Store image dimensions in State metadata for efficient queries |
 | 10 | ENUM-ARGUMENT-TYPE            | **Closed**   | Support EnumArgumentType in register_command! macro |
 | 11 | PAYLOAD-INJECTION             | **WONT_FIX** | Payload field extraction syntax in register_command! macro |
 | 12 | PAYLOAD-INHERITANCE           | **WONT_FIX** | Payload inheritance in nested evaluations |
@@ -82,9 +82,23 @@ However, `MetadataRecord` (which is stored in `State<V>`) contains no volatility
 
 ## Issue 2: METADATA-CONSISTENCY
 
-**Status:** Open
+**Status:** **Closed**
 
-**Summary:** MetadataRecord fields (`data_format`, `type_identifier`, `media_type`) need consistency validation.
+**Summary:** Metadata consistency is enforced with State-level synchronization and permissive warning-based checks.
+
+### Resolution
+
+Implemented:
+1. Added `type_name: String` to metadata model and synchronized it with value type via State constructor/setter methods.
+2. Added metadata getter/setter support for `type_name` on `Metadata` including legacy metadata object handling (following existing conventions used for `type_identifier`).
+3. Enforced mandatory `type_identifier` and `type_name` checks on asset write paths (`set()` and `set_state()`).
+4. Kept permissive consistency behavior for format/media mismatches and added warning log entries when inconsistencies are detected in asset context.
+5. Removed unused `deserialize_from_binary()` from assets implementation.
+6. Kept value-type vs data-format compatibility as runtime serializer/deserializer concern (not metadata validation concern).
+
+Verification:
+1. `cargo test -p liquers-core`
+2. `cargo test -p liquers-lib`
 
 ### Problem
 
