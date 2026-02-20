@@ -19,7 +19,7 @@ This document tracks small issues, open problems, and enhancement ideas for the 
 | 11 | PAYLOAD-INJECTION             | **WONT_FIX** | Payload field extraction syntax in register_command! macro |
 | 12 | PAYLOAD-INHERITANCE           | **WONT_FIX** | Payload inheritance in nested evaluations |
 | 13 | CONTEXT-PARAM-ORDER           | **Closed**   | Parameter index misalignment with injected parameters in register_command! |
-| 14 | KEYBOARD-SHORTCUT-ABSTRACTION | Open         | Platform-agnostic keyboard shortcut system for multiple UI backends |
+| 14 | KEYBOARD-SHORTCUT-ABSTRACTION | **Closed**   | Platform-agnostic keyboard shortcut system for multiple UI backends |
 | 15 | PRESET-NAMESPACE              | **Closed**   | CommandPreset missing namespace field |
 
 ---
@@ -845,7 +845,7 @@ register_command!(cr,
 
 ## Issue 14: KEYBOARD-SHORTCUT-ABSTRACTION
 
-**Status:** Open
+**Status:** **Closed**
 
 **Summary:** Create platform-agnostic keyboard shortcut system to support multiple UI backends (egui, ratatui, dioxus).
 

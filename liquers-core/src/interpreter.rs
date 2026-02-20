@@ -195,11 +195,7 @@ pub fn do_step<E: Environment>(
             Ok(input.data.clone())
         }
         .boxed(),
-        Step::Plan(plan) => async move {
-            todo!("Implement nested plan");
-            //let state = apply_plan(plan, envref.clone(), context, input_state).await?;
-        }
-        .boxed(),
+        Step::Plan(plan) => async move { apply_plan(plan, input, context, envref).await }.boxed(),
         Step::GetAsset(key) => async move {
             let envref1 = envref.clone();
             let asset_store = envref1.get_asset_manager();
@@ -208,7 +204,16 @@ pub fn do_step<E: Environment>(
             Ok(asset_state.data.clone())
         }
         .boxed(),
-        Step::GetAssetBinary(_key) => todo!(),
+        Step::GetAssetBinary(key) => async move {
+            let envref1 = envref.clone();
+            let asset_store = envref1.get_asset_manager();
+            let asset = asset_store.get(&key).await?;
+            let (binary, _metadata) = asset.get_binary().await?;
+            Ok(Arc::new(
+                <<E as Environment>::Value as ValueInterface>::from_bytes((*binary).clone()),
+            ))
+        }
+        .boxed(),
         Step::GetAssetMetadata(key) => async move {
             let envref1 = envref.clone();
             let asset_store = envref1.get_asset_manager();
