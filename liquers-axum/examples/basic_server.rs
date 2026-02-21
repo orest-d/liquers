@@ -15,12 +15,36 @@
 
 use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
 use liquers_core::{
-    context::{Environment, SimpleEnvironment},
+    command_metadata::CommandKey,
+    commands::CommandArguments,
+    context::{Context, Environment, SimpleEnvironment},
+    error::Error,
     query::Key,
     store::AsyncStoreWrapper,
     value::Value,
 };
 use liquers_core::store::FileStore;
+
+// Register commands with the environment
+fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironment<Value>, Error> {
+    use liquers_core::command_metadata::ArgumentInfo;
+
+    let cr = &mut env.command_registry;
+
+    // Register the 'text' command - creates a text value from the given string
+    let key = CommandKey::new_name("text");
+    let metadata = cr.register_command(key, |_state, args: CommandArguments<_>, _context: Context<_>| {
+        let text: String = args.get(0, "text")?;
+        Ok(Value::from(text))
+    })?;
+
+    metadata
+        .with_label("Text")
+        .with_doc("Create a text value from the given string")
+        .with_argument(ArgumentInfo::any_argument("text"));
+
+    Ok(env)
+}
 
 #[tokio::main]
 async fn main() {
@@ -38,6 +62,9 @@ async fn main() {
 
     let mut env = SimpleEnvironment::<Value>::new();
     env.with_async_store(Box::new(async_store));
+
+    // Register commands
+    let env = register_commands(env).expect("Failed to register commands");
 
     let env_ref = env.to_ref();
 
