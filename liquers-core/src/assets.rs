@@ -1883,7 +1883,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         asset
     }
 
-    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<E>>> {
+    pub fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
         self.envref
             .get()
             .expect("Environment not set in AssetStore")

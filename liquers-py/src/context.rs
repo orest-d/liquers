@@ -22,7 +22,7 @@ impl EnvRef{
 
 #[pyclass]
 pub struct Environment {
-    pub store: Arc<Box<dyn Store>>,
+    pub store: Arc<dyn Store>,
     pub cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
     pub command_registry: CommandRegistry<Self>,
     //#[cfg(feature = "async_store")]
@@ -34,7 +34,7 @@ impl Environment {
     #[new]
     pub fn new() -> Self {
         Environment {
-            store: Arc::new(Box::new(liquers_core::store::NoStore)),
+            store: Arc::new(liquers_core::store::NoStore),
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
             //#[cfg(feature = "async_store")]
@@ -98,7 +98,7 @@ impl liquers_core::context::Environment for Environment {
         todo!()
     }
     
-    fn get_recipe_provider(&self) -> Arc<Box<dyn liquers_core::recipes::AsyncRecipeProvider>> {
+    fn get_recipe_provider(&self) -> Arc<dyn liquers_core::recipes::AsyncRecipeProvider<Self>> {
         todo!()
     }
     

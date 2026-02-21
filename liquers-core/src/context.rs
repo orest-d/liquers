@@ -55,7 +55,7 @@ pub trait Environment: Sized + Sync + Send + 'static {
 
     fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>>;
 
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>>;
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>>;
 
     fn create_session(&self, user: User) -> Self::SessionType;
 
@@ -100,7 +100,7 @@ impl<E: Environment> EnvRef<E> {
         self.0.get_asset_manager()
     }
 
-    pub fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<E>>> {
+    pub fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
         self.0.get_recipe_provider()
     }
 
@@ -348,13 +348,13 @@ impl Session for SimpleSession {
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct SimpleEnvironment<V: ValueInterface> {
-    store: Arc<Box<dyn Store>>,
+    store: Arc<dyn Store>,
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
+    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
 }
 
 impl<V: ValueInterface> Default for SimpleEnvironment<V> {
@@ -366,7 +366,7 @@ impl<V: ValueInterface> Default for SimpleEnvironment<V> {
 impl<V: ValueInterface> SimpleEnvironment<V> {
     pub fn new() -> Self {
         SimpleEnvironment {
-            store: Arc::new(Box::new(NoStore)),
+            store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             #[cfg(feature = "async_store")]
@@ -376,11 +376,11 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::new(store);
+        self.store = Arc::from(store);
         self
     }
     pub fn with_recipe_provider(&mut self, provider: Box<dyn AsyncRecipeProvider<Self>>) -> &mut Self {
-        self.recipe_provider = Some(Arc::new(provider));
+        self.recipe_provider = Some(Arc::from(provider));
         self
     }
     #[cfg(feature = "async_store")]
@@ -441,12 +441,12 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         .boxed()
     }
     
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
         eprintln!("No recipe provider configured in SimpleEnvironment");
-        Arc::new(Box::new(crate::recipes::TrivialRecipeProvider))
+        Arc::new(crate::recipes::TrivialRecipeProvider)
     }
     
     fn init_with_envref(&self, envref: EnvRef<Self>) {
@@ -459,13 +459,13 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 /// Simple environment with payload and configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
-    store: Arc<Box<dyn Store>>,
+    store: Arc<dyn Store>,
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
+    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
     _payload: std::marker::PhantomData<P>,
 }
 
@@ -478,7 +478,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Default for SimpleEnvir
 impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPayload<V, P> {
     pub fn new() -> Self {
         SimpleEnvironmentWithPayload {
-            store: Arc::new(Box::new(NoStore)),
+            store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             _payload: std::marker::PhantomData::<P>::default(),
@@ -489,11 +489,11 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
         }
     }
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
-        self.store = Arc::new(store);
+        self.store = Arc::from(store);
         self
     }
     pub fn with_recipe_provider(&mut self, provider: Box<dyn AsyncRecipeProvider<Self>>) -> &mut Self {
-        self.recipe_provider = Some(Arc::new(provider));
+        self.recipe_provider = Some(Arc::from(provider));
         self
     }
     #[cfg(feature = "async_store")]
@@ -554,7 +554,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment for SimpleE
         .boxed()
     }
     
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }

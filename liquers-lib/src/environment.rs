@@ -14,7 +14,7 @@ pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> {
     async_store: Arc<dyn AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
-    recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
+    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
     _payload: std::marker::PhantomData<P>,
 }
 
@@ -47,7 +47,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
 
     pub fn with_recipe_provider(
         &mut self,
-        provider: Arc<Box<dyn AsyncRecipeProvider<Self>>>,
+        provider: Arc<dyn AsyncRecipeProvider<Self>>,
     ) -> &mut Self {
         self.recipe_provider = Some(provider);
         self
@@ -57,7 +57,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
         &mut self
     ) -> &mut Self {
 
-        let provider: Arc<Box<dyn AsyncRecipeProvider<Self>>> = Arc::new(Box::new(liquers_core::recipes::DefaultRecipeProvider));
+        let provider: Arc<dyn AsyncRecipeProvider<Self>> = Arc::new(liquers_core::recipes::DefaultRecipeProvider);
         self.recipe_provider = Some(provider);
         self
     }
@@ -65,7 +65,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
         &mut self
     ) -> &mut Self {
 
-        let provider: Arc<Box<dyn AsyncRecipeProvider<Self>>> = Arc::new(Box::new(liquers_core::recipes::TrivialRecipeProvider));
+        let provider: Arc<dyn AsyncRecipeProvider<Self>> = Arc::new(liquers_core::recipes::TrivialRecipeProvider);
         self.recipe_provider = Some(provider);
         self
     }
@@ -127,7 +127,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         .boxed()
     }
 
-    fn get_recipe_provider(&self) -> Arc<Box<dyn AsyncRecipeProvider<Self>>> {
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }

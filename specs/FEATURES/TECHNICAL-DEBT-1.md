@@ -2,6 +2,11 @@
 
 Status: Draft
 
+## Implementation Status
+1. [x] Replace `Arc<Box<dyn Trait>>` with `Arc<dyn Trait>` where object-safe. (Done on 2026-02-21)
+2. [ ] Remove blocking store usage from core/environment and complete async-store-only environment surface.
+3. [ ] Implement and adopt async-native memory/file stores across runtime paths.
+
 ## Summary
 Reduce core store-layer technical debt by:
 1. removing remaining double-indirection patterns (`Arc<Box<...>>`) in `liquers-core`,
