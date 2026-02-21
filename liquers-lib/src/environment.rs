@@ -11,7 +11,7 @@ pub trait CommandRegistryAccess: Environment {
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> {
-    async_store: Arc<Box<dyn AsyncStore>>,
+    async_store: Arc<dyn AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<Box<DefaultAssetManager<Self>>>,
     recipe_provider: Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>,
@@ -34,14 +34,14 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
     pub fn new() -> Self {
         DefaultEnvironment {
             command_registry: CommandRegistry::new(),
-            async_store: Arc::new(Box::new(NoAsyncStore)),
+            async_store: Arc::new(NoAsyncStore),
             asset_store: Arc::new(Box::new(DefaultAssetManager::new())),
             recipe_provider: None,
             _payload: std::marker::PhantomData,
         }
     }
     pub fn with_async_store(&mut self, store: Box<dyn AsyncStore>) -> &mut Self {
-        self.async_store = Arc::new(store);
+        self.async_store = Arc::from(store);
         self
     }
 
@@ -94,7 +94,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         &self.command_registry
     }
 
-    fn get_async_store(&self) -> Arc<Box<dyn AsyncStore>> {
+    fn get_async_store(&self) -> Arc<dyn AsyncStore> {
         self.async_store.clone()
     }
 

@@ -13,3 +13,21 @@ This folder contains larger feature specifications that should be detailed befor
 
 3. `VALUE-DESCRIPTION.md`
 - Scope: auto-generated, extensible value descriptions for all value types.
+
+4. `COMMAND-METADATA-ENHANCEMENTS.md`
+- Scope: enum model (global/dynamic), specialization, and command input/output typing metadata.
+
+5. `EGUI-VALUE-RENDERING.md`
+- Scope: complete egui rendering support for metadata-oriented value variants.
+
+6. `EGUI-ASSET-MANAGER-INTEGRATION.md`
+- Scope: stable adapter-based integration between egui widgets and asset manager.
+
+7. `POLARS-FEATURE-GAPS.md`
+- Scope: separator/parquet capability gaps in Polars module.
+
+8. `COMBINED-VALUE-DISCRIMINATION.md`
+- Scope: discriminator-driven deserialization between base and extended value families.
+
+9. `TECHNICAL-DEBT-1.md`
+- Scope: remove remaining `Arc<Box<...>>` indirection in `liquers-core` and align APIs to `Arc<...>` ownership.

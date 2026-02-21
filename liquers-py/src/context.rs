@@ -88,9 +88,9 @@ impl liquers_core::context::Environment for Environment {
     }
 
     #[cfg(feature = "async_store")]
-    fn get_async_store(&self) -> Arc<Box<dyn liquers_core::store::AsyncStore>> {
+    fn get_async_store(&self) -> Arc<dyn liquers_core::store::AsyncStore> {
         //self.async_store.clone()
-        Arc::new(Box::new(NoAsyncStore))
+        Arc::new(NoAsyncStore)
     }
     
     
