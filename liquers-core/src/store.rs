@@ -10,6 +10,9 @@ use crate::error::Error;
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
 
+#[cfg(feature = "async_store")]
+use tokio::time::{sleep, Duration};
+
 pub trait Store: Send + Sync {
     /// Get store name
     fn store_name(&self) -> String {
@@ -628,6 +631,664 @@ impl AsyncStore for NoAsyncStore {
 
     async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
         Err(Error::key_not_supported(key, "NoAsyncStore"))
+    }
+}
+
+/// Async-native in-memory store implementation.
+#[cfg(feature = "async_store")]
+pub struct AsyncMemoryStore {
+    data: scc::HashMap<Key, (Arc<[u8]>, Metadata)>,
+    dir_index: scc::HashMap<Key, Arc<scc::HashMap<Key, usize>>>,
+    prefix: Key,
+}
+
+#[cfg(feature = "async_store")]
+impl AsyncMemoryStore {
+    pub fn new(prefix: &Key) -> Self {
+        Self {
+            data: scc::HashMap::new(),
+            dir_index: scc::HashMap::new(),
+            prefix: prefix.to_owned(),
+        }
+    }
+
+    fn index_edges_for_key(key: &Key) -> Vec<(Key, Key)> {
+        let mut edges = Vec::new();
+        for depth in 0..key.len() {
+            let parent = if depth == 0 {
+                Key::new()
+            } else {
+                key.prefix_of_size(depth).unwrap_or_default()
+            };
+            if let Some(child) = key.prefix_of_size(depth + 1) {
+                edges.push((parent, child));
+            }
+        }
+        edges
+    }
+
+    async fn get_or_create_children_map(&self, parent: &Key) -> Arc<scc::HashMap<Key, usize>> {
+        if let Some(children) = self
+            .dir_index
+            .read_async(parent, |_, children| children.clone())
+            .await
+        {
+            return children;
+        }
+        let fresh = Arc::new(scc::HashMap::new());
+        match self.dir_index.insert_async(parent.clone(), fresh.clone()).await {
+            Ok(()) => fresh,
+            Err((_parent, _fresh)) => self
+                .dir_index
+                .read_async(parent, |_, children| children.clone())
+                .await
+                .unwrap_or_else(|| Arc::new(scc::HashMap::new())),
+        }
+    }
+
+    async fn add_key_to_index(&self, key: &Key) {
+        for (parent, child) in Self::index_edges_for_key(key) {
+            let children = self.get_or_create_children_map(&parent).await;
+            if children
+                .update_async(&child, |_k, count| {
+                    *count += 1;
+                })
+                .await
+                .is_none()
+            {
+                let _ = children.insert_async(child, 1).await;
+            }
+        }
+    }
+
+    async fn remove_key_from_index(&self, key: &Key) {
+        for (parent, child) in Self::index_edges_for_key(key) {
+            if let Some(children) = self
+                .dir_index
+                .read_async(&parent, |_, children| children.clone())
+                .await
+            {
+                if let Some(current_count) = children.read_async(&child, |_k, count| *count).await {
+                    if current_count <= 1 {
+                        let _ = children.remove_async(&child).await;
+                    } else {
+                        let _ = children
+                            .update_async(&child, |_k, count| {
+                                *count -= 1;
+                            })
+                            .await;
+                    }
+                    if children.is_empty() {
+                        let _ = self.dir_index.remove_async(&parent).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "async_store")]
+#[async_trait]
+impl AsyncStore for AsyncMemoryStore {
+    fn store_name(&self) -> String {
+        format!("{} Async memory store", self.key_prefix())
+    }
+
+    fn key_prefix(&self) -> Key {
+        self.prefix.to_owned()
+    }
+
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(key.to_owned());
+        metadata.is_dir = is_dir;
+        metadata
+    }
+
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        if let Some((data, metadata)) = self
+            .data
+            .read_async(key, |_key, (data, metadata)| (data.clone(), metadata.clone()))
+            .await
+        {
+            return Ok((data.as_ref().to_vec(), metadata));
+        }
+        Err(Error::key_not_found(key))
+    }
+
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        if let Some(data) = self
+            .data
+            .read_async(key, |_key, (data, _metadata)| data.clone())
+            .await
+        {
+            return Ok(data.as_ref().to_vec());
+        }
+        Err(Error::key_not_found(key))
+    }
+
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        if self.is_dir(key).await? {
+            let mut metadata = self.default_metadata(key, true);
+            metadata.children = self.listdir_asset_info(key).await?;
+            return Ok(Metadata::MetadataRecord(metadata));
+        }
+        if let Some(metadata) = self
+            .data
+            .read_async(key, |_key, (_data, metadata)| metadata.clone())
+            .await
+        {
+            return Ok(metadata);
+        }
+        Err(Error::key_not_found(key))
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let was_new = self
+            .data
+            .upsert_async(key.to_owned(), (Arc::<[u8]>::from(data.to_vec()), metadata.clone()))
+            .await
+            .is_none();
+        if was_new {
+            self.add_key_to_index(key).await;
+        }
+        Ok(())
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        if self
+            .data
+            .update_async(key, |_k, (_data, current_metadata)| {
+                *current_metadata = metadata.clone();
+            })
+            .await
+            .is_some()
+        {
+            return Ok(());
+        }
+
+        let inserted = self
+            .data
+            .insert_async(
+                key.to_owned(),
+                (Arc::<[u8]>::from(Vec::<u8>::new()), metadata.clone()),
+            )
+            .await
+            .is_ok();
+        if inserted {
+            self.add_key_to_index(key).await;
+            return Ok(());
+        }
+
+        let _ = self
+            .data
+            .update_async(key, |_k, (_data, current_metadata)| {
+                *current_metadata = metadata.clone();
+            })
+            .await;
+        Ok(())
+    }
+
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        if self.data.remove_async(key).await.is_some() {
+            self.remove_key_from_index(key).await;
+        }
+        Ok(())
+    }
+
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let mut keys_to_remove = Vec::new();
+        let _ = self
+            .data
+            .iter_async(|stored_key, _| {
+                if stored_key.has_key_prefix(key) {
+                    keys_to_remove.push(stored_key.clone());
+                }
+                true
+            })
+            .await;
+        for key_to_remove in keys_to_remove {
+            if self.data.remove_async(&key_to_remove).await.is_some() {
+                self.remove_key_from_index(&key_to_remove).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        if self.data.contains_async(key).await {
+            return Ok(true);
+        }
+        Ok(self
+            .dir_index
+            .read_async(key, |_k, children| !children.is_empty())
+            .await
+            .unwrap_or(false))
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        Ok(self
+            .dir_index
+            .read_async(key, |_k, children| !children.is_empty())
+            .await
+            .unwrap_or(false))
+    }
+
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        let mut keys = Vec::new();
+        let _ = self
+            .data
+            .iter_async(|key, _| {
+                keys.push(key.clone());
+                true
+            })
+            .await;
+        Ok(keys)
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let keys = self.listdir_keys(key).await?;
+        Ok(keys
+            .iter()
+            .filter_map(|k| k.filename().map(|f| f.to_string()))
+            .collect())
+    }
+
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let Some(children) = self
+            .dir_index
+            .read_async(key, |_k, children| children.clone())
+            .await
+        else {
+            return Ok(vec![]);
+        };
+
+        let mut keys = Vec::new();
+        let _ = children
+            .iter_async(|child_key, _| {
+                keys.push(child_key.clone());
+                true
+            })
+            .await;
+        keys.sort();
+        Ok(keys)
+    }
+
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let mut keys = Vec::new();
+        let _ = self
+            .data
+            .iter_async(|stored_key, _| {
+                if stored_key.has_key_prefix(key) {
+                    keys.push(stored_key.clone());
+                }
+                true
+            })
+            .await;
+        Ok(keys)
+    }
+
+    async fn makedir(&self, _key: &Key) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn is_supported(&self, _key: &Key) -> bool {
+        true
+    }
+}
+
+/// Async-native file store implementation.
+#[cfg(feature = "async_store")]
+#[derive(Debug, Clone)]
+pub struct AsyncFileStore {
+    pub path: PathBuf,
+    pub prefix: Key,
+}
+
+#[cfg(feature = "async_store")]
+impl AsyncFileStore {
+    const METADATA: &'static str = ".__metadata__";
+    const LOCK: &'static str = ".__lock__";
+
+    pub fn new(path: &str, prefix: &Key) -> Self {
+        Self {
+            path: PathBuf::from(path),
+            prefix: prefix.to_owned(),
+        }
+    }
+
+    pub fn key_to_path(&self, key: &Key) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push(key.to_string());
+        path
+    }
+
+    pub fn key_to_path_metadata(&self, key: &Key) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push(format!("{}{}", key, Self::METADATA));
+        path
+    }
+
+    fn key_to_lock_path(&self, key: &Key) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push(format!("{}{}", key, Self::LOCK));
+        path
+    }
+
+    async fn write_metadata_file(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let path = self.key_to_path_metadata(key);
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        }
+        let bytes = match metadata {
+            Metadata::MetadataRecord(record) => serde_json::to_vec_pretty(record)
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
+            Metadata::LegacyMetadata(record) => serde_json::to_vec_pretty(record)
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
+        };
+        tokio::fs::write(path, bytes)
+            .await
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))
+    }
+
+    async fn acquire_lock(&self, key: &Key) -> Result<FileLockGuard, Error> {
+        let lock_path = self.key_to_lock_path(key);
+        if let Some(parent) = lock_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        }
+        let mut retries = 0usize;
+        loop {
+            match tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+                .await
+            {
+                Ok(_) => return Ok(FileLockGuard { path: lock_path }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    retries += 1;
+                    if retries > 300 {
+                        return Err(Error::key_write_error(
+                            key,
+                            &self.store_name(),
+                            format!("Timed out acquiring lock for {}", key).as_str(),
+                        ));
+                    }
+                    sleep(Duration::from_millis(10)).await;
+                }
+                Err(e) => {
+                    return Err(Error::key_write_error(key, &self.store_name(), &e));
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "async_store")]
+struct FileLockGuard {
+    path: PathBuf,
+}
+
+#[cfg(feature = "async_store")]
+impl Drop for FileLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(feature = "async_store")]
+#[async_trait]
+impl AsyncStore for AsyncFileStore {
+    fn store_name(&self) -> String {
+        format!(
+            "{} Async file store in {}",
+            self.key_prefix(),
+            self.path.display()
+        )
+    }
+
+    fn key_prefix(&self) -> Key {
+        self.prefix.to_owned()
+    }
+
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        let data = self.get_bytes(key).await?;
+        match self.get_metadata(key).await {
+            Ok(metadata) => Ok((data, metadata)),
+            Err(error) => {
+                let mut metadata = self.default_metadata(key, false);
+                metadata.warning(&format!("Can't read metadata: {}", error));
+                metadata.warning("New metadata has been created. (get)");
+                let mut metadata = Metadata::MetadataRecord(metadata);
+                self.finalize_metadata(&mut metadata, key, &data, false);
+                self.set_metadata(key, &metadata).await?;
+                Ok((data, metadata))
+            }
+        }
+    }
+
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        let path = self.key_to_path(key);
+        if !tokio::fs::try_exists(&path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            return Err(Error::key_not_found(key));
+        }
+        if tokio::fs::metadata(&path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+            .is_dir()
+        {
+            return Err(Error::key_not_found(key));
+        }
+        tokio::fs::read(path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))
+    }
+
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let metadata_path = self.key_to_path_metadata(key);
+        if tokio::fs::try_exists(&metadata_path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            if tokio::fs::metadata(&metadata_path)
+                .await
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+                .is_dir()
+            {
+                let mut metadata = self.default_metadata(key, true);
+                metadata.children = self.listdir_asset_info(key).await?;
+                return Ok(Metadata::MetadataRecord(metadata));
+            }
+            let buffer = tokio::fs::read(metadata_path)
+                .await
+                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
+            if let Ok(metadata) = serde_json::from_slice(&buffer) {
+                return Ok(Metadata::MetadataRecord(metadata));
+            }
+            if let Ok(metadata) = serde_json::from_slice(&buffer) {
+                return Ok(Metadata::LegacyMetadata(metadata));
+            }
+            return Err(Error::key_read_error(
+                key,
+                &self.store_name(),
+                "Metadata parsing error",
+            ));
+        }
+
+        let data_path = self.key_to_path(key);
+        if !tokio::fs::try_exists(&data_path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            return Err(Error::key_not_found(key));
+        }
+        if tokio::fs::metadata(&data_path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+            .is_dir()
+        {
+            let mut metadata = self.default_metadata(key, true);
+            metadata.children = self.listdir_asset_info(key).await?;
+            return Ok(Metadata::MetadataRecord(metadata));
+        }
+        let mut metadata = self.default_metadata(key, false);
+        metadata.warning(&format!(
+            "Metadata file {} does not exist.",
+            self.key_to_path_metadata(key).display()
+        ));
+        metadata.warning("New metadata has been created. (get_metadata)");
+        let mut metadata = Metadata::MetadataRecord(metadata);
+        let data = self.get_bytes(key).await?;
+        self.finalize_metadata(&mut metadata, key, &data, false);
+        self.set_metadata(key, &metadata).await?;
+        Ok(metadata)
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let _lock = self.acquire_lock(key).await?;
+        let path = self.key_to_path(key);
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        }
+
+        let mut tmp_metadata = metadata.clone();
+        self.finalize_metadata(&mut tmp_metadata, key, data, true);
+        tmp_metadata.set_status(metadata::Status::Storing)?;
+        self.write_metadata_file(key, &tmp_metadata).await?;
+
+        tokio::fs::write(&path, data)
+            .await
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+
+        self.write_metadata_file(key, metadata).await
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let _lock = self.acquire_lock(key).await?;
+        self.write_metadata_file(key, metadata).await
+    }
+
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        let _lock = self.acquire_lock(key).await?;
+        let data_path = self.key_to_path(key);
+        if tokio::fs::try_exists(&data_path)
+            .await
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?
+        {
+            tokio::fs::remove_file(&data_path)
+                .await
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        }
+        let metadata_path = self.key_to_path_metadata(key);
+        if tokio::fs::try_exists(&metadata_path)
+            .await
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?
+        {
+            tokio::fs::remove_file(&metadata_path)
+                .await
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        }
+        Ok(())
+    }
+
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let _lock = self.acquire_lock(key).await?;
+        let path = self.key_to_path(key);
+        if tokio::fs::try_exists(&path)
+            .await
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?
+        {
+            tokio::fs::remove_dir_all(path)
+                .await
+                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        }
+        Ok(())
+    }
+
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        let path = self.key_to_path(key);
+        if tokio::fs::try_exists(path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            return Ok(true);
+        }
+        let metadata_path = self.key_to_path_metadata(key);
+        tokio::fs::try_exists(metadata_path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        let path = self.key_to_path(key);
+        if !tokio::fs::try_exists(&path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            return Ok(false);
+        }
+        tokio::fs::metadata(path)
+            .await
+            .map(|m| m.is_dir())
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let path = self.key_to_path(key);
+        if !tokio::fs::try_exists(&path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            return Err(Error::key_not_found(key));
+        }
+        let metadata = tokio::fs::metadata(&path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
+        if !metadata.is_dir() {
+            return Ok(vec![]);
+        }
+        let mut dir = tokio::fs::read_dir(path)
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
+        let mut names = Vec::new();
+        while let Some(entry) = dir
+            .next_entry()
+            .await
+            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
+        {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !(name.ends_with(Self::METADATA) || name.ends_with(Self::LOCK)) {
+                names.push(name);
+            }
+        }
+        Ok(names)
+    }
+
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        let path = self.key_to_path(key);
+        tokio::fs::create_dir_all(path)
+            .await
+            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
+        Ok(())
+    }
+
+    fn is_supported(&self, key: &Key) -> bool {
+        key.has_key_prefix(&self.prefix)
+            && (!key
+                .filename()
+                .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
+            && (!key
+                .filename()
+                .is_some_and(|file_name| file_name.name.ends_with(Self::LOCK)))
     }
 }
 
@@ -1490,6 +2151,89 @@ mod tests {
         assert_eq!(data, data2);
         store.remove(&key).unwrap();
         assert!(!store.contains(&key)?);
+        Ok(())
+    }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_async_memory_store_basic() -> Result<(), Error> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        let key = parse_key("a/b/c").unwrap();
+        let data = b"test data".to_vec();
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+
+        assert!(!store.contains(&key).await?);
+        assert!(store.keys().await?.is_empty());
+        assert!(!store.is_dir(&parse_key("a/b")?).await?);
+
+        store.set(&key, &data, &metadata).await?;
+        assert!(store.contains(&key).await?);
+        assert!(store.keys().await?.contains(&key));
+        assert!(store.is_dir(&parse_key("a/b")?).await?);
+        assert_eq!(store.keys().await?.len(), 1);
+
+        let (data2, metadata2) = store.get(&key).await?;
+        assert_eq!(data, data2);
+        assert!(metadata2.filename().is_none());
+
+        let mut updated_metadata = metadata.clone();
+        updated_metadata.set_filename("c.bin")?;
+        store.set_metadata(&key, &updated_metadata).await?;
+        let persisted_metadata = store.get_metadata(&key).await?;
+        assert_eq!(persisted_metadata.filename(), Some("c.bin".to_string()));
+
+        store.remove(&key).await?;
+        assert!(!store.contains(&key).await?);
+
+        let metadata_only_key = parse_key("meta/only.json").unwrap();
+        let mut metadata_only = Metadata::MetadataRecord(MetadataRecord::new());
+        metadata_only.set_filename("only.json")?;
+        store.set_metadata(&metadata_only_key, &metadata_only).await?;
+        assert!(store.contains(&metadata_only_key).await?);
+        assert_eq!(
+            store.get_metadata(&metadata_only_key).await?.filename(),
+            Some("only.json".to_string())
+        );
+        assert_eq!(store.get_bytes(&metadata_only_key).await?, Vec::<u8>::new());
+        Ok(())
+    }
+
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn test_async_file_store_basic() -> Result<(), Error> {
+        let unique = format!(
+            "liquers_async_file_store_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        tokio::fs::create_dir_all(&root).await.unwrap();
+
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        let key = parse_key("dir/test.txt").unwrap();
+        let data = b"hello async file store".to_vec();
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+
+        store.makedir(&parse_key("dir")?).await?;
+        store.set(&key, &data, &metadata).await?;
+        assert!(store.contains(&key).await?);
+
+        let bytes = store.get_bytes(&key).await?;
+        assert_eq!(bytes, data);
+
+        let (stored_data, stored_metadata) = store.get(&key).await?;
+        assert_eq!(stored_data, data);
+        assert!(stored_metadata.filename().is_none());
+
+        let dir_names = store.listdir(&parse_key("dir")?).await?;
+        assert!(dir_names.contains(&"test.txt".to_string()));
+
+        store.remove(&key).await?;
+        assert!(!store.contains(&key).await?);
+
+        tokio::fs::remove_dir_all(root).await.unwrap();
         Ok(())
     }
 }

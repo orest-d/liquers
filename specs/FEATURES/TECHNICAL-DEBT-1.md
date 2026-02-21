@@ -5,7 +5,9 @@ Status: Draft
 ## Implementation Status
 1. [x] Replace `Arc<Box<dyn Trait>>` with `Arc<dyn Trait>` where object-safe. (Done on 2026-02-21)
 2. [ ] Remove blocking store usage from core/environment and complete async-store-only environment surface.
-3. [ ] Implement and adopt async-native memory/file stores across runtime paths.
+3. [x] Implement async-native memory/file stores in `liquers-core` with unit tests. (Done on 2026-02-21)
+4. [ ] Adopt async-native stores across runtime paths and remove default dependency on `AsyncStoreWrapper`.
+5. [ ] Review binary data shareability across store/value APIs; target `Arc<[u8]>`-compatible return/transport where appropriate.
 
 ## Summary
 Reduce core store-layer technical debt by:
@@ -23,7 +25,8 @@ Known remaining cases:
 4. matching return types in `Environment`/`EnvRef` methods
 5. recipe-provider accessor in `DefaultAssetManager`
 6. blocking `Store` trait and adapters still used in runtime flows
-7. no first-class async memory/file store pair replacing blocking defaults
+7. native async memory/file stores are implemented, but runtime wiring still uses wrapper paths in multiple places
+8. binary data APIs still return/clamp to `Vec<u8>` in several paths, limiting zero-copy sharing opportunities
 
 ## Goals
 1. Replace `Arc<Box<dyn Trait>>` with `Arc<dyn Trait>` where object-safe.
@@ -60,23 +63,25 @@ Known remaining cases:
 4. `Store` (blocking) is treated as legacy compatibility API, not the default store path.
 5. `Environment` should expose only async store accessors after migration; blocking store access is removed from environment-level API.
 
-### 2. AsyncMemoryStore Design (`scc`-based)
+### 2. AsyncMemoryStore Design (Implemented)
 1. Type:
-   1. `AsyncMemoryStore { prefix: Key, data: scc::HashMap<Key, (Arc<[u8]>, Metadata)> }`
+   1. `AsyncMemoryStore { prefix: Key, data: scc::HashMap<Key, (Arc<[u8]>, Metadata)>, dir_index: scc::HashMap<Key, Arc<scc::HashMap<Key, usize>>> }`
 2. Rationale:
-   1. `scc::HashMap` already exists in core and is optimized for concurrent access.
-   2. Lock-free/striped behavior avoids global `RwLock` contention from current blocking `MemoryStore`.
+   1. `scc::HashMap` improves concurrent read/write scalability.
+   2. per-directory secondary index avoids full key scans for directory queries.
+   3. `Arc<[u8]>` reduces internal cloning pressure.
 3. Semantics:
-   1. `set`: clone metadata, finalize metadata, store bytes as `Arc<[u8]>`.
-   2. `get`: return owned `Vec<u8>` from `Arc<[u8]>` and cloned metadata.
-   3. `set_metadata`: update metadata only if key exists (same behavior contract as current store unless explicitly changed).
-   4. `listdir/listdir_keys/listdir_keys_deep`: compute from key scan of map entries; keep output parity with current `MemoryStore`.
-   5. `contains/is_dir`: prefix-based checks mirroring existing semantics.
-4. Optional optimization:
-   1. maintain auxiliary `scc::HashMap<Key, ()>` directory index to avoid repeated full scans for large keyspaces.
-   2. defer this optimization unless profiling shows need.
+   1. `set`: upsert data+metadata; updates directory index on first insert.
+   2. `get/get_bytes`: convert `Arc<[u8]>` to `Vec<u8>` at API boundary.
+   3. `set_metadata`: metadata-only insert is supported (creates empty-byte entry if missing).
+   4. `listdir/listdir_keys`: served from secondary index.
+   5. `contains/is_dir`: served from key presence + directory index.
 
-### 3. AsyncFileStore Design (async I/O + OS file locking)
+### 2a. Binary Shareability Note
+1. Current `AsyncStore` API returns `Vec<u8>`, forcing materialization at boundaries.
+2. Technical debt follow-up: review store/value/interpreter APIs for consistency and possibility of `Arc<[u8]>`-friendly interfaces end-to-end.
+
+### 3. AsyncFileStore Design (Implemented)
 1. Type:
    1. `AsyncFileStore { root: PathBuf, prefix: Key }`
 2. Storage layout:
@@ -84,23 +89,14 @@ Known remaining cases:
    2. metadata at `<root>/<key>.__metadata__` (same as current `FileStore`)
 3. Async I/O:
    1. use `tokio::fs::{create_dir_all, read, write, remove_file, remove_dir_all, read_dir}`
-   2. write path uses atomic temp-write + rename:
-      1. write data to `<path>.tmp.<pid>.<nonce>`
-      2. `rename` to final path
-      3. same for metadata file
+   2. current write path uses direct async file writes for data and metadata.
 4. Locking model (investigated design):
-   1. Use per-key advisory OS lock file `<path>.__lock__`.
-   2. Acquire exclusive lock for mutating operations (`set`, `set_metadata`, `remove`, `removedir`).
-   3. Acquire shared lock for `get`/`get_metadata` if strict read-after-write consistency is required.
-   4. Locking implemented through OS file locks (crate choice during implementation, e.g. `fs4`/`fd-lock`), using short critical sections.
-5. Practical async note:
-   1. OS file lock APIs are blocking at syscall boundary.
-   2. Keep lock acquisition/release in short `spawn_blocking` sections if lock crate is sync-only.
-   3. Keep all heavy file reads/writes in async `tokio::fs`.
-6. Consistency guarantees:
-   1. readers never observe partially written files (atomic rename).
-   2. concurrent writers serialize per key via lock file.
-   3. metadata/data update is best-effort two-file transaction (same as current model, but hardened).
+   1. Current implementation uses per-key lock files `<path>.__lock__` acquired via atomic `create_new`.
+   2. Mutating operations (`set`, `set_metadata`, `remove`, `removedir`) take exclusive lock.
+   3. Lock is released by removing the lock file on guard drop.
+5. Next hardening step:
+   1. switch to atomic temp-write + rename for data and metadata files.
+   2. optionally replace lock-file approach with explicit OS file-lock crate if cross-platform edge cases appear.
 
 ### 4. Superseding `AsyncStoreWrapper`
 1. New code must not create async stores from blocking `Store` via wrapper in production/runtime paths.
