@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::fmt::{format, Debug};
-use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
@@ -106,8 +105,7 @@ impl<E: Environment> CommandArguments<E> {
         name: &str,
     ) -> Result<T, Error> {
         if let Some(Some(v)) = self.values.get(i) {
-            let value = v.clone();
-            return T::try_from((*value).clone()); // TODO: the clone is not necessary, it should be able to borrow
+            return T::try_from((**v).clone());
         }
         let p = self.get_parameter(i, name)?;
 
@@ -454,7 +452,6 @@ pub struct CommandRegistry<E: Environment> {
         >,
     >,
     pub command_metadata_registry: CommandMetadataRegistry,
-    payload: PhantomData<E>, // TODO: Remove if not needed
 }
 
 impl<E: Environment> CommandRegistry<E> {
@@ -464,7 +461,6 @@ impl<E: Environment> CommandRegistry<E> {
             executors: HashMap::new(),
             async_executors: HashMap::new(),
             command_metadata_registry: CommandMetadataRegistry::new(),
-            payload: PhantomData::default(),
         }
     }
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
