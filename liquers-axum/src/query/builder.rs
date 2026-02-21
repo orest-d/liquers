@@ -24,7 +24,7 @@ impl<E: Environment> QueryApiBuilder<E> {
         Router::new()
             // GET /q/{*query} - Execute query via GET
             .route(
-                &format!("{}/*query", self.base_path),
+                &format!("{}{{*query}}", self.base_path),
                 get(crate::query::handlers::get_query_handler::<E>)
                     .post(crate::query::handlers::post_query_handler::<E>),
             )
