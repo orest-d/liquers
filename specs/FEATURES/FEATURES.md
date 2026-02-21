@@ -31,3 +31,6 @@ This folder contains larger feature specifications that should be detailed befor
 
 9. `TECHNICAL-DEBT-1.md`
 - Scope: remove remaining `Arc<Box<...>>` indirection in `liquers-core` and align APIs to `Arc<...>` ownership.
+
+10. `BENCHMARK-SUITE.md`
+- Scope: define reproducible benchmark coverage for core runtime paths and technical-debt refactors.

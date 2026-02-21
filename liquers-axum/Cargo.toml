@@ -5,7 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]  # Removed cdylib - not needed for pure Rust web library
 
 [dependencies]
 liquers-core={path="../liquers-core"}
@@ -18,7 +18,10 @@ bytes = "1.8.0"
 async-trait = "0.1.80"
 
 
-axum = { version = "0.8.1", features = ["macros"] }
+axum = { version = "0.8.8", features = ["macros", "multipart"] }  # Latest 0.8.x with multipart for file uploads
+ciborium = "0.2"      # CBOR serialization support
+bincode = "1.3"       # Bincode serialization support
+base64 = "0.22"       # Base64 encoding for JSON binary data
 itertools = "0.14.0"
 nom = "8.0.0"
 nom_locate = "5.0.0"
@@ -27,6 +30,10 @@ thiserror = "2.0"
 tokio = { version = "1.47.1", features = ["full"] }
 tower = "0.5.1"
 futures = "0.3.31"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+chrono = "0.4"
 
 [features]
 default=["async_store"]
