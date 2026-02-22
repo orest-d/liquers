@@ -316,7 +316,7 @@ impl<E: Environment> AssetData<E> {
     async fn save_metadata_to_store_now(&self) -> Result<(), Error> {
         let envref = self.get_envref();
         let store = envref.get_async_store();
-        let key = self.recipe.store_to_key()?;
+        let key = self.recipe.key()?.or(self.recipe.store_to_key()?);
         if let Some(key) = key.as_ref() {
             store.set_metadata(key, &self.metadata).await
         } else {
@@ -1326,7 +1326,7 @@ impl<E: Environment> AssetRef<E> {
 
             let envref = lock.get_envref();
             let store = envref.get_async_store();
-            let key = lock.recipe.store_to_key()?;
+            let key = lock.recipe.key()?.or(lock.recipe.store_to_key()?);
             drop(lock);
             if let Some(key) = key.as_ref() {
                 store.set(key, &data, &metadata).await
@@ -1356,7 +1356,7 @@ impl<E: Environment> AssetRef<E> {
         let envref = lock.get_envref();
         let metadata = lock.metadata.clone();
         let store = envref.get_async_store();
-        let key = lock.recipe.store_to_key()?;
+        let key = lock.recipe.key()?.or(lock.recipe.store_to_key()?);
         drop(lock);
         if let Some(key) = key.as_ref() {
             store.set_metadata(key, &metadata).await
