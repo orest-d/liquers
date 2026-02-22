@@ -122,7 +122,7 @@ pub enum StyledQueryToken {
     Highlight(String),
 }
 
-pub struct StyledQuery{
+pub struct StyledQuery {
     pub tokens: Vec<StyledQueryToken>,
 }
 
@@ -196,7 +196,7 @@ impl StyledQueryToken {
             StyledQueryToken::Highlight(s) => s,
         }
     }
-    pub fn to_highlight_if_matching(self, p1:&Position, p2:&Position) -> Self{
+    pub fn to_highlight_if_matching(self, p1: &Position, p2: &Position) -> Self {
         if p1.highlight(p2) {
             StyledQueryToken::Highlight(self.into_text())
         } else {
@@ -348,7 +348,6 @@ impl Position {
         }
         *self == *position
     }
-
 }
 
 impl Default for Position {
@@ -486,14 +485,16 @@ impl QueryRenderer for ActionParameter {
     fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
         match self {
             Self::String(s, p) => {
-                let token =
-                    StyledQueryToken::StringParameter(encode_token(s)).to_highlight_if_matching(p, position);
+                let token = StyledQueryToken::StringParameter(encode_token(s))
+                    .to_highlight_if_matching(p, position);
                 Either::Left(std::iter::once(token))
             }
             Self::Link(query, p) => {
-                let begin = StyledQueryToken::Entity("~X~".to_owned()).to_highlight_if_matching(p, position);
+                let begin = StyledQueryToken::Entity("~X~".to_owned())
+                    .to_highlight_if_matching(p, position);
                 let query_tokens = query.styled_tokens(position);
-                let end = StyledQueryToken::Entity("~E".to_owned()).to_highlight_if_matching(p, position);
+                let end =
+                    StyledQueryToken::Entity("~E".to_owned()).to_highlight_if_matching(p, position);
                 Either::Right(
                     std::iter::once(begin)
                         .chain(query_tokens)
@@ -605,7 +606,10 @@ impl QueryRenderer for ResourceName {
         style.resource_name(&self.name, &self.position)
     }
     fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
-        std::iter::once(StyledQueryToken::ResourceName(self.name.to_owned()).to_highlight_if_matching(position, &self.position))
+        std::iter::once(
+            StyledQueryToken::ResourceName(self.name.to_owned())
+                .to_highlight_if_matching(position, &self.position),
+        )
     }
 }
 
@@ -681,9 +685,11 @@ impl QueryRenderer for ActionRequest {
         format!("{action_name}{parameters}")
     }
     fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
-        let action_token = StyledQueryToken::ActionName(self.name.to_owned()).to_highlight_if_matching(position, &self.position);
+        let action_token = StyledQueryToken::ActionName(self.name.to_owned())
+            .to_highlight_if_matching(position, &self.position);
         let params_tokens = self.parameters.iter().flat_map(|p| {
-            std::iter::once(StyledQueryToken::Separator("-".to_owned())).chain(p.styled_tokens(position))
+            std::iter::once(StyledQueryToken::Separator("-".to_owned()))
+                .chain(p.styled_tokens(position))
         });
         std::iter::once(action_token).chain(params_tokens)
     }
@@ -754,7 +760,10 @@ impl QueryRenderer for HeaderParameter {
         style.string_parameter(&self.value, &self.position)
     }
     fn styled_tokens(&self, position: &Position) -> impl Iterator<Item = StyledQueryToken> {
-        std::iter::once(StyledQueryToken::StringParameter(self.value.to_owned()).to_highlight_if_matching(position, &self.position))
+        std::iter::once(
+            StyledQueryToken::StringParameter(self.value.to_owned())
+                .to_highlight_if_matching(position, &self.position),
+        )
     }
 }
 
@@ -868,9 +877,11 @@ impl QueryRenderer for SegmentHeader {
         if !self.name.is_empty() {
             head.push_str(&self.name);
         }
-        let head_token = StyledQueryToken::Header(head).to_highlight_if_matching(position, &self.position);
+        let head_token =
+            StyledQueryToken::Header(head).to_highlight_if_matching(position, &self.position);
         let params_tokens = self.parameters.iter().flat_map(|p| {
-            std::iter::once(StyledQueryToken::Separator("-".to_owned())).chain(p.styled_tokens(position))
+            std::iter::once(StyledQueryToken::Separator("-".to_owned()))
+                .chain(p.styled_tokens(position))
         });
         std::iter::once(head_token).chain(params_tokens)
     }
@@ -1358,12 +1369,12 @@ impl QueryRenderer for Key {
             Either::Left(std::iter::empty())
         } else {
             Either::Right(
-                self[0].styled_tokens(position).chain(
-                    self.iter().skip(1).flat_map(|x| {
+                self[0]
+                    .styled_tokens(position)
+                    .chain(self.iter().skip(1).flat_map(|x| {
                         std::iter::once(StyledQueryToken::Separator("/".to_owned()))
                             .chain(x.styled_tokens(position))
-                    }),
-                ),
+                    })),
             )
         }
     }
@@ -1589,7 +1600,7 @@ impl QueryRenderer for ResourceQuerySegment {
             Vec::new()
         };
         if !self.key.is_empty() {
-            if !tokens.is_empty(){
+            if !tokens.is_empty() {
                 tokens.push(StyledQueryToken::Separator("/".to_owned()));
             }
             tokens.extend(self.key.styled_tokens(position));
@@ -2310,7 +2321,8 @@ impl QueryRenderer for Query {
             Either::Right(self.segments[0].styled_tokens(position))
         };
         let rest_tokens = self.segments.iter().skip(1).flat_map(|x| {
-            std::iter::once(StyledQueryToken::Separator("/".to_owned())).chain(x.styled_tokens(position))
+            std::iter::once(StyledQueryToken::Separator("/".to_owned()))
+                .chain(x.styled_tokens(position))
         });
         if self.absolute {
             Either::Left(
@@ -2456,7 +2468,13 @@ mod tests {
         };
         assert_eq!(a.encode(), "action");
         assert_eq!(a.render(&TrivialQueryRenderStyle), "action");
-        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.into_text()).collect::<Vec<_>>().concat(), "action");
+        assert_eq!(
+            a.styled_tokens(&Position::unknown())
+                .map(|t| t.into_text())
+                .collect::<Vec<_>>()
+                .concat(),
+            "action"
+        );
         let a = ActionRequest::new("action1".to_owned());
         assert_eq!(a.encode(), "action1");
         assert_eq!(a.render(&TrivialQueryRenderStyle), "action1");
@@ -2481,7 +2499,13 @@ mod tests {
             a.render(&TrivialQueryRenderStyle),
             "action-~X~hello~E-world"
         );
-        assert_eq!(a.styled_tokens(&Position::unknown()).map(|t| t.into_text()).collect::<Vec<_>>().concat(), "action-~X~hello~E-world");
+        assert_eq!(
+            a.styled_tokens(&Position::unknown())
+                .map(|t| t.into_text())
+                .collect::<Vec<_>>()
+                .concat(),
+            "action-~X~hello~E-world"
+        );
 
         let q = Query {
             segments: vec![QuerySegment::Transform(TransformQuerySegment {
