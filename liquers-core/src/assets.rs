@@ -626,6 +626,28 @@ impl<E: Environment> Clone for AssetRef<E> {
     }
 }
 impl<E: Environment> AssetRef<E> {
+    async fn is_execution_closed_for_messages(&self) -> bool {
+        let lock = self.data.read().await;
+        lock.status.is_finished() || lock.metadata.primary_progress().is_done()
+    }
+
+    async fn finalize_primary_progress(&self) {
+        let status = self.status().await;
+        let message = match status {
+            Status::Cancelled => "Cancelled",
+            Status::Error => "Error",
+            _ => "Done",
+        };
+        let progress = ProgressEntry::done(message.to_string());
+
+        let mut lock = self.data.write().await;
+        lock.metadata.set_primary_progress(&progress);
+        let _ = lock.metadata.set_updated_now();
+        let _ = lock
+            .notification_tx
+            .send(AssetNotificationMessage::PrimaryProgressUpdated(progress));
+    }
+
     /// Create a new asset reference from asset data.
     pub(crate) fn new(data: AssetData<E>) -> Self {
         AssetRef {
@@ -772,6 +794,25 @@ impl<E: Environment> AssetRef<E> {
 
         while let Some(msg) = rx.recv().await {
             println!("Received message: {:?} by asset {}", msg, self.id());
+            if self.is_execution_closed_for_messages().await {
+                let should_ignore = matches!(
+                    msg,
+                    AssetServiceMessage::UpdatePrimaryProgress(_)
+                        | AssetServiceMessage::UpdateSecondaryProgress(_)
+                        | AssetServiceMessage::JobSubmitted
+                        | AssetServiceMessage::JobStarted
+                        | AssetServiceMessage::Cancel
+                        | AssetServiceMessage::ErrorOccurred(_)
+                );
+                if should_ignore {
+                    println!(
+                        "Ignoring late service message {:?} for finished asset {}",
+                        msg,
+                        self.id()
+                    );
+                    continue;
+                }
+            }
             match msg {
                 AssetServiceMessage::LogMessage(entry) => {
                     // Forward log message to notification channel
@@ -783,6 +824,11 @@ impl<E: Environment> AssetRef<E> {
                 }
                 AssetServiceMessage::Cancel => {
                     self.set_status(Status::Cancelled).await?;
+                    {
+                        let mut lock = self.data.write().await;
+                        lock.metadata
+                            .set_primary_progress(&ProgressEntry::done("Cancelled".to_string()));
+                    }
                     let _ = notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Cancelled));
                     let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
@@ -825,8 +871,6 @@ impl<E: Environment> AssetRef<E> {
                     let _ = notification_tx.send(AssetNotificationMessage::JobStarted);
                 }
                 AssetServiceMessage::JobFinished => {
-                    panic!("JobFinished message not expected in process_service_messages");
-                    //                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
                     return Ok(());
                 }
                 AssetServiceMessage::JobFinishing => {
@@ -839,6 +883,8 @@ impl<E: Environment> AssetRef<E> {
                         let mut lock = self.data.write().await;
                         lock.status = Status::Error;
                         lock.metadata.with_error(error.clone());
+                        lock.metadata
+                            .set_primary_progress(&ProgressEntry::done("Error".to_string()));
                         lock.save_metadata_to_store().await?;
                     }
                     let _ = notification_tx.send(AssetNotificationMessage::ErrorOccurred(error));
@@ -886,6 +932,7 @@ impl<E: Environment> AssetRef<E> {
             "Asset {} evaluation finished, waiting for service messages to complete",
             self.id()
         );
+        self.finalize_primary_progress().await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
@@ -1025,6 +1072,7 @@ impl<E: Environment> AssetRef<E> {
             res = self.wait_to_finish() => res,
             res = self.evaluate_immediately(payload) => res
         };
+        self.finalize_primary_progress().await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
@@ -2824,6 +2872,41 @@ mod tests {
             state.unwrap().data.try_into_string().unwrap(),
             "Hello, world!"
         );
+    }
+
+    #[tokio::test]
+    async fn test_late_progress_messages_are_ignored_after_finish() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(4321, query.into(), envref.clone());
+        let assetref = asset_data.to_ref();
+
+        assetref.run().await.unwrap();
+
+        let metadata_before = assetref.get_metadata().await.unwrap();
+        assert!(metadata_before.primary_progress().is_done());
+
+        let psm_asset = assetref.clone();
+        let psm = tokio::spawn(async move { psm_asset.process_service_messages().await });
+        let sender = assetref.service_sender().await;
+        sender
+            .send(AssetServiceMessage::UpdatePrimaryProgress(
+                ProgressEntry::tick("late progress".to_string()),
+            ))
+            .unwrap();
+        sender.send(AssetServiceMessage::JobFinishing).unwrap();
+        psm.await.unwrap().unwrap();
+
+        let metadata_after = assetref.get_metadata().await.unwrap();
+        assert!(metadata_after.primary_progress().is_done());
+        assert_ne!(metadata_after.primary_progress().message, "late progress");
     }
 
     #[tokio::test]
