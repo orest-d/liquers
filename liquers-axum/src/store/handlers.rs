@@ -23,8 +23,7 @@ pub async fn get_data_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -63,8 +62,7 @@ pub async fn put_data_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -104,8 +102,7 @@ pub async fn delete_data_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -139,8 +136,7 @@ pub async fn get_metadata_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -153,11 +149,10 @@ pub async fn get_metadata_handler<E: Environment>(
         Ok(metadata) => {
             // Get metadata record (or convert to JSON)
             if let Some(record) = metadata.metadata_record() {
-                let response: ApiResponse<serde_json::Value> =
-                    ApiResponse::ok(
-                        serde_json::to_value(&record).unwrap_or(serde_json::json!({})),
-                        "Metadata retrieved successfully",
-                    );
+                let response: ApiResponse<serde_json::Value> = ApiResponse::ok(
+                    serde_json::to_value(&record).unwrap_or(serde_json::json!({})),
+                    "Metadata retrieved successfully",
+                );
                 response.into_response()
             } else {
                 // Legacy metadata - return empty object
@@ -186,8 +181,7 @@ pub async fn put_metadata_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -242,8 +236,7 @@ pub async fn listdir_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -275,8 +268,7 @@ pub async fn is_dir_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -307,8 +299,7 @@ pub async fn contains_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -382,8 +373,7 @@ pub async fn makedir_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -414,8 +404,7 @@ pub async fn removedir_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -455,8 +444,7 @@ pub async fn get_entry_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -528,8 +516,7 @@ pub async fn put_entry_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -540,10 +527,8 @@ pub async fn put_entry_handler<E: Environment>(
             "cbor" => crate::api_core::SerializationFormat::Cbor,
             "bincode" => crate::api_core::SerializationFormat::Bincode,
             "json" => crate::api_core::SerializationFormat::Json,
-            _ => {
-                format_from_content_type(&headers)
-                    .unwrap_or(crate::api_core::SerializationFormat::Cbor)
-            }
+            _ => format_from_content_type(&headers)
+                .unwrap_or(crate::api_core::SerializationFormat::Cbor),
         }
     } else {
         format_from_content_type(&headers).unwrap_or(crate::api_core::SerializationFormat::Cbor)
@@ -579,8 +564,7 @@ pub async fn put_entry_handler<E: Environment>(
                 traceback: None,
                 metadata: None,
             };
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Invalid metadata");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Invalid metadata");
             return response.into_response();
         }
     };
@@ -596,7 +580,8 @@ pub async fn put_entry_handler<E: Environment>(
         }
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to store entry");
+            let response: ApiResponse<()> =
+                ApiResponse::error(error_detail, "Failed to store entry");
             response.into_response()
         }
     }
@@ -654,14 +639,12 @@ pub async fn upload_handler<E: Environment>(
     Path(key_path): Path<String>,
     mut multipart: axum::extract::Multipart,
 ) -> Response {
-
     // Parse base key from path
     let base_key = match parse_key(&key_path) {
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -721,8 +704,7 @@ pub async fn upload_handler<E: Environment>(
             Err(e) => {
                 errors.push(format!(
                     "Failed to store file '{}': {}",
-                    file_name,
-                    e.message
+                    file_name, e.message
                 ));
             }
         }
@@ -755,8 +737,7 @@ pub async fn upload_handler<E: Environment>(
             errors,
         };
 
-        let response: ApiResponse<UploadResult> =
-            ApiResponse::ok(result, "Upload completed");
+        let response: ApiResponse<UploadResult> = ApiResponse::ok(result, "Upload completed");
         response.into_response()
     }
 }

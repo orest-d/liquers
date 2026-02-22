@@ -12,13 +12,13 @@
 //! 7. **Metadata Handling** - Media types, status, custom fields
 
 use liquers_core::error::{Error, ErrorType};
-use liquers_core::query::Key;
 use liquers_core::metadata::{Metadata, MetadataRecord};
-use liquers_core::parse::{parse_query, parse_key};
+use liquers_core::parse::{parse_key, parse_query};
+use liquers_core::query::Key;
 use liquers_core::state::State;
 use liquers_core::value::{Value, ValueInterface};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Helper function to create Metadata with a specific media type
 fn metadata_with_type(media_type: &str) -> Metadata {
@@ -58,7 +58,10 @@ async fn test_query_parsing_valid_queries() {
         );
 
         let query = result.unwrap();
-        assert!(!query.segments.is_empty(), "Parsed query should have actions");
+        assert!(
+            !query.segments.is_empty(),
+            "Parsed query should have actions"
+        );
     }
 }
 
@@ -90,12 +93,12 @@ async fn test_query_parsing_empty_query() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_query_parsing_special_characters() {
     let queries = vec![
-        "text-hello/append-/",      // Empty arg
-        "text-hello/append-!@#$",  // Special chars in arg
+        "text-hello/append-/",    // Empty arg
+        "text-hello/append-!@#$", // Special chars in arg
     ];
 
     for q in queries {
-        let _ = parse_query(q);  // Should not panic
+        let _ = parse_query(q); // Should not panic
     }
 }
 
@@ -116,12 +119,8 @@ async fn test_handler_state_creation() {
         metadata: Arc::new(metadata),
     };
 
-    assert_eq!(
-        state.metadata.get_media_type(),
-        "text/plain"
-    );
+    assert_eq!(state.metadata.get_media_type(), "text/plain");
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 3: Error Handling and HTTP Status Mapping
@@ -207,8 +206,8 @@ async fn test_execution_error_to_500() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_post_json_body_parsing() {
     let json_str = r#"{"greeting": "Hello", "count": 42}"#;
-    let parsed: serde_json::Value = serde_json::from_str(json_str)
-        .expect("Valid JSON should parse");
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_str).expect("Valid JSON should parse");
 
     assert!(parsed.is_object());
     assert_eq!(parsed["greeting"].as_str(), Some("Hello"));
@@ -391,10 +390,7 @@ async fn test_value_serialization_deterministic() {
     let bytes1 = value.try_into_bytes().expect("Should serialize");
     let bytes2 = value.try_into_bytes().expect("Should serialize");
 
-    assert_eq!(
-        bytes1, bytes2,
-        "Serialization should be deterministic"
-    );
+    assert_eq!(bytes1, bytes2, "Serialization should be deterministic");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -424,10 +420,7 @@ async fn test_state_with_metadata() {
         metadata: Arc::new(metadata),
     };
 
-    assert_eq!(
-        state.metadata.get_media_type(),
-        "text/plain"
-    );
+    assert_eq!(state.metadata.get_media_type(), "text/plain");
     // Handler uses this to set Content-Type header
 }
 
@@ -463,7 +456,10 @@ async fn test_large_value_serialization_1mb() {
 
     let bytes = value.try_into_bytes().expect("Should serialize");
     assert!(!bytes.is_empty(), "Large value should serialize");
-    assert!(bytes.len() > 100_000, "Serialized data should be substantial");
+    assert!(
+        bytes.len() > 100_000,
+        "Serialized data should be substantial"
+    );
 }
 
 /// Test handling of 10MB value serialization
@@ -564,7 +560,10 @@ async fn test_concurrent_get_requests() {
         task.await.expect("Task should complete");
     }
 
-    assert!(counter.load(Ordering::SeqCst) > 0, "At least some requests should succeed");
+    assert!(
+        counter.load(Ordering::SeqCst) > 0,
+        "At least some requests should succeed"
+    );
 }
 
 /// Test concurrent POST requests with JSON bodies
@@ -593,7 +592,11 @@ async fn test_concurrent_post_requests() {
         task.await.expect("Task should complete");
     }
 
-    assert_eq!(counter.load(Ordering::SeqCst), 5, "All POST requests should parse");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        5,
+        "All POST requests should parse"
+    );
 }
 
 /// Test concurrent evaluation with value serialization
@@ -708,5 +711,8 @@ async fn test_full_query_flow() {
 async fn test_error_in_query_flow() {
     // Invalid query should fail at parse
     let invalid = parse_query("invalid//syntax");
-    assert!(invalid.is_err() || invalid.is_ok(), "Should complete without panic");
+    assert!(
+        invalid.is_err() || invalid.is_ok(),
+        "Should complete without panic"
+    );
 }

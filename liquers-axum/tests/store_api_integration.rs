@@ -14,13 +14,13 @@
 //! 9. **Large Data** - 10MB+ binary data handling
 //! 10. **Key Operations** - Encoding/decoding, nested paths
 
+use base64::Engine;
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncStore, AsyncStoreWrapper, MemoryStore};
 use std::sync::Arc;
-use base64::Engine;
 
 /// Helper function to create Metadata with a specific media type
 fn metadata_with_type(media_type: &str) -> Metadata {
@@ -101,7 +101,10 @@ async fn test_store_delete_data() {
 
     // Verify gone
     let get_after_delete = store.get(&key).await;
-    assert!(get_after_delete.is_err(), "Key should not exist after delete");
+    assert!(
+        get_after_delete.is_err(),
+        "Key should not exist after delete"
+    );
 }
 
 /// Test PUT overwrites existing key with new data
@@ -137,7 +140,7 @@ async fn test_store_overwrite_data() {
 async fn test_store_empty_data() {
     let store = create_test_store();
     let key = parse_key("test/empty.bin").expect("Valid key");
-    let empty_data = vec![];  // 0 bytes
+    let empty_data = vec![]; // 0 bytes
     let metadata = Metadata::new();
 
     let set_result = store.set(&key, &empty_data, &metadata).await;
@@ -172,10 +175,7 @@ async fn test_store_metadata_operations() {
 
     let retrieved_meta = get_meta.unwrap();
     let retrieved_type = retrieved_meta.get_media_type();
-    assert_eq!(
-        retrieved_type, "text/plain",
-        "Metadata should be preserved"
-    );
+    assert_eq!(retrieved_type, "text/plain", "Metadata should be preserved");
 }
 
 /// Test update metadata independently
@@ -198,10 +198,7 @@ async fn test_store_set_metadata() {
 
     // Verify
     let (_, retrieved_meta) = store.get(&key).await.expect("Get should work");
-    assert_eq!(
-        retrieved_meta.get_media_type(),
-        "application/json"
-    );
+    assert_eq!(retrieved_meta.get_media_type(), "application/json");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,7 +252,10 @@ async fn test_store_removedir_empty() {
     let _makedir = store.makedir(&dir_key).await;
 
     let removedir_result = store.removedir(&dir_key).await;
-    assert!(removedir_result.is_ok(), "Removedir should succeed on empty dir");
+    assert!(
+        removedir_result.is_ok(),
+        "Removedir should succeed on empty dir"
+    );
 }
 
 /// Test contains checks key existence
@@ -318,10 +318,7 @@ async fn test_store_post_entry() {
     // Verify
     let (retrieved_data, retrieved_meta) = store.get(&key).await.unwrap();
     assert_eq!(retrieved_data, json_data);
-    assert_eq!(
-        retrieved_meta.get_media_type(),
-        "application/json"
-    );
+    assert_eq!(retrieved_meta.get_media_type(), "application/json");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -504,8 +501,7 @@ async fn test_concurrent_writes() {
     for i in 0..10 {
         let store = store.clone();
         let task = tokio::spawn(async move {
-            let key = parse_key(&format!("test/concurrent{}", i))
-                .expect("Valid key");
+            let key = parse_key(&format!("test/concurrent{}", i)).expect("Valid key");
             let data = format!("data {}", i).into_bytes();
             let metadata = Metadata::new();
 
@@ -527,8 +523,7 @@ async fn test_concurrent_reads() {
 
     // First, write some data
     for i in 0..5 {
-        let key = parse_key(&format!("test/read{}", i))
-            .expect("Valid key");
+        let key = parse_key(&format!("test/read{}", i)).expect("Valid key");
         let data = format!("data {}", i).into_bytes();
         let metadata = Metadata::new();
 
@@ -540,8 +535,7 @@ async fn test_concurrent_reads() {
     for i in 0..10 {
         let store = store.clone();
         let task = tokio::spawn(async move {
-            let key = parse_key(&format!("test/read{}", i % 5))
-                .expect("Valid key");
+            let key = parse_key(&format!("test/read{}", i % 5)).expect("Valid key");
             store.get(&key).await
         });
         tasks.push(task);
@@ -590,7 +584,11 @@ async fn test_key_round_trip() {
 
     let decoded = parse_key(&encoded).expect("Should reparse");
 
-    assert_eq!(original_key.encode(), decoded.encode(), "Round-trip should match");
+    assert_eq!(
+        original_key.encode(),
+        decoded.encode(),
+        "Round-trip should match"
+    );
 }
 
 /// Test key with special characters
@@ -799,10 +797,7 @@ async fn test_metadata_persistence() {
 
     // Verify metadata changed
     let (_, retrieved_meta) = store.get(&key).await.expect("Get should work");
-    assert_eq!(
-        retrieved_meta.get_media_type(),
-        "text/html"
-    );
+    assert_eq!(retrieved_meta.get_media_type(), "text/html");
 
     // Verify data unchanged
     let (retrieved_data, _) = store.get(&key).await.expect("Get should work");

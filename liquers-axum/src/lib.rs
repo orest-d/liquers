@@ -1,12 +1,12 @@
 pub mod api_core;
 pub mod assets;
+pub mod axum_integration;
 pub mod query;
 pub mod recipes;
 pub mod store;
-pub mod axum_integration;
 
 // Re-exports for convenience
-pub use api_core::{ApiResponse, ErrorDetail, DataEntry, BinaryResponse, SerializationFormat};
+pub use api_core::{ApiResponse, BinaryResponse, DataEntry, ErrorDetail, SerializationFormat};
 pub use assets::AssetsApiBuilder;
 pub use query::QueryApiBuilder;
 pub use recipes::RecipesApiBuilder;

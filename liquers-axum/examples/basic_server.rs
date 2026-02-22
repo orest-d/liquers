@@ -12,8 +12,8 @@
 /// Then test with:
 ///   curl http://localhost:3000/liquer/q/text-Hello
 ///   curl http://localhost:3000/liquer/api/store/keys
-
 use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
+use liquers_core::store::FileStore;
 use liquers_core::{
     command_metadata::CommandKey,
     commands::CommandArguments,
@@ -23,7 +23,6 @@ use liquers_core::{
     store::AsyncStoreWrapper,
     value::Value,
 };
-use liquers_core::store::FileStore;
 
 // Register commands with the environment
 fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironment<Value>, Error> {
@@ -33,10 +32,13 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
 
     // Register the 'text' command - creates a text value from the given string
     let key = CommandKey::new_name("text");
-    let metadata = cr.register_command(key, |_state, args: CommandArguments<_>, _context: Context<_>| {
-        let text: String = args.get(0, "text")?;
-        Ok(Value::from(text))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |_state, args: CommandArguments<_>, _context: Context<_>| {
+            let text: String = args.get(0, "text")?;
+            Ok(Value::from(text))
+        },
+    )?;
 
     metadata
         .with_label("Text")

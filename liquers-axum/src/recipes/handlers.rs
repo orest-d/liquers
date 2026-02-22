@@ -60,8 +60,7 @@ pub async fn listdir_handler<E: Environment>(State(env): State<EnvRef<E>>) -> Re
     let recipe_names: Vec<String> = resource_names.iter().map(|rn| rn.name.clone()).collect();
 
     // Return as JSON
-    let response: ApiResponse<Vec<String>> =
-        ApiResponse::ok(recipe_names, "Recipes listed");
+    let response: ApiResponse<Vec<String>> = ApiResponse::ok(recipe_names, "Recipes listed");
     response.into_response()
 }
 
@@ -75,8 +74,7 @@ pub async fn get_data_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -99,7 +97,7 @@ pub async fn get_data_handler<E: Environment>(
     let recipe_yaml = recipe.to_string();
 
     // Return recipe as text/plain
-    use axum::http::header::{CONTENT_TYPE, HeaderMap};
+    use axum::http::header::{HeaderMap, CONTENT_TYPE};
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
     (headers, recipe_yaml).into_response()
@@ -115,8 +113,7 @@ pub async fn get_metadata_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -151,8 +148,7 @@ pub async fn get_entry_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };
@@ -189,7 +185,7 @@ pub async fn get_entry_handler<E: Environment>(
     match serialize_data_entry(&entry, format) {
         Ok(bytes) => {
             // Return with appropriate Content-Type
-            use axum::http::header::{CONTENT_TYPE, HeaderMap};
+            use axum::http::header::{HeaderMap, CONTENT_TYPE};
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, format.mime_type().parse().unwrap());
             (headers, bytes).into_response()
@@ -220,8 +216,7 @@ pub async fn resolve_handler<E: Environment>(
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to parse key");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
             return response.into_response();
         }
     };

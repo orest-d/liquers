@@ -146,6 +146,9 @@ mod tests {
                 .without_websocket()
                 .with_websocket_path("/api/notifications");
         assert_eq!(builder.base_path, "/api/assets");
-        assert_eq!(builder.websocket_path, Some("/api/notifications".to_string()));
+        assert_eq!(
+            builder.websocket_path,
+            Some("/api/notifications".to_string())
+        );
     }
 }

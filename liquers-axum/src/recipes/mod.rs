@@ -8,7 +8,6 @@
 ///
 /// The Recipes API wraps the `AsyncRecipeProvider` service and exposes it via HTTP.
 /// This API is read-only (no POST/PUT/DELETE operations).
-
 pub mod builder;
 pub mod handlers;
 

@@ -61,10 +61,7 @@ impl IntoResponse for BinaryResponse {
             .header(header::CONTENT_TYPE, media_type);
 
         // Add metadata status header
-        response = response.header(
-            "X-Liquers-Status",
-            format!("{:?}", self.metadata.status()),
-        );
+        response = response.header("X-Liquers-Status", format!("{:?}", self.metadata.status()));
 
         response.body(Body::from(self.data)).unwrap()
     }

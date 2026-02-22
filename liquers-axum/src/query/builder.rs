@@ -39,8 +39,7 @@ mod tests {
 
     #[test]
     fn test_query_api_builder_creation() {
-        let builder: QueryApiBuilder<SimpleEnvironment<Value>> =
-            QueryApiBuilder::new("/liquer/q");
+        let builder: QueryApiBuilder<SimpleEnvironment<Value>> = QueryApiBuilder::new("/liquer/q");
         assert_eq!(builder.base_path, "/liquer/q");
     }
 

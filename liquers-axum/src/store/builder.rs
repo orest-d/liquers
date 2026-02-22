@@ -38,13 +38,12 @@ impl<E: Environment> StoreApiBuilder<E> {
         let mut router = Router::new();
 
         // Data endpoints (Task #25) - IMPLEMENTED
-        router = router
-            .route(
-                &format!("{}/data/{{*key}}", self.base_path),
-                get(crate::store::handlers::get_data_handler::<E>)
-                    .put(crate::store::handlers::put_data_handler::<E>)
-                    .delete(crate::store::handlers::delete_data_handler::<E>),
-            );
+        router = router.route(
+            &format!("{}/data/{{*key}}", self.base_path),
+            get(crate::store::handlers::get_data_handler::<E>)
+                .put(crate::store::handlers::put_data_handler::<E>)
+                .delete(crate::store::handlers::delete_data_handler::<E>),
+        );
 
         // Metadata endpoints (Task #25) - IMPLEMENTED
         router = router.route(

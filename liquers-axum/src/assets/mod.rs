@@ -7,7 +7,6 @@
 /// - Real-time asset notifications via WebSocket
 ///
 /// The Assets API wraps the `AssetManager` service and exposes it via HTTP.
-
 pub mod builder;
 pub mod handlers;
 pub mod websocket;

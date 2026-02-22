@@ -289,7 +289,7 @@ fn convert_notification(
                 status: "Logging".to_string(),
                 timestamp,
             }
-        },
+        }
         AssetNotificationMessage::PrimaryProgressUpdated(progress) => {
             NotificationMessage::ProgressUpdated {
                 asset_id,

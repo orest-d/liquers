@@ -16,8 +16,8 @@
 ///   cargo run -p liquers-axum --example assets_recipes_basic
 ///
 /// Then test with curl commands shown below
-
-use liquers_axum::{QueryApiBuilder, StoreApiBuilder, AssetsApiBuilder, RecipesApiBuilder};
+use liquers_axum::{AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
+use liquers_core::store::FileStore;
 use liquers_core::{
     command_metadata::CommandKey,
     commands::CommandArguments,
@@ -27,7 +27,6 @@ use liquers_core::{
     store::AsyncStoreWrapper,
     value::Value,
 };
-use liquers_core::store::FileStore;
 
 /// Register example commands for demonstration
 fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironment<Value>, Error> {
@@ -35,40 +34,52 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
 
     // Register 'text' command - creates a text value from a string
     let key = CommandKey::new_name("text");
-    let metadata = cr.register_command(key, |_state, args: CommandArguments<_>, _context: Context<_>| {
-        let text: String = args.get(0, "text")?;
-        Ok(Value::from(text))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |_state, args: CommandArguments<_>, _context: Context<_>| {
+            let text: String = args.get(0, "text")?;
+            Ok(Value::from(text))
+        },
+    )?;
     metadata
         .with_label("Text")
         .with_doc("Create a text value from the given string");
 
     // Register 'upper' command - converts text to uppercase
     let key = CommandKey::new_name("upper");
-    let metadata = cr.register_command(key, |state: &_, _args: CommandArguments<_>, _context: Context<_>| {
-        let text = state.try_into_string()?;
-        Ok(Value::from(text.to_uppercase()))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |state: &_, _args: CommandArguments<_>, _context: Context<_>| {
+            let text = state.try_into_string()?;
+            Ok(Value::from(text.to_uppercase()))
+        },
+    )?;
     metadata
         .with_label("Uppercase")
         .with_doc("Convert input text to uppercase");
 
     // Register 'reverse' command - reverses text
     let key = CommandKey::new_name("reverse");
-    let metadata = cr.register_command(key, |state: &_, _args: CommandArguments<_>, _context: Context<_>| {
-        let text = state.try_into_string()?;
-        Ok(Value::from(text.chars().rev().collect::<String>()))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |state: &_, _args: CommandArguments<_>, _context: Context<_>| {
+            let text = state.try_into_string()?;
+            Ok(Value::from(text.chars().rev().collect::<String>()))
+        },
+    )?;
     metadata
         .with_label("Reverse")
         .with_doc("Reverse the input text");
 
     // Register 'count' command - counts length
     let key = CommandKey::new_name("count");
-    let metadata = cr.register_command(key, |state: &_, _args: CommandArguments<_>, _context: Context<_>| {
-        let text = state.try_into_string()?;
-        Ok(Value::from(text.len().to_string()))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |state: &_, _args: CommandArguments<_>, _context: Context<_>| {
+            let text = state.try_into_string()?;
+            Ok(Value::from(text.len().to_string()))
+        },
+    )?;
     metadata
         .with_label("Count")
         .with_doc("Count the length of input text");
@@ -178,7 +189,8 @@ RECIPES API EXAMPLES (Primary Use Cases - when implemented):
 
 For more information, see the example code in:
   liquers-axum/examples/assets_recipes_basic.rs
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Print detailed usage examples

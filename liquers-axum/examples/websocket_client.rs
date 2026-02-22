@@ -19,7 +19,6 @@
 /// - Asset lifecycle (Submitted → Processing → Finished)
 /// - Progress updates with percentages
 /// - Format size comparisons
-
 use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::Router;
@@ -137,10 +136,13 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
     let cr = &mut env.command_registry;
 
     let key = CommandKey::new_name("text");
-    let metadata = cr.register_command(key, |_state, args: CommandArguments<_>, _context: Context<_>| {
-        let text: String = args.get(0, "text")?;
-        Ok(Value::from(text))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |_state, args: CommandArguments<_>, _context: Context<_>| {
+            let text: String = args.get(0, "text")?;
+            Ok(Value::from(text))
+        },
+    )?;
 
     metadata
         .with_label("Text")
@@ -418,7 +420,10 @@ impl WebSocketClient {
                 timestamp,
                 ..
             } => {
-                println!("  [JobSubmitted] Asset #{} submitted for processing", asset_id);
+                println!(
+                    "  [JobSubmitted] Asset #{} submitted for processing",
+                    asset_id
+                );
                 println!("    Timestamp: {}", timestamp);
             }
             NotificationMessage::JobStarted {
@@ -430,9 +435,7 @@ impl WebSocketClient {
                 println!("    Timestamp: {}", timestamp);
             }
             NotificationMessage::PrimaryProgressUpdated {
-                asset_id,
-                progress,
-                ..
+                asset_id, progress, ..
             } => {
                 println!(
                     "  [Progress] Asset #{}: {} ({}/{})",
@@ -459,8 +462,14 @@ async fn test_format_negotiation(base_url: &str) -> Result<(), Box<dyn std::erro
             if let Ok(json) = response.json::<serde_json::Value>().await {
                 println!("Format comparison results:");
                 if let Some(formats) = json.get("formats") {
-                    println!("  CBOR size:     {} bytes", formats.get("cbor_size_bytes").unwrap_or(&"?".into()));
-                    println!("  JSON size:     {} bytes", formats.get("json_size_bytes").unwrap_or(&"?".into()));
+                    println!(
+                        "  CBOR size:     {} bytes",
+                        formats.get("cbor_size_bytes").unwrap_or(&"?".into())
+                    );
+                    println!(
+                        "  JSON size:     {} bytes",
+                        formats.get("json_size_bytes").unwrap_or(&"?".into())
+                    );
                     println!(
                         "  Efficiency:    {}",
                         formats.get("efficiency_ratio").unwrap_or(&"?".into())

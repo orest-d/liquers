@@ -3,10 +3,7 @@ use axum::http::header::{HeaderMap, ACCEPT, CONTENT_TYPE};
 
 /// Select serialization format from query parameter or Accept header
 /// Priority: ?format query param > Accept header > default (CBOR)
-pub fn select_format(
-    query_format: Option<&str>,
-    headers: &HeaderMap,
-) -> SerializationFormat {
+pub fn select_format(query_format: Option<&str>, headers: &HeaderMap) -> SerializationFormat {
     // Priority 1: Query parameter
     if let Some(format_str) = query_format {
         match format_str.to_lowercase().as_str() {
@@ -59,10 +56,12 @@ pub fn serialize_data_entry(
             }
             Ok(cbor_bytes)
         }
-        SerializationFormat::Bincode => bincode::serialize(entry)
-            .map_err(|e| format!("Bincode serialization failed: {}", e)),
-        SerializationFormat::Json => serde_json::to_vec(entry)
-            .map_err(|e| format!("JSON serialization failed: {}", e)),
+        SerializationFormat::Bincode => {
+            bincode::serialize(entry).map_err(|e| format!("Bincode serialization failed: {}", e))
+        }
+        SerializationFormat::Json => {
+            serde_json::to_vec(entry).map_err(|e| format!("JSON serialization failed: {}", e))
+        }
     }
 }
 
@@ -72,12 +71,10 @@ pub fn deserialize_data_entry(
     format: SerializationFormat,
 ) -> Result<DataEntry, String> {
     match format {
-        SerializationFormat::Cbor => {
-            ciborium::de::from_reader(bytes).map_err(|e| format!("CBOR deserialization failed: {}", e))
-        }
-        SerializationFormat::Bincode => {
-            bincode::deserialize(bytes).map_err(|e| format!("Bincode deserialization failed: {}", e))
-        }
+        SerializationFormat::Cbor => ciborium::de::from_reader(bytes)
+            .map_err(|e| format!("CBOR deserialization failed: {}", e)),
+        SerializationFormat::Bincode => bincode::deserialize(bytes)
+            .map_err(|e| format!("Bincode deserialization failed: {}", e)),
         SerializationFormat::Json => {
             serde_json::from_slice(bytes).map_err(|e| format!("JSON deserialization failed: {}", e))
         }
@@ -115,14 +112,8 @@ mod tests {
         assert_eq!(select_format(None, &headers), SerializationFormat::Cbor);
 
         let mut headers = HeaderMap::new();
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/x-bincode"),
-        );
-        assert_eq!(
-            select_format(None, &headers),
-            SerializationFormat::Bincode
-        );
+        headers.insert(ACCEPT, HeaderValue::from_static("application/x-bincode"));
+        assert_eq!(select_format(None, &headers), SerializationFormat::Bincode);
 
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
@@ -161,10 +152,7 @@ mod tests {
     #[test]
     fn test_format_from_content_type() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/cbor"),
-        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/cbor"));
         assert_eq!(
             format_from_content_type(&headers),
             Some(SerializationFormat::Cbor)

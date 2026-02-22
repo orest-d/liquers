@@ -17,9 +17,7 @@ use liquers_core::{
 };
 use std::collections::HashMap;
 
-use crate::api_core::{
-    error::error_to_detail, ApiResponse, BinaryResponse,
-};
+use crate::api_core::{error::error_to_detail, ApiResponse, BinaryResponse};
 
 /// GET /data/{*query} - Retrieve asset data
 pub async fn get_data_handler<E: Environment>(
@@ -45,8 +43,7 @@ pub async fn get_data_handler<E: Environment>(
         Ok(asset) => asset,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to get asset");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to get asset");
             return response.into_response();
         }
     };
@@ -145,8 +142,7 @@ pub async fn get_metadata_handler<E: Environment>(
         Ok(asset) => asset,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to get asset");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to get asset");
             return response.into_response();
         }
     };
@@ -214,8 +210,7 @@ pub async fn get_entry_handler<E: Environment>(
         Ok(asset) => asset,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to get asset");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to get asset");
             return response.into_response();
         }
     };
@@ -351,8 +346,7 @@ pub async fn cancel_handler<E: Environment>(
         Ok(asset) => asset,
         Err(e) => {
             let error_detail = error_to_detail(&e);
-            let response: ApiResponse<()> =
-                ApiResponse::error(error_detail, "Failed to get asset");
+            let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to get asset");
             return response.into_response();
         }
     };

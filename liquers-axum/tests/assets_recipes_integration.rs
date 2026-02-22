@@ -13,10 +13,10 @@
 use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::{parse_key, parse_query};
 use liquers_core::query::Key;
-use liquers_core::store::{AsyncStore, AsyncStoreWrapper, MemoryStore};
 use liquers_core::recipes::Recipe;
-use std::sync::Arc;
+use liquers_core::store::{AsyncStore, AsyncStoreWrapper, MemoryStore};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Fixtures & Helpers
@@ -449,7 +449,10 @@ async fn test_binary_data_cbor_handling() {
 
     // Retrieve and verify exact match
     let (retrieved_data, _) = store.get(&key).await.expect("Should retrieve");
-    assert_eq!(retrieved_data, data, "Binary data should be preserved exactly");
+    assert_eq!(
+        retrieved_data, data,
+        "Binary data should be preserved exactly"
+    );
 }
 
 /// Test storing and retrieving binary data in bincode format
@@ -487,7 +490,10 @@ async fn test_binary_data_json_base64_handling() {
 
     // Retrieve (would be base64 in JSON, decoded transparently)
     let (retrieved_data, _) = store.get(&key).await.expect("Should retrieve");
-    assert_eq!(retrieved_data, original_data, "Base64 round-trip should preserve data");
+    assert_eq!(
+        retrieved_data, original_data,
+        "Base64 round-trip should preserve data"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -506,7 +512,8 @@ async fn test_recipes_api_get_data() {
         "text-Hello".to_string(),
         "Hello Recipe".to_string(),
         "A simple hello recipe".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     provider.add_recipe("hello", recipe.clone());
 
@@ -530,7 +537,8 @@ async fn test_recipes_api_get_metadata() {
         "text-Info".to_string(),
         "Info Recipe".to_string(),
         "Information about a recipe".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     provider.add_recipe("info", recipe.clone());
 
@@ -554,7 +562,8 @@ async fn test_recipes_api_get_entry() {
         "text-Entry".to_string(),
         "Entry Recipe".to_string(),
         "Recipe entry test".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     provider.add_recipe("entry", recipe.clone());
 
@@ -577,13 +586,15 @@ fn test_recipes_api_listdir() {
         "text-First".to_string(),
         "First".to_string(),
         "First recipe".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     let recipe2 = Recipe::new(
         "text-Second".to_string(),
         "Second".to_string(),
         "Second recipe".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     provider.add_recipe("recipe1", recipe1);
     provider.add_recipe("recipe2", recipe2);
@@ -605,7 +616,8 @@ fn test_recipes_api_resolve() {
         "text-Resolve".to_string(),
         "Resolve Test".to_string(),
         "Recipe resolution test".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     provider.add_recipe("resolve", recipe.clone());
 
@@ -616,7 +628,10 @@ fn test_recipes_api_resolve() {
     let recipe_data = retrieved.unwrap();
     // In real scenario, would call parse_query and create a Plan
     let plan_query_result = recipe_data.get_query();
-    assert!(plan_query_result.is_ok(), "Recipe query should be parseable");
+    assert!(
+        plan_query_result.is_ok(),
+        "Recipe query should be parseable"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -639,7 +654,8 @@ async fn test_cross_api_recipe_to_asset() {
         "text-CrossTest".to_string(),
         "Cross API Test".to_string(),
         "Testing recipe to asset flow".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     recipe_provider.add_recipe("cross_test", recipe.clone());
 
@@ -662,7 +678,10 @@ async fn test_cross_api_recipe_to_asset() {
 
     // Step 3: Verify asset can be retrieved
     let (retrieved_data, _) = store.get(&result_key).await.expect("Should retrieve");
-    assert_eq!(retrieved_data, result_data, "Asset should match recipe execution result");
+    assert_eq!(
+        retrieved_data, result_data,
+        "Asset should match recipe execution result"
+    );
 }
 
 /// Test recipe contains correct query that can be evaluated in Assets API
@@ -674,7 +693,8 @@ fn test_cross_api_recipe_query_validity() {
         "text-Valid/Path".to_string(),
         "Valid Query Recipe".to_string(),
         "Recipe with valid query".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     // Verify recipe query can be parsed
     let parsed_query = recipe.get_query();
@@ -739,8 +759,7 @@ async fn test_concurrent_asset_writes() {
     for i in 0..10 {
         let store = store.clone();
         let task = tokio::spawn(async move {
-            let key = parse_key(&format!("assets/concurrent_write_{}", i))
-                .expect("Valid key");
+            let key = parse_key(&format!("assets/concurrent_write_{}", i)).expect("Valid key");
             let data = format!("data {}", i).into_bytes();
             let metadata = metadata_with_type("text/plain");
 
@@ -882,7 +901,10 @@ async fn test_roundtrip_cbor_consistency() {
     let (retrieved_data, retrieved_meta) = store.get(&key).await.expect("Get should work");
 
     // Verify exact match (round-trip)
-    assert_eq!(retrieved_data, original_data, "CBOR round-trip should preserve data");
+    assert_eq!(
+        retrieved_data, original_data,
+        "CBOR round-trip should preserve data"
+    );
     assert_eq!(
         retrieved_meta.get_media_type(),
         "application/octet-stream",
@@ -908,7 +930,10 @@ async fn test_roundtrip_bincode_consistency() {
     let (retrieved_data, _) = store.get(&key).await.expect("Get should work");
 
     // Verify match
-    assert_eq!(retrieved_data, original_data, "Bincode round-trip should match");
+    assert_eq!(
+        retrieved_data, original_data,
+        "Bincode round-trip should match"
+    );
 }
 
 /// Test JSON with base64 encoding round-trip
@@ -929,7 +954,10 @@ async fn test_roundtrip_json_base64_consistency() {
     let (retrieved_data, _) = store.get(&key).await.expect("Get should work");
 
     // Verify match (base64 encoding/decoding transparent)
-    assert_eq!(retrieved_data, original_data, "JSON base64 round-trip should preserve data");
+    assert_eq!(
+        retrieved_data, original_data,
+        "JSON base64 round-trip should preserve data"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1046,7 +1074,8 @@ async fn test_recipe_driven_asset_evaluation() {
         "text-Driven".to_string(),
         "Driven Recipe".to_string(),
         "Recipe-driven evaluation".to_string(),
-    ).expect("Valid recipe");
+    )
+    .expect("Valid recipe");
 
     recipe_provider.add_recipe("driven", recipe.clone());
 

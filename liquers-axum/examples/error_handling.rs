@@ -22,8 +22,8 @@
 /// 2. Run a series of error scenarios
 /// 3. Print formatted error responses with HTTP status codes
 /// 4. Demonstrate retry logic for transient failures
-
 use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
+use liquers_core::store::FileStore;
 use liquers_core::{
     command_metadata::CommandKey,
     commands::CommandArguments,
@@ -33,7 +33,6 @@ use liquers_core::{
     store::AsyncStoreWrapper,
     value::Value,
 };
-use liquers_core::store::FileStore;
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -46,10 +45,13 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
 
     // Register the 'text' command - creates a text value
     let key = CommandKey::new_name("text");
-    let metadata = cr.register_command(key, |_state, args: CommandArguments<_>, _context: Context<_>| {
-        let text: String = args.get(0, "text")?;
-        Ok(Value::from(text))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |_state, args: CommandArguments<_>, _context: Context<_>| {
+            let text: String = args.get(0, "text")?;
+            Ok(Value::from(text))
+        },
+    )?;
     metadata
         .with_label("Text")
         .with_doc("Create a text value from the given string")
@@ -57,10 +59,13 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
 
     // Register a 'fail' command - intentionally fails
     let key = CommandKey::new_name("fail");
-    let metadata = cr.register_command(key, |_state, args: CommandArguments<_>, _context: Context<_>| {
-        let message: String = args.get(0, "message")?;
-        Err(Error::execution_error(message))
-    })?;
+    let metadata = cr.register_command(
+        key,
+        |_state, args: CommandArguments<_>, _context: Context<_>| {
+            let message: String = args.get(0, "message")?;
+            Err(Error::execution_error(message))
+        },
+    )?;
     metadata
         .with_label("Fail")
         .with_doc("Intentionally fail with an error message")
@@ -68,13 +73,14 @@ fn register_commands(mut env: SimpleEnvironment<Value>) -> Result<SimpleEnvironm
 
     // Register an 'echo' command
     let key = CommandKey::new_name("echo");
-    let metadata = cr.register_command(key, |state, _args: CommandArguments<_>, _context: Context<_>| {
-        let value: String = state.try_into_string()?;
-        Ok(Value::from(value))
-    })?;
-    metadata
-        .with_label("Echo")
-        .with_doc("Echo the input state");
+    let metadata = cr.register_command(
+        key,
+        |state, _args: CommandArguments<_>, _context: Context<_>| {
+            let value: String = state.try_into_string()?;
+            Ok(Value::from(value))
+        },
+    )?;
+    metadata.with_label("Echo").with_doc("Echo the input state");
 
     Ok(env)
 }
@@ -147,12 +153,18 @@ fn print_result(result: &TestResult) {
     if let Some(ref error_type) = result.error_type {
         println!("  Error Type: {}", error_type);
     }
-    println!("  Message: {}", result.message.lines().next().unwrap_or(&result.message));
+    println!(
+        "  Message: {}",
+        result.message.lines().next().unwrap_or(&result.message)
+    );
 
     // Pretty-print the full JSON response if valid
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&result.message) {
         println!("  Full Response:");
-        println!("    {}", serde_json::to_string_pretty(&json).unwrap_or_default());
+        println!(
+            "    {}",
+            serde_json::to_string_pretty(&json).unwrap_or_default()
+        );
     }
 }
 
@@ -164,7 +176,8 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // Create a simple environment with file-based storage
-    let store_path = std::env::var("LIQUERS_STORE_PATH").unwrap_or_else(|_| "/tmp/liquers-error-test".to_string());
+    let store_path = std::env::var("LIQUERS_STORE_PATH")
+        .unwrap_or_else(|_| "/tmp/liquers-error-test".to_string());
     let _ = std::fs::create_dir_all(&store_path);
 
     println!("Using store path: {}", store_path);
@@ -208,9 +221,7 @@ async fn main() {
 
     // Spawn server in background
     let server_task = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("Server error");
+        axum::serve(listener, app).await.expect("Server error");
     });
 
     // Wait for server to start
@@ -243,14 +254,8 @@ async fn main() {
     println!("\n\n[2] Testing Empty Query Path\n");
     println!("Scenario: Query with empty segments");
 
-    let result = test_error_scenario(
-        &client,
-        base_url,
-        "Empty query path",
-        "/liquer/q/",
-        400,
-    )
-    .await;
+    let result =
+        test_error_scenario(&client, base_url, "Empty query path", "/liquer/q/", 400).await;
     print_result(&result);
     results.push(result);
 
@@ -277,7 +282,7 @@ async fn main() {
         &client,
         base_url,
         "Missing parameter",
-        "/liquer/q/text",  // text requires a parameter
+        "/liquer/q/text", // text requires a parameter
         400,
     )
     .await;
@@ -322,7 +327,7 @@ async fn main() {
         &client,
         base_url,
         "Parameter type error",
-        "/liquer/q/text",  // Missing required string parameter
+        "/liquer/q/text", // Missing required string parameter
         400,
     )
     .await;
@@ -339,7 +344,7 @@ async fn main() {
         &client,
         base_url,
         "Conversion error",
-        "/liquer/q/echo",  // Echo without input state
+        "/liquer/q/echo", // Echo without input state
         400,
     )
     .await;
@@ -355,7 +360,7 @@ async fn main() {
         base_url,
         "Special characters in path",
         "/liquer/q/text-%22quoted%22/echo",
-        200,  // This should actually succeed
+        200, // This should actually succeed
     )
     .await;
     print_result(&result);
@@ -372,7 +377,7 @@ async fn main() {
         base_url,
         "Very long query string",
         &long_path,
-        200,  // Should still work, just long
+        200, // Should still work, just long
     )
     .await;
     print_result(&result);
@@ -393,7 +398,10 @@ async fn main() {
     if failed > 0 {
         println!("\nFailed Tests:");
         for result in results.iter().filter(|r| !r.success) {
-            println!("  - {} (got {}, expected 200-599)", result.name, result.status_code);
+            println!(
+                "  - {} (got {}, expected 200-599)",
+                result.name, result.status_code
+            );
         }
     }
 
