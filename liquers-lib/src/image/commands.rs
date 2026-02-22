@@ -1,7 +1,7 @@
-use liquers_core::{error::Error, context::Context};
 use crate::environment::CommandRegistryAccess;
 use crate::environment::DefaultEnvironment;
 use crate::value::Value;
+use liquers_core::{context::Context, error::Error};
 use liquers_macro::register_command;
 
 /// Register all image commands via macro.
@@ -407,17 +407,21 @@ pub fn register_commands(
 
 // Re-export command functions for testing and direct use
 // Phase 1 commands
-pub use super::io::{from_bytes, from_format, svg_to_image};
-pub use super::format::{to_png, to_jpeg, to_dataurl, color_format};
-pub use super::geometric::{resize, resize_by, thumb, crop, rotate, rot90, rot180, rot270, fliph, flipv};
-pub use super::color::{gray, invert, brighten, contrast, huerot};
+pub use super::color::{brighten, contrast, gray, huerot, invert};
 pub use super::filtering::{blur, sharpen};
-pub use super::info::{dims, width, height, colortype};
+pub use super::format::{color_format, to_dataurl, to_jpeg, to_png};
+pub use super::geometric::{
+    crop, fliph, flipv, resize, resize_by, rot180, rot270, rot90, rotate, thumb,
+};
+pub use super::info::{colortype, dims, height, width};
+pub use super::io::{from_bytes, from_format, svg_to_image};
 
 // Phase 2 commands
-pub use super::format::{to_webp, to_gif, to_bmp};
 pub use super::color::{gamma, saturate};
-pub use super::filtering::{median, boxfilt};
-pub use super::morphology::{erode, dilate, opening, closing};
-pub use super::drawing::{draw_line, draw_rect, draw_filled_rect, draw_circle, draw_filled_circle, draw_text};
-pub use super::edges::{sobel, canny};
+pub use super::drawing::{
+    draw_circle, draw_filled_circle, draw_filled_rect, draw_line, draw_rect, draw_text,
+};
+pub use super::edges::{canny, sobel};
+pub use super::filtering::{boxfilt, median};
+pub use super::format::{to_bmp, to_gif, to_webp};
+pub use super::morphology::{closing, dilate, erode, opening};

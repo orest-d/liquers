@@ -1,5 +1,9 @@
 use liquers_core::{
-    context::{Context, Environment, SimpleEnvironment}, error::Error, interpreter::evaluate, state::State, value::Value
+    context::{Context, Environment, SimpleEnvironment},
+    error::Error,
+    interpreter::evaluate,
+    state::State,
+    value::Value,
 };
 use liquers_macro::*;
 
@@ -19,18 +23,24 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
     let cr = &mut env.command_registry;
     register_command!(cr, fn world(state) -> result).expect("register_command failed");
     register_command!(cr, async fn greet(state, greet: String = "Hello") -> result)
-         .expect("register_command failed");
+        .expect("register_command failed");
 
     // Verify metadata for async command
     use liquers_core::command_metadata::CommandKey;
     let greet_key = CommandKey::new_name("greet");
     let greet_metadata = cr.command_metadata_registry.get(greet_key).unwrap();
-    assert!(greet_metadata.is_async, "greet command should be marked as async");
+    assert!(
+        greet_metadata.is_async,
+        "greet command should be marked as async"
+    );
 
     // Verify metadata for sync command
     let world_key = CommandKey::new_name("world");
     let world_metadata = cr.command_metadata_registry.get(world_key).unwrap();
-    assert!(!world_metadata.is_async, "world command should not be marked as async");
+    assert!(
+        !world_metadata.is_async,
+        "world command should not be marked as async"
+    );
 
     let envref = env.to_ref();
 
@@ -42,15 +52,15 @@ async fn test_async_hello_world() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn try_to_query(){
+fn try_to_query() {
     let query_str = "-R/config/config.yaml/-/from_yaml";
     let q = liquers_core::query::TryToQuery::try_to_query(query_str).unwrap();
 }
 
 #[tokio::test]
 async fn test_q_instruction_evaluation() -> Result<(), Box<dyn std::error::Error>> {
-    use liquers_core::plan::{PlanBuilder, Step};
     use liquers_core::parse::parse_query;
+    use liquers_core::plan::{PlanBuilder, Step};
 
     type CommandEnvironment = SimpleEnvironment<Value>;
     let mut env = SimpleEnvironment::<Value>::new();
@@ -70,7 +80,7 @@ async fn test_q_instruction_evaluation() -> Result<(), Box<dyn std::error::Error
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
         match state.data.as_ref() {
             Value::Query(q) => Ok(Value::from(q.encode())),
-            _ => Err(Error::conversion_error("query", "string"))
+            _ => Err(Error::conversion_error("query", "string")),
         }
     }
 
@@ -126,7 +136,7 @@ async fn test_q_instruction_at_end() -> Result<(), Box<dyn std::error::Error>> {
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
         match state.data.as_ref() {
             Value::Query(q) => Ok(Value::from(q.encode())),
-            _ => Err(Error::conversion_error("query", "string"))
+            _ => Err(Error::conversion_error("query", "string")),
         }
     }
 
@@ -147,8 +157,8 @@ async fn test_q_instruction_at_end() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_q_instruction_with_filename() -> Result<(), Box<dyn std::error::Error>> {
-    use liquers_core::plan::{PlanBuilder, Step};
     use liquers_core::parse::parse_query;
+    use liquers_core::plan::{PlanBuilder, Step};
 
     type CommandEnvironment = SimpleEnvironment<Value>;
     let mut env = SimpleEnvironment::<Value>::new();
@@ -162,7 +172,7 @@ async fn test_q_instruction_with_filename() -> Result<(), Box<dyn std::error::Er
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
         match state.data.as_ref() {
             Value::Query(q) => Ok(Value::from(q.encode())),
-            _ => Err(Error::conversion_error("query", "string"))
+            _ => Err(Error::conversion_error("query", "string")),
         }
     }
 

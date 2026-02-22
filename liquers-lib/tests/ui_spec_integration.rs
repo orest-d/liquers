@@ -204,10 +204,7 @@ menu:
 
         // Find the Ctrl+Q conflict
         let ctrl_q_conflict = conflicts.iter().find(|(key, _)| key == "Ctrl+Q");
-        assert!(
-            ctrl_q_conflict.is_some(),
-            "Should find Ctrl+Q in conflicts"
-        );
+        assert!(ctrl_q_conflict.is_some(), "Should find Ctrl+Q in conflicts");
         assert_eq!(
             ctrl_q_conflict.unwrap().1,
             2,

@@ -1,7 +1,9 @@
-use std::{collections::hash_map::DefaultHasher, hash::{Hash, Hasher}};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 use pyo3::prelude::*;
-
 
 #[pyclass]
 #[derive(Clone)]
@@ -294,13 +296,13 @@ impl Key {
         self.0.encode()
     }
 
-    pub fn to_absolute(&self, cwd_key:&Key) -> Key {
+    pub fn to_absolute(&self, cwd_key: &Key) -> Key {
         Key(self.0.to_absolute(&cwd_key.0))
     }
 
     pub fn parent(&self) -> Key {
         Key(self.0.parent())
-    }   
+    }
 
     pub fn __len__(&self) -> usize {
         self.0.len()
@@ -378,7 +380,7 @@ impl ResourceQuerySegment {
         self.0.encode()
     }
 
-    pub fn to_absolute(&self, cwd_key:&Key) -> ResourceQuerySegment {
+    pub fn to_absolute(&self, cwd_key: &Key) -> ResourceQuerySegment {
         ResourceQuerySegment(self.0.to_absolute(&cwd_key.0))
     }
 
@@ -403,7 +405,6 @@ impl ResourceQuerySegment {
         self.0.hash(&mut hasher);
         hasher.finish()
     }
-
 }
 
 #[pyclass]
@@ -458,7 +459,7 @@ impl QuerySegment {
         self.0.encode()
     }
 
-    pub fn to_absolute(&self, cwd_key:&Key) -> QuerySegment {
+    pub fn to_absolute(&self, cwd_key: &Key) -> QuerySegment {
         QuerySegment(self.0.to_absolute(&cwd_key.0))
     }
 
@@ -576,12 +577,12 @@ impl Query {
         self.0.encode()
     }
 
-    pub fn to_absolute(&self, cwd_key:&Key) -> Query {
+    pub fn to_absolute(&self, cwd_key: &Key) -> Query {
         Query(self.0.to_absolute(&cwd_key.0))
     }
 
-    pub fn canonical(&self) -> Query{
-       Query(self.0.clone().canonical()) 
+    pub fn canonical(&self) -> Query {
+        Query(self.0.clone().canonical())
     }
 
     pub fn __repr__(&self) -> String {
@@ -605,7 +606,6 @@ impl Query {
         self.0.hash(&mut hasher);
         hasher.finish()
     }
-
 }
 
 #[pyfunction]
@@ -627,4 +627,3 @@ pub fn parse_key(key: &str) -> PyResult<Key> {
         )),
     }
 }
-

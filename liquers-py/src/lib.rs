@@ -3,21 +3,21 @@ extern crate serde;
 extern crate serde_derive;
 
 use pyo3::{exceptions::PyException, prelude::*};
-pub mod parse;
-pub mod store;
-pub mod metadata;
 pub mod cache;
-pub mod error;
-pub mod value;
-pub mod state;
 pub mod command_metadata;
 pub mod commands;
 pub mod context;
-pub mod plan;
+pub mod error;
 pub mod interpreter;
+pub mod metadata;
+pub mod parse;
+pub mod plan;
 pub mod recipes;
-use crate::parse::*;
+pub mod state;
+pub mod store;
+pub mod value;
 use crate::error::Error;
+use crate::parse::*;
 
 /// A Python module implemented in Rust.
 #[pymodule]
@@ -71,8 +71,8 @@ fn liquers_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<crate::plan::Plan>()?;
     m.add_function(wrap_pyfunction!(crate::plan::build_plan, m)?)?;
 
-//    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate, m)?)?;
-//    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate_with_cmr, m)?)?;
+    //    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate, m)?)?;
+    //    m.add_function(wrap_pyfunction!(crate::interpreter::evaluate_with_cmr, m)?)?;
 
     Ok(())
 }

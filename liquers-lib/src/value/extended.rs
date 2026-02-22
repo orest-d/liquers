@@ -1,23 +1,21 @@
 use serde_json;
 
 use liquers_core::{
-    metadata::{AssetInfo},
+    metadata::AssetInfo,
     value::{DefaultValueSerializer, ValueInterface},
 };
 
 use liquers_core::error::Error;
-use std::{
-    borrow::Cow,
-    convert::TryFrom,
-    result::Result,
-};
+use std::{borrow::Cow, convert::TryFrom, result::Result};
 
-pub trait ValueExtension:core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static {
+pub trait ValueExtension:
+    core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static
+{
     fn try_into_string(&self) -> Result<String, Error> {
         Err(Error::conversion_error(self.identifier(), "string"))
     }
 
-    fn try_into_json_value(&self) -> Result<serde_json::Value, Error>{
+    fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         Err(Error::conversion_error(self.identifier(), "JSON"))
     }
     fn identifier(&self) -> Cow<'static, str>;
@@ -28,16 +26,16 @@ pub trait ValueExtension:core::fmt::Debug + Clone + Sized + DefaultValueSerializ
 }
 
 #[derive(Debug, Clone)]
-pub enum CombinedValue<BaseValue:ValueInterface + Default, Ext:ValueExtension> {
+pub enum CombinedValue<BaseValue: ValueInterface + Default, Ext: ValueExtension> {
     Base(BaseValue),
     Extended(Ext),
 }
 
-impl<BaseValue:ValueInterface + Default, Ext:ValueExtension> CombinedValue<BaseValue, Ext> {
+impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> CombinedValue<BaseValue, Ext> {
     pub fn new_base(value: BaseValue) -> Self {
         CombinedValue::Base(value)
     }
-    
+
     pub fn new_extended(value: Ext) -> Self {
         CombinedValue::Extended(value)
     }
@@ -63,23 +61,27 @@ impl<BaseValue:ValueInterface + Default, Ext:ValueExtension> CombinedValue<BaseV
             _ => None,
         }
     }
-
 }
 
-impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> Default for CombinedValue<BaseValue, Ext> {
+impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> Default
+    for CombinedValue<BaseValue, Ext>
+{
     fn default() -> Self {
         CombinedValue::Base(BaseValue::default())
     }
 }
 
-
-impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface for CombinedValue<BaseValue, Ext> {
-        fn try_into_query(&self) -> Result<liquers_core::query::Query, Error> {
-            match self {
-                CombinedValue::Base(base) => base.try_into_query(),
-                CombinedValue::Extended(_ext) => Err(Error::conversion_error("extended value", "Query")),
+impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
+    for CombinedValue<BaseValue, Ext>
+{
+    fn try_into_query(&self) -> Result<liquers_core::query::Query, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_query(),
+            CombinedValue::Extended(_ext) => {
+                Err(Error::conversion_error("extended value", "Query"))
             }
         }
+    }
     fn none() -> Self {
         CombinedValue::Base(BaseValue::none())
     }
@@ -233,10 +235,9 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface fo
     fn from_key(key: &liquers_core::query::Key) -> Self {
         CombinedValue::Base(BaseValue::from_key(key))
     }
-          
 }
 
-/* 
+/*
 impl<'a, B:ValueInterface + Default,E:ValueExtension> TryFrom<&'a CombinedValue<B,E>> for i32
 where i32 : TryFrom<&'a B>
 {
@@ -250,11 +251,12 @@ where i32 : TryFrom<&'a B>
 }
 */
 
-impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for i32
-where i32: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for i32
+where
+    i32: TryFrom<B, Error = Error>,
 {
     type Error = Error;
-    fn try_from(value: CombinedValue<B,E>) -> Result<Self, Self::Error> {
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => i32::try_from(base),
             _ => Err(Error::conversion_error(value.type_name(), "i32")),
@@ -262,24 +264,24 @@ where i32: TryFrom<B, Error = Error>
     }
 }
 
-impl<B:ValueInterface + Default + From<i32>,E:ValueExtension> From<i32> for CombinedValue<B,E> 
-{
-    fn from(value: i32) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default + From<i32>, E: ValueExtension> From<i32> for CombinedValue<B, E> {
+    fn from(value: i32) -> CombinedValue<B, E> {
         CombinedValue::Base(B::from(value))
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> From<()> for CombinedValue<B,E> {
-    fn from(_value: ()) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default, E: ValueExtension> From<()> for CombinedValue<B, E> {
+    fn from(_value: ()) -> CombinedValue<B, E> {
         CombinedValue::none()
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for i64
-where i64: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for i64
+where
+    i64: TryFrom<B, Error = Error>,
 {
     type Error = Error;
-    fn try_from(value: CombinedValue<B,E>) -> Result<Self, Self::Error> {
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => i64::try_from(base),
             _ => Err(Error::conversion_error(value.type_name(), "i64")),
@@ -287,8 +289,8 @@ where i64: TryFrom<B, Error = Error>
     }
 }
 
-impl<B:ValueInterface + Default + From<i64>,E:ValueExtension> From<i64> for CombinedValue<B,E> {
-    fn from(value: i64) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default + From<i64>, E: ValueExtension> From<i64> for CombinedValue<B, E> {
+    fn from(value: i64) -> CombinedValue<B, E> {
         CombinedValue::Base(B::from(value))
     }
 }
@@ -301,11 +303,12 @@ impl<B: ValueInterface + Default + From<Vec<i64>>, E: ValueExtension> From<Vec<i
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for f64
-where f64: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for f64
+where
+    f64: TryFrom<B, Error = Error>,
 {
     type Error = Error;
-    fn try_from(value: CombinedValue<B,E>) -> Result<Self, Self::Error> {
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => f64::try_from(base),
             _ => Err(Error::conversion_error(value.type_name(), "f64")),
@@ -313,17 +316,18 @@ where f64: TryFrom<B, Error = Error>
     }
 }
 
-impl<B:ValueInterface + Default + From<f64>,E:ValueExtension> From<f64> for CombinedValue<B,E> {
-    fn from(value: f64) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default + From<f64>, E: ValueExtension> From<f64> for CombinedValue<B, E> {
+    fn from(value: f64) -> CombinedValue<B, E> {
         CombinedValue::Base(B::from(value))
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for f32
-where f32: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for f32
+where
+    f32: TryFrom<B, Error = Error>,
 {
     type Error = Error;
-    fn try_from(value: CombinedValue<B,E>) -> Result<Self, Self::Error> {
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => f32::try_from(base),
             _ => Err(Error::conversion_error(value.type_name(), "f32")),
@@ -331,17 +335,18 @@ where f32: TryFrom<B, Error = Error>
     }
 }
 
-impl<B:ValueInterface + Default + From<f32>,E:ValueExtension> From<f32> for CombinedValue<B,E> {
-    fn from(value: f32) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default + From<f32>, E: ValueExtension> From<f32> for CombinedValue<B, E> {
+    fn from(value: f32) -> CombinedValue<B, E> {
         CombinedValue::Base(B::from(value))
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for bool
-where bool: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for bool
+where
+    bool: TryFrom<B, Error = Error>,
 {
     type Error = Error;
-    fn try_from(value: CombinedValue<B,E>) -> Result<Self, Self::Error> {
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => bool::try_from(base),
             _ => Err(Error::conversion_error(value.type_name(), "bool")),
@@ -349,10 +354,11 @@ where bool: TryFrom<B, Error = Error>
     }
 }
 
-impl <B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for u32 
-where u32: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for u32
+where
+    u32: TryFrom<B, Error = Error>,
 {
-    type Error = Error; 
+    type Error = Error;
 
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
@@ -362,10 +368,11 @@ where u32: TryFrom<B, Error = Error>
     }
 }
 
-impl <B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for u8
-where u8: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for u8
+where
+    u8: TryFrom<B, Error = Error>,
 {
-    type Error = Error; 
+    type Error = Error;
 
     fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
@@ -375,50 +382,61 @@ where u8: TryFrom<B, Error = Error>
     }
 }
 
-impl<B:ValueInterface + Default + From<bool>,E:ValueExtension> From<bool> for CombinedValue<B,E> {
-    fn from(value: bool) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default + From<bool>, E: ValueExtension> From<bool>
+    for CombinedValue<B, E>
+{
+    fn from(value: bool) -> CombinedValue<B, E> {
         CombinedValue::Base(B::from(value))
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> TryFrom<CombinedValue<B,E>> for String
-where String: TryFrom<B, Error = Error>
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>> for String
+where
+    String: TryFrom<B, Error = Error>,
 {
     type Error = Error;
-    fn try_from(value: CombinedValue<B,E>) -> Result<Self, Self::Error> {
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
         match value {
             CombinedValue::Base(base) => String::try_from(base),
             _ => Err(Error::conversion_error(value.type_name(), "string")),
         }
     }
-}   
+}
 
-
-
-impl<B:ValueInterface + Default,E:ValueExtension> From<String> for CombinedValue<B,E> {
-    fn from(value: String) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default, E: ValueExtension> From<String> for CombinedValue<B, E> {
+    fn from(value: String) -> CombinedValue<B, E> {
         CombinedValue::Base(B::new(&value))
     }
 }
 
-impl<B:ValueInterface + Default,E:ValueExtension> From<&str> for CombinedValue<B,E> {
-    fn from(value: &str) -> CombinedValue<B,E> {
+impl<B: ValueInterface + Default, E: ValueExtension> From<&str> for CombinedValue<B, E> {
+    fn from(value: &str) -> CombinedValue<B, E> {
         CombinedValue::Base(B::new(value))
     }
 }
 
-
-impl<B:ValueInterface + Default,E:ValueExtension> DefaultValueSerializer for CombinedValue<B,E> {
+impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
+    for CombinedValue<B, E>
+{
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
-        match self{
+        match self {
             CombinedValue::Base(x) => x.as_bytes(format),
             CombinedValue::Extended(x) => x.as_bytes(format),
         }
     }
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
-        // TODO: use type identifier to find out whether this is base or extended 
-        Ok(CombinedValue::Base(
-            B::deserialize_from_bytes(b, type_identifier, fmt)?,
-        ))
+        match B::deserialize_from_bytes(b, type_identifier, fmt) {
+            Ok(base) => Ok(CombinedValue::Base(base)),
+            Err(base_err) => match E::deserialize_from_bytes(b, type_identifier, fmt) {
+                Ok(ext) => Ok(CombinedValue::Extended(ext)),
+                Err(ext_err) => {
+                    if type_identifier == "polars_dataframe" {
+                        Err(ext_err)
+                    } else {
+                        Err(base_err)
+                    }
+                }
+            },
+        }
     }
 }

@@ -1,13 +1,15 @@
-use liquers_core::{error::Error, state::State};
-use crate::value::{ExtValueInterface, Value};
 use super::util::try_to_image;
-use std::sync::Arc;
+use crate::value::{ExtValueInterface, Value};
 use image::DynamicImage;
+use liquers_core::{error::Error, state::State};
+use std::sync::Arc;
 
 /// Apply Gaussian blur with specified sigma value.
 pub fn blur(state: &State<Value>, sigma: f32) -> Result<Value, Error> {
     if sigma < 0.0 {
-        return Err(Error::general_error("Blur sigma must be non-negative".to_string()));
+        return Err(Error::general_error(
+            "Blur sigma must be non-negative".to_string(),
+        ));
     }
 
     let img = try_to_image(state)?;
@@ -26,13 +28,14 @@ pub fn sharpen(state: &State<Value>) -> Result<Value, Error> {
     // [-1  5 -1]
     // [ 0 -1  0]
     let rgba_img = Arc::as_ref(&img).to_rgba8();
-    let result = imageproc::filter::filter3x3(&rgba_img, &[
-        0.0, -1.0, 0.0,
-        -1.0, 5.0, -1.0,
-        0.0, -1.0, 0.0,
-    ]);
+    let result = imageproc::filter::filter3x3(
+        &rgba_img,
+        &[0.0, -1.0, 0.0, -1.0, 5.0, -1.0, 0.0, -1.0, 0.0],
+    );
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        result,
+    ))))
 }
 
 /// Apply median filter for noise reduction.
@@ -48,7 +51,9 @@ pub fn median(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     let rgba_img = Arc::as_ref(&img).to_rgba8();
     let result = imageproc::filter::median_filter(&rgba_img, radius, radius);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        result,
+    ))))
 }
 
 /// Apply box/mean filter (blur by averaging).
@@ -66,7 +71,9 @@ pub fn boxfilt(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     // box_filter returns Luma image
     let result = imageproc::filter::box_filter(&gray_img, radius, radius);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(
+        result,
+    ))))
 }
 
 #[cfg(test)]

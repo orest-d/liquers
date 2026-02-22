@@ -1,9 +1,9 @@
+use crate::environment::CommandRegistryAccess;
+use crate::value::{simple::SimpleValue, ExtValueInterface, Value};
 use liquers_core::{
     commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
 };
 use liquers_macro::register_command;
-use crate::value::{ExtValueInterface, Value, simple::SimpleValue};
-use crate::environment::CommandRegistryAccess;
 use std::collections::BTreeMap;
 
 use super::util::try_to_polars_dataframe;
@@ -91,7 +91,9 @@ macro_rules! register_polars_info_commands {
 }
 
 /// Backward-compatible wrapper calling the `register_polars_info_commands!` macro.
-pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
+pub fn register_commands(
+    env: &mut crate::environment::DefaultEnvironment<Value>,
+) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
     register_polars_info_commands!(cr)?;

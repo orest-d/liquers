@@ -124,10 +124,9 @@ impl UIElement for MarkdownElement {
         _ctx: &UIContext,
         _app_state: &mut dyn AppState,
     ) -> egui::Response {
-        let output = egui::ScrollArea::vertical()
-            .show(ui, |ui| {
-                CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown_text);
-            });
+        let output = egui::ScrollArea::vertical().show(ui, |ui| {
+            CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown_text);
+        });
         ui.allocate_response(output.content_size, egui::Sense::hover())
     }
 }

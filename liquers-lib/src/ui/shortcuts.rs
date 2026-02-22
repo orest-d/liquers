@@ -52,9 +52,9 @@
 //! # Ok::<(), liquers_core::error::Error>(())
 //! ```
 
+use liquers_core::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
-use liquers_core::error::Error;
 
 /// Keyboard key representation
 ///
@@ -73,31 +73,95 @@ use liquers_core::error::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
     // Letters
-    A, B, C, D, E, F, G, H, I, J, K, L, M,
-    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
 
     // Numbers
-    Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
+    Num0,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
 
     // Function keys
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
 
     // Navigation
-    ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
-    Home, End, PageUp, PageDown,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Home,
+    End,
+    PageUp,
+    PageDown,
 
     // Editing
-    Insert, Delete, Backspace,
-    Enter, Tab, Escape, Space,
+    Insert,
+    Delete,
+    Backspace,
+    Enter,
+    Tab,
+    Escape,
+    Space,
 
     // Punctuation
-    Comma, Period, Slash, Backslash,
-    Semicolon, Quote, Backtick,
-    Minus, Equals,
-    LeftBracket, RightBracket,
+    Comma,
+    Period,
+    Slash,
+    Backslash,
+    Semicolon,
+    Quote,
+    Backtick,
+    Minus,
+    Equals,
+    LeftBracket,
+    RightBracket,
 
     // Special
-    PrintScreen, ScrollLock, Pause,
+    PrintScreen,
+    ScrollLock,
+    Pause,
 }
 
 impl Key {
@@ -448,7 +512,7 @@ impl Key {
             egui::Key::F13 => Some(Key::PrintScreen),
             egui::Key::F14 => Some(Key::ScrollLock),
             egui::Key::F15 => Some(Key::Pause),
-            _ => None,  // Unsupported keys (e.g., Numpad)
+            _ => None, // Unsupported keys (e.g., Numpad)
         }
     }
 }
@@ -587,17 +651,13 @@ impl FromStr for KeyboardShortcut {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.is_empty() {
-            return Err(Error::general_error(
-                "Empty shortcut string".to_string(),
-            ));
+            return Err(Error::general_error("Empty shortcut string".to_string()));
         }
 
         let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
 
         if parts.is_empty() {
-            return Err(Error::general_error(
-                "Empty shortcut string".to_string(),
-            ));
+            return Err(Error::general_error("Empty shortcut string".to_string()));
         }
 
         let mut modifiers = Modifiers::none();
@@ -727,10 +787,7 @@ where
         *counts.entry(shortcut.clone()).or_insert(0) += 1;
     }
 
-    counts
-        .into_iter()
-        .filter(|(_, count)| *count > 1)
-        .collect()
+    counts.into_iter().filter(|(_, count)| *count > 1).collect()
 }
 
 /// Validate multiple shortcut strings

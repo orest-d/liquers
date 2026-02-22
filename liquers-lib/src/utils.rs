@@ -1,8 +1,8 @@
+use crate::value::Value;
 use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::parse::parse_query;
 use liquers_core::query::{ActionParameter, QuerySegment};
 use liquers_core::state::State;
-use crate::value::Value;
 
 /// A resolved next-command preset with the full query already constructed.
 /// The query string has the preset action already appended (with namespace
@@ -51,7 +51,10 @@ pub fn find_next_presets(
     };
 
     // Determine the active namespace context from the query
-    let active_ns = active_namespace(&tqs.query.iter().flat_map(|a| a.ns()).flatten().collect(), registry);
+    let active_ns = active_namespace(
+        &tqs.query.iter().flat_map(|a| a.ns()).flatten().collect(),
+        registry,
+    );
 
     // Look up command metadata for the last action
     let namespaces = build_namespace_list(&active_ns, registry);
@@ -102,13 +105,13 @@ pub fn find_next_presets(
 
 /// Determine the active namespace from ns action parameters.
 /// Returns the last namespace set by `ns-<name>` actions, or empty string if none.
-fn active_namespace(ns_params: &Vec<ActionParameter>, _registry: &CommandMetadataRegistry) -> String {
+fn active_namespace(
+    ns_params: &Vec<ActionParameter>,
+    _registry: &CommandMetadataRegistry,
+) -> String {
     // The ns action parameters encode the namespace(s)
     // e.g. ns-lui sets namespace to "lui"
-    ns_params
-        .last()
-        .map(|p| p.encode())
-        .unwrap_or_default()
+    ns_params.last().map(|p| p.encode()).unwrap_or_default()
 }
 
 /// Build the list of namespaces to search, starting with the active namespace
@@ -129,10 +132,10 @@ fn build_namespace_list(active_ns: &str, registry: &CommandMetadataRegistry) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use liquers_core::command_metadata::{CommandMetadata, CommandPreset};
     use liquers_core::metadata::Metadata;
     use liquers_core::query::ActionRequest;
+    use std::sync::Arc;
 
     fn make_state() -> State<Value> {
         State {
@@ -228,6 +231,9 @@ mod tests {
 
         let result = find_next_presets("text-Hello/uppercase", &state, &registry);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].query, "text-Hello/uppercase/ns-special/special_cmd");
+        assert_eq!(
+            result[0].query,
+            "text-Hello/uppercase/ns-special/special_cmd"
+        );
     }
 }

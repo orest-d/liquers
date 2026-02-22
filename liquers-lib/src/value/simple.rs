@@ -11,13 +11,7 @@ use liquers_core::{
 };
 
 use liquers_core::error::Error;
-use std::{
-    borrow::Cow,
-    collections::BTreeMap,
-    convert::TryFrom,
-    result::Result,
-    sync::Arc,
-};
+use std::{borrow::Cow, collections::BTreeMap, convert::TryFrom, result::Result, sync::Arc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimpleValue {
@@ -63,7 +57,7 @@ pub enum SimpleValue {
     },
     Key {
         value: Key,
-    }
+    },
 }
 impl Default for SimpleValue {
     fn default() -> Self {
@@ -71,16 +65,15 @@ impl Default for SimpleValue {
     }
 }
 
-
 impl ValueInterface for SimpleValue {
-        fn try_into_query(&self) -> Result<Query, Error> {
-            match self {
-                SimpleValue::Query { value } => Ok(value.clone()),
-                SimpleValue::Text { value: s } => liquers_core::parse::parse_query(s)
-                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
-                _ => Err(Error::conversion_error(self.identifier(), "Query")),
-            }
+    fn try_into_query(&self) -> Result<Query, Error> {
+        match self {
+            SimpleValue::Query { value } => Ok(value.clone()),
+            SimpleValue::Text { value: s } => liquers_core::parse::parse_query(s)
+                .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+            _ => Err(Error::conversion_error(self.identifier(), "Query")),
         }
+    }
     fn none() -> Self {
         SimpleValue::None {}
     }
@@ -121,8 +114,12 @@ impl ValueInterface for SimpleValue {
         match self {
             SimpleValue::None {} => Ok(serde_json::Value::Null),
             SimpleValue::Bool { value: b } => Ok(serde_json::Value::Bool(*b)),
-            SimpleValue::I32 { value: n } => Ok(serde_json::Value::Number(serde_json::Number::from(*n))),
-            SimpleValue::I64 { value: n } => Ok(serde_json::Value::Number(serde_json::Number::from(*n))),
+            SimpleValue::I32 { value: n } => {
+                Ok(serde_json::Value::Number(serde_json::Number::from(*n)))
+            }
+            SimpleValue::I64 { value: n } => {
+                Ok(serde_json::Value::Number(serde_json::Number::from(*n)))
+            }
             SimpleValue::F64 { value: n } => Ok(serde_json::Value::Number(
                 serde_json::Number::from_f64(*n).unwrap(),
             )),
@@ -342,8 +339,10 @@ impl ValueInterface for SimpleValue {
     fn try_into_key(&self) -> Result<liquers_core::query::Key, Error> {
         match self {
             SimpleValue::Text { value } => Ok(liquers_core::parse::parse_key(value)?),
-            SimpleValue::Query{ value: q } => q.key().ok_or(Error::conversion_error(self.identifier(), "key")),
-            SimpleValue::Key{ value: k } => Ok(k.clone()),
+            SimpleValue::Query { value: q } => q
+                .key()
+                .ok_or(Error::conversion_error(self.identifier(), "key")),
+            SimpleValue::Key { value: k } => Ok(k.clone()),
             _ => Err(Error::conversion_error(self.identifier(), "key")),
         }
     }
@@ -377,8 +376,6 @@ impl ValueInterface for SimpleValue {
     fn from_key(key: &liquers_core::query::Key) -> Self {
         SimpleValue::Key { value: key.clone() }
     }
-    
-    
 }
 
 impl TryFrom<&SimpleValue> for i32 {
@@ -540,98 +537,74 @@ impl DefaultValueSerializer for SimpleValue {
                     ),
                 )),
             },
-            "json" => {
-                match self {
-                    SimpleValue::None {} =>{
-                            serde_json::to_vec(&serde_json::Value::Null).map_err(|e| {
-                                Error::new(
-                                    ErrorType::SerializationError,
-                                    format!("Failed to serialize to JSON: {}", e),
-                                )
-                            })
-                        }
-                    SimpleValue::Bool { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize bool to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::I32 { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize i32 to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::I64 { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize i64 to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::F64 { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize f64 to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::Text { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize text to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::Metadata { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize metadata to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::AssetInfo { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize asset info to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::Recipe { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize recipe to JSON: {}", e),
-                            )
-                        })
-                    },
-                    SimpleValue::CommandMetadata { value } => {
-                        serde_json::to_vec(value).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize command metadata to JSON: {}", e),
-                            )
-                        })
-                    },
-                    _ => {
-                        serde_json::to_vec(&self).map_err(|e| {
-                            Error::new(
-                                ErrorType::SerializationError,
-                                format!("Failed to serialize to JSON: {}", e),
-                            )
-                        })
-                    }
-                }
-            }
+            "json" => match self {
+                SimpleValue::None {} => serde_json::to_vec(&serde_json::Value::Null).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::Bool { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize bool to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::I32 { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize i32 to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::I64 { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize i64 to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::F64 { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize f64 to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::Text { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize text to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::Metadata { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize metadata to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::AssetInfo { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize asset info to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::Recipe { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize recipe to JSON: {}", e),
+                    )
+                }),
+                SimpleValue::CommandMetadata { value } => serde_json::to_vec(value).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize command metadata to JSON: {}", e),
+                    )
+                }),
+                _ => serde_json::to_vec(&self).map_err(|e| {
+                    Error::new(
+                        ErrorType::SerializationError,
+                        format!("Failed to serialize to JSON: {}", e),
+                    )
+                }),
+            },
             _ => Err(Error::new(
                 ErrorType::SerializationError,
                 format!("Unsupported format {}", format),

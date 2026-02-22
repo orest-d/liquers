@@ -1,12 +1,7 @@
-use liquers_core::{
-    context::Environment,
-    error::Error,
-    state::State,
-    metadata::MetadataRecord,
-};
+use liquers_core::{context::Environment, error::Error, metadata::MetadataRecord, state::State};
 use liquers_lib::{
     environment::DefaultEnvironment,
-    value::{Value, ExtValueInterface, simple::SimpleValue},
+    value::{simple::SimpleValue, ExtValueInterface, Value},
 };
 use std::sync::Arc;
 
@@ -27,11 +22,11 @@ fn create_csv_state(csv_text: &str) -> State<Value> {
 
     State {
         data: Arc::new(Value::from(csv_text.to_string())),
-        metadata:Arc::new(metadata.into()),
+        metadata: Arc::new(metadata.into()),
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_from_csv_basic() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = "name,age,city\nAlice,30,NYC\nBob,25,LA\nCharlie,35,Chicago";
     let state = create_csv_state(csv_data);
@@ -40,12 +35,12 @@ async fn test_from_csv_basic() -> Result<(), Box<dyn std::error::Error>> {
     let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
 
     assert_eq!(df.height(), 3); // 3 rows
-    assert_eq!(df.width(), 3);  // 3 columns
+    assert_eq!(df.width(), 3); // 3 columns
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_shape() -> Result<(), Box<dyn std::error::Error>> {
     use liquers_lib::polars::info;
 
@@ -64,7 +59,7 @@ async fn test_shape() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_head() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = "a\n1\n2\n3\n4\n5";
     let state = create_csv_state(csv_data);
@@ -78,7 +73,7 @@ async fn test_head() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_tail() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = "a\n1\n2\n3\n4\n5";
     let state = create_csv_state(csv_data);
@@ -92,7 +87,7 @@ async fn test_tail() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_slice() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = "a\n1\n2\n3\n4\n5";
     let state = create_csv_state(csv_data);
@@ -106,7 +101,7 @@ async fn test_slice() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_select_columns() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = "a,b,c\n1,2,3\n4,5,6";
     let state = create_csv_state(csv_data);
@@ -123,7 +118,7 @@ async fn test_select_columns() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_drop_columns() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = "a,b,c\n1,2,3\n4,5,6";
     let state = create_csv_state(csv_data);
@@ -140,7 +135,7 @@ async fn test_drop_columns() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_filter_eq() -> Result<(), Box<dyn std::error::Error>> {
     use polars::prelude::*;
 
@@ -161,7 +156,7 @@ async fn test_filter_eq() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_sort() -> Result<(), Box<dyn std::error::Error>> {
     use polars::prelude::*;
 
@@ -185,7 +180,7 @@ async fn test_sort() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_aggregation_sum() -> Result<(), Box<dyn std::error::Error>> {
     use polars::prelude::*;
 
@@ -195,11 +190,7 @@ async fn test_aggregation_sum() -> Result<(), Box<dyn std::error::Error>> {
     let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
 
     // Test sum aggregation
-    let result = (*df)
-        .clone()
-        .lazy()
-        .select([col("*").sum()])
-        .collect()?;
+    let result = (*df).clone().lazy().select([col("*").sum()]).collect()?;
 
     assert_eq!(result.height(), 1);
 
@@ -210,7 +201,7 @@ async fn test_aggregation_sum() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_aggregation_mean() -> Result<(), Box<dyn std::error::Error>> {
     use polars::prelude::*;
 
@@ -220,18 +211,14 @@ async fn test_aggregation_mean() -> Result<(), Box<dyn std::error::Error>> {
     let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
 
     // Test mean aggregation
-    let result = (*df)
-        .clone()
-        .lazy()
-        .select([col("*").mean()])
-        .collect()?;
+    let result = (*df).clone().lazy().select([col("*").mean()]).collect()?;
 
     assert_eq!(result.height(), 1);
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_chained_operations() -> Result<(), Box<dyn std::error::Error>> {
     use polars::prelude::*;
 
@@ -261,7 +248,7 @@ async fn test_chained_operations() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_parse_utilities() -> Result<(), Box<dyn std::error::Error>> {
     use liquers_lib::polars::util::*;
 

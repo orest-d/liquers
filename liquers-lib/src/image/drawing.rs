@@ -1,13 +1,13 @@
-use liquers_core::{error::Error, state::State};
+use super::util::{parse_color, try_to_image};
 use crate::value::{ExtValueInterface, Value};
-use super::util::{try_to_image, parse_color};
-use std::sync::Arc;
 use image::DynamicImage;
 use imageproc::drawing::{
-    draw_line_segment_mut, draw_hollow_rect_mut, draw_filled_rect_mut,
-    draw_hollow_circle_mut, draw_filled_circle_mut,
+    draw_filled_circle_mut, draw_filled_rect_mut, draw_hollow_circle_mut, draw_hollow_rect_mut,
+    draw_line_segment_mut,
 };
 use imageproc::rect::Rect;
+use liquers_core::{error::Error, state::State};
+use std::sync::Arc;
 
 /// Draw a line from (x1, y1) to (x2, y2) with specified color.
 pub fn draw_line(
@@ -22,9 +22,16 @@ pub fn draw_line(
     let color = parse_color(&color_str)?;
 
     let mut rgba_img = Arc::as_ref(&img).to_rgba8();
-    draw_line_segment_mut(&mut rgba_img, (x1 as f32, y1 as f32), (x2 as f32, y2 as f32), color);
+    draw_line_segment_mut(
+        &mut rgba_img,
+        (x1 as f32, y1 as f32),
+        (x2 as f32, y2 as f32),
+        color,
+    );
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(rgba_img))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        rgba_img,
+    ))))
 }
 
 /// Draw a rectangle outline.
@@ -43,7 +50,9 @@ pub fn draw_rect(
     let rect = Rect::at(x, y).of_size(width, height);
     draw_hollow_rect_mut(&mut rgba_img, rect, color);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(rgba_img))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        rgba_img,
+    ))))
 }
 
 /// Draw a filled rectangle.
@@ -62,7 +71,9 @@ pub fn draw_filled_rect(
     let rect = Rect::at(x, y).of_size(width, height);
     draw_filled_rect_mut(&mut rgba_img, rect, color);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(rgba_img))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        rgba_img,
+    ))))
 }
 
 /// Draw a circle outline.
@@ -79,7 +90,9 @@ pub fn draw_circle(
     let mut rgba_img = Arc::as_ref(&img).to_rgba8();
     draw_hollow_circle_mut(&mut rgba_img, (x, y), radius, color);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(rgba_img))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        rgba_img,
+    ))))
 }
 
 /// Draw a filled circle.
@@ -96,7 +109,9 @@ pub fn draw_filled_circle(
     let mut rgba_img = Arc::as_ref(&img).to_rgba8();
     draw_filled_circle_mut(&mut rgba_img, (x, y), radius, color);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(rgba_img))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        rgba_img,
+    ))))
 }
 
 /// Draw text at the specified position.
@@ -110,7 +125,7 @@ pub fn draw_text(
     _color_str: String,
 ) -> Result<Value, Error> {
     Err(Error::general_error(
-        "draw_text is not yet implemented - requires font library support".to_string()
+        "draw_text is not yet implemented - requires font library support".to_string(),
     ))
 }
 

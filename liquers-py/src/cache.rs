@@ -28,16 +28,22 @@ impl Cache {
             .lock()
             .unwrap()
             .get_metadata(&query.0)
-            .map(|m| crate::metadata::Metadata { inner: m.as_ref().clone() })
+            .map(|m| crate::metadata::Metadata {
+                inner: m.as_ref().clone(),
+            })
     }
 
     fn set_metadata(&mut self, metadata: &crate::metadata::Metadata) -> PyResult<()> {
-        self.0.lock().unwrap().set_metadata(&metadata.inner).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyException, _>(format!(
-                "Error setting metadata: {}",
-                e
-            ))
-        })?;
+        self.0
+            .lock()
+            .unwrap()
+            .set_metadata(&metadata.inner)
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyException, _>(format!(
+                    "Error setting metadata: {}",
+                    e
+                ))
+            })?;
         Ok(())
     }
 

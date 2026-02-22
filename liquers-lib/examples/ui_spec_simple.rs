@@ -5,11 +5,11 @@
 use std::fmt::format;
 use std::sync::Arc;
 
-use liquers_lib::ui::{
-    app_message_channel, AppState, DirectAppState, ElementSource, StateViewElement, UIContext,
-    UIElement, render_element, try_sync_lock,
-};
 use liquers_lib::ui::widgets::ui_spec_element::{InitQuery, LayoutSpec, UISpec, UISpecElement};
+use liquers_lib::ui::{
+    app_message_channel, render_element, try_sync_lock, AppState, DirectAppState, ElementSource,
+    StateViewElement, UIContext, UIElement,
+};
 use liquers_lib::value::Value;
 
 // ─── eframe App ─────────────────────────────────────────────────────────────
@@ -29,8 +29,7 @@ impl SimpleSpecApp {
 
             // 2. Create root UISpecElement with horizontal layout
             let spec = UISpec {
-                init: vec![
-                ],
+                init: vec![],
                 menu: None,
                 layout: LayoutSpec::Horizontal,
             };
@@ -74,7 +73,6 @@ impl SimpleSpecApp {
                 .set_element(child2_handle, Box::new(child2))
                 .expect("Failed to set child 2");
 
-
             // 5. Create UIContext
             let app_state_arc: Arc<tokio::sync::Mutex<dyn AppState>> =
                 Arc::new(tokio::sync::Mutex::new(app_state));
@@ -107,7 +105,7 @@ impl eframe::App for SimpleSpecApp {
                     return;
                 }
             };
-            
+
             for handle in roots {
                 render_element(ui, handle, &self.ui_context);
             }

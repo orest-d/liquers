@@ -1,9 +1,9 @@
 use std::{env, sync::Arc};
 
+use crate::{commands::CommandRegistry, context::Environment, error::Error, state::State};
 use pyo3::{exceptions::PyException, prelude::*};
-use crate::{commands::CommandRegistry, context::{Environment}, error::Error, state::State};
 
-/* 
+/*
 #[pyfunction]
 pub fn evaluate(query:String) -> PyResult<State> {
     //let cmr = &command_metadata_registry.0;

@@ -221,9 +221,7 @@ impl EnumParameterSpec {
         match self {
             EnumParameterSpec::Ref(_) => Ok(EnumTypeSpec::Any),
             EnumParameterSpec::Inline {
-                value_type,
-                values,
-                ..
+                value_type, values, ..
             } => {
                 if let Some(value_type) = value_type {
                     for value in values.iter().map(|x| &x.value) {
@@ -502,9 +500,7 @@ impl CommandParameter {
 
     pub fn parameter_name(&self) -> proc_macro2::TokenStream {
         match self {
-            CommandParameter::Param {
-                name, ..
-            } => {
+            CommandParameter::Param { name, .. } => {
                 let var_name = syn::Ident::new(&format!("{}__par", name), name.span());
                 quote! {#var_name}
             }
@@ -571,7 +567,10 @@ impl CommandParameter {
     pub fn argument_type_expression(&self) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
-                ty, enum_spec, name, ..
+                ty,
+                enum_spec,
+                name,
+                ..
             } => {
                 if let Some(enum_spec) = enum_spec {
                     let name_str = name.to_string();
@@ -668,7 +667,7 @@ impl CommandParameter {
         match self {
             CommandParameter::Param {
                 name,
-                ty:_ty,
+                ty: _ty,
                 injected,
                 default_value: _default_value,
                 label,
@@ -762,7 +761,7 @@ impl Parse for CommandSignatureStatement {
 
         input.parse::<syn::Token![:]>()?;
         match ident.to_string().as_str() {
-            "volatile" =>{
+            "volatile" => {
                 let lit: syn::LitBool = input.parse()?;
                 Ok(CommandSignatureStatement::Volatile(lit.value()))
             }
@@ -896,9 +895,7 @@ fn default_value_fits_enum(
     };
     match enum_spec {
         EnumParameterSpec::Ref(_) => Ok(()),
-        EnumParameterSpec::Inline {
-            others_allowed, ..
-        } => match default {
+        EnumParameterSpec::Inline { others_allowed, .. } => match default {
             DefaultValue::Str(value) => {
                 if enum_spec.has_alias(value) || *others_allowed {
                     Ok(())
@@ -1171,7 +1168,6 @@ impl CommandSignature {
             quote! { cm.next = #next; }
         };
 
-
         let registry_type = match self.wrapper_version {
             WrapperVersion::V2 => quote! {
                 liquers_core::commands::CommandRegistry<CommandEnvironment>
@@ -1179,14 +1175,12 @@ impl CommandSignature {
         };
         let volatile_code = if self.volatile {
             quote!(cm.volatile = true;)
-        }
-        else{
+        } else {
             quote!()
         };
         let is_async_code = if self.is_async {
             quote!(cm.with_async(true);)
-        }
-        else{
+        } else {
             quote!()
         };
         quote! {
@@ -1246,13 +1240,12 @@ impl CommandSignature {
     }
     /// Generates a TokenStream that creates a Vec of CommandPreset for all defined presets.
     pub fn next_expression(&self) -> proc_macro2::TokenStream {
-        let next: Vec<proc_macro2::TokenStream> =
-            self.next.iter().map(|p| quote! { #p }).collect();
+        let next: Vec<proc_macro2::TokenStream> = self.next.iter().map(|p| quote! { #p }).collect();
         quote! {
             vec![
                 #(#next),*
             ]
-        }   
+        }
     }
 }
 
@@ -1542,8 +1535,10 @@ impl Parse for CommandSignature {
         let state_parameter = StateParameter::parse(&content)?;
 
         let mut parameters = Vec::new();
-        while (parameters.is_empty() && state_parameter == StateParameter::None) || content.peek(syn::Token![,]) {
-            if (!parameters.is_empty()) || state_parameter != StateParameter::None{
+        while (parameters.is_empty() && state_parameter == StateParameter::None)
+            || content.peek(syn::Token![,])
+        {
+            if (!parameters.is_empty()) || state_parameter != StateParameter::None {
                 content.parse::<syn::Token![,]>()?;
             }
             if content.is_empty() {
@@ -1580,11 +1575,11 @@ impl Parse for CommandSignature {
                 }
                 CommandSignatureStatement::Next(command_preset) => {
                     next.push(command_preset.clone());
-                },
+                }
                 CommandSignatureStatement::Filename(f) => filename = f.clone(),
                 CommandSignatureStatement::Volatile(b) => {
                     volatile = *b;
-                },
+                }
             }
         }
 
@@ -1686,7 +1681,7 @@ pub fn register_command(input: TokenStream) -> TokenStream {
     let cr = sig.cr;
     let gen = quote! {
         {
-            use futures::FutureExt; 
+            use futures::FutureExt;
             #register_fn
             #register_fn_name(#cr)
         }
@@ -1829,7 +1824,7 @@ mod tests {
             }
         };
         */
-        let expected = quote!{
+        let expected = quote! {
             #[allow(non_snake_case)]
             fn test_fn__CMD_(
                 state : &liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
@@ -1842,7 +1837,7 @@ mod tests {
                 let c__par : f64 = arguments.get(2usize , "c")?;
                 let res = test_fn(state, a__par, b__par, c__par);
                 res
-            }            
+            }
         };
         assert_eq!(
             expanded.to_string().replace(" ", ""),
@@ -1951,7 +1946,6 @@ mod tests {
         let expected = quote! { liquers_core::command_metadata::ArgumentType::Any };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
-
 
     #[test]
     fn test_parse_preset_command_signature_statement() {
@@ -2124,9 +2118,8 @@ mod tests {
             "default : liquers_core :: command_metadata :: CommandParameterValue :: Query"
         ));
         assert!(info_string.contains("\"abc/def\""));
-        assert!(info_string.contains(
-            "argument_type : liquers_core :: command_metadata :: ArgumentType :: Any"
-        ));
+        assert!(info_string
+            .contains("argument_type : liquers_core :: command_metadata :: ArgumentType :: Any"));
     }
 
     fn fuzzy(s: &str) -> String {
@@ -2195,7 +2188,7 @@ mod tests {
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
     }
 
-     #[test]
+    #[test]
     fn test_command_registration_generates_async_function() {
         let mut sig: CommandSignature = syn::parse_quote! {
             async fn test_fn(state, a: i32) -> result
@@ -2270,7 +2263,7 @@ mod tests {
         assert!(fuzzy(&tokens.to_string()).contains("arguments.get(0usize,\"a\")?"));
         assert_eq!(fuzzy(&tokens.to_string()), fuzzy(expected));
     }
-   
+
     #[test]
     fn test_command_registration_with_doc() {
         let sig: CommandSignature = syn::parse_quote! {
@@ -2330,7 +2323,7 @@ mod tests {
         //println!("{}",tokens_str)
     }
 
-        #[test]
+    #[test]
     fn test_nostate_command_registration2() {
         let sig: CommandSignature = syn::parse_quote! {
             fn nostate(context) -> result
@@ -2339,11 +2332,9 @@ mod tests {
         let tokens = sig.command_registration();
 
         let tokens_str = tokens.to_string();
-        println!("{}",tokens_str)
-
+        println!("{}", tokens_str)
     }
 
-    
     #[test]
     fn test_config_command_registration() {
         let sig: CommandSignature = syn::parse_quote! {
@@ -2358,8 +2349,7 @@ mod tests {
         let tokens = sig.command_registration();
 
         let tokens_str = tokens.to_string();
-        println!("{}",tokens_str)
-
+        println!("{}", tokens_str)
     }
 
     #[test]
@@ -2393,10 +2383,14 @@ mod tests {
         let generated = tokens.to_string();
 
         // Verify that .with_async(true) is called for async commands
-        assert!(generated.contains("with_async"),
-                "Async command should call with_async()");
-        assert!(generated.contains("true"),
-                "Async command should set is_async to true");
+        assert!(
+            generated.contains("with_async"),
+            "Async command should call with_async()"
+        );
+        assert!(
+            generated.contains("true"),
+            "Async command should set is_async to true"
+        );
     }
 
     #[test]
@@ -2412,7 +2406,10 @@ mod tests {
         // (relying on the default false value)
         // OR they could explicitly call with_async(false) - either is acceptable
         // Just verify the code compiles and doesn't error
-        assert!(!sig.is_async, "Sync command should have is_async=false in signature");
+        assert!(
+            !sig.is_async,
+            "Sync command should have is_async=false in signature"
+        );
     }
 
     #[test]
@@ -2425,7 +2422,9 @@ mod tests {
         assert!(info.contains("alias : \"nearest\""));
         assert!(info.contains("EnumArgumentType :: String"));
         assert!(info.contains("others_allowed : false"));
-        assert!(info.contains("gui_info : liquers_core :: command_metadata :: ArgumentGUIInfo :: VerticalRadioEnum"));
+        assert!(info.contains(
+            "gui_info : liquers_core :: command_metadata :: ArgumentGUIInfo :: VerticalRadioEnum"
+        ));
     }
 
     #[test]

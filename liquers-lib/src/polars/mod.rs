@@ -1,16 +1,17 @@
 // Polars DataFrame command library
 // Implements commands for data manipulation using Polars DataFrames
 
-pub mod util;
+pub mod aggregation;
+pub mod filtering;
+pub mod info;
 pub mod io;
 pub mod selection;
-pub mod filtering;
+pub mod serde;
 pub mod sorting;
-pub mod aggregation;
-pub mod info;
+pub mod util;
 
-use liquers_core::error::Error;
 use crate::{environment::CommandRegistryAccess, value::Value};
+use liquers_core::error::Error;
 
 /// Register all polars commands via macro.
 ///
@@ -29,7 +30,9 @@ macro_rules! register_polars_commands {
 }
 
 /// Register all Polars commands in the "pl" namespace
-pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
+pub fn register_commands(
+    env: &mut crate::environment::DefaultEnvironment<Value>,
+) -> Result<(), Error> {
     // I/O commands
     io::register_commands(env)?;
 

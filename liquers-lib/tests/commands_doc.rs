@@ -51,7 +51,10 @@ async fn test_commands_doc_output() -> Result<(), Box<dyn std::error::Error>> {
     assert!(md.contains("### `greet`"), "missing greet");
 
     // greet should have an argument table with Label, Argument, Multiplicity, Type, Default
-    assert!(md.contains("| greeting | `greeting` | single | String | \"Hello\" |"), "missing greet argument row");
+    assert!(
+        md.contains("| greeting | `greeting` | single | String | \"Hello\" |"),
+        "missing greet argument row"
+    );
 
     // commands_doc label and doc
     assert!(

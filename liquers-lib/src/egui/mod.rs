@@ -3,11 +3,17 @@ use std::sync::Arc;
 use egui::RichText;
 use liquers_core::error::Error;
 
-use crate::{egui::widgets::{display_asset_info, display_asset_info_table, display_error, display_recipe, display_styled_query}, value::{ExtValue, Value, simple::SimpleValue}};
+use crate::{
+    egui::widgets::{
+        display_asset_info, display_asset_info_table, display_error, display_recipe,
+        display_styled_query,
+    },
+    value::{simple::SimpleValue, ExtValue, Value},
+};
 
-pub mod widgets;
 pub mod commands;
 pub mod dataframe;
+pub mod widgets;
 
 type UiClosure = Box<dyn FnMut(&mut egui::Ui) -> Result<(), Error> + Send>;
 #[derive(Clone)]
@@ -40,8 +46,7 @@ impl std::fmt::Debug for UiCommand {
     }
 }
 
-
-pub trait UIValueExtension{
+pub trait UIValueExtension {
     fn show(&self, ui: &mut egui::Ui);
     fn from_ui<F>(f: F) -> Self
     where
@@ -73,7 +78,7 @@ impl UIValueExtension for Value {
             }
             Self::Extended(ExtValue::Image { value }) => {
                 crate::egui::widgets::display_image(ui, value);
-            },
+            }
             Self::Extended(ExtValue::PolarsDataFrame { value }) => {
                 let mut sort_state: Option<(usize, bool)> = None;
                 crate::egui::dataframe::display_polars_dataframe(ui, &value, &mut sort_state);
@@ -122,16 +127,16 @@ impl UIValueExtension for Value {
             }
             Self::Base(SimpleValue::Recipe { value }) => {
                 display_recipe(ui, value);
-            },
+            }
             Self::Base(SimpleValue::CommandMetadata { value }) => todo!(),
             Self::Base(SimpleValue::Query { value }) => {
                 ui.label("Query:");
                 display_styled_query(ui, value.clone());
-            },
+            }
             Self::Base(SimpleValue::Key { value }) => {
                 ui.label("Key:");
                 display_styled_query(ui, value.clone());
-            },
+            }
         }
     }
 }

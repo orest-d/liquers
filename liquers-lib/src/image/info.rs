@@ -1,7 +1,7 @@
+use super::util::try_to_image;
+use crate::value::{ExtValueInterface, Value};
 use image::GenericImageView;
 use liquers_core::{error::Error, state::State};
-use crate::value::{ExtValueInterface, Value};
-use super::util::try_to_image;
 use std::sync::Arc;
 
 /// Get image dimensions as "WIDTHxHEIGHT" string.
@@ -50,9 +50,9 @@ pub fn colortype(state: &State<Value>) -> Result<Value, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::DynamicImage;
     use liquers_core::{state::State, value::ValueInterface};
     use std::sync::Arc;
-    use image::DynamicImage;
 
     fn create_test_image(width: u32, height: u32) -> DynamicImage {
         let img = image::RgbaImage::from_pixel(width, height, image::Rgba([255, 0, 0, 255]));

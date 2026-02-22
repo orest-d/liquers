@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A version is a 128-bit integer that is used to identify the version of an asset.
 pub struct Version(u128);
@@ -6,10 +5,9 @@ pub struct Version(u128);
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 
-
 use crate::error::Error;
-use crate::query::{Key, Query};
 use crate::metadata::Status;
+use crate::query::{Key, Query};
 
 impl Version {
     pub fn new(version: u128) -> Self {
@@ -22,10 +20,10 @@ impl Version {
         let hash_obj = blake3::hash(bytes);
         let hash = hash_obj.as_bytes();
         let version = u128::from_be_bytes([
-            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
-            hash[8], hash[9], hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
+            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7], hash[8],
+            hash[9], hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
         ]);
-        
+
         Version(version)
     }
 
@@ -36,7 +34,6 @@ impl Version {
         Version(duration.as_nanos())
     }
 }
-
 
 pub trait Dependency: Display + Clone + PartialEq + Eq + std::hash::Hash + Debug {
     /// Only base dependencies should be used for tracking.
@@ -67,14 +64,13 @@ impl StringDependency {
         StringDependency(name.to_string())
     }
 
-    pub fn from_query(query:&Query) -> Self {
-        StringDependency(format!("query:{}",query.encode()))
+    pub fn from_query(query: &Query) -> Self {
+        StringDependency(format!("query:{}", query.encode()))
     }
 
-    pub fn from_key(key:&Key) -> Self {
-        StringDependency(format!("key:{}",key.encode()))
+    pub fn from_key(key: &Key) -> Self {
+        StringDependency(format!("key:{}", key.encode()))
     }
-
 }
 
 impl Dependency for StringDependency {
@@ -93,7 +89,7 @@ pub struct DependencyRecord<V: Clone + PartialEq + Eq + Debug, D: Dependency> {
     /// The status of the dependency.
     pub status: Status,
     /// User or system specified comment - explains the purpose or source of the dependency
-    pub comment:String
+    pub comment: String,
 }
 
 impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyRecord<V, D> {
@@ -102,10 +98,10 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyRecord<V, D> {
             dependency,
             version,
             status,
-            comment:"".to_string()
+            comment: "".to_string(),
         }
     }
-    pub fn with_comment(&mut self, comment:String)->&mut Self{
+    pub fn with_comment(&mut self, comment: String) -> &mut Self {
         self.comment = comment;
         self
     }
@@ -115,18 +111,23 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyRecord<V, D> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DependencyList<V: Clone + PartialEq + Eq + Debug, D: Dependency> {
     pub dependant: D,
-    pub version:V,
-    pub status:Status,
-    pub dependencies:Vec<DependencyRecord<V,D>>,
+    pub version: V,
+    pub status: Status,
+    pub dependencies: Vec<DependencyRecord<V, D>>,
 }
 
 impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyList<V, D> {
-    pub fn new(dependant: D, version:V, status:Status, dependencies:Vec<DependencyRecord<V, D>>) -> Self {
+    pub fn new(
+        dependant: D,
+        version: V,
+        status: Status,
+        dependencies: Vec<DependencyRecord<V, D>>,
+    ) -> Self {
         DependencyList {
             dependant,
             version,
             status,
-            dependencies
+            dependencies,
         }
     }
 }
@@ -136,11 +137,10 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyList<V, D> {
 /// It supports following operations:
 /// - set (and get) a version and status of a dependency
 /// - specify all dependencies of an asset
-/// 
+///
 /// Changing the version or status of a dependency will trigger changes of status of dependents.
 /// Result of such a change is thus a list of impacted dependents.
 pub trait DependencyManager {
-
     type ManagedVersion: Clone + PartialEq + Eq;
     type ManagedDependency: Dependency;
 
@@ -150,7 +150,7 @@ pub trait DependencyManager {
 }
 
 pub struct DependencyManagerImpl<V: Clone + PartialEq + Eq + Debug, D: Dependency> {
-    status: std::collections::HashMap<D, (Status,V)>,
+    status: std::collections::HashMap<D, (Status, V)>,
     dependencies: std::collections::HashMap<D, Vec<DependencyRecord<V, D>>>,
     dependents: std::collections::HashMap<D, HashSet<D>>,
 }
@@ -172,12 +172,12 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
 
     /// Find a set of all dependencies of a dependency.
     /// This is a recursive function that will find all dependencies of a dependency.
-    /// 
+    ///
     /// ```
     /// use std::collections::HashSet;
     /// use liquers_core::dependencies::{DependencyManagerImpl, StringDependency};
     /// use liquers_core::metadata::Status;
-    /// 
+    ///
     /// let mut dm = DependencyManagerImpl::<i32, StringDependency>::new();
     /// let x = StringDependency::new("x");
     /// let y = StringDependency::new("y");
@@ -186,7 +186,7 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
     /// dm.add_new(&y, 2, Status::Ready, &mut HashSet::new()).unwrap();
     /// dm.add_new(&z, 3, Status::Ready, &mut HashSet::new()).unwrap();
     /// assert_eq!(dm.all_dependents(&y).len(), 0);
-    /// 
+    ///
     /// dm.add_raw_dependency(&x, &y, &mut HashSet::new()).unwrap();
     /// assert_eq!(dm.all_dependents(&y).len(), 1);
     ///
@@ -195,7 +195,7 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
     /// assert_eq!(dm.all_dependents(&z).contains(&y), true);
     /// assert_eq!(dm.all_dependents(&z).contains(&x), true);
     /// ```
-    pub fn all_dependents(&self, something:&D) -> HashSet<D> {
+    pub fn all_dependents(&self, something: &D) -> HashSet<D> {
         let mut result = HashSet::new();
         if let Some(dependents) = self.dependents.get(something) {
             for dependent in dependents {
@@ -206,23 +206,21 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
         result
     }
 
-    pub fn is_base_dependency(&self, dependency:&D) -> bool {
+    pub fn is_base_dependency(&self, dependency: &D) -> bool {
         dependency.is_base_dependency()
     }
 
-    pub fn base_dependencies(&self, dependency:&D) -> HashSet<D> {
+    pub fn base_dependencies(&self, dependency: &D) -> HashSet<D> {
         let mut result = HashSet::new();
         if self.is_base_dependency(dependency) {
             result.insert(dependency.clone());
             return result;
         }
         if let Some(d) = self.dependencies.get(dependency) {
-            for record in d 
-            {
+            for record in d {
                 if record.dependency.is_base_dependency() {
                     result.insert(record.dependency.clone());
-                }
-                else{
+                } else {
                     result.extend(self.base_dependencies(&record.dependency));
                 }
             }
@@ -233,7 +231,7 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
     /// Check is a dependent depends on a dependency.
     /// This is a recursive function that will check if a dependent depends on a dependency.
     /// This is used to prevent creation of circular dependencies.
-    pub fn depends(&self, dependent:&D, dependency:&D) -> bool {
+    pub fn depends(&self, dependent: &D, dependency: &D) -> bool {
         if let Some(dependents) = self.dependents.get(dependency) {
             if dependents.contains(dependent) {
                 return true;
@@ -250,20 +248,18 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
     /// Expire a dependency.
     /// This will remove the dependency and its dependent and mark them as expired.
     /// Impacted dependencies are added to a set of impacted dependencies.
-    pub fn expire(&mut self, dependency:&D, impacted: &mut HashSet<D>) -> Result<(), Error> {
+    pub fn expire(&mut self, dependency: &D, impacted: &mut HashSet<D>) -> Result<(), Error> {
         if let Some(status) = self.status.get_mut(dependency) {
-            if status.0.can_have_tracked_dependencies(){
+            if status.0.can_have_tracked_dependencies() {
                 status.0 = Status::Expired;
             }
         }
-        for d in self.all_dependents(dependency){
-            self.status.entry(d.clone()).and_modify(
-                |x|{
-                    if x.0.has_data(){
-                        x.0 = Status::Expired;
-                    }
+        for d in self.all_dependents(dependency) {
+            self.status.entry(d.clone()).and_modify(|x| {
+                if x.0.has_data() {
+                    x.0 = Status::Expired;
                 }
-            );
+            });
             self.dependents.remove(&d);
             impacted.insert(d);
         }
@@ -272,7 +268,13 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
         Ok(())
     }
 
-    pub fn add_new(&mut self, something:&D, version: V, status: Status, impacted: &mut HashSet<D>) -> Result<(), Error> {
+    pub fn add_new(
+        &mut self,
+        something: &D,
+        version: V,
+        status: Status,
+        impacted: &mut HashSet<D>,
+    ) -> Result<(), Error> {
         self.expire(something, impacted)?;
         if self.status.get(something).is_none() {
             self.status.insert(something.clone(), (status, version));
@@ -282,31 +284,46 @@ impl<V: Clone + PartialEq + Eq + Debug, D: Dependency> DependencyManagerImpl<V, 
     /// Create a link between "something" and its dependency.
     /// The dependency must have a known status and version.
     /// The dependency should be a base dependency.
-    pub fn add_raw_dependency(&mut self, something:&D, dependency:&D, impacted: &mut HashSet<D>) -> Result<(), Error> {
+    pub fn add_raw_dependency(
+        &mut self,
+        something: &D,
+        dependency: &D,
+        impacted: &mut HashSet<D>,
+    ) -> Result<(), Error> {
         if self.dependencies.get(something).is_none() {
             self.dependencies.insert(something.clone(), vec![]);
-        }        
+        }
         if self.dependents.get(dependency).is_none() {
             self.dependents.insert(dependency.clone(), HashSet::new());
         }
-        self.dependents.get_mut(dependency).unwrap().insert(something.clone());
-        if self.dependencies.get_mut(something).unwrap().iter().all(|record| record.dependency != *dependency) {
-            if let Some((status, version)) = self.status.get(dependency){
+        self.dependents
+            .get_mut(dependency)
+            .unwrap()
+            .insert(something.clone());
+        if self
+            .dependencies
+            .get_mut(something)
+            .unwrap()
+            .iter()
+            .all(|record| record.dependency != *dependency)
+        {
+            if let Some((status, version)) = self.status.get(dependency) {
                 let record = DependencyRecord::new(dependency.clone(), version.clone(), *status);
                 self.dependencies.get_mut(something).unwrap().push(record);
                 impacted.insert(something.clone());
                 if !status.has_data() {
                     self.expire(something, impacted)?;
-                }                
-            }
-            else{
-                return Err(Error::general_error(format!("Dependency {dependency} not found")));
+                }
+            } else {
+                return Err(Error::general_error(format!(
+                    "Dependency {dependency} not found"
+                )));
             }
         }
         Ok(())
     }
 
-    pub fn print(&self){
+    pub fn print(&self) {
         println!("Status:");
         for (key, value) in &self.status {
             println!("  {}: {:?}", key, value);
@@ -334,9 +351,12 @@ mod tests {
         let x = StringDependency::new("x");
         let y = StringDependency::new("y");
         let z = StringDependency::new("z");
-        dm.add_new(&x, 1, Status::Ready, &mut HashSet::new()).unwrap();
-        dm.add_new(&y, 2, Status::Ready, &mut HashSet::new()).unwrap();
-        dm.add_new(&z, 3, Status::Ready, &mut HashSet::new()).unwrap();
+        dm.add_new(&x, 1, Status::Ready, &mut HashSet::new())
+            .unwrap();
+        dm.add_new(&y, 2, Status::Ready, &mut HashSet::new())
+            .unwrap();
+        dm.add_new(&z, 3, Status::Ready, &mut HashSet::new())
+            .unwrap();
         assert_eq!(dm.all_dependents(&x).len(), 0);
         dm.add_raw_dependency(&x, &y, &mut HashSet::new()).unwrap();
         //dm.print();
@@ -354,16 +374,18 @@ mod tests {
         let x = StringDependency::new("x");
         let y = StringDependency::new("y");
         let z = StringDependency::new("z");
-        dm.add_new(&x, 1, Status::Ready, &mut HashSet::new()).unwrap();
-        dm.add_new(&y, 2, Status::Ready, &mut HashSet::new()).unwrap();
-        dm.add_new(&z, 3, Status::Ready, &mut HashSet::new()).unwrap();
+        dm.add_new(&x, 1, Status::Ready, &mut HashSet::new())
+            .unwrap();
+        dm.add_new(&y, 2, Status::Ready, &mut HashSet::new())
+            .unwrap();
+        dm.add_new(&z, 3, Status::Ready, &mut HashSet::new())
+            .unwrap();
         assert_eq!(dm.all_dependents(&x).len(), 0);
         dm.add_raw_dependency(&x, &y, &mut HashSet::new()).unwrap();
         dm.add_raw_dependency(&y, &z, &mut HashSet::new()).unwrap();
-        
+
         let mut impacted = HashSet::new();
         dm.expire(&z, &mut impacted).unwrap();
         assert_eq!(impacted.len(), 3);
-        
     }
 }

@@ -10,7 +10,9 @@ use crate::{
     error::Error,
     metadata::{LogEntry, Metadata},
     parse::{SimpleTemplate, SimpleTemplateElement},
-    plan::{has_volatile_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step},
+    plan::{
+        has_volatile_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step,
+    },
     query::{Key, Query, TryToQuery},
     recipes::Recipe,
     state::State,
@@ -832,7 +834,6 @@ mod tests {
         } else {
             panic!("Expected AssetInfo value");
         }
-
     }
 
     #[cfg(feature = "async_store")]
@@ -847,14 +848,16 @@ mod tests {
         // Create a MemoryStore and populate it with recipes.yaml
         let memory_store = MemoryStore::new(&Key::new());
 
-
         // Wrap the MemoryStore with AsyncStoreWrapper
         let async_store = AsyncStoreWrapper(memory_store);
-        async_store.set(
-            &parse_key("file1.txt").unwrap(),
-            "File 1 contents".as_bytes(),
-            &Metadata::new(),
-        ).await.unwrap();
+        async_store
+            .set(
+                &parse_key("file1.txt").unwrap(),
+                "File 1 contents".as_bytes(),
+                &Metadata::new(),
+            )
+            .await
+            .unwrap();
 
         // Create a SimpleEnvironment and set the async store
         let mut env = SimpleEnvironment::<Value>::new();
@@ -880,5 +883,4 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
-
 }

@@ -11,11 +11,13 @@ use liquers_core::error::Error;
 use liquers_core::state::State;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
-use liquers_lib::ui::{
-    app_message_channel, AppRunner, AppState, DirectAppState, ElementSource, UIContext,
-    UIElement, render_element, try_sync_lock,
+use liquers_lib::ui::widgets::ui_spec_element::{
+    LayoutSpec, MenuAction, MenuBarSpec, MenuItem, TopLevelItem, UISpec, UISpecElement,
 };
-use liquers_lib::ui::widgets::ui_spec_element::{LayoutSpec, MenuAction, MenuBarSpec, MenuItem, TopLevelItem, UISpec, UISpecElement};
+use liquers_lib::ui::{
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    ElementSource, UIContext, UIElement,
+};
 use liquers_lib::value::Value;
 use liquers_macro::register_command;
 
@@ -41,84 +43,85 @@ impl InteractiveSpecApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-        let (ui_context, app_runner) = runtime.block_on(async {
-            // 1. Setup environment and register commands
-            let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
-            env.with_trivial_recipe_provider();
+        let (ui_context, app_runner) = runtime
+            .block_on(async {
+                // 1. Setup environment and register commands
+                let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
+                env.with_trivial_recipe_provider();
 
-            let envref = {
-                let cr = env.get_mut_command_registry();
-                register_command!(cr, fn hello(state) -> result)?;
-                liquers_lib::register_lui_commands!(cr)?;
-                env.to_ref()
-            };
+                let envref = {
+                    let cr = env.get_mut_command_registry();
+                    register_command!(cr, fn hello(state) -> result)?;
+                    liquers_lib::register_lui_commands!(cr)?;
+                    env.to_ref()
+                };
 
-            // 2. Create AppState
-            let mut app_state = DirectAppState::new();
+                // 2. Create AppState
+                let mut app_state = DirectAppState::new();
 
-            // 3. Create UISpec with menu
-            let spec = UISpec {
-                init: vec![],
-                menu: Some(MenuBarSpec {
-                    items: vec![
-                        TopLevelItem::Menu {
-                            label: "Actions".to_string(),
-                            shortcut: None,
-                            items: vec![
-                                MenuItem::Button {
-                                    label: "Add Hello".to_string(),
-                                    icon: None,
-                                    shortcut: Some("Ctrl+H".to_string()),
-                                    action: MenuAction::Query(
-                                        "hello/q/ns-lui/add-child".to_string(),
-                                    ),
-                                },
-                                MenuItem::Separator,
-                                MenuItem::Button {
-                                    label: "Clear All".to_string(),
-                                    icon: None,
-                                    shortcut: Some("Ctrl+C".to_string()),
-                                    action: MenuAction::Query(
-                                        "ns-lui/children-current".to_string(),
-                                    ),
-                                },
-                            ],
-                        },
-                        TopLevelItem::Button {
-                            label: "Quick Add".to_string(),
-                            icon: None,
-                            shortcut: None,
-                            action: MenuAction::Query(
-                                "hello/q/ns-lui/add-child".to_string(),
-                            ),
-                        },
-                    ],
-                }),
-                layout: LayoutSpec::Vertical,
-            };
+                // 3. Create UISpec with menu
+                let spec = UISpec {
+                    init: vec![],
+                    menu: Some(MenuBarSpec {
+                        items: vec![
+                            TopLevelItem::Menu {
+                                label: "Actions".to_string(),
+                                shortcut: None,
+                                items: vec![
+                                    MenuItem::Button {
+                                        label: "Add Hello".to_string(),
+                                        icon: None,
+                                        shortcut: Some("Ctrl+H".to_string()),
+                                        action: MenuAction::Query(
+                                            "hello/q/ns-lui/add-child".to_string(),
+                                        ),
+                                    },
+                                    MenuItem::Separator,
+                                    MenuItem::Button {
+                                        label: "Clear All".to_string(),
+                                        icon: None,
+                                        shortcut: Some("Ctrl+C".to_string()),
+                                        action: MenuAction::Query(
+                                            "ns-lui/children-current".to_string(),
+                                        ),
+                                    },
+                                ],
+                            },
+                            TopLevelItem::Button {
+                                label: "Quick Add".to_string(),
+                                icon: None,
+                                shortcut: None,
+                                action: MenuAction::Query("hello/q/ns-lui/add-child".to_string()),
+                            },
+                        ],
+                    }),
+                    layout: LayoutSpec::Vertical,
+                };
 
-            let mut ui_spec_element = UISpecElement::from_spec("Interactive Demo".to_string(), spec);
+                let mut ui_spec_element =
+                    UISpecElement::from_spec("Interactive Demo".to_string(), spec);
 
-            // 4. Add root element
-            let root_handle = app_state
-                .add_node(None, 0, ElementSource::None)
-                .expect("Failed to add root node");
+                // 4. Add root element
+                let root_handle = app_state
+                    .add_node(None, 0, ElementSource::None)
+                    .expect("Failed to add root node");
 
-            ui_spec_element.set_handle(root_handle);
-            app_state
-                .set_element(root_handle, Box::new(ui_spec_element))
-                .expect("Failed to set root element");
+                ui_spec_element.set_handle(root_handle);
+                app_state
+                    .set_element(root_handle, Box::new(ui_spec_element))
+                    .expect("Failed to set root element");
 
-            // 5. Create UIContext and AppRunner
-            let app_state_arc: Arc<tokio::sync::Mutex<dyn AppState>> =
-                Arc::new(tokio::sync::Mutex::new(app_state));
-            let (msg_tx, msg_rx) = app_message_channel();
-            let ui_context = UIContext::new(app_state_arc.clone(), msg_tx.clone());
+                // 5. Create UIContext and AppRunner
+                let app_state_arc: Arc<tokio::sync::Mutex<dyn AppState>> =
+                    Arc::new(tokio::sync::Mutex::new(app_state));
+                let (msg_tx, msg_rx) = app_message_channel();
+                let ui_context = UIContext::new(app_state_arc.clone(), msg_tx.clone());
 
-            let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
+                let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
 
-            Ok::<_, Error>((ui_context, app_runner))
-        }).expect("Failed to setup app");
+                Ok::<_, Error>((ui_context, app_runner))
+            })
+            .expect("Failed to setup app");
 
         Self {
             ui_context,
@@ -133,9 +136,9 @@ impl eframe::App for InteractiveSpecApp {
         let app_state = self.ui_context.app_state();
 
         // Always run AppRunner to drain messages and poll evaluations
-        let _ = self._runtime.block_on(async {
-            self.app_runner.run(&app_state).await
-        });
+        let _ = self
+            ._runtime
+            .block_on(async { self.app_runner.run(&app_state).await });
 
         // Keep repainting while there are in-flight evaluations
         if self.app_runner.has_evaluating() {

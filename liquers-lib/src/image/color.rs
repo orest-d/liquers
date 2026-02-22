@@ -1,6 +1,6 @@
-use liquers_core::{error::Error, state::State};
-use crate::value::{ExtValueInterface, Value};
 use super::util::try_to_image;
+use crate::value::{ExtValueInterface, Value};
+use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
 
 /// Convert image to grayscale.
@@ -76,7 +76,9 @@ pub fn gamma(state: &State<Value>, gamma_value: f32) -> Result<Value, Error> {
         result.put_pixel(x, y, Rgba([r, g, b, a]));
     }
 
-    Ok(Value::from_image(Arc::new(image::DynamicImage::ImageRgba8(result))))
+    Ok(Value::from_image(Arc::new(
+        image::DynamicImage::ImageRgba8(result),
+    )))
 }
 
 /// Adjust color saturation.
@@ -149,7 +151,9 @@ pub fn saturate(state: &State<Value>, factor: f32) -> Result<Value, Error> {
         result.put_pixel(x, y, Rgba([r_final, g_final, b_final, a]));
     }
 
-    Ok(Value::from_image(Arc::new(image::DynamicImage::ImageRgba8(result))))
+    Ok(Value::from_image(Arc::new(
+        image::DynamicImage::ImageRgba8(result),
+    )))
 }
 
 #[cfg(test)]

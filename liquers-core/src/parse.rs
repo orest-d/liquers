@@ -124,7 +124,8 @@ fn entities(text: Span) -> IResult<Span, String> {
         https_entity,
         file_entity,
         protocol_entity,
-    )).parse(text)
+    ))
+    .parse(text)
 }
 fn parameter(text: Span) -> IResult<Span, ActionParameter> {
     let position: Position = text.into();
@@ -171,8 +172,7 @@ fn header_parameter(text: Span) -> IResult<Span, HeaderParameter> {
 fn full_transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     let position: Position = text.into();
     let (text, level_lead) = many1(tag("-")).parse(text)?;
-    let (text, lead_name) =
-        take_while1(|c: char| (c as u8).is_alpha() && c.is_lowercase())(text)?;
+    let (text, lead_name) = take_while1(|c: char| (c as u8).is_alpha() && c.is_lowercase())(text)?;
     let (text, rest_name) = take_while(|c| (c as u8).is_alphanum() || c == '_')(text)?;
     let (text, parameters) = many0(header_parameter).parse(text)?;
     let (text, _) = tag("/")(text)?;
@@ -210,7 +210,8 @@ fn transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     alt((
         short_transform_segment_header,
         full_transform_segment_header,
-    )).parse(text)
+    ))
+    .parse(text)
 }
 
 fn resource_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
@@ -316,7 +317,8 @@ fn transform_qs0(text: Span) -> IResult<Span, QuerySegment> {
     let (text, tqs) = alt((
         transform_segment_without_header,
         transform_segment_with_header,
-    )).parse(text)?;
+    ))
+    .parse(text)?;
     Ok((text, QuerySegment::Transform(tqs)))
 }
 fn transform_qs1(text: Span) -> IResult<Span, QuerySegment> {
@@ -412,7 +414,8 @@ fn simple_transform_query(text: Span) -> IResult<Span, Query> {
     let (text, tqs) = alt((
         transform_segment_without_header,
         //transform_segment_without_header_and_filename,
-    )).parse(text)?;
+    ))
+    .parse(text)?;
     //    println!("simple_transform_query SUCCESS");
     Ok((
         text,
@@ -484,7 +487,8 @@ fn query_parser(text: Span) -> IResult<Span, Query> {
         terminated(simple_transform_query, eof),
         general_query,
         empty_query,
-    )).parse(text)
+    ))
+    .parse(text)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -511,7 +515,7 @@ impl SimpleTemplate {
             .iter()
             .map(|e| match e {
                 SimpleTemplateElement::Text(t) => t.clone(),
-                SimpleTemplateElement::ExpandQuery(q) => format!("${}$",q.encode()),
+                SimpleTemplateElement::ExpandQuery(q) => format!("${}$", q.encode()),
             })
             .collect()
     }
@@ -542,7 +546,8 @@ fn simple_template(text: Span) -> IResult<Span, SimpleTemplate> {
         template_escape_expand,
         template_expand_query,
         tempate_text,
-    ))).parse(text)?;
+    )))
+    .parse(text)?;
     Ok((text, SimpleTemplate(elements)))
 }
 
@@ -595,14 +600,16 @@ pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
 }
 
 pub fn parse_simple_template<S: AsRef<str>>(template_text: S) -> Result<SimpleTemplate, Error> {
-    let (remainder, template) = simple_template(Span::new(template_text.as_ref())).map_err(|e| {
-        let em = format!("{}", e);
-        Error::general_error(format!("Error parsing template: {}", em))
-    })?;
+    let (remainder, template) =
+        simple_template(Span::new(template_text.as_ref())).map_err(|e| {
+            let em = format!("{}", e);
+            Error::general_error(format!("Error parsing template: {}", em))
+        })?;
     if !remainder.fragment().is_empty() {
         let position: Position = remainder.into();
-        Err(Error::general_error(
-            "Can't parse template completely".to_owned()).with_position(&position)
+        Err(
+            Error::general_error("Can't parse template completely".to_owned())
+                .with_position(&position),
         )
     } else {
         Ok(template)

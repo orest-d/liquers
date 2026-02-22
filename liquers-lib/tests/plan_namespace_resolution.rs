@@ -109,9 +109,10 @@ fn test_plan_multi_segment_ns_lui_query_console() {
     }
 
     // Verify the plan has a UseQueryValue step for the predecessor
-    let has_use_query_value = plan.steps.iter().any(|step| {
-        matches!(step, Step::UseQueryValue(_))
-    });
+    let has_use_query_value = plan
+        .steps
+        .iter()
+        .any(|step| matches!(step, Step::UseQueryValue(_)));
     assert!(
         has_use_query_value,
         "Plan should contain a UseQueryValue step for the /q/ predecessor"

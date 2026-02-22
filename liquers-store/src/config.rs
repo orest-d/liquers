@@ -163,11 +163,9 @@ impl StoreConfig {
 
     /// Get a config value as a string.
     pub fn get_config_string(&self, key: &str) -> Option<String> {
-        self.config.get(key).and_then(|v| {
-            match v {
-                serde_json::Value::String(s) => Some(s.clone()),
-                _ => v.as_str().map(|s| s.to_string()),
-            }
+        self.config.get(key).and_then(|v| match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            _ => v.as_str().map(|s| s.to_string()),
         })
     }
 
@@ -216,9 +214,7 @@ impl StoreConfig {
         let mut expanded_config = HashMap::new();
         for (key, value) in &self.config {
             let expanded_value = match value {
-                serde_json::Value::String(s) => {
-                    serde_json::Value::String(expand_env_vars(s)?)
-                }
+                serde_json::Value::String(s) => serde_json::Value::String(expand_env_vars(s)?),
                 other => other.clone(),
             };
             expanded_config.insert(key.clone(), expanded_value);
@@ -339,7 +335,10 @@ mod tests {
 
     #[test]
     fn test_expand_env_vars_no_vars() {
-        assert_eq!(expand_env_vars("no variables here").unwrap(), "no variables here");
+        assert_eq!(
+            expand_env_vars("no variables here").unwrap(),
+            "no variables here"
+        );
     }
 
     #[test]
@@ -400,8 +399,14 @@ stores:
 
         assert_eq!(config.store_type, "s3");
         assert_eq!(config.prefix, "remote");
-        assert_eq!(config.get_config_string("bucket"), Some("my-bucket".to_string()));
-        assert_eq!(config.get_config_string("region"), Some("us-east-1".to_string()));
+        assert_eq!(
+            config.get_config_string("bucket"),
+            Some("my-bucket".to_string())
+        );
+        assert_eq!(
+            config.get_config_string("region"),
+            Some("us-east-1".to_string())
+        );
     }
 
     #[test]

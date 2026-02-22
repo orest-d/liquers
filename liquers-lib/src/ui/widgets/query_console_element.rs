@@ -178,11 +178,10 @@ impl QueryConsoleElement {
 
             // Query text field with syntax highlighting (expanding)
             let qt = self.query_text.clone();
-            let mut layouter =
-                |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                    let layout_job = crate::egui::widgets::query_to_layout_job(&qt);
-                    ui.fonts_mut(|f| f.layout_job(layout_job))
-                };
+            let mut layouter = |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
+                let layout_job = crate::egui::widgets::query_to_layout_job(&qt);
+                ui.fonts_mut(|f| f.layout_job(layout_job))
+            };
             let response = ui.add(
                 egui::TextEdit::singleline(&mut self.query_text)
                     .desired_width(ui.available_width() - 200.0)
@@ -236,12 +235,7 @@ impl QueryConsoleElement {
     }
 
     /// Render the content area: either data view or metadata pane.
-    fn show_content(
-        &mut self,
-        ui: &mut egui::Ui,
-        ctx: &UIContext,
-        app_state: &mut dyn AppState,
-    ) {
+    fn show_content(&mut self, ui: &mut egui::Ui, ctx: &UIContext, app_state: &mut dyn AppState) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.data_view && self.value.is_some() {
                 // If value is a UIElement, render it with show_in_egui

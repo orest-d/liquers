@@ -40,7 +40,11 @@
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
 //!
 
-use std::{collections::BTreeSet, sync::Arc, sync::atomic::{AtomicUsize, Ordering}};
+use std::{
+    collections::BTreeSet,
+    sync::atomic::{AtomicUsize, Ordering},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use futures::lock;
@@ -433,10 +437,17 @@ impl<E: Environment> AssetData<E> {
                             eprintln!("Asset {} loaded successfully", self.id());
                             return Ok(true);
                         }
-                        Status::None | Status::Directory | Status::Recipe |
-                        Status::Submitted | Status::Dependencies | Status::Processing |
-                        Status::Partial | Status::Error | Status::Storing |
-                        Status::Expired | Status::Cancelled => {
+                        Status::None
+                        | Status::Directory
+                        | Status::Recipe
+                        | Status::Submitted
+                        | Status::Dependencies
+                        | Status::Processing
+                        | Status::Partial
+                        | Status::Error
+                        | Status::Storing
+                        | Status::Expired
+                        | Status::Cancelled => {
                             self.notification_tx
                                 .send(AssetNotificationMessage::StatusChanged(self.status))
                                 .map_err(|e| {
@@ -516,7 +527,11 @@ impl<E: Environment> AssetData<E> {
                 })
             }
             Status::Storing => None,
-            Status::Ready | Status::Expired | Status::Source | Status::Override | Status::Volatile => {
+            Status::Ready
+            | Status::Expired
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
                     metadata.with_type_identifier(data.identifier().to_string());
@@ -1177,10 +1192,10 @@ impl<E: Environment> AssetRef<E> {
         };
         */
         let context = Context::new(self.clone(), recipe.volatile).await; // TODO: reference to asset
-                                                        // TODO: Separate evaluation of dependencies
-                                                        //let res = apply_plan(plan, envref, context, input_state).await?;
-                                                        //let res = apply_plan_new(
-                                                        //    plan, input_state, context, envref).await?;
+                                                                         // TODO: Separate evaluation of dependencies
+                                                                         //let res = apply_plan(plan, envref, context, input_state).await?;
+                                                                         //let res = apply_plan_new(
+                                                                         //    plan, input_state, context, envref).await?;
         println!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
         println!("Recipe evaluated, result: {:?}", &res);
@@ -1398,9 +1413,17 @@ impl<E: Environment> AssetRef<E> {
             Status::Submitted | Status::Dependencies | Status::Processing | Status::Partial => {
                 // Asset is being evaluated, proceed with cancellation
             }
-            Status::None | Status::Directory | Status::Recipe |
-            Status::Error | Status::Storing | Status::Ready |
-            Status::Expired | Status::Cancelled | Status::Source | Status::Override | Status::Volatile => {
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
                 // Already finished or not started, nothing to cancel
                 return Ok(());
             }
@@ -1471,9 +1494,13 @@ impl<E: Environment> AssetRef<E> {
             }
 
             // In-progress or failed states: cancel, set to none value, mark Override
-            Status::None | Status::Recipe | Status::Submitted |
-            Status::Dependencies | Status::Processing |
-            Status::Error | Status::Cancelled => {
+            Status::None
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Error
+            | Status::Cancelled => {
                 // Use existing cancel() method for in-flight evaluations
                 // Drop the write lock before calling cancel() to avoid deadlock
                 drop(data);
@@ -1493,8 +1520,11 @@ impl<E: Environment> AssetRef<E> {
             }
 
             // States with data: keep value, mark Override
-            Status::Partial | Status::Storing | Status::Expired |
-            Status::Volatile | Status::Ready => {
+            Status::Partial
+            | Status::Storing
+            | Status::Expired
+            | Status::Volatile
+            | Status::Ready => {
                 data.status = Status::Override;
                 if let Metadata::MetadataRecord(ref mut mr) = data.metadata {
                     mr.status = Status::Override;
@@ -1620,8 +1650,7 @@ impl<E: Environment> AssetRef<E> {
         let mut lock = self.data.write().await;
         lock.metadata
             .with_type_identifier(value.identifier().to_string());
-        lock.metadata
-            .with_type_name(value.type_name().to_string());
+        lock.metadata.with_type_name(value.type_name().to_string());
         lock.data = Some(Arc::new(value));
         lock.binary = None; // Invalidate binary
         if lock.is_volatile {
@@ -1756,12 +1785,7 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// - Sets binary representation and clears any existing deserialized data
     /// - Store only: Does NOT create AssetRef in memory; writes directly to store
     /// - Status is determined by recipe existence (Source/Override) unless input status is Expired or Error
-    async fn set(
-        &self,
-        key: &Key,
-        binary: &[u8],
-        metadata: MetadataRecord,
-    ) -> Result<(), Error>;
+    async fn set(&self, key: &Key, binary: &[u8], metadata: MetadataRecord) -> Result<(), Error>;
 
     /// Set State (data + metadata) for a key asset.
     /// - Sets deserialized data and metadata from State
@@ -2133,10 +2157,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 .with_key(key));
             }
             if metadata.type_name.trim().is_empty() {
-                return Err(
-                    Error::general_error("Metadata type_name must not be empty".to_string())
-                        .with_key(key),
-                );
+                return Err(Error::general_error(
+                    "Metadata type_name must not be empty".to_string(),
+                )
+                .with_key(key));
             }
             Ok(())
         }
@@ -2153,8 +2177,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
             let expected_media_type =
                 crate::media_type::file_extension_to_media_type(&effective_data_format);
-            if !metadata.media_type.trim().is_empty()
-                && metadata.media_type != expected_media_type
+            if !metadata.media_type.trim().is_empty() && metadata.media_type != expected_media_type
             {
                 metadata.add_log_entry(LogEntry::warning(format!(
                     "media_type '{}' differs from expected '{}' for data_format '{}'",
@@ -2184,10 +2207,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let final_status = match input_status {
             Status::Expired => Status::Expired,
             Status::Error => Status::Error,
-            Status::None | Status::Directory | Status::Recipe |
-            Status::Submitted | Status::Dependencies | Status::Processing |
-            Status::Partial | Status::Storing | Status::Ready |
-            Status::Cancelled | Status::Source | Status::Override | Status::Volatile => {
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
                 // Check if recipe exists
                 if self.recipe_opt(key).await?.is_some() {
                     Status::Override
@@ -2208,9 +2240,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let store = self.get_envref().get_async_store();
         if final_status == Status::Error {
             // Store empty binary with error metadata
-            store
-                .set(key, &[], &metadata.clone().into())
-                .await?;
+            store.set(key, &[], &metadata.clone().into()).await?;
         } else {
             // Store binary and metadata
             store
@@ -2235,10 +2265,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 .with_key(key));
             }
             if metadata.type_name()?.trim().is_empty() {
-                return Err(
-                    Error::general_error("Metadata type_name must not be empty".to_string())
-                        .with_key(key),
-                );
+                return Err(Error::general_error(
+                    "Metadata type_name must not be empty".to_string(),
+                )
+                .with_key(key));
             }
             Ok(())
         }
@@ -2284,10 +2314,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let final_status = match input_status {
             Status::Expired => Status::Expired,
             Status::Error => Status::Error,
-            Status::None | Status::Directory | Status::Recipe |
-            Status::Submitted | Status::Dependencies | Status::Processing |
-            Status::Partial | Status::Storing | Status::Ready |
-            Status::Cancelled | Status::Source | Status::Override | Status::Volatile => {
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
                 // Check if recipe exists
                 if self.recipe_opt(key).await?.is_some() {
                     Status::Override
@@ -2468,12 +2507,16 @@ impl<E: Environment + 'static> JobQueue<E> {
         if current_running < self.capacity {
             // Try to increment running count
             // Use compare_exchange to avoid race conditions
-            if self.running_count.compare_exchange(
-                current_running,
-                current_running + 1,
-                Ordering::SeqCst,
-                Ordering::SeqCst
-            ).is_ok() {
+            if self
+                .running_count
+                .compare_exchange(
+                    current_running,
+                    current_running + 1,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_ok()
+            {
                 // Successfully reserved a slot - run immediately
                 let asset_clone = asset.clone();
                 let running_count = self.running_count.clone();
@@ -2486,7 +2529,11 @@ impl<E: Environment + 'static> JobQueue<E> {
                     return Err(e);
                 }
 
-                eprintln!("Starting asset job {} immediately (running: {})", asset_id, current_running + 1);
+                eprintln!(
+                    "Starting asset job {} immediately (running: {})",
+                    asset_id,
+                    current_running + 1
+                );
                 tokio::spawn(async move {
                     let _ = asset_clone.run().await;
                     // Decrement running count when job finishes
@@ -2499,7 +2546,12 @@ impl<E: Environment + 'static> JobQueue<E> {
 
         // At capacity or lost race - queue the job with Submitted status
         asset.submitted().await?;
-        eprintln!("Asset {} queued (running: {}, capacity: {})", asset_id, self.running_count(), self.capacity);
+        eprintln!(
+            "Asset {} queued (running: {}, capacity: {})",
+            asset_id,
+            self.running_count(),
+            self.capacity
+        );
 
         Ok(())
     }
@@ -2561,12 +2613,11 @@ impl<E: Environment + 'static> JobQueue<E> {
                         break; // No more slots available
                     }
 
-                    if self.running_count.compare_exchange(
-                        current,
-                        current + 1,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst
-                    ).is_ok() {
+                    if self
+                        .running_count
+                        .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                    {
                         let asset_clone = asset.clone();
                         let running_count = self.running_count.clone();
 
@@ -2577,7 +2628,11 @@ impl<E: Environment + 'static> JobQueue<E> {
                             continue;
                         }
 
-                        eprintln!("Starting asset job {} from queue (running: {})", asset.id(), current + 1);
+                        eprintln!(
+                            "Starting asset job {} from queue (running: {})",
+                            asset.id(),
+                            current + 1
+                        );
                         tokio::spawn(async move {
                             let _ = asset_clone.run().await;
                             running_count.fetch_sub(1, Ordering::SeqCst);
@@ -2589,7 +2644,8 @@ impl<E: Environment + 'static> JobQueue<E> {
 
             // Periodic cleanup of finished jobs
             cleanup_counter += 1;
-            if cleanup_counter >= 50 { // Every 5 seconds (50 * 100ms)
+            if cleanup_counter >= 50 {
+                // Every 5 seconds (50 * 100ms)
                 cleanup_counter = 0;
                 let removed = self.cleanup_completed_internal().await;
                 if removed > 0 {
@@ -3148,9 +3204,12 @@ mod tests {
         }
 
         // At least some should be submitted (queued)
-        assert!(submitted_count >= 2 || processing_count <= 2,
+        assert!(
+            submitted_count >= 2 || processing_count <= 2,
             "With capacity 2, at most 2 should be processing. Got {} processing, {} submitted",
-            processing_count, submitted_count);
+            processing_count,
+            submitted_count
+        );
     }
 
     #[tokio::test]
@@ -3159,9 +3218,7 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = CommandKey::new_name("fast");
         env.command_registry
-            .register_command(key.clone(), |_, _, _| {
-                Ok(Value::from("Fast result"))
-            })
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Fast result")))
             .expect("register_command failed");
 
         let envref = env.to_ref();
@@ -3195,9 +3252,7 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = CommandKey::new_name("quick");
         env.command_registry
-            .register_command(key.clone(), |_, _, _| {
-                Ok(Value::from("Quick result"))
-            })
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Quick result")))
             .expect("register_command failed");
 
         let envref = env.to_ref();
@@ -3225,7 +3280,11 @@ mod tests {
         let removed = queue.cleanup_completed().await;
 
         // All 3 should have been removed (they should be Ready by now)
-        assert_eq!(removed, 3, "Expected 3 jobs to be cleaned up, got {}", removed);
+        assert_eq!(
+            removed, 3,
+            "Expected 3 jobs to be cleaned up, got {}",
+            removed
+        );
         assert_eq!(queue.queued_jobs_count().await, 0);
     }
 
@@ -3262,7 +3321,11 @@ mod tests {
 
         // Should have 1 running (unless job already finished, which is unlikely with 500ms sleep)
         let running_during = queue.running_count();
-        assert!(running_during <= 1, "Expected at most 1 running job, got {}", running_during);
+        assert!(
+            running_during <= 1,
+            "Expected at most 1 running job, got {}",
+            running_during
+        );
 
         // If the job is still running, verify it
         if running_during == 1 {
@@ -3489,7 +3552,9 @@ mod tests {
         if let Metadata::MetadataRecord(meta) = metadata {
             let warning = meta.log.iter().find(|entry| {
                 entry.message.contains("Persistence status NotPersisted")
-                    && entry.message.contains("Cannot determine key to store asset")
+                    && entry
+                        .message
+                        .contains("Cannot determine key to store asset")
             });
             assert!(
                 warning.is_some(),

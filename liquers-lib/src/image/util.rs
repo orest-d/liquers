@@ -1,7 +1,7 @@
-use liquers_core::{error::Error, state::State};
 use crate::value::{ExtValueInterface, Value};
-use std::sync::Arc;
 use image::{DynamicImage, ImageFormat, Rgba};
+use liquers_core::{error::Error, state::State};
+use std::sync::Arc;
 
 /// Extract Arc<DynamicImage> from state, ensuring it contains an image.
 pub fn try_to_image(state: &State<Value>) -> Result<Arc<DynamicImage>, Error> {
@@ -106,42 +106,65 @@ pub fn parse_color(s: &str) -> Result<Rgba<u8>, Error> {
                     6 => {
                         // 0xRRGGBB
                         let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad R component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad R component",
+                                s
+                            ))
                         })?;
                         let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad G component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad G component",
+                                s
+                            ))
                         })?;
                         let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad B component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad B component",
+                                s
+                            ))
                         })?;
                         (r, g, b, 255)
                     }
                     8 => {
                         // 0xRRGGBBAA
                         let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad R component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad R component",
+                                s
+                            ))
                         })?;
                         let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad G component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad G component",
+                                s
+                            ))
                         })?;
                         let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad B component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad B component",
+                                s
+                            ))
                         })?;
                         let a = u8::from_str_radix(&hex[6..8], 16).map_err(|_| {
-                            Error::general_error(format!("Invalid hex color '{}': bad A component", s))
+                            Error::general_error(format!(
+                                "Invalid hex color '{}': bad A component",
+                                s
+                            ))
                         })?;
                         (r, g, b, a)
                     }
                     _ => {
                         return Err(Error::general_error(format!(
-                            "Invalid hex color '{}': expected 6 or 8 hex digits after 0x", s
+                            "Invalid hex color '{}': expected 6 or 8 hex digits after 0x",
+                            s
                         )))
                     }
                 }
             } else {
                 return Err(Error::general_error(format!(
-                    "Unknown color '{}'. Use named color or hex with 0x prefix (e.g., 0xFF0000)", s
-                )))
+                    "Unknown color '{}'. Use named color or hex with 0x prefix (e.g., 0xFF0000)",
+                    s
+                )));
             }
         }
     };

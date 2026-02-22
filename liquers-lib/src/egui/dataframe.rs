@@ -1,18 +1,25 @@
 use egui::{Color32, RichText};
+use egui_extras::{Column, TableBuilder};
 use polars::prelude::*;
-use egui_extras::{TableBuilder, Column};
-use chrono::NaiveDate;
 
 /// Display a polars DataFrame as a sortable table in egui.
 /// Data types are indicated by color:
 /// - Positive numbers: green
 /// - Negative numbers: red
 /// - Strings: default color
-pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &mut Option<(usize, bool)>) -> egui::Response {
-    let columns = df.get_columns();
+pub fn display_polars_dataframe(
+    ui: &mut egui::Ui,
+    df: &DataFrame,
+    sort_state: &mut Option<(usize, bool)>,
+) -> egui::Response {
+    let columns = df.columns();
     let nrows = df.height();
     let ncols = columns.len();
-    let col_names: Vec<_> = df.get_column_names().iter().map(|s| s.to_string()).collect();
+    let col_names: Vec<_> = df
+        .get_column_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let mut df = df.clone();
     // Sorting logic
@@ -23,9 +30,12 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
             descending: vec![!ascending],
             ..Default::default()
         };
-        match  df.sort(&by, options) {
+        match df.sort(&by, options) {
             Ok(sorted_df) => {
-                println!("Dataframe sorted by column: {} ascending: {}", col_name, ascending);
+                println!(
+                    "Dataframe sorted by column: {} ascending: {}",
+                    col_name, ascending
+                );
                 df = sorted_df;
             }
             Err(_) => {
@@ -71,7 +81,6 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                 _ => *sort_state = Some((i, true)),
                             }
                             println!("Sorting changed: {} {:?}", name, *sort_state);
-
                         }
                     });
                 }
@@ -86,7 +95,11 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Int64 => {
                                         let v = col.i64().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            let color = if val >= 0 { Color32::GREEN } else { Color32::RED };
+                                            let color = if val >= 0 {
+                                                Color32::GREEN
+                                            } else {
+                                                Color32::RED
+                                            };
                                             ui.label(RichText::new(val.to_string()).color(color));
                                         } else {
                                             missing_icon(ui);
@@ -95,7 +108,11 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Int32 => {
                                         let v = col.i32().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            let color = if val >= 0 { Color32::GREEN } else { Color32::RED };
+                                            let color = if val >= 0 {
+                                                Color32::GREEN
+                                            } else {
+                                                Color32::RED
+                                            };
                                             ui.label(RichText::new(val.to_string()).color(color));
                                         } else {
                                             missing_icon(ui);
@@ -104,8 +121,14 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Float64 => {
                                         let v = col.f64().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            let color = if val >= 0.0 { Color32::GREEN } else { Color32::RED };
-                                            ui.label(RichText::new(format!("{:.3}", val)).color(color));
+                                            let color = if val >= 0.0 {
+                                                Color32::GREEN
+                                            } else {
+                                                Color32::RED
+                                            };
+                                            ui.label(
+                                                RichText::new(format!("{:.3}", val)).color(color),
+                                            );
                                         } else {
                                             missing_icon(ui);
                                         }
@@ -113,8 +136,14 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Float32 => {
                                         let v = col.f32().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            let color = if val >= 0.0 { Color32::GREEN } else { Color32::RED };
-                                            ui.label(RichText::new(format!("{:.3}", val)).color(color));
+                                            let color = if val >= 0.0 {
+                                                Color32::GREEN
+                                            } else {
+                                                Color32::RED
+                                            };
+                                            ui.label(
+                                                RichText::new(format!("{:.3}", val)).color(color),
+                                            );
                                         } else {
                                             missing_icon(ui);
                                         }
@@ -130,15 +159,23 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Boolean => {
                                         let v = col.bool().unwrap().get(row_idx);
                                         match v {
-                                            Some(true) => { ui.colored_label(Color32::GREEN, "true"); },
-                                            Some(false) => { ui.colored_label(Color32::RED, "false"); },
-                                            None => { missing_icon(ui); },
+                                            Some(true) => {
+                                                ui.colored_label(Color32::GREEN, "true");
+                                            }
+                                            Some(false) => {
+                                                ui.colored_label(Color32::RED, "false");
+                                            }
+                                            None => {
+                                                missing_icon(ui);
+                                            }
                                         }
                                     }
                                     DataType::UInt8 => {
                                         let v = col.u8().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            ui.label(RichText::new(val.to_string()).color(light_green));
+                                            ui.label(
+                                                RichText::new(val.to_string()).color(light_green),
+                                            );
                                         } else {
                                             missing_icon(ui);
                                         }
@@ -146,7 +183,9 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::UInt16 => {
                                         let v = col.u16().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            ui.label(RichText::new(val.to_string()).color(light_green));
+                                            ui.label(
+                                                RichText::new(val.to_string()).color(light_green),
+                                            );
                                         } else {
                                             missing_icon(ui);
                                         }
@@ -154,7 +193,9 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::UInt32 => {
                                         let v = col.u32().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            ui.label(RichText::new(val.to_string()).color(light_green));
+                                            ui.label(
+                                                RichText::new(val.to_string()).color(light_green),
+                                            );
                                         } else {
                                             missing_icon(ui);
                                         }
@@ -162,7 +203,9 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::UInt64 => {
                                         let v = col.u64().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            ui.label(RichText::new(val.to_string()).color(light_green));
+                                            ui.label(
+                                                RichText::new(val.to_string()).color(light_green),
+                                            );
                                         } else {
                                             missing_icon(ui);
                                         }
@@ -170,7 +213,11 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Int8 => {
                                         let v = col.i8().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            let color = if val >= 0 { Color32::GREEN } else { Color32::RED };
+                                            let color = if val >= 0 {
+                                                Color32::GREEN
+                                            } else {
+                                                Color32::RED
+                                            };
                                             ui.label(RichText::new(val.to_string()).color(color));
                                         } else {
                                             missing_icon(ui);
@@ -179,7 +226,11 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                     DataType::Int16 => {
                                         let v = col.i16().unwrap().get(row_idx);
                                         if let Some(val) = v {
-                                            let color = if val >= 0 { Color32::GREEN } else { Color32::RED };
+                                            let color = if val >= 0 {
+                                                Color32::GREEN
+                                            } else {
+                                                Color32::RED
+                                            };
                                             ui.label(RichText::new(val.to_string()).color(color));
                                         } else {
                                             missing_icon(ui);
@@ -203,7 +254,11 @@ pub fn display_polars_dataframe(ui: &mut egui::Ui, df: &DataFrame, sort_state: &
                                         }
                                     }
                                     DataType::Datetime(_time_unit, _time_zone) => {
-                                        let v = col.datetime().unwrap().to_string("%Y-%m-%d %H:%M:%S").unwrap();
+                                        let v = col
+                                            .datetime()
+                                            .unwrap()
+                                            .to_string("%Y-%m-%d %H:%M:%S")
+                                            .unwrap();
                                         if let Some(val) = v.get(row_idx) {
                                             ui.label(RichText::new(val).color(cyan));
                                         } else {

@@ -111,16 +111,13 @@ where
     /// Commands are expected to manipulate AppState themselves (e.g. `add` calls
     /// `app_state.set_element`), so we do NOT set element from the return value.
     /// On error, we set an `AssetViewElement::new_error`.
-    async fn process_messages(
-        &mut self,
-        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
-    ) {
+    async fn process_messages(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         while let Ok(msg) = self.message_rx.try_recv() {
             println!("AppRunner received message: {:?}", msg);
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
-                    let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
-                        .with_handle(handle);
+                    let ui_context =
+                        UIContext::new(app_state.clone(), self.sender.clone()).with_handle(handle);
 
                     // 1. Create payload with handle
                     let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
@@ -193,10 +190,7 @@ where
     /// Pending nodes are evaluated via `evaluate` (no payload, async job queue).
     /// The runner tracks the `AssetRef` and sets the element from the result
     /// when polling completes in Phase 3.
-    async fn evaluate_pending_nodes(
-        &mut self,
-        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
-    ) {
+    async fn evaluate_pending_nodes(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         // Collect pending nodes while holding the lock briefly
         let pending: Vec<(UIHandle, String)> = {
             let state = app_state.lock().await;
@@ -204,20 +198,16 @@ where
                 .pending_nodes()
                 .into_iter()
                 .filter(|h| !self.evaluating.contains_key(h))
-                .filter_map(|h| {
-                    match state.get_source(h) {
-                        Ok(ElementSource::Query(q)) => Some((h, q.clone())),
-                        Ok(ElementSource::None)
-                        | Ok(ElementSource::Recipe(_))
-                        | Err(_) => None,
-                    }
+                .filter_map(|h| match state.get_source(h) {
+                    Ok(ElementSource::Query(q)) => Some((h, q.clone())),
+                    Ok(ElementSource::None) | Ok(ElementSource::Recipe(_)) | Err(_) => None,
                 })
                 .collect()
         }; // Lock released here
 
         for (handle, query) in pending {
-            let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
-                .with_handle(Some(handle));
+            let ui_context =
+                UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
 
             // 1. Set progress element (quick lock)
             {
@@ -253,10 +243,7 @@ where
     ///
     /// When a value is not a UIElement, creates an `AssetViewElement::from_asset_ref`
     /// to give the element its own notification channel for future updates.
-    async fn poll_evaluating_nodes(
-        &mut self,
-        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
-    ) {
+    async fn poll_evaluating_nodes(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         // Collect handles of completed evaluations
         let completed: Vec<UIHandle> = self
             .evaluating
@@ -275,8 +262,8 @@ where
                 Some(ar) => ar,
                 None => continue,
             };
-            let ui_context = UIContext::new(app_state.clone(), self.sender.clone())
-                .with_handle(Some(handle));
+            let ui_context =
+                UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
 
             // Poll state (already confirmed available above)
             let state = match asset_ref.poll_state().await {
@@ -299,7 +286,11 @@ where
                         // Create AssetViewElement with live notification channel
                         let title = {
                             let t = state.metadata.title().to_string();
-                            if t.is_empty() { "View".to_string() } else { t }
+                            if t.is_empty() {
+                                "View".to_string()
+                            } else {
+                                t
+                            }
                         };
                         // Drop lock before async call
                         drop(app);
@@ -343,13 +334,8 @@ where
                 let snapshot = Self::build_snapshot(&asset_ref).await;
 
                 // 4. Deliver snapshot to element
-                let delivered = Self::deliver_snapshot(
-                    handle,
-                    snapshot,
-                    app_state,
-                    &self.sender,
-                )
-                .await;
+                let delivered =
+                    Self::deliver_snapshot(handle, snapshot, app_state, &self.sender).await;
 
                 // 5. Store in monitoring map (replaces existing if any)
                 if delivered {
@@ -379,10 +365,7 @@ where
     /// Phase 4: Poll all monitored assets for notification changes.
     /// Build and deliver AssetSnapshot on change.
     /// Remove entries where the element no longer exists (auto-stop).
-    async fn poll_monitored_assets(
-        &mut self,
-        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
-    ) {
+    async fn poll_monitored_assets(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         let mut to_remove = Vec::new();
 
         for (handle, monitored) in self.monitoring.iter_mut() {
@@ -466,8 +449,7 @@ where
         }; // Lock released
 
         // Create UIContext and call update (lock not held)
-        let ctx = UIContext::new(app_state.clone(), sender.clone())
-            .with_handle(Some(handle));
+        let ctx = UIContext::new(app_state.clone(), sender.clone()).with_handle(Some(handle));
         let _response = element.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
 
         // Put element back
@@ -515,4 +497,3 @@ pub enum ElementStatusInfo {
     /// Node not found or other error.
     Error,
 }
-

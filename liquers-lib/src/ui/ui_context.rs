@@ -22,10 +22,7 @@ pub struct UIContext {
 }
 
 impl UIContext {
-    pub fn new(
-        app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
-        sender: AppMessageSender,
-    ) -> Self {
+    pub fn new(app_state: Arc<tokio::sync::Mutex<dyn AppState>>, sender: AppMessageSender) -> Self {
         Self {
             app_state,
             sender,

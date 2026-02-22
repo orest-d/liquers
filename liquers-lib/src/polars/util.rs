@@ -1,9 +1,10 @@
-use liquers_core::{error::Error, state::State, value::ValueInterface};
+use super::serde::deserialize_dataframe_from_reader;
 use crate::value::ExtValueInterface;
-use polars::prelude::*;
-use std::sync::Arc;
-use std::io::Cursor;
 use chrono::{NaiveDate, NaiveDateTime};
+use liquers_core::{error::Error, state::State, value::ValueInterface};
+use polars::prelude::*;
+use std::io::Cursor;
+use std::sync::Arc;
 
 /// Core utility function to extract DataFrame from State
 ///
@@ -11,7 +12,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 /// 1. Direct conversion if value is already a PolarsDataFrame
 /// 2. Deserialization from Text or Bytes based on metadata data_format
 ///
-/// Supported formats: csv, parquet
+/// Supported formats: csv aliases and parquet.
 pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
     state: &State<V>,
 ) -> Result<Arc<DataFrame>, Error> {
@@ -20,50 +21,24 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
         return Ok(df);
     }
 
-    // Get data format from metadata
-    let format = state.metadata.get_data_format();
-
-    // Try deserialization based on value type and format
-    match format.as_str() {
-        "csv" => {
-            // Try to get as text or bytes
-            if let Ok(text) = state.data.try_into_string() {
-                let df = CsvReader::new(Cursor::new(text.as_bytes()))
-                    .finish()
-                    .map_err(|e| {
-                        Error::general_error(format!("Failed to parse CSV as DataFrame: {}", e))
-                    })?;
-                return Ok(Arc::new(df));
-            }
-
-            // Try bytes
-            if let Ok(bytes) = state.as_bytes() {
-                let df = CsvReader::new(Cursor::new(bytes.as_slice()))
-                    .finish()
-                    .map_err(|e| {
-                        Error::general_error(format!("Failed to parse CSV as DataFrame: {}", e))
-                    })?;
-                return Ok(Arc::new(df));
-            }
+    let mut format = state.metadata.get_data_format();
+    let source_bytes = if let Ok(text) = state.data.try_into_string() {
+        if format.is_empty() {
+            format = "csv".to_string();
         }
-        "parquet" => {
-            // TODO: Enable parquet support by adding "parquet" feature to polars dependency
+        text.into_bytes()
+    } else {
+        if format.is_empty() {
             return Err(Error::general_error(
-                "Parquet format not yet supported. Add 'parquet' feature to polars dependency.".to_string()
+                "Cannot infer DataFrame format from non-text value. Set metadata.data_format."
+                    .to_string(),
             ));
         }
-        _ => {
-            return Err(Error::general_error(format!(
-                "Unsupported data format '{}' for DataFrame conversion. Supported: csv, parquet",
-                format
-            )));
-        }
-    }
+        state.data.try_into_bytes()?
+    };
 
-    Err(Error::conversion_error(
-        state.data.identifier().as_ref(),
-        "Polars DataFrame",
-    ))
+    let df = deserialize_dataframe_from_reader(Cursor::new(source_bytes), &format)?;
+    Ok(Arc::new(df))
 }
 
 /// Parse date from string in multiple formats
@@ -77,9 +52,8 @@ pub fn parse_date(s: &str) -> Result<NaiveDate, Error> {
 
     // Try YYYYMMDD (compact format)
     if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) {
-        return NaiveDate::parse_from_str(s, "%Y%m%d").map_err(|_| {
-            Error::general_error(format!("Invalid date format: {}", s))
-        });
+        return NaiveDate::parse_from_str(s, "%Y%m%d")
+            .map_err(|_| Error::general_error(format!("Invalid date format: {}", s)));
     }
 
     // Try YYYY-MM-DD (ISO format)
@@ -109,9 +83,8 @@ pub fn parse_datetime(s: &str) -> Result<NaiveDateTime, Error> {
 
     // Try YYYYMMDDHHMMSS (compact format)
     if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
-        return NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S").map_err(|_| {
-            Error::general_error(format!("Invalid datetime format: {}", s))
-        });
+        return NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S")
+            .map_err(|_| Error::general_error(format!("Invalid datetime format: {}", s)));
     }
 
     // Try YYYY-MM-DD HH:MM:SS (ISO with space)
@@ -182,12 +155,15 @@ pub fn parse_separator(s: &str) -> Result<u8, Error> {
 
 /// Check if column exists in DataFrame, return error if not
 pub fn check_column_exists(df: &DataFrame, column: &str) -> Result<(), Error> {
-    let column_names: Vec<String> = df.get_column_names().iter().map(|s| s.to_string()).collect();
+    let column_names: Vec<String> = df
+        .get_column_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     if !column_names.contains(&column.to_string()) {
         return Err(Error::general_error(format!(
             "Column '{}' not found in DataFrame. Available columns: {:?}",
-            column,
-            column_names
+            column, column_names
         )));
     }
     Ok(())

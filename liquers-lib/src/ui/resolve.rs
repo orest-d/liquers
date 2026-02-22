@@ -37,9 +37,7 @@ pub fn resolve_navigation(
     current: Option<UIHandle>,
 ) -> Result<UIHandle, Error> {
     match word {
-        "current" => current.ok_or_else(|| {
-            Error::general_error("No current element".to_string())
-        }),
+        "current" => current.ok_or_else(|| Error::general_error("No current element".to_string())),
         "parent" => {
             let h = current.ok_or_else(|| {
                 Error::general_error("No current element for 'parent'".to_string())
@@ -49,17 +47,15 @@ pub fn resolve_navigation(
                 .ok_or_else(|| Error::general_error("Current element has no parent".to_string()))
         }
         "next" => {
-            let h = current.ok_or_else(|| {
-                Error::general_error("No current element for 'next'".to_string())
-            })?;
+            let h = current
+                .ok_or_else(|| Error::general_error("No current element for 'next'".to_string()))?;
             app_state
                 .next_sibling(h)?
                 .ok_or_else(|| Error::general_error("No next sibling".to_string()))
         }
         "prev" => {
-            let h = current.ok_or_else(|| {
-                Error::general_error("No current element for 'prev'".to_string())
-            })?;
+            let h = current
+                .ok_or_else(|| Error::general_error("No current element for 'prev'".to_string()))?;
             app_state
                 .previous_sibling(h)?
                 .ok_or_else(|| Error::general_error("No previous sibling".to_string()))
@@ -73,9 +69,8 @@ pub fn resolve_navigation(
                 .ok_or_else(|| Error::general_error("No children".to_string()))
         }
         "last" => {
-            let h = current.ok_or_else(|| {
-                Error::general_error("No current element for 'last'".to_string())
-            })?;
+            let h = current
+                .ok_or_else(|| Error::general_error("No current element for 'last'".to_string()))?;
             app_state
                 .last_child(h)?
                 .ok_or_else(|| Error::general_error("No children".to_string()))
@@ -117,10 +112,7 @@ pub fn resolve_navigation(
 /// - `"first"` — insert as first child of the reference
 /// - `"last"` — insert as last child of the reference
 /// - `"child"` — same as "last" (append as child)
-pub fn resolve_position(
-    position_word: &str,
-    reference: UIHandle,
-) -> Result<InsertionPoint, Error> {
+pub fn resolve_position(position_word: &str, reference: UIHandle) -> Result<InsertionPoint, Error> {
     match position_word {
         "before" => Ok(InsertionPoint::Before(reference)),
         "after" => Ok(InsertionPoint::After(reference)),
@@ -149,9 +141,9 @@ pub fn insertion_point_to_add_args<S: AppState + ?Sized>(
             Ok((Some(*parent), children.len()))
         }
         InsertionPoint::Before(sibling) => {
-            let parent = app_state
-                .parent(*sibling)?
-                .ok_or_else(|| Error::general_error("Cannot insert before a root element".to_string()))?;
+            let parent = app_state.parent(*sibling)?.ok_or_else(|| {
+                Error::general_error("Cannot insert before a root element".to_string())
+            })?;
             let children = app_state.children(parent)?;
             let index = children
                 .iter()
@@ -162,9 +154,9 @@ pub fn insertion_point_to_add_args<S: AppState + ?Sized>(
             Ok((Some(parent), index))
         }
         InsertionPoint::After(sibling) => {
-            let parent = app_state
-                .parent(*sibling)?
-                .ok_or_else(|| Error::general_error("Cannot insert after a root element".to_string()))?;
+            let parent = app_state.parent(*sibling)?.ok_or_else(|| {
+                Error::general_error("Cannot insert after a root element".to_string())
+            })?;
             let children = app_state.children(parent)?;
             let index = children
                 .iter()
@@ -174,11 +166,9 @@ pub fn insertion_point_to_add_args<S: AppState + ?Sized>(
                 })?;
             Ok((Some(parent), index + 1))
         }
-        InsertionPoint::Instead(_) => {
-            Err(Error::general_error(
-                "Instead insertion must be handled by the caller".to_string(),
-            ))
-        }
+        InsertionPoint::Instead(_) => Err(Error::general_error(
+            "Instead insertion must be handled by the caller".to_string(),
+        )),
         InsertionPoint::Root => Ok((None, 0)),
     }
 }
@@ -276,10 +266,7 @@ mod tests {
     fn test_resolve_number() {
         let (s, _root, c1, _c2, _c3) = build_tree();
         let n = c1.0;
-        assert_eq!(
-            resolve_navigation(&s, &n.to_string(), None).unwrap(),
-            c1
-        );
+        assert_eq!(resolve_navigation(&s, &n.to_string(), None).unwrap(), c1);
     }
 
     #[test]
@@ -378,8 +365,7 @@ mod tests {
     #[test]
     fn test_add_args_before() {
         let (s, root, _c1, c2, _c3) = build_tree();
-        let (parent, pos) =
-            insertion_point_to_add_args(&s, &InsertionPoint::Before(c2)).unwrap();
+        let (parent, pos) = insertion_point_to_add_args(&s, &InsertionPoint::Before(c2)).unwrap();
         assert_eq!(parent, Some(root));
         assert_eq!(pos, 1); // c2 is at index 1
     }
@@ -387,8 +373,7 @@ mod tests {
     #[test]
     fn test_add_args_after() {
         let (s, root, _c1, c2, _c3) = build_tree();
-        let (parent, pos) =
-            insertion_point_to_add_args(&s, &InsertionPoint::After(c2)).unwrap();
+        let (parent, pos) = insertion_point_to_add_args(&s, &InsertionPoint::After(c2)).unwrap();
         assert_eq!(parent, Some(root));
         assert_eq!(pos, 2); // after c2 at index 1
     }
@@ -396,8 +381,7 @@ mod tests {
     #[test]
     fn test_add_args_root() {
         let (s, _, _, _, _) = build_tree();
-        let (parent, pos) =
-            insertion_point_to_add_args(&s, &InsertionPoint::Root).unwrap();
+        let (parent, pos) = insertion_point_to_add_args(&s, &InsertionPoint::Root).unwrap();
         assert_eq!(parent, None);
         assert_eq!(pos, 0);
     }

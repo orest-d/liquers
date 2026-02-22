@@ -30,7 +30,9 @@ impl Store {
     fn get(&self, key: &crate::parse::Key) -> PyResult<(Vec<u8>, crate::metadata::Metadata)> {
         match self.0.get(&key.0) {
             Ok((data, metadata)) => Ok((data, crate::metadata::Metadata { inner: metadata })),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -38,7 +40,9 @@ impl Store {
     fn get_bytes(&self, key: &crate::parse::Key) -> PyResult<Vec<u8>> {
         match self.0.get_bytes(&key.0) {
             Ok(data) => Ok(data),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -46,23 +50,38 @@ impl Store {
     fn get_metadata(&self, key: &crate::parse::Key) -> PyResult<crate::metadata::Metadata> {
         match self.0.get_metadata(&key.0) {
             Ok(metadata) => Ok(crate::metadata::Metadata { inner: metadata }),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
     /// Store data and metadata.
-    fn set(&mut self, key: &crate::parse::Key, data: &[u8], metadata: &crate::metadata::Metadata) -> PyResult<()> {
+    fn set(
+        &mut self,
+        key: &crate::parse::Key,
+        data: &[u8],
+        metadata: &crate::metadata::Metadata,
+    ) -> PyResult<()> {
         match self.0.set(&key.0, data, &metadata.inner) {
             Ok(_) => Ok(()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
     /// Store metadata.
-    fn set_metadata(&mut self, key: &crate::parse::Key, metadata: &crate::metadata::Metadata) -> PyResult<()> {
+    fn set_metadata(
+        &mut self,
+        key: &crate::parse::Key,
+        metadata: &crate::metadata::Metadata,
+    ) -> PyResult<()> {
         match self.0.set_metadata(&key.0, &metadata.inner) {
             Ok(_) => Ok(()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -70,7 +89,9 @@ impl Store {
     fn remove(&mut self, key: &crate::parse::Key) -> PyResult<()> {
         match self.0.remove(&key.0) {
             Ok(_) => Ok(()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -80,23 +101,29 @@ impl Store {
     fn removedir(&mut self, key: &crate::parse::Key) -> PyResult<()> {
         match self.0.removedir(&key.0) {
             Ok(_) => Ok(()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
-    
+
     /// Returns true if store contains the key.
     fn contains(&self, key: &crate::parse::Key) -> PyResult<bool> {
         match self.0.contains(&key.0) {
             Ok(b) => Ok(b),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
-    
+
     /// Returns true if key points to a directory.
     fn is_dir(&self, key: &crate::parse::Key) -> PyResult<bool> {
         match self.0.is_dir(&key.0) {
             Ok(b) => Ok(b),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -104,7 +131,9 @@ impl Store {
     fn keys(&self) -> PyResult<Vec<crate::parse::Key>> {
         match self.0.keys() {
             Ok(keys) => Ok(keys.into_iter().map(|k| crate::parse::Key(k)).collect()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -114,7 +143,9 @@ impl Store {
     fn listdir(&self, key: &crate::parse::Key) -> PyResult<Vec<String>> {
         match self.0.listdir(&key.0) {
             Ok(names) => Ok(names),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -124,7 +155,9 @@ impl Store {
     fn listdir_keys(&self, key: &crate::parse::Key) -> PyResult<Vec<crate::parse::Key>> {
         match self.0.listdir_keys(&key.0) {
             Ok(keys) => Ok(keys.into_iter().map(|k| crate::parse::Key(k)).collect()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -134,7 +167,9 @@ impl Store {
     fn listdir_keys_deep(&self, key: &crate::parse::Key) -> PyResult<Vec<crate::parse::Key>> {
         match self.0.listdir_keys_deep(&key.0) {
             Ok(keys) => Ok(keys.into_iter().map(|k| crate::parse::Key(k)).collect()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 
@@ -142,7 +177,9 @@ impl Store {
     fn makedir(&self, key: &crate::parse::Key) -> PyResult<()> {
         match self.0.makedir(&key.0) {
             Ok(_) => Ok(()),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                e.to_string(),
+            )),
         }
     }
 

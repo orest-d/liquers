@@ -10,36 +10,51 @@ use liquers_core::{
 };
 use liquers_macro::register_command;
 
-use crate::{environment::{CommandRegistryAccess, DefaultEnvironment}, value::{Value, simple::SimpleValue}};
+use crate::{
+    environment::{CommandRegistryAccess, DefaultEnvironment},
+    value::{simple::SimpleValue, Value},
+};
 
 /// Generic command trying to convert any value to text representation.
-pub fn to_text<E:Environment>(state: &State<E::Value>, _context:Context<E>) -> Result<E::Value, Error> {
+pub fn to_text<E: Environment>(
+    state: &State<E::Value>,
+    _context: Context<E>,
+) -> Result<E::Value, Error> {
     Ok(E::Value::from_string(state.try_into_string()?))
 }
 
 /// Generic command trying to extract metadata from the state.
-pub fn to_metadata<E:Environment>(state: &State<E::Value>, _context:Context<E>) -> Result<E::Value, Error> {
+pub fn to_metadata<E: Environment>(
+    state: &State<E::Value>,
+    _context: Context<E>,
+) -> Result<E::Value, Error> {
     if let Some(metadata) = state.metadata.metadata_record() {
         Ok(E::Value::from_metadata(metadata))
-    }
-    else{
-        Err(Error::general_error("Legacy metadata not supported in to_metadata command".to_string()))
+    } else {
+        Err(Error::general_error(
+            "Legacy metadata not supported in to_metadata command".to_string(),
+        ))
     }
 }
 
 /// Generic command trying to extract metadata from the state.
-pub fn to_assetinfo<E:Environment>(state: &State<E::Value>, _context:Context<E>) -> Result<E::Value, Error> {
+pub fn to_assetinfo<E: Environment>(
+    state: &State<E::Value>,
+    _context: Context<E>,
+) -> Result<E::Value, Error> {
     if let Some(metadata) = state.metadata.metadata_record() {
         Ok(E::Value::from_asset_info(vec![metadata.get_asset_info()]))
-    }
-    else{
-        Err(Error::general_error("Legacy metadata not supported in to_assetinfo command".to_string()))
+    } else {
+        Err(Error::general_error(
+            "Legacy metadata not supported in to_assetinfo command".to_string(),
+        ))
     }
 }
 
-
-pub fn from_yaml<E:Environment<Value = Value>>(state: &State<E::Value>, context:Context<E>) -> Result<E::Value, Error>
-{
+pub fn from_yaml<E: Environment<Value = Value>>(
+    state: &State<E::Value>,
+    context: Context<E>,
+) -> Result<E::Value, Error> {
     let x = &*(state.data);
     match x {
         Value::Base(SimpleValue::Text { value }) => {
@@ -48,7 +63,7 @@ pub fn from_yaml<E:Environment<Value = Value>>(state: &State<E::Value>, context:
                 .map_err(|e| Error::general_error(format!("Error parsing yaml string: {e}")))?;
             Ok(Value::new_base(v))
         }
-        Value::Base(SimpleValue::Bytes{value: b}) => {
+        Value::Base(SimpleValue::Bytes { value: b }) => {
             context.info("Parsing yaml bytes");
             let v: SimpleValue = serde_yaml::from_slice(b)
                 .map_err(|e| Error::general_error(format!("Error parsing yaml bytes: {e}")))?;
@@ -155,8 +170,7 @@ pub fn commands_doc<E: Environment>(
             }
 
             // Collect non-injected arguments
-            let visible_args: Vec<_> =
-                cmd.arguments.iter().filter(|a| !a.injected).collect();
+            let visible_args: Vec<_> = cmd.arguments.iter().filter(|a| !a.injected).collect();
 
             if !visible_args.is_empty() {
                 let _ = writeln!(md, "| Label | Argument | Multiplicity | Type | Default |");
@@ -219,7 +233,9 @@ macro_rules! register_core_commands {
 }
 
 /// Backward-compatible wrapper calling the `register_core_commands!` macro.
-pub fn register_commands(mut env:DefaultEnvironment<Value>) -> Result<DefaultEnvironment<Value>, Error> {
+pub fn register_commands(
+    mut env: DefaultEnvironment<Value>,
+) -> Result<DefaultEnvironment<Value>, Error> {
     let cr = env.get_mut_command_registry();
     type CommandEnvironment = DefaultEnvironment<Value>;
     register_core_commands!(cr)?;
@@ -244,7 +260,9 @@ macro_rules! register_all_commands {
 }
 
 /// Backward-compatible function registering all commands except lui (no payload required).
-pub fn register_all_commands_fn(mut env:DefaultEnvironment<Value>) -> Result<DefaultEnvironment<Value>, Error> {
+pub fn register_all_commands_fn(
+    mut env: DefaultEnvironment<Value>,
+) -> Result<DefaultEnvironment<Value>, Error> {
     env = register_commands(env)?;
     env = crate::egui::commands::register_commands(env)?;
     #[cfg(feature = "image-support")]

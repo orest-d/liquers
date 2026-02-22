@@ -1,22 +1,16 @@
-
 use liquers_core::value::ValueInterface;
-use liquers_core::{
-    error::ErrorType,
-    value::DefaultValueSerializer,
-};
+use liquers_core::{error::ErrorType, value::DefaultValueSerializer};
 
 use liquers_core::error::Error;
-use std::{
-    borrow::Cow,
-    result::Result,
-    sync::Arc,
-};
+use std::{borrow::Cow, result::Result, sync::Arc};
 
+use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
 use crate::value::extended::*;
 use crate::value::simple::*;
+use std::io::Cursor;
 
-pub mod simple;
 pub mod extended;
+pub mod simple;
 
 #[derive(Debug, Clone)]
 pub enum ExtValue {
@@ -36,7 +30,6 @@ pub enum ExtValue {
         value: Arc<dyn crate::ui::element::UIElement>,
     },
 }
-
 
 pub trait ExtValueInterface {
     fn from_image(image: Arc<image::DynamicImage>) -> Self;
@@ -73,9 +66,10 @@ impl ExtValueInterface for ExtValue {
             ExtValue::Image { .. }
             | ExtValue::UiCommand { .. }
             | ExtValue::Widget { .. }
-            | ExtValue::UIElement { .. } => {
-                Err(Error::conversion_error(self.identifier().as_ref(), "Polars dataframe"))
-            }
+            | ExtValue::UIElement { .. } => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "Polars dataframe",
+            )),
         }
     }
     fn from_ui_element(element: Arc<dyn crate::ui::element::UIElement>) -> Self {
@@ -87,13 +81,13 @@ impl ExtValueInterface for ExtValue {
             ExtValue::Image { .. }
             | ExtValue::PolarsDataFrame { .. }
             | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. } => {
-                Err(Error::conversion_error(self.identifier().as_ref(), "UIElement"))
-            }
+            | ExtValue::Widget { .. } => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "UIElement",
+            )),
         }
     }
 }
-
 
 impl ValueExtension for ExtValue {
     fn identifier(&self) -> Cow<'static, str> {
@@ -147,22 +141,36 @@ impl ValueExtension for ExtValue {
     }
 }
 
-
-
 impl DefaultValueSerializer for ExtValue {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
-        match format {
+        match self {
+            ExtValue::PolarsDataFrame { value } => {
+                let mut bytes = Vec::new();
+                serialize_dataframe_to_writer(value, format, &mut bytes)?;
+                Ok(bytes)
+            }
             _ => Err(Error::new(
                 ErrorType::SerializationError,
-                format!("Unsupported format {}", format),
+                format!(
+                    "Serialization to {} not supported by {}",
+                    format,
+                    self.type_name()
+                ),
             )),
         }
     }
-    fn deserialize_from_bytes(_b: &[u8], _type_identifier: &str, fmt: &str) -> Result<Self, Error> {
-        match fmt {
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
+        match type_identifier {
+            "polars_dataframe" => {
+                let df = deserialize_dataframe_from_reader(Cursor::new(b), fmt)?;
+                Ok(ExtValue::from_polars_dataframe(df))
+            }
             _ => Err(Error::new(
                 ErrorType::SerializationError,
-                format!("Unsupported format in from_bytes:{}", fmt),
+                format!(
+                    "Unsupported type identifier in from_bytes:{}",
+                    type_identifier
+                ),
             )),
         }
     }
@@ -198,7 +206,10 @@ impl ExtValueInterface for Value {
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             Value::Extended(ext) => ext.as_polars_dataframe(),
-            Value::Base(_) => Err(Error::conversion_error(self.identifier().as_ref(), "Polars dataframe")),
+            Value::Base(_) => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "Polars dataframe",
+            )),
         }
     }
     fn from_ui_element(element: Arc<dyn crate::ui::element::UIElement>) -> Self {
@@ -207,7 +218,10 @@ impl ExtValueInterface for Value {
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error> {
         match self {
             Value::Extended(ext) => ext.as_ui_element(),
-            Value::Base(_) => Err(Error::conversion_error(self.identifier().as_ref(), "UIElement")),
+            Value::Base(_) => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "UIElement",
+            )),
         }
     }
 }

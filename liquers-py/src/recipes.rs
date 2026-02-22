@@ -1,11 +1,13 @@
+use liquers_core::recipes::Recipe as CoreRecipe;
 use pyo3::{prelude::*, types::PyDict};
 use serde_json::Value;
 use std::collections::HashMap;
-use liquers_core::recipes::Recipe as CoreRecipe;
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct Recipe{pub inner: CoreRecipe}
+pub struct Recipe {
+    pub inner: CoreRecipe,
+}
 
 #[pymethods]
 impl Recipe {

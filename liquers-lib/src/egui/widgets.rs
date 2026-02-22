@@ -686,10 +686,7 @@ fn format_file_size(size: u64) -> String {
 
 /// Display a table of AssetInfo items with columns for key properties
 /// Returns the response and optionally the index of a clicked row
-pub fn display_asset_info_table(
-    ui: &mut egui::Ui,
-    assets: &[AssetInfo],
-) -> Option<usize> {
+pub fn display_asset_info_table(ui: &mut egui::Ui, assets: &[AssetInfo]) -> Option<usize> {
     use egui_extras::{Column, TableBuilder};
 
     let text_height = egui::TextStyle::Body
@@ -764,7 +761,7 @@ pub fn display_asset_info_table(
                         } else {
                             "<unnamed>".to_string()
                         };
-                        
+
                         if ui.selectable_label(false, name).clicked() {
                             clicked_row = Some(row_index);
                         }
@@ -814,7 +811,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgb(luma, luma, luma)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageLumaA8(img) => {
             let pixels: Vec<Color32> = img
@@ -825,21 +828,39 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgba_unmultiplied(luma, luma, luma, alpha)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageRgb8(img) => {
             let pixels: Vec<Color32> = img
                 .pixels()
                 .map(|p| Color32::from_rgb(p[0], p[1], p[2]))
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageRgba8(img) => {
             let pixels: Vec<Color32> = img
                 .pixels()
                 .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageLuma16(img) => {
             let pixels: Vec<Color32> = img
@@ -849,7 +870,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgb(luma, luma, luma)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageLumaA16(img) => {
             let pixels: Vec<Color32> = img
@@ -860,7 +887,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgba_unmultiplied(luma, luma, luma, alpha)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageRgb16(img) => {
             let pixels: Vec<Color32> = img
@@ -872,7 +905,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgb(r, g, b)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageRgba16(img) => {
             let pixels: Vec<Color32> = img
@@ -885,7 +924,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgba_unmultiplied(r, g, b, a)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageRgb32F(img) => {
             let pixels: Vec<Color32> = img
@@ -897,7 +942,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgb(r, g, b)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         DynamicImage::ImageRgba32F(img) => {
             let pixels: Vec<Color32> = img
@@ -910,7 +961,13 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                     Color32::from_rgba_unmultiplied(r, g, b, a)
                 })
                 .collect();
-            ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
         _ => {
             // Fallback for any unsupported image format: convert to RGBA8
@@ -919,14 +976,20 @@ pub(crate) fn display_image(ui: &mut egui::Ui, value: &DynamicImage) -> egui::Re
                 .pixels()
                 .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
                 .collect();
-            ColorImage::from_rgba_unmultiplied([rgba8.width() as usize, rgba8.height() as usize], &pixels.iter().flat_map(|c| c.to_array()).collect::<Vec<u8>>())
+            ColorImage::from_rgba_unmultiplied(
+                [rgba8.width() as usize, rgba8.height() as usize],
+                &pixels
+                    .iter()
+                    .flat_map(|c| c.to_array())
+                    .collect::<Vec<u8>>(),
+            )
         }
     };
 
     let texture = ui.ctx().load_texture(
         "dynamic_image",
         color_image,
-        egui::TextureOptions::default()
+        egui::TextureOptions::default(),
     );
     ui.add(egui::Image::new(&texture).fit_to_exact_size(size.into()))
 }

@@ -55,7 +55,7 @@ impl Error {
         }
     }
 
-    pub fn from_error<E:Display>(error_type:ErrorType, error: E) -> Self {
+    pub fn from_error<E: Display>(error_type: ErrorType, error: E) -> Self {
         Error {
             error_type,
             message: error.to_string(),
@@ -66,13 +66,16 @@ impl Error {
         }
     }
 
-    pub fn from_result<T,E:Display>(error_type:ErrorType, result: Result<T,E>) -> Result<T,Self> {
+    pub fn from_result<T, E: Display>(
+        error_type: ErrorType,
+        result: Result<T, E>,
+    ) -> Result<T, Self> {
         match result {
             Ok(value) => Ok(value),
-            Err(e) => Err(Error::from_error(error_type, e))
+            Err(e) => Err(Error::from_error(error_type, e)),
         }
     }
-    
+
     pub fn with_position(mut self, position: &Position) -> Self {
         self.position = position.clone();
         self
@@ -262,7 +265,7 @@ impl Error {
             command_key: None,
         }
     }
-    pub fn key_not_supported(key: &Key, store_name:&str) -> Self {
+    pub fn key_not_supported(key: &Key, store_name: &str) -> Self {
         Error {
             error_type: ErrorType::KeyNotSupported,
             message: format!("Key '{}' not supported by store {}", key, store_name),
@@ -272,20 +275,26 @@ impl Error {
             command_key: None,
         }
     }
-    pub fn key_read_error(key: &Key, store_name:&str, message: &(impl Display + ?Sized)) -> Self {
+    pub fn key_read_error(key: &Key, store_name: &str, message: &(impl Display + ?Sized)) -> Self {
         Error {
             error_type: ErrorType::KeyReadError,
-            message: format!("Key '{}' read error by store {}: {}", key, store_name, message),
+            message: format!(
+                "Key '{}' read error by store {}: {}",
+                key, store_name, message
+            ),
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),
             command_key: None,
         }
     }
-    pub fn key_write_error(key: &Key, store_name:&str, message: &(impl Display + ?Sized)) -> Self {
+    pub fn key_write_error(key: &Key, store_name: &str, message: &(impl Display + ?Sized)) -> Self {
         Error {
             error_type: ErrorType::KeyWriteError,
-            message: format!("Key '{}' write error by store {}: {}", key, store_name, message),
+            message: format!(
+                "Key '{}' write error by store {}: {}",
+                key, store_name, message
+            ),
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),
@@ -314,7 +323,10 @@ impl fmt::Display for Error {
             };
 
             if !command_key.realm.is_empty() || !command_key.namespace.is_empty() {
-                format!("Command '{}' ({}) failed: {}", name, command_key, self.message)
+                format!(
+                    "Command '{}' ({}) failed: {}",
+                    name, command_key, self.message
+                )
             } else {
                 format!("Command '{}' failed: {}", name, self.message)
             }
@@ -343,8 +355,7 @@ mod tests {
     #[test]
     fn test_with_command_key_simple() {
         let key = CommandKey::new("", "", "filter");
-        let err = Error::general_error("Column not found".to_string())
-            .with_command_key(&key);
+        let err = Error::general_error("Column not found".to_string()).with_command_key(&key);
 
         assert_eq!(err.error_type, ErrorType::General);
         assert_eq!(err.command_key, Some(key));
@@ -354,8 +365,7 @@ mod tests {
     #[test]
     fn test_with_command_key_with_namespace() {
         let key = CommandKey::new("", "polars", "select");
-        let err = Error::general_error("Invalid column".to_string())
-            .with_command_key(&key);
+        let err = Error::general_error("Invalid column".to_string()).with_command_key(&key);
 
         assert_eq!(err.command_key, Some(key.clone()));
         let display_str = err.to_string();
@@ -368,8 +378,7 @@ mod tests {
     fn test_with_command_key_preserves_error_type() {
         let key = CommandKey::new("", "", "parse");
         let source_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
-        let err = Error::from_error(ErrorType::ExecutionError, source_err)
-            .with_command_key(&key);
+        let err = Error::from_error(ErrorType::ExecutionError, source_err).with_command_key(&key);
 
         assert_eq!(err.error_type, ErrorType::ExecutionError);
         assert!(err.to_string().contains("Command 'parse' failed:"));
@@ -379,8 +388,7 @@ mod tests {
     #[test]
     fn test_with_command_key_unnamed() {
         let key = CommandKey::new("", "", "");
-        let err = Error::general_error("Something went wrong".to_string())
-            .with_command_key(&key);
+        let err = Error::general_error("Something went wrong".to_string()).with_command_key(&key);
 
         let display_str = err.to_string();
         assert!(display_str.contains("Command 'unnamed' failed:"));

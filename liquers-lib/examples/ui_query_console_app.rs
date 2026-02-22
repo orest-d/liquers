@@ -18,8 +18,8 @@ use liquers_core::store::AsyncStore;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::ui::{
-    app_message_channel, AppRunner, AppState, DirectAppState, UIContext,
-    render_element, try_sync_lock,
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    UIContext,
 };
 use liquers_lib::value::Value;
 use liquers_macro::register_command;
@@ -66,7 +66,6 @@ layout: windows
 #  - "main_spec/q/ns-lui/query_console/add-child"
 "#;
 
-
 // ─── eframe App ──────────────────────────────────────────────────────────────
 
 struct QueryConsoleApp {
@@ -80,43 +79,42 @@ impl QueryConsoleApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-        let (ui_context, app_runner) = runtime.block_on(async {
-            // 1. Setup environment
-            let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
+        let (ui_context, app_runner) = runtime
+            .block_on(async {
+                // 1. Setup environment
+                let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
 
-            // 2. Add OpenDAL filesystem store at current working directory
-            let fs_op = opendal::Operator::new(
-                opendal::services::Fs::default().root(".")
-            )
-            .expect("Failed to create OpenDAL FS operator")
-            .finish();
-            let store: Box<dyn AsyncStore> = Box::new(
-                AsyncOpenDALStore::new(fs_op, Key::new())
-            );
-            env.with_async_store(store);
+                // 2. Add OpenDAL filesystem store at current working directory
+                let fs_op = opendal::Operator::new(opendal::services::Fs::default().root("."))
+                    .expect("Failed to create OpenDAL FS operator")
+                    .finish();
+                let store: Box<dyn AsyncStore> =
+                    Box::new(AsyncOpenDALStore::new(fs_op, Key::new()));
+                env.with_async_store(store);
 
-            // 3. Add default recipe provider
-            env.with_default_recipe_provider();
+                // 3. Add default recipe provider
+                env.with_default_recipe_provider();
 
-            // 4. Register commands
-            let envref = {
-                let cr = env.get_mut_command_registry();
-                register_command!(cr, fn main_spec(state) -> result)?;
-                liquers_lib::register_all_commands!(cr)?;
-                env.to_ref()
-            };
+                // 4. Register commands
+                let envref = {
+                    let cr = env.get_mut_command_registry();
+                    register_command!(cr, fn main_spec(state) -> result)?;
+                    liquers_lib::register_all_commands!(cr)?;
+                    env.to_ref()
+                };
 
-            // 5. Create empty AppState — root will be created by query
-            let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
-                Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
+                // 5. Create empty AppState — root will be created by query
+                let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
+                    Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
 
-            // 6. Create UIContext and AppRunner
-            let (msg_tx, msg_rx) = app_message_channel();
-            let ui_context = UIContext::new(app_state, msg_tx.clone());
-            let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
+                // 6. Create UIContext and AppRunner
+                let (msg_tx, msg_rx) = app_message_channel();
+                let ui_context = UIContext::new(app_state, msg_tx.clone());
+                let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
 
-            Ok::<_, Error>((ui_context, app_runner))
-        }).expect("Failed to setup app");
+                Ok::<_, Error>((ui_context, app_runner))
+            })
+            .expect("Failed to setup app");
 
         Self {
             ui_context,
@@ -135,15 +133,14 @@ impl eframe::App for QueryConsoleApp {
         if !self.initialized {
             self.initialized = true;
             self.ui_context.submit_root_query(
-                "main_spec/ns-lui/ui_spec/add-child"
-                //"ns-lui/query_console/add-child"
+                "main_spec/ns-lui/ui_spec/add-child", //"ns-lui/query_console/add-child"
             );
         }
 
         // Process messages and poll evaluations
-        let _ = self._runtime.block_on(async {
-            self.app_runner.run(&app_state).await
-        });
+        let _ = self
+            ._runtime
+            .block_on(async { self.app_runner.run(&app_state).await });
 
         if self.app_runner.has_evaluating() {
             ctx.request_repaint();

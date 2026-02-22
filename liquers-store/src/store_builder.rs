@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 
 use liquers_core::error::{Error, ErrorType};
-use liquers_core::store::{AsyncStore, AsyncStoreRouter, AsyncStoreWrapper, FileStore, MemoryStore};
+use liquers_core::store::{
+    AsyncStore, AsyncStoreRouter, AsyncStoreWrapper, FileStore, MemoryStore,
+};
 use opendal::Operator;
 
 use crate::config::{get_opendal_scheme, is_opendal_store_type, StoreConfig, StoreRouterConfig};
@@ -137,7 +139,10 @@ fn create_opendal_operator(
     Operator::via_iter(scheme, config_pairs).map_err(|e| {
         Error::new(
             ErrorType::General,
-            format!("Failed to create OpenDAL operator for scheme '{}': {}", scheme, e),
+            format!(
+                "Failed to create OpenDAL operator for scheme '{}': {}",
+                scheme, e
+            ),
         )
     })
 }

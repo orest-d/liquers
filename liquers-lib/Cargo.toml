@@ -25,7 +25,7 @@ async-trait = "0.1.80"
 egui = "0.33.0"
 eframe = "0.33.0"
 egui_plot = "0.34.0"
-polars = { version = "0.51.0", features = ["lazy", "temporal"] }
+polars = { version = "0.53.0", features = ["lazy", "temporal", "csv", "parquet"] }
 reqwest = { version = "0.12.24", features = ["json"] }
 image = "0.25.9"
 imageproc = { version = "0.25.0", optional = true }
@@ -34,7 +34,7 @@ usvg = "0.45.1"
 tiny-skia = "0.11"
 futures = "0.3.31"
 egui_extras = "0.33.3"
-chrono = { version = "0.4.42", features = ["alloc"] }
+chrono = { version = "0.4.41", features = ["alloc"] }
 typetag = "0.2"
 egui_commonmark = "0.22.0"
 

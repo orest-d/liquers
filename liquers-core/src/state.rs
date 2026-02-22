@@ -1,6 +1,10 @@
 use std::{borrow::Cow, sync::Arc};
 
-use crate::{error::Error, metadata::{AssetInfo, Metadata, Status}, value::ValueInterface};
+use crate::{
+    error::Error,
+    metadata::{AssetInfo, Metadata, Status},
+    value::ValueInterface,
+};
 
 /// State encapsulates the data (Value) and metadata (Metadata) of a value.
 /// It is typically used to represent the result of an evaluation.
@@ -64,9 +68,12 @@ impl<V: ValueInterface> State<V> {
         metadata.with_error(error);
         let data = Arc::new(V::none());
         Self::sync_metadata_with_value(&mut metadata, &data);
-        State { data, metadata: Arc::new(metadata) }
+        State {
+            data,
+            metadata: Arc::new(metadata),
+        }
     }
-    
+
     pub fn with_data(self, value: V) -> Self {
         let mut metadata = (*self.metadata).clone();
         Self::sync_metadata_with_value(&mut metadata, &value);
@@ -94,7 +101,7 @@ impl<V: ValueInterface> State<V> {
     }
     /// Convinience method to get file extension from metadata.
     pub fn extension(&self) -> String {
-        if let Some(ext) = (*self.metadata).extension(){
+        if let Some(ext) = (*self.metadata).extension() {
             ext
         } else {
             self.data.default_extension().to_string()
@@ -105,7 +112,6 @@ impl<V: ValueInterface> State<V> {
     pub fn type_identifier(&self) -> Cow<'static, str> {
         self.data.identifier()
     }
-
 
     /// Get the data format
     /// Wrapper for metadata.get_data_format()
@@ -125,7 +131,7 @@ impl<V: ValueInterface> State<V> {
 
     /// Get message from metadata.
     pub fn message(&self) -> &str {
-        self.metadata.message() 
+        self.metadata.message()
     }
 
     /// Get unicode icon from metadata.
@@ -147,8 +153,6 @@ impl<V: ValueInterface> State<V> {
     pub fn as_bytes_with_data_format(&self, data_format: &str) -> Result<Vec<u8>, Error> {
         self.data.as_bytes(data_format)
     }
-
-
 }
 
 impl<V: ValueInterface> Default for State<V> {
@@ -174,7 +178,7 @@ impl<V: ValueInterface> ToOwned for State<V> {
 }
 */
 
-impl<V:ValueInterface> From<Result<State<V>, Error>> for State<V> {
+impl<V: ValueInterface> From<Result<State<V>, Error>> for State<V> {
     fn from(result: Result<State<V>, Error>) -> Self {
         match result {
             Ok(state) => state,

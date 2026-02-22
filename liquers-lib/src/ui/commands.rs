@@ -33,11 +33,7 @@ fn handles_to_value(handles: &[UIHandle]) -> Result<Value, Error> {
     let mut ids = Vec::with_capacity(handles.len());
     for h in handles {
         let id = i64::try_from(h.0).map_err(|_| {
-            Error::conversion_error_with_message(
-                h.0,
-                "i64",
-                "UI handle does not fit into i64",
-            )
+            Error::conversion_error_with_message(h.0, "i64", "UI handle does not fit into i64")
         })?;
         ids.push(id);
     }
@@ -272,15 +268,13 @@ pub fn ui_spec<E: Environment<Value = Value>>(
     context: Context<E>,
 ) -> Result<Value, Error> {
     // 1. Extract YAML from state (text or bytes)
-    let yaml_str = state.try_into_string()
-        .or_else(|_| {
-            // Try bytes → UTF-8
-            state.as_bytes()
-                .and_then(|bytes| {
-                    String::from_utf8(bytes.to_vec())
-                        .map_err(|e| Error::general_error(format!("Invalid UTF-8: {}", e)))
-                })
-        })?;
+    let yaml_str = state.try_into_string().or_else(|_| {
+        // Try bytes → UTF-8
+        state.as_bytes().and_then(|bytes| {
+            String::from_utf8(bytes.to_vec())
+                .map_err(|e| Error::general_error(format!("Invalid UTF-8: {}", e)))
+        })
+    })?;
 
     // 2. Parse YAML → UISpec
     let spec = UISpec::from_yaml(&yaml_str)?;
@@ -324,11 +318,9 @@ pub fn markdown(state: &State<Value>) -> Result<Value, Error> {
 pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     let query_string = if state.is_none() {
         String::new()
-    }
-    else if let Ok(q) = state.data.try_into_query() {
+    } else if let Ok(q) = state.data.try_into_query() {
         q.encode()
-    }
-    else {
+    } else {
         state.try_into_string()?
     };
     let element = QueryConsoleElement::new("Query Console".to_string(), query_string);

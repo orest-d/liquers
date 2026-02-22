@@ -1,9 +1,9 @@
+use crate::environment::CommandRegistryAccess;
+use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
 };
 use liquers_macro::register_command;
-use crate::value::{ExtValueInterface, Value};
-use crate::environment::CommandRegistryAccess;
 
 use super::util::try_to_polars_dataframe;
 
@@ -110,13 +110,13 @@ pub fn count(state: &State<Value>) -> Result<Value, Error> {
     // Create a new dataframe with count for each column
     use polars::prelude::*;
     let mut columns_vec = Vec::new();
-    for col in (*df).get_columns() {
+    for col in (*df).columns() {
         let count_val = col.len() - col.null_count();
         let series = Series::from_vec(col.name().clone(), vec![count_val as i64]);
         columns_vec.push(series.into()); // Convert Series to Column
     }
 
-    let result = DataFrame::new(columns_vec)
+    let result = DataFrame::new(1, columns_vec)
         .map_err(|e| Error::general_error(format!("Failed to compute count: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -132,14 +132,16 @@ pub fn describe(state: &State<Value>) -> Result<Value, Error> {
 
     // Get numeric columns only
     let numeric_cols: Vec<String> = (*df)
-        .get_columns()
+        .columns()
         .iter()
         .filter(|col| col.dtype().is_numeric())
         .map(|col| col.name().to_string())
         .collect();
 
     if numeric_cols.is_empty() {
-        return Err(Error::general_error("No numeric columns found for describe".to_string()));
+        return Err(Error::general_error(
+            "No numeric columns found for describe".to_string(),
+        ));
     }
 
     // Create expressions for each statistic
@@ -232,7 +234,9 @@ macro_rules! register_polars_aggregation_commands {
 }
 
 /// Backward-compatible wrapper calling the `register_polars_aggregation_commands!` macro.
-pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
+pub fn register_commands(
+    env: &mut crate::environment::DefaultEnvironment<Value>,
+) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
     register_polars_aggregation_commands!(cr)?;

@@ -1,6 +1,5 @@
 use pyo3::{exceptions::PyException, prelude::*, types::PyList};
 
-
 // TODO: Implement EnumArgumentType
 // TODO: Implement EnumArgumentAlternative
 // TODO: Implement EnumArgument
@@ -38,9 +37,13 @@ impl From<EnumArgumentType> for liquers_core::command_metadata::EnumArgumentType
         match e {
             EnumArgumentType::String => liquers_core::command_metadata::EnumArgumentType::String,
             EnumArgumentType::Integer => liquers_core::command_metadata::EnumArgumentType::Integer,
-            EnumArgumentType::IntegerOption => liquers_core::command_metadata::EnumArgumentType::IntegerOption,
+            EnumArgumentType::IntegerOption => {
+                liquers_core::command_metadata::EnumArgumentType::IntegerOption
+            }
             EnumArgumentType::Float => liquers_core::command_metadata::EnumArgumentType::Float,
-            EnumArgumentType::FloatOption => liquers_core::command_metadata::EnumArgumentType::FloatOption,
+            EnumArgumentType::FloatOption => {
+                liquers_core::command_metadata::EnumArgumentType::FloatOption
+            }
             EnumArgumentType::Boolean => liquers_core::command_metadata::EnumArgumentType::Boolean,
             EnumArgumentType::Any => liquers_core::command_metadata::EnumArgumentType::Any,
         }
@@ -52,9 +55,13 @@ impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType
         match e {
             liquers_core::command_metadata::EnumArgumentType::String => EnumArgumentType::String,
             liquers_core::command_metadata::EnumArgumentType::Integer => EnumArgumentType::Integer,
-            liquers_core::command_metadata::EnumArgumentType::IntegerOption => EnumArgumentType::IntegerOption,
+            liquers_core::command_metadata::EnumArgumentType::IntegerOption => {
+                EnumArgumentType::IntegerOption
+            }
             liquers_core::command_metadata::EnumArgumentType::Float => EnumArgumentType::Float,
-            liquers_core::command_metadata::EnumArgumentType::FloatOption => EnumArgumentType::FloatOption,
+            liquers_core::command_metadata::EnumArgumentType::FloatOption => {
+                EnumArgumentType::FloatOption
+            }
             liquers_core::command_metadata::EnumArgumentType::Boolean => EnumArgumentType::Boolean,
             liquers_core::command_metadata::EnumArgumentType::Any => EnumArgumentType::Any,
         }

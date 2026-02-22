@@ -46,8 +46,7 @@ struct PrototypeApp {
 
 impl PrototypeApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let runtime = tokio::runtime::Runtime::new()
-            .expect("Failed to create tokio runtime");
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
         let state = Arc::new(tokio::sync::Mutex::new(SharedState::new()));
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -80,10 +79,9 @@ async fn process_messages(
                 let mut locked = state.lock().await;
                 locked.counter += 1;
                 let counter = locked.counter;
-                locked.messages.push(format!(
-                    "#{}: Computed '{}'",
-                    counter, label
-                ));
+                locked
+                    .messages
+                    .push(format!("#{}: Computed '{}'", counter, label));
                 // Keep only last 10 messages.
                 if locked.messages.len() > 10 {
                     locked.messages.remove(0);

@@ -1,7 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-
-use liquers_core::{cache::{Cache, NoCache}, command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::{SimpleSession}, store::{AsyncStore, NoAsyncStore, Store}};
+use liquers_core::{
+    cache::{Cache, NoCache},
+    command_metadata::CommandMetadataRegistry,
+    commands::CommandRegistry,
+    context::SimpleSession,
+    store::{AsyncStore, NoAsyncStore, Store},
+};
 use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::value::Value;
@@ -44,11 +49,13 @@ impl Environment {
 
     #[getter]
     pub fn get_cmr(&self) -> crate::command_metadata::CommandMetadataRegistry {
-        crate::command_metadata::CommandMetadataRegistry(self.command_registry.command_metadata_registry.clone())
+        crate::command_metadata::CommandMetadataRegistry(
+            self.command_registry.command_metadata_registry.clone(),
+        )
     }
 
     #[setter]
-    pub fn set_cmr(&mut self, cmr:&crate::command_metadata::CommandMetadataRegistry){
+    pub fn set_cmr(&mut self, cmr: &crate::command_metadata::CommandMetadataRegistry) {
         self.command_registry.command_metadata_registry = cmr.0.clone();
     }
 
@@ -72,11 +79,10 @@ impl Environment {
     */
 }
 
-
 impl liquers_core::context::Environment for Environment {
     type Value = Value;
     type CommandExecutor = CommandRegistry<Self>;
-    type SessionType = liquers_core::context::SimpleSession;    
+    type SessionType = liquers_core::context::SimpleSession;
     type Payload = ();
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
@@ -92,48 +98,48 @@ impl liquers_core::context::Environment for Environment {
         //self.async_store.clone()
         Arc::new(NoAsyncStore)
     }
-    
-    
+
     fn get_asset_manager(&self) -> Arc<Box<liquers_core::assets::DefaultAssetManager<Self>>> {
         todo!()
     }
-    
+
     fn get_recipe_provider(&self) -> Arc<dyn liquers_core::recipes::AsyncRecipeProvider<Self>> {
         todo!()
     }
-    
+
     fn create_session(&self, user: liquers_core::context::User) -> Self::SessionType {
-        SimpleSession{user}
+        SimpleSession { user }
     }
-    
+
     fn apply_recipe(
         envref: liquers_core::context::EnvRef<Self>,
         input_state: liquers_core::state::State<Self::Value>,
         recipe: liquers_core::recipes::Recipe,
         context: liquers_core::context::Context<Self>,
     ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, liquers_core::error::Error>> + Send + 'static>,
+        Box<
+            dyn core::future::Future<Output = Result<Arc<Self::Value>, liquers_core::error::Error>>
+                + Send
+                + 'static,
+        >,
     > {
         todo!()
     }
-    
+
     fn init_with_envref(&self, envref: liquers_core::context::EnvRef<Self>) {
         todo!()
     }
-    
 }
-
 
 #[pyclass(unsendable)]
 pub struct Context(pub liquers_core::context::Context<Environment>);
 
 #[pymethods]
 impl Context {
-    fn info(&self, message:&str) {
+    fn info(&self, message: &str) {
         self.0.info(message);
     }
 }
-
 
 /*
 static ENVREF:Lazy<EnvRef> = Lazy::new(||{

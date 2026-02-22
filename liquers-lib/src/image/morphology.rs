@@ -1,8 +1,8 @@
-use liquers_core::{error::Error, state::State};
-use crate::value::{ExtValueInterface, Value};
 use super::util::try_to_image;
-use std::sync::Arc;
+use crate::value::{ExtValueInterface, Value};
 use image::DynamicImage;
+use liquers_core::{error::Error, state::State};
+use std::sync::Arc;
 
 /// Morphological erosion (shrink bright regions).
 /// Radius is in pixels.
@@ -18,7 +18,7 @@ pub fn erode(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     let gray_img = Arc::as_ref(&img).to_luma8();
 
     // Manual erosion using minimum filter
-    use image::{Luma, GrayImage};
+    use image::{GrayImage, Luma};
     let (width, height) = gray_img.dimensions();
     let mut result = GrayImage::new(width, height);
 
@@ -37,7 +37,9 @@ pub fn erode(state: &State<Value>, radius: u32) -> Result<Value, Error> {
         }
     }
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(
+        result,
+    ))))
 }
 
 /// Morphological dilation (expand bright regions).
@@ -53,7 +55,7 @@ pub fn dilate(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     let gray_img = Arc::as_ref(&img).to_luma8();
 
     // Manual dilation using maximum filter
-    use image::{Luma, GrayImage};
+    use image::{GrayImage, Luma};
     let (width, height) = gray_img.dimensions();
     let mut result = GrayImage::new(width, height);
 
@@ -72,7 +74,9 @@ pub fn dilate(state: &State<Value>, radius: u32) -> Result<Value, Error> {
         }
     }
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(
+        result,
+    ))))
 }
 
 /// Morphological opening (erode then dilate, remove noise).

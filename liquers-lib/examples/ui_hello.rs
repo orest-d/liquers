@@ -15,8 +15,8 @@ use liquers_core::state::State;
 use liquers_macro::register_command;
 
 use liquers_lib::ui::{
-    AppState, AssetViewElement, DirectAppState, ElementSource, UIContext, UIElement,
-    app_message_channel, render_element, try_sync_lock,
+    app_message_channel, render_element, try_sync_lock, AppState, AssetViewElement, DirectAppState,
+    ElementSource, UIContext, UIElement,
 };
 use liquers_lib::value::Value;
 

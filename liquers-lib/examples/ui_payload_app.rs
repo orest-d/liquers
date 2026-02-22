@@ -13,11 +13,11 @@ use liquers_core::state::State;
 use liquers_macro::register_command;
 
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
-use liquers_lib::ui::{
-    AppRunner, AppState, DirectAppState, ElementSource,
-    UIContext, app_message_channel, render_element, try_sync_lock,
-};
 use liquers_lib::ui::payload::SimpleUIPayload;
+use liquers_lib::ui::{
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    ElementSource, UIContext,
+};
 use liquers_lib::value::Value;
 
 // Required by register_command! and register_all_commands! macros.
@@ -47,8 +47,7 @@ struct PayloadApp {
 
 impl PayloadApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let runtime = tokio::runtime::Runtime::new()
-            .expect("Failed to create tokio runtime");
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
         let (app_state, runner, ui_context) = runtime.block_on(async {
             // 1. Create payload-aware environment and register commands.

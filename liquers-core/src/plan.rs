@@ -30,7 +30,10 @@ fn normalize_namespace(ns: &str) -> &str {
     }
 }
 
-fn namespaces_for_query(query: &Query, cmr: &CommandMetadataRegistry) -> Result<Vec<String>, Error> {
+fn namespaces_for_query(
+    query: &Query,
+    cmr: &CommandMetadataRegistry,
+) -> Result<Vec<String>, Error> {
     let mut namespaces = Vec::new();
     if let Some(ns) = query.last_ns() {
         for x in ns.iter() {
@@ -109,10 +112,8 @@ pub fn append_action(
         return Ok(plain_query);
     }
 
-    let ns_action =
-        ActionRequest::new("ns".to_string()).with_parameters(vec![ActionParameter::new_string(
-            requested_ns.to_string(),
-        )]);
+    let ns_action = ActionRequest::new("ns".to_string())
+        .with_parameters(vec![ActionParameter::new_string(requested_ns.to_string())]);
     Ok(append_actions(query, vec![ns_action, action]))
 }
 
@@ -190,9 +191,7 @@ impl Step {
             Step::UseKeyValue(_) => false,
         }
     }
-
 }
-
 
 /// Parameter value contains the partially or fully resolved value of a single command parameter.
 /// Parameter values are passed to the command executor when the command is executed.
@@ -295,14 +294,16 @@ impl ParameterValue {
                     )
                     .with_position(pos)
                 })?;
-                Value::Number(serde_json::Number::from_f64(x).ok_or(
-                    Error::conversion_error_with_message(
-                        raw_value.to_owned(),
-                        "float",
-                        "Float value is not representable",
-                    )
-                    .with_position(pos),
-                )?)
+                Value::Number(
+                    serde_json::Number::from_f64(x).ok_or(
+                        Error::conversion_error_with_message(
+                            raw_value.to_owned(),
+                            "float",
+                            "Float value is not representable",
+                        )
+                        .with_position(pos),
+                    )?,
+                )
             }
             EnumArgumentType::Boolean => match raw_value.to_lowercase().as_str() {
                 "true" | "t" | "yes" | "y" | "1" => Value::Bool(true),
@@ -514,11 +515,7 @@ impl ParameterValue {
                     if e.others_allowed {
                         Self::parse_other_enum_value(&arginfo.name, s, &e.value_type, pos)
                     } else {
-                        let aliases = e
-                            .values
-                            .iter()
-                            .map(|v| v.alias.clone())
-                            .join(", ");
+                        let aliases = e.values.iter().map(|v| v.alias.clone()).join(", ");
                         Err(Error::conversion_error_with_message(
                             s.to_owned(),
                             &e.name,
@@ -821,7 +818,6 @@ impl ResolvedParameterValues {
         false
     }
 
-
     pub fn iter(&self) -> std::slice::Iter<'_, ParameterValue> {
         self.0.iter()
     }
@@ -933,7 +929,10 @@ impl<'c> PlanBuilder<'c> {
     }
 
     /// Helper: check if parameters contain links to volatile queries
-    fn check_parameters_for_volatile_links(&mut self, params: &ResolvedParameterValues) -> Result<(), Error> {
+    fn check_parameters_for_volatile_links(
+        &mut self,
+        params: &ResolvedParameterValues,
+    ) -> Result<(), Error> {
         for param in &params.0 {
             self.check_parameter_for_volatile_links(param)?;
         }
@@ -1045,9 +1044,7 @@ impl<'c> PlanBuilder<'c> {
                             .push(Step::GetResourceDirectory(rqs.key.clone()));
                     }
                     "r" | "recipe" => {
-                        self.plan
-                            .steps
-                            .push(Step::GetAssetRecipe(rqs.key.clone()));
+                        self.plan.steps.push(Step::GetAssetRecipe(rqs.key.clone()));
                     }
                     "data" | "value" => {
                         self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
@@ -1088,7 +1085,7 @@ impl<'c> PlanBuilder<'c> {
         // Intercept 'v' instruction BEFORE normal action processing
         if action_request.name == "v" {
             self.mark_volatile("Volatile due to instruction 'v'");
-            return Ok(());  // Don't create Step::Action for 'v'
+            return Ok(()); // Don't create Step::Action for 'v'
         }
 
         let command_metadata = self.get_command_metadata(query, action_request)?;
@@ -1217,7 +1214,9 @@ impl<'c> PlanBuilder<'c> {
             };
 
             if !query_without_q_and_filename.is_empty() {
-                self.plan.steps.push(Step::UseQueryValue(query_without_q_and_filename));
+                self.plan
+                    .steps
+                    .push(Step::UseQueryValue(query_without_q_and_filename));
             }
 
             // Add filename as separate step if present
@@ -1331,7 +1330,7 @@ impl Plan {
         Plan {
             query: Query::new(),
             steps: Vec::new(),
-            is_volatile: false,  // Initialize to false
+            is_volatile: false, // Initialize to false
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1432,7 +1431,6 @@ impl Plan {
         second_plan.steps = self.steps[split_index..].to_vec();
         (first_plan, second_plan)
     }
-
 }
 
 impl Index<usize> for Plan {
@@ -1472,164 +1470,187 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
     cwd: Option<Key>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HashSet<Key>, Error>> + Send + 'a>> {
     Box::pin(async move {
-    let mut dependencies = HashSet::new();
-    let mut current_cwd = cwd;
+        let mut dependencies = HashSet::new();
+        let mut current_cwd = cwd;
 
-    for step in &plan.steps {
-        match step {
-            Step::GetAsset(key) => {
-                // Resolve key relative to cwd if needed
-                let resolved_key = if current_cwd.is_some() {
-                    // TODO: Implement key.resolve_relative(cwd) or similar
-                    key.clone()  // For now, use key as-is
-                } else {
-                    key.clone()
-                };
+        for step in &plan.steps {
+            match step {
+                Step::GetAsset(key) => {
+                    // Resolve key relative to cwd if needed
+                    let resolved_key = if current_cwd.is_some() {
+                        // TODO: Implement key.resolve_relative(cwd) or similar
+                        key.clone() // For now, use key as-is
+                    } else {
+                        key.clone()
+                    };
 
-                // Check for circular dependency
-                if stack.contains(&resolved_key) {
-                    return Err(Error::general_error(
-                        format!("Circular dependency detected: key {:?} appears in dependency chain", resolved_key)
-                    ).with_key(&resolved_key));
-                }
+                    // Check for circular dependency
+                    if stack.contains(&resolved_key) {
+                        return Err(Error::general_error(format!(
+                            "Circular dependency detected: key {:?} appears in dependency chain",
+                            resolved_key
+                        ))
+                        .with_key(&resolved_key));
+                    }
 
-                // Add to dependencies
-                dependencies.insert(resolved_key.clone());
+                    // Add to dependencies
+                    dependencies.insert(resolved_key.clone());
 
-                // Push onto stack
-                stack.push(resolved_key.clone());
+                    // Push onto stack
+                    stack.push(resolved_key.clone());
 
-                // Get recipe for this key (if it exists)
-                if let Ok(Some(recipe)) = envref.get_recipe_provider()
-                    .recipe_opt(&resolved_key, envref.clone())
-                    .await
-                {
-                    // Recursively find dependencies of this recipe
-                    if !recipe.query.is_empty() {
-                        if let Ok(recipe_query) = recipe.get_query() {
-                            // Build plan from recipe query
-                            let cmr = envref.get_command_metadata_registry();
-                            let mut pb = PlanBuilder::new(recipe_query, cmr);
-                            let recipe_plan = pb.build()?;
-                            let indirect_deps = find_dependencies(envref.clone(), &recipe_plan, stack, current_cwd.clone()).await?;
-                            dependencies.extend(indirect_deps);
+                    // Get recipe for this key (if it exists)
+                    if let Ok(Some(recipe)) = envref
+                        .get_recipe_provider()
+                        .recipe_opt(&resolved_key, envref.clone())
+                        .await
+                    {
+                        // Recursively find dependencies of this recipe
+                        if !recipe.query.is_empty() {
+                            if let Ok(recipe_query) = recipe.get_query() {
+                                // Build plan from recipe query
+                                let cmr = envref.get_command_metadata_registry();
+                                let mut pb = PlanBuilder::new(recipe_query, cmr);
+                                let recipe_plan = pb.build()?;
+                                let indirect_deps = find_dependencies(
+                                    envref.clone(),
+                                    &recipe_plan,
+                                    stack,
+                                    current_cwd.clone(),
+                                )
+                                .await?;
+                                dependencies.extend(indirect_deps);
+                            }
                         }
                     }
+
+                    // Pop from stack
+                    stack.pop();
                 }
+                Step::GetAssetBinary(key) => {
+                    // Same as GetAsset - creates dependency
+                    let resolved_key = if current_cwd.is_some() {
+                        key.clone()
+                    } else {
+                        key.clone()
+                    };
 
-                // Pop from stack
-                stack.pop();
-            }
-            Step::GetAssetBinary(key) => {
-                // Same as GetAsset - creates dependency
-                let resolved_key = if current_cwd.is_some() {
-                    key.clone()
-                } else {
-                    key.clone()
-                };
+                    if stack.contains(&resolved_key) {
+                        return Err(Error::general_error(format!(
+                            "Circular dependency detected: key {:?} appears in dependency chain",
+                            resolved_key
+                        ))
+                        .with_key(&resolved_key));
+                    }
 
-                if stack.contains(&resolved_key) {
-                    return Err(Error::general_error(
-                        format!("Circular dependency detected: key {:?} appears in dependency chain", resolved_key)
-                    ).with_key(&resolved_key));
-                }
+                    dependencies.insert(resolved_key.clone());
 
-                dependencies.insert(resolved_key.clone());
+                    stack.push(resolved_key.clone());
 
-                stack.push(resolved_key.clone());
-
-                if let Ok(Some(recipe)) = envref.get_recipe_provider()
-                    .recipe_opt(&resolved_key, envref.clone())
-                    .await
-                {
-                    if !recipe.query.is_empty() {
-                        if let Ok(recipe_query) = recipe.get_query() {
-                            let cmr = envref.get_command_metadata_registry();
-                            let mut pb = PlanBuilder::new(recipe_query, cmr);
-                            let recipe_plan = pb.build()?;
-                            let indirect_deps = find_dependencies(envref.clone(), &recipe_plan, stack, current_cwd.clone()).await?;
-                            dependencies.extend(indirect_deps);
+                    if let Ok(Some(recipe)) = envref
+                        .get_recipe_provider()
+                        .recipe_opt(&resolved_key, envref.clone())
+                        .await
+                    {
+                        if !recipe.query.is_empty() {
+                            if let Ok(recipe_query) = recipe.get_query() {
+                                let cmr = envref.get_command_metadata_registry();
+                                let mut pb = PlanBuilder::new(recipe_query, cmr);
+                                let recipe_plan = pb.build()?;
+                                let indirect_deps = find_dependencies(
+                                    envref.clone(),
+                                    &recipe_plan,
+                                    stack,
+                                    current_cwd.clone(),
+                                )
+                                .await?;
+                                dependencies.extend(indirect_deps);
+                            }
                         }
                     }
+
+                    stack.pop();
                 }
+                Step::GetAssetMetadata(key) | Step::GetAssetDirectory(key) => {
+                    // Similar to GetAsset, creates dependency
+                    let resolved_key = if current_cwd.is_some() {
+                        key.clone()
+                    } else {
+                        key.clone()
+                    };
 
-                stack.pop();
-            }
-            Step::GetAssetMetadata(key) | Step::GetAssetDirectory(key) => {
-                // Similar to GetAsset, creates dependency
-                let resolved_key = if current_cwd.is_some() {
-                    key.clone()
-                } else {
-                    key.clone()
-                };
+                    if stack.contains(&resolved_key) {
+                        return Err(Error::general_error(format!(
+                            "Circular dependency detected: key {:?} appears in dependency chain",
+                            resolved_key
+                        ))
+                        .with_key(&resolved_key));
+                    }
 
-                if stack.contains(&resolved_key) {
-                    return Err(Error::general_error(
-                        format!("Circular dependency detected: key {:?} appears in dependency chain", resolved_key)
-                    ).with_key(&resolved_key));
+                    dependencies.insert(resolved_key);
                 }
+                Step::UseKeyValue(_key) => {
+                    // Does NOT create dependency - just creates a value with the key
+                    // No attempt to fetch the resource is made
+                }
+                Step::GetAssetRecipe(_key) => {
+                    // Does NOT create circular dependency risk
+                    // Recipe is a leaf in the dependency tree, has no further dependencies
+                }
+                Step::GetResource(_key) => {
+                    // Ambiguous: fetches directly from store, bypassing dependency controls
+                    // Treated as no dependency for now
+                    // TODO: Consider flagging this as potential dependency bypass
+                }
+                Step::GetResourceMetadata(_key) => {
+                    // Similar to GetResource - bypasses dependency system
+                }
+                Step::SetCwd(key) => {
+                    // Update current working directory for subsequent relative key resolution
+                    current_cwd = Some(key.clone());
+                    // Does not create dependency on its own
+                }
+                Step::Evaluate(query) | Step::UseQueryValue(query) => {
+                    // Resolve query relative to cwd if needed
+                    let resolved_query = if current_cwd.is_some() {
+                        // TODO: Implement query.resolve_relative(cwd) or similar
+                        query.clone() // For now, use query as-is
+                    } else {
+                        query.clone()
+                    };
 
-                dependencies.insert(resolved_key);
+                    // Convert query to plan, find its dependencies
+                    let cmr = envref.get_command_metadata_registry();
+                    let mut pb = PlanBuilder::new(resolved_query, cmr);
+                    let eval_plan = pb.build()?;
+                    let query_deps =
+                        find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone())
+                            .await?;
+                    dependencies.extend(query_deps);
+                }
+                Step::Plan(nested_plan) => {
+                    // Find dependencies of nested plan
+                    let nested_deps =
+                        find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone())
+                            .await?;
+                    dependencies.extend(nested_deps);
+                }
+                Step::Action { .. } => {
+                    // No dependencies
+                }
+                Step::Info(_) | Step::Warning(_) | Step::Error(_) => {
+                    // No dependencies
+                }
+                Step::Filename(_) => {
+                    // No dependencies (just metadata)
+                }
+                Step::GetResourceDirectory(_key) => {
+                    // Similar to GetResource - bypasses dependency system
+                } // IMPORTANT: No default match arm - all Step variants must be explicit
             }
-            Step::UseKeyValue(_key) => {
-                // Does NOT create dependency - just creates a value with the key
-                // No attempt to fetch the resource is made
-            }
-            Step::GetAssetRecipe(_key) => {
-                // Does NOT create circular dependency risk
-                // Recipe is a leaf in the dependency tree, has no further dependencies
-            }
-            Step::GetResource(_key) => {
-                // Ambiguous: fetches directly from store, bypassing dependency controls
-                // Treated as no dependency for now
-                // TODO: Consider flagging this as potential dependency bypass
-            }
-            Step::GetResourceMetadata(_key) => {
-                // Similar to GetResource - bypasses dependency system
-            }
-            Step::SetCwd(key) => {
-                // Update current working directory for subsequent relative key resolution
-                current_cwd = Some(key.clone());
-                // Does not create dependency on its own
-            }
-            Step::Evaluate(query) | Step::UseQueryValue(query) => {
-                // Resolve query relative to cwd if needed
-                let resolved_query = if current_cwd.is_some() {
-                    // TODO: Implement query.resolve_relative(cwd) or similar
-                    query.clone()  // For now, use query as-is
-                } else {
-                    query.clone()
-                };
-
-                // Convert query to plan, find its dependencies
-                let cmr = envref.get_command_metadata_registry();
-                let mut pb = PlanBuilder::new(resolved_query, cmr);
-                let eval_plan = pb.build()?;
-                let query_deps = find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone()).await?;
-                dependencies.extend(query_deps);
-            }
-            Step::Plan(nested_plan) => {
-                // Find dependencies of nested plan
-                let nested_deps = find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone()).await?;
-                dependencies.extend(nested_deps);
-            }
-            Step::Action { .. } => {
-                // No dependencies
-            }
-            Step::Info(_) | Step::Warning(_) | Step::Error(_) => {
-                // No dependencies
-            }
-            Step::Filename(_) => {
-                // No dependencies (just metadata)
-            }
-            Step::GetResourceDirectory(_key) => {
-                // Similar to GetResource - bypasses dependency system
-            }
-            // IMPORTANT: No default match arm - all Step variants must be explicit
         }
-    }
 
-    Ok(dependencies)
+        Ok(dependencies)
     })
 }
 
@@ -1650,15 +1671,17 @@ pub(crate) async fn has_volatile_dependencies<E: Environment>(
 
     // Check each dependency key for volatility
     for key in dependencies {
-        if let Ok(Some(recipe)) = envref.get_recipe_provider()
+        if let Ok(Some(recipe)) = envref
+            .get_recipe_provider()
             .recipe_opt(&key, envref.clone())
             .await
         {
             if recipe.volatile {
                 plan.is_volatile = true;
-                plan.steps.push(Step::Info(
-                    format!("Volatile due to dependency on volatile key: {:?}", key)
-                ));
+                plan.steps.push(Step::Info(format!(
+                    "Volatile due to dependency on volatile key: {:?}",
+                    key
+                )));
                 return Ok(true);
             }
         }
@@ -1802,7 +1825,9 @@ mod tests {
         let arginfo = ArgumentInfo::argument("quality").with_type(ArgumentType::Enum(enum_arg));
         let error = ParameterValue::from_string(&arginfo, "x", &Position::unknown()).unwrap_err();
         assert!(
-            error.message.contains("Expected integer value for enum fallback"),
+            error
+                .message
+                .contains("Expected integer value for enum fallback"),
             "{}",
             error.message
         );
@@ -1814,7 +1839,8 @@ mod tests {
             .with_alternative("nearest")
             .with_alternative("lanczos3");
         let arginfo = ArgumentInfo::argument("mode").with_type(ArgumentType::Enum(enum_arg));
-        let error = ParameterValue::from_string(&arginfo, "unknown", &Position::unknown()).unwrap_err();
+        let error =
+            ParameterValue::from_string(&arginfo, "unknown", &Position::unknown()).unwrap_err();
         assert!(
             error.message.contains("Valid values: nearest, lanczos3")
                 || error.message.contains("Valid values: lanczos3, nearest"),
@@ -1857,11 +1883,13 @@ mod tests {
         cmr.add_command(&cmd);
 
         let query = Query {
-            segments: vec![QuerySegment::Transform(crate::query::TransformQuerySegment {
-                header: None,
-                query: vec![ActionRequest::new("base".to_string())],
-                filename: Some(ResourceName::new("data.txt".to_string())),
-            })],
+            segments: vec![QuerySegment::Transform(
+                crate::query::TransformQuerySegment {
+                    header: None,
+                    query: vec![ActionRequest::new("base".to_string())],
+                    filename: Some(ResourceName::new("data.txt".to_string())),
+                },
+            )],
             absolute: false,
             source: crate::query::QuerySource::Unspecified,
         };
@@ -2324,16 +2352,16 @@ mod tests {
 
         // Create ResolvedParameterValues with a link to a volatile query
         let volatile_query = parse_query("v").unwrap();
-        let params = ResolvedParameterValues(vec![
-            ParameterValue::ParameterLink(
-                "test_param".to_string(),
-                volatile_query,
-                Position::unknown(),
-            ),
-        ]);
+        let params = ResolvedParameterValues(vec![ParameterValue::ParameterLink(
+            "test_param".to_string(),
+            volatile_query,
+            Position::unknown(),
+        )]);
 
         // Check parameters for volatile links
-        builder.check_parameters_for_volatile_links(&params).unwrap();
+        builder
+            .check_parameters_for_volatile_links(&params)
+            .unwrap();
 
         // Builder should now be marked as volatile
         assert!(builder.is_volatile);
@@ -2399,6 +2427,9 @@ mod tests {
         let query2 = parse_query("v/q").unwrap();
         let mut pb2 = PlanBuilder::new(query2, &cr);
         let plan2 = pb2.build().unwrap();
-        assert!(!plan2.is_volatile, "v/q should NOT be volatile (evaluates to Query value)");
+        assert!(
+            !plan2.is_volatile,
+            "v/q should NOT be volatile (evaluates to Query value)"
+        );
     }
 }

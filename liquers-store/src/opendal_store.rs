@@ -1,9 +1,13 @@
-
 use std::collections::BTreeSet;
 
-use liquers_core::{error::Error, metadata::{Metadata, MetadataRecord}, query::Key, store::{AsyncStore, Store}};
-use opendal::{Operator, Buffer};
 use bytes::Buf;
+use liquers_core::{
+    error::Error,
+    metadata::{Metadata, MetadataRecord},
+    query::Key,
+    store::{AsyncStore, Store},
+};
+use opendal::{Buffer, Operator};
 
 use async_trait::async_trait;
 use liquers_core::metadata::Status;
@@ -46,11 +50,11 @@ impl Store for OpenDALStore {
     fn key_prefix(&self) -> Key {
         self.prefix.clone()
     }
-    
+
     fn default_metadata(&self, _key: &Key, _is_dir: bool) -> MetadataRecord {
         MetadataRecord::new()
     }
-    
+
     fn finalize_metadata(
         &self,
         metadata: &mut Metadata,
@@ -58,9 +62,9 @@ impl Store for OpenDALStore {
         _data: &[u8],
         _update: bool,
     ) {
-    
+
     }
-    
+
     fn finalize_metadata_empty(
         &self,
         metadata: &mut Metadata,
@@ -68,19 +72,19 @@ impl Store for OpenDALStore {
         _is_dir: bool,
         _update: bool,
     ) {
-        
+
     }
-    
+
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), liquers_core::error::Error> {
         Ok((self.get_bytes(key)?, self.get_metadata(key)?))
     }
-    
+
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, liquers_core::error::Error> {
         let path = self.key_to_path(key);
         let buf = self.map_read_error(key, self.op.read(&path))?;
         Ok(buf.to_vec())
     }
-    
+
     fn get_metadata(&self, key: &Key) -> Result<Metadata, liquers_core::error::Error> {
         let path = self.key_to_path_metadata(key);
         if self.map_read_error(key, self.op.exists(&path))? {
@@ -101,7 +105,7 @@ impl Store for OpenDALStore {
             Err(Error::key_not_found(key))
         }
     }
-    
+
     fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
         //TODO: create_dir
         let path = self.key_to_path(key);
@@ -110,7 +114,7 @@ impl Store for OpenDALStore {
         self.set_metadata(key, metadata)?;
         Ok(())
     }
-    
+
     fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), liquers_core::error::Error> {
         //TODO: create_dir
         let path = self.key_to_path_metadata(key);
@@ -123,7 +127,7 @@ impl Store for OpenDALStore {
         };
         Ok(())
     }
-    
+
     fn remove(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         let path = self.key_to_path(key);
         if self.map_read_error(key, self.op.exists(&path))? {
@@ -135,7 +139,7 @@ impl Store for OpenDALStore {
         }
         Ok(())
     }
-    
+
     /// Remove directory.
     /// The key must be a directory.
     /// Files are not removed recursively.
@@ -143,7 +147,7 @@ impl Store for OpenDALStore {
         let path = self.key_to_path(key);
         self.map_write_error(key, self.op.remove_all(&path))
     }
-    
+
     fn contains(&self, key: &Key) -> Result<bool, liquers_core::error::Error> {
         let path = self.key_to_path(key);
         if self.map_read_error(key, self.op.exists(&path))? {
@@ -155,19 +159,19 @@ impl Store for OpenDALStore {
         }
         Ok(false)
     }
-    
+
     fn is_dir(&self, key: &Key) -> Result<bool, liquers_core::error::Error> {
         let path = self.key_to_path(key);
         let stat = self.map_read_error(key, self.op.stat(&path))?;
         Ok(stat.is_dir())
     }
-    
+
     fn keys(&self) -> Result<Vec<Key>, liquers_core::error::Error> {
         let mut keys = self.listdir_keys_deep(&self.key_prefix())?;
         keys.push(self.key_prefix().to_owned());
         Ok(keys)
     }
-    
+
     fn listdir(&self, key: &Key) -> Result<Vec<String>, liquers_core::error::Error> {
         let mut list = BTreeSet::new();
         let path = self.key_to_path(key);
@@ -176,17 +180,17 @@ impl Store for OpenDALStore {
             let mut name = entry.name().to_string();
             if name.ends_with(Self::METADATA) {
                 name = name.trim_end_matches(Self::METADATA).to_string();
-            }            
+            }
             list.insert(name);
         }
         Ok(list.into_iter().collect())
     }
-    
+
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, liquers_core::error::Error> {
         let names = self.listdir(key)?;
         Ok(names.iter().map(|x| key.join(x)).collect())
     }
-    
+
     fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, liquers_core::error::Error> {
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
@@ -198,12 +202,12 @@ impl Store for OpenDALStore {
         }
         Ok(keys_deep)
     }
-    
+
     fn makedir(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         let path = format!("{}/",self.key_to_path(key));
         self.map_write_error(key, self.op.create_dir(&path))
     }
-    
+
     fn is_supported(&self, key: &Key) -> bool {
         key.has_key_prefix(&self.prefix)
             && (!key
@@ -218,7 +222,6 @@ pub struct AsyncOpenDALStore {
     op: Operator,
     prefix: Key,
 }
-
 
 #[cfg(feature = "async_store")]
 impl AsyncOpenDALStore {
@@ -240,17 +243,37 @@ impl AsyncOpenDALStore {
     pub fn key_to_path_metadata(&self, key: &Key) -> String {
         format!("{}{}", key.encode(), Self::METADATA)
     }
-    fn map_read_error<T>(&self, key:&Key, res:opendal::Result<T>)->Result<T, liquers_core::error::Error> {
-        res.map_err(|e| liquers_core::error::Error::key_read_error(key, &self.store_name(), &format!("{e} (OpenDAL Read Error)")))
+    fn map_read_error<T>(
+        &self,
+        key: &Key,
+        res: opendal::Result<T>,
+    ) -> Result<T, liquers_core::error::Error> {
+        res.map_err(|e| {
+            liquers_core::error::Error::key_read_error(
+                key,
+                &self.store_name(),
+                &format!("{e} (OpenDAL Read Error)"),
+            )
+        })
     }
-    fn map_write_error<T>(&self, key:&Key, res:opendal::Result<T>)->Result<T, liquers_core::error::Error> {
-        res.map_err(|e| liquers_core::error::Error::key_write_error(key, &self.store_name(), &format!("{e} (OpenDAL Write Error)")))
+    fn map_write_error<T>(
+        &self,
+        key: &Key,
+        res: opendal::Result<T>,
+    ) -> Result<T, liquers_core::error::Error> {
+        res.map_err(|e| {
+            liquers_core::error::Error::key_write_error(
+                key,
+                &self.store_name(),
+                &format!("{e} (OpenDAL Write Error)"),
+            )
+        })
     }
     async fn make_sub_dirs(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         for i in 1..=key.len() {
             let sub_key = key.prefix_of_size(i).unwrap();
             let path = self.key_to_path(&sub_key);
-            let _ignore =  self.op.create_dir(&path).await;
+            let _ignore = self.op.create_dir(&path).await;
         }
         Ok(())
     }
@@ -258,7 +281,7 @@ impl AsyncOpenDALStore {
 
 #[cfg(feature = "async_store")]
 #[async_trait]
-impl AsyncStore for AsyncOpenDALStore{
+impl AsyncStore for AsyncOpenDALStore {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} OpenDAL Store", self.key_prefix())
@@ -275,7 +298,7 @@ impl AsyncStore for AsyncOpenDALStore{
     }
 
     /// Get data asynchronously
-    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error>{
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Ok((self.get_bytes(key).await?, self.get_metadata(key).await?))
     }
 
@@ -421,7 +444,7 @@ impl AsyncStore for AsyncOpenDALStore{
         }
         */
         let mut list = BTreeSet::new();
-        let path = self.key_to_path(key).trim_end_matches('/').to_string()+"/"; // Ensure trailing slash for directory
+        let path = self.key_to_path(key).trim_end_matches('/').to_string() + "/"; // Ensure trailing slash for directory
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
         for entry in entries {
             if self.path_to_key(entry.path())? == *key {
@@ -433,7 +456,7 @@ impl AsyncStore for AsyncOpenDALStore{
 
             if name.ends_with(Self::METADATA) {
                 name = name.trim_end_matches(Self::METADATA).to_string();
-            }            
+            }
             list.insert(name);
         }
         Ok(list.into_iter().collect())
@@ -456,7 +479,7 @@ impl AsyncStore for AsyncOpenDALStore{
         let entries = self.map_read_error(key, self.op.list_with(&path).recursive(true).await)?;
         for entry in entries {
             if let Ok(sub) = self.path_to_key(entry.path()) {
-                for i in (key.len()+1)..=sub.len() {
+                for i in (key.len() + 1)..=sub.len() {
                     let sub_key = sub.prefix_of_size(i).unwrap();
                     list.insert(sub_key);
                 }
@@ -468,7 +491,7 @@ impl AsyncStore for AsyncOpenDALStore{
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let path = format!("{}/",self.key_to_path(key));
+        let path = format!("{}/", self.key_to_path(key));
         self.map_write_error(key, self.op.create_dir(&path).await)
     }
 
@@ -489,7 +512,6 @@ impl AsyncStore for AsyncOpenDALStore{
                 .filename()
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
     }
-
 }
 
 #[cfg(feature = "async_store")]
@@ -573,14 +595,20 @@ mod tests {
         }
 
         assert_eq!(store.keys().await.unwrap().len(), 2);
-        assert!(store.keys().await.unwrap().into_iter().map(|x| x.encode()).collect::<Vec<_>>().contains(&"foo.txt".to_string()));
+        assert!(store
+            .keys()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|x| x.encode())
+            .collect::<Vec<_>>()
+            .contains(&"foo.txt".to_string()));
         assert!(store.listdir(&Key::new()).await.unwrap().len() == 1);
         assert!(store.listdir(&Key::new()).await.unwrap()[0] == "foo.txt");
         assert!(store.listdir_keys(&Key::new()).await.unwrap().len() == 1);
         assert!(store.listdir_keys(&Key::new()).await.unwrap()[0].encode() == "foo.txt");
         assert!(store.listdir_keys_deep(&Key::new()).await.unwrap().len() == 1);
         assert!(store.listdir_keys_deep(&Key::new()).await.unwrap()[0].encode() == "foo.txt");
-
 
         // Remove data
         store.remove(&key).await.unwrap();
@@ -590,7 +618,6 @@ mod tests {
         assert_eq!(store.keys().await.unwrap().len(), 1);
         assert!(store.listdir(&Key::new()).await.unwrap().is_empty());
         assert!(store.listdir_keys(&Key::new()).await.unwrap().is_empty());
-
     }
 
     #[tokio::test]
@@ -619,7 +646,14 @@ mod tests {
         }
 
         assert_eq!(store.keys().await.unwrap().len(), 3);
-        assert!(store.keys().await.unwrap().into_iter().map(|x| x.encode()).collect::<Vec<_>>().contains(&"sub/foo.txt".to_string()));
+        assert!(store
+            .keys()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|x| x.encode())
+            .collect::<Vec<_>>()
+            .contains(&"sub/foo.txt".to_string()));
         assert!(store.listdir(&subkey).await.unwrap().len() == 1);
         /*
         assert!(store.listdir(&subkey).await.unwrap()[0] == "sub/foo.txt");
@@ -631,17 +665,38 @@ mod tests {
     }
     #[tokio::test]
     async fn test_opendal_localfs() {
-        let op = opendal::Operator::new(opendal::services::Fs::default().root(".")).expect("OpenDAL FS store").finish();
+        let op = opendal::Operator::new(opendal::services::Fs::default().root("."))
+            .expect("OpenDAL FS store")
+            .finish();
         let store: Box<dyn AsyncStore> = Box::new(AsyncOpenDALStore::new(op, Key::new()));
         for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
-            println!("Key {i}: {} {}", k.encode(), store.contains(&k).await.unwrap());
+            println!(
+                "Key {i}: {} {}",
+                k.encode(),
+                store.contains(&k).await.unwrap()
+            );
             assert!(store.contains(&k).await.unwrap());
-            println!("Asset info: {:?}", store.get_asset_info(&k).await.unwrap().filename);
+            println!(
+                "Asset info: {:?}",
+                store.get_asset_info(&k).await.unwrap().filename
+            );
         }
-        for (i, k) in store.listdir(&parse_key("src").unwrap()).await.unwrap().into_iter().enumerate() {
+        for (i, k) in store
+            .listdir(&parse_key("src").unwrap())
+            .await
+            .unwrap()
+            .into_iter()
+            .enumerate()
+        {
             println!("Item {i}: {k}");
         }
-        for (i, k) in store.listdir_keys(&parse_key("src").unwrap()).await.unwrap().into_iter().enumerate() {
+        for (i, k) in store
+            .listdir_keys(&parse_key("src").unwrap())
+            .await
+            .unwrap()
+            .into_iter()
+            .enumerate()
+        {
             println!("KEY Item {i}: {k}");
         }
         let mut env = SimpleEnvironment::<Value>::new();
@@ -662,7 +717,5 @@ mod tests {
         } else {
             println!("Expected AssetInfo value, got {:?}", s.data);
         }
-
     }
-
 }

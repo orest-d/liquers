@@ -1,21 +1,24 @@
-use liquers_core::{error::Error, state::State};
+use super::util::{format_to_image_format, format_to_mime_type, normalize_format, try_to_image};
 use crate::value::{ExtValueInterface, Value};
-use super::util::{try_to_image, normalize_format, format_to_image_format, format_to_mime_type};
-use std::sync::Arc;
 use image::DynamicImage;
+use liquers_core::{error::Error, state::State};
+use std::sync::Arc;
 
 /// Convert image to PNG format (returns PNG bytes).
 pub fn to_png(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
     let mut buffer = Vec::new();
-    Arc::as_ref(&img).write_to(
-        &mut std::io::Cursor::new(&mut buffer),
-        image::ImageFormat::Png,
-    )
-    .map_err(|e| Error::general_error(format!("Failed to encode PNG: {}", e)))?;
+    Arc::as_ref(&img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| Error::general_error(format!("Failed to encode PNG: {}", e)))?;
 
-    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
+        value: buffer,
+    }))
 }
 
 /// Convert image to JPEG format with specified quality (1-100).
@@ -42,7 +45,9 @@ pub fn to_jpeg(state: &State<Value>, quality: u8) -> Result<Value, Error> {
         .write_with_encoder(encoder)
         .map_err(|e| Error::general_error(format!("Failed to encode JPEG: {}", e)))?;
 
-    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
+        value: buffer,
+    }))
 }
 
 /// Convert image to WebP format (returns WebP bytes).
@@ -50,13 +55,16 @@ pub fn to_webp(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
     let mut buffer = Vec::new();
-    Arc::as_ref(&img).write_to(
-        &mut std::io::Cursor::new(&mut buffer),
-        image::ImageFormat::WebP,
-    )
-    .map_err(|e| Error::general_error(format!("Failed to encode WebP: {}", e)))?;
+    Arc::as_ref(&img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::WebP,
+        )
+        .map_err(|e| Error::general_error(format!("Failed to encode WebP: {}", e)))?;
 
-    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
+        value: buffer,
+    }))
 }
 
 /// Convert image to GIF format (returns GIF bytes).
@@ -64,13 +72,16 @@ pub fn to_gif(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
     let mut buffer = Vec::new();
-    Arc::as_ref(&img).write_to(
-        &mut std::io::Cursor::new(&mut buffer),
-        image::ImageFormat::Gif,
-    )
-    .map_err(|e| Error::general_error(format!("Failed to encode GIF: {}", e)))?;
+    Arc::as_ref(&img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Gif,
+        )
+        .map_err(|e| Error::general_error(format!("Failed to encode GIF: {}", e)))?;
 
-    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
+        value: buffer,
+    }))
 }
 
 /// Convert image to BMP format (returns BMP bytes).
@@ -78,13 +89,16 @@ pub fn to_bmp(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
     let mut buffer = Vec::new();
-    Arc::as_ref(&img).write_to(
-        &mut std::io::Cursor::new(&mut buffer),
-        image::ImageFormat::Bmp,
-    )
-    .map_err(|e| Error::general_error(format!("Failed to encode BMP: {}", e)))?;
+    Arc::as_ref(&img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Bmp,
+        )
+        .map_err(|e| Error::general_error(format!("Failed to encode BMP: {}", e)))?;
 
-    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes { value: buffer }))
+    Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
+        value: buffer,
+    }))
 }
 
 /// Convert image to base64 data URL with specified format.
@@ -97,7 +111,8 @@ pub fn to_dataurl(state: &State<Value>, format_str: String) -> Result<Value, Err
     let mime_type = format_to_mime_type(&normalized_format)?;
 
     let mut buffer = Vec::new();
-    Arc::as_ref(&img).write_to(&mut std::io::Cursor::new(&mut buffer), img_format)
+    Arc::as_ref(&img)
+        .write_to(&mut std::io::Cursor::new(&mut buffer), img_format)
         .map_err(|e| Error::general_error(format!("Failed to encode image: {}", e)))?;
 
     let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buffer);
@@ -120,9 +135,9 @@ pub fn color_format(state: &State<Value>, format: String) -> Result<Value, Error
         "rgba16" => Arc::as_ref(&img).to_rgba16().into(),
         _ => {
             return Err(Error::general_error(format!(
-                "Invalid color format '{}'. Supported: rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16",
-                format
-            )))
+            "Invalid color format '{}'. Supported: rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16",
+            format
+        )))
         }
     };
 

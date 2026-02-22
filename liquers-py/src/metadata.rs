@@ -1,8 +1,7 @@
 use liquers_core::error::Error;
 use liquers_core::metadata::{
     AssetInfo as CoreAssetInfo, LogEntry as CoreLogEntry, LogEntryKind as CoreLogEntryKind,
-    MetadataRecord as CoreMetadataRecord, Status as CoreStatus,
-    Metadata as CoreMetadata,
+    Metadata as CoreMetadata, MetadataRecord as CoreMetadataRecord, Status as CoreStatus,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -11,13 +10,17 @@ use pyo3::types::PyList;
 use crate::parse::{Key, Position, Query};
 
 #[pyclass]
-pub struct Metadata{pub inner: CoreMetadata}
+pub struct Metadata {
+    pub inner: CoreMetadata,
+}
 
 #[pymethods]
 impl Metadata {
     #[new]
     pub fn new() -> Self {
-        Metadata { inner: CoreMetadata::new() }
+        Metadata {
+            inner: CoreMetadata::new(),
+        }
     }
 
     pub fn get_asset_info(&self) -> PyResult<AssetInfo> {
@@ -83,7 +86,7 @@ impl Metadata {
         self.inner
             .set_extension(extension)
             .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
-        Ok(()) 
+        Ok(())
     }
 
     pub fn get_data_format(&self) -> String {
@@ -652,7 +655,6 @@ impl LogEntryKind {
     pub fn __repr__(&self) -> String {
         format!("'{:?}'", self)
     }
-
 }
 
 #[pyclass]

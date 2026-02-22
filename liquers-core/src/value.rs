@@ -5,7 +5,12 @@ use serde_json;
 
 use std::{borrow::Cow, collections::BTreeMap, result::Result};
 
-use crate::{command_metadata::CommandMetadata, error::{Error, ErrorType}, metadata::{AssetInfo, MetadataRecord}, recipes::Recipe};
+use crate::{
+    command_metadata::CommandMetadata,
+    error::{Error, ErrorType},
+    metadata::{AssetInfo, MetadataRecord},
+    recipes::Recipe,
+};
 use std::convert::{TryFrom, TryInto};
 
 /// Basic built-in value type
@@ -29,16 +34,18 @@ pub enum Value {
     Recipe(Recipe),
     CommandMetadata(CommandMetadata),
     Query(crate::query::Query),
-    Key(crate::query::Key), 
+    Key(crate::query::Key),
 }
 
 // TODO: Remove the serialization and deserialization from ValueInterface (is it there?)
 /// ValueInterface is a trait that must be implemented by the value type.
 /// This is a central trait that defines the minimum set of operations
 /// that must be supported by the value type.
-pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static{
-        /// Try to get a Query out
-        fn try_into_query(&self) -> Result<crate::query::Query, Error>;
+pub trait ValueInterface:
+    core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static
+{
+    /// Try to get a Query out
+    fn try_into_query(&self) -> Result<crate::query::Query, Error>;
     /// Empty value
     fn none() -> Self;
 
@@ -138,7 +145,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     fn try_into_i64(&self) -> Result<i64, Error>;
 
     /// Try to get a i64 option
-    fn try_into_i64_option(&self) -> Result<Option<i64>, Error>{
+    fn try_into_i64_option(&self) -> Result<Option<i64>, Error> {
         if self.is_none() {
             Ok(None)
         } else {
@@ -150,7 +157,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
     fn try_into_f64(&self) -> Result<f64, Error>;
 
     /// Try to get a i64 option
-    fn try_into_f64_option(&self) -> Result<Option<f64>, Error>{
+    fn try_into_f64_option(&self) -> Result<Option<f64>, Error> {
         if self.is_none() {
             Ok(None)
         } else {
@@ -166,7 +173,7 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
 
     /// Try into key
     fn try_into_key(&self) -> Result<crate::query::Key, Error>;
-    
+
     /// String identifier of the state type
     /// Several types can be linked to the same identifier.
     /// The identifier must be cross-platform
@@ -252,14 +259,14 @@ pub trait ValueInterface: core::fmt::Debug + Clone + Sized + DefaultValueSeriali
 }
 
 impl ValueInterface for Value {
-        fn try_into_query(&self) -> Result<crate::query::Query, Error> {
-            match self {
-                Value::Query(q) => Ok(q.clone()),
-                Value::Text(s) => crate::parse::parse_query(s)
-                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
-                _ => Err(Error::conversion_error(self.identifier(), "Query")),
-            }
+    fn try_into_query(&self) -> Result<crate::query::Query, Error> {
+        match self {
+            Value::Query(q) => Ok(q.clone()),
+            Value::Text(s) => crate::parse::parse_query(s)
+                .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+            _ => Err(Error::conversion_error(self.identifier(), "Query")),
         }
+    }
     fn none() -> Self {
         Value::None
     }
@@ -320,13 +327,13 @@ impl ValueInterface for Value {
                 Ok(serde_json::Value::Object(m))
             }
             Value::Metadata(metadata_record) => {
-                serde_json::to_value(metadata_record)
-                    .map_err(|e| Error::conversion_error_with_message("metadata", "json value", &e.to_string()))
+                serde_json::to_value(metadata_record).map_err(|e| {
+                    Error::conversion_error_with_message("metadata", "json value", &e.to_string())
+                })
             }
-            Value::Recipe(recipe) => {
-                serde_json::to_value(recipe)
-                    .map_err(|e| Error::conversion_error_with_message("recipe", "json value", &e.to_string()))
-            }
+            Value::Recipe(recipe) => serde_json::to_value(recipe).map_err(|e| {
+                Error::conversion_error_with_message("recipe", "json value", &e.to_string())
+            }),
             _ => Err(Error::conversion_error(self.identifier(), "JSON value")),
         }
     }
@@ -497,7 +504,7 @@ impl ValueInterface for Value {
             }
         }
     }
-    
+
     fn try_into_i64(&self) -> Result<i64, Error> {
         match self {
             Value::I32(n) => Ok(*n as i64),
@@ -505,7 +512,7 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "i64")),
         }
     }
-    
+
     fn try_into_bool(&self) -> Result<bool, Error> {
         match self {
             Value::Bool(b) => Ok(*b),
@@ -514,7 +521,7 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "bool")),
         }
     }
-    
+
     fn try_into_f64(&self) -> Result<f64, Error> {
         match self {
             Value::I32(n) => Ok(*n as f64),
@@ -526,7 +533,9 @@ impl ValueInterface for Value {
     fn try_into_key(&self) -> Result<crate::query::Key, Error> {
         match self {
             Value::Text(s) => Ok(crate::parse::parse_key(s)?),
-            Value::Query(q) => q.key().ok_or(Error::conversion_error(self.identifier(), "key")),
+            Value::Query(q) => q
+                .key()
+                .ok_or(Error::conversion_error(self.identifier(), "key")),
             Value::Key(k) => Ok(k.clone()),
             _ => Err(Error::conversion_error(self.identifier(), "key")),
         }
@@ -539,27 +548,26 @@ impl ValueInterface for Value {
             _ => Err(Error::conversion_error(self.identifier(), "bytes")),
         }
     }
-    
+
     fn from_metadata(metadata: MetadataRecord) -> Self {
         Value::Metadata(metadata)
     }
-    
+
     fn from_asset_info(asset_info: Vec<AssetInfo>) -> Self {
         Value::AssetInfo(asset_info)
     }
-    
+
     fn from_recipe(recipe: Recipe) -> Self {
         Value::Recipe(recipe)
     }
-    
+
     fn from_query(query: &crate::query::Query) -> Self {
         Value::Query(query.clone())
     }
-    
+
     fn from_key(key: &crate::query::Key) -> Self {
         Value::Key(key.clone())
-    }    
-
+    }
 }
 
 impl TryFrom<&Value> for i32 {
@@ -752,8 +760,11 @@ where
     /// Deserialize from bytes using the specified data format and type identifier
     /// An empty type identifier means that the type identifier is not known
     /// and the deserializer should try to infer the type from the data format.
-    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, data_format: &str)
-        -> Result<Self, Error>;
+    fn deserialize_from_bytes(
+        b: &[u8],
+        type_identifier: &str,
+        data_format: &str,
+    ) -> Result<Self, Error>;
 }
 
 impl DefaultValueSerializer for Value {
@@ -762,7 +773,8 @@ impl DefaultValueSerializer for Value {
             "json" => serde_json::to_vec(self).map_err(|e| {
                 Error::new(ErrorType::SerializationError, format!("JSON error {}", e))
             }),
-            "txt" | "html" | "rs" | "py" | "css" | "js" => match self {  // TODO: handle various extensions better, rs is only to test assets
+            "txt" | "html" | "rs" | "py" | "css" | "js" => match self {
+                // TODO: handle various extensions better, rs is only to test assets
                 Value::None => Ok("none".as_bytes().to_vec()),
                 Value::Bool(true) => Ok("true".as_bytes().to_vec()),
                 Value::Bool(false) => Ok("false".as_bytes().to_vec()),
@@ -770,7 +782,7 @@ impl DefaultValueSerializer for Value {
                 Value::I64(x) => Ok(format!("{x}").into_bytes()),
                 Value::F64(x) => Ok(format!("{x}").into_bytes()),
                 Value::Text(x) => Ok(x.as_bytes().to_vec()),
-                Value::Bytes(x) => Ok(x.clone()),   // TODO: handle bytes better - this is only to test rs
+                Value::Bytes(x) => Ok(x.clone()), // TODO: handle bytes better - this is only to test rs
                 Value::Query(x) => Ok(x.encode().as_bytes().to_vec()), // TODO: not for languages
                 Value::Key(x) => Ok(x.encode().as_bytes().to_vec()), // TODO: not for languages
                 _ => Err(Error::new(
@@ -787,7 +799,10 @@ impl DefaultValueSerializer for Value {
                 Value::Text(x) => Ok(x.as_bytes().to_vec()),
                 _ => Err(Error::new(
                     ErrorType::SerializationError,
-                    format!("Serialization to bytes not supported by {}", self.type_name()),
+                    format!(
+                        "Serialization to bytes not supported by {}",
+                        self.type_name()
+                    ),
                 )),
             },
             _ => Err(Error::new(
@@ -797,7 +812,11 @@ impl DefaultValueSerializer for Value {
         }
     }
 
-    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, data_format: &str) -> Result<Self, Error> {
+    fn deserialize_from_bytes(
+        b: &[u8],
+        type_identifier: &str,
+        data_format: &str,
+    ) -> Result<Self, Error> {
         match data_format {
             "json" => serde_json::from_slice(b).map_err(|e| {
                 Error::new(
@@ -823,10 +842,13 @@ impl DefaultValueSerializer for Value {
                     "bool" => Value::from_bool_str(&s),
                     _ => Err(Error::new(
                         ErrorType::SerializationError,
-                        format!("Unsupported type identifier in from_bytes:{}", type_identifier),
+                        format!(
+                            "Unsupported type identifier in from_bytes:{}",
+                            type_identifier
+                        ),
                     )),
                 }
-            },
+            }
             "bytes" | "b" | "bin" => Ok(Value::Bytes(b.to_vec())),
             _ => Err(Error::new(
                 ErrorType::SerializationError,

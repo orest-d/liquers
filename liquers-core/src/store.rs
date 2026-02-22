@@ -676,7 +676,11 @@ impl AsyncMemoryStore {
             return children;
         }
         let fresh = Arc::new(scc::HashMap::new());
-        match self.dir_index.insert_async(parent.clone(), fresh.clone()).await {
+        match self
+            .dir_index
+            .insert_async(parent.clone(), fresh.clone())
+            .await
+        {
             Ok(()) => fresh,
             Err((_parent, _fresh)) => self
                 .dir_index
@@ -748,7 +752,9 @@ impl AsyncStore for AsyncMemoryStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         if let Some((data, metadata)) = self
             .data
-            .read_async(key, |_key, (data, metadata)| (data.clone(), metadata.clone()))
+            .read_async(key, |_key, (data, metadata)| {
+                (data.clone(), metadata.clone())
+            })
             .await
         {
             return Ok((data.as_ref().to_vec(), metadata));
@@ -786,7 +792,10 @@ impl AsyncStore for AsyncMemoryStore {
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let was_new = self
             .data
-            .upsert_async(key.to_owned(), (Arc::<[u8]>::from(data.to_vec()), metadata.clone()))
+            .upsert_async(
+                key.to_owned(),
+                (Arc::<[u8]>::from(data.to_vec()), metadata.clone()),
+            )
             .await
             .is_none();
         if was_new {
@@ -1611,7 +1620,7 @@ impl Store for MemoryStore {
 
     fn contains(&self, key: &Key) -> Result<bool, Error> {
         let mem = self.data.read().unwrap();
-        if mem.contains_key(key){
+        if mem.contains_key(key) {
             return Ok(true);
         }
         Ok(self.is_dir(key)?)
@@ -1640,7 +1649,10 @@ impl Store for MemoryStore {
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let keys = self.listdir_keys(key)?;
-        Ok(keys.iter().filter_map(|x| x.filename().map(|xx| xx.to_string())).collect())
+        Ok(keys
+            .iter()
+            .filter_map(|x| x.filename().map(|xx| xx.to_string()))
+            .collect())
     }
 
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
@@ -2188,7 +2200,9 @@ mod tests {
         let metadata_only_key = parse_key("meta/only.json").unwrap();
         let mut metadata_only = Metadata::MetadataRecord(MetadataRecord::new());
         metadata_only.set_filename("only.json")?;
-        store.set_metadata(&metadata_only_key, &metadata_only).await?;
+        store
+            .set_metadata(&metadata_only_key, &metadata_only)
+            .await?;
         assert!(store.contains(&metadata_only_key).await?);
         assert_eq!(
             store.get_metadata(&metadata_only_key).await?.filename(),

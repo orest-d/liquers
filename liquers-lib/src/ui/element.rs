@@ -228,7 +228,8 @@ pub struct AssetViewElement {
     /// Notification receiver for asset updates (serde skip).
     /// When Some, show_in_egui checks for changes on each frame.
     #[serde(skip)]
-    notification_rx: Option<tokio::sync::watch::Receiver<liquers_core::assets::AssetNotificationMessage>>,
+    notification_rx:
+        Option<tokio::sync::watch::Receiver<liquers_core::assets::AssetNotificationMessage>>,
 }
 
 /// Display mode for AssetViewElement.
@@ -291,7 +292,9 @@ impl AssetViewElement {
     ///
     /// Stores non-generic shared state (value, info, error) via `Arc<RwLock>`,
     /// allowing the element itself to remain non-generic and serializable.
-    pub async fn from_asset_ref<E: liquers_core::context::Environment<Value = crate::value::Value>>(
+    pub async fn from_asset_ref<
+        E: liquers_core::context::Environment<Value = crate::value::Value>,
+    >(
         title: String,
         asset_ref: liquers_core::assets::AssetRef<E>,
     ) -> Self {
@@ -333,7 +336,9 @@ impl AssetViewElement {
                         }
                         // Check for error in notification
                         let notif = rx.borrow().clone();
-                        if let liquers_core::assets::AssetNotificationMessage::ErrorOccurred(e) = notif {
+                        if let liquers_core::assets::AssetNotificationMessage::ErrorOccurred(e) =
+                            notif
+                        {
                             if let Ok(mut err) = error_clone.write() {
                                 *err = Some(e);
                             }
@@ -591,7 +596,11 @@ impl StateViewElement {
     pub fn from_state(state: &liquers_core::state::State<crate::value::Value>) -> Self {
         let title = {
             let t = state.metadata.title().to_string();
-            if t.is_empty() { "View".to_string() } else { t }
+            if t.is_empty() {
+                "View".to_string()
+            } else {
+                t
+            }
         };
         let mut elem = Self::new(title, Arc::new((*state.data).clone()));
         elem.metadata = Some((*state.metadata).clone());
@@ -662,11 +671,7 @@ impl UIElement for StateViewElement {
 /// This allows container elements to recursively render children via the
 /// `app_state` parameter passed to `show_in_egui`. The lock blocks async tasks
 /// during rendering, which is acceptable for egui's synchronous render loop.
-pub fn render_element(
-    ui: &mut egui::Ui,
-    handle: UIHandle,
-    ctx: &UIContext,
-) {
+pub fn render_element(ui: &mut egui::Ui, handle: UIHandle, ctx: &UIContext) {
     // 1. Acquire lock for the entire render cycle.
     let mut state = match super::try_sync_lock(ctx.app_state()) {
         Ok(guard) => guard,
@@ -879,8 +884,9 @@ mod tests {
     #[test]
     fn test_update_response_unchanged_default() {
         let (tx, _rx) = super::super::message::app_message_channel();
-        let app_state: Arc<tokio::sync::Mutex<dyn super::super::app_state::AppState>> =
-            Arc::new(tokio::sync::Mutex::new(super::super::app_state::DirectAppState::new()));
+        let app_state: Arc<tokio::sync::Mutex<dyn super::super::app_state::AppState>> = Arc::new(
+            tokio::sync::Mutex::new(super::super::app_state::DirectAppState::new()),
+        );
         let ctx = UIContext::new(app_state, tx);
 
         let mut p = Placeholder::new();

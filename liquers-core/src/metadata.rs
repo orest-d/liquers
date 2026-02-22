@@ -76,7 +76,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => false,
             Status::Override => true,
-            Status::Volatile => true,  // Volatile has data (use once)
+            Status::Volatile => true, // Volatile has data (use once)
         }
     }
     pub fn can_have_tracked_dependencies(&self) -> bool {
@@ -95,7 +95,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => false,
             Status::Override => false,
-            Status::Volatile => false,  // Like Expired, volatile is terminal
+            Status::Volatile => false, // Like Expired, volatile is terminal
         }
     }
     /// Returns true if the calculation of the asset is finished
@@ -116,7 +116,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => true,
             Status::Override => true,
-            Status::Volatile => true,  // Volatile is finished state
+            Status::Volatile => true, // Volatile is finished state
         }
     }
 
@@ -141,7 +141,7 @@ impl Status {
             Status::Dependencies => false,
             Status::Directory => false,
             Status::Override => false,
-            Status::Volatile => false,  // Volatile is finished, not processing
+            Status::Volatile => false, // Volatile is finished, not processing
         }
     }
 
@@ -381,7 +381,7 @@ pub struct AssetInfo {
     pub error_data: Option<Error>,
 
     /// If true, this asset is or will be volatile
-    #[serde(default)]  // Legacy support: old AssetInfo without this field defaults to false
+    #[serde(default)] // Legacy support: old AssetInfo without this field defaults to false
     pub is_volatile: bool,
 }
 
@@ -1044,7 +1044,8 @@ impl Metadata {
 
             _ => Err(Error::general_error(
                 "Cannot set key on unsupported legacy metadata".to_string(),
-            ).with_key(&key)),
+            )
+            .with_key(&key)),
         }
     }
 
@@ -1326,7 +1327,10 @@ impl Metadata {
     pub fn with_error(&mut self, e: Error) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                o.insert("type_identifier".to_string(), Value::String("error".to_string()));
+                o.insert(
+                    "type_identifier".to_string(),
+                    Value::String("error".to_string()),
+                );
                 o.insert("is_error".to_string(), Value::Bool(true));
                 o.insert("message".to_string(), Value::String(e.to_string()));
                 self
@@ -1623,9 +1627,7 @@ impl Metadata {
     /// the future and marked as expired or override by the user.
     pub fn is_volatile(&self) -> bool {
         match self {
-            Metadata::MetadataRecord(mr) => {
-                mr.is_volatile || mr.status == Status::Volatile
-            }
+            Metadata::MetadataRecord(mr) => mr.is_volatile || mr.status == Status::Volatile,
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 // Try to extract is_volatile from JSON, default to false if not present
                 if let Some(is_volatile) = o.get("is_volatile") {
@@ -1635,7 +1637,7 @@ impl Metadata {
                     self.status() == Status::Volatile
                 }
             }
-            Metadata::LegacyMetadata(_) => false,  // Non-object legacy: default non-volatile
+            Metadata::LegacyMetadata(_) => false, // Non-object legacy: default non-volatile
         }
     }
 }

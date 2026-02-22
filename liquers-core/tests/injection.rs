@@ -31,9 +31,12 @@ where
     E: Environment<Payload = TestPayload>,
 {
     fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
-        context.get_payload_clone().ok_or(Error::general_error(format!(
-            "No payload in context for injected parameter {}", name
-        )))
+        context
+            .get_payload_clone()
+            .ok_or(Error::general_error(format!(
+                "No payload in context for injected parameter {}",
+                name
+            )))
     }
 }
 
@@ -72,7 +75,8 @@ impl ExtractFromPayload<TestPayload> for UserId {
 
 impl InjectedFromContext<TestEnvironment> for UserId {
     fn from_context(_name: &str, context: Context<TestEnvironment>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
+        let payload = context
+            .get_payload_clone()
             .ok_or_else(|| Error::general_error("No payload for UserId".to_string()))?;
         UserId::extract_from_payload(&payload)
     }
@@ -90,7 +94,8 @@ impl ExtractFromPayload<TestPayload> for WindowId {
 
 impl InjectedFromContext<TestEnvironment> for WindowId {
     fn from_context(_name: &str, context: Context<TestEnvironment>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
+        let payload = context
+            .get_payload_clone()
             .ok_or_else(|| Error::general_error("No payload for WindowId".to_string()))?;
         WindowId::extract_from_payload(&payload)
     }
@@ -108,7 +113,8 @@ impl ExtractFromPayload<TestPayload> for SessionId {
 
 impl InjectedFromContext<TestEnvironment> for SessionId {
     fn from_context(_name: &str, context: Context<TestEnvironment>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
+        let payload = context
+            .get_payload_clone()
             .ok_or_else(|| Error::general_error("No payload for SessionId".to_string()))?;
         SessionId::extract_from_payload(&payload)
     }
@@ -141,7 +147,8 @@ impl ExtractFromPayload<TestPayload> for ValidatedUserId {
 
 impl InjectedFromContext<TestEnvironment> for ValidatedUserId {
     fn from_context(_name: &str, context: Context<TestEnvironment>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
+        let payload = context
+            .get_payload_clone()
             .ok_or_else(|| Error::general_error("No payload for ValidatedUserId".to_string()))?;
         ValidatedUserId::extract_from_payload(&payload)
     }
@@ -160,7 +167,8 @@ impl ExtractFromPayload<TestPayload> for UserIdWithDefault {
 
 impl InjectedFromContext<TestEnvironment> for UserIdWithDefault {
     fn from_context(_name: &str, context: Context<TestEnvironment>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
+        let payload = context
+            .get_payload_clone()
             .ok_or_else(|| Error::general_error("No payload for UserIdWithDefault".to_string()))?;
         UserIdWithDefault::extract_from_payload(&payload)
     }
@@ -179,7 +187,8 @@ impl ExtractFromPayload<TestPayload> for IsHighWindowId {
 
 impl InjectedFromContext<TestEnvironment> for IsHighWindowId {
     fn from_context(_name: &str, context: Context<TestEnvironment>) -> Result<Self, Error> {
-        let payload = context.get_payload_clone()
+        let payload = context
+            .get_payload_clone()
             .ok_or_else(|| Error::general_error("No payload for IsHighWindowId".to_string()))?;
         IsHighWindowId::extract_from_payload(&payload)
     }
@@ -209,7 +218,10 @@ fn get_user_and_window(
     user_id: UserId,
     window_id: WindowId,
 ) -> Result<Value, Error> {
-    Ok(Value::from(format!("user:{},window:{}", user_id.0, window_id.0)))
+    Ok(Value::from(format!(
+        "user:{},window:{}",
+        user_id.0, window_id.0
+    )))
 }
 
 // Pattern 4: All three newtypes
@@ -226,10 +238,13 @@ fn get_full_info(
 }
 
 // Pattern 5: Manual context access
-fn get_context_data(_state: &State<Value>, context: Context<TestEnvironment>) -> Result<Value, Error> {
-    let payload = context.get_payload_clone().ok_or_else(|| {
-        Error::general_error("No payload available".to_string())
-    })?;
+fn get_context_data(
+    _state: &State<Value>,
+    context: Context<TestEnvironment>,
+) -> Result<Value, Error> {
+    let payload = context
+        .get_payload_clone()
+        .ok_or_else(|| Error::general_error("No payload available".to_string()))?;
 
     let data = payload
         .context_data
@@ -246,7 +261,10 @@ fn get_validated_user(_state: &State<Value>, user_id: ValidatedUserId) -> Result
 }
 
 // Pattern 7: Injection with default
-fn get_user_with_default(_state: &State<Value>, user_id: UserIdWithDefault) -> Result<Value, Error> {
+fn get_user_with_default(
+    _state: &State<Value>,
+    user_id: UserIdWithDefault,
+) -> Result<Value, Error> {
     Ok(Value::from(format!("user:{}", user_id.0)))
 }
 
@@ -256,11 +274,7 @@ fn check_high_window(_state: &State<Value>, is_high: IsHighWindowId) -> Result<V
 }
 
 // Pattern 9: Mixed regular and injected parameters
-fn greet_user(
-    _state: &State<Value>,
-    user_id: UserId,
-    greeting: String,
-) -> Result<Value, Error> {
+fn greet_user(_state: &State<Value>, user_id: UserId, greeting: String) -> Result<Value, Error> {
     Ok(Value::from(format!("{}, {}!", greeting, user_id.0)))
 }
 
@@ -271,10 +285,13 @@ fn greet_user_with_context(
     user_id: UserId,
     greeting: String,
 ) -> Result<Value, Error> {
-    let payload = context
-        .get_payload_clone()
-        .ok_or_else(|| Error::general_error("No payload for greet_user_with_context".to_string()))?;
-    Ok(Value::from(format!("{}, {}@{}!", greeting, user_id.0, payload.window_id)))
+    let payload = context.get_payload_clone().ok_or_else(|| {
+        Error::general_error("No payload for greet_user_with_context".to_string())
+    })?;
+    Ok(Value::from(format!(
+        "{}, {}@{}!",
+        greeting, user_id.0, payload.window_id
+    )))
 }
 
 // Pattern 10: Async command with injection
@@ -318,7 +335,9 @@ async fn test_single_newtype_injection() -> Result<(), Box<dyn std::error::Error
     let envref = env.to_ref();
     let payload = TestPayload::new("bob", 99);
 
-    let asset = envref.evaluate_immediately("/-/get_user_id", payload).await?;
+    let asset = envref
+        .evaluate_immediately("/-/get_user_id", payload)
+        .await?;
     let state = asset.get().await?;
     let result = state.try_into_string()?;
 
@@ -436,7 +455,8 @@ async fn test_validated_injection_failure() -> Result<(), Box<dyn std::error::Er
             let state_result = asset.get().await;
             assert!(
                 state_result.is_err(),
-                "Should fail validation - got: {:?}", state_result
+                "Should fail validation - got: {:?}",
+                state_result
             );
             if let Err(err) = state_result {
                 assert!(
@@ -619,7 +639,8 @@ async fn test_chained_commands_with_payload() -> Result<(), Box<dyn std::error::
 }
 
 #[tokio::test]
-async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn std::error::Error>>
+{
     // NOTE: Currently payload is NOT inherited in nested evaluations via context.evaluate()
     // This is a known limitation. Nested queries go through AssetManager which doesn't
     // have access to the parent's payload.
@@ -637,16 +658,19 @@ async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn
         // Nested evaluation - payload will NOT be available to child
         let nested_query = liquers_core::parse::parse_query("/-/child_cmd")?;
         let nested_result = match context.evaluate(&nested_query).await {
-            Ok(asset) => {
-                match asset.get().await {
-                    Ok(state) => state.try_into_string().unwrap_or_else(|_| "error".to_string()),
-                    Err(_) => "None".to_string(),
-                }
-            }
+            Ok(asset) => match asset.get().await {
+                Ok(state) => state
+                    .try_into_string()
+                    .unwrap_or_else(|_| "error".to_string()),
+                Err(_) => "None".to_string(),
+            },
             Err(_) => "None".to_string(),
         };
 
-        Ok(Value::from(format!("parent:{}|child:{}", user_id.0, nested_result)))
+        Ok(Value::from(format!(
+            "parent:{}|child:{}",
+            user_id.0, nested_result
+        )))
     }
 
     // Child command that requires payload (will fail when called from parent)

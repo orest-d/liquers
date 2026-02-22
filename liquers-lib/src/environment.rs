@@ -1,12 +1,21 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use liquers_core::{assets::DefaultAssetManager, command_metadata::CommandMetadataRegistry, commands::{CommandRegistry, PayloadType}, context::{Context, EnvRef, Environment, SimpleSession, User}, error::Error, recipes::{AsyncRecipeProvider, Recipe}, state::State, store::{AsyncStore, NoAsyncStore}, value::ValueInterface};
+use liquers_core::{
+    assets::DefaultAssetManager,
+    command_metadata::CommandMetadataRegistry,
+    commands::{CommandRegistry, PayloadType},
+    context::{Context, EnvRef, Environment, SimpleSession, User},
+    error::Error,
+    recipes::{AsyncRecipeProvider, Recipe},
+    state::State,
+    store::{AsyncStore, NoAsyncStore},
+    value::ValueInterface,
+};
 
 pub trait CommandRegistryAccess: Environment {
     fn get_mut_command_registry(&mut self) -> &mut CommandRegistry<Self>;
 }
-
 
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
@@ -53,23 +62,18 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
         self
     }
 
-    pub fn with_default_recipe_provider(
-        &mut self
-    ) -> &mut Self {
-
-        let provider: Arc<dyn AsyncRecipeProvider<Self>> = Arc::new(liquers_core::recipes::DefaultRecipeProvider);
+    pub fn with_default_recipe_provider(&mut self) -> &mut Self {
+        let provider: Arc<dyn AsyncRecipeProvider<Self>> =
+            Arc::new(liquers_core::recipes::DefaultRecipeProvider);
         self.recipe_provider = Some(provider);
         self
     }
-    pub fn with_trivial_recipe_provider(
-        &mut self
-    ) -> &mut Self {
-
-        let provider: Arc<dyn AsyncRecipeProvider<Self>> = Arc::new(liquers_core::recipes::TrivialRecipeProvider);
+    pub fn with_trivial_recipe_provider(&mut self) -> &mut Self {
+        let provider: Arc<dyn AsyncRecipeProvider<Self>> =
+            Arc::new(liquers_core::recipes::TrivialRecipeProvider);
         self.recipe_provider = Some(provider);
         self
     }
-
 }
 
 // Specialized impl for DefaultEnvironment<Value> to add polars command registration

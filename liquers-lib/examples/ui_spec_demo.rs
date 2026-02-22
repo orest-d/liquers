@@ -10,8 +10,8 @@ use liquers_core::state::State;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::ui::{
-    app_message_channel, AppRunner, AppState, DirectAppState, ElementSource, UIContext,
-    UIElement, render_element, try_sync_lock,
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    ElementSource, UIContext, UIElement,
 };
 use liquers_lib::value::Value;
 use liquers_macro::register_command;
@@ -75,42 +75,44 @@ impl SpecDemoApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let runtime = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-        let (ui_context, app_runner) = runtime.block_on(async {
-            // 1. Setup environment and register commands
-            let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
-            env.with_trivial_recipe_provider();
+        let (ui_context, app_runner) = runtime
+            .block_on(async {
+                // 1. Setup environment and register commands
+                let mut env = DefaultEnvironment::<Value, SimpleUIPayload>::new();
+                env.with_trivial_recipe_provider();
 
-            let envref = {
-                let cr = env.get_mut_command_registry();
-                register_command!(cr, fn dashboard(state) -> result)?;
-                register_command!(cr, fn dashboard2(state) -> result)?;
-                liquers_lib::register_lui_commands!(cr)?;
-                env.to_ref()
-            };
+                let envref = {
+                    let cr = env.get_mut_command_registry();
+                    register_command!(cr, fn dashboard(state) -> result)?;
+                    register_command!(cr, fn dashboard2(state) -> result)?;
+                    liquers_lib::register_lui_commands!(cr)?;
+                    env.to_ref()
+                };
 
-            // 2. Create AppState with root UISpecElement
-            let mut app_state = DirectAppState::new();
-            let root_handle = app_state
-                .add_node(None, 0, ElementSource::None)
-                .expect("Failed to add root node");
+                // 2. Create AppState with root UISpecElement
+                let mut app_state = DirectAppState::new();
+                let root_handle = app_state
+                    .add_node(None, 0, ElementSource::None)
+                    .expect("Failed to add root node");
 
-            use liquers_lib::ui::widgets::ui_spec_element::{UISpec, UISpecElement};
-            let spec = UISpec::from_yaml(DASHBOARD_YAML).expect("Failed to parse YAML");
-            let mut element = UISpecElement::from_spec("Dashboard".to_string(), spec);
-            element.set_handle(root_handle);
-            app_state
-                .set_element(root_handle, Box::new(element))
-                .expect("Failed to set element");
+                use liquers_lib::ui::widgets::ui_spec_element::{UISpec, UISpecElement};
+                let spec = UISpec::from_yaml(DASHBOARD_YAML).expect("Failed to parse YAML");
+                let mut element = UISpecElement::from_spec("Dashboard".to_string(), spec);
+                element.set_handle(root_handle);
+                app_state
+                    .set_element(root_handle, Box::new(element))
+                    .expect("Failed to set element");
 
-            // 3. Create UIContext and AppRunner
-            let app_state_arc: Arc<tokio::sync::Mutex<dyn AppState>> =
-                Arc::new(tokio::sync::Mutex::new(app_state));
-            let (msg_tx, msg_rx) = app_message_channel();
-            let ui_context = UIContext::new(app_state_arc.clone(), msg_tx.clone());
-            let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
+                // 3. Create UIContext and AppRunner
+                let app_state_arc: Arc<tokio::sync::Mutex<dyn AppState>> =
+                    Arc::new(tokio::sync::Mutex::new(app_state));
+                let (msg_tx, msg_rx) = app_message_channel();
+                let ui_context = UIContext::new(app_state_arc.clone(), msg_tx.clone());
+                let app_runner = AppRunner::new(envref, msg_rx, msg_tx);
 
-            Ok::<_, Error>((ui_context, app_runner))
-        }).expect("Failed to setup app");
+                Ok::<_, Error>((ui_context, app_runner))
+            })
+            .expect("Failed to setup app");
 
         Self {
             ui_context,
@@ -125,9 +127,9 @@ impl eframe::App for SpecDemoApp {
         let app_state = self.ui_context.app_state();
 
         // Process messages and poll evaluations
-        let _ = self._runtime.block_on(async {
-            self.app_runner.run(&app_state).await
-        });
+        let _ = self
+            ._runtime
+            .block_on(async { self.app_runner.run(&app_state).await });
 
         if self.app_runner.has_evaluating() {
             ctx.request_repaint();

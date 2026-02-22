@@ -1,35 +1,36 @@
+use crate::environment::CommandRegistryAccess;
+use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
 };
 use liquers_macro::register_command;
-use crate::value::{ExtValueInterface, Value};
-use crate::environment::CommandRegistryAccess;
-use polars::prelude::*;
 use std::io::Cursor;
 
-use super::util::{parse_separator, try_to_polars_dataframe};
+use super::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
+use super::util::try_to_polars_dataframe;
 
 /// Load DataFrame from CSV
 ///
 /// Arguments:
 /// - separator: "comma" (default), "tab", "semicolon", "pipe", or single char
 pub fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error> {
-    // Parse separator (empty string means default comma)
-    let sep = if separator.is_empty() {
-        b','
+    let format = if separator.is_empty() {
+        "csv".to_string()
     } else {
-        parse_separator(&separator)?
+        format!("csv:{}", separator.trim())
     };
 
     // Get data as bytes
-    let csv_data = state.as_bytes()
-        .map_err(|e| Error::general_error(format!("Cannot get CSV data as bytes: {}", e)))?;
+    let csv_data = if let Ok(text) = state.data.try_into_string() {
+        text.into_bytes()
+    } else {
+        state
+            .data
+            .try_into_bytes()
+            .map_err(|e| Error::general_error(format!("Cannot get CSV data as bytes: {}", e)))?
+    };
 
-    // Parse CSV - In Polars 0.51, CsvReader has a simpler API
-    // We'll use default settings for now (comma separator)
-    // TODO: Support custom separators when Polars API is more stable
-    let df = CsvReader::new(Cursor::new(csv_data))
-        .finish()
+    let df = deserialize_dataframe_from_reader(Cursor::new(csv_data), &format)
         .map_err(|e| Error::general_error(format!("Failed to parse CSV: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(df))
@@ -40,13 +41,11 @@ pub fn to_csv(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
     let mut buffer = Vec::new();
-    let mut writer = CsvWriter::new(&mut buffer);
-    writer = writer.with_separator(b',');
-    writer.finish(&mut (*df).clone())
+    serialize_dataframe_to_writer(&df, "csv", &mut buffer)
         .map_err(|e| Error::general_error(format!("Failed to write CSV: {}", e)))?;
 
-    let csv_string =
-        String::from_utf8(buffer).map_err(|e| Error::general_error(format!("Invalid UTF-8 in CSV output: {}", e)))?;
+    let csv_string = String::from_utf8(buffer)
+        .map_err(|e| Error::general_error(format!("Invalid UTF-8 in CSV output: {}", e)))?;
 
     Ok(Value::from(csv_string))
 }
@@ -81,7 +80,9 @@ macro_rules! register_polars_io_commands {
 }
 
 /// Backward-compatible wrapper calling the `register_polars_io_commands!` macro.
-pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
+pub fn register_commands(
+    env: &mut crate::environment::DefaultEnvironment<Value>,
+) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
     register_polars_io_commands!(cr)?;

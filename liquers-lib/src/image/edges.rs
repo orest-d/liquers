@@ -1,8 +1,8 @@
-use liquers_core::{error::Error, state::State};
-use crate::value::{ExtValueInterface, Value};
 use super::util::try_to_image;
-use std::sync::Arc;
+use crate::value::{ExtValueInterface, Value};
 use image::DynamicImage;
+use liquers_core::{error::Error, state::State};
+use std::sync::Arc;
 
 /// Apply Sobel edge detection.
 /// Returns horizontal + vertical edges combined.
@@ -15,7 +15,7 @@ pub fn sobel(state: &State<Value>) -> Result<Value, Error> {
     let vertical = imageproc::gradients::vertical_sobel(&gray_img);
 
     // Combine gradients: magnitude = sqrt(h^2 + v^2)
-    use image::{Luma, GrayImage};
+    use image::{GrayImage, Luma};
     let (width, height) = gray_img.dimensions();
     let mut result = GrayImage::new(width, height);
 
@@ -28,11 +28,17 @@ pub fn sobel(state: &State<Value>) -> Result<Value, Error> {
         }
     }
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(
+        result,
+    ))))
 }
 
 /// Apply Canny edge detection with low and high thresholds.
-pub fn canny(state: &State<Value>, low_threshold: f32, high_threshold: f32) -> Result<Value, Error> {
+pub fn canny(
+    state: &State<Value>,
+    low_threshold: f32,
+    high_threshold: f32,
+) -> Result<Value, Error> {
     if low_threshold < 0.0 || high_threshold < 0.0 {
         return Err(Error::general_error(
             "Canny thresholds must be non-negative".to_string(),
@@ -50,7 +56,9 @@ pub fn canny(state: &State<Value>, low_threshold: f32, high_threshold: f32) -> R
 
     let result = imageproc::edges::canny(&gray_img, low_threshold, high_threshold);
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageLuma8(
+        result,
+    ))))
 }
 
 #[cfg(test)]

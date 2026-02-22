@@ -27,7 +27,10 @@ async fn test_volatile_query_v_instruction() -> Result<(), Box<dyn std::error::E
     let plan = make_plan(envref, &query).await?;
 
     // Verify plan is marked volatile
-    assert!(plan.is_volatile, "Plan with 'v' instruction should be volatile");
+    assert!(
+        plan.is_volatile,
+        "Plan with 'v' instruction should be volatile"
+    );
 
     Ok(())
 }
@@ -58,7 +61,10 @@ async fn test_volatile_command_marks_plan() -> Result<(), Box<dyn std::error::Er
     let plan = make_plan(envref, &query).await?;
 
     // Verify plan is marked volatile
-    assert!(plan.is_volatile, "Plan with volatile command should be volatile");
+    assert!(
+        plan.is_volatile,
+        "Plan with volatile command should be volatile"
+    );
 
     Ok(())
 }
@@ -88,7 +94,10 @@ async fn test_non_volatile_query() -> Result<(), Box<dyn std::error::Error>> {
     let plan = make_plan(envref, &query).await?;
 
     // Verify plan is NOT marked volatile
-    assert!(!plan.is_volatile, "Plan without volatile elements should not be volatile");
+    assert!(
+        !plan.is_volatile,
+        "Plan without volatile elements should not be volatile"
+    );
 
     Ok(())
 }
@@ -125,9 +134,18 @@ async fn test_asset_manager_volatile_no_cache() -> Result<(), Box<dyn std::error
     let id2 = asset2.id();
     let id3 = asset3.id();
 
-    assert_ne!(id1, id2, "Volatile assets should not be cached (id1 != id2)");
-    assert_ne!(id2, id3, "Volatile assets should not be cached (id2 != id3)");
-    assert_ne!(id1, id3, "Volatile assets should not be cached (id1 != id3)");
+    assert_ne!(
+        id1, id2,
+        "Volatile assets should not be cached (id1 != id2)"
+    );
+    assert_ne!(
+        id2, id3,
+        "Volatile assets should not be cached (id2 != id3)"
+    );
+    assert_ne!(
+        id1, id3,
+        "Volatile assets should not be cached (id1 != id3)"
+    );
 
     Ok(())
 }
@@ -163,8 +181,14 @@ async fn test_asset_manager_non_volatile_caching() -> Result<(), Box<dyn std::er
     let id2 = asset2.id();
     let id3 = asset3.id();
 
-    assert_eq!(id1, id2, "Non-volatile assets should be cached (id1 == id2)");
-    assert_eq!(id2, id3, "Non-volatile assets should be cached (id2 == id3)");
+    assert_eq!(
+        id1, id2,
+        "Non-volatile assets should be cached (id1 == id2)"
+    );
+    assert_eq!(
+        id2, id3,
+        "Non-volatile assets should be cached (id2 == id3)"
+    );
 
     Ok(())
 }

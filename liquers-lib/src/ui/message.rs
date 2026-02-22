@@ -29,7 +29,10 @@ pub struct AssetSnapshot {
 #[derive(Debug, Clone)]
 pub enum AppMessage {
     /// Submit a query for evaluation, with results bound to the given handle.
-    SubmitQuery { handle: Option<UIHandle>, query: String },
+    SubmitQuery {
+        handle: Option<UIHandle>,
+        query: String,
+    },
     /// Request AppRunner to evaluate a query and push `AssetSnapshot` updates
     /// to the element at the given handle. AppRunner monitors the asset
     /// lifecycle and delivers `UpdateMessage::AssetUpdate` on each notification

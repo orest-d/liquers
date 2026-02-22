@@ -1,8 +1,8 @@
-use liquers_core::{error::Error, state::State};
-use crate::value::{ExtValueInterface, Value};
 use super::util::try_to_image;
+use crate::value::{ExtValueInterface, Value};
+use image::{imageops::FilterType, DynamicImage, GenericImageView};
+use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
-use image::{DynamicImage, GenericImageView, imageops::FilterType};
 
 /// Parse filter type from string.
 fn parse_filter_type(method: &str) -> Result<FilterType, Error> {
@@ -82,15 +82,11 @@ pub fn thumb(
 }
 
 /// Crop image to rectangle (x, y, width, height).
-pub fn crop(
-    state: &State<Value>,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-) -> Result<Value, Error> {
+pub fn crop(state: &State<Value>, x: u32, y: u32, width: u32, height: u32) -> Result<Value, Error> {
     if width == 0 || height == 0 {
-        return Err(Error::general_error("Crop dimensions must be greater than 0".to_string()));
+        return Err(Error::general_error(
+            "Crop dimensions must be greater than 0".to_string(),
+        ));
     }
 
     let img = try_to_image(state)?;
@@ -127,7 +123,9 @@ pub fn rotate(state: &State<Value>, angle: f32) -> Result<Value, Error> {
         image::Rgba([0, 0, 0, 0]),
     );
 
-    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(result))))
+    Ok(Value::from_image(Arc::new(DynamicImage::ImageRgba8(
+        result,
+    ))))
 }
 
 /// Rotate image 90 degrees clockwise.

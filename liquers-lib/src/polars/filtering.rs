@@ -1,19 +1,15 @@
+use crate::environment::CommandRegistryAccess;
+use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
     commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
 };
 use liquers_macro::register_command;
-use crate::value::{ExtValueInterface, Value};
-use crate::environment::CommandRegistryAccess;
 use polars::prelude::*;
 
 use super::util::{check_column_exists, parse_boolean, parse_date, try_to_polars_dataframe};
 
 /// Parse comparison value based on column data type
-fn parse_comparison_value(
-    df: &DataFrame,
-    column: &str,
-    value_str: &str,
-) -> Result<Expr, Error> {
+fn parse_comparison_value(df: &DataFrame, column: &str, value_str: &str) -> Result<Expr, Error> {
     let schema = df.schema();
     let dtype = schema
         .get(column)
@@ -23,113 +19,93 @@ fn parse_comparison_value(
 
     match dtype {
         DataType::Int8 => {
-            let val = value_str
-                .parse::<i8>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as Int8 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<i8>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as Int8 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::Int16 => {
-            let val = value_str
-                .parse::<i16>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as Int16 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<i16>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as Int16 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::Int32 => {
-            let val = value_str
-                .parse::<i32>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as Int32 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<i32>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as Int32 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::Int64 => {
-            let val = value_str
-                .parse::<i64>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as Int64 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<i64>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as Int64 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::UInt8 => {
-            let val = value_str
-                .parse::<u8>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as UInt8 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<u8>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as UInt8 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::UInt16 => {
-            let val = value_str
-                .parse::<u16>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as UInt16 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<u16>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as UInt16 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::UInt32 => {
-            let val = value_str
-                .parse::<u32>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as UInt32 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<u32>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as UInt32 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::UInt64 => {
-            let val = value_str
-                .parse::<u64>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as UInt64 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<u64>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as UInt64 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::Float32 => {
-            let val = value_str
-                .parse::<f32>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as Float32 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<f32>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as Float32 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::Float64 => {
-            let val = value_str
-                .parse::<f64>()
-                .map_err(|_| {
-                    Error::general_error(format!(
-                        "Cannot parse '{}' as Float64 for column '{}'",
-                        value_str, column
-                    ))
-                })?;
+            let val = value_str.parse::<f64>().map_err(|_| {
+                Error::general_error(format!(
+                    "Cannot parse '{}' as Float64 for column '{}'",
+                    value_str, column
+                ))
+            })?;
             Ok(lit(val))
         }
         DataType::Boolean => {
@@ -318,7 +294,9 @@ macro_rules! register_polars_filtering_commands {
 }
 
 /// Backward-compatible wrapper calling the `register_polars_filtering_commands!` macro.
-pub fn register_commands(env: &mut crate::environment::DefaultEnvironment<Value>) -> Result<(), Error> {
+pub fn register_commands(
+    env: &mut crate::environment::DefaultEnvironment<Value>,
+) -> Result<(), Error> {
     type CommandEnvironment = crate::environment::DefaultEnvironment<Value>;
     let cr = env.get_mut_command_registry();
     register_polars_filtering_commands!(cr)?;

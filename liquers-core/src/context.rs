@@ -10,16 +10,12 @@
 //! [ActionContext] is a public interface to the Context.
 
 use core::panic;
-use std::{
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 
 use crate::{
-    assets::{
-        AssetManager, AssetRef, AssetServiceMessage, DefaultAssetManager,
-    },
+    assets::{AssetManager, AssetRef, AssetServiceMessage, DefaultAssetManager},
     cache::Cache,
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
@@ -115,7 +111,7 @@ impl<E: Environment> EnvRef<E> {
         Box::pin(E::apply_recipe(self.clone(), input_state, recipe, context))
     }
 
-    pub fn evaluate<Q:TryToQuery>(
+    pub fn evaluate<Q: TryToQuery>(
         &self,
         query: Q,
     ) -> std::pin::Pin<
@@ -123,7 +119,7 @@ impl<E: Environment> EnvRef<E> {
     > {
         let envref = self.clone();
         let rquery = query.try_to_query();
-        
+
         async move {
             let asset_manager = envref.get_asset_manager();
             asset_manager.get_asset(&rquery?).await
@@ -131,7 +127,7 @@ impl<E: Environment> EnvRef<E> {
         .boxed()
     }
 
-    pub fn evaluate_immediately<Q:TryToQuery>(
+    pub fn evaluate_immediately<Q: TryToQuery>(
         &self,
         query: Q,
         payload: E::Payload,
@@ -140,11 +136,13 @@ impl<E: Environment> EnvRef<E> {
     > {
         let envref = self.clone();
         let rquery = query.try_to_query();
-        
+
         async move {
             let asset_manager = envref.get_asset_manager();
             let query = rquery?;
-            asset_manager.apply_immediately(query.into(), E::Value::none(), Some(payload)).await
+            asset_manager
+                .apply_immediately(query.into(), E::Value::none(), Some(payload))
+                .await
         }
         .boxed()
     }
@@ -179,7 +177,7 @@ impl<E: Environment> Context<E> {
             cwd_key: Arc::new(Mutex::new(None)),
             service_tx,
             payload: None,
-            is_volatile,  // Initialize from parameter
+            is_volatile, // Initialize from parameter
         }
     }
 
@@ -234,7 +232,7 @@ impl<E: Environment> Context<E> {
             cwd_key: self.cwd_key.clone(),
             service_tx: self.service_tx.clone(),
             payload: self.payload.clone(),
-            is_volatile: volatile || self.is_volatile,  // Propagate if parent is volatile
+            is_volatile: volatile || self.is_volatile, // Propagate if parent is volatile
         }
     }
 
@@ -379,7 +377,10 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
         self.store = Arc::from(store);
         self
     }
-    pub fn with_recipe_provider(&mut self, provider: Box<dyn AsyncRecipeProvider<Self>>) -> &mut Self {
+    pub fn with_recipe_provider(
+        &mut self,
+        provider: Box<dyn AsyncRecipeProvider<Self>>,
+    ) -> &mut Self {
         self.recipe_provider = Some(Arc::from(provider));
         self
     }
@@ -440,7 +441,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         }
         .boxed()
     }
-    
+
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
@@ -448,13 +449,11 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         eprintln!("No recipe provider configured in SimpleEnvironment");
         Arc::new(crate::recipes::TrivialRecipeProvider)
     }
-    
+
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
     }
 }
-
-
 
 /// Simple environment with payload and configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
@@ -469,7 +468,9 @@ pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::P
     _payload: std::marker::PhantomData<P>,
 }
 
-impl<V: ValueInterface, P: crate::commands::PayloadType> Default for SimpleEnvironmentWithPayload<V, P> {
+impl<V: ValueInterface, P: crate::commands::PayloadType> Default
+    for SimpleEnvironmentWithPayload<V, P>
+{
     fn default() -> Self {
         Self::new()
     }
@@ -492,7 +493,10 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
         self.store = Arc::from(store);
         self
     }
-    pub fn with_recipe_provider(&mut self, provider: Box<dyn AsyncRecipeProvider<Self>>) -> &mut Self {
+    pub fn with_recipe_provider(
+        &mut self,
+        provider: Box<dyn AsyncRecipeProvider<Self>>,
+    ) -> &mut Self {
         self.recipe_provider = Some(Arc::from(provider));
         self
     }
@@ -506,7 +510,9 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
     }
 }
 
-impl<V: ValueInterface, P: crate::commands::PayloadType> Environment for SimpleEnvironmentWithPayload<V, P> {
+impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
+    for SimpleEnvironmentWithPayload<V, P>
+{
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
@@ -553,14 +559,14 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment for SimpleE
         }
         .boxed()
     }
-    
+
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
         panic!("No recipe provider configured in SimpleEnvironment");
     }
-    
+
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
     }

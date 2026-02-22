@@ -23,23 +23,27 @@ impl Plan {
 
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
-        let p:liquers_core::plan::Plan = serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let p: liquers_core::plan::Plan =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(Plan(p))
     }
 
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
-        let p:liquers_core::plan::Plan = serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let p: liquers_core::plan::Plan =
+            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(Plan(p))
     }
 }
 
 #[pyfunction]
-pub fn build_plan(query:String, command_metadata_registry:&CommandMetadataRegistry) -> PyResult<Plan> {
+pub fn build_plan(
+    query: String,
+    command_metadata_registry: &CommandMetadataRegistry,
+) -> PyResult<Plan> {
     let query = parse_query(&query).map_err(|e| Error(e))?;
     let cmr = &command_metadata_registry.0;
     let mut plan_builder = liquers_core::plan::PlanBuilder::new(query, cmr);
-    let plan = plan_builder.build().map_err(|e|  Error(e))?;
+    let plan = plan_builder.build().map_err(|e| Error(e))?;
     Ok(Plan(plan))
 }
-

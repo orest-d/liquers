@@ -1,17 +1,16 @@
-use liquers_core::{error::Error, state::State, value::ValueInterface};
+use super::util::{format_to_image_format, normalize_format};
 use crate::value::{ExtValueInterface, Value};
-use std::sync::Arc;
 use image::DynamicImage;
-use super::util::{normalize_format, format_to_image_format};
+use liquers_core::{error::Error, state::State, value::ValueInterface};
+use std::sync::Arc;
 
 /// Load image from bytes with auto-detected format.
 /// Input state should contain binary data (bytes).
 pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
     let bytes = state.data.try_into_bytes()?;
 
-    let img = image::load_from_memory(&bytes).map_err(|e| {
-        Error::general_error(format!("Failed to load image from bytes: {}", e))
-    })?;
+    let img = image::load_from_memory(&bytes)
+        .map_err(|e| Error::general_error(format!("Failed to load image from bytes: {}", e)))?;
 
     Ok(Value::from_image(Arc::new(img)))
 }
@@ -57,9 +56,8 @@ pub fn svg_to_image(state: &State<Value>, width: u32, height: u32) -> Result<Val
 
     // Parse SVG
     let options = usvg::Options::default();
-    let tree = usvg::Tree::from_data(&svg_data, &options).map_err(|e| {
-        Error::general_error(format!("Failed to parse SVG: {}", e))
-    })?;
+    let tree = usvg::Tree::from_data(&svg_data, &options)
+        .map_err(|e| Error::general_error(format!("Failed to parse SVG: {}", e)))?;
 
     // Render to pixmap
     let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or_else(|| {
@@ -87,7 +85,10 @@ mod tests {
         let mut png_data = Vec::new();
         let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
         image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut std::io::Cursor::new(&mut png_data), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut png_data),
+                image::ImageFormat::Png,
+            )
             .unwrap();
 
         let state = State::new().with_data(Value::from_bytes(png_data));

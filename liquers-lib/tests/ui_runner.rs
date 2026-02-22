@@ -9,13 +9,13 @@ use liquers_core::error::Error;
 use liquers_core::state::State;
 use liquers_macro::register_command;
 
+use liquers_core::value::ValueInterface;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::ui::{
     app_message_channel, AppRunner, AppState, DirectAppState, ElementSource, ElementStatusInfo,
     UIContext, UIElement, UIHandle, UpdateMessage, UpdateResponse,
 };
-use liquers_core::value::ValueInterface;
 use liquers_lib::value::Value;
 
 // Required by register_command! and register_lui_commands! macros.
@@ -177,7 +177,10 @@ async fn test_widget_interaction_query_value() {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
-    assert!(completed, "query-value evaluation should complete within timeout");
+    assert!(
+        completed,
+        "query-value evaluation should complete within timeout"
+    );
 
     // 7. Verify final state
     let state = app_state.lock().await;
@@ -330,10 +333,7 @@ async fn test_error_handling() {
         .add_node(None, 0, ElementSource::None)
         .expect("add root node");
     direct_state
-        .set_element(
-            root_handle,
-            Box::new(liquers_lib::ui::Placeholder::new()),
-        )
+        .set_element(root_handle, Box::new(liquers_lib::ui::Placeholder::new()))
         .expect("set placeholder");
 
     // 3. Wrap and create runner

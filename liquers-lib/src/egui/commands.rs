@@ -13,10 +13,7 @@ use crate::{
     environment::CommandRegistryAccess,
 };
 
-pub fn label<E: Environment>(
-    text: String,
-    _context: Context<E>,
-) -> Result<E::Value, Error>
+pub fn label<E: Environment>(text: String, _context: Context<E>) -> Result<E::Value, Error>
 where
     E::Value: UIValueExtension,
 {
@@ -43,7 +40,10 @@ where
     ))))
 }
 
-pub fn show_asset_info<E: Environment>(state: &State<E::Value>, context:Context<E>) -> Result<E::Value, Error>
+pub fn show_asset_info<E: Environment>(
+    state: &State<E::Value>,
+    context: Context<E>,
+) -> Result<E::Value, Error>
 where
     E::Value: UIValueExtension,
 {

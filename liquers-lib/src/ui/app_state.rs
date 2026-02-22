@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -81,7 +81,10 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
     fn get_element(&self, handle: UIHandle) -> Result<Option<&dyn UIElement>, Error>;
 
     /// Get a mutable reference to the element at this handle.
-    fn get_element_mut(&mut self, handle: UIHandle) -> Result<Option<&mut Box<dyn UIElement>>, Error>;
+    fn get_element_mut(
+        &mut self,
+        handle: UIHandle,
+    ) -> Result<Option<&mut Box<dyn UIElement>>, Error>;
 
     /// Set the element for a node. Does NOT call init() — the caller
     /// (typically AppRunner) is responsible for calling init() with a UIContext.
@@ -153,7 +156,11 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         element: Box<dyn UIElement>,
     ) -> Result<UIHandle, Error> {
-        println!("Inserting element at {:?} with title {:?}", point, element.title());
+        println!(
+            "Inserting element at {:?} with title {:?}",
+            point,
+            element.title()
+        );
         match point {
             InsertionPoint::Instead(target) => {
                 let handle = *target;
@@ -181,7 +188,10 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         state: &State<Value>,
     ) -> Result<UIHandle, Error> {
-        println!("Inserting state at {:?} with value: {:?}", point, state.data);
+        println!(
+            "Inserting state at {:?} with value: {:?}",
+            point, state.data
+        );
         let value = &*state.data;
 
         // Extract source from metadata query
@@ -433,7 +443,10 @@ impl AppState for DirectAppState {
         Ok(node.element.as_ref().map(|e| &**e))
     }
 
-    fn get_element_mut(&mut self, handle: UIHandle) -> Result<Option<&mut Box<dyn UIElement>>, Error> {
+    fn get_element_mut(
+        &mut self,
+        handle: UIHandle,
+    ) -> Result<Option<&mut Box<dyn UIElement>>, Error> {
         let node = self
             .nodes
             .get_mut(&handle)
@@ -763,10 +776,7 @@ mod tests {
             .unwrap();
         s.insert_node(UIHandle(2), None, 0, ElementSource::None)
             .unwrap();
-        assert_eq!(
-            s.roots(),
-            vec![UIHandle(1), UIHandle(2), UIHandle(3)]
-        );
+        assert_eq!(s.roots(), vec![UIHandle(1), UIHandle(2), UIHandle(3)]);
     }
 
     #[test]
@@ -899,11 +909,8 @@ mod tests {
 
         s.set_element(p, Box::new(Placeholder::new().with_title("Root".into())))
             .unwrap();
-        s.set_element(
-            c1,
-            Box::new(Placeholder::new().with_title("Child1".into())),
-        )
-        .unwrap();
+        s.set_element(c1, Box::new(Placeholder::new().with_title("Child1".into())))
+            .unwrap();
         s.set_active_handle(Some(c1));
 
         let json = serde_json::to_string(&s).expect("serialize");
@@ -965,10 +972,7 @@ mod tests {
             .unwrap();
         assert_eq!(s.children(p).unwrap(), vec![h]);
         assert!(s.get_element(h).unwrap().is_none()); // pending
-        assert!(matches!(
-            s.get_source(h).unwrap(),
-            ElementSource::Query(_)
-        ));
+        assert!(matches!(s.get_source(h).unwrap(), ElementSource::Query(_)));
     }
 
     #[test]
@@ -1026,10 +1030,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(returned, h);
-        assert!(matches!(
-            s.get_source(h).unwrap(),
-            ElementSource::Query(_)
-        ));
+        assert!(matches!(s.get_source(h).unwrap(), ElementSource::Query(_)));
         // Element cleared — now pending
         assert!(s.get_element(h).unwrap().is_none());
     }
@@ -1144,7 +1145,10 @@ mod tests {
         let mut s = DirectAppState::new();
         let p = s.add_node(None, 0, ElementSource::None).unwrap();
 
-        let state = State { data: Arc::new(Value::from("test value")), metadata: Arc::new(liquers_core::metadata::Metadata::new()) };
+        let state = State {
+            data: Arc::new(Value::from("test value")),
+            metadata: Arc::new(liquers_core::metadata::Metadata::new()),
+        };
         let h = s
             .insert_state(&InsertionPoint::LastChild(p), &state)
             .unwrap();
@@ -1159,10 +1163,11 @@ mod tests {
         let h = s.add_node(None, 0, ElementSource::None).unwrap();
         s.set_element(h, Box::new(Placeholder::new())).unwrap();
 
-        let state = State { data: Arc::new(Value::from("replaced")), metadata: Arc::new(liquers_core::metadata::Metadata::new()) };
-        let returned = s
-            .insert_state(&InsertionPoint::Instead(h), &state)
-            .unwrap();
+        let state = State {
+            data: Arc::new(Value::from("replaced")),
+            metadata: Arc::new(liquers_core::metadata::Metadata::new()),
+        };
+        let returned = s.insert_state(&InsertionPoint::Instead(h), &state).unwrap();
         assert_eq!(returned, h);
         let elem = s.get_element(h).unwrap().unwrap();
         assert_eq!(elem.type_name(), "StateViewElement");
@@ -1176,17 +1181,12 @@ mod tests {
 
         s.set_source(h, ElementSource::Query("/-/hello".into()))
             .unwrap();
-        assert!(matches!(
-            s.get_source(h).unwrap(),
-            ElementSource::Query(_)
-        ));
+        assert!(matches!(s.get_source(h).unwrap(), ElementSource::Query(_)));
     }
 
     #[test]
     fn test_set_source_not_found() {
         let mut s = DirectAppState::new();
-        assert!(s
-            .set_source(UIHandle(99), ElementSource::None)
-            .is_err());
+        assert!(s.set_source(UIHandle(99), ElementSource::None).is_err());
     }
 }

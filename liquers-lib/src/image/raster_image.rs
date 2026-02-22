@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use tiny_skia::Pixmap;
 use usvg::Transform;
 
-
 /// A simple RGBA raster image with f32 channels per pixel.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RasterImage {
@@ -161,4 +160,3 @@ impl RasterImage {
         }
     }
 }
-

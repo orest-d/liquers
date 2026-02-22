@@ -20,7 +20,7 @@ use crate::value::ValueInterface;
 /// Encapsulates the action parameters, that are passed to the command
 /// when it is executed.
 #[derive(Debug)]
-pub struct CommandArguments<E:Environment> {
+pub struct CommandArguments<E: Environment> {
     pub(crate) parameters: ResolvedParameterValues,
     pub(crate) values: Vec<Option<Arc<E::Value>>>,
     pub action_position: Position,
@@ -394,16 +394,17 @@ impl PayloadType for String {}
 /// String payload can be injected
 impl<E: Environment<Payload = String>> InjectedFromContext<E> for String {
     fn from_context(name: &str, context: Context<E>) -> Result<Self, Error> {
-        context.get_payload_clone().ok_or(Error::general_error(format!(
-            "No payload in context for injected parameter {}", name
-        )))
+        context
+            .get_payload_clone()
+            .ok_or(Error::general_error(format!(
+                "No payload in context for injected parameter {}",
+                name
+            )))
     }
 }
 
 #[async_trait]
-pub trait CommandExecutor<E:Environment>:
-    Send + Sync
-{
+pub trait CommandExecutor<E: Environment>: Send + Sync {
     fn execute(
         &self,
         command_key: &CommandKey,
@@ -440,12 +441,16 @@ pub struct CommandRegistry<E: Environment> {
         Arc<
             Box<
                 dyn (Fn(
-                    State<E::Value>,
-                    CommandArguments<E>,
-                    Context<E>,
-                ) -> std::pin::Pin<
-                    Box<dyn core::future::Future<Output = Result<E::Value, Error>> + Send + 'static>,
-                >) + Send
+                        State<E::Value>,
+                        CommandArguments<E>,
+                        Context<E>,
+                    ) -> std::pin::Pin<
+                        Box<
+                            dyn core::future::Future<Output = Result<E::Value, Error>>
+                                + Send
+                                + 'static,
+                        >,
+                    >) + Send
                     + Sync
                     + 'static,
             >,
@@ -466,7 +471,10 @@ impl<E: Environment> CommandRegistry<E> {
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
     where
         K: Into<CommandKey>,
-        F: (Fn(&State<E::Value>, CommandArguments<E>, Context<E>) -> Result<E::Value, Error>) + Sync + Send + 'static,
+        F: (Fn(&State<E::Value>, CommandArguments<E>, Context<E>) -> Result<E::Value, Error>)
+            + Sync
+            + Send
+            + 'static,
     {
         let key = key.into();
         let command_metadata = CommandMetadata::from_key(key.clone());
@@ -504,7 +512,11 @@ impl<E: Environment> CommandRegistry<E> {
                         CommandArguments<E>,
                         Context<E>,
                     ) -> std::pin::Pin<
-                        Box<dyn core::future::Future<Output = Result<E::Value, Error>> + Send + 'static>,
+                        Box<
+                            dyn core::future::Future<Output = Result<E::Value, Error>>
+                                + Send
+                                + 'static,
+                        >,
                     >) + Send
                     + Sync
                     + 'static,
@@ -554,15 +566,14 @@ impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets::AssetManager;
     use crate as liquers_core;
+    use crate::assets::AssetManager;
     use crate::command_metadata::CommandKey;
     use crate::commands::{CommandArguments, CommandRegistry};
     use crate::context::SimpleEnvironment;
     use crate::state::State;
     use crate::value::Value;
     use liquers_macro::*;
-
 
     #[tokio::test]
     async fn test_command_registry_execute() {
@@ -640,7 +651,8 @@ mod tests {
             Ok(Value::from(format!("{}, {}!", greeting, input)))
         }
         let mut cr = &mut registry;
-        register_command!(cr, fn greet(state, greeting: String) -> result).expect("register_command failed");
+        register_command!(cr, fn greet(state, greeting: String) -> result)
+            .expect("register_command failed");
 
         // Prepare state and arguments
         let state = State::new().with_string("world");
@@ -659,5 +671,4 @@ mod tests {
         let value = result.unwrap().try_into_string().unwrap();
         assert_eq!(value, "Hello, world!");
     }
-
 }

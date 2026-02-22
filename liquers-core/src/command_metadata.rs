@@ -49,8 +49,7 @@ pub struct EnumArgumentAlternative {
 
 /// Type of an enum argument, see EnumArgument
 /// This is a restricted version of ArgumentType to prevent circular type definition
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
     #[default]
@@ -150,10 +149,9 @@ impl EnumArgument {
 
 //TODO: add support for value with type_identifier
 /// Argument type specification
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum ArgumentType {
-    #[serde(rename = "string")]    
+    #[serde(rename = "string")]
     String,
     #[serde(rename = "int")]
     Integer,
@@ -188,7 +186,9 @@ impl ArgumentType {
                 if let Some(global_enum) = cmr.get_global_enum(name) {
                     Ok(ArgumentType::Enum(global_enum.clone()))
                 } else {
-                    Err(Error::general_error(format!("Global enum {name} not defined")))
+                    Err(Error::general_error(format!(
+                        "Global enum {name} not defined"
+                    )))
                 }
             }
             _ => Ok(self.clone()),
@@ -207,7 +207,6 @@ impl ArgumentType {
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum ArgumentGUIInfo {
@@ -288,8 +287,7 @@ pub enum ArgumentGUIInfo {
 /// In Plan building phase, the CommandParameterValue is used to fill the default values
 /// where needed when creating the ResolvedParameterValues for an Action.
 /// CommandParameterValue can be a JSON Value, a Query or None.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum CommandParameterValue {
     Value(Value),
     Query(Query),
@@ -327,7 +325,6 @@ impl CommandParameterValue {
     }
 }
 
-
 /// ParameterPreset defines and describes a preset for a command parameter.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ParameterPreset {
@@ -343,10 +340,10 @@ fn is_false(b: &bool) -> bool {
 fn is_true(b: &bool) -> bool {
     *b == true
 }
-fn true_default()->bool{
+fn true_default() -> bool {
     true
 }
-fn false_default()->bool{
+fn false_default() -> bool {
     false
 }
 fn gui_info_is_none(gui_info: &ArgumentGUIInfo) -> bool {
@@ -420,11 +417,10 @@ impl ArgumentInfo {
         }
     }
     fn check(&self, _realm: &str, _namespace: &str, _name: &str) -> Vec<CommandRegistryIssue> {
-        
         Vec::new()
     }
 
-    pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error>{
+    pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
         let mut arginfo = self.clone();
         arginfo.argument_type = self.argument_type.resolve_global_enums(cmr)?;
         Ok(arginfo)
@@ -629,8 +625,7 @@ impl From<&str> for CommandKey {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum CommandDefinition {
     #[default]
     Registered,
@@ -639,7 +634,6 @@ pub enum CommandDefinition {
         head_parameters: Vec<CommandParameterValue>,
     },
 }
-
 
 /// CommandPreset is a structure that holds a preset for a command with parameters (action) for user convinience.
 /// Preset is in form of aa string representation of an action request in a query.
@@ -667,7 +661,8 @@ impl CommandPreset {
         description: &str,
     ) -> Result<Self, Error> {
         let action: ActionRequest =
-            preset_action.clone()
+            preset_action
+                .clone()
                 .try_to_query()?
                 .action()
                 .ok_or(Error::general_error(format!(
@@ -810,7 +805,7 @@ impl CommandMetadata {
             filename: "".to_string(),
         }
     }
-    
+
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
         let mut new_self = self.clone();
         for arginfo in new_self.arguments.iter_mut() {
@@ -969,9 +964,11 @@ impl CommandMetadataRegistry {
         K: Into<CommandKey>,
     {
         let key = key.into();
-        self.commands.iter().find(|&command| command.realm == key.realm
+        self.commands.iter().find(|&command| {
+            command.realm == key.realm
                 && command.namespace == key.namespace
-                && command.name == key.name)
+                && command.name == key.name
+        })
     }
 
     pub fn find_command(
