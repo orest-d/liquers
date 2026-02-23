@@ -1,3 +1,4 @@
+use super::serde::serialize_image_to_bytes;
 use super::util::{format_to_image_format, format_to_mime_type, normalize_format, try_to_image};
 use crate::value::{ExtValueInterface, Value};
 use image::DynamicImage;
@@ -7,14 +8,7 @@ use std::sync::Arc;
 /// Convert image to PNG format (returns PNG bytes).
 pub fn to_png(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
-
-    let mut buffer = Vec::new();
-    Arc::as_ref(&img)
-        .write_to(
-            &mut std::io::Cursor::new(&mut buffer),
-            image::ImageFormat::Png,
-        )
-        .map_err(|e| Error::general_error(format!("Failed to encode PNG: {}", e)))?;
+    let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "png")?;
 
     Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
         value: buffer,
@@ -53,14 +47,7 @@ pub fn to_jpeg(state: &State<Value>, quality: u8) -> Result<Value, Error> {
 /// Convert image to WebP format (returns WebP bytes).
 pub fn to_webp(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
-
-    let mut buffer = Vec::new();
-    Arc::as_ref(&img)
-        .write_to(
-            &mut std::io::Cursor::new(&mut buffer),
-            image::ImageFormat::WebP,
-        )
-        .map_err(|e| Error::general_error(format!("Failed to encode WebP: {}", e)))?;
+    let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "webp")?;
 
     Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
         value: buffer,
@@ -70,14 +57,7 @@ pub fn to_webp(state: &State<Value>) -> Result<Value, Error> {
 /// Convert image to GIF format (returns GIF bytes).
 pub fn to_gif(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
-
-    let mut buffer = Vec::new();
-    Arc::as_ref(&img)
-        .write_to(
-            &mut std::io::Cursor::new(&mut buffer),
-            image::ImageFormat::Gif,
-        )
-        .map_err(|e| Error::general_error(format!("Failed to encode GIF: {}", e)))?;
+    let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "gif")?;
 
     Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
         value: buffer,
@@ -87,14 +67,7 @@ pub fn to_gif(state: &State<Value>) -> Result<Value, Error> {
 /// Convert image to BMP format (returns BMP bytes).
 pub fn to_bmp(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
-
-    let mut buffer = Vec::new();
-    Arc::as_ref(&img)
-        .write_to(
-            &mut std::io::Cursor::new(&mut buffer),
-            image::ImageFormat::Bmp,
-        )
-        .map_err(|e| Error::general_error(format!("Failed to encode BMP: {}", e)))?;
+    let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "bmp")?;
 
     Ok(Value::Base(crate::value::simple::SimpleValue::Bytes {
         value: buffer,

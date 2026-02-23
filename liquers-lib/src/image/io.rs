@@ -1,3 +1,4 @@
+use super::serde::deserialize_image_from_bytes;
 use super::util::{format_to_image_format, normalize_format};
 use crate::value::{ExtValueInterface, Value};
 use image::DynamicImage;
@@ -8,9 +9,7 @@ use std::sync::Arc;
 /// Input state should contain binary data (bytes).
 pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
     let bytes = state.data.try_into_bytes()?;
-
-    let img = image::load_from_memory(&bytes)
-        .map_err(|e| Error::general_error(format!("Failed to load image from bytes: {}", e)))?;
+    let img = deserialize_image_from_bytes(&bytes, "auto")?;
 
     Ok(Value::from_image(Arc::new(img)))
 }
@@ -21,14 +20,8 @@ pub fn from_format(state: &State<Value>, format_str: String) -> Result<Value, Er
     let bytes = state.data.try_into_bytes()?;
 
     let normalized_format = normalize_format(&format_str)?;
-    let img_format = format_to_image_format(&normalized_format)?;
-
-    let img = image::load_from_memory_with_format(&bytes, img_format).map_err(|e| {
-        Error::general_error(format!(
-            "Failed to load image from bytes as {}: {}",
-            format_str, e
-        ))
-    })?;
+    let _img_format = format_to_image_format(&normalized_format)?;
+    let img = deserialize_image_from_bytes(&bytes, &normalized_format)?;
 
     Ok(Value::from_image(Arc::new(img)))
 }

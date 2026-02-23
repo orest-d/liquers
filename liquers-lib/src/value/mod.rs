@@ -4,6 +4,7 @@ use liquers_core::{error::ErrorType, value::DefaultValueSerializer};
 use liquers_core::error::Error;
 use std::{borrow::Cow, result::Result, sync::Arc};
 
+use crate::image::serde::{deserialize_image_from_bytes, serialize_image_to_bytes};
 use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
 use crate::value::extended::*;
 use crate::value::simple::*;
@@ -144,6 +145,7 @@ impl ValueExtension for ExtValue {
 impl DefaultValueSerializer for ExtValue {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
         match self {
+            ExtValue::Image { value } => serialize_image_to_bytes(value, format),
             ExtValue::PolarsDataFrame { value } => {
                 let mut bytes = Vec::new();
                 serialize_dataframe_to_writer(value, format, &mut bytes)?;
@@ -161,6 +163,10 @@ impl DefaultValueSerializer for ExtValue {
     }
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
         match type_identifier {
+            "image" => {
+                let img = deserialize_image_from_bytes(b, fmt)?;
+                Ok(ExtValue::from_image(Arc::new(img)))
+            }
             "polars_dataframe" => {
                 let df = deserialize_dataframe_from_reader(Cursor::new(b), fmt)?;
                 Ok(ExtValue::from_polars_dataframe(df))

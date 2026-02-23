@@ -34,3 +34,6 @@ This folder contains larger feature specifications that should be detailed befor
 
 10. `BENCHMARK-SUITE.md`
 - Scope: define reproducible benchmark coverage for core runtime paths and technical-debt refactors.
+
+11. `IMAGE-SERIALIZATION-FEATURE-GAPS.md`
+- Scope: unify image serialization/deserialization utilities and integrate `ExtValue::Image` with default value serialization.

@@ -1,3 +1,4 @@
+pub mod serde;
 pub mod util;
 
 // Legacy RasterImage (to be deprecated)
