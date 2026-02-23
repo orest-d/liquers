@@ -1,6 +1,6 @@
 # IMAGE-SERIALIZATION-FEATURE-GAPS
 
-Status: Draft
+Status: Closed
 
 ## Summary
 Standardize image serialization/deserialization in `liquers_lib::image` with reusable utility functions, explicit format mapping, and integration into `DefaultValueSerializer` for `ExtValue::Image`.
