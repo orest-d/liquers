@@ -110,6 +110,10 @@ async fn test_request_asset_updates_flow() {
         query: "hello".to_string(),
     });
 
+    // Monitoring should become active after the request is processed.
+    runner.run(&app_state).await.expect("runner.run initial");
+    assert!(runner.has_monitoring());
+
     // Poll until value arrives
     let mut completed = false;
     for _ in 0..200 {
@@ -136,6 +140,8 @@ async fn test_request_asset_updates_flow() {
         completed,
         "RequestAssetUpdates should deliver value via AssetSnapshot"
     );
+    // Monitoring should auto-stop on terminal asset notification.
+    assert!(!runner.has_monitoring());
 }
 
 /// Test 3: Verify AppRunner stops monitoring when element is removed from AppState.

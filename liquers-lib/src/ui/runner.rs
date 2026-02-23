@@ -372,15 +372,25 @@ where
             // Check if notification has changed (non-blocking)
             if monitored.notification_rx.has_changed().unwrap_or(false) {
                 // Acknowledge the change
-                monitored.notification_rx.borrow_and_update();
+                let notification = monitored.notification_rx.borrow_and_update().clone();
 
                 // Build fresh snapshot
                 let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
 
                 // Deliver to element
                 let delivered =
-                    Self::deliver_snapshot(*handle, snapshot, app_state, &self.sender).await;
+                    Self::deliver_snapshot(*handle, snapshot.clone(), app_state, &self.sender)
+                        .await;
                 if !delivered {
+                    to_remove.push(*handle);
+                } else if matches!(
+                    notification,
+                    AssetNotificationMessage::JobFinished
+                        | AssetNotificationMessage::ErrorOccurred(_)
+                ) && snapshot.status.is_finished()
+                    && (snapshot.value.is_some() || snapshot.error.is_some())
+                {
+                    // Terminal snapshot has been delivered, no further monitoring needed.
                     to_remove.push(*handle);
                 }
             } else {
@@ -477,6 +487,16 @@ where
     /// Check if there are any in-flight evaluations.
     pub fn has_evaluating(&self) -> bool {
         !self.evaluating.is_empty()
+    }
+
+    /// True when there are live monitored assets that can publish snapshots.
+    pub fn has_monitoring(&self) -> bool {
+        !self.monitoring.is_empty()
+    }
+
+    /// True when the UI should keep repainting to surface async updates.
+    pub fn needs_repaint(&self) -> bool {
+        self.has_evaluating() || self.has_monitoring()
     }
 
     /// Number of currently evaluating nodes.

@@ -141,7 +141,7 @@ impl eframe::App for InteractiveSpecApp {
             .block_on(async { self.app_runner.run(&app_state).await });
 
         // Keep repainting while there are in-flight evaluations
-        if self.app_runner.has_evaluating() {
+        if self.app_runner.needs_repaint() {
             ctx.request_repaint();
         }
 

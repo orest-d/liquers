@@ -208,7 +208,7 @@ impl eframe::App for ButtonApp {
         });
 
         // Request repaint while evaluations are in flight.
-        if self.runner.has_evaluating() {
+        if self.runner.needs_repaint() {
             ctx.request_repaint();
         }
 

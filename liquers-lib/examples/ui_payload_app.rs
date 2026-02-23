@@ -97,7 +97,7 @@ impl eframe::App for PayloadApp {
         });
 
         // Request repaint if there are in-flight evaluations.
-        if self.runner.has_evaluating() {
+        if self.runner.needs_repaint() {
             ctx.request_repaint();
         }
 

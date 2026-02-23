@@ -142,7 +142,7 @@ impl eframe::App for QueryConsoleApp {
             ._runtime
             .block_on(async { self.app_runner.run(&app_state).await });
 
-        if self.app_runner.has_evaluating() {
+        if self.app_runner.needs_repaint() {
             ctx.request_repaint();
         }
 
