@@ -741,6 +741,7 @@ enum ResultType {
 
 enum CommandSignatureStatement {
     Volatile(bool),
+    Expires(String),
     Label(String),
     Doc(String),
     Namespace(String),
@@ -792,6 +793,10 @@ impl Parse for CommandSignatureStatement {
             "filename" => {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandSignatureStatement::Filename(lit.value()))
+            }
+            "expires" => {
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandSignatureStatement::Expires(lit.value()))
             }
             other => Err(syn::Error::new(
                 ident.span(),
@@ -990,6 +995,7 @@ struct CommandSignature {
     pub next: Vec<CommandPreset>,
     pub filename: String,
     pub volatile: bool,
+    pub expires: String,
     pub wrapper_version: WrapperVersion,
 }
 
@@ -1178,6 +1184,14 @@ impl CommandSignature {
         } else {
             quote!()
         };
+        let expires_code = if !self.expires.is_empty() {
+            let expires_str = &self.expires;
+            quote! {
+                cm.expires = #expires_str.parse().map_err(|e: liquers_core::error::Error| e)?;
+            }
+        } else {
+            quote!()
+        };
         let is_async_code = if self.is_async {
             quote!(cm.with_async(true);)
         } else {
@@ -1199,6 +1213,7 @@ impl CommandSignature {
                 #next_code
                 cm.with_filename(#filename);
                 #volatile_code
+                #expires_code
                 #is_async_code
                 Ok(cm)
             }
@@ -1564,6 +1579,7 @@ impl Parse for CommandSignature {
         let mut next = Vec::new();
         let mut filename = String::new();
         let mut volatile: bool = false;
+        let mut expires: String = String::new();
         for stmt in &command_statements {
             match stmt {
                 CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
@@ -1579,6 +1595,9 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Filename(f) => filename = f.clone(),
                 CommandSignatureStatement::Volatile(b) => {
                     volatile = *b;
+                }
+                CommandSignatureStatement::Expires(s) => {
+                    expires = s.clone();
                 }
             }
         }
@@ -1597,6 +1616,7 @@ impl Parse for CommandSignature {
             next,
             filename,
             volatile,
+            expires,
             wrapper_version: WrapperVersion::V2,
         })
     }

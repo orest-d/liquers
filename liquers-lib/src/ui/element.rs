@@ -491,7 +491,8 @@ impl UIElement for AssetViewElement {
                     | AssetNotificationMessage::StatusChanged(_)
                     | AssetNotificationMessage::ValueProduced
                     | AssetNotificationMessage::LogMessage
-                    | AssetNotificationMessage::SecondaryProgressUpdated(_) => {}
+                    | AssetNotificationMessage::SecondaryProgressUpdated(_)
+                    | AssetNotificationMessage::Expired => {}
                 }
                 UpdateResponse::NeedsRepaint
             }

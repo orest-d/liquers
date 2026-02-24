@@ -4,6 +4,7 @@
 use serde_json::{self, Value};
 
 use crate::error::Error;
+use crate::expiration::{Expires, ExpirationTime};
 use crate::icons::DEFAULT_ICON;
 use crate::parse;
 use crate::query::{Key, Position, Query};
@@ -383,6 +384,13 @@ pub struct AssetInfo {
     /// If true, this asset is or will be volatile
     #[serde(default)] // Legacy support: old AssetInfo without this field defaults to false
     pub is_volatile: bool,
+
+    /// Expiration specification (human-readable, e.g. "in 5 min", "never")
+    #[serde(default)]
+    pub expires: Expires,
+    /// Resolved expiration time (UTC timestamp, Never, or Immediately)
+    #[serde(default)]
+    pub expiration_time: ExpirationTime,
 }
 
 impl AssetInfo {
@@ -466,6 +474,8 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.updated = asset_info.updated;
         metadata.error_data = asset_info.error_data;
         metadata.is_volatile = asset_info.is_volatile;
+        metadata.expires = asset_info.expires;
+        metadata.expiration_time = asset_info.expiration_time;
         metadata
     }
 }
@@ -538,6 +548,13 @@ pub struct MetadataRecord {
     /// value will be volatile when ready.
     /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
     pub is_volatile: bool,
+
+    /// Expiration specification (human-readable, e.g. "in 5 min", "never")
+    #[serde(default)]
+    pub expires: Expires,
+    /// Resolved expiration time (UTC timestamp, Never, or Immediately)
+    #[serde(default)]
+    pub expiration_time: ExpirationTime,
 }
 
 mod query_format {
@@ -692,6 +709,8 @@ impl MetadataRecord {
             updated: self.updated.clone(),
             error_data: self.error_data.clone(),
             is_volatile: self.is_volatile,
+            expires: self.expires.clone(),
+            expiration_time: self.expiration_time.clone(),
         }
     }
 
@@ -943,6 +962,16 @@ impl MetadataRecord {
     pub fn is_volatile(&self) -> bool {
         self.is_volatile || self.status == Status::Volatile
     }
+
+    /// Returns true if this asset has a non-Never expiration time
+    pub fn has_expiration(&self) -> bool {
+        !self.expiration_time.is_never()
+    }
+
+    /// Returns true if this asset is expired (expiration time has passed)
+    pub fn is_expired(&self) -> bool {
+        self.expiration_time.is_expired()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -992,6 +1021,22 @@ impl Metadata {
                 } else {
                     false
                 };
+                // Try to extract expires from JSON, default to Never
+                if let Some(expires_val) = o.get("expires") {
+                    if let Some(s) = expires_val.as_str() {
+                        if let Ok(expires) = s.parse() {
+                            m.expires = expires;
+                        }
+                    }
+                }
+                // Try to extract expiration_time from JSON, default to Never
+                if let Some(et_val) = o.get("expiration_time") {
+                    if let Some(s) = et_val.as_str() {
+                        if let Ok(et) = serde_json::from_value::<ExpirationTime>(serde_json::Value::String(s.to_string())) {
+                            m.expiration_time = et;
+                        }
+                    }
+                }
                 Ok(m)
             }
             Metadata::MetadataRecord(m) => Ok(m.get_asset_info()),
@@ -1640,6 +1685,95 @@ impl Metadata {
             Metadata::LegacyMetadata(_) => false, // Non-object legacy: default non-volatile
         }
     }
+
+    /// Get the expiration specification
+    pub fn expires(&self) -> Expires {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.expires.clone(),
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(serde_json::Value::String(s)) = o.get("expires") {
+                    s.parse().unwrap_or(Expires::Never)
+                } else {
+                    Expires::Never
+                }
+            }
+            Metadata::LegacyMetadata(_) => Expires::Never,
+        }
+    }
+
+    /// Get the resolved expiration time
+    pub fn expiration_time(&self) -> ExpirationTime {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.expiration_time.clone(),
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                if let Some(serde_json::Value::String(s)) = o.get("expiration_time") {
+                    serde_json::from_value::<ExpirationTime>(serde_json::Value::String(s.to_string()))
+                        .unwrap_or(ExpirationTime::Never)
+                } else {
+                    ExpirationTime::Never
+                }
+            }
+            Metadata::LegacyMetadata(_) => ExpirationTime::Never,
+        }
+    }
+
+    /// Returns true if this asset has a non-Never expiration time
+    pub fn has_expiration(&self) -> bool {
+        !self.expiration_time().is_never()
+    }
+
+    /// Returns true if this asset is expired (status is Expired or expiration time has passed)
+    pub fn is_expired(&self) -> bool {
+        self.status() == Status::Expired || self.expiration_time().is_expired()
+    }
+
+    /// Set the expiration specification
+    pub fn set_expires(&mut self, expires: Expires) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::MetadataRecord(mr) => {
+                mr.expires = expires;
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("expires".to_string(), serde_json::Value::String(expires.to_string()));
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.expires = expires;
+                *self = Metadata::MetadataRecord(m);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set expires on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    /// Set the resolved expiration time
+    pub fn set_expiration_time(&mut self, expiration_time: ExpirationTime) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::MetadataRecord(mr) => {
+                mr.expiration_time = expiration_time;
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                let val = serde_json::to_value(&expiration_time)
+                    .map_err(|e| Error::general_error(format!("Failed to serialize expiration_time: {}", e)))?;
+                o.insert("expiration_time".to_string(), val);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.expiration_time = expiration_time;
+                *self = Metadata::MetadataRecord(m);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set expiration_time on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
 }
 
 impl From<MetadataRecord> for Metadata {
@@ -1688,5 +1822,79 @@ mod tests {
         mr.is_volatile = false;
         mr.status = Status::Volatile;
         assert!(mr.is_volatile());
+    }
+
+    #[test]
+    fn test_metadata_record_expiration_defaults() {
+        let mr = MetadataRecord::new();
+        assert_eq!(mr.expires, Expires::Never);
+        assert_eq!(mr.expiration_time, ExpirationTime::Never);
+        assert!(!mr.has_expiration());
+        assert!(!mr.is_expired());
+    }
+
+    #[test]
+    fn test_metadata_record_has_expiration() {
+        let mut mr = MetadataRecord::new();
+        mr.expires = Expires::Immediately;
+        mr.expiration_time = ExpirationTime::Immediately;
+        assert!(mr.has_expiration());
+        assert!(mr.is_expired());
+    }
+
+    #[test]
+    fn test_metadata_record_expiration_future() {
+        let mut mr = MetadataRecord::new();
+        let future = chrono::Utc::now() + chrono::Duration::hours(1);
+        mr.expires = Expires::InDuration(std::time::Duration::from_secs(3600));
+        mr.expiration_time = ExpirationTime::At(future);
+        assert!(mr.has_expiration());
+        assert!(!mr.is_expired());
+    }
+
+    #[test]
+    fn test_asset_info_expiration_roundtrip() {
+        let mut mr = MetadataRecord::new();
+        mr.expires = Expires::Immediately;
+        mr.expiration_time = ExpirationTime::Immediately;
+
+        let ai = mr.get_asset_info();
+        assert_eq!(ai.expires, Expires::Immediately);
+        assert_eq!(ai.expiration_time, ExpirationTime::Immediately);
+
+        let mr2 = MetadataRecord::from(ai);
+        assert_eq!(mr2.expires, Expires::Immediately);
+        assert_eq!(mr2.expiration_time, ExpirationTime::Immediately);
+    }
+
+    #[test]
+    fn test_metadata_set_expires() {
+        let mut m = Metadata::MetadataRecord(MetadataRecord::new());
+        m.set_expires(Expires::Immediately).unwrap();
+        assert_eq!(m.expires(), Expires::Immediately);
+    }
+
+    #[test]
+    fn test_metadata_set_expiration_time() {
+        let mut m = Metadata::MetadataRecord(MetadataRecord::new());
+        let future = chrono::Utc::now() + chrono::Duration::hours(1);
+        m.set_expiration_time(ExpirationTime::At(future)).unwrap();
+        assert_eq!(m.expiration_time(), ExpirationTime::At(future));
+    }
+
+    #[test]
+    fn test_metadata_has_expiration_never() {
+        let m = Metadata::MetadataRecord(MetadataRecord::new());
+        assert!(!m.has_expiration());
+        assert!(!m.is_expired());
+    }
+
+    #[test]
+    fn test_metadata_has_expiration_immediately() {
+        let mut mr = MetadataRecord::new();
+        mr.expiration_time = ExpirationTime::Immediately;
+        let m = Metadata::MetadataRecord(mr);
+        assert!(m.has_expiration());
+        assert!(m.is_expired());
     }
 }

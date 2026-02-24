@@ -52,6 +52,7 @@ use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::context::Context;
+use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
 use crate::metadata::{AssetInfo, LogEntry, MetadataRecord, ProgressEntry};
 use crate::value::ValueInterface;
@@ -101,6 +102,7 @@ pub enum AssetNotificationMessage {
     PrimaryProgressUpdated(ProgressEntry),
     SecondaryProgressUpdated(ProgressEntry),
     JobFinished,
+    Expired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +246,9 @@ pub struct AssetData<E: Environment> {
     /// If true, this asset is volatile (computed from recipe/plan before execution)
     is_volatile: bool,
 
+    /// Resolved expiration time for this asset
+    expiration_time: ExpirationTime,
+
     /// Tracks persistence lifecycle for value-producing paths.
     persistence_status: PersistenceStatus,
     /// Last persistence error, when relevant.
@@ -300,6 +305,7 @@ impl<E: Environment> AssetData<E> {
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
+            expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
             _marker: std::marker::PhantomData,
@@ -984,16 +990,34 @@ impl<E: Environment> AssetRef<E> {
                 );
                 let mut lock = assetref.data.write().await;
                 if lock.data.is_some() {
-                    if lock.is_volatile {
+                    // Check volatile: either explicitly volatile or recipe expires immediately
+                    let is_volatile = lock.is_volatile || lock.recipe.expires.is_volatile();
+                    if is_volatile {
                         lock.status = Status::Volatile;
+                        lock.expiration_time = ExpirationTime::Immediately;
                         if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                             mr.status = Status::Volatile;
                             mr.is_volatile = true;
+                            mr.expiration_time = ExpirationTime::Immediately;
+                            mr.expires = crate::expiration::Expires::Immediately;
                         }
                     } else {
+                        // Pass 2: compute authoritative expiration_time from recipe expires
+                        let recipe_expires = &lock.recipe.expires;
+                        let exp_time = if recipe_expires.is_never() {
+                            ExpirationTime::Never
+                        } else {
+                            recipe_expires
+                                .to_expiration_time(chrono::Utc::now(), 0)
+                                .ensure_future(std::time::Duration::from_millis(500))
+                        };
+                        let recipe_expires_clone = lock.recipe.expires.clone();
+                        lock.expiration_time = exp_time.clone();
                         lock.status = Status::Ready;
                         if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                             mr.status = Status::Ready;
+                            mr.expires = recipe_expires_clone;
+                            mr.expiration_time = exp_time;
                         }
                     }
                 } else {
@@ -1045,6 +1069,11 @@ impl<E: Environment> AssetRef<E> {
                 Status::Directory => {}
                 Status::Override => {}
                 Status::Volatile => {}
+            }
+            // Schedule expiration if asset has a finite expiration time
+            let exp_time = self.expiration_time().await;
+            if !exp_time.is_never() && !exp_time.is_expired() {
+                self.schedule_expiration(&exp_time);
             }
         }
         self.service_sender()
@@ -1116,16 +1145,34 @@ impl<E: Environment> AssetRef<E> {
                 );
                 let mut lock = assetref.data.write().await;
                 if lock.data.is_some() {
-                    if lock.is_volatile {
+                    // Check volatile: either explicitly volatile or recipe expires immediately
+                    let is_volatile = lock.is_volatile || lock.recipe.expires.is_volatile();
+                    if is_volatile {
                         lock.status = Status::Volatile;
+                        lock.expiration_time = ExpirationTime::Immediately;
                         if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                             mr.status = Status::Volatile;
                             mr.is_volatile = true;
+                            mr.expiration_time = ExpirationTime::Immediately;
+                            mr.expires = crate::expiration::Expires::Immediately;
                         }
                     } else {
+                        // Pass 2: compute authoritative expiration_time from recipe expires
+                        let recipe_expires = &lock.recipe.expires;
+                        let exp_time = if recipe_expires.is_never() {
+                            ExpirationTime::Never
+                        } else {
+                            recipe_expires
+                                .to_expiration_time(chrono::Utc::now(), 0)
+                                .ensure_future(std::time::Duration::from_millis(500))
+                        };
+                        let recipe_expires_clone = lock.recipe.expires.clone();
+                        lock.expiration_time = exp_time.clone();
                         lock.status = Status::Ready;
                         if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                             mr.status = Status::Ready;
+                            mr.expires = recipe_expires_clone;
+                            mr.expiration_time = exp_time;
                         }
                     }
                 } else {
@@ -1177,6 +1224,11 @@ impl<E: Environment> AssetRef<E> {
                 Status::Source => {}
                 Status::Override => {}
                 Status::Volatile => {}
+            }
+            // Schedule expiration if asset has a finite expiration time
+            let exp_time = self.expiration_time().await;
+            if !exp_time.is_never() && !exp_time.is_expired() {
+                self.schedule_expiration(&exp_time);
             }
         }
         self.service_sender()
@@ -1279,15 +1331,34 @@ impl<E: Environment> AssetRef<E> {
                     | Status::Processing
                     | Status::Storing => {
                         // here is a value, so this is probably an old state - mark as ready or volatile
-                        if lock.is_volatile {
+                        let is_volatile = lock.is_volatile || lock.recipe.expires.is_volatile();
+                        if is_volatile {
                             lock.status = Status::Volatile;
+                            lock.expiration_time = ExpirationTime::Immediately;
                             if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                                 mr.status = Status::Volatile;
                                 mr.is_volatile = true;
+                                mr.expiration_time = ExpirationTime::Immediately;
+                                mr.expires = crate::expiration::Expires::Immediately;
                             }
                         } else {
+                            // Pass 2: compute authoritative expiration_time
+                            let recipe_expires = &lock.recipe.expires;
+                            let exp_time = if recipe_expires.is_never() {
+                                ExpirationTime::Never
+                            } else {
+                                recipe_expires
+                                    .to_expiration_time(chrono::Utc::now(), 0)
+                                    .ensure_future(std::time::Duration::from_millis(500))
+                            };
+                            let recipe_expires_clone = lock.recipe.expires.clone();
+                            lock.expiration_time = exp_time.clone();
                             lock.status = Status::Ready;
-                            lock.metadata.set_status(Status::Ready)?;
+                            if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                                mr.status = Status::Ready;
+                                mr.expires = recipe_expires_clone;
+                                mr.expiration_time = exp_time;
+                            }
                         }
                     }
                     Status::Ready => {}
@@ -1588,6 +1659,80 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// Expire the asset: transitions Ready or Override to Expired status.
+    /// Source cannot be expired (no recipe to recover).
+    /// Expired is idempotent (returns Ok if already expired).
+    pub async fn expire(&self) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        match lock.status {
+            Status::Ready | Status::Override => {
+                lock.status = Status::Expired;
+                if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
+                    mr.status = Status::Expired;
+                }
+                let _ = lock.notification_tx.send(AssetNotificationMessage::Expired);
+                Ok(())
+            }
+            Status::Expired => Ok(()),
+            Status::Source => Err(Error::general_error(
+                "Cannot expire Source asset (no recipe to recover)".to_string(),
+            )),
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Cancelled
+            | Status::Volatile => Err(Error::general_error(format!(
+                "Cannot expire asset in state {:?}",
+                lock.status
+            ))),
+        }
+    }
+
+    /// Get the expiration time of this asset
+    pub async fn expiration_time(&self) -> ExpirationTime {
+        self.data.read().await.expiration_time.clone()
+    }
+
+    /// Set the expiration time of this asset
+    pub async fn set_expiration_time(&self, et: ExpirationTime) {
+        let mut lock = self.data.write().await;
+        lock.expiration_time = et;
+    }
+
+    /// Check if this asset is expired
+    pub async fn is_expired(&self) -> bool {
+        self.data.read().await.status == Status::Expired
+    }
+
+    /// Schedule automatic expiration via a background task.
+    /// Uses a Weak reference so the task exits cleanly if the asset is dropped.
+    pub fn schedule_expiration(&self, expiration_time: &ExpirationTime) {
+        if let ExpirationTime::At(dt) = expiration_time {
+            let weak_data = Arc::downgrade(&self.data);
+            let id = self.id;
+            let dt = *dt;
+            tokio::spawn(async move {
+                let now = chrono::Utc::now();
+                if dt > now {
+                    if let Ok(duration) = (dt - now).to_std() {
+                        tokio::time::sleep(duration).await;
+                    }
+                }
+                if let Some(data) = weak_data.upgrade() {
+                    let asset_ref = AssetRef { id, data };
+                    let _ = asset_ref.expire().await;
+                }
+            });
+        }
+        // Never/Immediately: no task spawned
+    }
+
     /// Get the final state of the asset.
     /// This waits for the asset to be evaluated if necessary.
     /// It requires to call the [Self::run] method, which is done by the [AssetManager].
@@ -1633,6 +1778,11 @@ impl<E: Environment> AssetRef<E> {
                             "Asset finished but no data available".to_owned(),
                         ));
                     }
+                }
+                AssetNotificationMessage::Expired => {
+                    return Err(Error::general_error(
+                        "Asset expired while waiting for data".to_owned(),
+                    ));
                 }
             }
             rx.changed().await.map_err(|e| {
@@ -1896,12 +2046,28 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error>;
 }
 
+/// Message for expiration monitor task
+#[derive(Debug)]
+enum ExpirationMonitorMessage {
+    /// Track an asset for expiration
+    Track {
+        key: Key,
+        expiration_time: ExpirationTime,
+    },
+    /// Untrack an asset (e.g., removed or recalculated)
+    Untrack { key: Key },
+    /// Shut down the monitor task
+    Shutdown,
+}
+
 pub struct DefaultAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
     envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     job_queue: Arc<JobQueue<E>>,
+    /// Channel to send messages to the expiration monitor task
+    monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage>,
 }
 
 impl<E: Environment> Default for DefaultAssetManager<E> {
@@ -1913,19 +2079,105 @@ impl<E: Environment> Default for DefaultAssetManager<E> {
 impl<E: Environment> DefaultAssetManager<E> {
     pub fn new() -> Self {
         let job_queue = Arc::new(JobQueue::new(2));
+        let (monitor_tx, monitor_rx) = mpsc::unbounded_channel();
         let manager = DefaultAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
             envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
             query_assets: scc::HashMap::new(),
-            //recipe_provider: std::sync::OnceLock::new(),
             job_queue: job_queue.clone(),
+            monitor_tx,
         };
         tokio::spawn(async move {
             println!("Spawned job queue");
             job_queue.run().await;
         });
+        tokio::spawn(Self::run_expiration_monitor(monitor_rx));
         manager
+    }
+
+    /// Expiration monitor task: manages a priority queue of pending expirations.
+    /// Uses tokio::select! to either process messages or fire the next expiration.
+    ///
+    /// Note: ExpirationTime::Immediately is NOT tracked by the monitor because
+    /// assets with Immediately expiration are treated as volatile and never reach Ready status.
+    async fn run_expiration_monitor(
+        mut rx: mpsc::UnboundedReceiver<ExpirationMonitorMessage>,
+    ) {
+        use std::collections::{BinaryHeap, HashSet};
+        use std::cmp::Reverse;
+
+        // Priority queue of (expiration_time, key), min-heap via Reverse
+        let mut heap: BinaryHeap<Reverse<(chrono::DateTime<chrono::Utc>, Key)>> = BinaryHeap::new();
+        // Cancelled keys (from Untrack)
+        let mut cancelled: HashSet<Key> = HashSet::new();
+        // Map from key to AssetRef is not needed - we just mark for expiration via the asset manager
+
+        loop {
+            let next_expiry = heap.peek().map(|Reverse((dt, _))| *dt);
+
+            if let Some(next_dt) = next_expiry {
+                let now = chrono::Utc::now();
+                let sleep_duration = if next_dt > now {
+                    (next_dt - now).to_std().unwrap_or(std::time::Duration::from_millis(100))
+                } else {
+                    std::time::Duration::from_millis(0)
+                };
+
+                tokio::select! {
+                    msg = rx.recv() => {
+                        match msg {
+                            Some(ExpirationMonitorMessage::Track { key, expiration_time }) => {
+                                if let ExpirationTime::At(dt) = expiration_time {
+                                    cancelled.remove(&key);
+                                    heap.push(Reverse((dt, key)));
+                                }
+                            }
+                            Some(ExpirationMonitorMessage::Untrack { key }) => {
+                                cancelled.insert(key);
+                            }
+                            Some(ExpirationMonitorMessage::Shutdown) | None => {
+                                return;
+                            }
+                        }
+                    }
+                    _ = tokio::time::sleep(sleep_duration) => {
+                        // Fire expired entries
+                        while let Some(Reverse((dt, _))) = heap.peek() {
+                            if *dt <= chrono::Utc::now() {
+                                let Reverse((_, key)) = heap.pop().unwrap_or_else(|| unreachable!());
+                                if cancelled.remove(&key) {
+                                    continue; // Skip cancelled
+                                }
+                                // TODO: Look up the asset and call expire() on it
+                                // For now, just log. The actual expire call will be wired
+                                // when DefaultAssetManager has a way to look up by key and expire.
+                                #[cfg(debug_assertions)]
+                                println!("Expiration monitor: asset {:?} expired", key);
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No pending expirations, just wait for messages
+                match rx.recv().await {
+                    Some(ExpirationMonitorMessage::Track { key, expiration_time }) => {
+                        if let ExpirationTime::At(dt) = expiration_time {
+                            cancelled.remove(&key);
+                            heap.push(Reverse((dt, key)));
+                        }
+                    }
+                    Some(ExpirationMonitorMessage::Untrack { key }) => {
+                        cancelled.insert(key);
+                    }
+                    Some(ExpirationMonitorMessage::Shutdown) | None => {
+                        return;
+                    }
+                }
+            }
+        }
     }
     pub fn next_id(&self) -> u64 {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -1942,6 +2194,23 @@ impl<E: Environment> DefaultAssetManager<E> {
         if self.envref.set(envref.clone()).is_err() {
             panic!("Environment already set in AssetStore");
         }
+    }
+
+    /// Track an asset for expiration via the monitor task
+    pub fn track_expiration(&self, key: &Key, expiration_time: &ExpirationTime) {
+        if !expiration_time.is_never() {
+            let _ = self.monitor_tx.send(ExpirationMonitorMessage::Track {
+                key: key.clone(),
+                expiration_time: expiration_time.clone(),
+            });
+        }
+    }
+
+    /// Untrack an asset from expiration monitoring
+    pub fn untrack_expiration(&self, key: &Key) {
+        let _ = self.monitor_tx.send(ExpirationMonitorMessage::Untrack {
+            key: key.clone(),
+        });
     }
 
     pub fn create_asset(&self, recipe: Recipe) -> AssetRef<E> {
@@ -2039,6 +2308,13 @@ impl<E: Environment> DefaultAssetManager<E> {
     }
 }
 
+impl<E: Environment> Drop for DefaultAssetManager<E> {
+    fn drop(&mut self) {
+        // Send Shutdown to the monitor task. Unbounded send is synchronous, safe in Drop.
+        let _ = self.monitor_tx.send(ExpirationMonitorMessage::Shutdown);
+    }
+}
+
 #[async_trait]
 impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
@@ -2118,6 +2394,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // No fast track makes sense now, since apply can't be stored, however in the future
         // TODO: support fast-track once it makes sense
         asset_ref.run_immediately(payload).await?;
+
+        // Schedule expiration for unmanaged assets (not tracked by asset manager)
+        let exp_time = asset_ref.expiration_time().await;
+        if !exp_time.is_never() && !exp_time.is_expired() {
+            asset_ref.schedule_expiration(&exp_time);
+        }
 
         Ok(asset_ref)
     }

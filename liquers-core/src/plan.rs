@@ -14,6 +14,7 @@ use crate::command_metadata::{
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
     CommandParameterValue, EnumArgumentType,
 };
+use crate::expiration::Expires;
 use crate::context::{EnvRef, Environment};
 use crate::error::{Error, ErrorType};
 use crate::query::{
@@ -882,6 +883,9 @@ pub struct PlanBuilder<'c> {
 
     /// Track volatility during plan building
     is_volatile: bool,
+
+    /// Track expiration during plan building (minimum of all command expirations)
+    expires: Expires,
 }
 
 // TODO: support cache
@@ -896,6 +900,7 @@ impl<'c> PlanBuilder<'c> {
             allow_placeholders: false,
             expand_predecessors: true, // TODO: expand_predecessors should be false by default
             is_volatile: false,
+            expires: Expires::Never,
         }
     }
     pub fn with_placeholders_allowed(mut self) -> Self {
@@ -925,6 +930,38 @@ impl<'c> PlanBuilder<'c> {
             metadata.volatile
         } else {
             false
+        }
+    }
+
+    /// Update plan expiration based on a command's expires specification.
+    /// Takes the minimum (earliest) expiration across all commands in the plan.
+    fn update_expiration(&mut self, command_expires: &Expires) {
+        use crate::expiration::ExpirationTime;
+        if command_expires.is_never() {
+            return;
+        }
+        // Immediately expiring is equivalent to volatile
+        if command_expires.is_volatile() {
+            self.is_volatile = true;
+        }
+        let now = chrono::Utc::now();
+        let new_et = command_expires.to_expiration_time(now, 0);
+        let current_et = self.expires.to_expiration_time(now, 0);
+        if new_et < current_et {
+            self.expires = command_expires.clone();
+            self.plan.steps.push(Step::Info(format!(
+                "Plan expiration updated to '{}' (from command)",
+                command_expires
+            )));
+        }
+    }
+
+    /// Look up expiration specification from command metadata
+    fn get_action_expiration(&self, command_key: &CommandKey) -> Expires {
+        if let Some(metadata) = self.command_registry.get(command_key.clone()) {
+            metadata.expires.clone()
+        } else {
+            Expires::Never
         }
     }
 
@@ -976,6 +1013,9 @@ impl<'c> PlanBuilder<'c> {
 
         // Set is_volatile field from builder state
         self.plan.is_volatile = self.is_volatile;
+
+        // Set expires field from builder state (first-pass estimate)
+        self.plan.expires = self.expires.clone();
 
         Ok(self.plan.clone())
     }
@@ -1101,6 +1141,12 @@ impl<'c> PlanBuilder<'c> {
                 "Volatile due to command '{}/{}/{}'",
                 command_metadata.realm, command_metadata.namespace, command_metadata.name
             ));
+        }
+
+        // Check if command has expiration specification
+        let action_expires = self.get_action_expiration(&command_key);
+        if !action_expires.is_never() {
+            self.update_expiration(&action_expires);
         }
 
         match &command_metadata.definition {
@@ -1317,6 +1363,11 @@ pub struct Plan {
     /// Computed during plan building via two-phase volatility detection.
     /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
     pub is_volatile: bool,
+
+    /// Expiration specification inferred from command metadata during plan building.
+    /// This is a first-pass estimate; authoritative expiration is computed at finalization.
+    #[serde(default)]
+    pub expires: Expires,
 }
 
 impl Default for Plan {
@@ -1330,7 +1381,8 @@ impl Plan {
         Plan {
             query: Query::new(),
             steps: Vec::new(),
-            is_volatile: false, // Initialize to false
+            is_volatile: false,
+            expires: Expires::Never,
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1690,6 +1742,59 @@ pub(crate) async fn has_volatile_dependencies<E: Environment>(
     Ok(false)
 }
 
+/// Check if any dependencies have expiration specified in their recipes.
+/// Updates the plan's expires field with the minimum expiration across known dependencies.
+/// This is a first-pass estimate at plan-build time. The authoritative computation
+/// happens at asset finalization when all dependencies are evaluated and known.
+pub(crate) async fn has_expirable_dependencies<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+) -> Result<(), Error> {
+    use crate::expiration::ExpirationTime;
+
+    let mut stack = Vec::new();
+    let dependencies = find_dependencies(envref.clone(), plan, &mut stack, None).await?;
+    let now = chrono::Utc::now();
+    let mut plan_et = plan.expires.to_expiration_time(now, 0);
+    let mut changed = false;
+
+    for key in dependencies {
+        // Check if recipe has expiration specification
+        if let Ok(Some(recipe)) = envref
+            .get_recipe_provider()
+            .recipe_opt(&key, envref.clone())
+            .await
+        {
+            if !recipe.expires.is_never() {
+                let dep_et = recipe.expires.to_expiration_time(now, 0);
+                if dep_et < plan_et {
+                    plan_et = dep_et;
+                    plan.expires = recipe.expires.clone();
+                    plan.steps.push(Step::Info(format!(
+                        "Expiration constrained by dependency {:?} (expires: {})",
+                        key, recipe.expires
+                    )));
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    // If expiration was tightened to Immediately, mark as volatile too
+    if changed {
+        if let ExpirationTime::Immediately = plan_et {
+            if !plan.is_volatile {
+                plan.is_volatile = true;
+                plan.steps.push(Step::Info(
+                    "Volatile: dependency has Immediately expiration".to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::command_metadata::*;
@@ -1984,6 +2089,7 @@ mod tests {
                 Step::Error("err".to_string()),
             ],
             is_volatile: false,
+            expires: crate::expiration::Expires::Never,
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2004,6 +2110,7 @@ mod tests {
                 Step::Info("info".to_string()),
             ],
             is_volatile: false,
+            expires: crate::expiration::Expires::Never,
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2027,6 +2134,7 @@ mod tests {
                 Step::Filename(ResourceName::new("file.txt".to_string())),
             ],
             is_volatile: false,
+            expires: crate::expiration::Expires::Never,
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2049,6 +2157,7 @@ mod tests {
                 Step::Info("info2".to_string()),
             ],
             is_volatile: false,
+            expires: crate::expiration::Expires::Never,
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -2081,6 +2190,7 @@ mod tests {
                 Step::Info("info".to_string()),
             ],
             is_volatile: false,
+            expires: crate::expiration::Expires::Never,
         };
         assert_eq!(plan.split_index(), 2);
         let (p1, p2) = plan.split();
@@ -2094,6 +2204,7 @@ mod tests {
             query: Default::default(),
             steps: vec![Step::Evaluate(Default::default())],
             is_volatile: false,
+            expires: crate::expiration::Expires::Never,
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -2431,5 +2542,67 @@ mod tests {
             !plan2.is_volatile,
             "v/q should NOT be volatile (evaluates to Query value)"
         );
+    }
+
+    #[test]
+    fn test_plan_expires_default() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("-R/data/test.csv").unwrap();
+        let mut pb = PlanBuilder::new(query, &cr);
+        let plan = pb.build().unwrap();
+        assert_eq!(plan.expires, crate::expiration::Expires::Never);
+    }
+
+    #[test]
+    fn test_plan_expires_from_command() {
+        let mut cr = CommandMetadataRegistry::new();
+        let mut cm = CommandMetadata::new("expiring_cmd");
+        cm.with_argument(ArgumentInfo::any_argument("arg"));
+        cm.expires = "in 5 min".parse().unwrap();
+        cr.add_command(&cm);
+
+        let query = parse_query("expiring_cmd-hello").unwrap();
+        let mut pb = PlanBuilder::new(query, &cr);
+        let plan = pb.build().unwrap();
+        assert_eq!(
+            plan.expires,
+            crate::expiration::Expires::InDuration(std::time::Duration::from_secs(300))
+        );
+    }
+
+    #[test]
+    fn test_plan_expires_min_of_commands() {
+        let mut cr = CommandMetadataRegistry::new();
+
+        let mut cm1 = CommandMetadata::new("cmd1");
+        cm1.with_argument(ArgumentInfo::any_argument("arg"));
+        cm1.expires = "in 10 min".parse().unwrap();
+        cr.add_command(&cm1);
+
+        let mut cm2 = CommandMetadata::new("cmd2");
+        cm2.with_argument(ArgumentInfo::any_argument("arg"));
+        cm2.expires = "in 5 min".parse().unwrap();
+        cr.add_command(&cm2);
+
+        let query = parse_query("cmd1-a/cmd2-b").unwrap();
+        let mut pb = PlanBuilder::new(query, &cr);
+        let plan = pb.build().unwrap();
+        // Should be the minimum: 5 min
+        assert_eq!(
+            plan.expires,
+            crate::expiration::Expires::InDuration(std::time::Duration::from_secs(300))
+        );
+    }
+
+    #[test]
+    fn test_plan_expires_serialization() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("-R/data/test.csv").unwrap();
+        let mut pb = PlanBuilder::new(query, &cr);
+        let mut plan = pb.build().unwrap();
+        plan.expires = "in 1 hours".parse().unwrap();
+        let json = serde_json::to_string(&plan).unwrap();
+        let plan2: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(plan2.expires, plan.expires);
     }
 }

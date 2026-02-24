@@ -321,6 +321,12 @@ fn convert_notification(
             query: query.to_string(),
             timestamp,
         },
+        AssetNotificationMessage::Expired => NotificationMessage::StatusChanged {
+            asset_id,
+            query: query.to_string(),
+            status: "Expired".to_string(),
+            timestamp,
+        },
     }
 }
 

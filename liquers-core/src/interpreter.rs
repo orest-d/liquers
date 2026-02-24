@@ -11,7 +11,8 @@ use crate::{
     metadata::{LogEntry, Metadata},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{
-        has_volatile_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues, Step,
+        has_expirable_dependencies, has_volatile_dependencies, ParameterValue, Plan, PlanBuilder,
+        ResolvedParameterValues, Step,
     },
     query::{Key, Query, TryToQuery},
     recipes::Recipe,
@@ -31,7 +32,10 @@ pub async fn make_plan<E: Environment, Q: TryToQuery>(
     let mut plan = pb.build()?;
 
     // Phase 2: Check asset dependencies for volatility
-    has_volatile_dependencies(envref, &mut plan).await?;
+    has_volatile_dependencies(envref.clone(), &mut plan).await?;
+
+    // Phase 3: Check asset dependencies for expiration
+    has_expirable_dependencies(envref, &mut plan).await?;
 
     Ok(plan)
 }

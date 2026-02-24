@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use crate::error::Error;
+use crate::expiration::Expires;
 use crate::query::{ActionParameter, ActionRequest, Query, TryToQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -772,6 +773,13 @@ pub struct CommandMetadata {
     /// Default is false.
     pub volatile: bool,
 
+    /// Expiration specification for the command result.
+    /// If set to anything other than Never, assets produced by this command
+    /// will have their expiration time derived from this specification.
+    /// Default is Never (no expiration).
+    #[serde(default)]
+    pub expires: Expires,
+
     /// If true, then the command is asynchronous.
     /// Asynchronous commands are registered via `register_async_command()` and return futures.
     /// Default is false.
@@ -799,6 +807,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            expires: Expires::Never,
             is_async: false,
             definition: CommandDefinition::Registered,
             next: Vec::new(),
@@ -827,6 +836,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            expires: Expires::Never,
             is_async: false,
             definition: CommandDefinition::Registered,
             next: Vec::new(),
@@ -1023,5 +1033,27 @@ mod tests {
 
         let preset = preset.with_namespace("lui");
         assert_eq!(preset.ns, "lui");
+    }
+
+    #[test]
+    fn test_command_metadata_expires_default() {
+        let cm = CommandMetadata::new("test");
+        assert_eq!(cm.expires, crate::expiration::Expires::Never);
+    }
+
+    #[test]
+    fn test_command_metadata_from_key_expires_default() {
+        let key = CommandKey::new("", "ns", "cmd");
+        let cm = CommandMetadata::from_key(key);
+        assert_eq!(cm.expires, crate::expiration::Expires::Never);
+    }
+
+    #[test]
+    fn test_command_metadata_expires_serialization() {
+        let mut cm = CommandMetadata::new("test");
+        cm.expires = "in 5 min".parse().unwrap();
+        let json = serde_json::to_string(&cm).unwrap();
+        let cm2: CommandMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(cm2.expires, cm.expires);
     }
 }

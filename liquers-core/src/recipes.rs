@@ -8,6 +8,7 @@ use crate::{
     command_metadata::CommandMetadataRegistry,
     context::{EnvRef, Environment},
     error::Error,
+    expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
     plan::{Plan, PlanBuilder},
@@ -45,6 +46,9 @@ pub struct Recipe {
     /// If has_circular_dependencies is true, this holds the key that caused the cycle
     #[serde(default)]
     pub circular_dependency_key: Option<Key>,
+    /// Expiration specification for assets produced by this recipe
+    #[serde(default)]
+    pub expires: Expires,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -68,6 +72,7 @@ impl Recipe {
             volatile: false,
             has_circular_dependencies: false,
             circular_dependency_key: None,
+            expires: Expires::Never,
         })
     }
 
@@ -240,6 +245,7 @@ impl From<&Query> for Recipe {
             volatile: false,
             has_circular_dependencies: false,
             circular_dependency_key: None,
+            expires: Expires::Never,
         }
     }
 }
@@ -256,6 +262,7 @@ impl From<Query> for Recipe {
             volatile: false,
             has_circular_dependencies: false,
             circular_dependency_key: None,
+            expires: Expires::Never,
         }
     }
 }
@@ -272,6 +279,7 @@ impl From<Key> for Recipe {
             volatile: false,
             has_circular_dependencies: false,
             circular_dependency_key: None,
+            expires: Expires::Never,
         }
     }
 }
@@ -288,6 +296,7 @@ impl From<&Key> for Recipe {
             volatile: false,
             has_circular_dependencies: false,
             circular_dependency_key: None,
+            expires: Expires::Never,
         }
     }
 }
@@ -718,5 +727,30 @@ mod test {
                 .await
                 .unwrap();
         assert!(!not_contains, "Should not contain nonexistent.txt recipe");
+    }
+
+    #[test]
+    fn test_recipe_expires_default() {
+        let recipe = super::Recipe::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "Test recipe".to_string(),
+        )
+        .unwrap();
+        assert_eq!(recipe.expires, crate::expiration::Expires::Never);
+    }
+
+    #[test]
+    fn test_recipe_expires_serialization() {
+        let mut recipe = super::Recipe::new(
+            "test".to_string(),
+            "Test".to_string(),
+            "Test recipe".to_string(),
+        )
+        .unwrap();
+        recipe.expires = "in 5 min".parse().unwrap();
+        let json = serde_json::to_string(&recipe).unwrap();
+        let recipe2: super::Recipe = serde_json::from_str(&json).unwrap();
+        assert_eq!(recipe2.expires, recipe.expires);
     }
 }
