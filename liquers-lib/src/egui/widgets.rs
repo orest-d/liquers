@@ -72,9 +72,10 @@ use std::{fmt::Display, sync::Arc};
 use egui::{text::LayoutJob, Align, Color32, FontSelection, RichText, Style, TextEdit, Widget};
 use liquers_core::{
     assets::{AssetManager, AssetRef},
+    command_metadata::{ArgumentType, CommandMetadata},
     context::{EnvRef, Environment},
     error::Error,
-    metadata::{AssetInfo, ProgressEntry, Status},
+    metadata::{AssetInfo, LogEntryKind, MetadataRecord, ProgressEntry, Status},
     parse::parse_query,
     query::{Key, Position, QueryRenderer, StyledQuery, StyledQueryToken, TryToQuery},
 };
@@ -578,6 +579,210 @@ pub fn display_progress(ui: &mut egui::Ui, progress: &ProgressEntry) -> egui::Re
         };
         ui.add(egui::ProgressBar::new(progress_ratio).text(msg))
     }
+}
+
+/// Display metadata value in a structured form.
+pub fn display_metadata(ui: &mut egui::Ui, metadata: &MetadataRecord) -> egui::Response {
+    let asset_info = metadata.get_asset_info();
+    ui.vertical(|ui| {
+        display_asset_info(ui, &asset_info);
+
+        if !metadata.log.is_empty() {
+            ui.separator();
+            ui.heading("Log");
+            for entry in metadata.log.iter().rev().take(10) {
+                let kind_color = match entry.kind {
+                    LogEntryKind::Debug => Color32::GRAY,
+                    LogEntryKind::Info => Color32::LIGHT_BLUE,
+                    LogEntryKind::Warning => Color32::YELLOW,
+                    LogEntryKind::Error => Color32::RED,
+                };
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(kind_color, format!("{:?}", entry.kind));
+                    ui.label(&entry.timestamp);
+                    ui.label(&entry.message);
+                });
+            }
+            if metadata.log.len() > 10 {
+                ui.label(format!("... {} more log entries", metadata.log.len() - 10));
+            }
+        }
+    })
+    .response
+}
+
+fn argument_type_label(argument_type: &ArgumentType) -> String {
+    match argument_type {
+        ArgumentType::String => "string".to_string(),
+        ArgumentType::Integer => "int".to_string(),
+        ArgumentType::IntegerOption => "int?".to_string(),
+        ArgumentType::Float => "float".to_string(),
+        ArgumentType::FloatOption => "float?".to_string(),
+        ArgumentType::Boolean => "bool".to_string(),
+        ArgumentType::Any => "any".to_string(),
+        ArgumentType::None => "none".to_string(),
+        ArgumentType::GlobalEnum(name) => format!("global-enum({})", name),
+        ArgumentType::Enum(e) => format!("enum({}; {} values)", e.name, e.values.len()),
+    }
+}
+
+/// Compact one-line command metadata renderer.
+pub fn display_command_metadata_compact(
+    ui: &mut egui::Ui,
+    command_metadata: &CommandMetadata,
+) -> egui::Response {
+    ui.horizontal_wrapped(|ui| {
+        let namespace = if command_metadata.namespace.is_empty() {
+            "root"
+        } else {
+            command_metadata.namespace.as_str()
+        };
+        let signature = format!(
+            "{}::{}({} args)",
+            namespace,
+            command_metadata.name,
+            command_metadata.arguments.len()
+        );
+        ui.strong(signature);
+        if !command_metadata.doc.is_empty() {
+            ui.label(format!(" - {}", command_metadata.doc));
+        }
+    })
+    .response
+}
+
+/// Full command metadata renderer.
+pub fn display_command_metadata(
+    ui: &mut egui::Ui,
+    command_metadata: &CommandMetadata,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        display_command_metadata_compact(ui, command_metadata);
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.colored_label(Color32::LIGHT_GRAY, "Realm:");
+            ui.label(if command_metadata.realm.is_empty() {
+                "main"
+            } else {
+                command_metadata.realm.as_str()
+            });
+            ui.colored_label(Color32::LIGHT_GRAY, "Namespace:");
+            ui.label(if command_metadata.namespace.is_empty() {
+                "root"
+            } else {
+                command_metadata.namespace.as_str()
+            });
+        });
+
+        if !command_metadata.label.is_empty() {
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::LIGHT_GRAY, "Label:");
+                ui.label(&command_metadata.label);
+            });
+        }
+        if !command_metadata.module.is_empty() {
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::LIGHT_GRAY, "Module:");
+                ui.label(&command_metadata.module);
+            });
+        }
+        if !command_metadata.filename.is_empty() {
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::LIGHT_GRAY, "Filename:");
+                ui.label(&command_metadata.filename);
+            });
+        }
+
+        ui.horizontal(|ui| {
+            ui.colored_label(Color32::LIGHT_GRAY, "Flags:");
+            ui.label(format!(
+                "cache={}, volatile={}, async={}",
+                command_metadata.cache, command_metadata.volatile, command_metadata.is_async
+            ));
+        });
+
+        if let Some(state_argument) = &command_metadata.state_argument {
+            ui.separator();
+            ui.strong("State Argument");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!(
+                    "{}: {}",
+                    state_argument.name,
+                    argument_type_label(&state_argument.argument_type)
+                ));
+            });
+        }
+
+        ui.separator();
+        ui.strong(format!("Arguments ({})", command_metadata.arguments.len()));
+        if command_metadata.arguments.is_empty() {
+            ui.label("<none>");
+        } else {
+            for arg in &command_metadata.arguments {
+                ui.group(|ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(&arg.name);
+                        if !arg.label.is_empty() {
+                            ui.label(format!("({})", arg.label));
+                        }
+                        ui.label(format!("type={}", argument_type_label(&arg.argument_type)));
+                    });
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("default={:?}", arg.default));
+                        if arg.multiple {
+                            ui.colored_label(Color32::LIGHT_BLUE, "multiple");
+                        }
+                        if arg.injected {
+                            ui.colored_label(Color32::LIGHT_GREEN, "injected");
+                        }
+                        if !arg.hints.is_empty() {
+                            ui.label(format!("hints={}", arg.hints.len()));
+                        }
+                        if !arg.presets.is_empty() {
+                            ui.label(format!("presets={}", arg.presets.len()));
+                        }
+                    });
+                    if let ArgumentType::Enum(enum_arg) = &arg.argument_type {
+                        ui.collapsing("Enum alternatives", |ui| {
+                            for alt in &enum_arg.values {
+                                ui.label(format!("{} => {:?}", alt.alias, alt.value));
+                            }
+                            if enum_arg.others_allowed {
+                                ui.colored_label(Color32::YELLOW, "others allowed");
+                            }
+                        });
+                    }
+                });
+            }
+        }
+
+        if !command_metadata.presets.is_empty() {
+            ui.separator();
+            ui.strong(format!("Presets ({})", command_metadata.presets.len()));
+            for preset in &command_metadata.presets {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(&preset.label);
+                    if !preset.description.is_empty() {
+                        ui.label(format!(" - {}", &preset.description));
+                    }
+                    ui.label(format!("action={}", preset.action.encode()));
+                });
+            }
+        }
+
+        if !command_metadata.next.is_empty() {
+            ui.separator();
+            ui.strong(format!("Next ({})", command_metadata.next.len()));
+            for preset in &command_metadata.next {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(&preset.label);
+                    ui.label(format!("action={}", preset.action.encode()));
+                });
+            }
+        }
+    })
+    .response
 }
 
 /// Display an AssetInfo structure with comprehensive information

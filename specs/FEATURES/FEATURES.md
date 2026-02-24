@@ -23,7 +23,7 @@ This folder contains larger feature specifications that should be detailed befor
 
 5. `EGUI-VALUE-RENDERING.md`
 - Scope: complete egui rendering support for metadata-oriented value variants.
-- Status: Open
+- Status: Closed
 
 6. `EGUI-ASSET-MANAGER-INTEGRATION.md`
 - Scope: stable adapter-based integration between egui widgets and asset manager.

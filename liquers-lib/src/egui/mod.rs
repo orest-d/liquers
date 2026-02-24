@@ -5,8 +5,8 @@ use liquers_core::error::Error;
 
 use crate::{
     egui::widgets::{
-        display_asset_info, display_asset_info_table, display_error, display_recipe,
-        display_styled_query,
+        display_asset_info, display_asset_info_table, display_command_metadata, display_error,
+        display_metadata, display_recipe, display_styled_query,
     },
     value::{simple::SimpleValue, ExtValue, Value},
 };
@@ -113,7 +113,9 @@ impl UIValueExtension for Value {
             Self::Base(SimpleValue::Bytes { value }) => {
                 ui.label(RichText::new(format!("Bytes: {} bytes", value.len())).italics());
             }
-            Self::Base(SimpleValue::Metadata { value }) => todo!(),
+            Self::Base(SimpleValue::Metadata { value }) => {
+                display_metadata(ui, value);
+            }
             Self::Base(SimpleValue::AssetInfo { value }) => {
                 if value.is_empty() {
                     ui.label(RichText::new("Asset Info: <empty>").italics());
@@ -128,7 +130,9 @@ impl UIValueExtension for Value {
             Self::Base(SimpleValue::Recipe { value }) => {
                 display_recipe(ui, value);
             }
-            Self::Base(SimpleValue::CommandMetadata { value }) => todo!(),
+            Self::Base(SimpleValue::CommandMetadata { value }) => {
+                display_command_metadata(ui, value);
+            }
             Self::Base(SimpleValue::Query { value }) => {
                 ui.label("Query:");
                 display_styled_query(ui, value.clone());
