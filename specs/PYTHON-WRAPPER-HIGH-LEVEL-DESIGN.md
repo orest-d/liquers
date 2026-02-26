@@ -238,8 +238,32 @@ Tooling:
 5. Automated pytest suite validates end-to-end behavior.
 
 ## TODO
-
-Both sync and async python commands should be supported.
+- Liquers Value should have a python wrapper. Data types that do not have a python equivalent (e.g. `UiCommand`, `Widget`, `UIElement`) should be kept as a Value object.
+- Both sync and async python commands should be supported. The sync python command should have an access to important services. The async services should be wrapped in executing the call in a blocking way. This would mean that there should be both async and blocking version of important object wrappers (environment, recipe provider, store, asset manager, context)
 - Investigate the https://github.com/orest-d/liquer/blob/master - This is the older python version of the currently implemented system.
 - Specifically, check https://orest-d.github.io/liquer/site/apidocs/liquer/commands.html and/or https://github.com/orest-d/liquer/blob/master/liquer/commands.py.  Commands are registered in python with command or first_command decorators. These use command_metadata_from_callable to extract information for construction of command metadata from the signature of the python function, they also extract the doc string. Include the similar logic of mapping info from function signature to command metadata. Create a table showing this mapping, include the complete CommandMetadata structure fields and indicate which information is available or missing in the function signature.
+
 - Design first_command and command  functions, that would act as python decorators to register python commands in the liquers CommandMetadataRegistry.
+- Python library should have a single shared environment (EnvRef).
+- In the initialization phase, it should be possible to configure the environment:
+  - Store should be configurable via a store builder from liquers-store.
+  - For now default or trivial recipe provider should be used, later a more configurable recipe provider may be created.
+  - Default asset manager should be used, in the future it may take configuration parameters.
+  - It should be possible to overide CommandMetadataRegistry, e.g. by reloading it from a yaml file.
+  - By default all commands from liquers-lib should be registered.
+- There should be 3 ways how to use the liquers framework from python:
+  1. As a library: After initialization, execute queries via envref. (Milestone 1)
+  2. As a server: Execute the (configured) liquers-axum server in primary thread or in a background.
+  3. As a GUI: (egui or ratatui TUI in the future) - execute gui of choice; can be combined with server.
+
+Regarding Open Design Decisions:
+1. Name/location of new crate (`liquers-python` vs modernized `liquers-py`).
+   Answer: Preferably modernize the `liquers-py`. If necessary, copy the code needed for reference into the design document and clearly label it, including sections that are likely to change.
+2. Default conversion mode: strict vs permissive fallback to `PythonObject`.
+   Answer: Permissive.
+3. Required optional dependencies in baseline (`Pillow`, `polars`, `numpy`).
+   Answer: yes
+4. Async Python callable support in V1 or deferred.
+   Answer: It should be part of the design, but design should clearly split the solution to multiple milestones. Milestone 1 (baseline) should demonstrate the ability to register and execute python commands.
+5. Whether to allow pickle-based serializer for `PythonObject` in baseline.
+   Answer: Yes
