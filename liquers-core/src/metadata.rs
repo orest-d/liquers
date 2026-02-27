@@ -972,6 +972,31 @@ impl MetadataRecord {
     pub fn is_expired(&self) -> bool {
         self.expiration_time.is_expired()
     }
+
+    /// Mark metadata as volatile result (single-use semantics).
+    pub fn set_volatile(&mut self) -> &mut Self {
+        self.status = Status::Volatile;
+        self.is_volatile = true;
+        self.expires = Expires::Immediately;
+        self.expiration_time = ExpirationTime::Immediately;
+        self.set_updated_now();
+        self
+    }
+
+    /// Set resolved expiration time and keep it safely in the future for At(..).
+    pub fn set_expiration_time(&mut self, expiration_time: ExpirationTime) -> &mut Self {
+        self.expiration_time = expiration_time.ensure_future(std::time::Duration::from_millis(500));
+        self.set_updated_now();
+        self
+    }
+
+    /// Resolve expiration from expires policy and set both fields consistently.
+    pub fn set_expiration_time_from(&mut self, expires: &Expires) -> &mut Self {
+        self.expires = expires.clone();
+        let expiration_time = expires.to_expiration_time(chrono::Utc::now(), 0);
+        self.set_expiration_time(expiration_time);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1752,9 +1777,10 @@ impl Metadata {
 
     /// Set the resolved expiration time
     pub fn set_expiration_time(&mut self, expiration_time: ExpirationTime) -> Result<&mut Self, Error> {
+        let expiration_time = expiration_time.ensure_future(std::time::Duration::from_millis(500));
         match self {
             Metadata::MetadataRecord(mr) => {
-                mr.expiration_time = expiration_time;
+                mr.set_expiration_time(expiration_time);
                 Ok(self)
             }
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
@@ -1765,12 +1791,53 @@ impl Metadata {
             }
             Metadata::LegacyMetadata(serde_json::Value::Null) => {
                 let mut m = MetadataRecord::new();
-                m.expiration_time = expiration_time;
+                m.set_expiration_time(expiration_time);
                 *self = Metadata::MetadataRecord(m);
                 Ok(self)
             }
             Metadata::LegacyMetadata(_) => Err(Error::general_error(
                 "Cannot set expiration_time on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    pub fn set_expiration_time_from(&mut self, expires: &Expires) -> Result<&mut Self, Error> {
+        self.set_expires(expires.clone())?;
+        let expiration_time = expires.to_expiration_time(chrono::Utc::now(), 0);
+        self.set_expiration_time(expiration_time)
+    }
+
+    pub fn set_volatile(&mut self) -> Result<&mut Self, Error> {
+        match self {
+            Metadata::MetadataRecord(mr) => {
+                mr.set_volatile();
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                o.insert("status".to_string(), serde_json::to_value(Status::Volatile).unwrap());
+                o.insert("is_volatile".to_string(), serde_json::Value::Bool(true));
+                o.insert(
+                    "expires".to_string(),
+                    serde_json::Value::String(Expires::Immediately.to_string()),
+                );
+                let expiration_time_value = serde_json::to_value(ExpirationTime::Immediately)
+                    .map_err(|e| {
+                        Error::general_error(format!(
+                            "Failed to serialize expiration_time for volatile metadata: {}",
+                            e
+                        ))
+                    })?;
+                o.insert("expiration_time".to_string(), expiration_time_value);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut mr = MetadataRecord::new();
+                mr.set_volatile();
+                *self = Metadata::MetadataRecord(mr);
+                Ok(self)
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set volatile on unsupported legacy metadata".to_string(),
             )),
         }
     }
@@ -1880,6 +1947,29 @@ mod tests {
         let future = chrono::Utc::now() + chrono::Duration::hours(1);
         m.set_expiration_time(ExpirationTime::At(future)).unwrap();
         assert_eq!(m.expiration_time(), ExpirationTime::At(future));
+    }
+
+    #[test]
+    fn test_metadata_set_expiration_time_from_enforces_future() {
+        let mut m = Metadata::MetadataRecord(MetadataRecord::new());
+        let expires = Expires::InDuration(std::time::Duration::from_millis(0));
+        m.set_expiration_time_from(&expires).unwrap();
+        match m.expiration_time() {
+            ExpirationTime::At(dt) => {
+                assert!(dt > chrono::Utc::now());
+            }
+            _ => panic!("Expected ExpirationTime::At"),
+        }
+    }
+
+    #[test]
+    fn test_metadata_set_volatile() {
+        let mut m = Metadata::MetadataRecord(MetadataRecord::new());
+        m.set_volatile().unwrap();
+        assert_eq!(m.status(), Status::Volatile);
+        assert!(m.is_volatile());
+        assert_eq!(m.expires(), Expires::Immediately);
+        assert_eq!(m.expiration_time(), ExpirationTime::Immediately);
     }
 
     #[test]

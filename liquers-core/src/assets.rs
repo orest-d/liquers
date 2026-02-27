@@ -383,6 +383,20 @@ impl<E: Environment> AssetData<E> {
         Ok((!self.has_initial_value()?) && self.recipe.is_pure_query())
     }
 
+    fn clear_fast_track_payload(&mut self) {
+        self.data = None;
+        self.binary = None;
+        self.metadata = Metadata::new().into();
+        self.status = Status::None;
+    }
+
+    fn is_binary_type_identifier(type_identifier: &str) -> bool {
+        matches!(
+            type_identifier.trim().to_ascii_lowercase().as_str(),
+            "bytes" | "binary" | "bin" | "b"
+        )
+    }
+
     /// This tries to get an asset value by quickly evaluation strategies.
     /// For example, if the asset is a resource an attempt is made to deserialize it.
     /// These strategies are tried before the asset is queued for evaluation.
@@ -410,67 +424,55 @@ impl<E: Environment> AssetData<E> {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
                 let (binary, metadata) = store.get(&key).await?;
-                if metadata.is_error() == Ok(true) {
-                    // Stored as error
-                    self.metadata = metadata;
-                    self.status = self.metadata.status();
-                    self.binary = None;
-                    self.data = None;
-                    return Ok(true);
-                } else if metadata.status().has_data() {
-                    // TODO: if binary is supplied, it does have data...
-                    self.binary = Some(Arc::new(binary));
-                    eprintln!("Asset {} has data, deserializing", self.id());
-                    let value = E::Value::deserialize_from_bytes(
-                        self.binary.as_ref().unwrap(),
-                        &metadata.type_identifier()?,
-                        &metadata.get_data_format(),
-                    )?; // TODO: If it fails to deserialize, it might be corrupted
-                    self.data = Some(Arc::new(value));
-                    self.status = metadata.status();
-                    self.metadata = metadata;
-                    match self.status {
-                        Status::Ready | Status::Source | Status::Override | Status::Volatile => {
-                            self.notification_tx
-                                .send(AssetNotificationMessage::JobFinished)
-                                .map_err(|e| {
-                                    Error::general_error(format!(
-                                        "Failed to send job finished notification: {}",
-                                        e
-                                    ))
-                                    .with_query(&key.into())
-                                })?;
-                            eprintln!("Asset {} loaded successfully", self.id());
-                            return Ok(true);
-                        }
-                        Status::None
-                        | Status::Directory
-                        | Status::Recipe
-                        | Status::Submitted
-                        | Status::Dependencies
-                        | Status::Processing
-                        | Status::Partial
-                        | Status::Error
-                        | Status::Storing
-                        | Status::Expired
-                        | Status::Cancelled => {
-                            self.notification_tx
-                                .send(AssetNotificationMessage::StatusChanged(self.status))
-                                .map_err(|e| {
-                                    Error::general_error(format!(
-                                        "Failed to send status change notification: {}",
-                                        e
-                                    ))
-                                    .with_query(&key.into())
-                                })?;
-                            eprintln!("Asset {} loaded data that is not ready", self.id());
+                let stored_status = metadata.status();
+                if !matches!(
+                    stored_status,
+                    Status::Ready | Status::Source | Status::Override
+                ) {
+                    eprintln!(
+                        "Asset {} has stored status {:?}, fast-track disabled",
+                        self.id(),
+                        stored_status
+                    );
+                    self.clear_fast_track_payload();
+                    return Ok(false);
+                }
+
+                let type_identifier = metadata.type_identifier()?;
+                let data_format = metadata.get_data_format();
+                let value = if Self::is_binary_type_identifier(&type_identifier) {
+                    E::Value::from_bytes(binary.clone())
+                } else {
+                    match E::Value::deserialize_from_bytes(&binary, &type_identifier, &data_format)
+                    {
+                        Ok(value) => value,
+                        Err(e) => {
+                            eprintln!(
+                                "Asset {} fast-track failed to deserialize stored value (treated as corrupted): {}",
+                                self.id(),
+                                e
+                            );
+                            self.clear_fast_track_payload();
                             return Ok(false);
                         }
                     }
-                } else {
-                    return Err(Error::general_error(format!("Inconsistent status of asset {}: Asset is stored, having binary size {}, but it has status: {:?}",
-                    self.id(), binary.len(), self.status)).with_key(&key));
-                }
+                };
+
+                self.binary = Some(Arc::new(binary));
+                self.data = Some(Arc::new(value));
+                self.status = stored_status;
+                self.metadata = metadata;
+                self.notification_tx
+                    .send(AssetNotificationMessage::JobFinished)
+                    .map_err(|e| {
+                        Error::general_error(format!(
+                            "Failed to send job finished notification: {}",
+                            e
+                        ))
+                        .with_query(&key.into())
+                    })?;
+                eprintln!("Asset {} loaded successfully", self.id());
+                return Ok(true);
             } else {
                 eprintln!("Asset {} does not exist in the store", self.id());
             }
@@ -699,6 +701,73 @@ impl<E: Environment> AssetRef<E> {
         Context::new(self.clone(), is_volatile).await
     }
 
+    async fn resolve_volatility_before_evaluation(&self) {
+        let mut lock = self.data.write().await;
+        let resolved = lock.is_volatile || lock.recipe.volatile || lock.recipe.expires.is_volatile();
+        lock.is_volatile = resolved;
+        if resolved {
+            match &mut lock.metadata {
+                Metadata::MetadataRecord(mr) => {
+                    mr.is_volatile = true;
+                }
+                Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                    o.insert("is_volatile".to_string(), serde_json::Value::Bool(true));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    async fn try_to_set_ready(&self) {
+        eprintln!(
+            "Trying to set asset {} to ready - status {:?}",
+            self.id(),
+            self.status().await
+        );
+        let mut lock = self.data.write().await;
+        if lock.data.is_some() {
+            if lock.is_volatile {
+                lock.status = Status::Volatile;
+                lock.expiration_time = ExpirationTime::Immediately;
+                if let Err(e) = lock.metadata.set_volatile() {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set volatile metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                lock.expiration_time = lock.metadata.expiration_time();
+            } else {
+                lock.status = Status::Ready;
+                if let Err(e) = lock.metadata.set_status(Status::Ready) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set ready status in metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                let recipe_expires = lock.recipe.expires.clone();
+                if let Err(e) = lock.metadata.set_expiration_time_from(&recipe_expires) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                        "Failed to set expiration metadata on asset {}: {}",
+                        self.id(),
+                        e,
+                    )));
+                }
+                lock.expiration_time = lock.metadata.expiration_time();
+            }
+        } else {
+            lock.status = Status::Error;
+            let e = Error::unexpected_error(format!(
+                "Asset evaluation finished ({:?} status) but no data available",
+                lock.status
+            ));
+            if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
+                eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
+            }
+        }
+    }
+
     /// Get a string representation describing the asset
     pub async fn asset_reference(&self) -> String {
         // TODO: Make it to return non-async shared Arc string
@@ -925,6 +994,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Run the asset evaluation loop.
     pub(crate) async fn run(&self) -> Result<(), Error> {
+        self.resolve_volatility_before_evaluation().await;
         if self.status().await.is_finished() {
             return Ok(()); // Already finished
         }
@@ -982,71 +1052,27 @@ impl<E: Environment> AssetRef<E> {
             lock.metadata = Metadata::from_error(e.clone());
         } else {
             println!("Asset {} evaluation finished without an error", self.id(),);
-            async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
-                eprintln!(
-                    "Trying to set asset {} to ready - status {:?}",
-                    assetref.id(),
-                    assetref.status().await
-                );
-                let mut lock = assetref.data.write().await;
-                if lock.data.is_some() {
-                    // Check volatile: either explicitly volatile or recipe expires immediately
-                    let is_volatile = lock.is_volatile || lock.recipe.expires.is_volatile();
-                    if is_volatile {
-                        lock.status = Status::Volatile;
-                        lock.expiration_time = ExpirationTime::Immediately;
-                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
-                            mr.status = Status::Volatile;
-                            mr.is_volatile = true;
-                            mr.expiration_time = ExpirationTime::Immediately;
-                            mr.expires = crate::expiration::Expires::Immediately;
-                        }
-                    } else {
-                        // Pass 2: compute authoritative expiration_time from recipe expires
-                        let recipe_expires = &lock.recipe.expires;
-                        let exp_time = if recipe_expires.is_never() {
-                            ExpirationTime::Never
-                        } else {
-                            recipe_expires
-                                .to_expiration_time(chrono::Utc::now(), 0)
-                                .ensure_future(std::time::Duration::from_millis(500))
-                        };
-                        let recipe_expires_clone = lock.recipe.expires.clone();
-                        lock.expiration_time = exp_time.clone();
-                        lock.status = Status::Ready;
-                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
-                            mr.status = Status::Ready;
-                            mr.expires = recipe_expires_clone;
-                            mr.expiration_time = exp_time;
-                        }
-                    }
-                } else {
-                    lock.status = Status::Error;
-                    let e = Error::unexpected_error(format!(
-                        "Asset evaluation finished ({:?} status) but no data available",
-                        lock.status
-                    ));
-                    if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
-                        eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
-                    }
-                }
-            }
+            // Finalization is guarded by current status because concurrent service messages may
+            // already have transitioned the asset (e.g. cancellation/error). This is non-recursive:
+            // try_to_set_ready() mutates local state only and never calls run()/run_immediately().
             match self.status().await {
                 Status::None => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Recipe => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Submitted => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
-                Status::Dependencies => todo!(),
+                Status::Dependencies => {
+                    self.try_to_set_ready().await;
+                }
                 Status::Processing => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Partial => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Error => {
                     let mut lock = self.data.write().await;
@@ -1090,8 +1116,10 @@ impl<E: Environment> AssetRef<E> {
         result
     }
 
+    // FIXME: Refactor run and run_immediately to share the common code, e.g. by extracting the common code to a separate method and calling it from both run and run_immediately
     /// Run the asset evaluation loop.
     pub(crate) async fn run_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        self.resolve_volatility_before_evaluation().await;
         if self.status().await.is_finished() {
             return Ok(()); // Already finished
         }
@@ -1137,71 +1165,24 @@ impl<E: Environment> AssetRef<E> {
             lock.binary = None;
             lock.metadata = Metadata::from_error(e.clone());
         } else {
-            async fn try_to_set_ready(assetref: AssetRef<impl Environment>) {
-                eprintln!(
-                    "Trying to set asset {} to ready - status {:?}",
-                    assetref.id(),
-                    assetref.status().await
-                );
-                let mut lock = assetref.data.write().await;
-                if lock.data.is_some() {
-                    // Check volatile: either explicitly volatile or recipe expires immediately
-                    let is_volatile = lock.is_volatile || lock.recipe.expires.is_volatile();
-                    if is_volatile {
-                        lock.status = Status::Volatile;
-                        lock.expiration_time = ExpirationTime::Immediately;
-                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
-                            mr.status = Status::Volatile;
-                            mr.is_volatile = true;
-                            mr.expiration_time = ExpirationTime::Immediately;
-                            mr.expires = crate::expiration::Expires::Immediately;
-                        }
-                    } else {
-                        // Pass 2: compute authoritative expiration_time from recipe expires
-                        let recipe_expires = &lock.recipe.expires;
-                        let exp_time = if recipe_expires.is_never() {
-                            ExpirationTime::Never
-                        } else {
-                            recipe_expires
-                                .to_expiration_time(chrono::Utc::now(), 0)
-                                .ensure_future(std::time::Duration::from_millis(500))
-                        };
-                        let recipe_expires_clone = lock.recipe.expires.clone();
-                        lock.expiration_time = exp_time.clone();
-                        lock.status = Status::Ready;
-                        if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
-                            mr.status = Status::Ready;
-                            mr.expires = recipe_expires_clone;
-                            mr.expiration_time = exp_time;
-                        }
-                    }
-                } else {
-                    lock.status = Status::Error;
-                    let e = Error::unexpected_error(format!(
-                        "Asset evaluation finished ({:?} status) but no data available",
-                        lock.status
-                    ));
-                    if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
-                        eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
-                    }
-                }
-            }
             match self.status().await {
                 Status::None => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Recipe => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Submitted => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
-                Status::Dependencies => todo!(),
+                Status::Dependencies => {
+                    self.try_to_set_ready().await;
+                }
                 Status::Processing => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Partial => {
-                    try_to_set_ready(self.clone()).await;
+                    self.try_to_set_ready().await;
                 }
                 Status::Error => {
                     let mut lock = self.data.write().await;
@@ -1250,6 +1231,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
+        self.resolve_volatility_before_evaluation().await;
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
             if let Ok(Some(key)) = recipe.key() {
@@ -1291,7 +1273,7 @@ impl<E: Environment> AssetRef<E> {
             recipe.to_plan(cmr)?
         };
         */
-        let context = Context::new(self.clone(), recipe.volatile).await; // TODO: reference to asset
+        let context = self.create_context().await; // TODO: reference to asset
                                                                          // TODO: Separate evaluation of dependencies
                                                                          //let res = apply_plan(plan, envref, context, input_state).await?;
                                                                          //let res = apply_plan_new(
@@ -1312,6 +1294,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
+        self.resolve_volatility_before_evaluation().await;
         let res = self.evaluate_recipe().await;
         match res {
             Ok(State { data, metadata }) => {
@@ -1331,34 +1314,36 @@ impl<E: Environment> AssetRef<E> {
                     | Status::Processing
                     | Status::Storing => {
                         // here is a value, so this is probably an old state - mark as ready or volatile
-                        let is_volatile = lock.is_volatile || lock.recipe.expires.is_volatile();
-                        if is_volatile {
+                        if lock.is_volatile {
                             lock.status = Status::Volatile;
                             lock.expiration_time = ExpirationTime::Immediately;
-                            if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
-                                mr.status = Status::Volatile;
-                                mr.is_volatile = true;
-                                mr.expiration_time = ExpirationTime::Immediately;
-                                mr.expires = crate::expiration::Expires::Immediately;
+                            if let Err(e) = lock.metadata.set_volatile() {
+                                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                                    "Failed to set volatile metadata on asset {}: {}",
+                                    self.id(),
+                                    e,
+                                )));
                             }
+                            lock.expiration_time = lock.metadata.expiration_time();
                         } else {
-                            // Pass 2: compute authoritative expiration_time
-                            let recipe_expires = &lock.recipe.expires;
-                            let exp_time = if recipe_expires.is_never() {
-                                ExpirationTime::Never
-                            } else {
-                                recipe_expires
-                                    .to_expiration_time(chrono::Utc::now(), 0)
-                                    .ensure_future(std::time::Duration::from_millis(500))
-                            };
-                            let recipe_expires_clone = lock.recipe.expires.clone();
-                            lock.expiration_time = exp_time.clone();
                             lock.status = Status::Ready;
-                            if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
-                                mr.status = Status::Ready;
-                                mr.expires = recipe_expires_clone;
-                                mr.expiration_time = exp_time;
+                            if let Err(e) = lock.metadata.set_status(Status::Ready) {
+                                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                                    "Failed to set ready status metadata on asset {}: {}",
+                                    self.id(),
+                                    e,
+                                )));
                             }
+                            let recipe_expires = lock.recipe.expires.clone();
+                            if let Err(e) = lock.metadata.set_expiration_time_from(&recipe_expires)
+                            {
+                                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+                                    "Failed to set expiration metadata on asset {}: {}",
+                                    self.id(),
+                                    e,
+                                )));
+                            }
+                            lock.expiration_time = lock.metadata.expiration_time();
                         }
                     }
                     Status::Ready => {}
@@ -1398,10 +1383,11 @@ impl<E: Environment> AssetRef<E> {
     }
 
     pub async fn evaluate_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
+        self.resolve_volatility_before_evaluation().await;
         let (input_state, recipe) = self.initial_state_and_recipe().await;
 
         let envref = self.get_envref().await;
-        let mut context = Context::new(self.clone(), recipe.volatile).await;
+        let mut context = self.create_context().await;
         if let Some(payload) = payload {
             context.set_payload(payload);
         }
@@ -3098,6 +3084,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_asset_loading_skips_non_ready_source_override_statuses() {
+        let key = parse_key("test_non_ready.txt").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.get_async_store()
+            .set(
+                &key,
+                b"queued payload",
+                &Metadata::MetadataRecord(
+                    MetadataRecord::new()
+                        .with_key(key.clone())
+                        .with_type_identifier("text".to_owned())
+                        .with_status(Status::Submitted)
+                        .clone(),
+                ),
+            )
+            .await
+            .unwrap();
+
+        let envref = env.to_ref();
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1235, key.into(), envref.clone());
+
+        assert!(!asset_data.try_fast_track().await.unwrap());
+        assert!(asset_data.poll_state().is_none());
+        assert!(asset_data.poll_binary().is_none());
+        assert_eq!(asset_data.status, Status::None);
+    }
+
+    #[tokio::test]
+    async fn test_asset_loading_binary_type_uses_raw_bytes() {
+        let key = parse_key("test_binary_payload.bin").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let raw = vec![0, 159, 146, 150, 255];
+        env.get_async_store()
+            .set(
+                &key,
+                &raw,
+                &{
+                    let mut metadata = MetadataRecord::new();
+                    metadata.with_key(key.clone());
+                    metadata.with_type_identifier("bytes".to_owned());
+                    // Intentionally inconsistent with bytes type to assert from_bytes path.
+                    metadata.data_format = Some("txt".to_owned());
+                    metadata.with_status(Status::Override);
+                    Metadata::MetadataRecord(metadata)
+                },
+            )
+            .await
+            .unwrap();
+
+        let envref = env.to_ref();
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1236, key.into(), envref.clone());
+
+        assert!(asset_data.try_fast_track().await.unwrap());
+        let state = asset_data.poll_state().expect("state must be available");
+        assert_eq!(state.data.try_into_bytes().unwrap(), raw);
+    }
+
+    #[tokio::test]
+    async fn test_asset_loading_corrupted_ready_payload_returns_false_and_clears() {
+        let key = parse_key("test_corrupted_ready.json").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.get_async_store()
+            .set(
+                &key,
+                b"not valid json",
+                &{
+                    let mut metadata = MetadataRecord::new();
+                    metadata.with_key(key.clone());
+                    metadata.with_type_identifier("text".to_owned());
+                    metadata.data_format = Some("json".to_owned());
+                    metadata.with_status(Status::Ready);
+                    Metadata::MetadataRecord(metadata)
+                },
+            )
+            .await
+            .unwrap();
+
+        let envref = env.to_ref();
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1237, key.into(), envref.clone());
+
+        assert!(!asset_data.try_fast_track().await.unwrap());
+        assert!(asset_data.poll_state().is_none());
+        assert!(asset_data.poll_binary().is_none());
+        assert_eq!(asset_data.status, Status::None);
+    }
+
+    #[tokio::test]
     async fn test_asset_evaluate_and_store() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
@@ -3154,6 +3233,52 @@ mod tests {
             state.unwrap().data.try_into_string().unwrap(),
             "Hello, world!"
         );
+    }
+
+    #[tokio::test]
+    async fn test_asset_run_handles_dependencies_status() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(2234, query.into(), envref.clone());
+        let assetref = asset_data.to_ref();
+        {
+            let mut lock = assetref.data.write().await;
+            lock.status = Status::Dependencies;
+            lock.metadata.set_status(Status::Dependencies).unwrap();
+        }
+
+        assetref.run().await.unwrap();
+        assert_eq!(assetref.status().await, Status::Ready);
+    }
+
+    #[tokio::test]
+    async fn test_asset_run_immediately_handles_dependencies_status() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+
+        let envref = env.to_ref();
+        let asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(2235, query.into(), envref.clone());
+        let assetref = asset_data.to_ref();
+        {
+            let mut lock = assetref.data.write().await;
+            lock.status = Status::Dependencies;
+            lock.metadata.set_status(Status::Dependencies).unwrap();
+        }
+
+        assetref.run_immediately(None).await.unwrap();
+        assert_eq!(assetref.status().await, Status::Ready);
     }
 
     #[tokio::test]
