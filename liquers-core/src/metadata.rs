@@ -4,7 +4,7 @@
 use serde_json::{self, Value};
 
 use crate::error::Error;
-use crate::expiration::{Expires, ExpirationTime};
+use crate::expiration::{ExpirationTime, Expires};
 use crate::icons::DEFAULT_ICON;
 use crate::parse;
 use crate::query::{Key, Position, Query};
@@ -919,7 +919,7 @@ impl MetadataRecord {
         }
         Ok(())
     }
-    pub fn remove_progress(&mut self) -> &mut Self{
+    pub fn remove_progress(&mut self) -> &mut Self {
         self.progress.clear();
         self
     }
@@ -1061,7 +1061,9 @@ impl Metadata {
                 // Try to extract expiration_time from JSON, default to Never
                 if let Some(et_val) = o.get("expiration_time") {
                     if let Some(s) = et_val.as_str() {
-                        if let Ok(et) = serde_json::from_value::<ExpirationTime>(serde_json::Value::String(s.to_string())) {
+                        if let Ok(et) = serde_json::from_value::<ExpirationTime>(
+                            serde_json::Value::String(s.to_string()),
+                        ) {
                             m.expiration_time = et;
                         }
                     }
@@ -1630,8 +1632,8 @@ impl Metadata {
     }
 
     /// Remove progress
-    pub fn remove_progress(&mut self) -> &mut Self{
-        match self{
+    pub fn remove_progress(&mut self) -> &mut Self {
+        match self {
             Metadata::MetadataRecord(m) => {
                 m.remove_progress();
                 self
@@ -1747,8 +1749,10 @@ impl Metadata {
             Metadata::MetadataRecord(mr) => mr.expiration_time.clone(),
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
                 if let Some(serde_json::Value::String(s)) = o.get("expiration_time") {
-                    serde_json::from_value::<ExpirationTime>(serde_json::Value::String(s.to_string()))
-                        .unwrap_or(ExpirationTime::Never)
+                    serde_json::from_value::<ExpirationTime>(serde_json::Value::String(
+                        s.to_string(),
+                    ))
+                    .unwrap_or(ExpirationTime::Never)
                 } else {
                     ExpirationTime::Never
                 }
@@ -1775,7 +1779,10 @@ impl Metadata {
                 Ok(self)
             }
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                o.insert("expires".to_string(), serde_json::Value::String(expires.to_string()));
+                o.insert(
+                    "expires".to_string(),
+                    serde_json::Value::String(expires.to_string()),
+                );
                 Ok(self)
             }
             Metadata::LegacyMetadata(serde_json::Value::Null) => {
@@ -1791,7 +1798,10 @@ impl Metadata {
     }
 
     /// Set the resolved expiration time
-    pub fn set_expiration_time(&mut self, expiration_time: ExpirationTime) -> Result<&mut Self, Error> {
+    pub fn set_expiration_time(
+        &mut self,
+        expiration_time: ExpirationTime,
+    ) -> Result<&mut Self, Error> {
         let expiration_time = expiration_time.ensure_future(std::time::Duration::from_millis(500));
         match self {
             Metadata::MetadataRecord(mr) => {
@@ -1799,8 +1809,9 @@ impl Metadata {
                 Ok(self)
             }
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                let val = serde_json::to_value(&expiration_time)
-                    .map_err(|e| Error::general_error(format!("Failed to serialize expiration_time: {}", e)))?;
+                let val = serde_json::to_value(&expiration_time).map_err(|e| {
+                    Error::general_error(format!("Failed to serialize expiration_time: {}", e))
+                })?;
                 o.insert("expiration_time".to_string(), val);
                 Ok(self)
             }
@@ -1829,7 +1840,10 @@ impl Metadata {
                 Ok(self)
             }
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                o.insert("status".to_string(), serde_json::to_value(Status::Volatile).unwrap());
+                o.insert(
+                    "status".to_string(),
+                    serde_json::to_value(Status::Volatile).unwrap(),
+                );
                 o.insert("is_volatile".to_string(), serde_json::Value::Bool(true));
                 o.insert(
                     "expires".to_string(),

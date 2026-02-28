@@ -14,9 +14,9 @@ use crate::command_metadata::{
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
     CommandParameterValue, EnumArgumentType,
 };
-use crate::expiration::Expires;
 use crate::context::{EnvRef, Environment};
 use crate::error::{Error, ErrorType};
+use crate::expiration::Expires;
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
     ResourceQuerySegment,

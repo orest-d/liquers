@@ -76,10 +76,11 @@ impl Expires {
                 tz_offset,
             } => {
                 let offset_secs = tz_offset.unwrap_or(tz_offset_default);
-                let tz = FixedOffset::east_opt(offset_secs).unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
+                let tz = FixedOffset::east_opt(offset_secs)
+                    .unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
                 let local_now = reference_time.with_timezone(&tz);
-                let target_time =
-                    NaiveTime::from_hms_opt(*hour, *minute, *second).unwrap_or(NaiveTime::from_hms_opt(0, 0, 0).unwrap_or_default());
+                let target_time = NaiveTime::from_hms_opt(*hour, *minute, *second)
+                    .unwrap_or(NaiveTime::from_hms_opt(0, 0, 0).unwrap_or_default());
                 let today_target = local_now.date_naive().and_time(target_time);
                 let today_target_utc = tz
                     .from_local_datetime(&today_target)
@@ -101,7 +102,8 @@ impl Expires {
             }
             Expires::OnDayOfWeek { day, tz_offset } => {
                 let offset_secs = tz_offset.unwrap_or(tz_offset_default);
-                let tz = FixedOffset::east_opt(offset_secs).unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
+                let tz = FixedOffset::east_opt(offset_secs)
+                    .unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
                 let local_now = reference_time.with_timezone(&tz);
                 let current_weekday = local_now.weekday().num_days_from_monday();
                 let target_day = *day % 7;
@@ -123,7 +125,8 @@ impl Expires {
             }
             Expires::EndOfDay { tz_offset } => {
                 let offset_secs = tz_offset.unwrap_or(tz_offset_default);
-                let tz = FixedOffset::east_opt(offset_secs).unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
+                let tz = FixedOffset::east_opt(offset_secs)
+                    .unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
                 let local_now = reference_time.with_timezone(&tz);
                 let tomorrow = local_now.date_naive() + Duration::days(1);
                 let target_naive = tomorrow.and_hms_opt(0, 0, 0).unwrap_or_default();
@@ -136,10 +139,15 @@ impl Expires {
             }
             Expires::EndOfWeek { tz_offset } => {
                 let offset_secs = tz_offset.unwrap_or(tz_offset_default);
-                let tz = FixedOffset::east_opt(offset_secs).unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
+                let tz = FixedOffset::east_opt(offset_secs)
+                    .unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
                 let local_now = reference_time.with_timezone(&tz);
                 let current_weekday = local_now.weekday().num_days_from_monday();
-                let days_to_monday = if current_weekday == 0 { 7 } else { 7 - current_weekday };
+                let days_to_monday = if current_weekday == 0 {
+                    7
+                } else {
+                    7 - current_weekday
+                };
                 let next_monday = local_now.date_naive() + Duration::days(days_to_monday as i64);
                 let target_naive = next_monday.and_hms_opt(0, 0, 0).unwrap_or_default();
                 let target_utc = tz
@@ -151,7 +159,8 @@ impl Expires {
             }
             Expires::EndOfMonth { tz_offset } => {
                 let offset_secs = tz_offset.unwrap_or(tz_offset_default);
-                let tz = FixedOffset::east_opt(offset_secs).unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
+                let tz = FixedOffset::east_opt(offset_secs)
+                    .unwrap_or(FixedOffset::east_opt(0).unwrap_or(Utc.fix()));
                 let local_now = reference_time.with_timezone(&tz);
                 let (year, month) = (local_now.year(), local_now.month());
                 let (next_year, next_month) = if month == 12 {
@@ -229,7 +238,11 @@ fn format_duration(d: &std::time::Duration) -> String {
     // Check from largest to smallest unit
     if total_secs > 0 && total_secs % (30 * 86400) == 0 && total_ms % (30 * 86400 * 1000) == 0 {
         let months = total_secs / (30 * 86400);
-        return format!("in {} {}", months, if months == 1 { "month" } else { "months" });
+        return format!(
+            "in {} {}",
+            months,
+            if months == 1 { "month" } else { "months" }
+        );
     }
     if total_secs > 0 && total_secs % (7 * 86400) == 0 {
         let weeks = total_secs / (7 * 86400);
@@ -248,7 +261,11 @@ fn format_duration(d: &std::time::Duration) -> String {
         return format!("in {} min", minutes);
     }
     if total_secs > 0 && total_ms % 1000 == 0 {
-        return format!("in {} {}", total_secs, if total_secs == 1 { "second" } else { "seconds" });
+        return format!(
+            "in {} {}",
+            total_secs,
+            if total_secs == 1 { "second" } else { "seconds" }
+        );
     }
     format!("in {} ms", total_ms)
 }
@@ -364,10 +381,12 @@ fn parse_time_of_day(s: &str) -> Result<Expires, Error> {
     let time_str = parts[0];
     let tz_offset = if parts.len() > 1 {
         let tz_str = parts[1];
-        tz_abbreviation_to_offset(tz_str).map(Some).unwrap_or_else(|| {
-            // Try parsing as +HH:MM or -HH:MM offset
-            None
-        })
+        tz_abbreviation_to_offset(tz_str)
+            .map(Some)
+            .unwrap_or_else(|| {
+                // Try parsing as +HH:MM or -HH:MM offset
+                None
+            })
     } else {
         None
     };
@@ -442,7 +461,9 @@ fn parse_duration_compact(s: &str) -> Result<Expires, Error> {
 fn duration_from_number_and_unit(number: u64, unit: &str) -> Result<Expires, Error> {
     let secs = match unit {
         "ms" | "millisecond" | "milliseconds" => {
-            return Ok(Expires::InDuration(std::time::Duration::from_millis(number)));
+            return Ok(Expires::InDuration(std::time::Duration::from_millis(
+                number,
+            )));
         }
         "s" | "sec" | "second" | "seconds" => number,
         "min" | "minute" | "minutes" => number * 60,
@@ -547,9 +568,9 @@ impl<'de> Deserialize<'de> for ExpirationTime {
             "never" => Ok(ExpirationTime::Never),
             "immediately" => Ok(ExpirationTime::Immediately),
             _ => {
-                let dt: DateTime<Utc> = s
-                    .parse()
-                    .map_err(|e| serde::de::Error::custom(format!("Invalid expiration time: {}", e)))?;
+                let dt: DateTime<Utc> = s.parse().map_err(|e| {
+                    serde::de::Error::custom(format!("Invalid expiration time: {}", e))
+                })?;
                 Ok(ExpirationTime::At(dt))
             }
         }
@@ -991,29 +1012,87 @@ mod tests {
     #[test]
     fn test_parse_on_day_of_week() {
         let e: Expires = "on Monday".parse().unwrap();
-        assert_eq!(e, Expires::OnDayOfWeek { day: 0, tz_offset: None });
+        assert_eq!(
+            e,
+            Expires::OnDayOfWeek {
+                day: 0,
+                tz_offset: None
+            }
+        );
         let e: Expires = "on tuesday".parse().unwrap();
-        assert_eq!(e, Expires::OnDayOfWeek { day: 1, tz_offset: None });
+        assert_eq!(
+            e,
+            Expires::OnDayOfWeek {
+                day: 1,
+                tz_offset: None
+            }
+        );
         let e: Expires = "on Sunday".parse().unwrap();
-        assert_eq!(e, Expires::OnDayOfWeek { day: 6, tz_offset: None });
+        assert_eq!(
+            e,
+            Expires::OnDayOfWeek {
+                day: 6,
+                tz_offset: None
+            }
+        );
     }
 
     #[test]
     fn test_parse_at_time_of_day() {
         let e: Expires = "at 12:00".parse().unwrap();
-        assert_eq!(e, Expires::AtTimeOfDay { hour: 12, minute: 0, second: 0, tz_offset: None });
+        assert_eq!(
+            e,
+            Expires::AtTimeOfDay {
+                hour: 12,
+                minute: 0,
+                second: 0,
+                tz_offset: None
+            }
+        );
         let e: Expires = "at 08:30".parse().unwrap();
-        assert_eq!(e, Expires::AtTimeOfDay { hour: 8, minute: 30, second: 0, tz_offset: None });
+        assert_eq!(
+            e,
+            Expires::AtTimeOfDay {
+                hour: 8,
+                minute: 30,
+                second: 0,
+                tz_offset: None
+            }
+        );
         let e: Expires = "at 23:59:59".parse().unwrap();
-        assert_eq!(e, Expires::AtTimeOfDay { hour: 23, minute: 59, second: 59, tz_offset: None });
+        assert_eq!(
+            e,
+            Expires::AtTimeOfDay {
+                hour: 23,
+                minute: 59,
+                second: 59,
+                tz_offset: None
+            }
+        );
     }
 
     #[test]
     fn test_parse_at_time_with_timezone() {
         let e: Expires = "at 12:00 UTC".parse().unwrap();
-        assert_eq!(e, Expires::AtTimeOfDay { hour: 12, minute: 0, second: 0, tz_offset: Some(0) });
+        assert_eq!(
+            e,
+            Expires::AtTimeOfDay {
+                hour: 12,
+                minute: 0,
+                second: 0,
+                tz_offset: Some(0)
+            }
+        );
         let e: Expires = "at 08:30 EST".parse().unwrap();
-        assert_eq!(e, Expires::AtTimeOfDay { hour: 8, minute: 30, second: 0, tz_offset: Some(-18000) });
+        assert_eq!(
+            e,
+            Expires::AtTimeOfDay {
+                hour: 8,
+                minute: 30,
+                second: 0,
+                tz_offset: Some(-18000)
+            }
+        );
     }
 
     #[test]
@@ -1043,17 +1122,29 @@ mod tests {
         let e: Expires = "2h".parse().unwrap();
         assert_eq!(e, Expires::InDuration(std::time::Duration::from_secs(7200)));
         let e: Expires = "100ms".parse().unwrap();
-        assert_eq!(e, Expires::InDuration(std::time::Duration::from_millis(100)));
+        assert_eq!(
+            e,
+            Expires::InDuration(std::time::Duration::from_millis(100))
+        );
     }
 
     #[test]
     fn test_parse_duration_various_units() {
         let e: Expires = "in 2 days".parse().unwrap();
-        assert_eq!(e, Expires::InDuration(std::time::Duration::from_secs(2 * 86400)));
+        assert_eq!(
+            e,
+            Expires::InDuration(std::time::Duration::from_secs(2 * 86400))
+        );
         let e: Expires = "in 1 week".parse().unwrap();
-        assert_eq!(e, Expires::InDuration(std::time::Duration::from_secs(7 * 86400)));
+        assert_eq!(
+            e,
+            Expires::InDuration(std::time::Duration::from_secs(7 * 86400))
+        );
         let e: Expires = "in 1 month".parse().unwrap();
-        assert_eq!(e, Expires::InDuration(std::time::Duration::from_secs(30 * 86400)));
+        assert_eq!(
+            e,
+            Expires::InDuration(std::time::Duration::from_secs(30 * 86400))
+        );
     }
 
     #[test]
@@ -1156,11 +1247,19 @@ mod tests {
     #[test]
     fn test_display_on_day() {
         assert_eq!(
-            Expires::OnDayOfWeek { day: 0, tz_offset: None }.to_string(),
+            Expires::OnDayOfWeek {
+                day: 0,
+                tz_offset: None
+            }
+            .to_string(),
             "on Monday"
         );
         assert_eq!(
-            Expires::OnDayOfWeek { day: 4, tz_offset: None }.to_string(),
+            Expires::OnDayOfWeek {
+                day: 4,
+                tz_offset: None
+            }
+            .to_string(),
             "on Friday"
         );
     }
@@ -1168,15 +1267,33 @@ mod tests {
     #[test]
     fn test_display_at_time() {
         assert_eq!(
-            Expires::AtTimeOfDay { hour: 12, minute: 0, second: 0, tz_offset: None }.to_string(),
+            Expires::AtTimeOfDay {
+                hour: 12,
+                minute: 0,
+                second: 0,
+                tz_offset: None
+            }
+            .to_string(),
             "at 12:00"
         );
         assert_eq!(
-            Expires::AtTimeOfDay { hour: 8, minute: 30, second: 0, tz_offset: Some(0) }.to_string(),
+            Expires::AtTimeOfDay {
+                hour: 8,
+                minute: 30,
+                second: 0,
+                tz_offset: Some(0)
+            }
+            .to_string(),
             "at 08:30 UTC"
         );
         assert_eq!(
-            Expires::AtTimeOfDay { hour: 23, minute: 59, second: 59, tz_offset: None }.to_string(),
+            Expires::AtTimeOfDay {
+                hour: 23,
+                minute: 59,
+                second: 59,
+                tz_offset: None
+            }
+            .to_string(),
             "at 23:59:59"
         );
     }
@@ -1226,7 +1343,10 @@ mod tests {
 
     #[test]
     fn test_roundtrip_on_day() {
-        let original = Expires::OnDayOfWeek { day: 2, tz_offset: None }; // Wednesday
+        let original = Expires::OnDayOfWeek {
+            day: 2,
+            tz_offset: None,
+        }; // Wednesday
         let s = original.to_string();
         let parsed: Expires = s.parse().unwrap();
         assert_eq!(original, parsed);

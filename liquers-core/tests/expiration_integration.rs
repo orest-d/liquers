@@ -141,9 +141,7 @@ async fn test_asset_ref_expire_from_source_errors() -> Result<(), Box<dyn std::e
     metadata.type_name = "bytes".to_string();
     metadata.data_format = Some("bin".to_string());
 
-    manager
-        .set_binary(&key, b"source-data", metadata)
-        .await?;
+    manager.set_binary(&key, b"source-data", metadata).await?;
     let assetref = manager.get(&key).await?;
     assert_eq!(assetref.status().await, Status::Source);
 
@@ -168,7 +166,9 @@ async fn test_asset_ref_expiration_time() -> Result<(), Box<dyn std::error::Erro
 
     // Set expiration time
     let future = chrono::Utc::now() + chrono::Duration::hours(1);
-    assetref.set_expiration_time(ExpirationTime::At(future)).await;
+    assetref
+        .set_expiration_time(ExpirationTime::At(future))
+        .await;
 
     let exp_time = assetref.expiration_time().await;
     assert_eq!(exp_time, ExpirationTime::At(future));

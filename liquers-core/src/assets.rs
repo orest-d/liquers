@@ -35,26 +35,26 @@
 //! ## Asset lifecycle
 //! Asset typically goes through these stages:
 //! 1) **initial** - a state the asset is in after creation. Only the recipe is known, none of the data, binary or metadata is available.
-//! 2) **prepare** - check is binary data is available. In such a case value is deserialized. 
+//! 2) **prepare** - check is binary data is available. In such a case value is deserialized.
 //! 3) **run** - start recipe execution and the loop processing the service messages.
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
 //!
 //! ## Fast track
 //! When an asset is created, it tries to obtain the value as quickly as possible before queuing the asset for execution.
 //! This is called the "fast track" and it is used to avoid unnecessary queuing of assets that are already in the store and thus ready to be used.
-//! 
+//!
 //! ## Volatility and Expiration
 //! Assets may have an expiration time set e.g. via command metadata. Once an asset is expired, its value still can be read
 //! but it is considered as not valid any longer. To get a valid value, a asset should be requested again from the asset manager.
 //! An example of an asset with expiration could be data read from a resource renewed e.g. daily by a batch job.
 //! All calculations dependent on such data should also expire daily.
-//! 
+//!
 //! Assets may be labeled as volatile - typically if they are a result of a volatile recipe or query.
 //! Volatile assets can be considered as assets with very short expiration time.
 //! A volatile asset value is valid once produced and can be used as a dependency of other volatile assets,
 //! but it is also considered immediately expired.
 //! An example of a volatile asset could be e.g. a reading from a sensor.
-//! 
+//!
 //! ## Setting, deleting and overrides
 //! Assets are an extension to a store, thus they also resource assets (i.e. assets with a recipe)
 //! may set or delete its value.
@@ -62,7 +62,7 @@
 //! Assets without a recipe behave just like a store, the metadata status indicates that the set value is a "Source".
 //! Assets with a recipe can always be re-generated, so even when deleted, they can be requested and re-evaluated again.
 //! If an asset with a recipe is set a user-provided value, it is indicated with a status "Override".
-//! 
+//!
 
 use std::{
     collections::BTreeSet,
@@ -74,11 +74,11 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
-use crate::{context::Context, metadata::LogEntryKind};
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
 use crate::metadata::{AssetInfo, LogEntry, MetadataRecord, ProgressEntry};
 use crate::value::ValueInterface;
+use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
     context::{EnvRef, Environment},
     error::{Error, ErrorType},
@@ -211,7 +211,8 @@ impl MetadataSaver {
 
             if let Some(metadata) = maybe_payload {
                 if let Some(key) = key.as_ref() {
-                    if let Err(error) = envref.get_async_store().set_metadata(key, &metadata).await {
+                    if let Err(error) = envref.get_async_store().set_metadata(key, &metadata).await
+                    {
                         eprintln!("Metadata save failed for key {}: {}", key, error);
                     } else {
                         let mut lock = self.state.lock().await;
@@ -755,9 +756,10 @@ impl<E: Environment> AssetRef<E> {
     /// Used e.g. by: `evaluate_and_store`, `evaluate_immediately`, `evaluate_recipe`
     async fn resolve_volatility_before_evaluation(&self) {
         let mut lock = self.data.write().await;
-        let resolved = lock.is_volatile || lock.recipe.volatile || lock.recipe.expires.is_volatile();
+        let resolved =
+            lock.is_volatile || lock.recipe.volatile || lock.recipe.expires.is_volatile();
         lock.is_volatile = resolved;
-        if resolved{
+        if resolved {
             let metadata = &mut lock.metadata;
             let _ = metadata.set_volatile();
         }
@@ -1066,7 +1068,7 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// Arguments:
     /// - `result`: Evaluation/persistence result to convert into asset state updates.
-    /// - `psm_result`: output of process_service_messages task to check if the service loop finished without errors. 
+    /// - `psm_result`: output of process_service_messages task to check if the service loop finished without errors.
     async fn finish_run_with_result(
         &self,
         mut result: Result<(), Error>,
@@ -1187,8 +1189,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Run the asset evaluation loop.
     pub(crate) async fn run(&self) -> Result<(), Error> {
-        self.run_with_future(self.evaluate_and_store())
-            .await
+        self.run_with_future(self.evaluate_and_store()).await
     }
 
     /// Run the asset evaluation loop.
@@ -1819,7 +1820,8 @@ impl<E: Environment> AssetRef<E> {
     /// This is not a public method and should not be used outside the core.
     /// Only certain assets are allowed to be set (overriden) by the user.
     /// Use AssetManager::set_state instead.
-    pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> { // TODO: Remove?
+    pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
+        // TODO: Remove?
         println!("Setting value for asset {}", self.id());
         let mut lock = self.data.write().await;
         lock.metadata
@@ -1961,7 +1963,12 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// - Sets binary representation and clears any existing deserialized data
     /// - Store only: Does NOT create AssetRef in memory; writes directly to store
     /// - Status is determined by recipe existence (Source/Override) unless input status is Expired or Error
-    async fn set_binary(&self, key: &Key, binary: &[u8], metadata: MetadataRecord) -> Result<(), Error>;
+    async fn set_binary(
+        &self,
+        key: &Key,
+        binary: &[u8],
+        metadata: MetadataRecord,
+    ) -> Result<(), Error>;
 
     /// Set State (data + metadata) for a key asset.
     /// - Sets deserialized data and metadata from State
@@ -2110,16 +2117,15 @@ impl<E: Environment> DefaultAssetManager<E> {
     ///
     /// Note: ExpirationTime::Immediately is NOT tracked by the monitor because
     /// assets with Immediately expiration are treated as volatile and never reach Ready status.
-    async fn run_expiration_monitor(
-        mut rx: mpsc::UnboundedReceiver<ExpirationMonitorMessage<E>>,
-    ) {
-        use std::collections::{BinaryHeap, HashSet};
+    async fn run_expiration_monitor(mut rx: mpsc::UnboundedReceiver<ExpirationMonitorMessage<E>>) {
         use std::cmp::Reverse;
+        use std::collections::{BinaryHeap, HashMap};
 
         // Min-heap of assets ordered by expiration time (soonest first via Reverse)
         let mut heap: BinaryHeap<Reverse<TimedAsset<E>>> = BinaryHeap::new();
-        // Cancelled asset_ids (from Untrack)
-        let mut cancelled: HashSet<u64> = HashSet::new();
+        // Canonical active deadline per asset id (earliest-deadline-wins).
+        // Heap entries are advisory and validated against this map at fire time.
+        let mut active_deadline_by_id: HashMap<u64, chrono::DateTime<chrono::Utc>> = HashMap::new();
 
         loop {
             let next_expiry = heap.peek().map(|Reverse(t)| t.expiration);
@@ -2127,7 +2133,9 @@ impl<E: Environment> DefaultAssetManager<E> {
             if let Some(next_dt) = next_expiry {
                 let now = chrono::Utc::now();
                 let sleep_duration = if next_dt > now {
-                    (next_dt - now).to_std().unwrap_or(std::time::Duration::from_millis(100))
+                    (next_dt - now)
+                        .to_std()
+                        .unwrap_or(std::time::Duration::from_millis(100))
                 } else {
                     std::time::Duration::from_millis(0)
                 };
@@ -2138,12 +2146,18 @@ impl<E: Environment> DefaultAssetManager<E> {
                             Some(ExpirationMonitorMessage::Track { asset_ref, expiration_time }) => {
                                 if let ExpirationTime::At(dt) = expiration_time {
                                     let asset_id = asset_ref.id();
-                                    cancelled.remove(&asset_id);
-                                    heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
+                                    let should_update = match active_deadline_by_id.get(&asset_id) {
+                                        Some(existing) => dt < *existing,
+                                        None => true,
+                                    };
+                                    if should_update {
+                                        active_deadline_by_id.insert(asset_id, dt);
+                                        heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
+                                    }
                                 }
                             }
                             Some(ExpirationMonitorMessage::Untrack { asset_id }) => {
-                                cancelled.insert(asset_id);
+                                active_deadline_by_id.remove(&asset_id);
                             }
                             Some(ExpirationMonitorMessage::Shutdown) | None => {
                                 return;
@@ -2158,16 +2172,48 @@ impl<E: Environment> DefaultAssetManager<E> {
                                     Some(r) => r,
                                     None => break, // heap was non-empty at peek; safe fallback
                                 };
-                                if cancelled.remove(&timed.asset_id) {
-                                    continue; // skip cancelled
+
+                                // Stale heap entries are ignored; canonical map is authoritative.
+                                if !matches!(
+                                    active_deadline_by_id.get(&timed.asset_id),
+                                    Some(active) if *active == timed.expiration
+                                ) {
+                                    continue;
                                 }
+                                active_deadline_by_id.remove(&timed.asset_id);
+
                                 let asset_ref = timed.asset_ref;
                                 let asset_id = timed.asset_id;
 
-                                // 1. Expire the asset (transitions to Expired, notifies waiters).
-                                //    Errors (e.g. already Expired, not in Ready state) are silently
-                                //    ignored — concurrent re-evaluation or removal is legitimate.
-                                let _ = asset_ref.expire().await;
+                                // 1. Expire the asset and decide whether map-eviction is safe.
+                                //    In-flight states are preserved on expire failure.
+                                let expire_result = asset_ref.expire().await;
+                                let should_evict = match expire_result {
+                                    Ok(()) => true,
+                                    Err(e) => {
+                                        let status = asset_ref.status().await;
+                                        let evict_on_failure = matches!(
+                                            status,
+                                            Status::None
+                                                | Status::Directory
+                                                | Status::Recipe
+                                                | Status::Error
+                                                | Status::Cancelled
+                                                | Status::Source
+                                                | Status::Volatile
+                                        );
+                                        if !evict_on_failure {
+                                            eprintln!(
+                                                "Expiration monitor: preserve asset {} after expire failure in {:?}: {}",
+                                                asset_id, status, e
+                                            );
+                                        }
+                                        evict_on_failure
+                                    }
+                                };
+                                if !should_evict {
+                                    continue;
+                                }
 
                                 // 2. Read query and key while holding the data lock briefly.
                                 //    Release lock before any async manager operations.
@@ -2181,9 +2227,15 @@ impl<E: Environment> DefaultAssetManager<E> {
                                 // 3. Remove from manager maps (if still occupied by this asset_id).
                                 let envref = asset_ref.get_envref().await;
                                 let manager = envref.get_asset_manager();
-                                manager
+                                let removed = manager
                                     .remove_expired_from_maps(asset_id, query.as_ref(), key.as_ref())
                                     .await;
+                                if !removed && (query.is_some() || key.is_some()) {
+                                    eprintln!(
+                                        "Expiration monitor: could not find matching map entry for expired asset {}",
+                                        asset_id
+                                    );
+                                }
                             } else {
                                 break;
                             }
@@ -2193,15 +2245,28 @@ impl<E: Environment> DefaultAssetManager<E> {
             } else {
                 // No pending expirations — wait for next message
                 match rx.recv().await {
-                    Some(ExpirationMonitorMessage::Track { asset_ref, expiration_time }) => {
+                    Some(ExpirationMonitorMessage::Track {
+                        asset_ref,
+                        expiration_time,
+                    }) => {
                         if let ExpirationTime::At(dt) = expiration_time {
                             let asset_id = asset_ref.id();
-                            cancelled.remove(&asset_id);
-                            heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
+                            let should_update = match active_deadline_by_id.get(&asset_id) {
+                                Some(existing) => dt < *existing,
+                                None => true,
+                            };
+                            if should_update {
+                                active_deadline_by_id.insert(asset_id, dt);
+                                heap.push(Reverse(TimedAsset {
+                                    expiration: dt,
+                                    asset_id,
+                                    asset_ref,
+                                }));
+                            }
                         }
                     }
                     Some(ExpirationMonitorMessage::Untrack { asset_id }) => {
-                        cancelled.insert(asset_id);
+                        active_deadline_by_id.remove(&asset_id);
                     }
                     Some(ExpirationMonitorMessage::Shutdown) | None => {
                         return;
@@ -2246,28 +2311,43 @@ impl<E: Environment> DefaultAssetManager<E> {
         asset_id: u64,
         query: Option<&Query>,
         key: Option<&Key>,
-    ) {
+    ) -> bool {
+        let mut removed = false;
         if let Some(query) = query {
             if let Some(entry) = self.query_assets.get_async(query).await {
                 if entry.get().id() == asset_id {
                     drop(entry);
                     let _ = self.query_assets.remove_async(query).await;
-                }
-            }
-        } else if let Some(key) = key {
-            if let Some(entry) = self.assets.get_async(key).await {
-                if entry.get().id() == asset_id {
-                    drop(entry);
-                    let _ = self.assets.remove_async(key).await;
+                    removed = true;
                 }
             }
         }
+        if !removed {
+            if let Some(key) = key {
+                if let Some(entry) = self.assets.get_async(key).await {
+                    if entry.get().id() == asset_id {
+                        drop(entry);
+                        let _ = self.assets.remove_async(key).await;
+                        removed = true;
+                    }
+                }
+            }
+        }
+        if removed {
+            return true;
+        }
+
         // Ad-hoc assets (neither query nor key): no map entry to remove.
+        false
     }
 
     /// Track an asset for expiration via the monitor task.
     /// Only `ExpirationTime::At(_)` entries are tracked; Never/Immediately are ignored.
-    pub(crate) fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime) {
+    pub(crate) fn track_expiration(
+        &self,
+        asset_ref: &AssetRef<E>,
+        expiration_time: &ExpirationTime,
+    ) {
         if let ExpirationTime::At(_) = expiration_time {
             let _ = self.monitor_tx.send(ExpirationMonitorMessage::Track {
                 asset_ref: asset_ref.clone(),
@@ -2431,26 +2511,39 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// Due to timing issues it may happen that it accidentaly expires before it can be used,
     /// so it is good to check the expiration before use.
     /// Once an asset is expired, a new get_asset request is needed.
-    /// 
+    ///
     /// Arguments:
     /// - `query`: Query used to create an asset
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         if let Some(key) = query.key() {
             self.get(&key).await
         } else {
-            let assetref = self.get_query_asset(query).await?;
-            if assetref.status().await.is_finished() {
+            loop {
+                let assetref = self.get_query_asset(query).await?;
+                let status = assetref.status().await;
+                if status == Status::Expired {
+                    let asset_id = assetref.id();
+                    if let Some(entry) = self.query_assets.get_async(query).await {
+                        if entry.get().id() == asset_id {
+                            drop(entry);
+                            let _ = self.query_assets.remove_async(query).await;
+                        }
+                    }
+                    continue;
+                }
+                if status.is_finished() {
+                    return Ok(assetref);
+                }
+                {
+                    let mut lock = assetref.data.write().await;
+                    if lock.try_fast_track().await? {
+                        return Ok(assetref.clone());
+                    }
+                }
+
+                self.job_queue.submit(assetref.clone()).await?;
                 return Ok(assetref);
             }
-            {
-                let mut lock = assetref.data.write().await;
-                if lock.try_fast_track().await? {
-                    return Ok(assetref.clone());
-                }
-            }
-
-            self.job_queue.submit(assetref.clone()).await?;
-            Ok(assetref)
         }
     }
     /// Get asset infor for a resource asset
@@ -2487,7 +2580,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     /// Create an ad-hoc asset applied to a state
-    async fn apply(&self, recipe: Recipe, initial_state: State<E::Value>) -> Result<AssetRef<E>, Error> {
+    async fn apply(
+        &self,
+        recipe: Recipe,
+        initial_state: State<E::Value>,
+    ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
@@ -2510,36 +2607,43 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // TODO: support fast-track once it makes sense
         asset_ref.run_immediately(payload).await?;
 
-        // Schedule expiration via the centralized monitor
-        let exp_time = asset_ref.expiration_time().await;
-        if !exp_time.is_never() && !exp_time.is_expired() {
-            asset_ref.schedule_expiration(&exp_time).await;
-        }
-
         Ok(asset_ref)
     }
 
     /// Get resource asset
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        eprintln!("Getting asset for key {}", key);
-        let asset_ref = self.get_resource_asset(key).await?;
-        if asset_ref.status().await.is_finished() {
-            return Ok(asset_ref);
-        }
-        {
-            eprintln!("Trying fast track for asset with key {}", key);
-            let asset_ref = asset_ref.clone();
-            let mut lock = asset_ref.data.write().await;
-            if lock.try_fast_track().await? {
-                eprintln!("Fast track successful for asset with key {}", key);
-                drop(lock);
+        loop {
+            eprintln!("Getting asset for key {}", key);
+            let asset_ref = self.get_resource_asset(key).await?;
+            let status = asset_ref.status().await;
+            if status == Status::Expired {
+                let asset_id = asset_ref.id();
+                if let Some(entry) = self.assets.get_async(key).await {
+                    if entry.get().id() == asset_id {
+                        drop(entry);
+                        let _ = self.assets.remove_async(key).await;
+                    }
+                }
+                continue;
+            }
+            if status.is_finished() {
                 return Ok(asset_ref);
             }
-        }
-        eprintln!("Submitting asset with key {} to job queue", key);
-        self.job_queue.submit(asset_ref.clone()).await?;
+            {
+                eprintln!("Trying fast track for asset with key {}", key);
+                let asset_ref = asset_ref.clone();
+                let mut lock = asset_ref.data.write().await;
+                if lock.try_fast_track().await? {
+                    eprintln!("Fast track successful for asset with key {}", key);
+                    drop(lock);
+                    return Ok(asset_ref);
+                }
+            }
+            eprintln!("Submitting asset with key {} to job queue", key);
+            self.job_queue.submit(asset_ref.clone()).await?;
 
-        Ok(asset_ref)
+            return Ok(asset_ref);
+        }
     }
 
     /// Get recipe option for a resource asset
@@ -2780,6 +2884,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
+                // Cancel any pending expiration tracking for this asset
+                self.untrack_expiration(asset_ref.id());
             }
 
             // Remove from assets map
@@ -3344,19 +3450,15 @@ mod tests {
         env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
         let raw = vec![0, 159, 146, 150, 255];
         env.get_async_store()
-            .set(
-                &key,
-                &raw,
-                &{
-                    let mut metadata = MetadataRecord::new();
-                    metadata.with_key(key.clone());
-                    metadata.with_type_identifier("bytes".to_owned());
-                    // Intentionally inconsistent with bytes type to assert from_bytes path.
-                    metadata.data_format = Some("txt".to_owned());
-                    metadata.with_status(Status::Override);
-                    Metadata::MetadataRecord(metadata)
-                },
-            )
+            .set(&key, &raw, &{
+                let mut metadata = MetadataRecord::new();
+                metadata.with_key(key.clone());
+                metadata.with_type_identifier("bytes".to_owned());
+                // Intentionally inconsistent with bytes type to assert from_bytes path.
+                metadata.data_format = Some("txt".to_owned());
+                metadata.with_status(Status::Override);
+                Metadata::MetadataRecord(metadata)
+            })
             .await
             .unwrap();
 
@@ -3375,18 +3477,14 @@ mod tests {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
         env.get_async_store()
-            .set(
-                &key,
-                b"not valid json",
-                &{
-                    let mut metadata = MetadataRecord::new();
-                    metadata.with_key(key.clone());
-                    metadata.with_type_identifier("text".to_owned());
-                    metadata.data_format = Some("json".to_owned());
-                    metadata.with_status(Status::Ready);
-                    Metadata::MetadataRecord(metadata)
-                },
-            )
+            .set(&key, b"not valid json", &{
+                let mut metadata = MetadataRecord::new();
+                metadata.with_key(key.clone());
+                metadata.with_type_identifier("text".to_owned());
+                metadata.data_format = Some("json".to_owned());
+                metadata.with_status(Status::Ready);
+                Metadata::MetadataRecord(metadata)
+            })
             .await
             .unwrap();
 
@@ -3680,11 +3778,7 @@ mod tests {
         let envref = env.to_ref();
         let assetref = envref
             .get_asset_manager()
-            .apply_immediately(
-                query.into(),
-                State::new().with_data("WORLD".into()),
-                None,
-            )
+            .apply_immediately(query.into(), State::new().with_data("WORLD".into()), None)
             .await
             .unwrap();
 
@@ -4166,6 +4260,168 @@ mod tests {
         // Should also be in store
         let store = envref.get_async_store();
         assert!(store.contains(&key).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_untrack_cancels_duplicate_deadlines_for_same_asset() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/untrack_duplicate_deadlines.txt").unwrap();
+        let asset = manager.create_asset(key.into());
+        asset.set_value(Value::from("keep")).await.unwrap();
+
+        let first = chrono::Utc::now() + chrono::Duration::milliseconds(200);
+        let second = first + chrono::Duration::milliseconds(100);
+
+        // This timing test intentionally uses delayed deadlines so both Track messages and the
+        // Untrack message are processed before any timer can fire.
+        manager.track_expiration(&asset, &ExpirationTime::At(first));
+        manager.track_expiration(&asset, &ExpirationTime::At(second));
+        manager.untrack_expiration(asset.id());
+
+        sleep(Duration::from_millis(450)).await;
+        assert_eq!(asset.status().await, Status::Ready);
+    }
+
+    #[tokio::test]
+    async fn test_failed_expire_nonrunning_status_evicts_keyed_asset() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/expire_source_evict.txt").unwrap();
+        let asset = manager.create_asset(key.clone().into());
+        asset.set_status(Status::Source).await.unwrap();
+        let _ = manager
+            .assets
+            .insert_async(key.clone(), asset.clone())
+            .await;
+
+        let deadline = chrono::Utc::now() + chrono::Duration::milliseconds(80);
+        // We wait a bounded interval to let the monitor process the scheduled timer deterministically.
+        manager.track_expiration(&asset, &ExpirationTime::At(deadline));
+        sleep(Duration::from_millis(220)).await;
+
+        assert!(
+            !manager.assets.contains_async(&key).await,
+            "Source asset should be evicted when expire() fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failed_expire_inflight_status_is_not_evicted() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/expire_processing_keep.txt").unwrap();
+        let asset = manager.create_asset(key.clone().into());
+        asset.set_status(Status::Processing).await.unwrap();
+        let _ = manager
+            .assets
+            .insert_async(key.clone(), asset.clone())
+            .await;
+
+        let deadline = chrono::Utc::now() + chrono::Duration::milliseconds(80);
+        // This delay gives the monitor enough time to attempt expiration and apply fallback policy.
+        manager.track_expiration(&asset, &ExpirationTime::At(deadline));
+        sleep(Duration::from_millis(220)).await;
+
+        let entry = manager.assets.get_async(&key).await;
+        assert!(entry.is_some(), "Processing asset should remain cached");
+        if let Some(entry) = entry {
+            assert_eq!(entry.get().id(), asset.id());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_set_state_replacement_untracks_old_timer() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/set_state_untracks_old_timer.txt").unwrap();
+        let old_asset = manager.create_asset(key.clone().into());
+        old_asset.set_value(Value::from("old")).await.unwrap();
+        let _ = manager
+            .assets
+            .insert_async(key.clone(), old_asset.clone())
+            .await;
+
+        let old_deadline = chrono::Utc::now() + chrono::Duration::milliseconds(120);
+        manager.track_expiration(&old_asset, &ExpirationTime::At(old_deadline));
+
+        let value = Value::from("new");
+        let mut metadata = MetadataRecord::new();
+        metadata.type_identifier = value.identifier().to_string();
+        metadata.type_name = value.type_name().to_string();
+        metadata.data_format = Some("txt".to_string());
+        let state = State::from_value_and_metadata(value, Arc::new(metadata.into()));
+        manager.set_state(&key, state).await.unwrap();
+
+        // The wait is required to allow the old deadline to pass and prove stale timer suppression.
+        sleep(Duration::from_millis(260)).await;
+
+        assert_eq!(old_asset.status().await, Status::Ready);
+        let current = manager.assets.get_async(&key).await.unwrap();
+        assert_ne!(current.get().id(), old_asset.id());
+    }
+
+    #[tokio::test]
+    async fn test_get_key_skips_stale_expired_cached_asset() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/stale_expired_key.txt").unwrap();
+        let mut stored = MetadataRecord::new();
+        stored.type_identifier = "text".to_string();
+        stored.type_name = "text".to_string();
+        stored.data_format = Some("txt".to_string());
+        stored.status = Status::Source;
+        envref
+            .get_async_store()
+            .set(&key, b"fresh", &Metadata::MetadataRecord(stored))
+            .await
+            .unwrap();
+
+        let stale = manager.create_asset(key.clone().into());
+        stale.set_status(Status::Expired).await.unwrap();
+        let _ = manager
+            .assets
+            .insert_async(key.clone(), stale.clone())
+            .await;
+
+        let fresh = manager.get(&key).await.unwrap();
+        assert_ne!(fresh.id(), stale.id());
+        assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    #[tokio::test]
+    async fn test_get_query_skips_stale_expired_cached_asset() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let command = CommandKey::new_name("stale_query_cmd");
+        env.command_registry
+            .register_command(command, |_, _, _| Ok(Value::from("ok")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let query = parse_query("stale_query_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        stale.set_status(Status::Expired).await.unwrap();
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), stale.clone())
+            .await;
+
+        let fresh = manager.get_asset(&query).await.unwrap();
+        assert_ne!(fresh.id(), stale.id());
+        assert_ne!(fresh.status().await, Status::Expired);
     }
 
     #[tokio::test]
