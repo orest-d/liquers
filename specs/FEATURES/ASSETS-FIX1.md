@@ -22,13 +22,11 @@ Focus: remove known runtime gaps (dependency handling, delegation deadlock risk,
 
 | # | Fix? | Location | Marker | Proposed solution |
 |---|---|---|---|---|
-| 2 | Phase3 | `assets.rs:134` | `TODO: Make a proper save immediately task` | Introduce `MetadataSaver::save_immediately(...)` with coalescing and one in-flight task guard (`JoinHandle` or single worker loop). |
-| 3 | Phase3 | `assets.rs:334` | `TODO: prevent too frequent saving` | Route through `MetadataSaver` throttling instead of direct write in `save_metadata_to_store()`. |
-| 16 | Phase4 | `assets.rs:1278` | log string contains `FIXME` | Replace with structured debug log without FIXME marker. |
-| 17 | Phase4 | `assets.rs:1282` | `FIXME` delegation can deadlock if not queued | Replace blocking delegation (`asset.get().await`) with dependency scheduling + non-blocking parent wait state; ensure delegated asset submitted before parent waits. |
-| 20 | Yes | `assets.rs:1955` | `TODO` apply input should be `State` | Change `AssetManager::apply` signature to accept `State<E::Value>`; preserve legacy wrapper that builds state from value. |
-| 21 | Yes | `assets.rs:1959` | `TODO` apply_immediately input should be `State` | Same as #20 for `apply_immediately`. |
-| 22 | Yes | `assets.rs:2156` | `TODO` expiration monitor should call `expire()` | Wire expiration monitor to asset manager lookup and invoke `asset.expire().await` (with missing-asset tolerance). |
+| 16 | Phase4 | `assets.rs:1233` | log string contains `FIXME` | Replace with structured debug log without FIXME marker. |
+| 17 | Phase4 | `assets.rs:1237` | `FIXME` delegation can deadlock if not queued | Replace blocking delegation (`asset.get().await`) with dependency scheduling + non-blocking parent wait state; ensure delegated asset submitted before parent waits. |
+| 20 | Yes | `assets.rs:1933` | `TODO` apply input should be `State` | Change `AssetManager::apply` signature to accept `State<E::Value>`; preserve legacy wrapper that builds state from value. |
+| 21 | Yes | `assets.rs:1946` | `TODO` apply_immediately input should be `State` | Same as #20 for `apply_immediately`. |
+
 
 ## Implementation Plan
 

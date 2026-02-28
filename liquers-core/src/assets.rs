@@ -71,7 +71,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::lock;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
@@ -142,9 +141,15 @@ pub enum PersistenceStatus {
 }
 
 pub struct MetadataSaver {
-    metadata: Mutex<Option<Metadata>>,
+    state: Mutex<MetadataSaverState>,
     interval: std::time::Duration,
+}
+
+#[derive(Default)]
+struct MetadataSaverState {
+    pending: Option<Metadata>,
     last_save: Option<std::time::Instant>,
+    in_flight: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl MetadataSaver {
@@ -154,84 +159,66 @@ impl MetadataSaver {
     /// - `interval`: Minimum interval between metadata save attempts.
     pub fn new(interval: std::time::Duration) -> Self {
         Self {
-            metadata: Mutex::new(None),
+            state: Mutex::new(MetadataSaverState::default()),
             interval,
-            last_save: None,
         }
     }
-    // TODO: Make a proper save immediately task
-    /*
-    pub async fn save(&mut self, metadata: &Metadata, envref: EnvRef<impl Environment>) -> Result<(), Error> {
-        tokio::spawn(async move{
-            self.save_task(metadata, envref);
-        });
-        Ok(())
+
+    /// Enqueue metadata for persistence and trigger a single coalescing worker task.
+    pub async fn save_immediately<E: Environment>(
+        self: &Arc<Self>,
+        metadata: Metadata,
+        key: Option<Key>,
+        envref: EnvRef<E>,
+    ) {
+        let mut lock = self.state.lock().await;
+        lock.pending = Some(metadata);
+
+        if let Some(handle) = lock.in_flight.as_ref() {
+            if !handle.is_finished() {
+                return;
+            }
+            lock.in_flight = None;
+        }
+
+        let saver = self.clone();
+        lock.in_flight = Some(tokio::spawn(async move {
+            saver.save_task(key, envref).await;
+        }));
     }
-    */
-    /// Persists metadata updates to the configured async store.
-    /// Used by: `save` in this module.
-    ///
-    /// Arguments:
-    /// - `metadata`: Metadata payload to read/update/persist for this operation.
-    /// - `envref`: Environment reference used to access the store, manager, and runtime services.
-    async fn save_task(
-        &mut self,
-        metadata: &Metadata,
-        envref: EnvRef<impl Environment>,
-    ) -> Result<(), Error> {
-        let mut lock = self.metadata.lock().await;
-        if lock.is_some() {
-            *lock = Some(metadata.clone());
-        } else {
-            if self.can_save_now() {
-                let store = envref.get_async_store();
-                if let Some(key) = metadata.key()? {
-                    store.set_metadata(&key, metadata).await?;
-                    self.last_save = Some(std::time::Instant::now());
+
+    async fn save_task<E: Environment>(self: Arc<Self>, key: Option<Key>, envref: EnvRef<E>) {
+        loop {
+            let maybe_payload = {
+                let mut lock = self.state.lock().await;
+                let Some(_pending) = lock.pending.as_ref() else {
+                    lock.in_flight = None;
+                    return;
+                };
+
+                if let Some(last_save) = lock.last_save {
+                    let elapsed = std::time::Instant::now().duration_since(last_save);
+                    if elapsed < self.interval {
+                        let wait = self.interval - elapsed;
+                        drop(lock);
+                        tokio::time::sleep(wait).await;
+                        continue;
+                    }
                 }
-                *lock = None;
-            } else {
-                *lock = Some(metadata.clone());
-                drop(lock);
-                tokio::time::sleep(self.duration_to_next_save()).await;
-                let mut lock = self.metadata.lock().await;
-                if let Some(metadata) = lock.take() {
-                    let store = envref.get_async_store();
-                    if let Some(key) = metadata.key()? {
-                        store.set_metadata(&key, &metadata).await?;
-                        self.last_save = Some(std::time::Instant::now());
+
+                lock.pending.take()
+            };
+
+            if let Some(metadata) = maybe_payload {
+                if let Some(key) = key.as_ref() {
+                    if let Err(error) = envref.get_async_store().set_metadata(key, &metadata).await {
+                        eprintln!("Metadata save failed for key {}: {}", key, error);
+                    } else {
+                        let mut lock = self.state.lock().await;
+                        lock.last_save = Some(std::time::Instant::now());
                     }
                 }
             }
-        }
-        Ok(())
-    }
-
-    fn duration_since_last_save(&self) -> Option<std::time::Duration> {
-        if let Some(last_save) = self.last_save {
-            Some(std::time::Instant::now().duration_since(last_save))
-        } else {
-            None
-        }
-    }
-
-    fn duration_to_next_save(&self) -> std::time::Duration {
-        if let Some(duration) = self.duration_since_last_save() {
-            if duration >= self.interval {
-                std::time::Duration::from_secs(0)
-            } else {
-                self.interval - duration
-            }
-        } else {
-            std::time::Duration::from_secs(0)
-        }
-    }
-
-    fn can_save_now(&self) -> bool {
-        if let Some(duration) = self.duration_since_last_save() {
-            duration >= self.interval
-        } else {
-            true
         }
     }
 }
@@ -262,6 +249,7 @@ pub struct AssetData<E: Environment> {
 
     /// Metadata
     pub(crate) metadata: Metadata,
+    metadata_saver: Arc<MetadataSaver>,
 
     /// Current status
     status: Status,
@@ -349,6 +337,7 @@ impl<E: Environment> AssetData<E> {
             data: None,
             binary: None,
             metadata: assetinfo.into(),
+            metadata_saver: Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100))),
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
@@ -367,25 +356,14 @@ impl<E: Environment> AssetData<E> {
         self.envref.clone()
     }
 
-    /// Persists immediately  metadata updates to the configured async store.
-    /// Used by: `save_metadata_to_store` in this module.
-    async fn save_metadata_to_store_now(&self) -> Result<(), Error> {
-        let envref = self.get_envref();
-        let store = envref.get_async_store();
-        let key = self.recipe.key()?.or(self.recipe.store_to_key()?);
-        if let Some(key) = key.as_ref() {
-            store.set_metadata(key, &self.metadata).await
-        } else {
-            Ok(()) // No key => nowhere and no need to save
-        }
-    }
-
     /// Persists metadata updates to the configured async store.
     /// This is a throttled operation that ensures metadata is not saved too frequently.
     /// Used by: `process_service_messages` in this module.
     async fn save_metadata_to_store(&self) -> Result<(), Error> {
-        // TODO: prevent too frequent saving
-        self.save_metadata_to_store_now().await?;
+        let key = self.recipe.key()?.or(self.recipe.store_to_key()?);
+        self.metadata_saver
+            .save_immediately(self.metadata.clone(), key, self.get_envref())
+            .await;
         Ok(())
     }
 
@@ -1953,15 +1931,8 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
     /// Get Asset they represents applying the recipe to the given value
     async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>; // TODO: to probably should be a state, not a value
-    /// Manages asset expiration timing and expiration state transitions.
-    /// Computes or propagates expiration metadata/time for scheduling logic.
-    /// Used by: `test_apply_immediately`, `test_apply_immediately_with_payload` in this module.
-    ///
-    /// Arguments:
-    /// - `recipe`: Recipe describing how the asset should be resolved/evaluated.
-    /// - `to`: Input value the recipe is applied to for ad-hoc apply flows.
-    ///
-    /// GENERATED
+    /// Get Asset they represents applying the recipe to the given value, evaluate immediately
+    /// This in an ad-hoc evaluation that allows to specify a payload
     async fn apply_immediately(
         &self,
         recipe: Recipe,
@@ -3219,6 +3190,9 @@ impl<E: Environment + 'static> JobQueue<E> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::sync::Mutex as StdMutex;
     use std::time::Duration;
 
     use tokio::time::sleep;
@@ -3246,6 +3220,55 @@ mod tests {
         fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
             Ok(())
         }
+    }
+
+    #[derive(Clone, Default)]
+    struct CountingMetadataStore {
+        metadata_writes: Arc<AtomicUsize>,
+        last_metadata: Arc<StdMutex<Option<Metadata>>>,
+    }
+
+    impl Store for CountingMetadataStore {
+        fn set(&self, _key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn set_metadata(&self, _key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.metadata_writes.fetch_add(1, Ordering::SeqCst);
+            if let Ok(mut lock) = self.last_metadata.lock() {
+                *lock = Some(metadata.clone());
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_metadata_save_is_throttled_and_coalesced() {
+        let key = parse_key("metadata-throttle.txt").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let store = CountingMetadataStore::default();
+        env.with_async_store(Box::new(AsyncStoreWrapper(store.clone())));
+        let envref = env.to_ref();
+
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(9999, key.clone().into(), envref.clone());
+
+        for i in 0..8 {
+            asset_data
+                .metadata
+                .add_log_entry(LogEntry::info(format!("log-entry-{i}")))
+                .unwrap();
+            asset_data.save_metadata_to_store().await.unwrap();
+        }
+
+        sleep(Duration::from_millis(300)).await;
+
+        let writes = store.metadata_writes.load(Ordering::SeqCst);
+        assert!(writes >= 1, "expected at least one metadata save");
+        assert!(
+            writes < 8,
+            "expected coalesced writes, got {writes} for 8 save requests"
+        );
     }
 
     #[tokio::test]
