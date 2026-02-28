@@ -1162,7 +1162,7 @@ impl<E: Environment> AssetRef<E> {
             // Schedule expiration if asset has a finite expiration time
             let exp_time = self.expiration_time().await;
             if !exp_time.is_never() && !exp_time.is_expired() {
-                self.schedule_expiration(&exp_time);
+                self.schedule_expiration(&exp_time).await;
             }
         }
 
@@ -1706,27 +1706,16 @@ impl<E: Environment> AssetRef<E> {
         self.data.read().await.status == Status::Expired
     }
 
-    /// Schedule automatic expiration via a background task.
-    /// Uses a Weak reference so the task exits cleanly if the asset is dropped.
-    pub fn schedule_expiration(&self, expiration_time: &ExpirationTime) {
-        if let ExpirationTime::At(dt) = expiration_time {
-            let weak_data = Arc::downgrade(&self.data);
-            let id = self.id;
-            let dt = *dt;
-            tokio::spawn(async move {
-                let now = chrono::Utc::now();
-                if dt > now {
-                    if let Ok(duration) = (dt - now).to_std() {
-                        tokio::time::sleep(duration).await;
-                    }
-                }
-                if let Some(data) = weak_data.upgrade() {
-                    let asset_ref = AssetRef { id, data };
-                    let _ = asset_ref.expire().await;
-                }
-            });
+    /// Schedule automatic expiration via the centralized expiration monitor.
+    /// Routes through `envref` to `DefaultAssetManager::track_expiration`.
+    /// Only `ExpirationTime::At(_)` is tracked; Never/Immediately are no-ops.
+    pub async fn schedule_expiration(&self, expiration_time: &ExpirationTime) {
+        if let ExpirationTime::At(_) = expiration_time {
+            let envref = self.get_envref().await;
+            envref
+                .get_asset_manager()
+                .track_expiration(self, expiration_time);
         }
-        // Never/Immediately: no task spawned
     }
 
     /// Get the final state of the asset.
@@ -2070,16 +2059,46 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error>;
 }
 
+/// Heap element for the expiration monitor priority queue.
+/// Ordered by expiration time (ascending, earliest first), ties broken by asset_id.
+/// Wrapped in `std::cmp::Reverse` for use in `BinaryHeap` (min-heap).
+struct TimedAsset<E: Environment> {
+    expiration: chrono::DateTime<chrono::Utc>,
+    asset_id: u64,
+    asset_ref: AssetRef<E>,
+}
+
+impl<E: Environment> PartialEq for TimedAsset<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.expiration == other.expiration && self.asset_id == other.asset_id
+    }
+}
+
+impl<E: Environment> Eq for TimedAsset<E> {}
+
+impl<E: Environment> PartialOrd for TimedAsset<E> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<E: Environment> Ord for TimedAsset<E> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.expiration
+            .cmp(&other.expiration)
+            .then(self.asset_id.cmp(&other.asset_id))
+    }
+}
+
 /// Message for expiration monitor task
-#[derive(Debug)]
-enum ExpirationMonitorMessage {
+enum ExpirationMonitorMessage<E: Environment> {
     /// Track an asset for expiration
     Track {
-        key: Key,
+        asset_ref: AssetRef<E>,
         expiration_time: ExpirationTime,
     },
-    /// Untrack an asset (e.g., removed or recalculated)
-    Untrack { key: Key },
+    /// Untrack an asset by its unique id (e.g., removed or recalculated)
+    Untrack { asset_id: u64 },
     /// Shut down the monitor task
     Shutdown,
 }
@@ -2091,7 +2110,7 @@ pub struct DefaultAssetManager<E: Environment> {
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     job_queue: Arc<JobQueue<E>>,
     /// Channel to send messages to the expiration monitor task
-    monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage>,
+    monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage<E>>,
 }
 
 impl<E: Environment> Default for DefaultAssetManager<E> {
@@ -2127,20 +2146,18 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Note: ExpirationTime::Immediately is NOT tracked by the monitor because
     /// assets with Immediately expiration are treated as volatile and never reach Ready status.
     async fn run_expiration_monitor(
-        mut rx: mpsc::UnboundedReceiver<ExpirationMonitorMessage>,
+        mut rx: mpsc::UnboundedReceiver<ExpirationMonitorMessage<E>>,
     ) {
         use std::collections::{BinaryHeap, HashSet};
         use std::cmp::Reverse;
 
-        // Priority queue of (expiration_time, key), min-heap via Reverse
-        let mut heap: BinaryHeap<Reverse<(chrono::DateTime<chrono::Utc>, Key)>> = BinaryHeap::new(); // FIXME: This should not be a heap of keys, but a heap of asset references
-                                                                                                     // FIXME: Preferably it should be weak references, it may need an implementation of WeakAssetRef or refactoring AssetRef to contain either Weak or Arc reference.
-        // Cancelled keys (from Untrack)
-        let mut cancelled: HashSet<Key> = HashSet::new();
-        // Map from key to AssetRef is not needed - we just mark for expiration via the asset manager
+        // Min-heap of assets ordered by expiration time (soonest first via Reverse)
+        let mut heap: BinaryHeap<Reverse<TimedAsset<E>>> = BinaryHeap::new();
+        // Cancelled asset_ids (from Untrack)
+        let mut cancelled: HashSet<u64> = HashSet::new();
 
         loop {
-            let next_expiry = heap.peek().map(|Reverse((dt, _))| *dt);
+            let next_expiry = heap.peek().map(|Reverse(t)| t.expiration);
 
             if let Some(next_dt) = next_expiry {
                 let now = chrono::Utc::now();
@@ -2153,14 +2170,15 @@ impl<E: Environment> DefaultAssetManager<E> {
                 tokio::select! {
                     msg = rx.recv() => {
                         match msg {
-                            Some(ExpirationMonitorMessage::Track { key, expiration_time }) => {
+                            Some(ExpirationMonitorMessage::Track { asset_ref, expiration_time }) => {
                                 if let ExpirationTime::At(dt) = expiration_time {
-                                    cancelled.remove(&key);
-                                    heap.push(Reverse((dt, key)));
+                                    let asset_id = asset_ref.id();
+                                    cancelled.remove(&asset_id);
+                                    heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
                                 }
                             }
-                            Some(ExpirationMonitorMessage::Untrack { key }) => {
-                                cancelled.insert(key);
+                            Some(ExpirationMonitorMessage::Untrack { asset_id }) => {
+                                cancelled.insert(asset_id);
                             }
                             Some(ExpirationMonitorMessage::Shutdown) | None => {
                                 return;
@@ -2168,18 +2186,39 @@ impl<E: Environment> DefaultAssetManager<E> {
                         }
                     }
                     _ = tokio::time::sleep(sleep_duration) => {
-                        // Fire expired entries
-                        while let Some(Reverse((dt, _))) = heap.peek() {
-                            if *dt <= chrono::Utc::now() {
-                                let Reverse((_, key)) = heap.pop().unwrap_or_else(|| unreachable!());
-                                if cancelled.remove(&key) {
-                                    continue; // Skip cancelled
+                        // Fire all entries whose expiration time has passed
+                        while let Some(Reverse(timed)) = heap.peek() {
+                            if timed.expiration <= chrono::Utc::now() {
+                                let Reverse(timed) = match heap.pop() {
+                                    Some(r) => r,
+                                    None => break, // heap was non-empty at peek; safe fallback
+                                };
+                                if cancelled.remove(&timed.asset_id) {
+                                    continue; // skip cancelled
                                 }
-                                // TODO: Look up the asset and call expire() on it
-                                // For now, just log. The actual expire call will be wired
-                                // when DefaultAssetManager has a way to look up by key and expire.
-                                #[cfg(debug_assertions)]
-                                println!("Expiration monitor: asset {:?} expired", key);
+                                let asset_ref = timed.asset_ref;
+                                let asset_id = timed.asset_id;
+
+                                // 1. Expire the asset (transitions to Expired, notifies waiters).
+                                //    Errors (e.g. already Expired, not in Ready state) are silently
+                                //    ignored — concurrent re-evaluation or removal is legitimate.
+                                let _ = asset_ref.expire().await;
+
+                                // 2. Read query and key while holding the data lock briefly.
+                                //    Release lock before any async manager operations.
+                                let (query, key) = {
+                                    let data = asset_ref.data.read().await;
+                                    let query = data.query.as_ref().as_ref().cloned();
+                                    let key = data.recipe.key().ok().flatten();
+                                    (query, key)
+                                };
+
+                                // 3. Remove from manager maps (if still occupied by this asset_id).
+                                let envref = asset_ref.get_envref().await;
+                                let manager = envref.get_asset_manager();
+                                manager
+                                    .remove_expired_from_maps(asset_id, query.as_ref(), key.as_ref())
+                                    .await;
                             } else {
                                 break;
                             }
@@ -2187,16 +2226,17 @@ impl<E: Environment> DefaultAssetManager<E> {
                     }
                 }
             } else {
-                // No pending expirations, just wait for messages
+                // No pending expirations — wait for next message
                 match rx.recv().await {
-                    Some(ExpirationMonitorMessage::Track { key, expiration_time }) => {
+                    Some(ExpirationMonitorMessage::Track { asset_ref, expiration_time }) => {
                         if let ExpirationTime::At(dt) = expiration_time {
-                            cancelled.remove(&key);
-                            heap.push(Reverse((dt, key)));
+                            let asset_id = asset_ref.id();
+                            cancelled.remove(&asset_id);
+                            heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
                         }
                     }
-                    Some(ExpirationMonitorMessage::Untrack { key }) => {
-                        cancelled.insert(key);
+                    Some(ExpirationMonitorMessage::Untrack { asset_id }) => {
+                        cancelled.insert(asset_id);
                     }
                     Some(ExpirationMonitorMessage::Shutdown) | None => {
                         return;
@@ -2205,6 +2245,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             }
         }
     }
+
     pub fn next_id(&self) -> u64 {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
@@ -2225,21 +2266,57 @@ impl<E: Environment> DefaultAssetManager<E> {
         }
     }
 
-    /// Track an asset for expiration via the monitor task
-    pub fn track_expiration(&self, key: &Key, expiration_time: &ExpirationTime) {
-        if !expiration_time.is_never() {
+    /// Remove an expired `AssetRef` from the manager's in-memory maps.
+    ///
+    /// Called by the expiration monitor after `expire()` on the asset.
+    /// Only removes the map entry if the stored entry has the same `asset_id`, guarding
+    /// against a newer replacement already occupying the same slot.
+    ///
+    /// # Arguments
+    /// - `asset_id`: Unique id of the asset that expired.
+    /// - `query`: If the asset is a query-asset, its key into `query_assets`.
+    /// - `key`: If the asset is a key-asset, its key into `assets`.
+    pub async fn remove_expired_from_maps(
+        &self,
+        asset_id: u64,
+        query: Option<&Query>,
+        key: Option<&Key>,
+    ) {
+        if let Some(query) = query {
+            if let Some(entry) = self.query_assets.get_async(query).await {
+                if entry.get().id() == asset_id {
+                    drop(entry);
+                    let _ = self.query_assets.remove_async(query).await;
+                }
+            }
+        } else if let Some(key) = key {
+            if let Some(entry) = self.assets.get_async(key).await {
+                if entry.get().id() == asset_id {
+                    drop(entry);
+                    let _ = self.assets.remove_async(key).await;
+                }
+            }
+        }
+        // Ad-hoc assets (neither query nor key): no map entry to remove.
+    }
+
+    /// Track an asset for expiration via the monitor task.
+    /// Only `ExpirationTime::At(_)` entries are tracked; Never/Immediately are ignored.
+    pub fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime) {
+        if let ExpirationTime::At(_) = expiration_time {
             let _ = self.monitor_tx.send(ExpirationMonitorMessage::Track {
-                key: key.clone(),
+                asset_ref: asset_ref.clone(),
                 expiration_time: expiration_time.clone(),
             });
         }
+        // Never / Immediately: not tracked (Immediately assets never reach Ready status)
     }
 
-    /// Untrack an asset from expiration monitoring
-    pub fn untrack_expiration(&self, key: &Key) {
-        let _ = self.monitor_tx.send(ExpirationMonitorMessage::Untrack {
-            key: key.clone(),
-        });
+    /// Cancel any pending expiration tracking for the asset with the given id.
+    pub fn untrack_expiration(&self, asset_id: u64) {
+        let _ = self
+            .monitor_tx
+            .send(ExpirationMonitorMessage::Untrack { asset_id });
     }
 
     /// Constructs and initializes a new asset from a recipe.
@@ -2474,10 +2551,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // TODO: support fast-track once it makes sense
         asset_ref.run_immediately(payload).await?;
 
-        // Schedule expiration for unmanaged assets (not tracked by asset manager)
+        // Schedule expiration via the centralized monitor
         let exp_time = asset_ref.expiration_time().await;
         if !exp_time.is_never() && !exp_time.is_expired() {
-            asset_ref.schedule_expiration(&exp_time);
+            asset_ref.schedule_expiration(&exp_time).await;
         }
 
         Ok(asset_ref)
@@ -2549,6 +2626,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
+                // Cancel any pending expiration tracking for this asset
+                self.untrack_expiration(asset_ref.id());
             }
 
             // Remove from assets map
@@ -2630,6 +2709,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
                 // Cancel if processing
                 asset_ref.cancel().await?;
+                // Cancel any pending expiration tracking for this asset
+                self.untrack_expiration(asset_ref.id());
             }
 
             // Remove from assets map (set() is store-only, no AssetRef created)
