@@ -35,10 +35,34 @@
 //! ## Asset lifecycle
 //! Asset typically goes through these stages:
 //! 1) **initial** - a state the asset is in after creation. Only the recipe is known, none of the data, binary or metadata is available.
-//! 2) **prepare** - check is binary data is available. In such a case value is deserialized.
+//! 2) **prepare** - check is binary data is available. In such a case value is deserialized. 
 //! 3) **run** - start recipe execution and the loop processing the service messages.
 //! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
 //!
+//! ## Fast track
+//! When an asset is created, it tries to obtain the value as quickly as possible before queuing the asset for execution.
+//! This is called the "fast track" and it is used to avoid unnecessary queuing of assets that are already in the store and thus ready to be used.
+//! 
+//! ## Volatility and Expiration
+//! Assets may have an expiration time set e.g. via command metadata. Once an asset is expired, its value still can be read
+//! but it is considered as not valid any longer. To get a valid value, a asset should be requested again from the asset manager.
+//! An example of an asset with expiration could be data read from a resource renewed e.g. daily by a batch job.
+//! All calculations dependent on such data should also expire daily.
+//! 
+//! Assets may be labeled as volatile - typically if they are a result of a volatile recipe or query.
+//! Volatile assets can be considered as assets with very short expiration time.
+//! A volatile asset value is valid once produced and can be used as a dependency of other volatile assets,
+//! but it is also considered immediately expired.
+//! An example of a volatile asset could be e.g. a reading from a sensor.
+//! 
+//! ## Setting, deleting and overrides
+//! Assets are an extension to a store, thus they also resource assets (i.e. assets with a recipe)
+//! may set or delete its value.
+//! The behaviour depends on whether the asset is a resource asset with a recipe.
+//! Assets without a recipe behave just like a store, the metadata status indicates that the set value is a "Source".
+//! Assets with a recipe can always be re-generated, so even when deleted, they can be requested and re-evaluated again.
+//! If an asset with a recipe is set a user-provided value, it is indicated with a status "Override".
+//! 
 
 use std::{
     collections::BTreeSet,
