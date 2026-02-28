@@ -6,9 +6,7 @@
 use std::collections::HashMap;
 
 use liquers_core::error::{Error, ErrorType};
-use liquers_core::store::{
-    AsyncStore, AsyncStoreRouter, AsyncStoreWrapper, FileStore, MemoryStore,
-};
+use liquers_core::store::{AsyncFileStore, AsyncMemoryStore, AsyncStore, AsyncStoreRouter};
 use opendal::Operator;
 
 use crate::config::{get_opendal_scheme, is_opendal_store_type, StoreConfig, StoreRouterConfig};
@@ -100,18 +98,16 @@ pub fn create_store(config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> 
 /// Create a built-in memory store.
 fn create_memory_store(config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
     let prefix = config.key_prefix()?;
-    let store = MemoryStore::new(&prefix);
-    // Wrap sync store in async wrapper
-    Ok(Box::new(AsyncStoreWrapper(store)))
+    let store = AsyncMemoryStore::new(&prefix);
+    Ok(Box::new(store))
 }
 
 /// Create a built-in filesystem store.
 fn create_filesystem_store(config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
     let prefix = config.key_prefix()?;
     let path = config.require_config_string_expanded("path")?;
-    let store = FileStore::new(&path, &prefix);
-    // Wrap sync store in async wrapper
-    Ok(Box::new(AsyncStoreWrapper(store)))
+    let store = AsyncFileStore::new(&path, &prefix);
+    Ok(Box::new(store))
 }
 
 /// Create an OpenDAL-based store.
@@ -183,7 +179,7 @@ mod tests {
     fn test_create_memory_store() {
         let config = StoreConfig::new("memory").with_prefix("cache");
         let store = create_store(&config).unwrap();
-        assert_eq!(store.store_name(), "cache Memory store");
+        assert_eq!(store.store_name(), "cache Async memory store");
     }
 
     #[test]
@@ -192,7 +188,7 @@ mod tests {
             .with_prefix("local")
             .with_config("path", "./test_data");
         let store = create_store(&config).unwrap();
-        assert!(store.store_name().contains("File store"));
+        assert!(store.store_name().contains("Async file store"));
     }
 
     #[tokio::test]
