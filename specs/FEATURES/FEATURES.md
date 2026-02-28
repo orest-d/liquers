@@ -73,3 +73,7 @@ This folder contains larger feature specifications that should be detailed befor
 17. `EXTENDED-FAST-TRACK.md`
 - Scope: extend fast-track beyond simple loading with command execution classes (`fast`/`slow`/`default`) and class-aware scheduling/queues for interactive responsiveness.
 - Status: Draft
+
+18. `EXPIRATION-SAFETY.md`
+- Scope: fix timing/race safety in asset expiration monitor behavior (dedup scheduling, expire/evict consistency, stale timer cleanup, stale-expired read guards).
+- Status: Draft
