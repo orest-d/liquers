@@ -77,3 +77,4 @@ This folder contains larger feature specifications that should be detailed befor
 18. `EXPIRATION-SAFETY.md`
 - Scope: fix timing/race safety in asset expiration monitor behavior (dedup scheduling, expire/evict consistency, stale timer cleanup, stale-expired read guards).
 - Status: Draft
+- Implementation plan: `EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`

@@ -1,14 +1,15 @@
 // Integration tests for expiration system
 use liquers_core::{
-    assets::AssetRef,
-    commands::CommandRegistry,
+    assets::{AssetManager, AssetRef},
     context::{Context, Environment, SimpleEnvironment},
     error::Error,
     expiration::{ExpirationTime, Expires},
     interpreter::make_plan,
-    metadata::Status,
-    parse::parse_query,
+    metadata::{MetadataRecord, Status},
+    parse::{parse_key, parse_query},
+    query::Key,
     state::State,
+    store::{AsyncStoreWrapper, MemoryStore},
     value::Value,
 };
 use liquers_macro::register_command;
@@ -129,12 +130,22 @@ async fn test_asset_ref_expire_from_ready() -> Result<(), Box<dyn std::error::Er
 /// Test AssetRef expire() on Source returns error
 #[tokio::test]
 async fn test_asset_ref_expire_from_source_errors() -> Result<(), Box<dyn std::error::Error>> {
-    let env = SimpleEnvironment::<Value>::new();
+    let mut env = SimpleEnvironment::<Value>::new();
+    env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
     let envref = env.to_ref();
 
-    let assetref = AssetRef::new_temporary(envref);
-    // Set status to Source
-    assetref.set_status(Status::Source).await?;
+    let manager = envref.get_asset_manager();
+    let key = parse_key("test/source_asset.bin")?;
+    let mut metadata = MetadataRecord::new();
+    metadata.type_identifier = "bytes".to_string();
+    metadata.type_name = "bytes".to_string();
+    metadata.data_format = Some("bin".to_string());
+
+    manager
+        .set_binary(&key, b"source-data", metadata)
+        .await?;
+    let assetref = manager.get(&key).await?;
+    assert_eq!(assetref.status().await, Status::Source);
 
     // Expiring a Source asset should fail
     let result = assetref.expire().await;

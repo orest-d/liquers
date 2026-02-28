@@ -914,7 +914,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Reset the asset
-    pub async fn reset(&self) {
+    pub(crate) async fn reset(&self) {
         let mut lock = self.data.write().await;
         lock.reset();
     }
@@ -1682,7 +1682,7 @@ impl<E: Environment> AssetRef<E> {
     /// Schedule automatic expiration via the centralized expiration monitor.
     /// Routes through `envref` to `DefaultAssetManager::track_expiration`.
     /// Only `ExpirationTime::At(_)` is tracked; Never/Immediately are no-ops.
-    pub async fn schedule_expiration(&self, expiration_time: &ExpirationTime) {
+    pub(crate) async fn schedule_expiration(&self, expiration_time: &ExpirationTime) {
         if let ExpirationTime::At(_) = expiration_time {
             let envref = self.get_envref().await;
             envref
@@ -1774,7 +1774,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// set status
-    pub async fn set_status(&self, status: Status) -> Result<(), Error> {
+    pub(crate) async fn set_status(&self, status: Status) -> Result<(), Error> {
         let mut lock = self.data.write().await;
         lock.set_status(status)
     }
@@ -2267,7 +2267,7 @@ impl<E: Environment> DefaultAssetManager<E> {
 
     /// Track an asset for expiration via the monitor task.
     /// Only `ExpirationTime::At(_)` entries are tracked; Never/Immediately are ignored.
-    pub fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime) {
+    pub(crate) fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime) {
         if let ExpirationTime::At(_) = expiration_time {
             let _ = self.monitor_tx.send(ExpirationMonitorMessage::Track {
                 asset_ref: asset_ref.clone(),
