@@ -19,17 +19,15 @@ use liquers_axum::{QueryApiBuilder, StoreApiBuilder};
 use liquers_core::{
     context::{Environment, SimpleEnvironment},
     query::Key,
-    store::AsyncStoreWrapper,
+    store::AsyncFileStore,
     value::Value,
 };
-use liquers_core::store::FileStore;
 
 #[tokio::main]
 async fn main() {
     // Create environment with file-based storage
-    let file_store = FileStore::new(".", &Key::new());
     let mut env = SimpleEnvironment::<Value>::new();
-    env.with_async_store(Box::new(AsyncStoreWrapper(file_store)));
+    env.with_async_store(Box::new(AsyncFileStore::new(".", &Key::new())));
     let env_ref = env.to_ref();
 
     // Build API routers

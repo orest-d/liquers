@@ -29,7 +29,7 @@ use liquers_core::commands::CommandArguments;
 use liquers_core::context::{Context, Environment, SimpleEnvironment};
 use liquers_core::error::Error;
 use liquers_core::query::Key;
-use liquers_core::store::{AsyncStoreWrapper, FileStore};
+use liquers_core::store::AsyncFileStore;
 use liquers_core::value::Value;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -305,8 +305,7 @@ async fn format_comparison_handler() -> impl IntoResponse {
 async fn setup_server() -> Router {
     let store_path = std::env::var("LIQUERS_STORE_PATH").unwrap_or_else(|_| ".".to_string());
 
-    let file_store = FileStore::new(&store_path, &Key::new());
-    let async_store = AsyncStoreWrapper(file_store);
+    let async_store = AsyncFileStore::new(&store_path, &Key::new());
 
     let mut env = SimpleEnvironment::<Value>::new();
     env.with_async_store(Box::new(async_store));

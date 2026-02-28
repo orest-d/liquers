@@ -19,7 +19,7 @@ use liquers_core::error::{Error, ErrorType};
 use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
-use liquers_core::store::{AsyncStore, AsyncStoreWrapper, MemoryStore};
+use liquers_core::store::{AsyncMemoryStore, AsyncStore};
 use std::sync::Arc;
 
 /// Helper function to create Metadata with a specific media type
@@ -30,8 +30,8 @@ fn metadata_with_type(media_type: &str) -> Metadata {
 }
 
 /// Helper function to create a test store
-fn create_test_store() -> Arc<AsyncStoreWrapper<MemoryStore>> {
-    Arc::new(AsyncStoreWrapper(MemoryStore::new(&Key::new())))
+fn create_test_store() -> Arc<AsyncMemoryStore> {
+    Arc::new(AsyncMemoryStore::new(&Key::new()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

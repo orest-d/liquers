@@ -14,7 +14,7 @@ use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::{parse_key, parse_query};
 use liquers_core::query::Key;
 use liquers_core::recipes::Recipe;
-use liquers_core::store::{AsyncStore, AsyncStoreWrapper, MemoryStore};
+use liquers_core::store::{AsyncMemoryStore, AsyncStore};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,8 +30,8 @@ fn metadata_with_type(media_type: &str) -> Metadata {
 }
 
 /// Helper function to create a test store
-fn create_test_store() -> Arc<AsyncStoreWrapper<MemoryStore>> {
-    Arc::new(AsyncStoreWrapper(MemoryStore::new(&Key::new())))
+fn create_test_store() -> Arc<AsyncMemoryStore> {
+    Arc::new(AsyncMemoryStore::new(&Key::new()))
 }
 
 /// Mock AsyncRecipeProvider for testing

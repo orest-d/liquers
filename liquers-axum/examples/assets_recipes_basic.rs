@@ -17,14 +17,13 @@
 ///
 /// Then test with curl commands shown below
 use liquers_axum::{AssetsApiBuilder, QueryApiBuilder, RecipesApiBuilder, StoreApiBuilder};
-use liquers_core::store::FileStore;
+use liquers_core::store::AsyncFileStore;
 use liquers_core::{
     command_metadata::CommandKey,
     commands::CommandArguments,
     context::{Context, Environment, SimpleEnvironment},
     error::Error,
     query::Key,
-    store::AsyncStoreWrapper,
     value::Value,
 };
 
@@ -100,8 +99,7 @@ async fn main() {
     let store_path = std::env::var("LIQUERS_STORE_PATH").unwrap_or_else(|_| ".".to_string());
     println!("Store path: {}\n", store_path);
 
-    let file_store = FileStore::new(&store_path, &Key::new());
-    let async_store = AsyncStoreWrapper(file_store);
+    let async_store = AsyncFileStore::new(&store_path, &Key::new());
 
     let mut env = SimpleEnvironment::<Value>::new();
     env.with_async_store(Box::new(async_store));

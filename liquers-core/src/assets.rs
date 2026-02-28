@@ -3292,13 +3292,18 @@ mod tests {
     use crate::metadata::{Metadata, MetadataRecord};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
-    use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+    use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::{Value, ValueInterface};
 
     struct FailingSetStore;
 
-    impl Store for FailingSetStore {
-        fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+    #[async_trait]
+    impl AsyncStore for FailingSetStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            Err(Error::key_not_found(key))
+        }
+
+        async fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
             Err(Error::key_write_error(
                 key,
                 "FailingSetStore",
@@ -3306,7 +3311,7 @@ mod tests {
             ))
         }
 
-        fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        async fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
             Ok(())
         }
     }
@@ -3317,12 +3322,17 @@ mod tests {
         last_metadata: Arc<StdMutex<Option<Metadata>>>,
     }
 
-    impl Store for CountingMetadataStore {
-        fn set(&self, _key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+    #[async_trait]
+    impl AsyncStore for CountingMetadataStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            Err(Error::key_not_found(key))
+        }
+
+        async fn set(&self, _key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
             Ok(())
         }
 
-        fn set_metadata(&self, _key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        async fn set_metadata(&self, _key: &Key, metadata: &Metadata) -> Result<(), Error> {
             self.metadata_writes.fetch_add(1, Ordering::SeqCst);
             if let Ok(mut lock) = self.last_metadata.lock() {
                 *lock = Some(metadata.clone());
@@ -3336,7 +3346,7 @@ mod tests {
         let key = parse_key("metadata-throttle.txt").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let store = CountingMetadataStore::default();
-        env.with_async_store(Box::new(AsyncStoreWrapper(store.clone())));
+        env.with_async_store(Box::new(store.clone()));
         let envref = env.to_ref();
 
         let mut asset_data =
@@ -3376,7 +3386,7 @@ mod tests {
     async fn test_asset_loading() {
         let key = parse_key("test.txt").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         env.get_async_store()
             .set(
                 &key,
@@ -3417,7 +3427,7 @@ mod tests {
     async fn test_asset_loading_skips_non_ready_source_override_statuses() {
         let key = parse_key("test_non_ready.txt").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         env.get_async_store()
             .set(
                 &key,
@@ -3447,7 +3457,7 @@ mod tests {
     async fn test_asset_loading_binary_type_uses_raw_bytes() {
         let key = parse_key("test_binary_payload.bin").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let raw = vec![0, 159, 146, 150, 255];
         env.get_async_store()
             .set(&key, &raw, &{
@@ -3475,7 +3485,7 @@ mod tests {
     async fn test_asset_loading_corrupted_ready_payload_returns_false_and_clears() {
         let key = parse_key("test_corrupted_ready.json").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         env.get_async_store()
             .set(&key, b"not valid json", &{
                 let mut metadata = MetadataRecord::new();
@@ -3681,7 +3691,7 @@ mod tests {
         assert_eq!(store_key.to_string(), "a/b/test.txt");
 
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let key = CommandKey::new_name("test");
         env.command_registry
             .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
@@ -3803,7 +3813,7 @@ mod tests {
         use crate::metadata::Metadata;
         use crate::parse::parse_key;
         use crate::recipes::{DefaultRecipeProvider, Recipe, RecipeList};
-        use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+        use crate::store::{AsyncMemoryStore, AsyncStore};
         use crate::value::Value;
 
         // 1. Create a recipe with a query "hello/hello.txt"
@@ -3822,14 +3832,15 @@ mod tests {
         // 3. Set it into memory store under key test/recipes.yaml
         let recipes_key = parse_key("test/recipes.yaml").unwrap();
         let metadata = Metadata::new();
-        let memory_store = MemoryStore::new(&parse_key("").unwrap());
+        let memory_store = AsyncMemoryStore::new(&parse_key("").unwrap());
         memory_store
             .set(&recipes_key, yaml_content.as_bytes(), &metadata)
+            .await
             .unwrap();
 
         // 4. Set the memory store in environment wrapped as AsyncStore
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(memory_store)));
+        env.with_async_store(Box::new(memory_store));
 
         // 5. Set DefaultAssetProvider as the asset provider for env
         env.with_recipe_provider(Box::new(DefaultRecipeProvider));
@@ -4164,7 +4175,7 @@ mod tests {
     async fn test_set_without_recipe() {
         // Set binary data on a key without a recipe - should become Source
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
 
         let key = parse_key("test/set_source").unwrap();
@@ -4190,7 +4201,7 @@ mod tests {
     async fn test_set_with_expired_status() {
         // Set with Expired status - should preserve Expired
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
 
         let key = parse_key("test/set_expired").unwrap();
@@ -4213,7 +4224,7 @@ mod tests {
     async fn test_set_with_error_status() {
         // Set with Error status - should preserve Error and not store binary
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
 
         let key = parse_key("test/set_error").unwrap();
@@ -4239,7 +4250,7 @@ mod tests {
     async fn test_set_state_without_recipe() {
         // Set state on a key without a recipe - should become Source
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
 
         let key = parse_key("test/set_state_source").unwrap();
@@ -4339,7 +4350,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_state_replacement_untracks_old_timer() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
         let manager = envref.get_asset_manager();
 
@@ -4373,7 +4384,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_key_skips_stale_expired_cached_asset() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
         let manager = envref.get_asset_manager();
 
@@ -4428,7 +4439,7 @@ mod tests {
     async fn test_remove_asset() {
         // First set an asset, then remove it
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
 
         let key = parse_key("test/to_remove").unwrap();
@@ -4464,7 +4475,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_store_failure_keeps_value_and_sets_warning() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(FailingSetStore)));
+        env.with_async_store(Box::new(FailingSetStore));
         let key = CommandKey::new_name("test");
         env.command_registry
             .register_command(key, |_, _, _| Ok(Value::from("Hello, world!")))
@@ -4547,7 +4558,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_value_persists_when_possible_and_marks_persisted() {
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
-        env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
         let envref = env.to_ref();
 
         let query = parse_query("dummy/value.txt").unwrap();

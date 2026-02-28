@@ -9,7 +9,7 @@ use liquers_core::{
     parse::{parse_key, parse_query},
     query::Key,
     state::State,
-    store::{AsyncStoreWrapper, MemoryStore},
+    store::AsyncMemoryStore,
     value::Value,
 };
 use liquers_macro::register_command;
@@ -131,7 +131,7 @@ async fn test_asset_ref_expire_from_ready() -> Result<(), Box<dyn std::error::Er
 #[tokio::test]
 async fn test_asset_ref_expire_from_source_errors() -> Result<(), Box<dyn std::error::Error>> {
     let mut env = SimpleEnvironment::<Value>::new();
-    env.with_async_store(Box::new(AsyncStoreWrapper(MemoryStore::new(&Key::new()))));
+    env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
     let envref = env.to_ref();
 
     let manager = envref.get_asset_manager();

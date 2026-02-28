@@ -608,11 +608,11 @@ mod test {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};
         use crate::metadata::Metadata;
         use crate::parse::parse_key;
-        use crate::store::{AsyncStoreWrapper, MemoryStore, Store};
+        use crate::store::{AsyncMemoryStore, AsyncStore};
         use crate::value::Value;
 
-        // Create a MemoryStore and populate it with recipes.yaml
-        let memory_store = MemoryStore::new(&Key::new());
+        // Create an async memory store and populate it with recipes.yaml
+        let memory_store = AsyncMemoryStore::new(&Key::new());
 
         // Create a recipe list
         let mut recipe_list = RecipeList::new();
@@ -637,11 +637,12 @@ mod test {
         let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
         println!("recipes.yaml content:\n{}", yaml_content);
 
-        // Store the recipes.yaml in the MemoryStore at folder/recipes.yaml
+        // Store the recipes.yaml in memory at folder/recipes.yaml
         let recipes_key = parse_key("folder/recipes.yaml").unwrap();
         let metadata = Metadata::new();
         memory_store
             .set(&recipes_key, yaml_content.as_bytes(), &metadata)
+            .await
             .unwrap();
         memory_store
             .set(
@@ -649,14 +650,12 @@ mod test {
                 "Hello, world!".as_bytes(),
                 &metadata,
             )
+            .await
             .unwrap();
-
-        // Wrap the MemoryStore with AsyncStoreWrapper
-        let async_store = AsyncStoreWrapper(memory_store);
 
         // Create a SimpleEnvironment and set the async store
         let mut env = SimpleEnvironment::<Value>::new();
-        env.with_async_store(Box::new(async_store));
+        env.with_async_store(Box::new(memory_store));
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
         // Create a DefaultRecipeProvider
