@@ -67,7 +67,7 @@
 use std::{
     collections::BTreeSet,
     sync::atomic::{AtomicUsize, Ordering},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use async_trait::async_trait;
@@ -679,6 +679,12 @@ pub struct AssetRef<E: Environment> {
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
+/// Weak asset reference keeps the same asset id and a weak pointer to asset data.
+pub struct WeakAssetRef<E: Environment> {
+    id: u64,
+    pub data: Weak<RwLock<AssetData<E>>>,
+}
+
 impl<E: Environment> Clone for AssetRef<E> {
     fn clone(&self) -> Self {
         AssetRef {
@@ -687,6 +693,16 @@ impl<E: Environment> Clone for AssetRef<E> {
         }
     }
 }
+
+impl<E: Environment> Clone for WeakAssetRef<E> {
+    fn clone(&self) -> Self {
+        WeakAssetRef {
+            id: self.id,
+            data: self.data.clone(),
+        }
+    }
+}
+
 impl<E: Environment> AssetRef<E> {
     /// Returns true if asset is finished and can't receive/process more messages
     /// Used by: `process_service_messages` in this module.
@@ -732,6 +748,14 @@ impl<E: Environment> AssetRef<E> {
     /// Get the unique id of the asset
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Create a weak reference to this asset.
+    pub fn downgrade(&self) -> WeakAssetRef<E> {
+        WeakAssetRef {
+            id: self.id,
+            data: Arc::downgrade(&self.data),
+        }
     }
 
     /// Get a reference to the environment
@@ -1919,6 +1943,18 @@ impl<E: Environment> AssetRef<E> {
                 ))
             })?;
         Ok(())
+    }
+}
+
+impl<E: Environment> WeakAssetRef<E> {
+    /// Get the unique id of the asset.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Try to upgrade to a strong [AssetRef].
+    pub fn upgrade(&self) -> Option<AssetRef<E>> {
+        self.data.upgrade().map(|data| AssetRef { id: self.id, data })
     }
 }
 
@@ -3380,6 +3416,37 @@ mod tests {
         assert!(state.is_none());
         let bin = asset_data.poll_binary();
         assert!(bin.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_weak_asset_ref_upgrade() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = parse_key("test/weak_upgrade.txt").unwrap();
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(43210, key.into(), env.to_ref()).to_ref();
+
+        let weak = asset.downgrade();
+        assert_eq!(weak.id(), asset.id());
+        let upgraded = weak
+            .upgrade()
+            .expect("weak reference should upgrade while strong ref exists");
+        assert_eq!(upgraded.id(), asset.id());
+    }
+
+    #[tokio::test]
+    async fn test_weak_asset_ref_upgrade_after_drop_returns_none() {
+        let weak = {
+            let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+            let key = parse_key("test/weak_drop.txt").unwrap();
+            let asset =
+                AssetData::<SimpleEnvironment<Value>>::new(43211, key.into(), env.to_ref())
+                    .to_ref();
+            let weak = asset.downgrade();
+            assert!(weak.upgrade().is_some());
+            weak
+        };
+
+        assert!(weak.upgrade().is_none());
     }
 
     #[tokio::test]
