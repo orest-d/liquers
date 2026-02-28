@@ -622,7 +622,10 @@ mod tests {
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
             let upper = context
-                .apply(&parse_query("upper").unwrap(), what.into())
+                .apply(
+                    &parse_query("upper").unwrap(),
+                    State::new().with_data(what.into()),
+                )
                 .await?;
             let upper_text = upper.get().await?.try_into_string()?;
             context.progress(ProgressEntry::done("OK, done".to_owned()))?;
@@ -666,7 +669,10 @@ mod tests {
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
             let upper = context
-                .apply(&parse_query("upper").unwrap(), what.into())
+                .apply(
+                    &parse_query("upper").unwrap(),
+                    State::new().with_data(what.into()),
+                )
                 .await?;
             let upper_text = upper.get().await?.try_into_string()?;
             context.progress(ProgressEntry::done("OK, done".to_owned()))?;

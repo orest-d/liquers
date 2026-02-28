@@ -141,7 +141,7 @@ impl<E: Environment> EnvRef<E> {
             let asset_manager = envref.get_asset_manager();
             let query = rquery?;
             asset_manager
-                .apply_immediately(query.into(), E::Value::none(), Some(payload))
+                .apply_immediately(query.into(), State::new(), Some(payload))
                 .await
         }
         .boxed()
@@ -194,7 +194,7 @@ impl<E: Environment> Context<E> {
         envref.get_asset_manager().get_asset(query).await
     }
 
-    pub async fn apply(&self, query: &Query, to: E::Value) -> Result<AssetRef<E>, Error> {
+    pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         envref.get_asset_manager().apply(query.into(), to).await
     }

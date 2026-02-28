@@ -118,7 +118,7 @@ pub enum AssetNotificationMessage {
     Initial,
     JobSubmitted,
     JobStarted,
-    StatusChanged(Status), // TODO: remove argument?
+    StatusChanged(Status),
     ValueProduced,
     ErrorOccurred(Error),
     LogMessage,
@@ -818,7 +818,6 @@ impl<E: Environment> AssetRef<E> {
 
     /// Get a string representation describing the asset
     pub async fn asset_reference(&self) -> String {
-        // TODO: Make it to return non-async shared Arc string
         let lock = self.data.read().await;
         lock.asset_reference()
     }
@@ -1250,11 +1249,7 @@ impl<E: Environment> AssetRef<E> {
             recipe.to_plan(cmr)?
         };
         */
-        let context = self.create_context().await; // TODO: reference to asset
-                                                                         // TODO: Separate evaluation of dependencies
-                                                                         //let res = apply_plan(plan, envref, context, input_state).await?;
-                                                                         //let res = apply_plan_new(
-                                                                         //    plan, input_state, context, envref).await?;
+        let context = self.create_context().await;
         println!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
         println!("Recipe evaluated, result: {:?}", &res);
@@ -1929,14 +1924,14 @@ impl<E: Environment> AssetRef<E> {
 pub trait AssetManager<E: Environment>: Send + Sync {
     /// Get Asset for a query
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
-    /// Get Asset they represents applying the recipe to the given value
-    async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error>; // TODO: to probably should be a state, not a value
-    /// Get Asset they represents applying the recipe to the given value, evaluate immediately
+    /// Get Asset they represents applying the recipe to the given state
+    async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error>;
+    /// Get Asset they represents applying the recipe to the given state, evaluate immediately
     /// This in an ad-hoc evaluation that allows to specify a payload
     async fn apply_immediately(
         &self,
         recipe: Recipe,
-        to: E::Value, // TODO: to probably should be a state, not a value
+        to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error>;
     /// Get Asset for a key
@@ -1945,7 +1940,6 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error>;
     /// Check if resource is volatile
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error>;
-    async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error>;
 
     /// Remove asset data from AssetManager and store.
     /// This does NOT trigger recalculation.
@@ -2492,11 +2486,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Create an ad-hoc asset applied to a value
-    async fn apply(&self, recipe: Recipe, to: E::Value) -> Result<AssetRef<E>, Error> {
-        let mut metadata = MetadataRecord::new();
-        metadata.with_type_identifier(to.identifier().to_string());
-        let initial_state = State::from_value_and_metadata(to, Arc::new(metadata.into()));
+    /// Create an ad-hoc asset applied to a state
+    async fn apply(&self, recipe: Recipe, initial_state: State<E::Value>) -> Result<AssetRef<E>, Error> {
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
@@ -2506,16 +2497,13 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         Ok(asset_ref)
     }
 
-    /// Create an ad-hoc asset applied to a value
+    /// Create an ad-hoc asset applied to a state
     async fn apply_immediately(
         &self,
         recipe: Recipe,
-        to: E::Value,
+        initial_state: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
-        let mut metadata = MetadataRecord::new();
-        metadata.with_type_identifier(to.identifier().to_string());
-        let initial_state = State::from_value_and_metadata(to, Arc::new(metadata.into()));
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, self.get_envref()).to_ref();
         // No fast track makes sense now, since apply can't be stored, however in the future
@@ -2573,11 +2561,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         } else {
             Ok(false)
         }
-    }
-
-    async fn create(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        // TODO: Probably should create a new asset and make it possible to set its value
-        self.get(key).await
     }
 
     /// Remove resource asset
@@ -3669,7 +3652,7 @@ mod tests {
         let envref = env.to_ref();
         let assetref = envref
             .get_asset_manager()
-            .apply(query.into(), "WORLD".into())
+            .apply(query.into(), State::new().with_data("WORLD".into()))
             .await
             .unwrap();
 
@@ -3697,7 +3680,11 @@ mod tests {
         let envref = env.to_ref();
         let assetref = envref
             .get_asset_manager()
-            .apply_immediately(query.into(), "WORLD".into(), None)
+            .apply_immediately(
+                query.into(),
+                State::new().with_data("WORLD".into()),
+                None,
+            )
             .await
             .unwrap();
 
@@ -3797,7 +3784,11 @@ mod tests {
         let envref = env.to_ref();
         let assetref = envref
             .get_asset_manager()
-            .apply_immediately(query.into(), "WORLD".into(), Some("Hi".to_owned()))
+            .apply_immediately(
+                query.into(),
+                State::new().with_data("WORLD".into()),
+                Some("Hi".to_owned()),
+            )
             .await
             .unwrap();
 

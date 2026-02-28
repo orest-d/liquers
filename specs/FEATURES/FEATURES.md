@@ -69,3 +69,7 @@ This folder contains larger feature specifications that should be detailed befor
 16. `ASSETS-FIX1-PHASE4-NICE-TO-HAVE.md`
 - Scope: asset reference caching, quick-plan/apply fast-track enhancements, and explicit create semantics.
 - Status: Draft
+
+17. `EXTENDED-FAST-TRACK.md`
+- Scope: extend fast-track beyond simple loading with command execution classes (`fast`/`slow`/`default`) and class-aware scheduling/queues for interactive responsiveness.
+- Status: Draft
