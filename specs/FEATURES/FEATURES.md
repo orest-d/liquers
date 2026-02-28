@@ -78,3 +78,7 @@ This folder contains larger feature specifications that should be detailed befor
 - Scope: fix timing/race safety in asset expiration monitor behavior (dedup scheduling, expire/evict consistency, stale timer cleanup, stale-expired read guards).
 - Status: Draft
 - Implementation plan: `EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`
+
+19. `SCHEDULER-IMPROVEMENTS.md`
+- Scope: make asset dependency delegation scheduler-safe (no queue-capacity deadlocks), with explicit dependency-wait state and deterministic liveness tests.
+- Status: Draft

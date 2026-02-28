@@ -8,6 +8,7 @@ Focus: remove known runtime gaps (dependency handling, delegation deadlock risk,
 
 Related feature split:
 - Expiration timing/race safety concerns are now tracked under [EXPIRATION-SAFETY.md](/home/orest/zlos/rust/liquers/specs/FEATURES/EXPIRATION-SAFETY.md).
+- Scheduler/runtime robustness for dependency delegation is now tracked under [SCHEDULER-IMPROVEMENTS.md](/home/orest/zlos/rust/liquers/specs/FEATURES/SCHEDULER-IMPROVEMENTS.md).
 
 
 ## Inventory (assets.rs)
@@ -84,32 +85,6 @@ Practical rule:
 - The deadlock pattern requires a running queue worker to block on `asset.get().await` for another asset that still needs queue execution.
 - Therefore, untracked assets are dangerous only when they are (or cause) queued execution in a way that consumes all available slots.
 - This means your caveat is correct: non-queued untracked assets can still be involved **indirectly** if they trigger queued sub-evaluations that then deadlock among queued workers.
-
-### Verification: expiration timing failure modes
-
-Yes, there are timing-sensitive expiration paths.
-
-1. Expire/remove is not atomic (reachable race):
-   - Monitor first calls `asset_ref.expire().await`, then later removes from maps.
-   - `DefaultAssetManager::get(&key)` treats `Status::Expired` as finished and returns the cached asset immediately.
-   - So a request in the small window between "status -> Expired" and "map removal" can still receive stale expired asset instance.
-   - Impact: transient inconsistency ("new get after expiration" can still return old expired object).
-
-2. Duplicate expiration tracking is allowed (reachable if API used repeatedly):
-   - `track_expiration` always pushes a new heap entry; no per-asset dedup/update.
-   - `schedule_expiration` is public and can be called multiple times for same asset id.
-   - Earliest queued entry wins, so later reschedule to a farther time does not cancel earlier entry automatically.
-   - Impact: premature expiration ("wrong moment") for the same asset id.
-
-3. Removal from maps happens even when `expire()` failed (conditional path):
-   - In monitor loop, map-removal executes regardless of `expire()` success.
-   - If an asset is tracked but currently in a non-expirable status when timer fires, `expire()` returns error but map cleanup still runs.
-   - Internal flows mostly schedule only after successful completion, so this is rare in standard path, but reachable via external/manual scheduling or unusual state manipulation.
-
-4. `set_state()` does not untrack prior expiration entries (stale timer path):
-   - `set_binary()` and `remove()` explicitly call `untrack_expiration(...)`.
-   - `set_state()` replaces/removes map entries but does not untrack previous asset id.
-   - Old timer can still fire on detached old object (usually harmless to current map due id checks, but noisy/ambiguous for holders of old refs).
 
 ### Why this is dangerous
 
