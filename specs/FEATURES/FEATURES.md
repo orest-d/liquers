@@ -48,3 +48,24 @@ This folder contains larger feature specifications that should be detailed befor
 11. `IMAGE-SERIALIZATION-FEATURE-GAPS.md`
 - Scope: unify image serialization/deserialization utilities and integrate `ExtValue::Image` with default value serialization.
 - Status: Closed
+
+12. `ASSETS-FIX1.md`
+- Scope: resolve all `TODO`/`FIXME`/`todo!()` markers in `liquers-core/src/assets.rs` with prioritized implementation plan.
+- Status: Draft
+
+13. `ASSETS-FIX1-PHASE1-RUNTIME-BLOCKERS.md`
+- Scope: remove runtime blockers in assets execution (`Dependencies` panic stubs, delegation deadlock risk, expiration monitor wiring).
+- Status: Draft
+- Implementation plan: `ASSETS-FIX1-PHASE1-IMPLEMENTATION-PLAN.md`
+
+14. `ASSETS-FIX1-PHASE2-METADATA-LIFECYCLE.md`
+- Scope: consolidate volatility/expiration metadata lifecycle and fast-track corruption handling.
+- Status: Draft
+
+15. `ASSETS-FIX1-PHASE3-REFACTOR-API-CLEANUP.md`
+- Scope: deduplicate run paths, integrate metadata save throttling, and migrate apply APIs toward state-based input.
+- Status: Draft
+
+16. `ASSETS-FIX1-PHASE4-NICE-TO-HAVE.md`
+- Scope: asset reference caching, quick-plan/apply fast-track enhancements, and explicit create semantics.
+- Status: Draft

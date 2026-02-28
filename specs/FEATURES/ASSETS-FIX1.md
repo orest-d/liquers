@@ -6,15 +6,7 @@ Status: Draft
 `ASSETS-FIX1` consolidates all `TODO`, `FIXME`, and `todo!()` markers in `liquers-core/src/assets.rs` into a concrete implementation backlog.  
 Focus: remove known runtime gaps (dependency handling, delegation deadlock risk, metadata consistency), reduce duplication, and finalize incomplete API paths.
 
-## Split Feature Documents
-1. Phase 1: `specs/FEATURES/ASSETS-FIX1-PHASE1-RUNTIME-BLOCKERS.md`
-2. Phase 2: `specs/FEATURES/ASSETS-FIX1-PHASE2-METADATA-LIFECYCLE.md`
-3. Phase 3: `specs/FEATURES/ASSETS-FIX1-PHASE3-REFACTOR-API-CLEANUP.md`
-4. Phase 4: `specs/FEATURES/ASSETS-FIX1-PHASE4-NICE-TO-HAVE.md`
-5. Detailed implementation plan for Phase 1: `specs/FEATURES/ASSETS-FIX1-PHASE1-IMPLEMENTATION-PLAN.md`
-
-## Inventory (assets.rs)
-
+## Don't fix
 | # | Fix? | Location | Marker | Proposed solution |
 |---|---|---|---|---|
 | 1 | No | `assets.rs:98` | `TODO: remove argument?` for `StatusChanged(Status)` | Keep argument for now and document notification payload contract; remove only after all consumers fetch status via `get_metadata()`/`status()` without relying on message payload. |
@@ -25,7 +17,11 @@ Focus: remove known runtime gaps (dependency handling, delegation deadlock risk,
 | 23 | No | `assets.rs:2380` | `TODO` fast-track for `apply()` | Add optional in-memory fast path for simple apply recipes where result can be produced synchronously without queue wait. |
 | 24 | No | `assets.rs:2399` | `TODO` fast-track for `apply_immediately()` | Same as #23; likely naturally satisfied once shared execution helper exists. |
 | 25 | No | `assets.rs:2449` | `TODO` create should construct new settable asset | Implement `create(key)` as explicit new asset creation with empty/default state and no implicit `get()` side effects. |
-| 14 | Phase2 | `assets.rs:1096` | `FIXME` duplicate `run` and `run_immediately` | Extract shared finalize flow into one helper, parameterized by evaluation strategy. |
+
+## Inventory (assets.rs)
+
+| # | Fix? | Location | Marker | Proposed solution |
+|---|---|---|---|---|
 | 2 | Phase3 | `assets.rs:134` | `TODO: Make a proper save immediately task` | Introduce `MetadataSaver::save_immediately(...)` with coalescing and one in-flight task guard (`JoinHandle` or single worker loop). |
 | 3 | Phase3 | `assets.rs:334` | `TODO: prevent too frequent saving` | Route through `MetadataSaver` throttling instead of direct write in `save_metadata_to_store()`. |
 | 16 | Phase4 | `assets.rs:1278` | log string contains `FIXME` | Replace with structured debug log without FIXME marker. |

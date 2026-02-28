@@ -919,6 +919,10 @@ impl MetadataRecord {
         }
         Ok(())
     }
+    pub fn remove_progress(&mut self) -> &mut Self{
+        self.progress.clear();
+        self
+    }
     pub fn primary_progress(&self) -> ProgressEntry {
         if self.progress.is_empty() {
             ProgressEntry::off()
@@ -1619,6 +1623,17 @@ impl Metadata {
         match self {
             Metadata::MetadataRecord(m) => {
                 m.set_secondary_progress(progress);
+                self
+            }
+            _ => self,
+        }
+    }
+
+    /// Remove progress
+    pub fn remove_progress(&mut self) -> &mut Self{
+        match self{
+            Metadata::MetadataRecord(m) => {
+                m.remove_progress();
                 self
             }
             _ => self,

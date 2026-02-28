@@ -642,7 +642,7 @@ mod tests {
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, WORLD!");
-        assert!(state.metadata.primary_progress().is_done());
+        assert!(state.metadata.primary_progress().is_off()); // Progress should be off (not done) at the end of execution
         Ok(())
     }
 
