@@ -1,13 +1,24 @@
 # TECHNICAL-DEBT-1
 
-Status: Draft
+Status: In Progress
 
 ## Implementation Status
 1. [x] Replace `Arc<Box<dyn Trait>>` with `Arc<dyn Trait>` where object-safe. (Done on 2026-02-21)
 2. [ ] Remove blocking store usage from core/environment and complete async-store-only environment surface.
 3. [x] Implement async-native memory/file stores in `liquers-core` with unit tests. (Done on 2026-02-21)
-4. [ ] Adopt async-native stores across runtime paths and remove default dependency on `AsyncStoreWrapper`.
+4. [x] Adopt async-native stores across runtime paths and remove default dependency on `AsyncStoreWrapper`. (Done on 2026-02-28)
 5. [ ] Review binary data shareability across store/value APIs; target `Arc<[u8]>`-compatible return/transport where appropriate.
+
+## Done vs Remaining (2026-02-28)
+### Done
+1. Runtime and tests now use native async stores (`AsyncMemoryStore`, `AsyncFileStore`) instead of wrapper-based sync adapters.
+2. `AsyncStoreWrapper` has been removed from crate code (no remaining non-doc references in `liquers-core`, `liquers-store`, `liquers-lib`, `liquers-axum`).
+3. Recipe provider typing cleanup is complete (`Arc<dyn AsyncRecipeProvider<...>>`).
+
+### Remaining
+1. Remove blocking `Store` from environment implementations (`SimpleEnvironment*` still have `store: Arc<dyn Store>` and `with_store` methods).
+2. Replace `Arc<Box<DefaultAssetManager<...>>>` with `Arc<DefaultAssetManager<...>>` in `Environment`/`EnvRef` signatures and implementers.
+3. Decide and implement binary sharing API strategy beyond `Vec<u8>` at `AsyncStore` boundaries.
 
 ## Summary
 Reduce core store-layer technical debt by:
@@ -16,17 +27,14 @@ Reduce core store-layer technical debt by:
 3. adding async-native memory and file store implementations.
 
 ## Problem
-After the async-store cleanup, `liquers-core` still contains several `Arc<Box<...>>` fields and API signatures. This adds unnecessary allocation/indirection and complicates type signatures.
+Most async-store migration work is complete, but environment-level technical debt remains:
+1. environment implementations still carry blocking `Store` fields/methods, and
+2. `Arc<Box<DefaultAssetManager<...>>>` remains in environment signatures.
 
 Known remaining cases:
-1. `Arc<Box<dyn Store>>` (to be removed)
-2. `Arc<Box<DefaultAssetManager<Self>>>`
-3. `Option<Arc<Box<dyn AsyncRecipeProvider<Self>>>>`
-4. matching return types in `Environment`/`EnvRef` methods
-5. recipe-provider accessor in `DefaultAssetManager`
-6. blocking `Store` trait and adapters still used in runtime flows
-7. native async memory/file stores are implemented, but runtime wiring still uses wrapper paths in multiple places
-8. binary data APIs still return/clamp to `Vec<u8>` in several paths, limiting zero-copy sharing opportunities
+1. `Arc<Box<DefaultAssetManager<Self>>>` in `Environment` trait, `EnvRef`, and environment implementers.
+2. `store: Arc<dyn Store>` and `with_store(...)` still present in core environment implementations.
+3. async store API boundary still materializes binary payloads as `Vec<u8>`.
 
 ## Goals
 1. Replace `Arc<Box<dyn Trait>>` with `Arc<dyn Trait>` where object-safe.
@@ -59,7 +67,7 @@ Known remaining cases:
 ### 1. Async Store Direction
 1. `AsyncMemoryStore` and `AsyncFileStore` become first-class implementations of `AsyncStore`.
 2. Core runtime paths (`assets`, `interpreter`, recipe loading) should instantiate native async stores directly.
-3. `AsyncStoreWrapper<T: Store>` is deprecated for runtime use and retained only as migration/testing compatibility shim.
+3. `AsyncStoreWrapper<T: Store>` has been removed from code after migration completion.
 4. `Store` (blocking) is treated as legacy compatibility API, not the default store path.
 5. `Environment` should expose only async store accessors after migration; blocking store access is removed from environment-level API.
 
@@ -99,16 +107,11 @@ Known remaining cases:
    2. optionally replace lock-file approach with explicit OS file-lock crate if cross-platform edge cases appear.
 
 ### 4. Superseding `AsyncStoreWrapper`
-1. New code must not create async stores from blocking `Store` via wrapper in production/runtime paths.
-2. Replace current usages:
-   1. `AsyncStoreWrapper(MemoryStore::new(...))` -> `AsyncMemoryStore::new(...)`
-   2. `AsyncStoreWrapper(FileStore::new(...))` -> `AsyncFileStore::new(...)`
-3. `store_builder` should produce native async store instances directly.
-4. `AsyncStoreWrapper` remains temporarily for:
-   1. incremental migration,
-   2. tests covering legacy stores,
-   3. third-party compatibility.
-5. Add deprecation docs marker on wrapper and target removal milestone.
+Status: Completed (2026-02-28)
+1. Runtime code no longer creates async stores from blocking wrappers.
+2. Wrapper-based constructions were migrated to native async stores.
+3. `store_builder` now produces native async stores for memory/filesystem.
+4. `AsyncStoreWrapper` type has been removed from crate code.
 
 ### 5. Migration Plan
 1. Add `AsyncMemoryStore` and wire tests first.
@@ -139,6 +142,15 @@ Known remaining cases:
 5. `cargo test -p liquers-core` passes.
 6. `cargo test -p liquers-lib` passes.
 7. No functional regressions in command/context/asset flows.
+
+Current status:
+1. Criterion 1: In progress.
+2. Criterion 2: In progress.
+3. Criterion 3: Done.
+4. Criterion 4: Done.
+5. Criterion 5: Done in recent migration pass.
+6. Criterion 6: Not re-verified in this update pass.
+7. Criterion 7: In progress.
 
 ## Risks
 1. Trait signature changes ripple into all environment implementations.
