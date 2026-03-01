@@ -347,10 +347,32 @@ fn true_default() -> bool {
 fn false_default() -> bool {
     false
 }
+fn u128_is_zero(value: &u128) -> bool {
+    *value == 0
+}
 fn gui_info_is_none(gui_info: &ArgumentGUIInfo) -> bool {
     match gui_info {
         ArgumentGUIInfo::None => true,
         _ => false,
+    }
+}
+
+mod hex_u128_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &u128, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{value:032x}"))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        u128::from_str_radix(&value, 16).map_err(serde::de::Error::custom)
     }
 }
 
@@ -791,6 +813,19 @@ pub struct CommandMetadata {
     /// Commands are normally registered and defined in the environment via a [crate::commands2::CommandExecutor].
     /// They can however also be defined as aliases to other commands.
     pub definition: CommandDefinition,
+
+    /// Version of the metadata structure content.
+    /// This is computed from JSON serialization and managed by the metadata registry.
+    #[serde(skip)]
+    #[serde(default)]
+    pub metadata_version: u128,
+
+    /// Version of the command implementation provided during command registration.
+    /// This is not changed by metadata updates in the registry.
+    #[serde(with = "hex_u128_serde")]
+    #[serde(skip_serializing_if = "u128_is_zero")]
+    #[serde(default)]
+    pub impl_version: u128,
 }
 
 impl CommandMetadata {
@@ -812,6 +847,8 @@ impl CommandMetadata {
             definition: CommandDefinition::Registered,
             next: Vec::new(),
             filename: "".to_string(),
+            metadata_version: 0,
+            impl_version: 0,
         }
     }
 
@@ -841,6 +878,8 @@ impl CommandMetadata {
             definition: CommandDefinition::Registered,
             next: Vec::new(),
             filename: "".to_string(),
+            metadata_version: 0,
+            impl_version: 0,
         }
     }
     pub fn key(&self) -> CommandKey {
@@ -936,6 +975,16 @@ impl Default for CommandMetadataRegistry {
 }
 
 impl CommandMetadataRegistry {
+    fn calculate_metadata_version(command: &CommandMetadata) -> u128 {
+        match serde_json::to_vec(command) {
+            Ok(json) => {
+                let hash = blake3::hash(&json);
+                u128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]))
+            }
+            Err(_) => 0,
+        }
+    }
+
     pub fn new() -> Self {
         CommandMetadataRegistry {
             commands: Vec::new(),
@@ -949,7 +998,37 @@ impl CommandMetadataRegistry {
     }
 
     pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
-        self.commands.push(command.to_owned());
+        let key = command.key();
+        let mut command_to_store = command.to_owned();
+        if let Some(existing) = self.get(key.clone()) {
+            command_to_store.impl_version = existing.impl_version;
+        }
+        command_to_store.metadata_version = Self::calculate_metadata_version(&command_to_store);
+
+        if let Some(existing) = self.get_mut(key) {
+            *existing = command_to_store;
+        } else {
+            self.commands.push(command_to_store);
+        }
+        self
+    }
+
+    pub fn update_command_metadata_version<K>(&mut self, key: K) -> Option<u128>
+    where
+        K: Into<CommandKey>,
+    {
+        if let Some(command) = self.get_mut(key) {
+            command.metadata_version = Self::calculate_metadata_version(command);
+            Some(command.metadata_version)
+        } else {
+            None
+        }
+    }
+
+    pub fn update_all_metadata_versions(&mut self) -> &mut Self {
+        for command in &mut self.commands {
+            command.metadata_version = Self::calculate_metadata_version(command);
+        }
         self
     }
 
@@ -959,10 +1038,7 @@ impl CommandMetadataRegistry {
     {
         let key: CommandKey = key.into();
         for command in &mut self.commands {
-            if command.realm == key.realm
-                && command.namespace == key.namespace
-                && command.name == key.name
-            {
+            if command.key() == key {
                 return Some(command);
             }
         }
@@ -974,11 +1050,7 @@ impl CommandMetadataRegistry {
         K: Into<CommandKey>,
     {
         let key = key.into();
-        self.commands.iter().find(|&command| {
-            command.realm == key.realm
-                && command.namespace == key.namespace
-                && command.name == key.name
-        })
+        self.commands.iter().find(|&command| command.key() == key)
     }
 
     pub fn find_command(
@@ -987,8 +1059,9 @@ impl CommandMetadataRegistry {
         namespace: &str,
         name: &str,
     ) -> Option<CommandMetadata> {
+        let key = CommandKey::new(realm, namespace, name);
         for command in &self.commands {
-            if command.realm == realm && command.namespace == namespace && command.name == name {
+            if command.key() == key {
                 return Some(command.clone());
             }
         }
@@ -1055,5 +1128,119 @@ mod tests {
         let json = serde_json::to_string(&cm).unwrap();
         let cm2: CommandMetadata = serde_json::from_str(&json).unwrap();
         assert_eq!(cm2.expires, cm.expires);
+    }
+
+    #[test]
+    fn test_command_metadata_versions_default_zero_and_skipped_in_json() {
+        let cm = CommandMetadata::new("test");
+        assert_eq!(cm.metadata_version, 0);
+        assert_eq!(cm.impl_version, 0);
+
+        let json = serde_json::to_string(&cm).unwrap();
+        assert!(!json.contains("metadata_version"));
+        assert!(!json.contains("impl_version"));
+
+        let cm2: CommandMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(cm2.metadata_version, 0);
+        assert_eq!(cm2.impl_version, 0);
+    }
+
+    #[test]
+    fn test_command_metadata_impl_version_serialized_as_hex_when_nonzero() {
+        let mut cm = CommandMetadata::new("test");
+        cm.impl_version = 0x2au128;
+        let json = serde_json::to_string(&cm).unwrap();
+        assert!(json.contains("\"impl_version\":\"0000000000000000000000000000002a\""));
+
+        let cm2: CommandMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(cm2.impl_version, 0x2au128);
+    }
+
+    #[test]
+    fn test_add_command_computes_metadata_version() {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut cm = CommandMetadata::new("test");
+        cm.with_doc("abc");
+        registry.add_command(&cm);
+
+        let stored = registry.find_command("", "root", "test").unwrap();
+        assert_ne!(stored.metadata_version, 0);
+        assert_eq!(stored.impl_version, 0);
+    }
+
+    #[test]
+    fn test_add_command_preserves_existing_impl_version_on_update() {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut cm = CommandMetadata::new("test");
+        cm.impl_version = 7;
+        registry.add_command(&cm);
+
+        let first_metadata_version = registry
+            .find_command("", "root", "test")
+            .unwrap()
+            .metadata_version;
+
+        let mut updated = CommandMetadata::new("test");
+        updated.with_doc("changed");
+        updated.impl_version = 99;
+        registry.add_command(&updated);
+
+        let stored = registry.find_command("", "root", "test").unwrap();
+        assert_eq!(stored.impl_version, 7);
+        assert_ne!(stored.metadata_version, 0);
+        assert_ne!(stored.metadata_version, first_metadata_version);
+        assert_eq!(registry.commands.len(), 1);
+    }
+
+    #[test]
+    fn test_update_metadata_versions_on_demand() {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut a = CommandMetadata::new("a");
+        a.metadata_version = 0;
+        let mut b = CommandMetadata::new("b");
+        b.metadata_version = 0;
+
+        registry.add_command(&a).add_command(&b);
+        registry
+            .get_mut(CommandKey::new("", "root", "a"))
+            .unwrap()
+            .metadata_version = 0;
+        registry
+            .get_mut(CommandKey::new("", "root", "b"))
+            .unwrap()
+            .metadata_version = 0;
+
+        let updated_a = registry.update_command_metadata_version(CommandKey::new("", "root", "a"));
+        assert!(updated_a.is_some());
+        assert_ne!(
+            registry
+                .find_command("", "root", "a")
+                .unwrap()
+                .metadata_version,
+            0
+        );
+        assert_eq!(
+            registry
+                .find_command("", "root", "b")
+                .unwrap()
+                .metadata_version,
+            0
+        );
+
+        registry.update_all_metadata_versions();
+        assert_ne!(
+            registry
+                .find_command("", "root", "a")
+                .unwrap()
+                .metadata_version,
+            0
+        );
+        assert_ne!(
+            registry
+                .find_command("", "root", "b")
+                .unwrap()
+                .metadata_version,
+            0
+        );
     }
 }

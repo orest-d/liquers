@@ -1131,11 +1131,11 @@ impl<'c> PlanBuilder<'c> {
         let command_metadata = self.get_command_metadata(query, action_request)?;
 
         // Check if command is volatile
-        let command_key = CommandKey {
-            realm: command_metadata.realm.clone(),
-            namespace: command_metadata.namespace.clone(),
-            name: command_metadata.name.clone(),
-        };
+        let command_key = CommandKey::new( // TODO: There should be a convinience method to create CommandKey from CommandMetadata
+            &command_metadata.realm,
+            &command_metadata.namespace,
+            &command_metadata.name,
+        );
         if self.is_action_volatile(&command_key) {
             self.mark_volatile(&format!(
                 "Volatile due to command '{}/{}/{}'",
@@ -2358,27 +2358,15 @@ mod tests {
 
         // Test volatile command
         // Note: CommandMetadata stores namespace="root", so match it directly
-        let volatile_key = CommandKey {
-            realm: "".to_string(),
-            namespace: "root".to_string(),
-            name: "volatile_cmd".to_string(),
-        };
+        let volatile_key = CommandKey::new("", "root", "volatile_cmd");
         assert!(builder.is_action_volatile(&volatile_key));
 
         // Test non-volatile command
-        let normal_key = CommandKey {
-            realm: "".to_string(),
-            namespace: "root".to_string(),
-            name: "normal_cmd".to_string(),
-        };
+        let normal_key = CommandKey::new("", "root", "normal_cmd");
         assert!(!builder.is_action_volatile(&normal_key));
 
         // Test unknown command
-        let unknown_key = CommandKey {
-            realm: "".to_string(),
-            namespace: "root".to_string(),
-            name: "unknown_cmd".to_string(),
-        };
+        let unknown_key = CommandKey::new("", "root", "unknown_cmd");
         assert!(!builder.is_action_volatile(&unknown_key));
     }
 
