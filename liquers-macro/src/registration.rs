@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::parse_macro_input;
@@ -742,6 +742,7 @@ enum ResultType {
 enum CommandSignatureStatement {
     Volatile(bool),
     Expires(String),
+    Version(CommandImplVersionSpec),
     Label(String),
     Doc(String),
     Namespace(String),
@@ -749,6 +750,14 @@ enum CommandSignatureStatement {
     Preset(CommandPreset),
     Next(CommandPreset),
     Filename(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum CommandImplVersionSpec {
+    Auto,
+    StringHash(u128),
+    Value(u128),
+    Now,
 }
 
 impl Parse for CommandSignatureStatement {
@@ -797,6 +806,43 @@ impl Parse for CommandSignatureStatement {
             "expires" => {
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandSignatureStatement::Expires(lit.value()))
+            }
+            "version" => {
+                if input.peek(syn::LitStr) {
+                    let lit: syn::LitStr = input.parse()?;
+                    let hash = blake3::hash(lit.value().as_bytes());
+                    let version =
+                        u128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]));
+                    Ok(CommandSignatureStatement::Version(
+                        CommandImplVersionSpec::StringHash(version),
+                    ))
+                } else if input.peek(syn::LitInt) {
+                    let lit: syn::LitInt = input.parse()?;
+                    Ok(CommandSignatureStatement::Version(
+                        CommandImplVersionSpec::Value(lit.base10_parse::<u128>()?),
+                    ))
+                } else if input.peek(syn::Ident) {
+                    let ident: syn::Ident = input.parse()?;
+                    match ident.to_string().as_str() {
+                        "auto" => Ok(CommandSignatureStatement::Version(
+                            CommandImplVersionSpec::Auto,
+                        )),
+                        "now" => Ok(CommandSignatureStatement::Version(
+                            CommandImplVersionSpec::Now,
+                        )),
+                        other => Err(syn::Error::new(
+                            ident.span(),
+                            format!(
+                                "Unknown version specification '{}', expected auto, now, string, or integer",
+                                other
+                            ),
+                        )),
+                    }
+                } else {
+                    Err(input.error(
+                        "Expected version specification: auto, now, string literal, or integer literal",
+                    ))
+                }
             }
             other => Err(syn::Error::new(
                 ident.span(),
@@ -996,6 +1042,7 @@ struct CommandSignature {
     pub filename: String,
     pub volatile: bool,
     pub expires: String,
+    pub impl_version: Option<CommandImplVersionSpec>,
     pub wrapper_version: WrapperVersion,
 }
 
@@ -1197,6 +1244,30 @@ impl CommandSignature {
         } else {
             quote!()
         };
+        let impl_version_code = match &self.impl_version {
+            Some(CommandImplVersionSpec::Auto) => {
+                let version_function_name = format_ident!("{}__VERSION_", fn_name);
+                quote! {
+                    cm.impl_version = #version_function_name();
+                }
+            }
+            Some(CommandImplVersionSpec::StringHash(v))
+            | Some(CommandImplVersionSpec::Value(v)) => {
+                let v_lit = proc_macro2::Literal::u128_unsuffixed(*v);
+                quote! {
+                    cm.impl_version = #v_lit;
+                }
+            }
+            Some(CommandImplVersionSpec::Now) => {
+                quote! {
+                    cm.impl_version = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
+                }
+            }
+            None => quote!(),
+        };
         quote! {
             #[allow(non_snake_case)]
             pub fn #register_fn_name(
@@ -1215,6 +1286,7 @@ impl CommandSignature {
                 #volatile_code
                 #expires_code
                 #is_async_code
+                #impl_version_code
                 Ok(cm)
             }
         }
@@ -1580,6 +1652,7 @@ impl Parse for CommandSignature {
         let mut filename = String::new();
         let mut volatile: bool = false;
         let mut expires: String = String::new();
+        let mut impl_version: Option<CommandImplVersionSpec> = None;
         for stmt in &command_statements {
             match stmt {
                 CommandSignatureStatement::Namespace(ns) => namespace = ns.clone(),
@@ -1599,6 +1672,9 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Expires(s) => {
                     expires = s.clone();
                 }
+                CommandSignatureStatement::Version(v) => {
+                    impl_version = Some(v.clone());
+                }
             }
         }
 
@@ -1617,6 +1693,7 @@ impl Parse for CommandSignature {
             filename,
             volatile,
             expires,
+            impl_version,
             wrapper_version: WrapperVersion::V2,
         })
     }
@@ -1993,6 +2070,49 @@ mod tests {
     }
 
     #[test]
+    fn test_command_signature_with_version_auto() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            version: auto
+        };
+        assert_eq!(sig.impl_version, Some(CommandImplVersionSpec::Auto));
+    }
+
+    #[test]
+    fn test_command_signature_with_version_integer() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            version: 42
+        };
+        assert_eq!(sig.impl_version, Some(CommandImplVersionSpec::Value(42)));
+    }
+
+    #[test]
+    fn test_command_signature_with_version_string() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            version: "short"
+        };
+        let expected = {
+            let hash = blake3::hash("short".as_bytes());
+            u128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]))
+        };
+        assert_eq!(
+            sig.impl_version,
+            Some(CommandImplVersionSpec::StringHash(expected))
+        );
+    }
+
+    #[test]
+    fn test_command_signature_with_version_now() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            version: now
+        };
+        assert_eq!(sig.impl_version, Some(CommandImplVersionSpec::Now));
+    }
+
+    #[test]
     fn test_command_signature_with_default_value() {
         let sig: CommandSignature = syn::parse_quote! {
             fn test_fn(state, a: i32 = 42) -> result
@@ -2303,6 +2423,28 @@ mod tests {
         assert!(&tokens_str.contains("pub fn REGISTER__test_fn"));
         assert!(&tokens_str.contains(expected_label));
         assert!(&tokens_str.contains(expected_doc));
+    }
+
+    #[test]
+    fn test_command_registration_with_version_auto() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            version: auto
+        };
+        let tokens = sig.command_registration();
+        let tokens_str = tokens.to_string();
+        assert!(tokens_str.contains("cm . impl_version = test_fn__VERSION_ () ;"));
+    }
+
+    #[test]
+    fn test_command_registration_with_version_now() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn test_fn(state, a: i32) -> result
+            version: now
+        };
+        let tokens = sig.command_registration();
+        let tokens_str = tokens.to_string();
+        assert!(tokens_str.contains("cm . impl_version = std :: time :: SystemTime :: now ()"));
     }
 
     #[test]
