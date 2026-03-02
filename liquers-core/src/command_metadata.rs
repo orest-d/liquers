@@ -976,7 +976,10 @@ impl Default for CommandMetadataRegistry {
 
 impl CommandMetadataRegistry {
     fn calculate_metadata_version(command: &CommandMetadata) -> u128 {
-        match serde_json::to_vec(command) {
+        let mut cm = command.clone();
+        cm.impl_version=0;
+        
+        match serde_json::to_vec(&cm) {
             Ok(json) => {
                 let hash = blake3::hash(&json);
                 u128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]))
