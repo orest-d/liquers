@@ -1089,10 +1089,10 @@ impl<'c> PlanBuilder<'c> {
                     "data" | "value" => {
                         self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
                     }
-                    "stored" | "stored_binary" | "stored_bin" => {
+                    "stored" | "stored_binary" | "stored_bin" | "sbin" => {
                         self.plan.steps.push(Step::GetResource(rqs.key.clone()));
                     }
-                    "stored_meta" => {
+                    "stored_meta" | "stored_metadata" => {
                         self.plan
                             .steps
                             .push(Step::GetResourceMetadata(rqs.key.clone()));
