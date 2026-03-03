@@ -32,6 +32,8 @@
 DependencyVersionMismatch,
 DependencyCycle,
 
+//FIXME: For these two error constructors, key is available, so it should be set in the Error::key
+//FIXME: Similarly, the query should be initialized by default using key.into(), though it should be set (using with_query) to the query where where the error occured (if available)
 // NEW: Add to impl Error
 pub fn dependency_version_mismatch(key: &DependencyKey, msg: impl Into<String>) -> Self {
     Error {
@@ -84,41 +86,61 @@ git checkout liquers-core/src/error.rs
 
 **File:** `liquers-core/src/command_metadata.rs`
 
-**Action:**
-- Add `#[serde(skip)] pub version: Option<i128>` to `CommandMetadata` struct
-- Add `#[serde(skip)] pub impl_version: Option<i128>` to `CommandMetadata` struct
-- Modify `CommandMetadataRegistry::add_command()` to compute and store `cmd.version` from a blake3 hash of the serialized (non-skip) fields
+**Status:** Implemented.
 
-**Code changes:**
+**Fields added to `CommandMetadata`:**
+- `#[serde(skip)] pub metadata_version: u128` — blake3 hash of the serializable fields, computed by the registry at registration time. Not serialized.
+- `pub impl_version: u128` — implementation version set by the registering code via the `register_command!` macro or by direct assignment before calling `add_command()`. Serialized as a 32-char lowercase hex string; skipped when zero.
+
+**Implementation:**
 ```rust
-// MODIFY: CommandMetadata struct (around line 703) — add after existing fields
+// CommandMetadata struct — fields added after existing fields
 /// Metadata version: blake3 hash of the serializable fields, computed at registration.
-/// Non-serialized — deterministically recomputable from the other fields.
+/// Not serialized — deterministically recomputable from the other fields.
 #[serde(skip)]
-pub version: Option<i128>,
+pub metadata_version: u128,
 
-/// Implementation version: blake3 hash of the source module, set by the registering
-/// crate's build.rs. Non-serialized.
-#[serde(skip)]
-pub impl_version: Option<i128>,
+/// Implementation version: set by the registering code via register_command! macro
+/// or by direct assignment before calling add_command(). Serialized as 32-char hex; skipped when zero.
+#[serde(with = "hex_u128_serde")]
+#[serde(skip_serializing_if = "u128_is_zero")]
+#[serde(default)]
+pub impl_version: u128,
 
-// MODIFY: CommandMetadataRegistry::add_command() (around line 951)
-pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
-    let mut cmd = command.to_owned();
-    // Compute metadata version from the serializable fields
-    if let Ok(bytes) = serde_json::to_vec(&cmd) {
-        let hash = blake3::hash(&bytes);
-        let v = i128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]));
-        cmd.version = Some(v);
+// CommandMetadataRegistry — helper + updated add_command()
+fn calculate_metadata_version(command: &CommandMetadata) -> u128 {
+    let mut cm = command.clone();
+    cm.impl_version = 0;  // Zero out impl_version before hashing (it is serialized)
+    match serde_json::to_vec(&cm) {
+        Ok(json) => {
+            let hash = blake3::hash(&json);
+            u128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]))
+        }
+        Err(_) => 0,
     }
-    self.commands.push(cmd);
+}
+
+pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
+    let key = command.key();
+    let mut command_to_store = command.to_owned();
+    // Preserve impl_version from any previously registered command with the same key
+    if let Some(existing) = self.get(key.clone()) {
+        command_to_store.impl_version = existing.impl_version;
+    }
+    command_to_store.metadata_version = Self::calculate_metadata_version(&command_to_store);
+    // Upsert: update existing entry or push new one
+    if let Some(existing) = self.get_mut(key) {
+        *existing = command_to_store;
+    } else {
+        self.commands.push(command_to_store);
+    }
     self
 }
 ```
 
-**Note:** `CommandMetadataRegistry::add_command()` already exists at line 951 and already calls `command.to_owned()` then pushes — the hash computation is inserted before the push. No change to the method signature.
+**Note on `impl_version`:** This field is set by the registering code at command registration time via the `register_command!` macro or by direct assignment before calling `add_command()`. `CommandMetadataRegistry` preserves the existing value on re-registration but does not set it itself.
 
-**Note on `impl_version`:** This field is set by the registering crate (e.g., `liquers-lib/src/commands.rs`) at command registration time using a compile-time constant from `build.rs` (see Step 7b). `CommandMetadataRegistry` does not set it.
+**Note on `metadata_version` hash stability:** Because `impl_version` is serialized, it must be zeroed before hashing to ensure `metadata_version` reflects only the command's interface/documentation fields, not its implementation stamp.
 
 **Validation:**
 ```bash
@@ -156,17 +178,17 @@ use crate::query::{Key, Query};
 
 // --- Version ---
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Version(i128);
+pub struct Version(u128);
 // Custom serde: Serialize as 32-char lowercase hex; Deserialize from 32-char hex
-impl serde::Serialize for Version { ... }  // format!("{:032x}", self.0 as u128)
-impl<'de> serde::Deserialize<'de> for Version { ... }  // parse hex, cast to i128
+impl serde::Serialize for Version { ... }  // format!("{:032x}", self.0)
+impl<'de> serde::Deserialize<'de> for Version { ... }  // parse hex as u128
 
 impl Version {
-    pub fn new(v: i128) -> Self
-    pub fn from_bytes(bytes: &[u8]) -> Self  // blake3 hash → first 16 bytes → i128
-    pub fn from_time_now() -> Self            // SystemTime::now nanos as i128
+    pub fn new(v: u128) -> Self
+    pub fn from_bytes(bytes: &[u8]) -> Self  // blake3 hash → first 16 bytes → u128
+    pub fn from_time_now() -> Self            // SystemTime::now nanos as u128 (as_nanos() returns u128)
     pub fn from_specific_time(time: std::time::SystemTime) -> Self
-    pub fn new_unique() -> Self              // AtomicI64 counter + SystemTime nanos (no rand crate)
+    pub fn new_unique() -> Self              // AtomicU64 counter + SystemTime nanos (no rand crate)
 }
 
 // --- DependencyKey ---
@@ -227,7 +249,7 @@ pub struct ExpiredDependents<E: Environment> {
 pub struct DependencyManager<E: Environment> {
     versions: scc::HashMap<DependencyKey, Version>,
     keyed_dependents: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
-    untracked_dependents: scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>,
+    untracked_dependents: scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>,  //TODO: rename to dependent_assets, also the methods
     expiration_lock: tokio::sync::Mutex<()>,
 }
 
@@ -235,7 +257,15 @@ impl<E: Environment> DependencyManager<E> {
     pub fn new() -> Self
     pub async fn register_version(&self, key: &DependencyKey, version: Version)
     pub async fn add_dependency(&self, dependent: &DependencyKey, dependency: &DependencyKey, version: Version) -> Result<(), Error>
-    pub async fn add_untracked_dependent(&self, dependency: &DependencyKey, dependent: WeakAssetRef<E>)
+    //TODO: There should be a convenience function track_asset taking AssetRef as an argument.
+    //TODO: Only assets that qualify for tracking (Ready, Source, Override) should be processed.
+    //TODO: It should be checked whether the asset is a keyed asset, and automatically extract dependencies and their versions from asset metadata and register them.
+    //TODO: Non-keyed assets should be registered as a dependent asset (downgrading to weak ref).
+    //TODO: This should be used by asset manager to register all the created assets.
+    //TODO: Verify if there are some potential pitfalls - e.g. violating consistency , aske questions if unclear.
+
+    //TODO: Rename to add_dependent_asset 
+    pub async fn add_untracked_dependent(&self, dependency: &DependencyKey, dependent: WeakAssetRef<E>) 
     pub async fn would_create_cycle(&self, dependent: &DependencyKey, dependency: &DependencyKey) -> bool
     pub async fn expire(&self, key: &DependencyKey) -> ExpiredDependents<E>
     pub async fn remove(&self, key: &DependencyKey)
@@ -250,18 +280,18 @@ impl<E: Environment> DependencyManager<E> {
 - `expire()`: acquire `expiration_lock`, then iterative BFS using `VecDeque`. For each expired key: remove from `versions`, collect `keyed_dependents` entries (BFS frontier), collect `untracked_dependents` entries (prune dead WeakAssetRefs). Remove from `keyed_dependents` and `untracked_dependents` maps. Return `ExpiredDependents`.
 - `would_create_cycle()`: iterative BFS over `keyed_dependents` starting from `dependency`; returns true if `dependent` is reachable.
 - `add_dependency()`: check `version_consistent` first (return `dependency_version_mismatch` if not); check `would_create_cycle` (return `dependency_cycle` if true); insert `dependent` into `keyed_dependents[dependency]`.
-- `from_bytes`: use `copy_from_slice` not index-by-index: `i128::from_be_bytes(hash[0..16].try_into().unwrap_or([0u8;16]))`
-- `from_time_now` / `from_specific_time`: use `.ok().unwrap_or_default()` not `unwrap()`
-- `new_unique`: `rand` is **not** in `liquers-core/Cargo.toml` and must not be added. Use a rand-free approach combining `AtomicI64` counter with `SystemTime`:
+- `from_bytes`: use `copy_from_slice` not index-by-index: `u128::from_be_bytes(hash[0..16].try_into().unwrap_or([0u8;16]))`
+- `from_time_now` / `from_specific_time`: use `.ok().unwrap_or_default()` not `unwrap()`; `as_nanos()` returns `u128` directly — no cast needed
+- `new_unique`: `rand` is **not** in `liquers-core/Cargo.toml` and must not be added. Use a rand-free approach combining `AtomicU64` counter with `SystemTime`:
   ```rust
-  static UNIQUE_COUNTER: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+  static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
   pub fn new_unique() -> Self {
       let nanos = std::time::SystemTime::now()
           .duration_since(std::time::UNIX_EPOCH)
           .ok()
           .unwrap_or_default()
-          .as_nanos() as i128;
-      let counter = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as i128;
+          .as_nanos();  // returns u128 directly
+      let counter = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
       Version(nanos.wrapping_shl(64) | counter)
   }
   ```
@@ -331,6 +361,7 @@ git checkout liquers-core/src/metadata.rs
 **Action:**
 - Add `dependency_manager` and `max_dependency_retries` fields to `DefaultAssetManager<E>`
 - Initialize in `new()`: `DependencyManager::new()` and `max_dependency_retries: 3`
+TODO: Note that the command metadata and command implementation versions also need to be loaded into Dependency Manager at initialization. There should be a function that would update all versions from the command metadata registry. 
 - Add `dependency_manager()` accessor (for tests)
 - Modify `remove()`: call `self.dependency_manager.remove(&DependencyKey::from(key)).await`
 - Modify `set_binary()`: for `Ready`/`Source`/`Override` states — call `dm.register_version()` then `dm.expire()` cascade; convert `ExpiredDependents.keys` to `Key` via `TryFrom`, call `expire()` on those; upgrade `ExpiredDependents.assets` weak refs, call expiration on live assets
@@ -339,7 +370,11 @@ git checkout liquers-core/src/metadata.rs
 - Add `register_plan_dependencies()`: iterate `PlanDependency` slice; for each, resolve version from DM; call `dm.add_dependency()` if version is known; skip command metadata / recipe deps (no Key conversion needed)
 - **Call site for `register_plan_dependencies()`:** In `AssetRef::evaluate_recipe()` (~line 1234), after the recipe is resolved but before `envref.apply_recipe()` is called (~line 1279). The plan is built from the recipe, `find_dependencies` is called on it, and the resulting `Vec<PlanDependency>` is passed to `envref.get_asset_manager().register_plan_dependencies(key, &plan_deps)`. This requires adding a plan-build step inside `evaluate_recipe()` (the commented-out plan-build at lines 1272-1275 is the natural insertion point). If the asset has no key (query asset), skip the DM registration but still build the plan for volatility detection.
 - **Call site for `load_from_records()`:** In `AssetData::try_fast_track()` (~line 449), after successfully loading from store (after `self.metadata = metadata;` at line 501). Extract `MetadataRecord.dependencies` from the loaded metadata, compute `DependencyKey::from(&key)`, and call `dm.load_from_records(&dep_key, &metadata_record.dependencies)`. Since `try_fast_track` is on `AssetData` (not `DefaultAssetManager`), the DM must be accessed via the envref: `self.get_envref().get_asset_manager().dependency_manager().load_from_records(...)`. Also register the loaded asset's own version: `dm.register_version(&dep_key, Version::from_time_now())`.
+FIXME: Loaded asset should have a version in the metadata, which should be used. Note: Using the `from_time_now()` would effectively almost destroy persistance, since every loaded asset would get a new version and would lead to expiration of all the dependents.
+TODO: It is the responsibility of the store to always assure the version is correct - either by creating it from the file update time or recalculating the hash.
+TODO: The consistency between store and asset manager version is an open problem. For now stick to blake3 hash both in store and in asset manager.
 - Add `evaluate_with_retry()`: retry loop up to `max_dependency_retries`; match `ErrorType::DependencyVersionMismatch` → `tokio::task::yield_now().await` then retry; other errors propagate immediately
+TODO: Add a `version()` method to the `AssetData` and `AssetRef`
 
 **Code changes (key fragments):**
 ```rust
@@ -457,6 +492,8 @@ git checkout liquers-core/src/assets.rs
 
 **File:** `liquers-core/src/plan.rs`
 
+TODO: Be ready to use the init section of the plan (To Be Done).
+
 **Action:**
 - Change `find_dependencies` return type from `HashSet<Key>` to `Vec<PlanDependency>`
 - Update the function body to construct `PlanDependency { key: DependencyKey::from(&key), relation: DependencyRelation::StateArgument }` (or the appropriate relation) for each dependency found
@@ -560,25 +597,13 @@ git checkout liquers-core/src/context.rs
 **File:** `liquers-lib/src/commands.rs`
 
 **Action:**
-- Add `command_metadata` function: looks up `CommandMetadata` from registry (which already has `version: Option<i128>` pre-computed by `add_command()`), serializes and returns it as a JSON `Value`
-- Add `command_implementation` function: returns the compile-time implementation hash constant (set by `build.rs` in Step 7b) as a JSON `Value`
-- Set `impl_version` on each `dep` command's metadata at registration time using the `COMMANDS_IMPL_HASH` constant
+- Add `command_metadata` function: looks up `CommandMetadata` from registry (which already has `metadata_version: u128` pre-computed by `add_command()`), serializes and returns it as a JSON `Value`
+- Add `command_implementation` function: reads `impl_version` from the registered `CommandMetadata` and returns it as a JSON `Value`
 - Register both in the `dep` namespace using `register_command!`
 
+TODO: Use `ValueInterface::from_command_metadata(...)`
 **Code:**
 ```rust
-// Compile-time implementation version for all commands in this file (set by build.rs Step 7b)
-// Parsed from the env var embedded by build.rs; falls back to 0 if not set.
-const COMMANDS_IMPL_HASH: i128 = {
-    // env!() is a compile-time string. We parse it:
-    // In practice, use a build.rs-generated include or a lazy_static parse.
-    // Simple approach: embed as i128 literal via build.rs println!("cargo:rustc-env=...").
-    // The agent should implement the parse; for clarity the pattern is:
-    // env!("LIQUERS_LIB_COMMANDS_IMPL_HASH").parse::<i128>().unwrap_or(0)
-    // which does not work in const context. Use build.rs to emit the i128 directly.
-    0i128  // placeholder; build.rs replaces this via include! or env! parsed at build time
-};
-
 fn command_metadata(
     _state: &State<Value>,
     realm: String,
@@ -591,26 +616,35 @@ fn command_metadata(
     let cmd_meta = cmr.get(&ck).ok_or_else(|| {
         Error::general_error(format!("Command not found: {}", ck))
     })?;
-    // Serialize CommandMetadata to JSON (version field is #[serde(skip)] — not included,
-    // but cmd_meta.version is available in memory for callers who need it).
+    // Serialize CommandMetadata to JSON (metadata_version is #[serde(skip)] — not included;
+    // impl_version is included as a 32-char hex string when nonzero).
     let json = serde_json::to_string(cmd_meta)
         .map_err(|e| Error::general_error(e.to_string()))?;
     Ok(Value::from(json))
 }
+
+//TODO: For now, the `command_implementation` should be identical to command_metadata
+//TODO: These two commands are only formal, they should practically never be called, they only should provide a way to construct a meaningful DependencyKey distinguising command metadata from command implementation
+//TODO: However, they should provide meaningful output that would provide helpful information.
+//TODO: Reason: All dependencies in the UI might be clickable and clicking on command_implementation DependencyKey should provide a meaningful result - showing the command metadata provides a good description of the command.
 
 fn command_implementation(
     _state: &State<Value>,
     realm: String,
     namespace: String,
     name: String,
-    _context: &Context<impl Environment<Value = Value>>,
+    context: &Context<impl Environment<Value = Value>>,
 ) -> Result<Value, Error> {
+    let ck = CommandKey::new(&realm, &namespace, &name);
+    let cmr = context.get_envref_blocking().get_command_metadata_registry();
+    let cmd_meta = cmr.get(&ck).ok_or_else(|| {
+        Error::general_error(format!("Command not found: {}", ck))
+    })?;
     let result = serde_json::json!({
-        "impl_version": COMMANDS_IMPL_HASH,
+        "impl_version": format!("{:032x}", cmd_meta.impl_version),
         "realm": realm,
         "namespace": namespace,
         "name": name,
-        "source": "liquers-lib/src/commands.rs",
     });
     Ok(Value::from(result.to_string()))
 }
@@ -626,11 +660,11 @@ register_command!(cr,
     fn command_implementation(state, realm: String, namespace: String, name: String, context) -> result
     namespace: "dep"
     label: "Command Implementation Version"
-    doc: "Returns the implementation version hash for the named command's source module"
+    doc: "Returns the impl_version from the registered CommandMetadata for the named command"
 )?;
 ```
 
-**Note on `impl_version` in CommandMetadata:** When registering commands that should have a known implementation version (i.e., commands outside the `dep` namespace), set `impl_version: Some(COMMANDS_IMPL_HASH)` in the `CommandMetadata` before registering. This can be done by calling `cmr.get_mut(key).map(|m| m.impl_version = Some(COMMANDS_IMPL_HASH))` after registration, or by constructing the `CommandMetadata` manually with the field pre-set.
+**Note on `impl_version` in CommandMetadata:** Set `impl_version` at registration time via the `register_command!` macro or by assigning the field directly on the `CommandMetadata` before calling `add_command()`.
 
 **Note:** `context` must be the **last** parameter in the register_command! DSL (see ISSUES.md for parameter index bug with context). Both function signatures have context as last.
 
@@ -650,66 +684,8 @@ git checkout liquers-lib/src/commands.rs
 - **Knowledge:** `liquers-lib/src/commands.rs` (existing command registration patterns), `specs/COMMAND_REGISTRATION_GUIDE.md`, `specs/REGISTER_COMMAND_FSD.md`, `specs/ISSUES.md` (context parameter position bug), `specs/dependency-management/phase2-architecture.md` (dep namespace + command_metadata.rs sections), `liquers-core/src/command_metadata.rs` (CommandMetadata struct with new version fields from Step 1b)
 - **Rationale:** Standard command registration, well-understood pattern. The `command_metadata` function is now much simpler (no hashing — just registry lookup + serialize).
 
----
-
-### Step 7b: Create `liquers-lib/build.rs` for implementation versioning
-
-**File:** `liquers-lib/build.rs` (new file) + `liquers-lib/Cargo.toml` (add build-dependency)
-
-**Action:**
-- Add `build.rs` to `liquers-lib` that hashes `src/commands.rs` with blake3 and embeds the `i128` result as a compile-time environment variable
-- Add `blake3` as a `[build-dependencies]` entry in `liquers-lib/Cargo.toml` (same version as in workspace)
-
-**Code (`liquers-lib/build.rs`):**
-```rust
-fn main() {
-    let src = std::fs::read("src/commands.rs").unwrap_or_default();
-    let hash = blake3::hash(&src);
-    let v = i128::from_be_bytes(
-        hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16])
-    );
-    println!("cargo:rustc-env=LIQUERS_LIB_COMMANDS_IMPL_HASH={}", v);
-    println!("cargo:rerun-if-changed=src/commands.rs");
-}
-```
-
-**Using the constant in `commands.rs`:**
-Because `env!()` returns `&str` and `i128::from_str_radix` is not `const fn`, use `include!` with a generated file, or use a `LazyLock`:
-```rust
-// In commands.rs — parse the env var at startup (not in const context)
-static COMMANDS_IMPL_HASH: std::sync::LazyLock<i128> = std::sync::LazyLock::new(|| {
-    env!("LIQUERS_LIB_COMMANDS_IMPL_HASH")
-        .parse::<i128>()
-        .unwrap_or(0)
-});
-```
-
-**`liquers-lib/Cargo.toml` change:**
-```toml
-[build-dependencies]
-blake3 = "1.8.1"   # same version as liquers-core
-```
-
-**Note:** `build.rs` runs in a separate compilation context and cannot use workspace crates directly. Adding `blake3` to `[build-dependencies]` is the standard pattern and adds negligible build overhead (blake3 is already compiled for `liquers-core`).
-
-**Validation:**
-```bash
-cargo check -p liquers-lib
-cargo build -p liquers-lib   # verify env var is embedded correctly
-```
-
-**Rollback:**
-```bash
-rm liquers-lib/build.rs
-git checkout liquers-lib/Cargo.toml
-```
-
-**Agent Specification:**
-- **Model:** haiku
-- **Skills:** rust-best-practices
-- **Knowledge:** `liquers-lib/Cargo.toml`, `liquers-lib/src/commands.rs`, Cargo build script documentation (build.rs patterns), `specs/dependency-management/phase2-architecture.md` (liquers-lib/build.rs section)
-- **Rationale:** Simple build script, standard Cargo pattern. No complex logic required.
-
+TODO: `specs/COMMAND_REGISTRATION_GUIDE.md` and `specs/REGISTER_COMMAND_FSD.md` needs to be updated to explain `command_version` macro and recommend to always use it together with `version: auto`.
+ 
 ---
 
 ### Step 8: Create integration test file
@@ -788,8 +764,7 @@ cargo test -p liquers-core --test dependency_manager_integration
 | 4 — assets.rs extension | sonnet | rust-best-practices | Complex scc lock-safety + cascade expiration |
 | 5 — plan.rs find_dependencies | sonnet | rust-best-practices | Recursive type change + caller updates |
 | 6 — context.rs evaluate | sonnet | rust-best-practices | Async Arc<Mutex> + dependency recording |
-| 7 — dep commands | haiku | rust-best-practices | Simplified: registry lookup + compile-time hash |
-| 7b — liquers-lib/build.rs | haiku | rust-best-practices | Standard Cargo build script pattern |
+| 7 — dep commands | haiku | rust-best-practices | Registry lookup + impl_version from CommandMetadata |
 | 8 — integration tests | haiku | rust-best-practices, liquers-unittest | Standard test pattern |
 
 ---
@@ -806,7 +781,6 @@ git checkout liquers-core/src/assets.rs                              # Step 4
 git checkout liquers-core/src/plan.rs                                # Step 5
 git checkout liquers-core/src/context.rs                             # Step 6
 git checkout liquers-lib/src/commands.rs                             # Step 7
-rm liquers-lib/build.rs; git checkout liquers-lib/Cargo.toml         # Step 7b
 rm liquers-core/tests/dependency_manager_integration.rs              # Step 8
 ```
 
@@ -815,9 +789,8 @@ rm liquers-core/tests/dependency_manager_integration.rs              # Step 8
 git checkout liquers-core/src/error.rs liquers-core/src/command_metadata.rs \
     liquers-core/src/dependencies.rs liquers-core/src/metadata.rs \
     liquers-core/src/assets.rs liquers-core/src/plan.rs \
-    liquers-core/src/context.rs liquers-lib/src/commands.rs \
-    liquers-lib/Cargo.toml
-rm -f liquers-lib/build.rs liquers-core/tests/dependency_manager_integration.rs
+    liquers-core/src/context.rs liquers-lib/src/commands.rs
+rm -f liquers-core/tests/dependency_manager_integration.rs
 ```
 
 ---

@@ -12,26 +12,25 @@ The redesign replaces the skeletal `DependencyManagerImpl` with a fully async-fr
 
 ```rust
 /// A version identifies a point-in-time snapshot of an asset.
-/// Uses i128 internally for total ordering and efficient comparison.
+/// Uses u128 internally for total ordering and efficient comparison.
 /// Serialized as a 32-character lowercase hex string for JSON safety
-/// (u128/i128 exceeds JavaScript Number precision).
+/// (u128 exceeds JavaScript Number precision).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Version(i128);
+pub struct Version(u128);
 ```
 
 **Ownership:** `Copy` — cheap to pass by value everywhere.
 
-**Serialization:** Custom `Serialize`/`Deserialize` as 32-char hex string (not i128 JSON number — JS cannot represent u128 exactly). Round-trips: `Version(v)` → `"000...ff"` → `Version(v)`.
+**Serialization:** Custom `Serialize`/`Deserialize` as 32-char hex string (not as a JSON number — JS cannot represent u128 exactly). Round-trips: `Version(v)` → `"000...ff"` → `Version(v)`.
 
 **Constructors:**
 ```rust
 impl Version {
-    pub fn new(v: i128) -> Self;
-    /// Hash bytes via BLAKE3; interpret first 16 bytes as i128 (big-endian).
+    pub fn new(v: u128) -> Self;
+    /// Hash bytes via BLAKE3; interpret first 16 bytes as u128 (big-endian).
     /// Uses copy_from_slice — not index-by-index.
     pub fn from_bytes(bytes: &[u8]) -> Self;
-    /// Nanoseconds since UNIX_EPOCH cast to i128. `as_nanos()` returns u128;
-    /// cast to i128 preserves the bit pattern (safe for comparison within an epoch).
+    /// Nanoseconds since UNIX_EPOCH. `as_nanos()` returns u128 directly.
     /// Uses unwrap_or_default() — no unwrap in lib code.
     pub fn from_time_now() -> Self;
     /// Nanoseconds since UNIX_EPOCH for a specific time (e.g. file modification time).
@@ -426,7 +425,7 @@ impl<E: Environment> DefaultAssetManager<E> {
 
 ### `liquers-core/src/command_metadata.rs` (extended)
 
-`CommandMetadata` gains two non-serialized version fields:
+`CommandMetadata` gains two version fields:
 
 ```rust
 pub struct CommandMetadata {
@@ -434,32 +433,52 @@ pub struct CommandMetadata {
 
     /// Hash of the serializable CommandMetadata fields (realm, namespace, name, label,
     /// doc, arguments, etc.). Computed by CommandMetadataRegistry::add_command() using
-    /// blake3 on the serde_json serialization of the metadata (before this field is set).
+    /// blake3 on the serde_json serialization of the metadata (with impl_version zeroed first).
     /// Not serialized — deterministically recomputable from the other fields.
     #[serde(skip)]
-    pub version: Option<i128>,
+    pub metadata_version: u128,
 
     /// Hash of the source module that implements this command.
-    /// Set by the registering code (not by CommandMetadataRegistry) using a compile-time
-    /// constant embedded by build.rs.
-    /// For Rust commands: blake3 hash of the source file containing the command.
-    /// For Python commands: blake3 hash of inspect.getsource(func).
-    /// Not serialized.
-    #[serde(skip)]
-    pub impl_version: Option<i128>,
+    /// Set by the registering code at command registration time via the register_command! macro
+    /// or by directly setting the field before calling add_command().
+    /// Serialized as a 32-character lowercase hex string; skipped when zero.
+    #[serde(with = "hex_u128_serde")]
+    #[serde(skip_serializing_if = "u128_is_zero")]
+    #[serde(default)]
+    pub impl_version: u128,
 }
 ```
 
-`CommandMetadataRegistry::add_command()` computes `version` at registration time:
+`CommandMetadataRegistry::add_command()` computes `metadata_version` at registration time,
+preserving any previously registered `impl_version` on re-registration:
+
 ```rust
-pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
-    let mut cmd = command.to_owned();
-    if let Ok(bytes) = serde_json::to_vec(&cmd) {  // serializes without the #[serde(skip)] fields
-        let hash = blake3::hash(&bytes);
-        let v = i128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]));
-        cmd.version = Some(v);
+fn calculate_metadata_version(command: &CommandMetadata) -> u128 {
+    let mut cm = command.clone();
+    cm.impl_version = 0;  // Zero out impl_version before hashing (it is serialized)
+    match serde_json::to_vec(&cm) {
+        Ok(json) => {
+            let hash = blake3::hash(&json);
+            u128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]))
+        }
+        Err(_) => 0,
     }
-    self.commands.push(cmd);
+}
+
+pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
+    let key = command.key();
+    let mut command_to_store = command.to_owned();
+    // Preserve impl_version from any previously registered command with the same key
+    if let Some(existing) = self.get(key.clone()) {
+        command_to_store.impl_version = existing.impl_version;
+    }
+    command_to_store.metadata_version = Self::calculate_metadata_version(&command_to_store);
+    // Upsert: update existing entry or push new one
+    if let Some(existing) = self.get_mut(key) {
+        *existing = command_to_store;
+    } else {
+        self.commands.push(command_to_store);
+    }
     self
 }
 ```
@@ -468,7 +487,7 @@ pub fn add_command(&mut self, command: &CommandMetadata) -> &mut Self {
 
 ```rust
 /// Returns the CommandMetadata for the named command.
-/// The metadata includes the non-serialized `version: Option<i128>` field
+/// The metadata includes the non-serialized `metadata_version: u128` field
 /// (pre-computed at registration time by CommandMetadataRegistry::add_command()).
 /// Namespace: "dep", registered as dep/command_metadata.
 /// Note: this command need not ever be evaluated — DependencyKey::for_command_metadata()
@@ -483,9 +502,8 @@ pub fn command_metadata(
 ) -> Result<Value, Error>;
 
 /// Returns the implementation version for the named command.
-/// For Rust commands: a compile-time constant produced by build.rs hashing the
-/// source file containing the command implementation (blake3, embedded as env!(...)).
-/// For Python commands: blake3 hash of inspect.getsource(func).
+/// Reads impl_version from the registered CommandMetadata (set via register_command! macro
+/// or directly before registration).
 /// Namespace: "dep", registered as dep/command_implementation.
 pub fn command_implementation(
     state: &State<Value>,
@@ -494,30 +512,6 @@ pub fn command_implementation(
     name: String,
     context: &Context,
 ) -> Result<Value, Error>;
-```
-
-### `liquers-lib/build.rs` (new)
-
-```rust
-// build.rs: embed blake3 hash of commands source file as compile-time constant.
-// The hash changes whenever any command implementation in the file changes.
-// Uses blake3 (already in liquers-core) — but build.rs cannot use workspace crates directly.
-// Use std::collections::hash_map::DefaultHasher OR add blake3 as a build-dependency.
-// Preferred: add blake3 as a [build-dependencies] entry (same version already in workspace).
-fn main() {
-    let src = std::fs::read("src/commands.rs").unwrap_or_default();
-    // Use a simple hash: FNV or SipHash via DefaultHasher (std only, no extra dep)
-    // OR add blake3 as build-dep. Decision: use blake3 in build-dep for consistency.
-    let hash = blake3::hash(&src);
-    let v = i128::from_be_bytes(hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]));
-    println!("cargo:rustc-env=LIQUERS_LIB_COMMANDS_IMPL_HASH={}", v);
-    println!("cargo:rerun-if-changed=src/commands.rs");
-}
-```
-
-`command_implementation` reads this at compile time:
-```rust
-const COMMANDS_IMPL_HASH: i128 = /* parse env!("LIQUERS_LIB_COMMANDS_IMPL_HASH") */;
 ```
 
 ---
@@ -558,21 +552,13 @@ const COMMANDS_IMPL_HASH: i128 = /* parse env!("LIQUERS_LIB_COMMANDS_IMPL_HASH")
 
 ### `liquers-core/src/command_metadata.rs`
 
-**Modify:** `CommandMetadata` struct — add `#[serde(skip)] pub version: Option<i128>` and `#[serde(skip)] pub impl_version: Option<i128>`.
-**Modify:** `CommandMetadataRegistry::add_command()` — compute and store `cmd.version` from blake3 hash of serialized fields.
+**Modify:** `CommandMetadata` struct — add `#[serde(skip)] pub metadata_version: u128` and `pub impl_version: u128` (serialized as 32-char hex, skipped when zero).
+**Modify:** `CommandMetadataRegistry::add_command()` — compute and store `metadata_version` from blake3 hash of serialized fields (with `impl_version` zeroed); preserve existing `impl_version` on re-registration; upsert instead of always pushing.
 
 ### `liquers-lib/src/commands.rs`
 
 **Add:** `dep` namespace functions (`command_metadata`, `command_implementation`).
-**Modify:** Command registration to include `dep` namespace.
-
-### `liquers-lib/build.rs` (new)
-
-**Create:** Embeds blake3 hash of `src/commands.rs` as `LIQUERS_LIB_COMMANDS_IMPL_HASH` compile-time env var.
-
-### `liquers-lib/Cargo.toml`
-
-**Modify:** Add `blake3` as a `[build-dependencies]` entry (same version as in workspace; needed for `build.rs`). No new runtime dependencies.
+**Modify:** Command registration to include `dep` namespace; set `impl_version` on commands via `register_command!` macro or direct field assignment before calling `add_command()`.
 
 ---
 
@@ -582,10 +568,10 @@ const COMMANDS_IMPL_HASH: i128 = /* parse env!("LIQUERS_LIB_COMMANDS_IMPL_HASH")
 
 | Command | Namespace | Parameters | Description |
 |---|---|---|---|
-| `command_metadata` | `dep` | `state`, `realm: String`, `namespace: String`, `name: String`, `context` | Returns the `CommandMetadata` for the named command (includes pre-computed `version: Option<i128>`) |
-| `command_implementation` | `dep` | `state`, `realm: String`, `namespace: String`, `name: String`, `context` | Returns the implementation version (compile-time source hash from `build.rs`) |
+| `command_metadata` | `dep` | `state`, `realm: String`, `namespace: String`, `name: String`, `context` | Returns the `CommandMetadata` for the named command (includes pre-computed `metadata_version: u128`) |
+| `command_implementation` | `dep` | `state`, `realm: String`, `namespace: String`, `name: String`, `context` | Returns the `impl_version` from the registered `CommandMetadata` for the named command |
 
-**Design note:** These commands need not be evaluated for dependency tracking to work. `DependencyKey::for_command_metadata(key)` produces a query-compatible key (`ns-dep/command_metadata-{key}`) that identifies the dependency without execution. If evaluated, `command_metadata` returns the full `CommandMetadata` (with the non-serialized `version` field accessible in memory via the `Value::CommandMetadata` variant or similar). `command_implementation` returns a JSON object with the compile-time source hash.
+**Design note:** These commands need not be evaluated for dependency tracking to work. `DependencyKey::for_command_metadata(key)` produces a query-compatible key (`ns-dep/command_metadata-{key}`) that identifies the dependency without execution. If evaluated, `command_metadata` returns the serialized `CommandMetadata` JSON (`metadata_version` is excluded via `#[serde(skip)]`; `impl_version` is included as a 32-char hex string when nonzero). `command_implementation` returns a JSON object with the `impl_version` from the registered `CommandMetadata`.
 
 Registration:
 ```rust
@@ -647,7 +633,7 @@ Rationale: version mismatch is a specific recoverable error (retry logic matches
 
 ## Serialization Strategy
 
-- `Version` → custom `Serialize, Deserialize` (i128 → 32-char lowercase hex string)
+- `Version` → custom `Serialize, Deserialize` (u128 → 32-char lowercase hex string)
 - `DependencyKey` → `Serialize, Deserialize` (transparent string newtype)
 - `DependencyRecord` → `Serialize, Deserialize` (in `MetadataRecord.dependencies`)
 - `DependencyRelation` → **no** serde (plan-only)

@@ -22,3 +22,4 @@
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Feature: plan-init-section](./plan-init-section.md)

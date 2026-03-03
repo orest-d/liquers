@@ -149,13 +149,13 @@ mod example_2 {
     type TestEnv = SimpleEnvironment<Value>;
 
     /// Serialize a Vec<DependencyRecord> to JSON and back; verify round-trip equality.
-    /// Version(i128) serializes as a 32-char lowercase hex string per Phase 2 spec.
+    /// Version(u128) serializes as a 32-char lowercase hex string per Phase 2 spec.
     #[test]
     fn dependency_record_json_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         let dep_a = DependencyKey::new("-R/data/config.yaml");
         let dep_b = DependencyKey::new("ns-dep/command_metadata--root-greet");
-        let ver_a = Version::new(0x000000000000000a_000000000000004b_u128 as i128);
-        let ver_b = Version::new(-1i128); // max hex = "ffffffffffffffffffffffffffffffff"
+        let ver_a = Version::new(0x000000000000000a_000000000000004b_u128);
+        let ver_b = Version::new(u128::MAX); // max hex = "ffffffffffffffffffffffffffffffff"
 
         let records = vec![
             DependencyRecord { key: dep_a.clone(), version: ver_a },
@@ -165,7 +165,7 @@ mod example_2 {
         let json = serde_json::to_string(&records)?;
 
         // Version must appear as 32-char hex string, not as a decimal integer
-        // (i128 would overflow JavaScript's Number.MAX_SAFE_INTEGER)
+        // (u128 would overflow JavaScript's Number.MAX_SAFE_INTEGER)
         let json_val: serde_json::Value = serde_json::from_str(&json)?;
         let first_version = json_val[0]["version"].as_str()
             .ok_or("Version must serialize as string")?;
@@ -890,8 +890,8 @@ Note: tests are non-compilable until Phase 4 implements the API.
 ### 4. Serialization
 
 - **Version(0):** Serializes as `"00000000000000000000000000000000"` (32 zeros).
-- **Version(-1):** Serializes as `"ffffffffffffffffffffffffffffffff"` (two's complement).
-- **Round-trip negative:** `i128` → hex → `i128` is lossless (bit-for-bit identical).
+- **Version(u128::MAX):** Serializes as `"ffffffffffffffffffffffffffffffff"` (all bits set).
+- **Round-trip:** `u128` → hex → `u128` is lossless (bit-for-bit identical).
 - **Backward compatibility:** `MetadataRecord.dependencies` has `#[serde(default)]` — old
   records without the field deserialize to an empty `Vec`, triggering no dependency edges.
 
