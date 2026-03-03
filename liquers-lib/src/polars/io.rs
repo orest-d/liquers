@@ -13,6 +13,7 @@ use super::util::try_to_polars_dataframe;
 ///
 /// Arguments:
 /// - separator: "comma" (default), "tab", "semicolon", "pipe", or single char
+#[liquers_macro::command_version]
 pub fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error> {
     let format = if separator.is_empty() {
         "csv".to_string()
@@ -37,6 +38,7 @@ pub fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error>
 }
 
 /// Write DataFrame to CSV string
+#[liquers_macro::command_version]
 pub fn to_csv(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -65,6 +67,8 @@ macro_rules! register_polars_io_commands {
             label: "Load DataFrame from CSV"
             doc: "Parse CSV data into a Polars DataFrame. Supports custom separators: comma (default), tab, semicolon, pipe."
             filename: "data.csv"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -73,6 +77,8 @@ macro_rules! register_polars_io_commands {
             label: "Export DataFrame to CSV"
             doc: "Convert DataFrame to CSV string with comma separator"
             filename: "data.csv"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())

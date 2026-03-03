@@ -5,6 +5,7 @@ use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
 
 /// Apply Gaussian blur with specified sigma value.
+#[liquers_macro::command_version]
 pub fn blur(state: &State<Value>, sigma: f32) -> Result<Value, Error> {
     if sigma < 0.0 {
         return Err(Error::general_error(
@@ -19,6 +20,7 @@ pub fn blur(state: &State<Value>, sigma: f32) -> Result<Value, Error> {
 
 /// Sharpen image.
 /// Uses a 3x3 sharpening kernel.
+#[liquers_macro::command_version]
 pub fn sharpen(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
@@ -40,6 +42,7 @@ pub fn sharpen(state: &State<Value>) -> Result<Value, Error> {
 
 /// Apply median filter for noise reduction.
 /// Radius is in pixels.
+#[liquers_macro::command_version]
 pub fn median(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     if radius == 0 {
         return Err(Error::general_error(
@@ -58,6 +61,7 @@ pub fn median(state: &State<Value>, radius: u32) -> Result<Value, Error> {
 
 /// Apply box/mean filter (blur by averaging).
 /// Radius is in pixels.
+#[liquers_macro::command_version]
 pub fn boxfilt(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     if radius == 0 {
         return Err(Error::general_error(

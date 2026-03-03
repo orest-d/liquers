@@ -13,6 +13,8 @@ use crate::{
     environment::CommandRegistryAccess,
 };
 
+#[liquers_macro::command_version]
+
 pub fn label<E: Environment>(text: String, _context: Context<E>) -> Result<E::Value, Error>
 where
     E::Value: UIValueExtension,
@@ -22,6 +24,8 @@ where
         Ok(())
     }))
 }
+
+#[liquers_macro::command_version]
 
 pub fn text_editor<E: Environment>(
     state: &State<E::Value>,
@@ -39,6 +43,8 @@ where
         crate::egui::widgets::TextEditor::<E>::new(key, context.get_envref()),
     ))))
 }
+
+#[liquers_macro::command_version]
 
 pub fn show_asset_info<E: Environment>(
     state: &State<E::Value>,
@@ -69,16 +75,22 @@ macro_rules! register_egui_commands {
             fn label(txt : String, context) -> result
             label: "Show label"
             doc: "Show text as a GUI label"
+
+        version: auto
         )?;
         register_command!($cr,
             fn text_editor(state, context) -> result
             label: "Text editor"
             doc: "Show a text editor widget for editing text identified by a key; state must contain a key"
+
+        version: auto
         )?;
         register_command!($cr,
             fn show_asset_info(state, context) -> result
             label: "Show asset info"
             doc: "Show information about an asset sourced from the state metadata"
+
+        version: auto
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};

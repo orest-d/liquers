@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use super::util::try_to_polars_dataframe;
 
 /// Get DataFrame shape (rows and columns)
+#[liquers_macro::command_version]
 pub fn shape(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -22,6 +23,7 @@ pub fn shape(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get number of rows
+#[liquers_macro::command_version]
 pub fn nrows(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let nrows = df.height() as i32;
@@ -29,6 +31,7 @@ pub fn nrows(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get number of columns
+#[liquers_macro::command_version]
 pub fn ncols(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let ncols = df.width() as i32;
@@ -36,6 +39,7 @@ pub fn ncols(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get DataFrame schema (column names and types)
+#[liquers_macro::command_version]
 pub fn schema(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -63,6 +67,8 @@ macro_rules! register_polars_info_commands {
             namespace: "pl"
             label: "Shape"
             doc: "Get DataFrame shape (rows and columns)"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -70,6 +76,8 @@ macro_rules! register_polars_info_commands {
             namespace: "pl"
             label: "Number of rows"
             doc: "Get number of rows in DataFrame"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -77,6 +85,8 @@ macro_rules! register_polars_info_commands {
             namespace: "pl"
             label: "Number of columns"
             doc: "Get number of columns in DataFrame"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -84,6 +94,8 @@ macro_rules! register_polars_info_commands {
             namespace: "pl"
             label: "Schema"
             doc: "Get DataFrame schema (column names and types)"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())

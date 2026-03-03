@@ -4,6 +4,7 @@ use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
 
 /// Convert image to grayscale.
+#[liquers_macro::command_version]
 pub fn gray(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).grayscale();
@@ -11,6 +12,7 @@ pub fn gray(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Invert image colors (negative).
+#[liquers_macro::command_version]
 pub fn invert(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let mut result = Arc::as_ref(&img).clone();
@@ -21,6 +23,7 @@ pub fn invert(state: &State<Value>) -> Result<Value, Error> {
 /// Adjust image brightness.
 /// Positive values brighten, negative values darken.
 /// Note: The framework decodes ~10 to -10, so the function receives the actual i32 value.
+#[liquers_macro::command_version]
 pub fn brighten(state: &State<Value>, value: i32) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).brighten(value);
@@ -29,6 +32,7 @@ pub fn brighten(state: &State<Value>, value: i32) -> Result<Value, Error> {
 
 /// Adjust image contrast.
 /// Positive values increase contrast, negative values decrease contrast.
+#[liquers_macro::command_version]
 pub fn contrast(state: &State<Value>, value: f32) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).adjust_contrast(value);
@@ -37,6 +41,7 @@ pub fn contrast(state: &State<Value>, value: f32) -> Result<Value, Error> {
 
 /// Rotate hue by specified degrees.
 /// Value should be in range -180 to 180.
+#[liquers_macro::command_version]
 pub fn huerot(state: &State<Value>, value: i32) -> Result<Value, Error> {
     if value < -180 || value > 180 {
         return Err(Error::general_error(
@@ -51,6 +56,7 @@ pub fn huerot(state: &State<Value>, value: i32) -> Result<Value, Error> {
 
 /// Apply gamma correction.
 /// Gamma > 1.0 darkens, gamma < 1.0 brightens.
+#[liquers_macro::command_version]
 pub fn gamma(state: &State<Value>, gamma_value: f32) -> Result<Value, Error> {
     if gamma_value <= 0.0 {
         return Err(Error::general_error(
@@ -83,6 +89,7 @@ pub fn gamma(state: &State<Value>, gamma_value: f32) -> Result<Value, Error> {
 
 /// Adjust color saturation.
 /// Factor of 1.0 = no change, > 1.0 = more saturated, < 1.0 = less saturated.
+#[liquers_macro::command_version]
 pub fn saturate(state: &State<Value>, factor: f32) -> Result<Value, Error> {
     if factor < 0.0 {
         return Err(Error::general_error(
