@@ -347,6 +347,16 @@ impl ValueInterface for SimpleValue {
         }
     }
 
+    fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error> {
+        match self {
+            SimpleValue::CommandMetadata { value } => Ok(value.clone()),
+            _ => Err(Error::conversion_error(
+                self.identifier(),
+                "command metadata",
+            )),
+        }
+    }
+
     fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             SimpleValue::Bytes { value: b } => Ok(b.clone()),
@@ -365,6 +375,12 @@ impl ValueInterface for SimpleValue {
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
         SimpleValue::Recipe { value: recipe }
+    }
+
+    fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
+        SimpleValue::CommandMetadata {
+            value: command_metadata,
+        }
     }
 
     fn from_query(query: &liquers_core::query::Query) -> Self {

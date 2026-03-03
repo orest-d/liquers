@@ -123,6 +123,9 @@ pub trait ValueInterface:
     /// From recipe
     fn from_recipe(recipe: Recipe) -> Self;
 
+    /// From command metadata
+    fn from_command_metadata(command_metadata: CommandMetadata) -> Self;
+
     /// From bytes
     fn from_bytes(b: Vec<u8>) -> Self;
 
@@ -173,6 +176,9 @@ pub trait ValueInterface:
 
     /// Try into key
     fn try_into_key(&self) -> Result<crate::query::Key, Error>;
+
+    /// Try into command metadata
+    fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error>;
 
     /// String identifier of the state type
     /// Several types can be linked to the same identifier.
@@ -541,6 +547,16 @@ impl ValueInterface for Value {
         }
     }
 
+    fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error> {
+        match self {
+            Value::CommandMetadata(command_metadata) => Ok(command_metadata.clone()),
+            _ => Err(Error::conversion_error(
+                self.identifier(),
+                "command metadata",
+            )),
+        }
+    }
+
     fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             Value::Bytes(b) => Ok(b.clone()),
@@ -559,6 +575,10 @@ impl ValueInterface for Value {
 
     fn from_recipe(recipe: Recipe) -> Self {
         Value::Recipe(recipe)
+    }
+
+    fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
+        Value::CommandMetadata(command_metadata)
     }
 
     fn from_query(query: &crate::query::Query) -> Self {

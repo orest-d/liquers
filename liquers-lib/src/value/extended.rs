@@ -1,6 +1,7 @@
 use serde_json;
 
 use liquers_core::{
+    command_metadata::CommandMetadata,
     metadata::AssetInfo,
     value::{DefaultValueSerializer, ValueInterface},
 };
@@ -209,6 +210,13 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
         }
     }
 
+    fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_command_metadata(),
+            _ => Err(Error::conversion_error(self.type_name(), "CommandMetadata")),
+        }
+    }
+
     fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
         match self {
             CombinedValue::Base(base) => base.try_into_bytes(),
@@ -226,6 +234,10 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
         CombinedValue::Base(BaseValue::from_recipe(recipe))
+    }
+
+    fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
+        CombinedValue::Base(BaseValue::from_command_metadata(command_metadata))
     }
 
     fn from_query(query: &liquers_core::query::Query) -> Self {
