@@ -19,6 +19,8 @@ macro_rules! register_image_commands {
             label: "From bytes"
             doc: "Load image from bytes with auto-detected format"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -31,6 +33,8 @@ macro_rules! register_image_commands {
             label: "From format"
             doc: "Load image from bytes with explicitly specified format"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -38,6 +42,8 @@ macro_rules! register_image_commands {
             label: "SVG to image"
             doc: "Render SVG to raster image with specified dimensions"
             ns: "img"
+
+        version: auto
         )?;
 
         // Format Conversion
@@ -46,6 +52,8 @@ macro_rules! register_image_commands {
             label: "To PNG"
             doc: "Convert image to PNG format (returns bytes)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -53,6 +61,8 @@ macro_rules! register_image_commands {
             label: "To JPEG"
             doc: "Convert image to JPEG format with specified quality (1-100)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -65,6 +75,8 @@ macro_rules! register_image_commands {
             label: "To data URL"
             doc: "Convert image to base64 data URL with specified format (png, jpeg, webp, etc.)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -77,6 +89,8 @@ macro_rules! register_image_commands {
             label: "Color format"
             doc: "Convert image color format (rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16)"
             ns: "img"
+
+        version: auto
         )?;
 
         // Geometric Transformations
@@ -92,6 +106,8 @@ macro_rules! register_image_commands {
             label: "Resize"
             doc: "Resize image to exact dimensions in pixels"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -105,6 +121,8 @@ macro_rules! register_image_commands {
             label: "Resize by percentage"
             doc: "Resize image by percentage (uniform scaling)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -119,6 +137,8 @@ macro_rules! register_image_commands {
             label: "Thumbnail"
             doc: "Resize image preserving aspect ratio (fits within max dimensions)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -126,6 +146,8 @@ macro_rules! register_image_commands {
             label: "Crop"
             doc: "Crop image to rectangle (x, y, width, height)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -133,6 +155,8 @@ macro_rules! register_image_commands {
             label: "Rotate"
             doc: "Rotate image by arbitrary angle in degrees (positive = clockwise)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -140,6 +164,8 @@ macro_rules! register_image_commands {
             label: "Rotate 90°"
             doc: "Rotate image 90 degrees clockwise"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -147,6 +173,8 @@ macro_rules! register_image_commands {
             label: "Rotate 180°"
             doc: "Rotate image 180 degrees"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -154,6 +182,8 @@ macro_rules! register_image_commands {
             label: "Rotate 270°"
             doc: "Rotate image 270 degrees clockwise (90 degrees counter-clockwise)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -161,6 +191,8 @@ macro_rules! register_image_commands {
             label: "Flip horizontal"
             doc: "Flip image horizontally"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -168,6 +200,8 @@ macro_rules! register_image_commands {
             label: "Flip vertical"
             doc: "Flip image vertically"
             ns: "img"
+
+        version: auto
         )?;
 
         // Color Operations
@@ -176,6 +210,8 @@ macro_rules! register_image_commands {
             label: "Grayscale"
             doc: "Convert image to grayscale"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -183,6 +219,8 @@ macro_rules! register_image_commands {
             label: "Invert"
             doc: "Invert image colors (negative)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -190,6 +228,8 @@ macro_rules! register_image_commands {
             label: "Brighten"
             doc: "Adjust brightness (positive = brighten, negative = darken)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -197,6 +237,8 @@ macro_rules! register_image_commands {
             label: "Contrast"
             doc: "Adjust contrast (positive = increase, negative = decrease)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -204,6 +246,8 @@ macro_rules! register_image_commands {
             label: "Hue rotate"
             doc: "Rotate hue by specified degrees (-180 to 180)"
             ns: "img"
+
+        version: auto
         )?;
 
         // Filtering Operations
@@ -212,6 +256,8 @@ macro_rules! register_image_commands {
             label: "Blur"
             doc: "Apply Gaussian blur with specified sigma value"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -219,6 +265,8 @@ macro_rules! register_image_commands {
             label: "Sharpen"
             doc: "Sharpen image using unsharp mask"
             ns: "img"
+
+        version: auto
         )?;
 
         // Image Information
@@ -227,6 +275,8 @@ macro_rules! register_image_commands {
             label: "Dimensions"
             doc: "Get image dimensions as 'WIDTHxHEIGHT' string"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -234,6 +284,8 @@ macro_rules! register_image_commands {
             label: "Width"
             doc: "Get image width in pixels"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -241,6 +293,8 @@ macro_rules! register_image_commands {
             label: "Height"
             doc: "Get image height in pixels"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -248,6 +302,8 @@ macro_rules! register_image_commands {
             label: "Color type"
             doc: "Get image color type (Rgb8, Rgba8, L8, etc.)"
             ns: "img"
+
+        version: auto
         )?;
 
         // ==== Phase 2 Commands ====
@@ -258,6 +314,8 @@ macro_rules! register_image_commands {
             label: "To WebP"
             doc: "Convert image to WebP format (returns bytes)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -265,6 +323,8 @@ macro_rules! register_image_commands {
             label: "To GIF"
             doc: "Convert image to GIF format (returns bytes)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -272,6 +332,8 @@ macro_rules! register_image_commands {
             label: "To BMP"
             doc: "Convert image to BMP format (returns bytes)"
             ns: "img"
+
+        version: auto
         )?;
 
         // Color Operations (Phase 2)
@@ -280,6 +342,8 @@ macro_rules! register_image_commands {
             label: "Gamma correction"
             doc: "Apply gamma correction (gamma > 1 darkens, < 1 brightens)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -287,6 +351,8 @@ macro_rules! register_image_commands {
             label: "Saturate"
             doc: "Adjust color saturation (1.0 = no change, > 1 = more, < 1 = less)"
             ns: "img"
+
+        version: auto
         )?;
 
         // Filtering Operations (Phase 2)
@@ -295,6 +361,8 @@ macro_rules! register_image_commands {
             label: "Median filter"
             doc: "Apply median filter for noise reduction (radius in pixels)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -302,6 +370,8 @@ macro_rules! register_image_commands {
             label: "Box filter"
             doc: "Apply box/mean filter for blur (radius in pixels)"
             ns: "img"
+
+        version: auto
         )?;
 
         // Morphological Operations (Phase 2)
@@ -310,6 +380,8 @@ macro_rules! register_image_commands {
             label: "Erode"
             doc: "Morphological erosion (shrink bright regions, radius in pixels)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -317,6 +389,8 @@ macro_rules! register_image_commands {
             label: "Dilate"
             doc: "Morphological dilation (expand bright regions, radius in pixels)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -324,6 +398,8 @@ macro_rules! register_image_commands {
             label: "Opening"
             doc: "Morphological opening (remove noise, radius in pixels)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -331,6 +407,8 @@ macro_rules! register_image_commands {
             label: "Closing"
             doc: "Morphological closing (fill holes, radius in pixels)"
             ns: "img"
+
+        version: auto
         )?;
 
         // Drawing Operations (Phase 2)
@@ -339,6 +417,8 @@ macro_rules! register_image_commands {
             label: "Draw line"
             doc: "Draw line from (x1,y1) to (x2,y2) with specified color"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -346,6 +426,8 @@ macro_rules! register_image_commands {
             label: "Draw rectangle"
             doc: "Draw rectangle outline at (x,y) with specified dimensions and color"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -353,6 +435,8 @@ macro_rules! register_image_commands {
             label: "Draw filled rectangle"
             doc: "Draw filled rectangle at (x,y) with specified dimensions and color"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -360,6 +444,8 @@ macro_rules! register_image_commands {
             label: "Draw circle"
             doc: "Draw circle outline at (x,y) with specified radius and color"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -367,6 +453,8 @@ macro_rules! register_image_commands {
             label: "Draw filled circle"
             doc: "Draw filled circle at (x,y) with specified radius and color"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -374,6 +462,8 @@ macro_rules! register_image_commands {
             label: "Draw text"
             doc: "Draw text at (x,y) with specified font size and color"
             ns: "img"
+
+        version: auto
         )?;
 
         // Edge Detection (Phase 2)
@@ -382,6 +472,8 @@ macro_rules! register_image_commands {
             label: "Sobel edge detection"
             doc: "Apply Sobel edge detection (horizontal + vertical edges)"
             ns: "img"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -389,6 +481,8 @@ macro_rules! register_image_commands {
             label: "Canny edge detection"
             doc: "Apply Canny edge detection with low and high thresholds"
             ns: "img"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())
@@ -406,22 +500,13 @@ pub fn register_commands(
 }
 
 // Re-export command functions for testing and direct use
-// Phase 1 commands
-pub use super::color::{brighten, contrast, gray, huerot, invert};
-pub use super::filtering::{blur, sharpen};
-pub use super::format::{color_format, to_dataurl, to_jpeg, to_png};
-pub use super::geometric::{
-    crop, fliph, flipv, resize, resize_by, rot180, rot270, rot90, rotate, thumb,
-};
-pub use super::info::{colortype, dims, height, width};
-pub use super::io::{from_bytes, from_format, svg_to_image};
-
-// Phase 2 commands
-pub use super::color::{gamma, saturate};
-pub use super::drawing::{
-    draw_circle, draw_filled_circle, draw_filled_rect, draw_line, draw_rect, draw_text,
-};
-pub use super::edges::{canny, sobel};
-pub use super::filtering::{boxfilt, median};
-pub use super::format::{to_bmp, to_gif, to_webp};
-pub use super::morphology::{closing, dilate, erode, opening};
+// (includes generated `__VERSION_` symbols used by `version: auto`).
+pub use super::color::*;
+pub use super::drawing::*;
+pub use super::edges::*;
+pub use super::filtering::*;
+pub use super::format::*;
+pub use super::geometric::*;
+pub use super::info::*;
+pub use super::io::*;
+pub use super::morphology::*;

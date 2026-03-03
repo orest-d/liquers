@@ -7,6 +7,7 @@ use std::sync::Arc;
 /// Morphological erosion (shrink bright regions).
 /// Radius is in pixels.
 /// Note: Simplified implementation using distance transform.
+#[liquers_macro::command_version]
 pub fn erode(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     if radius == 0 {
         return Err(Error::general_error(
@@ -44,6 +45,7 @@ pub fn erode(state: &State<Value>, radius: u32) -> Result<Value, Error> {
 
 /// Morphological dilation (expand bright regions).
 /// Radius is in pixels.
+#[liquers_macro::command_version]
 pub fn dilate(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     if radius == 0 {
         return Err(Error::general_error(
@@ -81,6 +83,7 @@ pub fn dilate(state: &State<Value>, radius: u32) -> Result<Value, Error> {
 
 /// Morphological opening (erode then dilate, remove noise).
 /// Radius is in pixels.
+#[liquers_macro::command_version]
 pub fn opening(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     if radius == 0 {
         return Err(Error::general_error(
@@ -96,6 +99,7 @@ pub fn opening(state: &State<Value>, radius: u32) -> Result<Value, Error> {
 
 /// Morphological closing (dilate then erode, fill holes).
 /// Radius is in pixels.
+#[liquers_macro::command_version]
 pub fn closing(state: &State<Value>, radius: u32) -> Result<Value, Error> {
     if radius == 0 {
         return Err(Error::general_error(

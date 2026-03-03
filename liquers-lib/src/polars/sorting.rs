@@ -13,6 +13,7 @@ use super::util::{check_column_exists, try_to_polars_dataframe};
 /// Arguments:
 /// - column: Column name to sort by
 /// - ascending (optional): "t" or "true" for ascending (default), "f" or "false" for descending
+#[liquers_macro::command_version]
 pub fn sort(state: &State<Value>, column: String, ascending: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -63,6 +64,8 @@ macro_rules! register_polars_sorting_commands {
             namespace: "pl"
             label: "Sort by column"
             doc: "Sort DataFrame by column. Use 't'/'true' for ascending (default), 'f'/'false' for descending"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())

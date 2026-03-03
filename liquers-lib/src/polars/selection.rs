@@ -11,6 +11,7 @@ use super::util::{check_column_exists, try_to_polars_dataframe};
 ///
 /// Arguments:
 /// - columns: Column names separated by dashes (e.g., "col1-col2-col3")
+#[liquers_macro::command_version]
 pub fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -32,6 +33,7 @@ pub fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Er
 ///
 /// Arguments:
 /// - columns: Column names separated by dashes (e.g., "col1-col2")
+#[liquers_macro::command_version]
 pub fn drop_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -52,6 +54,7 @@ pub fn drop_columns(state: &State<Value>, columns: String) -> Result<Value, Erro
 ///
 /// Arguments:
 /// - n: Number of rows (default: 5)
+#[liquers_macro::command_version]
 pub fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let num_rows = n.max(0) as usize;
@@ -64,6 +67,7 @@ pub fn head(state: &State<Value>, n: i32) -> Result<Value, Error> {
 ///
 /// Arguments:
 /// - n: Number of rows (default: 5)
+#[liquers_macro::command_version]
 pub fn tail(state: &State<Value>, n: i32) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     let num_rows = n.max(0) as usize;
@@ -77,6 +81,7 @@ pub fn tail(state: &State<Value>, n: i32) -> Result<Value, Error> {
 /// Arguments:
 /// - offset: Starting row index (0-based)
 /// - length: Number of rows to extract
+#[liquers_macro::command_version]
 pub fn slice(state: &State<Value>, offset: i32, length: i32) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -101,6 +106,8 @@ macro_rules! register_polars_selection_commands {
             namespace: "pl"
             label: "Select columns"
             doc: "Select columns by name (separated by dashes)"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -108,6 +115,8 @@ macro_rules! register_polars_selection_commands {
             namespace: "pl"
             label: "Drop columns"
             doc: "Remove columns by name (separated by dashes)"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -115,6 +124,8 @@ macro_rules! register_polars_selection_commands {
             namespace: "pl"
             label: "Get first rows"
             doc: "Return first N rows (default: 5)"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -122,6 +133,8 @@ macro_rules! register_polars_selection_commands {
             namespace: "pl"
             label: "Get last rows"
             doc: "Return last N rows (default: 5)"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -129,6 +142,8 @@ macro_rules! register_polars_selection_commands {
             namespace: "pl"
             label: "Slice rows"
             doc: "Extract rows by range (offset, length)"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())

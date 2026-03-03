@@ -5,6 +5,7 @@ use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
 
 /// Get image dimensions as "WIDTHxHEIGHT" string.
+#[liquers_macro::command_version]
 pub fn dims(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let (width, height) = Arc::as_ref(&img).dimensions();
@@ -12,6 +13,7 @@ pub fn dims(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get image width.
+#[liquers_macro::command_version]
 pub fn width(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let (width, _) = Arc::as_ref(&img).dimensions();
@@ -19,6 +21,7 @@ pub fn width(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get image height.
+#[liquers_macro::command_version]
 pub fn height(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let (_, height) = Arc::as_ref(&img).dimensions();
@@ -26,6 +29,7 @@ pub fn height(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Get image color type as string.
+#[liquers_macro::command_version]
 pub fn colortype(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let color = Arc::as_ref(&img).color();

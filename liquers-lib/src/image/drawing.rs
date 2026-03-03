@@ -10,6 +10,7 @@ use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
 
 /// Draw a line from (x1, y1) to (x2, y2) with specified color.
+#[liquers_macro::command_version]
 pub fn draw_line(
     state: &State<Value>,
     x1: i32,
@@ -35,6 +36,7 @@ pub fn draw_line(
 }
 
 /// Draw a rectangle outline.
+#[liquers_macro::command_version]
 pub fn draw_rect(
     state: &State<Value>,
     x: i32,
@@ -56,6 +58,7 @@ pub fn draw_rect(
 }
 
 /// Draw a filled rectangle.
+#[liquers_macro::command_version]
 pub fn draw_filled_rect(
     state: &State<Value>,
     x: i32,
@@ -77,6 +80,7 @@ pub fn draw_filled_rect(
 }
 
 /// Draw a circle outline.
+#[liquers_macro::command_version]
 pub fn draw_circle(
     state: &State<Value>,
     x: i32,
@@ -96,6 +100,7 @@ pub fn draw_circle(
 }
 
 /// Draw a filled circle.
+#[liquers_macro::command_version]
 pub fn draw_filled_circle(
     state: &State<Value>,
     x: i32,
@@ -116,6 +121,7 @@ pub fn draw_filled_circle(
 
 /// Draw text at the specified position.
 /// Note: Currently not implemented - requires rusttype or ab_glyph font support.
+#[liquers_macro::command_version]
 pub fn draw_text(
     _state: &State<Value>,
     _x: i32,

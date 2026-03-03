@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 /// Load image from bytes with auto-detected format.
 /// Input state should contain binary data (bytes).
+#[liquers_macro::command_version]
 pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
     let bytes = state.data.try_into_bytes()?;
     let img = deserialize_image_from_bytes(&bytes, "auto")?;
@@ -16,6 +17,7 @@ pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
 
 /// Load image from bytes with explicitly specified format.
 /// Input state should contain binary data (bytes).
+#[liquers_macro::command_version]
 pub fn from_format(state: &State<Value>, format_str: String) -> Result<Value, Error> {
     let bytes = state.data.try_into_bytes()?;
 
@@ -29,6 +31,7 @@ pub fn from_format(state: &State<Value>, format_str: String) -> Result<Value, Er
 /// Render SVG to raster image.
 /// Input state should contain SVG content as string or bytes.
 /// Width and height specify the output dimensions in pixels.
+#[liquers_macro::command_version]
 pub fn svg_to_image(state: &State<Value>, width: u32, height: u32) -> Result<Value, Error> {
     if width == 0 || height == 0 {
         return Err(Error::general_error(

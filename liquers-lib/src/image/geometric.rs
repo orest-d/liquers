@@ -20,6 +20,7 @@ fn parse_filter_type(method: &str) -> Result<FilterType, Error> {
 }
 
 /// Resize image to exact dimensions in pixels.
+#[liquers_macro::command_version]
 pub fn resize(
     state: &State<Value>,
     width: u32,
@@ -40,6 +41,7 @@ pub fn resize(
 }
 
 /// Resize image by percentage (uniform scaling).
+#[liquers_macro::command_version]
 pub fn resize_by(state: &State<Value>, percent: f32, method: String) -> Result<Value, Error> {
     if percent <= 0.0 {
         return Err(Error::general_error(
@@ -62,6 +64,7 @@ pub fn resize_by(state: &State<Value>, percent: f32, method: String) -> Result<V
 
 /// Resize image preserving aspect ratio (thumbnail).
 /// Ensures the image fits within the specified dimensions.
+#[liquers_macro::command_version]
 pub fn thumb(
     state: &State<Value>,
     max_width: u32,
@@ -82,6 +85,7 @@ pub fn thumb(
 }
 
 /// Crop image to rectangle (x, y, width, height).
+#[liquers_macro::command_version]
 pub fn crop(state: &State<Value>, x: u32, y: u32, width: u32, height: u32) -> Result<Value, Error> {
     if width == 0 || height == 0 {
         return Err(Error::general_error(
@@ -109,6 +113,7 @@ pub fn crop(state: &State<Value>, x: u32, y: u32, width: u32, height: u32) -> Re
 
 /// Rotate image by arbitrary angle in degrees (clockwise is positive).
 /// Uses bilinear interpolation by default.
+#[liquers_macro::command_version]
 pub fn rotate(state: &State<Value>, angle: f32) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
@@ -129,6 +134,7 @@ pub fn rotate(state: &State<Value>, angle: f32) -> Result<Value, Error> {
 }
 
 /// Rotate image 90 degrees clockwise.
+#[liquers_macro::command_version]
 pub fn rot90(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).rotate90();
@@ -136,6 +142,7 @@ pub fn rot90(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Rotate image 180 degrees.
+#[liquers_macro::command_version]
 pub fn rot180(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).rotate180();
@@ -143,6 +150,7 @@ pub fn rot180(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Rotate image 270 degrees clockwise (90 degrees counter-clockwise).
+#[liquers_macro::command_version]
 pub fn rot270(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).rotate270();
@@ -150,6 +158,7 @@ pub fn rot270(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Flip image horizontally.
+#[liquers_macro::command_version]
 pub fn fliph(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).fliph();
@@ -157,6 +166,7 @@ pub fn fliph(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Flip image vertically.
+#[liquers_macro::command_version]
 pub fn flipv(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let result = Arc::as_ref(&img).flipv();

@@ -131,6 +131,7 @@ fn parse_comparison_value(df: &DataFrame, column: &str, value_str: &str) -> Resu
 }
 
 /// Equal to filter
+#[liquers_macro::command_version]
 pub fn eq(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -149,6 +150,7 @@ pub fn eq(state: &State<Value>, column: String, value: String) -> Result<Value, 
 }
 
 /// Not equal to filter
+#[liquers_macro::command_version]
 pub fn ne(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -167,6 +169,7 @@ pub fn ne(state: &State<Value>, column: String, value: String) -> Result<Value, 
 }
 
 /// Greater than filter
+#[liquers_macro::command_version]
 pub fn gt(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -185,6 +188,7 @@ pub fn gt(state: &State<Value>, column: String, value: String) -> Result<Value, 
 }
 
 /// Greater than or equal filter
+#[liquers_macro::command_version]
 pub fn gte(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -203,6 +207,7 @@ pub fn gte(state: &State<Value>, column: String, value: String) -> Result<Value,
 }
 
 /// Less than filter
+#[liquers_macro::command_version]
 pub fn lt(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -221,6 +226,7 @@ pub fn lt(state: &State<Value>, column: String, value: String) -> Result<Value, 
 }
 
 /// Less than or equal filter
+#[liquers_macro::command_version]
 pub fn lte(state: &State<Value>, column: String, value: String) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
     check_column_exists(&df, &column)?;
@@ -252,6 +258,8 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Equal to"
             doc: "Filter rows where column equals value"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -259,6 +267,8 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Not equal to"
             doc: "Filter rows where column does not equal value"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -266,6 +276,8 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Greater than"
             doc: "Filter rows where column is greater than value"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -273,6 +285,8 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Greater than or equal"
             doc: "Filter rows where column is greater than or equal to value"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -280,6 +294,8 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Less than"
             doc: "Filter rows where column is less than value"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -287,6 +303,8 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Less than or equal"
             doc: "Filter rows where column is less than or equal to value"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 /// Apply Sobel edge detection.
 /// Returns horizontal + vertical edges combined.
+#[liquers_macro::command_version]
 pub fn sobel(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let gray_img = Arc::as_ref(&img).to_luma8();
@@ -34,6 +35,7 @@ pub fn sobel(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Apply Canny edge detection with low and high thresholds.
+#[liquers_macro::command_version]
 pub fn canny(
     state: &State<Value>,
     low_threshold: f32,

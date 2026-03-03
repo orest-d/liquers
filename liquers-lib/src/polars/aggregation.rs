@@ -8,6 +8,7 @@ use liquers_macro::register_command;
 use super::util::try_to_polars_dataframe;
 
 /// Sum of all numeric columns
+#[liquers_macro::command_version]
 pub fn sum(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -24,6 +25,7 @@ pub fn sum(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Mean of all numeric columns
+#[liquers_macro::command_version]
 pub fn mean(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -40,6 +42,7 @@ pub fn mean(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Median of all numeric columns
+#[liquers_macro::command_version]
 pub fn median(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -56,6 +59,7 @@ pub fn median(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Minimum of all numeric columns
+#[liquers_macro::command_version]
 pub fn min(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -72,6 +76,7 @@ pub fn min(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Maximum of all numeric columns
+#[liquers_macro::command_version]
 pub fn max(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -88,6 +93,7 @@ pub fn max(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Standard deviation of all numeric columns
+#[liquers_macro::command_version]
 pub fn std(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -104,6 +110,7 @@ pub fn std(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Count non-null values per column
+#[liquers_macro::command_version]
 pub fn count(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -123,6 +130,7 @@ pub fn count(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Statistical summary of DataFrame
+#[liquers_macro::command_version]
 pub fn describe(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
@@ -178,6 +186,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Sum"
             doc: "Sum of all numeric columns"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -185,6 +195,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Mean"
             doc: "Mean of all numeric columns"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -192,6 +204,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Median"
             doc: "Median of all numeric columns"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -199,6 +213,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Minimum"
             doc: "Minimum of all numeric columns"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -206,6 +222,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Maximum"
             doc: "Maximum of all numeric columns"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -213,6 +231,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Standard Deviation"
             doc: "Standard deviation of all numeric columns"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -220,6 +240,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Count"
             doc: "Count non-null values per column"
+
+        version: auto
         )?;
 
         register_command!($cr,
@@ -227,6 +249,8 @@ macro_rules! register_polars_aggregation_commands {
             namespace: "pl"
             label: "Describe"
             doc: "Statistical summary of DataFrame"
+
+        version: auto
         )?;
 
         Ok::<(), liquers_core::error::Error>(())

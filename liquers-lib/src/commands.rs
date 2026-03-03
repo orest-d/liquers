@@ -16,6 +16,7 @@ use crate::{
 };
 
 /// Generic command trying to convert any value to text representation.
+#[liquers_macro::command_version]
 pub fn to_text<E: Environment>(
     state: &State<E::Value>,
     _context: Context<E>,
@@ -24,6 +25,7 @@ pub fn to_text<E: Environment>(
 }
 
 /// Generic command trying to extract metadata from the state.
+#[liquers_macro::command_version]
 pub fn to_metadata<E: Environment>(
     state: &State<E::Value>,
     _context: Context<E>,
@@ -106,6 +108,7 @@ fn default_value_display(v: &CommandParameterValue) -> String {
 /// - Both `namespace` and `command_name` empty: document all commands.
 /// - `namespace` non-empty, `command_name` empty: all commands in that namespace.
 /// - `command_name` non-empty: only the matching command (in `namespace`, or any if empty).
+#[liquers_macro::command_version]
 pub fn commands_doc<E: Environment>(
     _state: &State<E::Value>,
     namespace: String,
@@ -216,17 +219,23 @@ macro_rules! register_core_commands {
             label: "To text"
             doc: "Convert input state to string"
             filename: "text.txt"
+
+        version: auto
         )?;
         register_command!($cr, fn to_metadata(state, context) -> result
             label: "To metadata"
             doc: "Extract metadata from input state"
             filename: "metadata.json"
+
+        version: auto
         )?;
         register_command!($cr,
             fn commands_doc(state, namespace: String = "", command_name: String = "", context) -> result
             label: "Commands documentation"
             doc: "Generate markdown documentation of registered commands"
             filename: "commands.md"
+
+        version: auto
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};
@@ -270,4 +279,25 @@ pub fn register_all_commands_fn(
         env = crate::image::commands::register_commands(env)?;
     }
     Ok(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn registered_command_has_nonzero_impl_version() -> Result<(), Error> {
+        let mut env = DefaultEnvironment::<Value>::new();
+        let cr = env.get_mut_command_registry();
+        type CommandEnvironment = DefaultEnvironment<Value>;
+        register_core_commands!(cr)?;
+
+        let cmd = env
+            .get_command_metadata_registry()
+            .find_command("", "root", "to_text")
+            .expect("to_text command not found");
+
+        assert_ne!(cmd.impl_version, 0);
+        Ok(())
+    }
 }
