@@ -52,6 +52,7 @@ fn handles_to_value(handles: &[UIHandle]) -> Result<Value, Error> {
 /// - UIElement extraction (if the value is `ExtValue::UIElement`)
 /// - StateViewElement wrapping (for plain values)
 /// - Source preservation from metadata
+#[liquers_macro::command_version]
 pub async fn add<E: Environment<Value = Value>>(
     state: State<Value>,
     position_word: String,
@@ -101,6 +102,7 @@ where
 }
 
 /// Remove an element from the UI tree.
+#[liquers_macro::command_version]
 pub async fn remove<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -118,6 +120,7 @@ where
 }
 
 /// Get children handles of the target element.
+#[liquers_macro::command_version]
 pub async fn children<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -135,6 +138,7 @@ where
 }
 
 /// Navigate to the first child of the target element.
+#[liquers_macro::command_version]
 pub async fn first<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -154,6 +158,7 @@ where
 }
 
 /// Navigate to the last child of the target element.
+#[liquers_macro::command_version]
 pub async fn last<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -173,6 +178,7 @@ where
 }
 
 /// Navigate to the parent of the target element.
+#[liquers_macro::command_version]
 pub async fn parent<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -192,6 +198,7 @@ where
 }
 
 /// Navigate to the next sibling of the target element.
+#[liquers_macro::command_version]
 pub async fn next<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -211,6 +218,7 @@ where
 }
 
 /// Navigate to the previous sibling of the target element.
+#[liquers_macro::command_version]
 pub async fn prev<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -230,6 +238,7 @@ where
 }
 
 /// Get all root element handles.
+#[liquers_macro::command_version]
 pub async fn roots<E: Environment<Value = Value>>(
     _state: State<Value>,
     context: Context<E>,
@@ -245,6 +254,7 @@ where
 }
 
 /// Set the active (focused) element.
+#[liquers_macro::command_version]
 pub async fn activate<E: Environment<Value = Value>>(
     _state: State<Value>,
     target_word: String,
@@ -263,6 +273,7 @@ where
 
 /// Command: lui/ui_spec
 /// Creates UISpecElement from YAML spec in state
+#[liquers_macro::command_version]
 pub fn ui_spec<E: Environment<Value = Value>>(
     state: &State<Value>,
     context: Context<E>,
@@ -301,6 +312,7 @@ pub fn ui_spec<E: Environment<Value = Value>>(
 
 /// Command: lui/markdown
 /// Creates a MarkdownElement from the input state (markdown text string).
+#[liquers_macro::command_version]
 pub fn markdown(state: &State<Value>) -> Result<Value, Error> {
     let text = if state.is_none() {
         String::new()
@@ -315,6 +327,7 @@ pub fn markdown(state: &State<Value>) -> Result<Value, Error> {
 
 /// Command: lui/query_console
 /// Creates a QueryConsoleElement from the input state (query text string).
+#[liquers_macro::command_version]
 pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     let query_string = if state.is_none() {
         String::new()
@@ -357,78 +370,104 @@ macro_rules! register_lui_commands {
             namespace: "lui"
             label: "Add element"
             doc: "Add a new element to the UI tree"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn remove(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Remove element"
             doc: "Remove an element from the UI tree"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn children(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Children"
             doc: "Get children handles of target element"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn first(state, target_word: String, context) -> result
             namespace: "lui"
             label: "First child"
             doc: "Navigate to first child of target"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn last(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Last child"
             doc: "Navigate to last child of target"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn parent(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Parent"
             doc: "Navigate to parent of target"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn next(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Next sibling"
             doc: "Navigate to next sibling of target"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn prev(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Previous sibling"
             doc: "Navigate to previous sibling of target"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn roots(state, context) -> result
             namespace: "lui"
             label: "Roots"
             doc: "Get all root element handles"
+
+        version: auto
         )?;
         register_command!($cr,
             async fn activate(state, target_word: String, context) -> result
             namespace: "lui"
             label: "Activate"
             doc: "Set the active element"
+
+        version: auto
         )?;
         register_command!($cr,
             fn ui_spec(state, context) -> result
             namespace: "lui"
             label: "UI Spec"
             doc: "Create UISpecElement from YAML specification"
+
+        version: auto
         )?;
         register_command!($cr,
             fn markdown(state) -> result
             namespace: "lui"
             label: "Markdown"
             doc: "Create a markdown viewer element"
+
+        version: auto
         )?;
         register_command!($cr,
             fn query_console(state) -> result
             namespace: "lui"
             label: "Query Console"
             doc: "Create an interactive query console element"
+
+        version: auto
         )?;
         Ok::<(), liquers_core::error::Error>(())
     }};

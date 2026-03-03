@@ -6,6 +6,7 @@ use liquers_core::{error::Error, state::State};
 use std::sync::Arc;
 
 /// Convert image to PNG format (returns PNG bytes).
+#[liquers_macro::command_version]
 pub fn to_png(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "png")?;
@@ -17,6 +18,7 @@ pub fn to_png(state: &State<Value>) -> Result<Value, Error> {
 
 /// Convert image to JPEG format with specified quality (1-100).
 /// Returns JPEG bytes.
+#[liquers_macro::command_version]
 pub fn to_jpeg(state: &State<Value>, quality: u8) -> Result<Value, Error> {
     if quality == 0 || quality > 100 {
         return Err(Error::general_error(
@@ -45,6 +47,7 @@ pub fn to_jpeg(state: &State<Value>, quality: u8) -> Result<Value, Error> {
 }
 
 /// Convert image to WebP format (returns WebP bytes).
+#[liquers_macro::command_version]
 pub fn to_webp(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "webp")?;
@@ -55,6 +58,7 @@ pub fn to_webp(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Convert image to GIF format (returns GIF bytes).
+#[liquers_macro::command_version]
 pub fn to_gif(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "gif")?;
@@ -65,6 +69,7 @@ pub fn to_gif(state: &State<Value>) -> Result<Value, Error> {
 }
 
 /// Convert image to BMP format (returns BMP bytes).
+#[liquers_macro::command_version]
 pub fn to_bmp(state: &State<Value>) -> Result<Value, Error> {
     let img = try_to_image(state)?;
     let buffer = serialize_image_to_bytes(Arc::as_ref(&img), "bmp")?;
@@ -76,6 +81,7 @@ pub fn to_bmp(state: &State<Value>) -> Result<Value, Error> {
 
 /// Convert image to base64 data URL with specified format.
 /// Format should be a file extension like "png", "jpeg", "webp", etc.
+#[liquers_macro::command_version]
 pub fn to_dataurl(state: &State<Value>, format_str: String) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
@@ -96,6 +102,7 @@ pub fn to_dataurl(state: &State<Value>, format_str: String) -> Result<Value, Err
 
 /// Convert image color format.
 /// Supported formats: rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16
+#[liquers_macro::command_version]
 pub fn color_format(state: &State<Value>, format: String) -> Result<Value, Error> {
     let img = try_to_image(state)?;
 
