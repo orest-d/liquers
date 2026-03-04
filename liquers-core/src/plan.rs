@@ -933,26 +933,18 @@ impl<'c> PlanBuilder<'c> {
         }
     }
 
-    /// Update plan expiration based on a command's expires specification.
-    /// Takes the minimum (earliest) expiration across all commands in the plan.
+    /// Update plan expiration by combining command expiration constraints.
     fn update_expiration(&mut self, command_expires: &Expires) {
-        use crate::expiration::ExpirationTime;
-        if command_expires.is_never() {
-            return;
-        }
-        // Immediately expiring is equivalent to volatile
-        if command_expires.is_volatile() {
-            self.is_volatile = true;
-        }
-        let now = chrono::Utc::now();
-        let new_et = command_expires.to_expiration_time(now, 0);
-        let current_et = self.expires.to_expiration_time(now, 0);
-        if new_et < current_et {
-            self.expires = command_expires.clone();
+        let previous = self.expires.clone();
+        self.expires |= command_expires.clone();
+        if self.expires != previous {
             self.plan.steps.push(Step::Info(format!(
-                "Plan expiration updated to '{}' (from command)",
-                command_expires
+                "Plan expiration updated: '{}' | '{}' -> '{}'",
+                previous, command_expires, self.expires
             )));
+        }
+        if self.expires.is_volatile() {
+            self.is_volatile = true;
         }
     }
 
@@ -1743,19 +1735,15 @@ pub(crate) async fn has_volatile_dependencies<E: Environment>(
 }
 
 /// Check if any dependencies have expiration specified in their recipes.
-/// Updates the plan's expires field with the minimum expiration across known dependencies.
+/// Updates the plan's expires field by combining expirations across known dependencies.
 /// This is a first-pass estimate at plan-build time. The authoritative computation
 /// happens at asset finalization when all dependencies are evaluated and known.
 pub(crate) async fn has_expirable_dependencies<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
 ) -> Result<(), Error> {
-    use crate::expiration::ExpirationTime;
-
     let mut stack = Vec::new();
     let dependencies = find_dependencies(envref.clone(), plan, &mut stack, None).await?;
-    let now = chrono::Utc::now();
-    let mut plan_et = plan.expires.to_expiration_time(now, 0);
     let mut changed = false;
 
     for key in dependencies {
@@ -1765,30 +1753,25 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
             .recipe_opt(&key, envref.clone())
             .await
         {
-            if !recipe.expires.is_never() {
-                let dep_et = recipe.expires.to_expiration_time(now, 0);
-                if dep_et < plan_et {
-                    plan_et = dep_et;
-                    plan.expires = recipe.expires.clone();
-                    plan.steps.push(Step::Info(format!(
-                        "Expiration constrained by dependency {:?} (expires: {})",
-                        key, recipe.expires
-                    )));
-                    changed = true;
-                }
+            let previous = plan.expires.clone();
+            plan.expires |= recipe.expires.clone();
+            if plan.expires != previous {
+                plan.steps.push(Step::Info(format!(
+                    "Expiration combined with dependency {:?}: '{}' | '{}' -> '{}'",
+                    key, previous, recipe.expires, plan.expires
+                )));
+                changed = true;
             }
         }
     }
 
-    // If expiration was tightened to Immediately, mark as volatile too
-    if changed {
-        if let ExpirationTime::Immediately = plan_et {
-            if !plan.is_volatile {
-                plan.is_volatile = true;
-                plan.steps.push(Step::Info(
-                    "Volatile: dependency has Immediately expiration".to_string(),
-                ));
-            }
+    // If combined expiration yields immediate expiry, mark as volatile too.
+    if changed && plan.expires.is_volatile() {
+        if !plan.is_volatile {
+            plan.is_volatile = true;
+            plan.steps.push(Step::Info(
+                "Volatile: dependency combination includes Immediately expiration".to_string(),
+            ));
         }
     }
 
@@ -2579,6 +2562,30 @@ mod tests {
         assert_eq!(
             plan.expires,
             crate::expiration::Expires::InDuration(std::time::Duration::from_secs(300))
+        );
+    }
+
+    #[test]
+    fn test_plan_expires_combines_different_command_expirations() {
+        let mut cr = CommandMetadataRegistry::new();
+
+        let mut cm1 = CommandMetadata::new("cmd1");
+        cm1.with_argument(ArgumentInfo::any_argument("arg"));
+        cm1.expires = "in 10 min".parse().unwrap();
+        cr.add_command(&cm1);
+
+        let mut cm2 = CommandMetadata::new("cmd2");
+        cm2.with_argument(ArgumentInfo::any_argument("arg"));
+        cm2.expires = "end of day".parse().unwrap();
+        cr.add_command(&cm2);
+
+        let query = parse_query("cmd1-a/cmd2-b").unwrap();
+        let mut pb = PlanBuilder::new(query, &cr);
+        let plan = pb.build().unwrap();
+        assert_eq!(
+            plan.expires,
+            crate::expiration::Expires::InDuration(std::time::Duration::from_secs(600))
+                | crate::expiration::Expires::EndOfDay { tz_offset: None }
         );
     }
 

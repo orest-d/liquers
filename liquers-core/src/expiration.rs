@@ -2,10 +2,12 @@ use crate::error::Error;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveTime, Offset, TimeZone, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
+use std::ops::{BitOr, BitOrAssign};
 
 /// Specification of when an asset should expire, relative to current time.
 /// Serializes/deserializes as a human-readable string.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expires {
     /// Asset never expires (default)
     Never,
@@ -45,6 +47,9 @@ pub enum Expires {
     },
     /// Asset expires at a specific date and time (always UTC after parsing)
     AtDateTime(DateTime<Utc>),
+    /// Symbolic combination of expiration constraints.
+    /// Runtime semantics: earliest expiration among all members.
+    Combination(BTreeSet<Expires>),
 }
 
 impl Default for Expires {
@@ -179,17 +184,179 @@ impl Expires {
                 ExpirationTime::At(target_utc)
             }
             Expires::AtDateTime(dt) => ExpirationTime::At(*dt),
+            Expires::Combination(values) => values.iter().fold(ExpirationTime::Never, |acc, v| {
+                acc.min(v.to_expiration_time(reference_time, tz_offset_default))
+            }),
         }
     }
 
     /// Returns true if this Expires implies volatile semantics
     pub fn is_volatile(&self) -> bool {
-        matches!(self, Expires::Immediately)
+        match self {
+            Expires::Immediately => true,
+            Expires::Combination(values) => values.iter().any(Expires::is_volatile),
+            _ => false,
+        }
     }
 
     /// Returns true if this is Never
     pub fn is_never(&self) -> bool {
-        matches!(self, Expires::Never)
+        match self {
+            Expires::Never => true,
+            Expires::Combination(values) => values.is_empty(),
+            _ => false,
+        }
+    }
+
+    /// Canonicalize expiration expression:
+    /// - flatten nested combinations
+    /// - recursively canonicalize members
+    /// - apply known reductions
+    /// - normalize empty/singleton combinations
+    pub fn canonise(self) -> Self {
+        match self {
+            Expires::Combination(values) => {
+                let mut flattened = BTreeSet::new();
+                for value in values {
+                    match value.canonise() {
+                        Expires::Never => {}
+                        Expires::Immediately => return Expires::Immediately,
+                        Expires::Combination(inner) => {
+                            for inner_value in inner {
+                                flattened.insert(inner_value);
+                            }
+                        }
+                        other => {
+                            flattened.insert(other);
+                        }
+                    }
+                }
+                reduce_combination(flattened)
+            }
+            other => other,
+        }
+    }
+
+    /// Combine two expiration specifications.
+    /// `X | Y` means "expire at the earliest of X and Y".
+    pub fn combine(self, other: Expires) -> Expires {
+        let left = self.canonise();
+        let right = other.canonise();
+        match (left, right) {
+            (Expires::Combination(left_set), Expires::Combination(right_set)) => {
+                let mut combined = BTreeSet::new();
+                for l in left_set {
+                    for r in &right_set {
+                        combined.insert(l.clone().combine(r.clone()));
+                    }
+                }
+                Expires::Combination(combined).canonise()
+            }
+            (Expires::Combination(left_set), right) => {
+                let mut combined = BTreeSet::new();
+                for l in left_set {
+                    combined.insert(l.combine(right.clone()));
+                }
+                Expires::Combination(combined).canonise()
+            }
+            (left, Expires::Combination(right_set)) => {
+                let mut combined = BTreeSet::new();
+                for r in right_set {
+                    combined.insert(left.clone().combine(r));
+                }
+                Expires::Combination(combined).canonise()
+            }
+            (left, right) => combine_atomic_pair(&left, &right).canonise(),
+        }
+    }
+}
+
+fn combine_atomic_pair(left: &Expires, right: &Expires) -> Expires {
+    if left == right {
+        return left.clone();
+    }
+
+    match (left, right) {
+        (_, Expires::Immediately) | (Expires::Immediately, _) => Expires::Immediately,
+        (_, Expires::Never) => left.clone(),
+        (Expires::Never, _) => right.clone(),
+        (Expires::InDuration(a), Expires::InDuration(b)) => Expires::InDuration((*a).min(*b)),
+        (Expires::AtDateTime(a), Expires::AtDateTime(b)) => Expires::AtDateTime((*a).min(*b)),
+        (Expires::EndOfDay { .. }, Expires::EndOfWeek { .. })
+        | (Expires::EndOfDay { .. }, Expires::EndOfMonth { .. }) => left.clone(),
+        (Expires::EndOfWeek { .. }, Expires::EndOfDay { .. })
+        | (Expires::EndOfMonth { .. }, Expires::EndOfDay { .. }) => right.clone(),
+        _ => {
+            let mut values = BTreeSet::new();
+            values.insert(left.clone());
+            values.insert(right.clone());
+            Expires::Combination(values)
+        }
+    }
+}
+
+fn reduce_combination(mut values: BTreeSet<Expires>) -> Expires {
+    loop {
+        let snapshot: Vec<Expires> = values.iter().cloned().collect();
+        let mut reduced = false;
+
+        'pair_search: for i in 0..snapshot.len() {
+            for j in (i + 1)..snapshot.len() {
+                let a = &snapshot[i];
+                let b = &snapshot[j];
+                let combined = combine_atomic_pair(a, b);
+
+                // No reduction: fallback pair combination of exactly {a,b}
+                if matches!(
+                    &combined,
+                    Expires::Combination(set)
+                        if set.len() == 2 && set.contains(a) && set.contains(b)
+                ) {
+                    continue;
+                }
+
+                values.remove(a);
+                values.remove(b);
+                match combined {
+                    Expires::Never => {}
+                    Expires::Immediately => return Expires::Immediately,
+                    Expires::Combination(set) => {
+                        for v in set {
+                            values.insert(v);
+                        }
+                    }
+                    other => {
+                        values.insert(other);
+                    }
+                }
+                reduced = true;
+                break 'pair_search;
+            }
+        }
+
+        if !reduced {
+            break;
+        }
+    }
+
+    match values.len() {
+        0 => Expires::Never,
+        1 => values.into_iter().next().unwrap_or(Expires::Never),
+        _ => Expires::Combination(values),
+    }
+}
+
+impl BitOr for Expires {
+    type Output = Expires;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self.combine(rhs)
+    }
+}
+
+impl BitOrAssign for Expires {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = self.clone().combine(rhs);
     }
 }
 
@@ -295,80 +462,98 @@ impl std::str::FromStr for Expires {
                 "Empty expiration specification".to_string(),
             ));
         }
-        let lower = trimmed.to_lowercase();
-
-        // Keywords
-        if lower == "never" {
-            return Ok(Expires::Never);
-        }
-        if lower == "immediately" {
-            return Ok(Expires::Immediately);
-        }
-
-        // End-of-period aliases
-        if lower == "eod" || lower == "end of day" {
-            return Ok(Expires::EndOfDay { tz_offset: None });
-        }
-        if lower == "end of week" || lower == "eow" {
-            return Ok(Expires::EndOfWeek { tz_offset: None });
-        }
-        if lower == "end of month" || lower == "eom" {
-            return Ok(Expires::EndOfMonth { tz_offset: None });
-        }
-
-        // "on <DayOfWeek>"
-        if let Some(rest) = lower.strip_prefix("on ") {
-            let rest = rest.trim();
-            if let Some(day) = day_name_to_number(rest) {
-                return Ok(Expires::OnDayOfWeek {
-                    day,
-                    tz_offset: None,
-                });
+        if trimmed.contains(',') {
+            let mut values = BTreeSet::new();
+            for part in trimmed.split(',') {
+                let token = part.trim();
+                if token.is_empty() {
+                    return Err(Error::general_error(
+                        "Invalid expiration combination: empty element".to_string(),
+                    ));
+                }
+                values.insert(parse_atomic_expires(token)?);
             }
-            return Err(Error::general_error(format!(
-                "Invalid day of week: '{}'",
-                rest
-            )));
-        }
-
-        // "at HH:MM[:SS] [TZ]"
-        if let Some(rest) = lower.strip_prefix("at ") {
-            return parse_time_of_day(rest.trim());
-        }
-
-        // Duration: "in X unit" or "X unit"
-        let duration_str = if let Some(rest) = lower.strip_prefix("in ") {
-            rest.trim()
+            Ok(Expires::Combination(values).canonise())
         } else {
-            &lower
-        };
-
-        if let Ok(expires) = parse_duration(duration_str) {
-            return Ok(expires);
+            parse_atomic_expires(trimmed)
         }
-
-        // Try absolute date/time parsing
-        // ISO 8601: "2026-03-01", "2026-03-01 15:00", "2026-03-01T15:00:00Z"
-        if let Ok(dt) = trimmed.parse::<DateTime<Utc>>() {
-            return Ok(Expires::AtDateTime(dt));
-        }
-        // Try with chrono's flexible parsing
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M") {
-            return Ok(Expires::AtDateTime(dt.and_utc()));
-        }
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S") {
-            return Ok(Expires::AtDateTime(dt.and_utc()));
-        }
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
-            let dt = d.and_hms_opt(0, 0, 0).unwrap_or_default().and_utc();
-            return Ok(Expires::AtDateTime(dt));
-        }
-
-        Err(Error::general_error(format!(
-            "Invalid expiration specification: '{}'",
-            trimmed
-        )))
     }
+}
+
+fn parse_atomic_expires(s: &str) -> Result<Expires, Error> {
+    let lower = s.to_lowercase();
+
+    // Keywords
+    if lower == "never" {
+        return Ok(Expires::Never);
+    }
+    if lower == "immediately" {
+        return Ok(Expires::Immediately);
+    }
+
+    // End-of-period aliases
+    if lower == "eod" || lower == "end of day" {
+        return Ok(Expires::EndOfDay { tz_offset: None });
+    }
+    if lower == "end of week" || lower == "eow" {
+        return Ok(Expires::EndOfWeek { tz_offset: None });
+    }
+    if lower == "end of month" || lower == "eom" {
+        return Ok(Expires::EndOfMonth { tz_offset: None });
+    }
+
+    // "on <DayOfWeek>"
+    if let Some(rest) = lower.strip_prefix("on ") {
+        let rest = rest.trim();
+        if let Some(day) = day_name_to_number(rest) {
+            return Ok(Expires::OnDayOfWeek {
+                day,
+                tz_offset: None,
+            });
+        }
+        return Err(Error::general_error(format!(
+            "Invalid day of week: '{}'",
+            rest
+        )));
+    }
+
+    // "at HH:MM[:SS] [TZ]"
+    if let Some(rest) = lower.strip_prefix("at ") {
+        return parse_time_of_day(rest.trim());
+    }
+
+    // Duration: "in X unit" or "X unit"
+    let duration_str = if let Some(rest) = lower.strip_prefix("in ") {
+        rest.trim()
+    } else {
+        &lower
+    };
+
+    if let Ok(expires) = parse_duration(duration_str) {
+        return Ok(expires);
+    }
+
+    // Try absolute date/time parsing
+    // ISO 8601: "2026-03-01", "2026-03-01 15:00", "2026-03-01T15:00:00Z"
+    if let Ok(dt) = s.parse::<DateTime<Utc>>() {
+        return Ok(Expires::AtDateTime(dt));
+    }
+    // Try with chrono's flexible parsing
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        return Ok(Expires::AtDateTime(dt.and_utc()));
+    }
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return Ok(Expires::AtDateTime(dt.and_utc()));
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let dt = d.and_hms_opt(0, 0, 0).unwrap_or_default().and_utc();
+        return Ok(Expires::AtDateTime(dt));
+    }
+
+    Err(Error::general_error(format!(
+        "Invalid expiration specification: '{}'",
+        s
+    )))
 }
 
 fn parse_time_of_day(s: &str) -> Result<Expires, Error> {
@@ -522,6 +707,14 @@ impl std::fmt::Display for Expires {
             Expires::EndOfWeek { tz_offset: _ } => write!(f, "end of week"),
             Expires::EndOfMonth { tz_offset: _ } => write!(f, "end of month"),
             Expires::AtDateTime(dt) => write!(f, "{}", dt.to_rfc3339()),
+            Expires::Combination(values) => {
+                let rendered = values
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                write!(f, "{rendered}")
+            }
         }
     }
 }
@@ -674,6 +867,7 @@ impl ExpirationTime {
 mod tests {
     use super::*;
     use chrono::Timelike;
+    use std::collections::BTreeSet;
 
     // --- Expires basics ---
 
@@ -1307,6 +1501,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_display_combination() {
+        let combined = Expires::InDuration(std::time::Duration::from_secs(300))
+            | Expires::EndOfDay { tz_offset: None };
+        assert_eq!(combined.to_string(), "in 5 min,end of day");
+    }
+
     // --- Roundtrip (parse → display → parse) ---
 
     #[test]
@@ -1352,6 +1553,77 @@ mod tests {
         assert_eq!(original, parsed);
     }
 
+    #[test]
+    fn test_roundtrip_combination() {
+        let original = Expires::InDuration(std::time::Duration::from_secs(300))
+            | Expires::EndOfDay { tz_offset: None };
+        let s = original.to_string();
+        let parsed: Expires = s.parse().unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn test_combine_idempotent() {
+        let x = Expires::EndOfWeek { tz_offset: None };
+        assert_eq!(x.clone() | x.clone(), x);
+    }
+
+    #[test]
+    fn test_combine_commutative() {
+        let x = Expires::InDuration(std::time::Duration::from_secs(600));
+        let y = Expires::AtDateTime(Utc.with_ymd_and_hms(2026, 3, 1, 15, 0, 0).unwrap());
+        assert_eq!(x.clone() | y.clone(), y | x);
+    }
+
+    #[test]
+    fn test_combine_required_rules() {
+        let x = Expires::EndOfWeek { tz_offset: None };
+        assert_eq!(x.clone() | Expires::Immediately, Expires::Immediately);
+        assert_eq!(x.clone() | Expires::Never, x.clone());
+        assert_eq!(
+            Expires::InDuration(std::time::Duration::from_secs(600))
+                | Expires::InDuration(std::time::Duration::from_secs(300)),
+            Expires::InDuration(std::time::Duration::from_secs(300))
+        );
+        assert_eq!(
+            Expires::EndOfDay { tz_offset: None } | Expires::EndOfWeek { tz_offset: Some(3600) },
+            Expires::EndOfDay { tz_offset: None }
+        );
+        assert_eq!(
+            Expires::EndOfDay { tz_offset: None } | Expires::EndOfMonth { tz_offset: Some(3600) },
+            Expires::EndOfDay { tz_offset: None }
+        );
+    }
+
+    #[test]
+    fn test_combine_lifted_rules_with_combination() {
+        let x = Expires::InDuration(std::time::Duration::from_secs(600));
+        let mut set = BTreeSet::new();
+        set.insert(Expires::InDuration(std::time::Duration::from_secs(300)));
+        set.insert(Expires::EndOfDay { tz_offset: None });
+        let combined = Expires::Combination(set).canonise();
+
+        let result = x | combined;
+        assert_eq!(
+            result,
+            Expires::InDuration(std::time::Duration::from_secs(300))
+                | (Expires::InDuration(std::time::Duration::from_secs(600))
+                    | Expires::EndOfDay { tz_offset: None })
+        );
+    }
+
+    #[test]
+    fn test_combination_to_expiration_time_min() {
+        let now = Utc::now();
+        let e1 = Expires::InDuration(std::time::Duration::from_secs(60));
+        let e2 = Expires::InDuration(std::time::Duration::from_secs(120));
+        let combined = e1.clone() | e2;
+        assert_eq!(
+            combined.to_expiration_time(now, 0),
+            e1.to_expiration_time(now, 0)
+        );
+    }
+
     // --- Serde tests ---
 
     #[test]
@@ -1368,6 +1640,16 @@ mod tests {
         let original = Expires::Never;
         let json = serde_json::to_string(&original).unwrap();
         assert_eq!(json, "\"never\"");
+        let parsed: Expires = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn test_serde_expires_combination_json() {
+        let original = Expires::InDuration(std::time::Duration::from_secs(300))
+            | Expires::EndOfDay { tz_offset: None };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(json, "\"in 5 min,end of day\"");
         let parsed: Expires = serde_json::from_str(&json).unwrap();
         assert_eq!(original, parsed);
     }

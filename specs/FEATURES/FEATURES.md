@@ -82,3 +82,7 @@ This folder contains larger feature specifications that should be detailed befor
 19. `SCHEDULER-IMPROVEMENTS.md`
 - Scope: make asset dependency delegation scheduler-safe (no queue-capacity deadlocks), with explicit dependency-wait state and deterministic liveness tests.
 - Status: Draft
+
+20. `COMBINED-EXPIRES.md`
+- Scope: add `Expires` combination algebra (`|`) with normalized symbolic form and plan-level aggregation across dependency expirations.
+- Status: Draft
