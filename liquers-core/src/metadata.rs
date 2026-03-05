@@ -3,11 +3,183 @@
 
 use serde_json::{self, Value};
 
+use crate::command_metadata::CommandKey;
 use crate::error::Error;
 use crate::expiration::{ExpirationTime, Expires};
 use crate::icons::DEFAULT_ICON;
 use crate::parse;
+use crate::parse::parse_key;
 use crate::query::{Key, Position, Query};
+
+/// A version is a 128-bit integer that identifies a specific revision of an asset's content.
+/// Versions are opaque — only equality matters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Version(pub(crate) u128);
+
+impl Version {
+    pub fn new(v: u128) -> Self {
+        Version(v)
+    }
+
+    /// Creates a version by hashing `bytes` with BLAKE3 and taking the first 16 bytes as u128.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let hash = blake3::hash(bytes);
+        Version(u128::from_be_bytes(
+            hash.as_bytes()[0..16]
+                .try_into()
+                .unwrap_or([0u8; 16]),
+        ))
+    }
+
+    /// Creates a version from the current system time (nanoseconds since UNIX epoch).
+    pub fn from_time_now() -> Self {
+        Self::from_specific_time(std::time::SystemTime::now())
+    }
+
+    /// Creates a version from a specific `SystemTime`.
+    pub fn from_specific_time(time: std::time::SystemTime) -> Self {
+        let nanos = time
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .unwrap_or_default()
+            .as_nanos();
+        Version(nanos)
+    }
+
+    /// Creates a version that is unique within the process.
+    /// Combines a monotonic counter (low 64 bits) with nanosecond timestamp (high 64 bits).
+    pub fn new_unique() -> Self {
+        static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .unwrap_or_default()
+            .as_nanos();
+        let counter =
+            UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
+        Version(nanos.wrapping_shl(64) | counter)
+    }
+}
+
+impl serde::Serialize for Version {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{:032x}", self.0))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Version {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <String as serde::Deserialize<'de>>::deserialize(deserializer)?;
+        u128::from_str_radix(&s, 16)
+            .map(Version)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+/// A key that uniquely identifies a dependency within the dependency manager.
+///
+/// Encodes the type of the resource as a prefix:
+/// - `-R/{encoded_key}`             — a keyed asset (the most common kind)
+/// - `-R-dir/{encoded_key}`         — a directory listing asset
+/// - `-R-recipe/{encoded_key}`      — the recipe file for a keyed asset
+/// - `ns-dep/command_metadata-{ck}` — command metadata for a registered command
+/// - `ns-dep/command_impl-{ck}`     — command implementation stamp for a registered command
+/// - Any other string               — a raw / ad-hoc dependency key
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DependencyKey(String);
+
+impl DependencyKey {
+    /// Construct from any string. The caller is responsible for using a well-known prefix.
+    pub fn new(s: impl Into<String>) -> Self {
+        DependencyKey(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Convert to a `Query` by parsing the inner string.
+    pub fn to_query(&self) -> Result<Query, Error> {
+        crate::parse::parse_query(&self.0)
+    }
+
+    /// `-R-recipe/{key}` — dependency on the recipe definition for `key`.
+    pub fn from_recipe_key(key: &Key) -> Self {
+        DependencyKey(format!("-R-recipe/{}", key.encode()))
+    }
+
+    /// `-R-dir/{key}` — dependency on the directory listing at `key`.
+    pub fn from_dir_key(key: &Key) -> Self {
+        DependencyKey(format!("-R-dir/{}", key.encode()))
+    }
+
+    /// `ns-dep/command_metadata-{ck}` — dependency on a command's metadata (signature/docs).
+    pub fn for_command_metadata(key: &CommandKey) -> Self {
+        DependencyKey(format!("ns-dep/command_metadata-{}", key))
+    }
+
+    /// `ns-dep/command_impl-{ck}` — dependency on a command's implementation version.
+    pub fn for_command_implementation(key: &CommandKey) -> Self {
+        DependencyKey(format!("ns-dep/command_impl-{}", key))
+    }
+}
+
+/// `-R/{encoded_key}` — standard asset key dependency.
+impl From<&Key> for DependencyKey {
+    fn from(key: &Key) -> Self {
+        DependencyKey(format!("-R/{}", key.encode()))
+    }
+}
+
+/// Convert a `DependencyKey` back to a `Key` — only succeeds for `-R/` prefixed keys.
+impl TryFrom<&DependencyKey> for Key {
+    type Error = Error;
+
+    fn try_from(value: &DependencyKey) -> Result<Self, Self::Error> {
+        if let Some(encoded) = value.as_str().strip_prefix("-R/") {
+            parse_key(encoded)
+        } else {
+            Err(Error::not_supported(format!(
+                "DependencyKey '{}' does not represent a plain asset key",
+                value.as_str()
+            )))
+        }
+    }
+}
+
+impl From<&Query> for DependencyKey {
+    fn from(query: &Query) -> Self {
+        DependencyKey(query.encode())
+    }
+}
+
+impl std::fmt::Display for DependencyKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Records the version of a single dependency as observed when the dependent was evaluated.
+/// Stored in `MetadataRecord.dependencies` and used to detect stale dependents on reload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyRecord {
+    pub key: DependencyKey,
+    pub version: Version,
+}
+
+impl DependencyRecord {
+    pub fn new(key: DependencyKey, version: Version) -> Self {
+        DependencyRecord { key, version }
+    }
+}
 
 /// Status of the asset
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Copy)]
@@ -555,6 +727,12 @@ pub struct MetadataRecord {
     /// Resolved expiration time (UTC timestamp, Never, or Immediately)
     #[serde(default)]
     pub expiration_time: ExpirationTime,
+
+    /// Versions of dependencies observed when this asset was last evaluated.
+    /// Used by the dependency manager to detect stale dependents on reload.
+    /// Absent in older serialized records (defaults to empty).
+    #[serde(default)]
+    pub dependencies: Vec<DependencyRecord>,
 }
 
 mod query_format {

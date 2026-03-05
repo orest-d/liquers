@@ -364,14 +364,14 @@ pub trait AsyncRecipeProvider<E: Environment>: Send + Sync {
     }
 }
 
-async fn create_plan_with_init_metadata<E: Environment>(
+async fn create_plan_with_init_metadata<E: Environment>( // TODO: missleading name, use conventioanl plan building functionality
     recipe: &Recipe,
     envref: EnvRef<E>,
 ) -> Result<Plan, Error> {
     let mut plan = recipe.to_plan(envref.get_command_metadata_registry())?;
-    let _ = has_volatile_dependencies(envref.clone(), &mut plan).await;
+    let _ = has_volatile_dependencies(envref.clone(), &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
     if plan.error.is_none() {
-        let _ = has_expirable_dependencies(envref, &mut plan).await;
+        let _ = has_expirable_dependencies(envref, &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
     }
     Ok(plan)
 }

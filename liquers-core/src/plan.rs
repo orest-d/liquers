@@ -17,6 +17,7 @@ use crate::command_metadata::{
 use crate::context::{EnvRef, Environment};
 use crate::error::{Error, ErrorType};
 use crate::expiration::Expires;
+use crate::metadata::DependencyKey;
 use crate::parse::parse_key;
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
@@ -1533,50 +1534,7 @@ impl Index<usize> for Plan {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-#[serde(transparent)]
-pub struct DependencyKey(String);
-
-impl DependencyKey {
-    pub fn new(key: Key) -> Self {
-        DependencyKey(format!("-R/{}", key.encode()))
-    }
-
-    pub fn from_dir_key(key: &Key) -> Self {
-        DependencyKey(format!("-R-dir/{}", key.encode()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&Key> for DependencyKey {
-    fn from(key: &Key) -> Self {
-        Self::new(key.clone())
-    }
-}
-
-impl TryFrom<&DependencyKey> for Key {
-    type Error = Error;
-
-    fn try_from(value: &DependencyKey) -> Result<Self, Self::Error> {
-        if let Some(key) = value.as_str().strip_prefix("-R/") {
-            parse_key(key)
-        } else {
-            Err(Error::not_supported(format!(
-                "DependencyKey '{}' does not represent an asset key",
-                value.as_str()
-            )))
-        }
-    }
-}
-
-impl Display for DependencyKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+// DependencyKey, Version, DependencyRecord are defined in crate::metadata and imported above.
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DependencyRelation {
@@ -1660,7 +1618,7 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
 
                     // Add direct dependency
                     dependencies.insert(PlanDependency::new(
-                        DependencyKey::new(resolved_key.clone()),
+                        DependencyKey::from(&resolved_key),
                         DependencyRelation::StateArgument,
                     ));
 

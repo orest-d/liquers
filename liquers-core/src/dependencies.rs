@@ -1,7 +1,3 @@
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-/// A version is a 128-bit integer that is used to identify the version of an asset.
-pub struct Version(u128);
-
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 
@@ -9,31 +5,6 @@ use crate::error::Error;
 use crate::metadata::Status;
 use crate::query::{Key, Query};
 
-impl Version {
-    pub fn new(version: u128) -> Self {
-        Version(version)
-    }
-
-    /// Creates a new version from bytes.
-    /// Implemented as a hash the bytes using BLAKE3 and convert the first 16 bytes to i128.
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        let hash_obj = blake3::hash(bytes);
-        let hash = hash_obj.as_bytes();
-        let version = u128::from_be_bytes([
-            hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7], hash[8],
-            hash[9], hash[10], hash[11], hash[12], hash[13], hash[14], hash[15],
-        ]);
-
-        Version(version)
-    }
-
-    /// Creates a new version as a timestamp.
-    pub fn from_time_now() -> Self {
-        let now = std::time::SystemTime::now();
-        let duration = now.duration_since(std::time::UNIX_EPOCH).unwrap();
-        Version(duration.as_nanos())
-    }
-}
 
 pub trait Dependency: Display + Clone + PartialEq + Eq + std::hash::Hash + Debug {
     /// Only base dependencies should be used for tracking.
