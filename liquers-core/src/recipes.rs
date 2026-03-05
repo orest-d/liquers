@@ -11,7 +11,7 @@ use crate::{
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
-    plan::{Plan, PlanBuilder},
+    plan::{has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder},
     query::{Key, Query, ResourceName},
 };
 
@@ -339,11 +339,41 @@ pub trait AsyncRecipeProvider<E: Environment>: Send + Sync {
     /// This is a true asset info only if the asset is not available.
     async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
         println!("Getting asset info for recipe at key {}", key);
-        let recipe = self.recipe(key, envref).await?;
+        let recipe = self.recipe(key, envref.clone()).await?;
         let mut asset_info = recipe.get_asset_info()?;
+        match create_plan_with_init_metadata(&recipe, envref).await {
+            Ok(plan) => {
+                asset_info.is_volatile = plan.is_volatile;
+                asset_info.expires = plan.expires;
+                if let Some(error) = plan.error {
+                    asset_info.is_error = true;
+                    asset_info.message = error.message.clone();
+                    asset_info.error_data = Some(error);
+                } else if plan.init_steps.iter().any(|step| step.is_error()) {
+                    asset_info.is_error = true;
+                }
+            }
+            Err(error) => {
+                asset_info.is_error = true;
+                asset_info.message = error.message.clone();
+                asset_info.error_data = Some(error);
+            }
+        }
         asset_info.key = Some(key.clone());
         Ok(asset_info)
     }
+}
+
+async fn create_plan_with_init_metadata<E: Environment>(
+    recipe: &Recipe,
+    envref: EnvRef<E>,
+) -> Result<Plan, Error> {
+    let mut plan = recipe.to_plan(envref.get_command_metadata_registry())?;
+    let _ = has_volatile_dependencies(envref.clone(), &mut plan).await;
+    if plan.error.is_none() {
+        let _ = has_expirable_dependencies(envref, &mut plan).await;
+    }
+    Ok(plan)
 }
 
 pub struct TrivialRecipeProvider;
@@ -435,8 +465,8 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
                 Error::general_error(format!("No recipe found for key {} (recipe plan)", key))
                     .with_key(key),
             )?;
-            recipe
-                .to_plan(envref.get_command_metadata_registry())
+            create_plan_with_init_metadata(recipe, envref)
+                .await
                 .map_err(|e| e.with_key(key))
         } else {
             return Err(

@@ -17,6 +17,7 @@ use crate::command_metadata::{
 use crate::context::{EnvRef, Environment};
 use crate::error::{Error, ErrorType};
 use crate::expiration::Expires;
+use crate::parse::parse_key;
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
     ResourceQuerySegment,
@@ -920,7 +921,7 @@ impl<'c> PlanBuilder<'c> {
     fn mark_volatile(&mut self, reason: &str) {
         if !self.is_volatile {
             self.is_volatile = true;
-            self.plan.steps.push(Step::Info(reason.to_string()));
+            self.plan.init_info(reason.to_string());
         }
     }
 
@@ -938,10 +939,10 @@ impl<'c> PlanBuilder<'c> {
         let previous = self.expires.clone();
         self.expires |= command_expires.clone();
         if self.expires != previous {
-            self.plan.steps.push(Step::Info(format!(
+            self.plan.init_info(format!(
                 "Plan expiration updated: '{}' | '{}' -> '{}'",
                 previous, command_expires, self.expires
-            )));
+            ));
         }
         if self.expires.is_volatile() {
             self.is_volatile = true;
@@ -1041,19 +1042,19 @@ impl<'c> PlanBuilder<'c> {
     fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), Error> {
         if let Some(header) = &rqs.header {
             if !header.name.is_empty() {
-                self.plan.steps.push(Step::Warning(format!(
+                self.plan.init_warning(format!(
                     "Resource header name is ignored: '{}'",
                     header.name
-                )));
+                ));
             }
             if header.parameters.is_empty() {
                 self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
             } else {
                 if header.parameters.len() > 1 {
-                    self.plan.steps.push(Step::Warning(format!(
+                    self.plan.init_warning(format!(
                         "Resource header has too many parameters: {}, extra parameters are ignored",
                         header.parameters.len()
-                    )));
+                    ));
                 }
 
                 match header.parameters.first().unwrap().value.as_str() {
@@ -1123,7 +1124,8 @@ impl<'c> PlanBuilder<'c> {
         let command_metadata = self.get_command_metadata(query, action_request)?;
 
         // Check if command is volatile
-        let command_key = CommandKey::new( // TODO: There should be a convinience method to create CommandKey from CommandMetadata
+        let command_key = CommandKey::new(
+            // TODO: There should be a convinience method to create CommandKey from CommandMetadata
             &command_metadata.realm,
             &command_metadata.namespace,
             &command_metadata.name,
@@ -1166,10 +1168,9 @@ impl<'c> PlanBuilder<'c> {
                 head_parameters,
             } => {
                 let original_key = command_metadata.key();
-                self.plan.steps.push(Step::Info(format!(
-                    "Alias command {} to {}",
-                    original_key, &command
-                )));
+                self.plan
+                    .steps
+                    .push(Step::Info(format!("Alias command {} to {}", original_key, &command)));
 
                 // Resolve parameters first
                 let parameters = ResolvedParameterValues::from_action_extended(
@@ -1349,6 +1350,12 @@ impl<'c> PlanBuilder<'c> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Plan {
     pub query: Query,
+
+    /// Diagnostics produced during planning/analysis, before execution.
+    /// Contains only Step::Info/Step::Warning/Step::Error.
+    #[serde(default)]
+    pub init_steps: Vec<Step>,
+
     pub steps: Vec<Step>,
 
     /// If true, this plan produces volatile results.
@@ -1360,6 +1367,14 @@ pub struct Plan {
     /// This is a first-pass estimate; authoritative expiration is computed at finalization.
     #[serde(default)]
     pub expires: Expires,
+
+    /// Error discovered during plan creation/analysis (e.g. cyclic dependency).
+    #[serde(default)]
+    pub error: Option<Error>,
+
+    /// Dependencies discovered during plan analysis.
+    #[serde(default)]
+    pub dependencies: Vec<PlanDependency>,
 }
 
 impl Default for Plan {
@@ -1372,9 +1387,12 @@ impl Plan {
     pub fn new() -> Self {
         Plan {
             query: Query::new(),
+            init_steps: Vec::new(),
             steps: Vec::new(),
             is_volatile: false,
             expires: Expires::Never,
+            error: None,
+            dependencies: Vec::new(),
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1390,10 +1408,12 @@ impl Plan {
         self.steps.push(Step::Error(message));
     }
     pub fn has_error(&self) -> bool {
-        self.steps.iter().any(|x| x.is_error())
+        self.error.is_some()
+            || self.init_steps.iter().any(|x| x.is_error())
+            || self.steps.iter().any(|x| x.is_error())
     }
     pub fn has_warning(&self) -> bool {
-        self.steps.iter().any(|x| x.is_warning())
+        self.init_steps.iter().any(|x| x.is_warning()) || self.steps.iter().any(|x| x.is_warning())
     }
     pub fn len(&self) -> usize {
         self.steps.len()
@@ -1402,6 +1422,25 @@ impl Plan {
     /// Set the volatile flag (called during plan building)
     pub fn set_volatile(&mut self, is_volatile: bool) {
         self.is_volatile = is_volatile;
+    }
+
+    pub fn init_info(&mut self, message: String) {
+        self.init_steps.push(Step::Info(message));
+    }
+
+    pub fn init_warning(&mut self, message: String) {
+        self.init_steps.push(Step::Warning(message));
+    }
+
+    pub fn init_error(&mut self, message: String) {
+        self.init_steps.push(Step::Error(message));
+    }
+
+    pub fn set_error(&mut self, error: Error) {
+        if self.error.is_none() {
+            self.error = Some(error.clone());
+        }
+        self.init_error(error.to_string());
     }
     /// Find index of the last action in the plan
     fn last_action_index(&self) -> Option<usize> {
@@ -1469,10 +1508,20 @@ impl Plan {
         }
         let mut first_plan = Plan::new();
         first_plan.query = self.query.clone();
+        first_plan.init_steps = self.init_steps.clone();
         first_plan.steps = self.steps[..split_index].to_vec();
+        first_plan.is_volatile = self.is_volatile;
+        first_plan.expires = self.expires.clone();
+        first_plan.error = self.error.clone();
+        first_plan.dependencies = self.dependencies.clone();
         let mut second_plan = Plan::new();
         second_plan.query = self.query.clone();
+        second_plan.init_steps = self.init_steps.clone();
         second_plan.steps = self.steps[split_index..].to_vec();
+        second_plan.is_volatile = self.is_volatile;
+        second_plan.expires = self.expires.clone();
+        second_plan.error = self.error.clone();
+        second_plan.dependencies = self.dependencies.clone();
         (first_plan, second_plan)
     }
 }
@@ -1481,6 +1530,77 @@ impl Index<usize> for Plan {
     type Output = Step;
     fn index(&self, index: usize) -> &Self::Output {
         &self.steps[index]
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct DependencyKey(String);
+
+impl DependencyKey {
+    pub fn new(key: Key) -> Self {
+        DependencyKey(format!("-R/{}", key.encode()))
+    }
+
+    pub fn from_dir_key(key: &Key) -> Self {
+        DependencyKey(format!("-R-dir/{}", key.encode()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&Key> for DependencyKey {
+    fn from(key: &Key) -> Self {
+        Self::new(key.clone())
+    }
+}
+
+impl TryFrom<&DependencyKey> for Key {
+    type Error = Error;
+
+    fn try_from(value: &DependencyKey) -> Result<Self, Self::Error> {
+        if let Some(key) = value.as_str().strip_prefix("-R/") {
+            parse_key(key)
+        } else {
+            Err(Error::not_supported(format!(
+                "DependencyKey '{}' does not represent an asset key",
+                value.as_str()
+            )))
+        }
+    }
+}
+
+impl Display for DependencyKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DependencyRelation {
+    StateArgument,
+    ParameterLink(String),
+    DefaultLink(String),
+    RecipeLink(String),
+    OverrideLink(String),
+    EnumLink(String),
+    ContextEvaluate(String),
+    CommandMetadata,
+    CommandImplementation,
+    Recipe,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlanDependency {
+    pub key: DependencyKey,
+    pub relation: DependencyRelation,
+}
+
+impl PlanDependency {
+    pub fn new(key: DependencyKey, relation: DependencyRelation) -> Self {
+        Self { key, relation }
     }
 }
 
@@ -1512,18 +1632,19 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
     plan: &'a Plan,
     stack: &'a mut Vec<Key>,
     cwd: Option<Key>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<HashSet<Key>, Error>> + Send + 'a>> {
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Vec<PlanDependency>, Error>> + Send + 'a>,
+> {
     Box::pin(async move {
         let mut dependencies = HashSet::new();
         let mut current_cwd = cwd;
 
         for step in &plan.steps {
             match step {
-                Step::GetAsset(key) => {
+                Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
                     // Resolve key relative to cwd if needed
-                    let resolved_key = if current_cwd.is_some() {
-                        // TODO: Implement key.resolve_relative(cwd) or similar
-                        key.clone() // For now, use key as-is
+                    let resolved_key = if let Some(cwd_key) = &current_cwd {
+                        key.to_absolute(cwd_key)
                     } else {
                         key.clone()
                     };
@@ -1537,44 +1658,41 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         .with_key(&resolved_key));
                     }
 
-                    // Add to dependencies
-                    dependencies.insert(resolved_key.clone());
+                    // Add direct dependency
+                    dependencies.insert(PlanDependency::new(
+                        DependencyKey::new(resolved_key.clone()),
+                        DependencyRelation::StateArgument,
+                    ));
 
-                    // Push onto stack
+                    // Push onto stack and recursively traverse only for cycle detection
                     stack.push(resolved_key.clone());
-
-                    // Get recipe for this key (if it exists)
                     if let Ok(Some(recipe)) = envref
                         .get_recipe_provider()
                         .recipe_opt(&resolved_key, envref.clone())
                         .await
                     {
-                        // Recursively find dependencies of this recipe
                         if !recipe.query.is_empty() {
                             if let Ok(recipe_query) = recipe.get_query() {
-                                // Build plan from recipe query
                                 let cmr = envref.get_command_metadata_registry();
                                 let mut pb = PlanBuilder::new(recipe_query, cmr);
                                 let recipe_plan = pb.build()?;
-                                let indirect_deps = find_dependencies(
+                                // Indirect dependencies are handled later by dependency tracking.
+                                let _ = find_dependencies(
                                     envref.clone(),
                                     &recipe_plan,
                                     stack,
                                     current_cwd.clone(),
                                 )
                                 .await?;
-                                dependencies.extend(indirect_deps);
                             }
                         }
                     }
-
-                    // Pop from stack
                     stack.pop();
                 }
-                Step::GetAssetBinary(key) => {
-                    // Same as GetAsset - creates dependency
-                    let resolved_key = if current_cwd.is_some() {
-                        key.clone()
+                Step::GetAssetDirectory(key) => {
+                    // Directory listing depends on key, but we currently do not recurse through recipe.
+                    let resolved_key = if let Some(cwd_key) = &current_cwd {
+                        key.to_absolute(cwd_key)
                     } else {
                         key.clone()
                     };
@@ -1587,51 +1705,10 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         .with_key(&resolved_key));
                     }
 
-                    dependencies.insert(resolved_key.clone());
-
-                    stack.push(resolved_key.clone());
-
-                    if let Ok(Some(recipe)) = envref
-                        .get_recipe_provider()
-                        .recipe_opt(&resolved_key, envref.clone())
-                        .await
-                    {
-                        if !recipe.query.is_empty() {
-                            if let Ok(recipe_query) = recipe.get_query() {
-                                let cmr = envref.get_command_metadata_registry();
-                                let mut pb = PlanBuilder::new(recipe_query, cmr);
-                                let recipe_plan = pb.build()?;
-                                let indirect_deps = find_dependencies(
-                                    envref.clone(),
-                                    &recipe_plan,
-                                    stack,
-                                    current_cwd.clone(),
-                                )
-                                .await?;
-                                dependencies.extend(indirect_deps);
-                            }
-                        }
-                    }
-
-                    stack.pop();
-                }
-                Step::GetAssetMetadata(key) | Step::GetAssetDirectory(key) => {
-                    // Similar to GetAsset, creates dependency
-                    let resolved_key = if current_cwd.is_some() {
-                        key.clone()
-                    } else {
-                        key.clone()
-                    };
-
-                    if stack.contains(&resolved_key) {
-                        return Err(Error::general_error(format!(
-                            "Circular dependency detected: key {:?} appears in dependency chain",
-                            resolved_key
-                        ))
-                        .with_key(&resolved_key));
-                    }
-
-                    dependencies.insert(resolved_key);
+                    dependencies.insert(PlanDependency::new(
+                        DependencyKey::from_dir_key(&resolved_key),
+                        DependencyRelation::StateArgument,
+                    ));
                 }
                 Step::UseKeyValue(_key) => {
                     // Does NOT create dependency - just creates a value with the key
@@ -1651,7 +1728,11 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                 }
                 Step::SetCwd(key) => {
                     // Update current working directory for subsequent relative key resolution
-                    current_cwd = Some(key.clone());
+                    current_cwd = Some(if let Some(cwd_key) = &current_cwd {
+                        key.to_absolute(cwd_key)
+                    } else {
+                        key.clone()
+                    });
                     // Does not create dependency on its own
                 }
                 Step::Evaluate(query) | Step::UseQueryValue(query) => {
@@ -1667,17 +1748,18 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                     let cmr = envref.get_command_metadata_registry();
                     let mut pb = PlanBuilder::new(resolved_query, cmr);
                     let eval_plan = pb.build()?;
-                    let query_deps =
+                    // Traverse recursively only to detect cycles.
+                    // Indirect dependencies are handled later by dependency tracking.
+                    let _ =
                         find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone())
                             .await?;
-                    dependencies.extend(query_deps);
                 }
                 Step::Plan(nested_plan) => {
-                    // Find dependencies of nested plan
-                    let nested_deps =
+                    // Traverse nested plan only to detect cycles.
+                    // Indirect dependencies are handled later by dependency tracking.
+                    let _ =
                         find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone())
                             .await?;
-                    dependencies.extend(nested_deps);
                 }
                 Step::Action { .. } => {
                     // No dependencies
@@ -1694,8 +1776,19 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
             }
         }
 
+        let mut dependencies: Vec<PlanDependency> = dependencies.into_iter().collect();
+        dependencies.sort_by(|a, b| {
+            a.key
+                .as_str()
+                .cmp(b.key.as_str())
+                .then_with(|| format!("{:?}", a.relation).cmp(&format!("{:?}", b.relation)))
+        });
         Ok(dependencies)
     })
+}
+
+fn dependency_check_error(plan: &mut Plan, error: &Error) {
+    plan.set_error(error.clone());
 }
 
 /// Check if plan has volatile dependencies (Phase 2 check)
@@ -1710,11 +1803,33 @@ pub(crate) async fn has_volatile_dependencies<E: Environment>(
     }
 
     // Find all dependencies (no initial cwd)
-    let mut stack = Vec::new();
-    let dependencies = find_dependencies(envref.clone(), plan, &mut stack, None).await?;
+    let dependencies = if plan.dependencies.is_empty() {
+        let mut stack = Vec::new();
+        match find_dependencies(envref.clone(), plan, &mut stack, None).await {
+            Ok(dependencies) => {
+                plan.dependencies = dependencies.clone();
+                for dep in &dependencies {
+                    plan.init_info(format!(
+                        "Dependency detected: {} ({:?})",
+                        dep.key, dep.relation
+                    ));
+                }
+                dependencies
+            }
+            Err(error) => {
+                dependency_check_error(plan, &error);
+                return Err(error);
+            }
+        }
+    } else {
+        plan.dependencies.clone()
+    };
 
     // Check each dependency key for volatility
-    for key in dependencies {
+    for dependency in dependencies {
+        let Ok(key) = Key::try_from(&dependency.key) else {
+            continue;
+        };
         if let Ok(Some(recipe)) = envref
             .get_recipe_provider()
             .recipe_opt(&key, envref.clone())
@@ -1722,10 +1837,10 @@ pub(crate) async fn has_volatile_dependencies<E: Environment>(
         {
             if recipe.volatile {
                 plan.is_volatile = true;
-                plan.steps.push(Step::Info(format!(
+                plan.init_info(format!(
                     "Volatile due to dependency on volatile key: {:?}",
                     key
-                )));
+                ));
                 return Ok(true);
             }
         }
@@ -1742,11 +1857,33 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
 ) -> Result<(), Error> {
-    let mut stack = Vec::new();
-    let dependencies = find_dependencies(envref.clone(), plan, &mut stack, None).await?;
+    let dependencies = if plan.dependencies.is_empty() {
+        let mut stack = Vec::new();
+        match find_dependencies(envref.clone(), plan, &mut stack, None).await {
+            Ok(dependencies) => {
+                plan.dependencies = dependencies.clone();
+                for dep in &dependencies {
+                    plan.init_info(format!(
+                        "Dependency detected: {} ({:?})",
+                        dep.key, dep.relation
+                    ));
+                }
+                dependencies
+            }
+            Err(error) => {
+                dependency_check_error(plan, &error);
+                return Err(error);
+            }
+        }
+    } else {
+        plan.dependencies.clone()
+    };
     let mut changed = false;
 
-    for key in dependencies {
+    for dependency in dependencies {
+        let Ok(key) = Key::try_from(&dependency.key) else {
+            continue;
+        };
         // Check if recipe has expiration specification
         if let Ok(Some(recipe)) = envref
             .get_recipe_provider()
@@ -1756,10 +1893,10 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
             let previous = plan.expires.clone();
             plan.expires |= recipe.expires.clone();
             if plan.expires != previous {
-                plan.steps.push(Step::Info(format!(
+                plan.init_info(format!(
                     "Expiration combined with dependency {:?}: '{}' | '{}' -> '{}'",
                     key, previous, recipe.expires, plan.expires
-                )));
+                ));
                 changed = true;
             }
         }
@@ -1769,9 +1906,9 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
     if changed && plan.expires.is_volatile() {
         if !plan.is_volatile {
             plan.is_volatile = true;
-            plan.steps.push(Step::Info(
+            plan.init_info(
                 "Volatile: dependency combination includes Immediately expiration".to_string(),
-            ));
+            );
         }
     }
 
@@ -2066,6 +2203,7 @@ mod tests {
         // Plan with no actions: should return 0
         let plan = Plan {
             query: Default::default(),
+            init_steps: vec![],
             steps: vec![
                 Step::Info("info".to_string()),
                 Step::Warning("warn".to_string()),
@@ -2073,6 +2211,8 @@ mod tests {
             ],
             is_volatile: false,
             expires: crate::expiration::Expires::Never,
+            error: None,
+            dependencies: vec![],
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2082,6 +2222,7 @@ mod tests {
         // Plan with one action at the start
         let plan = Plan {
             query: Default::default(),
+            init_steps: vec![],
             steps: vec![
                 Step::Action {
                     realm: "r".to_string(),
@@ -2094,6 +2235,8 @@ mod tests {
             ],
             is_volatile: false,
             expires: crate::expiration::Expires::Never,
+            error: None,
+            dependencies: vec![],
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2103,6 +2246,7 @@ mod tests {
         // Plan with context modifiers before and after an action
         let plan = Plan {
             query: Default::default(),
+            init_steps: vec![],
             steps: vec![
                 Step::Info("info".to_string()),
                 Step::SetCwd(Key::new()),
@@ -2118,6 +2262,8 @@ mod tests {
             ],
             is_volatile: false,
             expires: crate::expiration::Expires::Never,
+            error: None,
+            dependencies: vec![],
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2127,6 +2273,7 @@ mod tests {
         // Plan with a non-context-modifier before the action
         let plan = Plan {
             query: Default::default(),
+            init_steps: vec![],
             steps: vec![
                 Step::GetAsset(Key::new()),
                 Step::Info("info1".to_string()),
@@ -2141,6 +2288,8 @@ mod tests {
             ],
             is_volatile: false,
             expires: crate::expiration::Expires::Never,
+            error: None,
+            dependencies: vec![],
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -2154,6 +2303,7 @@ mod tests {
         println!("### Testing plan with two actions");
         let plan = Plan {
             query: Default::default(),
+            init_steps: vec![],
             steps: vec![
                 Step::GetAsset(Key::new()),
                 Step::Action {
@@ -2174,6 +2324,8 @@ mod tests {
             ],
             is_volatile: false,
             expires: crate::expiration::Expires::Never,
+            error: None,
+            dependencies: vec![],
         };
         assert_eq!(plan.split_index(), 2);
         let (p1, p2) = plan.split();
@@ -2185,9 +2337,12 @@ mod tests {
 
         let plan = Plan {
             query: Default::default(),
+            init_steps: vec![],
             steps: vec![Step::Evaluate(Default::default())],
             is_volatile: false,
             expires: crate::expiration::Expires::Never,
+            error: None,
+            dependencies: vec![],
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -2303,24 +2458,24 @@ mod tests {
 
         // Initially not volatile
         assert!(!builder.is_volatile);
-        assert_eq!(builder.plan.steps.len(), 0);
+        assert_eq!(builder.plan.init_steps.len(), 0);
 
         // Mark as volatile
         builder.mark_volatile("Test reason");
 
         // Should be volatile now
         assert!(builder.is_volatile);
-        assert_eq!(builder.plan.steps.len(), 1);
+        assert_eq!(builder.plan.init_steps.len(), 1);
 
         // Verify Step::Info was added
-        match &builder.plan.steps[0] {
+        match &builder.plan.init_steps[0] {
             Step::Info(msg) => assert_eq!(msg, "Test reason"),
             _ => panic!("Expected Step::Info"),
         }
 
         // Calling again should not add another Step::Info (idempotency)
         builder.mark_volatile("Another reason");
-        assert_eq!(builder.plan.steps.len(), 1);
+        assert_eq!(builder.plan.init_steps.len(), 1);
     }
 
     #[test]
@@ -2382,7 +2537,7 @@ mod tests {
         assert!(plan.is_volatile);
 
         // Should have Step::Info explaining why
-        assert!(plan.steps.iter().any(|step| {
+        assert!(plan.init_steps.iter().any(|step| {
             matches!(step, Step::Info(msg) if msg.contains("Volatile due to instruction 'v'"))
         }));
     }
@@ -2419,7 +2574,7 @@ mod tests {
         assert!(plan.is_volatile);
 
         // Should have Step::Info explaining why
-        assert!(plan.steps.iter().any(|step| {
+        assert!(plan.init_steps.iter().any(|step| {
             matches!(step, Step::Info(msg) if msg.contains("Volatile due to command"))
         }));
     }
@@ -2455,7 +2610,7 @@ mod tests {
         assert!(plan.is_volatile);
 
         // Should have Step::Info explaining why
-        assert!(plan.steps.iter().any(|step| {
+        assert!(plan.init_steps.iter().any(|step| {
             matches!(step, Step::Info(msg) if msg.contains("Volatile due to link parameter"))
         }));
     }
