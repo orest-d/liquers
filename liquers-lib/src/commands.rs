@@ -207,7 +207,7 @@ pub fn commands_doc<E: Environment>(
 
 /// Look up and return the CommandMetadata for the named command as JSON text.
 #[liquers_macro::command_version]
-pub fn dep_command_metadata<E: Environment>(
+pub fn command_metadata<E: Environment>(
     _state: &State<E::Value>,
     realm: String,
     namespace: String,
@@ -229,7 +229,7 @@ pub fn dep_command_metadata<E: Environment>(
 /// In practice identical to command_metadata — the two commands exist to provide
 /// distinct DependencyKey paths (metadata vs implementation).
 #[liquers_macro::command_version]
-pub fn dep_command_implementation<E: Environment>(
+pub fn command_implementation<E: Environment>(
     _state: &State<E::Value>,
     realm: String,
     namespace: String,
@@ -280,7 +280,7 @@ macro_rules! register_core_commands {
         version: auto
         )?;
         register_command!($cr,
-            fn dep_command_metadata(state, realm: String = "", namespace: String = "", name: String, context) -> result
+            fn command_metadata(state, realm: String = "", namespace: String = "", name: String, context) -> result
             namespace: "dep"
             label: "Command Metadata"
             doc: "Returns the CommandMetadata for the named command"
@@ -289,7 +289,7 @@ macro_rules! register_core_commands {
         version: auto
         )?;
         register_command!($cr,
-            fn dep_command_implementation(state, realm: String = "", namespace: String = "", name: String, context) -> result
+            fn command_implementation(state, realm: String = "", namespace: String = "", name: String, context) -> result
             namespace: "dep"
             label: "Command Implementation Version"
             doc: "Returns the impl_version from the registered CommandMetadata"
