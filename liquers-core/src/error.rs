@@ -1,6 +1,7 @@
 use itertools::Itertools;
 
 use crate::command_metadata::CommandKey;
+use crate::metadata::DependencyKey;
 use crate::query::ActionRequest;
 use crate::query::Key;
 use crate::query::Position;
@@ -29,6 +30,8 @@ pub enum ErrorType {
     KeyWriteError,
     UnexpectedError,
     ExecutionError,
+    DependencyVersionMismatch,
+    DependencyCycle,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -308,6 +311,39 @@ impl Error {
             position: Position::unknown(),
             query: None,
             key: None,
+            command_key: None,
+        }
+    }
+
+    pub fn dependency_version_mismatch(dep_key: &DependencyKey, msg: impl Into<String>) -> Self {
+        let store_key = Key::try_from(dep_key).ok();
+        let key_str = store_key.as_ref().map(|k| k.encode());
+        Error {
+            error_type: ErrorType::DependencyVersionMismatch,
+            message: format!(
+                "Dependency version mismatch for '{}': {}",
+                dep_key.as_str(),
+                msg.into()
+            ),
+            position: Position::unknown(),
+            query: key_str.clone(),
+            key: key_str,
+            command_key: None,
+        }
+    }
+
+    pub fn dependency_cycle(dep_key: &DependencyKey) -> Self {
+        let store_key = Key::try_from(dep_key).ok();
+        let key_str = store_key.as_ref().map(|k| k.encode());
+        Error {
+            error_type: ErrorType::DependencyCycle,
+            message: format!(
+                "Dependency cycle detected involving '{}'",
+                dep_key.as_str()
+            ),
+            position: Position::unknown(),
+            query: key_str.clone(),
+            key: key_str,
             command_key: None,
         }
     }

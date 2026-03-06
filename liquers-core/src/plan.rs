@@ -15,9 +15,10 @@ use crate::command_metadata::{
     CommandParameterValue, EnumArgumentType,
 };
 use crate::context::{EnvRef, Environment};
+use crate::dependencies::{DependencyRelation, PlanDependency};
 use crate::error::{Error, ErrorType};
 use crate::expiration::Expires;
-use crate::metadata::DependencyKey;
+use crate::metadata::{DependencyKey, Metadata, MetadataRecord, Status};
 use crate::parse::parse_key;
 use crate::query::{
     ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
@@ -1443,6 +1444,90 @@ impl Plan {
         }
         self.init_error(error.to_string());
     }
+
+    /// Create a `MetadataRecord` from plan fields (excluding `steps`).
+    /// Status is set to `Status::Submitted`. Init steps with Info/Warning/Error
+    /// are added to the metadata log. Plan dependencies are NOT copied
+    /// (those are `PlanDependency`, not `DependencyRecord`).
+    pub fn to_metadata_record(&self) -> MetadataRecord {
+        let mut mr = MetadataRecord::new();
+        mr.status = Status::Submitted;
+        mr.query = self.query.clone();
+        mr.is_volatile = self.is_volatile;
+        mr.expires = self.expires.clone();
+        if let Some(error) = &self.error {
+            mr.with_error(error.clone());
+        }
+        for step in &self.init_steps {
+            match step {
+                Step::Info(msg) => {
+                    mr.info(msg);
+                }
+                Step::Warning(msg) => {
+                    mr.warning(msg);
+                }
+                Step::Error(msg) => {
+                    mr.error(msg);
+                }
+                Step::GetAsset(_)
+                | Step::GetAssetBinary(_)
+                | Step::GetAssetMetadata(_)
+                | Step::GetAssetRecipe(_)
+                | Step::GetAssetDirectory(_)
+                | Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_)
+                | Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::Action { .. }
+                | Step::Filename(_)
+                | Step::Plan(_)
+                | Step::SetCwd(_)
+                | Step::UseKeyValue(_) => {}
+            }
+        }
+        mr
+    }
+
+    /// Update an existing `MetadataRecord` from plan fields.
+    /// Appends log entries rather than replacing.
+    pub fn update_metadata_record(&self, mr: &mut MetadataRecord) {
+        mr.query = self.query.clone();
+        mr.is_volatile = self.is_volatile;
+        mr.expires = self.expires.clone();
+        if let Some(error) = &self.error {
+            mr.with_error(error.clone());
+        }
+        for step in &self.init_steps {
+            match step {
+                Step::Info(msg) => {
+                    mr.info(msg);
+                }
+                Step::Warning(msg) => {
+                    mr.warning(msg);
+                }
+                Step::Error(msg) => {
+                    mr.error(msg);
+                }
+                Step::GetAsset(_)
+                | Step::GetAssetBinary(_)
+                | Step::GetAssetMetadata(_)
+                | Step::GetAssetRecipe(_)
+                | Step::GetAssetDirectory(_)
+                | Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_)
+                | Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::Action { .. }
+                | Step::Filename(_)
+                | Step::Plan(_)
+                | Step::SetCwd(_)
+                | Step::UseKeyValue(_) => {}
+            }
+        }
+    }
+
     /// Find index of the last action in the plan
     fn last_action_index(&self) -> Option<usize> {
         for (i, s) in self.steps.iter().enumerate().rev() {
@@ -1534,33 +1619,27 @@ impl Index<usize> for Plan {
     }
 }
 
-// DependencyKey, Version, DependencyRecord are defined in crate::metadata and imported above.
+// Plan-to-metadata helpers on Metadata (kept here to avoid metadata.rs → plan.rs import)
+impl Metadata {
+    /// Create a `Metadata::MetadataRecord` from a `Plan`.
+    pub fn from_plan(plan: &Plan) -> Self {
+        Metadata::MetadataRecord(plan.to_metadata_record())
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DependencyRelation {
-    StateArgument,
-    ParameterLink(String),
-    DefaultLink(String),
-    RecipeLink(String),
-    OverrideLink(String),
-    EnumLink(String),
-    ContextEvaluate(String),
-    CommandMetadata,
-    CommandImplementation,
-    Recipe,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PlanDependency {
-    pub key: DependencyKey,
-    pub relation: DependencyRelation,
-}
-
-impl PlanDependency {
-    pub fn new(key: DependencyKey, relation: DependencyRelation) -> Self {
-        Self { key, relation }
+    /// Update an existing `Metadata` from a `Plan`.
+    /// For `LegacyMetadata`, replaces with a fresh record derived from the plan.
+    pub fn update_from_plan(&mut self, plan: &Plan) {
+        match self {
+            Metadata::MetadataRecord(mr) => plan.update_metadata_record(mr),
+            Metadata::LegacyMetadata(_) => {
+                *self = Metadata::from_plan(plan);
+            }
+        }
     }
 }
+
+// DependencyKey, Version, DependencyRecord are defined in crate::metadata.
+// DependencyRelation, PlanDependency are defined in crate::dependencies.
 
 /// Helper function: Find all asset dependencies of a plan (direct and indirect)
 /// Returns Error with specific key if circular dependency detected
@@ -1629,6 +1708,12 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         .recipe_opt(&resolved_key, envref.clone())
                         .await
                     {
+                        // Add Recipe dependency when recipe is found
+                        dependencies.insert(PlanDependency::new(
+                            DependencyKey::from_recipe_key(&resolved_key),
+                            DependencyRelation::Recipe,
+                        ));
+
                         if !recipe.query.is_empty() {
                             if let Ok(recipe_query) = recipe.get_query() {
                                 let cmr = envref.get_command_metadata_registry();
@@ -1672,9 +1757,25 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                     // Does NOT create dependency - just creates a value with the key
                     // No attempt to fetch the resource is made
                 }
-                Step::GetAssetRecipe(_key) => {
-                    // Does NOT create circular dependency risk
-                    // Recipe is a leaf in the dependency tree, has no further dependencies
+                Step::GetAssetRecipe(key) => {
+                    let resolved_key = if let Some(cwd_key) = &current_cwd {
+                        key.to_absolute(cwd_key)
+                    } else {
+                        key.clone()
+                    };
+
+                    if stack.contains(&resolved_key) {
+                        return Err(Error::general_error(format!(
+                            "Circular dependency detected: key {:?} appears in dependency chain",
+                            resolved_key
+                        ))
+                        .with_key(&resolved_key));
+                    }
+
+                    dependencies.insert(PlanDependency::new(
+                        DependencyKey::from_recipe_key(&resolved_key),
+                        DependencyRelation::Recipe,
+                    ));
                 }
                 Step::GetResource(_key) => {
                     // Ambiguous: fetches directly from store, bypassing dependency controls
@@ -1706,21 +1807,101 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                     let cmr = envref.get_command_metadata_registry();
                     let mut pb = PlanBuilder::new(resolved_query, cmr);
                     let eval_plan = pb.build()?;
-                    // Traverse recursively only to detect cycles.
-                    // Indirect dependencies are handled later by dependency tracking.
-                    let _ =
+                    let sub_deps =
                         find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone())
                             .await?;
+                    for dep in sub_deps {
+                        // Promote keyed (Key-convertible) deps as StateArgument
+                        if Key::try_from(&dep.key).is_ok() {
+                            dependencies.insert(PlanDependency::new(
+                                dep.key,
+                                DependencyRelation::StateArgument,
+                            ));
+                        } else {
+                            // Non-keyed: command metadata/impl deps are still relevant
+                            dependencies.insert(dep);
+                        }
+                    }
                 }
                 Step::Plan(nested_plan) => {
-                    // Traverse nested plan only to detect cycles.
-                    // Indirect dependencies are handled later by dependency tracking.
-                    let _ =
+                    let sub_deps =
                         find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone())
                             .await?;
+                    for dep in sub_deps {
+                        if Key::try_from(&dep.key).is_ok() {
+                            dependencies.insert(PlanDependency::new(
+                                dep.key,
+                                DependencyRelation::StateArgument,
+                            ));
+                        } else {
+                            dependencies.insert(dep);
+                        }
+                    }
                 }
-                Step::Action { .. } => {
-                    // No dependencies
+                Step::Action {
+                    realm,
+                    ns,
+                    action_name,
+                    parameters,
+                    ..
+                } => {
+                    // Add command metadata and implementation dependencies
+                    let ck = CommandKey::new(realm, ns, action_name);
+                    dependencies.insert(PlanDependency::new(
+                        DependencyKey::for_command_metadata(&ck),
+                        DependencyRelation::CommandMetadata,
+                    ));
+                    dependencies.insert(PlanDependency::new(
+                        DependencyKey::for_command_implementation(&ck),
+                        DependencyRelation::CommandImplementation,
+                    ));
+
+                    // Traverse parameters for link dependencies
+                    fn collect_param_deps(
+                        pv: &ParameterValue,
+                        out: &mut HashSet<PlanDependency>,
+                    ) {
+                        match pv {
+                            ParameterValue::ParameterLink(name, query, _) => {
+                                out.insert(PlanDependency::new(
+                                    DependencyKey::from(query),
+                                    DependencyRelation::ParameterLink(name.clone()),
+                                ));
+                            }
+                            ParameterValue::DefaultLink(name, query) => {
+                                out.insert(PlanDependency::new(
+                                    DependencyKey::from(query),
+                                    DependencyRelation::DefaultLink(name.clone()),
+                                ));
+                            }
+                            ParameterValue::OverrideLink(name, query) => {
+                                out.insert(PlanDependency::new(
+                                    DependencyKey::from(query),
+                                    DependencyRelation::OverrideLink(name.clone()),
+                                ));
+                            }
+                            ParameterValue::EnumLink(name, query, _) => {
+                                out.insert(PlanDependency::new(
+                                    DependencyKey::from(query),
+                                    DependencyRelation::EnumLink(name.clone()),
+                                ));
+                            }
+                            ParameterValue::MultipleParameters(vec) => {
+                                for pv in vec {
+                                    collect_param_deps(pv, out);
+                                }
+                            }
+                            ParameterValue::DefaultValue(_, _)
+                            | ParameterValue::ParameterValue(_, _, _)
+                            | ParameterValue::OverrideValue(_, _)
+                            | ParameterValue::Placeholder(_)
+                            | ParameterValue::Injected(_)
+                            | ParameterValue::None => {}
+                        }
+                    }
+                    for pv in &parameters.0 {
+                        collect_param_deps(pv, &mut dependencies);
+                    }
                 }
                 Step::Info(_) | Step::Warning(_) | Step::Error(_) => {
                     // No dependencies

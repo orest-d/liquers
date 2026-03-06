@@ -884,7 +884,26 @@ impl<E: Environment> AssetRef<E> {
     fn classify_persistence_error(error: &Error) -> PersistenceStatus {
         match error.error_type {
             ErrorType::SerializationError => PersistenceStatus::NonSerializable,
-            _ => PersistenceStatus::NotPersisted,
+            ErrorType::ArgumentMissing
+            | ErrorType::ActionNotRegistered
+            | ErrorType::CommandAlreadyRegistered
+            | ErrorType::ParseError
+            | ErrorType::ParameterError
+            | ErrorType::TooManyParameters
+            | ErrorType::ConversionError
+            | ErrorType::General
+            | ErrorType::CacheNotSupported
+            | ErrorType::UnknownCommand
+            | ErrorType::NotSupported
+            | ErrorType::NotAvailable
+            | ErrorType::KeyNotFound
+            | ErrorType::KeyNotSupported
+            | ErrorType::KeyReadError
+            | ErrorType::KeyWriteError
+            | ErrorType::UnexpectedError
+            | ErrorType::ExecutionError
+            | ErrorType::DependencyVersionMismatch
+            | ErrorType::DependencyCycle => PersistenceStatus::NotPersisted,
         }
     }
 
@@ -2119,6 +2138,10 @@ pub struct DefaultAssetManager<E: Environment> {
     job_queue: Arc<JobQueue<E>>,
     /// Channel to send messages to the expiration monitor task
     monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage<E>>,
+    /// Runtime dependency graph for cascade expiration
+    dependency_manager: crate::dependencies::DependencyManager<E>,
+    /// Maximum retries for DependencyVersionMismatch during evaluation
+    max_dependency_retries: u32,
 }
 
 impl<E: Environment> Default for DefaultAssetManager<E> {
@@ -2139,6 +2162,8 @@ impl<E: Environment> DefaultAssetManager<E> {
             query_assets: scc::HashMap::new(),
             job_queue: job_queue.clone(),
             monitor_tx,
+            dependency_manager: crate::dependencies::DependencyManager::new(),
+            max_dependency_retries: 3,
         };
         tokio::spawn(async move {
             println!("Spawned job queue");
@@ -2330,6 +2355,88 @@ impl<E: Environment> DefaultAssetManager<E> {
         if self.envref.set(envref.clone()).is_err() {
             panic!("Environment already set in AssetStore");
         }
+    }
+
+    /// Access the internal dependency manager (pub(crate) — not public API).
+    pub(crate) fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
+        &self.dependency_manager
+    }
+
+    /// Load command versions into the dependency manager.
+    ///
+    /// Iterates the `CommandMetadataRegistry` and registers `metadata_version`
+    /// and `impl_version` for every command. Idempotent — safe to call multiple times.
+    /// Called from `Environment::to_ref()` after the envref OnceLock is set.
+    pub async fn load_command_versions(&self) {
+        let envref = match self.envref.get() {
+            Some(e) => e,
+            None => return,
+        };
+        let cmr = envref.get_command_metadata_registry();
+        for cmd in &cmr.commands {
+            let ck = cmd.key();
+            if cmd.metadata_version != 0 {
+                self.dependency_manager
+                    .register_version(
+                        &crate::metadata::DependencyKey::for_command_metadata(&ck),
+                        crate::metadata::Version::new(cmd.metadata_version),
+                    )
+                    .await;
+            }
+            if cmd.impl_version != 0 {
+                self.dependency_manager
+                    .register_version(
+                        &crate::metadata::DependencyKey::for_command_implementation(&ck),
+                        crate::metadata::Version::new(cmd.impl_version),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    /// Cascade-expire all dependents of a changed key.
+    ///
+    /// After DM expiration, expire the corresponding keyed and untracked assets.
+    pub(crate) async fn cascade_expire_dependents(
+        &self,
+        dep_key: &crate::metadata::DependencyKey,
+    ) {
+        let expired = self.dependency_manager.expire(dep_key).await;
+        // Expire keyed assets
+        for dk in &expired.keys {
+            if let Ok(k) = Key::try_from(dk) {
+                if let Some(entry) = self.assets.get_async(&k).await {
+                    let ar = entry.get().clone();
+                    drop(entry);
+                    let _ = ar.expire().await;
+                }
+            }
+        }
+        // Expire untracked assets (WeakAssetRef)
+        for weak_ref in &expired.assets {
+            if let Some(ar) = weak_ref.upgrade() {
+                let _ = ar.expire().await;
+            }
+        }
+    }
+
+    /// Register plan dependencies into the dependency manager.
+    pub(crate) async fn register_plan_dependencies(
+        &self,
+        dependent_key: &Key,
+        plan_deps: &[crate::dependencies::PlanDependency],
+    ) -> Result<(), Error> {
+        let dep_key = crate::metadata::DependencyKey::from(dependent_key);
+        for plan_dep in plan_deps {
+            if let Some(ver) = self.dependency_manager.get_version(&plan_dep.key).await {
+                // Ignore errors here — version may have changed since planning
+                let _ = self
+                    .dependency_manager
+                    .add_dependency(&dep_key, &plan_dep.key, ver)
+                    .await;
+            }
+        }
+        Ok(())
     }
 
     /// Remove an expired `AssetRef` from the manager's in-memory maps.
@@ -2728,6 +2835,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let _ = self.assets.remove_async(key).await;
         }
 
+        // 1b. Remove from dependency manager
+        self.dependency_manager
+            .remove(&crate::metadata::DependencyKey::from(key))
+            .await;
+
         // 2. Remove from store
         let store = self.get_envref().get_async_store();
         if store.contains(key).await? {
@@ -2845,7 +2957,14 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         metadata.set_updated_now();
         metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
 
-        // 4. Handle Error status specially - store empty binary with metadata
+        // 4. Compute version from binary content and store in metadata
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        if final_status != Status::Volatile && final_status != Status::Error {
+            let version = crate::metadata::Version::from_bytes(binary);
+            metadata.version = Some(version);
+        }
+
+        // 5. Handle Error status specially - store empty binary with metadata
         let store = self.get_envref().get_async_store();
         if final_status == Status::Error {
             // Store empty binary with error metadata
@@ -2860,6 +2979,17 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     // Note: We can't do async cleanup in map_err, so just return the error
                     e
                 })?;
+        }
+
+        // 6. Register version and cascade expire dependents (non-volatile only)
+        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+            if let Some(version) = metadata.version {
+                let old_version = self.dependency_manager.get_version(&dep_key).await;
+                self.dependency_manager.register_version(&dep_key, version).await;
+                if old_version.is_some() && old_version != Some(version) {
+                    self.cascade_expire_dependents(&dep_key).await;
+                }
+            }
         }
 
         Ok(())
@@ -2963,7 +3093,17 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
 
-        // 4. Create new AssetRef with the state
+        // 4. Compute version for non-volatile states
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        if final_status != Status::Volatile && final_status != Status::Error {
+            let version = match state.as_bytes() {
+                Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                Err(_) => crate::metadata::Version::from_time_now(),
+            };
+            metadata.set_version(Some(version))?;
+        }
+
+        // 5. Create new AssetRef with the state
         let recipe: Recipe = key.into();
         let mut asset_data = AssetData::new_ext(
             self.next_id(),
@@ -2978,28 +3118,41 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
         let asset_ref = asset_data.to_ref();
 
-        // 5. Store in assets map
+        // 6. Store in assets map
         let _ = self
             .assets
             .insert_async(key.clone(), asset_ref.clone())
             .await;
 
-        // 6. Handle Error status specially - store empty binary with metadata
+        // 7. Handle Error status specially - store empty binary with metadata
         let store = self.get_envref().get_async_store();
         if final_status == Status::Error {
             // Store empty binary with error metadata
-            store.set(key, &[], &metadata.into()).await?;
+            store.set(key, &[], &metadata.clone().into()).await?;
         } else {
-            // 7. Try to serialize and store (handle non-serializable gracefully)
+            // 8. Try to serialize and store (handle non-serializable gracefully)
             match state.as_bytes() {
                 Ok(binary) => {
-                    store.set(key, &binary, &metadata.into()).await?;
+                    store.set(key, &binary, &metadata.clone().into()).await?;
                 }
                 Err(_) => {
                     // Non-serializable data - store metadata only
-                    store.set_metadata(key, &metadata.into()).await?;
+                    store.set_metadata(key, &metadata.clone().into()).await?;
                 }
             }
+        }
+
+        // 9. Register version and cascade expire dependents (non-volatile only)
+        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+            if let Some(version) = metadata.version() {
+                let old_version = self.dependency_manager.get_version(&dep_key).await;
+                self.dependency_manager.register_version(&dep_key, version).await;
+                if old_version.is_some() && old_version != Some(version) {
+                    self.cascade_expire_dependents(&dep_key).await;
+                }
+            }
+            // Track the asset in the dependency manager
+            self.dependency_manager.track_asset(&asset_ref).await;
         }
 
         Ok(())

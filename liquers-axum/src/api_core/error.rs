@@ -25,6 +25,8 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
         ErrorType::CacheNotSupported => StatusCode::NOT_IMPLEMENTED,
         ErrorType::NotSupported => StatusCode::NOT_IMPLEMENTED,
         ErrorType::NotAvailable => StatusCode::NOT_FOUND,
+        ErrorType::DependencyVersionMismatch => StatusCode::CONFLICT,
+        ErrorType::DependencyCycle => StatusCode::CONFLICT,
     }
 }
 
@@ -62,6 +64,8 @@ pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
         "CacheNotSupported" => Ok(ErrorType::CacheNotSupported),
         "NotSupported" => Ok(ErrorType::NotSupported),
         "NotAvailable" => Ok(ErrorType::NotAvailable),
+        "DependencyVersionMismatch" => Ok(ErrorType::DependencyVersionMismatch),
+        "DependencyCycle" => Ok(ErrorType::DependencyCycle),
         _ => Err(format!("Unknown error type: {}", type_str)),
     }
 }
@@ -201,6 +205,8 @@ mod tests {
             ErrorType::CacheNotSupported,
             ErrorType::NotSupported,
             ErrorType::NotAvailable,
+            ErrorType::DependencyVersionMismatch,
+            ErrorType::DependencyCycle,
         ];
 
         for error_type in all_types {

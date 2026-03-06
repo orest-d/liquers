@@ -20,7 +20,7 @@ use crate::{
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     error::Error,
-    metadata::{LogEntry, MetadataRecord, ProgressEntry},
+    metadata::{DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version},
     query::{Key, Query, TryToQuery},
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
@@ -165,6 +165,10 @@ pub struct Context<E: Environment> {
     /// If true, this context is evaluating a volatile asset.
     /// Propagates to nested evaluations via context.evaluate()
     is_volatile: bool,
+
+    /// Dependencies discovered during evaluation (via Context::evaluate calls).
+    /// Collected here and written to the asset's metadata after evaluation completes.
+    pending_dependencies: Arc<tokio::sync::Mutex<Vec<DependencyRecord>>>,
 }
 
 impl<E: Environment> Context<E> {
@@ -178,6 +182,7 @@ impl<E: Environment> Context<E> {
             service_tx,
             payload: None,
             is_volatile, // Initialize from parameter
+            pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -191,7 +196,54 @@ impl<E: Environment> Context<E> {
 
     pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
-        envref.get_asset_manager().get_asset(query).await
+        let manager = envref.get_asset_manager();
+
+        // Get current asset's key for cycle detection (if keyed)
+        let current_key_opt = {
+            let lock = self.assetref.data.read().await;
+            lock.recipe.key().ok().flatten()
+        };
+
+        // If current asset has a key, check for dependency cycle
+        if let Some(ref current_key) = current_key_opt {
+            let current_dep_key = DependencyKey::from(current_key);
+            let query_dep_key = DependencyKey::from(query);
+
+            if manager
+                .dependency_manager()
+                .would_create_cycle(&current_dep_key, &query_dep_key)
+                .await
+            {
+                return Err(Error::dependency_cycle(&current_dep_key));
+            }
+        }
+
+        // Perform the evaluation
+        let result = manager.get_asset(query).await?;
+
+        // Record the dependency
+        let query_dep_key = DependencyKey::from(query);
+        let version = manager
+            .dependency_manager()
+            .get_version(&query_dep_key)
+            .await
+            .unwrap_or(Version::new(0));
+
+        // Register as untracked dependent if current asset has a key
+        if current_key_opt.is_some() {
+            manager
+                .dependency_manager()
+                .add_dependent_asset(&query_dep_key, self.assetref.downgrade())
+                .await;
+        }
+
+        // Record in pending_dependencies
+        self.pending_dependencies
+            .lock()
+            .await
+            .push(DependencyRecord::new(query_dep_key, version));
+
+        Ok(result)
     }
 
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
@@ -233,6 +285,7 @@ impl<E: Environment> Context<E> {
             service_tx: self.service_tx.clone(),
             payload: self.payload.clone(),
             is_volatile: volatile || self.is_volatile, // Propagate if parent is volatile
+            pending_dependencies: self.pending_dependencies.clone(),
         }
     }
 
@@ -281,6 +334,7 @@ impl<E: Environment> Context<E> {
             service_tx: self.service_tx.clone(),
             payload: self.payload.clone(),
             is_volatile: self.is_volatile,
+            pending_dependencies: self.pending_dependencies.clone(),
         }
     }
     pub fn get_cwd_key(&self) -> Option<Key> {
@@ -298,6 +352,11 @@ impl<E: Environment> Context<E> {
 
     pub fn get_envref(&self) -> EnvRef<E> {
         self.envref.clone()
+    }
+
+    /// Get the pending dependencies collected during evaluation.
+    pub async fn take_pending_dependencies(&self) -> Vec<DependencyRecord> {
+        std::mem::take(&mut *self.pending_dependencies.lock().await)
     }
 
     pub(crate) async fn set_value(&self, value: E::Value) -> Result<(), Error> {
@@ -328,6 +387,7 @@ impl<E: Environment> Clone for Context<E> {
             service_tx: self.service_tx.clone(),
             payload: self.payload.clone(),
             is_volatile: self.is_volatile,
+            pending_dependencies: self.pending_dependencies.clone(),
         }
     }
 }
@@ -452,6 +512,10 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
+        let am = self.get_asset_manager();
+        tokio::spawn(async move {
+            am.load_command_versions().await;
+        });
     }
 }
 
@@ -569,5 +633,9 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
+        let am = self.get_asset_manager();
+        tokio::spawn(async move {
+            am.load_command_versions().await;
+        });
     }
 }

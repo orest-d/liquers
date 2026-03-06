@@ -24,6 +24,8 @@ pub enum ErrorType {
     KeyWriteError,
     UnexpectedError,
     ExecutionError,
+    DependencyVersionMismatch,
+    DependencyCycle,
 }
 
 impl From<ErrorType> for liquers_core::error::ErrorType {
@@ -50,6 +52,10 @@ impl From<ErrorType> for liquers_core::error::ErrorType {
             ErrorType::KeyWriteError => liquers_core::error::ErrorType::KeyWriteError,
             ErrorType::UnexpectedError => liquers_core::error::ErrorType::UnexpectedError,
             ErrorType::ExecutionError => liquers_core::error::ErrorType::ExecutionError,
+            ErrorType::DependencyVersionMismatch => {
+                liquers_core::error::ErrorType::DependencyVersionMismatch
+            }
+            ErrorType::DependencyCycle => liquers_core::error::ErrorType::DependencyCycle,
         }
     }
 }
@@ -78,6 +84,10 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
             liquers_core::error::ErrorType::KeyWriteError => ErrorType::KeyWriteError,
             liquers_core::error::ErrorType::UnexpectedError => ErrorType::UnexpectedError,
             liquers_core::error::ErrorType::ExecutionError => ErrorType::ExecutionError,
+            liquers_core::error::ErrorType::DependencyVersionMismatch => {
+                ErrorType::DependencyVersionMismatch
+            }
+            liquers_core::error::ErrorType::DependencyCycle => ErrorType::DependencyCycle,
         }
     }
 }

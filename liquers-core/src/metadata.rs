@@ -728,6 +728,11 @@ pub struct MetadataRecord {
     #[serde(default)]
     pub expiration_time: ExpirationTime,
 
+    /// Content-hash version of this asset, computed at save time as `Version::from_bytes(content)`.
+    /// `None` for assets whose version has not been recorded (treated as `Version(0)` = unknown).
+    #[serde(default)]
+    pub version: Option<Version>,
+
     /// Versions of dependencies observed when this asset was last evaluated.
     /// Used by the dependency manager to detect stale dependents on reload.
     /// Absent in older serialized records (defaults to empty).
@@ -1655,6 +1660,33 @@ impl Metadata {
 
             _ => Err(Error::general_error(
                 "Cannot set status on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    /// Get the version from metadata, if available.
+    pub fn version(&self) -> Option<Version> {
+        match self {
+            Metadata::MetadataRecord(m) => m.version,
+            Metadata::LegacyMetadata(_) => None,
+        }
+    }
+
+    /// Set the version in metadata.
+    pub fn set_version(&mut self, version: Option<Version>) -> Result<(), Error> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.version = version;
+                Ok(())
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.version = version;
+                *self = Metadata::MetadataRecord(m);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set version on unsupported legacy metadata".to_string(),
             )),
         }
     }

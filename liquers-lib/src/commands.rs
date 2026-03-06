@@ -205,6 +205,48 @@ pub fn commands_doc<E: Environment>(
     Ok(E::Value::from_string(md))
 }
 
+/// Look up and return the CommandMetadata for the named command as JSON text.
+#[liquers_macro::command_version]
+pub fn dep_command_metadata<E: Environment>(
+    _state: &State<E::Value>,
+    realm: String,
+    namespace: String,
+    name: String,
+    context: Context<E>,
+) -> Result<E::Value, Error> {
+    let ck = liquers_core::command_metadata::CommandKey::new(&realm, &namespace, &name);
+    let envref = context.get_envref();
+    let cmr = envref.get_command_metadata_registry();
+    let cmd_meta = cmr.get(ck.clone()).ok_or_else(|| {
+        Error::general_error(format!("Command not found: {}", ck))
+    })?;
+    let json = serde_json::to_string_pretty(cmd_meta)
+        .map_err(|e| Error::general_error(e.to_string()))?;
+    Ok(E::Value::from_string(json))
+}
+
+/// Look up and return the command implementation version info as JSON text.
+/// In practice identical to command_metadata — the two commands exist to provide
+/// distinct DependencyKey paths (metadata vs implementation).
+#[liquers_macro::command_version]
+pub fn dep_command_implementation<E: Environment>(
+    _state: &State<E::Value>,
+    realm: String,
+    namespace: String,
+    name: String,
+    context: Context<E>,
+) -> Result<E::Value, Error> {
+    let ck = liquers_core::command_metadata::CommandKey::new(&realm, &namespace, &name);
+    let envref = context.get_envref();
+    let cmr = envref.get_command_metadata_registry();
+    let cmd_meta = cmr.get(ck.clone()).ok_or_else(|| {
+        Error::general_error(format!("Command not found: {}", ck))
+    })?;
+    let json = serde_json::to_string_pretty(cmd_meta)
+        .map_err(|e| Error::general_error(e.to_string()))?;
+    Ok(E::Value::from_string(json))
+}
+
 /// Register core commands via macro.
 ///
 /// The caller must define `type CommandEnvironment = ...` in scope before invoking.
@@ -234,6 +276,24 @@ macro_rules! register_core_commands {
             label: "Commands documentation"
             doc: "Generate markdown documentation of registered commands"
             filename: "commands.md"
+
+        version: auto
+        )?;
+        register_command!($cr,
+            fn dep_command_metadata(state, realm: String = "", namespace: String = "", name: String, context) -> result
+            namespace: "dep"
+            label: "Command Metadata"
+            doc: "Returns the CommandMetadata for the named command"
+            filename: "command_metadata.json"
+
+        version: auto
+        )?;
+        register_command!($cr,
+            fn dep_command_implementation(state, realm: String = "", namespace: String = "", name: String, context) -> result
+            namespace: "dep"
+            label: "Command Implementation Version"
+            doc: "Returns the impl_version from the registered CommandMetadata"
+            filename: "command_impl.json"
 
         version: auto
         )?;
