@@ -8,6 +8,7 @@ Status: In Progress
 3. [x] Implement async-native memory/file stores in `liquers-core` with unit tests. (Done on 2026-02-21)
 4. [x] Adopt async-native stores across runtime paths and remove default dependency on `AsyncStoreWrapper`. (Done on 2026-02-28)
 5. [ ] Review binary data shareability across store/value APIs; target `Arc<[u8]>`-compatible return/transport where appropriate.
+6. [ ] Create an environment builder to simplify environment construction (store, recipe provider, commands, dependency manager). See **TECH-DEBT-2** section below.
 
 ## Done vs Remaining (2026-02-28)
 ### Done
@@ -165,3 +166,49 @@ Current status:
 4. Fix compile errors in dependent crates.
 5. Run tests and adjust failing assertions/await boundaries.
 6. Final pass for consistency and formatting.
+
+---
+
+## TECH-DEBT-2: Environment Builder
+
+**Status:** Future / Not Started
+
+### Problem
+Environment construction requires repetitive boilerplate: wiring store, recipe provider, command registry,
+asset manager, and (with Phase 4 dependency management) the dependency manager. Each test, app, and
+integration point hand-rolls the same construction sequence, making setup error-prone and hard to change.
+
+Additionally, `load_command_versions()` is currently called inside `to_ref()` as a temporary workaround —
+it is idempotent but results in implicit, hidden initialization. Dynamic command registration (planned for
+future phases) will need explicit version refresh when commands change.
+
+### Goal
+Create an `EnvironmentBuilder<E>` type (probably in `liquers-core` or `liquers-lib`) that:
+1. Offers a fluent API for store, recipe provider, command registration, and dependency manager configuration.
+2. Produces a fully initialized `E` (or `EnvRef<E>`) in one `.build()` call.
+3. Optionally accepts configuration from YAML/TOML (ties in with `specs/STORE_CONFIG_FSD.md`).
+4. Calls `load_command_versions()` explicitly during build rather than lazily in `to_ref()`.
+
+### Scope
+1. `EnvironmentBuilder<E>` in `liquers-core/src/environment_builder.rs` (or `liquers-lib/src/environment_builder.rs`).
+2. Existing `SimpleEnvironment` and `DefaultEnvironment` constructors remain; builder supplements them.
+3. `UNITTEST_GUIDE.md` and `specs/COMMAND_REGISTRATION_GUIDE.md` updated with builder examples.
+4. When dynamic command registration is introduced, builder is extended to support version refresh callbacks.
+
+### Non-Goals
+1. Changing the `Environment` trait itself.
+2. Removing existing construction APIs.
+3. Supporting blocking-store-based construction paths (async only).
+
+### Suggested Design
+```rust
+let envref = EnvironmentBuilder::<DefaultEnvironment<Value>>::new()
+    .with_memory_store()           // default: AsyncMemoryStore at root
+    .with_trivial_recipe_provider()
+    .register_commands(|cr| {
+        register_command!(cr, fn my_cmd(state) -> result)?;
+        Ok(())
+    })
+    .build()
+    .await?;
+```

@@ -78,6 +78,12 @@ let envref = env.to_ref();
 
 **Important:** `to_ref()` consumes the environment, so call it after all setup is complete.
 
+**Note:** `to_ref()` automatically calls `load_command_versions()` to populate the dependency manager with
+version records for all currently registered commands. This is idempotent — subsequent calls to
+`load_command_versions()` are safe. However, any commands registered *after* `to_ref()` will not
+automatically have their versions loaded; for dynamic command registration scenarios, call
+`load_command_versions()` again after adding new commands.
+
 ---
 
 ## Store Configuration

@@ -32,27 +32,32 @@
 DependencyVersionMismatch,
 DependencyCycle,
 
-//FIXME: For these two error constructors, key is available, so it should be set in the Error::key
-//FIXME: Similarly, the query should be initialized by default using key.into(), though it should be set (using with_query) to the query where where the error occured (if available)
 // NEW: Add to impl Error
+// `Error::key` is set from `DependencyKey` via `Key::try_from` (succeeds for `-R/` keys).
+// `Error::query` is set to `Query::from(&key_str)` as a default, and callers may override
+// it with `.with_query(&actual_query)` at the error site if available.
 pub fn dependency_version_mismatch(key: &DependencyKey, msg: impl Into<String>) -> Self {
+    let store_key = Key::try_from(key).ok();
+    let query = store_key.as_ref().map(|k| Query::from(k));
     Error {
         error_type: ErrorType::DependencyVersionMismatch,
         message: format!("Dependency version mismatch for '{}': {}", key.as_str(), msg.into()),
         position: Position::unknown(),
-        query: None,
-        key: None,
+        query,
+        key: store_key,
         command_key: None,
     }
 }
 
 pub fn dependency_cycle(key: &DependencyKey) -> Self {
+    let store_key = Key::try_from(key).ok();
+    let query = store_key.as_ref().map(|k| Query::from(k));
     Error {
         error_type: ErrorType::DependencyCycle,
         message: format!("Dependency cycle detected involving '{}'", key.as_str()),
         position: Position::unknown(),
-        query: None,
-        key: None,
+        query,
+        key: store_key,
         command_key: None,
     }
 }
@@ -160,65 +165,129 @@ git checkout liquers-core/src/command_metadata.rs
 
 ---
 
+### Step 1c: Add Plan-to-metadata helpers
+
+**Files:** `liquers-core/src/plan.rs`, `liquers-core/src/metadata.rs`
+
+**Action:**
+- Add `Plan::to_metadata_record() -> MetadataRecord` — creates a `MetadataRecord` from plan fields, excluding `steps`. Status is set to `Status::Submitted`.
+- Add `Plan::update_metadata_record(&self, mr: &mut MetadataRecord)` — updates an existing record from the same fields.
+- Add `Metadata::from_plan(plan: &Plan) -> Metadata` — convenience wrapper.
+- Add `Metadata::update_from_plan(&mut self, plan: &Plan)` — updates whichever variant (`MetadataRecord` or `LegacyMetadata`).
+
+**Conversion rules (all methods):**
+- `mr.query = plan.query.clone()`
+- `mr.is_volatile = plan.is_volatile`
+- `mr.expires = plan.expires.clone()`
+- `plan.error` → if `Some(e)`, call `mr.with_error(e.clone())`; also sets status to `Error`
+- `plan.init_steps` → for each step:
+  - `Step::Info(msg)` → `mr.info(msg)`
+  - `Step::Warning(msg)` → `mr.warning(msg)`
+  - `Step::Error(msg)` → `mr.error(msg)` (sets status to `Error` via `add_log_entry`)
+  - all other variants → skip
+- Status is set to `Status::Submitted` initially (before processing `init_steps`; error steps will override to `Status::Error`)
+- `plan.dependencies` is NOT copied into `mr.dependencies` here (those are `PlanDependency`, not `DependencyRecord`; DependencyRecords are written later by the asset manager after evaluation)
+
+**`update_metadata_record`** applies the same transformations but preserves existing log entries (appends rather than replacing).
+
+**Code changes:**
+```rust
+// In plan.rs — impl Plan
+pub fn to_metadata_record(&self) -> MetadataRecord {
+    let mut mr = MetadataRecord::new();
+    mr.with_status(Status::Submitted);
+    mr.with_query(self.query.clone());
+    mr.is_volatile = self.is_volatile;
+    mr.expires = self.expires.clone();
+    if let Some(error) = &self.error {
+        mr.with_error(error.clone());
+    }
+    for step in &self.init_steps {
+        match step {
+            Step::Info(msg) => { mr.info(msg); }
+            Step::Warning(msg) => { mr.warning(msg); }
+            Step::Error(msg) => { mr.error(msg); }
+            _ => {}
+        }
+    }
+    mr
+}
+
+pub fn update_metadata_record(&self, mr: &mut MetadataRecord) {
+    mr.with_query(self.query.clone());
+    mr.is_volatile = self.is_volatile;
+    mr.expires = self.expires.clone();
+    if let Some(error) = &self.error {
+        mr.with_error(error.clone());
+    }
+    for step in &self.init_steps {
+        match step {
+            Step::Info(msg) => { mr.info(msg); }
+            Step::Warning(msg) => { mr.warning(msg); }
+            Step::Error(msg) => { mr.error(msg); }
+            _ => {}
+        }
+    }
+}
+
+// In metadata.rs — impl Metadata
+pub fn from_plan(plan: &Plan) -> Self {
+    Metadata::MetadataRecord(plan.to_metadata_record())
+}
+
+pub fn update_from_plan(&mut self, plan: &Plan) {
+    match self {
+        Metadata::MetadataRecord(mr) => plan.update_metadata_record(mr),
+        Metadata::LegacyMetadata(_) => {
+            // Replace legacy metadata with a fresh record derived from the plan
+            *self = Metadata::from_plan(plan);
+        }
+    }
+}
+```
+
+**Note:** `metadata.rs` imports `Plan` from `crate::plan` for the `Metadata` methods. Alternatively, keep the `Metadata` methods in `plan.rs` as inherent methods or a trait impl to avoid the import direction going metadata→plan. Preferred: put `Plan::to_metadata_record` and `Plan::update_metadata_record` in `plan.rs`; put `Metadata::from_plan` and `Metadata::update_from_plan` in `plan.rs` as well (in an `impl Metadata` block), keeping `plan.rs` as the single file that knows about both types.
+
+**Validation:**
+```bash
+cargo check -p liquers-core
+```
+
+**Rollback:**
+```bash
+git checkout liquers-core/src/plan.rs liquers-core/src/metadata.rs
+```
+
+**Agent Specification:**
+- **Model:** haiku
+- **Skills:** rust-best-practices
+- **Knowledge:** `liquers-core/src/plan.rs` (Plan struct, Step enum), `liquers-core/src/metadata.rs` (MetadataRecord, Metadata, Status)
+- **Rationale:** Mechanical field mapping; straightforward match on init_steps variants.
+
+---
+
 ### Step 2: Rewrite `dependencies.rs`
 
 **File:** `liquers-core/src/dependencies.rs`
 
-**Action:** Replace the entire file. The existing `DependencyManagerImpl` and all its doctests (lines 176-197 in the old file) are removed along with all old types (`StringDependency`, `DependencyList`, `Dependency` trait, `DependencyRecord<V,D>`). The new file defines all new types plus `DependencyManager<E>` implementation plus all 26 unit tests from Phase 3.
+**Action:** Replace the entire file. The existing `DependencyManagerImpl` and all its doctests (lines 176-197 in the old file) are removed along with all old types (`StringDependency`, `DependencyList`, `Dependency` trait, `DependencyRecord<V,D>`). The new file defines `DependencyRelation`, `PlanDependency`, `ExpiredDependents`, and `DependencyManager<E>` plus all 26 unit tests from Phase 3.
+
+**Note:** `Version`, `DependencyKey`, and `DependencyRecord` are defined in `crate::metadata` and imported from there — they are **not** re-defined in this file.
 
 **Code structure (new file):**
 ```rust
 // Imports
 use std::collections::VecDeque;
-use crate::assets::WeakAssetRef;
+use crate::assets::{AssetRef, WeakAssetRef};
 use crate::command_metadata::CommandKey;
 use crate::context::Environment;
 use crate::error::{Error, ErrorType};
+use crate::metadata::{DependencyKey, DependencyRecord, Version};
 use crate::query::{Key, Query};
 
-// --- Version ---
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Version(u128);
-// Custom serde: Serialize as 32-char lowercase hex; Deserialize from 32-char hex
-impl serde::Serialize for Version { ... }  // format!("{:032x}", self.0)
-impl<'de> serde::Deserialize<'de> for Version { ... }  // parse hex as u128
-
-impl Version {
-    pub fn new(v: u128) -> Self
-    pub fn from_bytes(bytes: &[u8]) -> Self  // blake3 hash → first 16 bytes → u128
-    pub fn from_time_now() -> Self            // SystemTime::now nanos as u128 (as_nanos() returns u128)
-    pub fn from_specific_time(time: std::time::SystemTime) -> Self
-    pub fn new_unique() -> Self              // AtomicU64 counter + SystemTime nanos (no rand crate)
-}
-
-// --- DependencyKey ---
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DependencyKey(String);
-
-impl DependencyKey {
-    pub fn new(s: impl Into<String>) -> Self
-    pub fn as_str(&self) -> &str
-    pub fn to_query(&self) -> Result<Query, Error>
-    pub fn from_recipe_key(key: &Key) -> Self      // `-R-recipe/{key}`
-    pub fn from_dir_key(key: &Key) -> Self          // `-R-dir/{key}`
-    pub fn for_command_metadata(key: &CommandKey) -> Self   // format!("ns-dep/command_metadata-{}", key)
-    pub fn for_command_implementation(key: &CommandKey) -> Self  // format!("ns-dep/command_implementation-{}", key)
-}
-impl From<&Key> for DependencyKey { ... }       // format!("-R/{}", key.encode())
-impl TryFrom<&DependencyKey> for Key { ... }    // only "-R/..." keys succeed
-impl From<&Query> for DependencyKey { ... }
-impl std::fmt::Display for DependencyKey { ... }
-
-// --- DependencyRecord ---
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DependencyRecord {
-    pub key: DependencyKey,
-    pub version: Version,
-}
-
-// --- DependencyRelation (plan-only, no serde) ---
-#[derive(Debug, Clone, PartialEq, Eq)]
+// --- DependencyRelation ---
+// Note: has Serialize/Deserialize because PlanDependency is stored in Plan.dependencies
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DependencyRelation {
     StateArgument,
     ParameterLink(String),
@@ -232,8 +301,9 @@ pub enum DependencyRelation {
     Recipe,
 }
 
-// --- PlanDependency (plan-only, no serde) ---
-#[derive(Debug, Clone, PartialEq, Eq)]
+// --- PlanDependency ---
+// Note: has Serialize/Deserialize because it is stored in Plan.dependencies
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PlanDependency {
     pub key: DependencyKey,
     pub relation: DependencyRelation,
@@ -246,10 +316,11 @@ pub struct ExpiredDependents<E: Environment> {
 }
 
 // --- DependencyManager ---
-pub struct DependencyManager<E: Environment> {
+// pub(crate): not part of the public API. Users interact via DefaultAssetManager methods.
+pub(crate) struct DependencyManager<E: Environment> {
     versions: scc::HashMap<DependencyKey, Version>,
     keyed_dependents: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
-    untracked_dependents: scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>,  //TODO: rename to dependent_assets, also the methods
+    dependent_assets: scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>,
     expiration_lock: tokio::sync::Mutex<()>,
 }
 
@@ -257,15 +328,16 @@ impl<E: Environment> DependencyManager<E> {
     pub fn new() -> Self
     pub async fn register_version(&self, key: &DependencyKey, version: Version)
     pub async fn add_dependency(&self, dependent: &DependencyKey, dependency: &DependencyKey, version: Version) -> Result<(), Error>
-    //TODO: There should be a convenience function track_asset taking AssetRef as an argument.
-    //TODO: Only assets that qualify for tracking (Ready, Source, Override) should be processed.
-    //TODO: It should be checked whether the asset is a keyed asset, and automatically extract dependencies and their versions from asset metadata and register them.
-    //TODO: Non-keyed assets should be registered as a dependent asset (downgrading to weak ref).
-    //TODO: This should be used by asset manager to register all the created assets.
-    //TODO: Verify if there are some potential pitfalls - e.g. violating consistency , aske questions if unclear.
 
-    //TODO: Rename to add_dependent_asset 
-    pub async fn add_untracked_dependent(&self, dependency: &DependencyKey, dependent: WeakAssetRef<E>) 
+    /// Register an asset and all its dependencies into the DM.
+    /// - Only processes assets in Ready/Source/Override state.
+    /// - For keyed assets: registers the asset's own version, then loads
+    ///   DependencyRecords from the asset's metadata via `load_from_records`.
+    /// - For non-keyed (query) assets: registers as a dependent_asset (weak ref)
+    ///   on each of its metadata dependencies.
+    pub async fn track_asset(&self, asset: &AssetRef<E>)
+
+    pub async fn add_dependent_asset(&self, dependency: &DependencyKey, dependent: WeakAssetRef<E>)
     pub async fn would_create_cycle(&self, dependent: &DependencyKey, dependency: &DependencyKey) -> bool
     pub async fn expire(&self, key: &DependencyKey) -> ExpiredDependents<E>
     pub async fn remove(&self, key: &DependencyKey)
@@ -277,25 +349,25 @@ impl<E: Environment> DependencyManager<E> {
 
 **Key implementation notes:**
 
-- `expire()`: acquire `expiration_lock`, then iterative BFS using `VecDeque`. For each expired key: remove from `versions`, collect `keyed_dependents` entries (BFS frontier), collect `untracked_dependents` entries (prune dead WeakAssetRefs). Remove from `keyed_dependents` and `untracked_dependents` maps. Return `ExpiredDependents`.
+- **Version 0 semantics:** `Version(0)` is a sentinel meaning "version unknown". Any comparison involving `Version(0)` must be treated as matching. Specifically:
+  - `version_consistent(key, expected)` returns `true` if `expected == Version(0)` OR if the stored version is `Version(0)`.
+  - `add_dependency(dependent, dependency, Version(0))` skips the `version_consistent` check entirely and just registers the edge. No error is returned.
+  - In `expire()` (cascade): before cascading from a key, check `get_version(key)`; if it is `Some(Version(0))`, skip that key's cascade (its dependents are not invalidated since we don't know the real version).
+  - This ensures that assets loaded without a known content hash do not cause spurious cascade expiration.
+
+- `expire()`: acquire `expiration_lock`, then iterative BFS using `VecDeque`. For each expired key: skip if version is `Version(0)` (see above); remove from `versions`, collect `keyed_dependents` entries (BFS frontier), collect `dependent_assets` entries (prune dead WeakAssetRefs). Remove from `keyed_dependents` and `dependent_assets` maps. Return `ExpiredDependents`.
+
 - `would_create_cycle()`: iterative BFS over `keyed_dependents` starting from `dependency`; returns true if `dependent` is reachable.
-- `add_dependency()`: check `version_consistent` first (return `dependency_version_mismatch` if not); check `would_create_cycle` (return `dependency_cycle` if true); insert `dependent` into `keyed_dependents[dependency]`.
-- `from_bytes`: use `copy_from_slice` not index-by-index: `u128::from_be_bytes(hash[0..16].try_into().unwrap_or([0u8;16]))`
-- `from_time_now` / `from_specific_time`: use `.ok().unwrap_or_default()` not `unwrap()`; `as_nanos()` returns `u128` directly — no cast needed
-- `new_unique`: `rand` is **not** in `liquers-core/Cargo.toml` and must not be added. Use a rand-free approach combining `AtomicU64` counter with `SystemTime`:
-  ```rust
-  static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-  pub fn new_unique() -> Self {
-      let nanos = std::time::SystemTime::now()
-          .duration_since(std::time::UNIX_EPOCH)
-          .ok()
-          .unwrap_or_default()
-          .as_nanos();  // returns u128 directly
-      let counter = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
-      Version(nanos.wrapping_shl(64) | counter)
-  }
-  ```
-  This guarantees uniqueness within a process (monotonic counter) and approximate uniqueness across processes (nanosecond timestamp in the high bits).
+
+- `add_dependency()`: if `version != Version(0)`, check `version_consistent` first (return `dependency_version_mismatch` if not); check `would_create_cycle` (return `dependency_cycle` if true); insert `dependent` into `keyed_dependents[dependency]`.
+
+- `track_asset()`:
+  1. Await the asset's state; check that status is `Ready`, `Source`, or `Override` — return early otherwise.
+  2. If the asset has a `Key`: compute `dep_key = DependencyKey::from(&key)`; call `register_version(&dep_key, asset_version)` where `asset_version` comes from `metadata.version.unwrap_or(Version(0))`; call `load_from_records(&dep_key, &metadata.dependencies)`.
+  3. If the asset has no `Key` (query asset): for each `DependencyRecord` in its metadata, call `add_dependent_asset(&dep_record.key, asset.downgrade())`.
+
+- `load_from_records()`: for each `DependencyRecord { key, version }` in `records`, call `add_dependency(dependent, &record.key, record.version)`. Ignore `DependencyVersionMismatch` errors here (the loaded dependency version may have advanced; a subsequent consistency check on evaluation will catch it).
+
 - Include all 26 unit tests from Phase 3 in `#[cfg(test)] mod tests { use super::*; use crate::context::SimpleEnvironment; use crate::value::Value; }`
 
 **Validation:**
@@ -312,29 +384,32 @@ git checkout liquers-core/src/dependencies.rs
 **Agent Specification:**
 - **Model:** sonnet
 - **Skills:** rust-best-practices, liquers-unittest
-- **Knowledge:** `specs/dependency-management/phase2-architecture.md` (full), `specs/dependency-management/phase3-examples.md` (unit tests section), `liquers-core/src/assets.rs` (lines 677-705 for WeakAssetRef), `liquers-core/src/error.rs` (for Error constructors), `liquers-core/src/query.rs` (Key::encode format), `liquers-core/src/command_metadata.rs` (CommandKey::Display format), `liquers-core/Cargo.toml`
-- **Rationale:** This is the largest single step — full new implementation. Sonnet needed for correct async scc patterns, BFS iterative algorithm, and custom serde.
+- **Knowledge:** `specs/dependency-management/phase2-architecture.md` (full), `specs/dependency-management/phase3-examples.md` (unit tests section), `liquers-core/src/metadata.rs` (Version, DependencyKey, DependencyRecord already defined here), `liquers-core/src/assets.rs` (AssetRef, WeakAssetRef), `liquers-core/src/error.rs` (for Error constructors), `liquers-core/Cargo.toml`
+- **Rationale:** Largest step — full new implementation. Sonnet needed for correct async scc patterns, BFS iterative algorithm, Version 0 semantics, and track_asset async logic.
 
 ---
 
-### Step 3: Extend `MetadataRecord` with dependencies field
+### Step 3: Extend `MetadataRecord` with `version` and `dependencies` fields
 
 **File:** `liquers-core/src/metadata.rs`
 
+**Status (partial):** `dependencies: Vec<DependencyRecord>` is already added. `version: Option<Version>` still needs to be added.
+
 **Action:**
-- Add `dependencies: Vec<DependencyRecord>` to `MetadataRecord` struct
-- Use `#[serde(default)]` for backward compatibility (old records without the field deserve to an empty Vec)
-- Import `DependencyRecord` from `crate::dependencies`
+- Add `pub version: Option<Version>` to `MetadataRecord` with `#[serde(default)]`
+
+**Purpose of `version`:** Stores the content-hash version of the asset computed at save time (`Version::from_bytes(content)`). On reload, the dependency manager uses this stored version instead of `Version::from_time_now()`. Assets without a stored version use `None`, which maps to `Version(0)` (unknown) — harmless due to Version 0 semantics.
 
 **Code changes:**
 ```rust
-// ADD: import
-use crate::dependencies::DependencyRecord;
-
-// MODIFY: MetadataRecord struct — add field
+// MODIFY: MetadataRecord struct — add field after `expiration_time`
+/// Content-hash version of this asset, computed at save time as Version::from_bytes(content).
+/// None for assets whose version has not been recorded (treated as Version(0) = unknown).
 #[serde(default)]
-pub dependencies: Vec<DependencyRecord>,
+pub version: Option<Version>,
 ```
+
+**Note:** `Version` and `DependencyRecord` are already defined in this file (done in prior step).
 
 **Validation:**
 ```bash
@@ -359,22 +434,20 @@ git checkout liquers-core/src/metadata.rs
 **File:** `liquers-core/src/assets.rs`
 
 **Action:**
-- Add `dependency_manager` and `max_dependency_retries` fields to `DefaultAssetManager<E>`
+- Add `dependency_manager` and `max_dependency_retries` fields to `DefaultAssetManager<E>`. `DependencyManager<E>` is `pub(crate)`.
 - Initialize in `new()`: `DependencyManager::new()` and `max_dependency_retries: 3`
-TODO: Note that the command metadata and command implementation versions also need to be loaded into Dependency Manager at initialization. There should be a function that would update all versions from the command metadata registry. 
-- Add `dependency_manager()` accessor (for tests)
+- Add `load_command_versions()`: iterates `CommandMetadataRegistry`, registers `metadata_version` and `impl_version` for every command as `DependencyKey::for_command_metadata(ck)` / `for_command_implementation(ck)`. Called from `Environment::to_ref()` after the envref OnceLock is set. Idempotent — safe to call multiple times (e.g., after dynamic command registration).
+- Add `dependency_manager()` accessor (pub(crate), for internal use and tests)
 - Modify `remove()`: call `self.dependency_manager.remove(&DependencyKey::from(key)).await`
-- Modify `set_binary()`: for `Ready`/`Source`/`Override` states — call `dm.register_version()` then `dm.expire()` cascade; convert `ExpiredDependents.keys` to `Key` via `TryFrom`, call `expire()` on those; upgrade `ExpiredDependents.assets` weak refs, call expiration on live assets
-- Modify `set_state()`: same cascade logic as `set_binary()` — after state is set and status is `Ready`/`Source`/`Override`, register version and cascade-expire
-- **Cascade trigger condition:** Cascade expiration triggers only when the version genuinely changes. In `set_state`/`set_binary`, after the state is stored, compute the new `Version` (e.g., `Version::from_time_now()`), compare with `dm.get_version()` for this key. If the version is the same (no change), skip cascade. If the version is new or the key was not previously tracked, register the new version and cascade-expire dependents.
-- Add `register_plan_dependencies()`: iterate `PlanDependency` slice; for each, resolve version from DM; call `dm.add_dependency()` if version is known; skip command metadata / recipe deps (no Key conversion needed)
-- **Call site for `register_plan_dependencies()`:** In `AssetRef::evaluate_recipe()` (~line 1234), after the recipe is resolved but before `envref.apply_recipe()` is called (~line 1279). The plan is built from the recipe, `find_dependencies` is called on it, and the resulting `Vec<PlanDependency>` is passed to `envref.get_asset_manager().register_plan_dependencies(key, &plan_deps)`. This requires adding a plan-build step inside `evaluate_recipe()` (the commented-out plan-build at lines 1272-1275 is the natural insertion point). If the asset has no key (query asset), skip the DM registration but still build the plan for volatility detection.
-- **Call site for `load_from_records()`:** In `AssetData::try_fast_track()` (~line 449), after successfully loading from store (after `self.metadata = metadata;` at line 501). Extract `MetadataRecord.dependencies` from the loaded metadata, compute `DependencyKey::from(&key)`, and call `dm.load_from_records(&dep_key, &metadata_record.dependencies)`. Since `try_fast_track` is on `AssetData` (not `DefaultAssetManager`), the DM must be accessed via the envref: `self.get_envref().get_asset_manager().dependency_manager().load_from_records(...)`. Also register the loaded asset's own version: `dm.register_version(&dep_key, Version::from_time_now())`.
-FIXME: Loaded asset should have a version in the metadata, which should be used. Note: Using the `from_time_now()` would effectively almost destroy persistance, since every loaded asset would get a new version and would lead to expiration of all the dependents.
-TODO: It is the responsibility of the store to always assure the version is correct - either by creating it from the file update time or recalculating the hash.
-TODO: The consistency between store and asset manager version is an open problem. For now stick to blake3 hash both in store and in asset manager.
-- Add `evaluate_with_retry()`: retry loop up to `max_dependency_retries`; match `ErrorType::DependencyVersionMismatch` → `tokio::task::yield_now().await` then retry; other errors propagate immediately
-TODO: Add a `version()` method to the `AssetData` and `AssetRef`
+- Modify `set_binary()` and `set_state()`: for `Ready`/`Source`/`Override` states — compute `Version::from_bytes(content)` (for binary) or `Version::from_time_now()` (for in-memory state); compare with `dm.get_version()`. If new or changed, register version and call `cascade_expire_dependents`. Skip if version unchanged. Skip entirely if `Status::Volatile`. Also store the computed version in the asset's `MetadataRecord.version`.
+- **Version for loaded assets:** In `try_fast_track()`, use `metadata_record.version.unwrap_or(Version(0))`. `Version(0)` = unknown, which never causes spurious cascade expiration (Version 0 semantics). The store is responsible for computing and persisting `Version::from_bytes(content)` when storing assets, ensuring the version is stable across reloads.
+- **Early metadata from plan:** In `AssetRef::evaluate_recipe()`, after `plan = recipe.to_plan(cmr)?` is built (and `has_volatile_dependencies`/`has_expirable_dependencies` are called), call `asset.set_early_metadata(plan.to_metadata_record())` to publish `Status::Submitted` metadata with plan info (volatility, expiration, init_step log entries) before evaluation starts.
+- Add `set_early_metadata()` method to `AssetData`/`AssetRef`: sets metadata from a `MetadataRecord` only when the asset is in an early non-ready state (e.g., `None`, `Submitted`, `Dependencies`). Does not overwrite `Ready`/`Source`/`Override` metadata.
+- Add `register_plan_dependencies()`: iterate `PlanDependency` slice; for each, resolve version from DM (use `Version(0)` if not found — edge still registered); call `dm.add_dependency()`; skip if volatile.
+- **Call site for `register_plan_dependencies()`:** In `AssetRef::evaluate_recipe()`, after plan analysis, before `apply_recipe()`.
+- **Call site for `track_asset()`:** In `DefaultAssetManager::set_state()` and `set_binary()`, after the state is successfully stored with `Ready`/`Source`/`Override` status, call `self.dependency_manager.track_asset(&asset_ref).await`.
+- Add `evaluate_with_retry()`: retry loop up to `max_dependency_retries`; match `ErrorType::DependencyVersionMismatch` → `tokio::task::yield_now().await` then retry; other errors propagate immediately.
+- Add `version()` accessor to `AssetData` and `AssetRef` returning `Option<Version>` from metadata.
 
 **Code changes (key fragments):**
 ```rust
@@ -386,7 +459,7 @@ pub struct DefaultAssetManager<E: Environment> {
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     job_queue: Arc<JobQueue<E>>,
     monitor_tx: mpsc::UnboundedSender<ExpirationMonitorMessage<E>>,
-    // NEW:
+    // NEW: DependencyManager is pub(crate)
     dependency_manager: DependencyManager<E>,
     max_dependency_retries: u32,
 }
@@ -398,9 +471,31 @@ let manager = DefaultAssetManager {
     max_dependency_retries: 3,
 };
 
-// NEW: accessor
-pub fn dependency_manager(&self) -> &DependencyManager<E> {
+// NEW: accessor (pub(crate) — not public API)
+pub(crate) fn dependency_manager(&self) -> &DependencyManager<E> {
     &self.dependency_manager
+}
+
+// NEW: load command versions into DM (called from to_ref() after envref is set)
+pub async fn load_command_versions(&self) {
+    let envref = match self.envref.get() {
+        Some(e) => e,
+        None => return,
+    };
+    let cmr = envref.get_command_metadata_registry();
+    for cmd in cmr.commands() {
+        let ck = cmd.key();
+        if cmd.metadata_version != 0 {
+            self.dependency_manager
+                .register_version(&DependencyKey::for_command_metadata(&ck), Version::new(cmd.metadata_version))
+                .await;
+        }
+        if cmd.impl_version != 0 {
+            self.dependency_manager
+                .register_version(&DependencyKey::for_command_implementation(&ck), Version::new(cmd.impl_version))
+                .await;
+        }
+    }
 }
 
 // NEW: cascade helper — call after setting Ready/Source/Override state
@@ -495,43 +590,99 @@ git checkout liquers-core/src/assets.rs
 TODO: Be ready to use the init section of the plan (To Be Done).
 
 **Action:**
-- Change `find_dependencies` return type from `HashSet<Key>` to `Vec<PlanDependency>`
-- Update the function body to construct `PlanDependency { key: DependencyKey::from(&key), relation: DependencyRelation::StateArgument }` (or the appropriate relation) for each dependency found
-- Update **all 6 callers/call sites** of `find_dependencies`:
-  - **4 recursive calls inside `find_dependencies` itself** (at ~lines 1567, 1612, 1679, 1686): these return `Vec<PlanDependency>` now, so change `dependencies.extend(indirect_deps)` to work with `Vec<PlanDependency>` instead of `HashSet<Key>`. The internal `dependencies` variable changes from `HashSet<Key>` to `Vec<PlanDependency>`.
-  - **`has_volatile_dependencies`** (~line 1722): change `for key in dependencies` to `for pd in &dependencies { let Ok(key) = Key::try_from(&pd.key) else { continue }; ... }`
-  - **`has_expirable_dependencies`** (~line 1756): same pattern as above
-- Map `ParameterValue` variants to the appropriate `DependencyRelation` variants (see Phase 2 `find_dependencies` notes)
+- The return type is already `Vec<PlanDependency>` (done). The function body needs extending.
+- Update the function to handle currently-incomplete step variants:
 
-**Current signature (to change):**
+**`Step::Action { realm, ns, action_name, parameters, .. }`**
+For each action, add command dependencies:
 ```rust
-pub(crate) fn find_dependencies<'a, E: Environment>(
-    envref: EnvRef<E>,
-    plan: &'a Plan,
-    stack: &'a mut Vec<Key>,
-    cwd: Option<Key>,
-) -> Pin<Box<dyn Future<Output = Result<HashSet<Key>, Error>> + Send + 'a>>
+let ck = CommandKey::new(realm, ns, action_name);
+dependencies.insert(PlanDependency::new(
+    DependencyKey::for_command_metadata(&ck),
+    DependencyRelation::CommandMetadata,
+));
+dependencies.insert(PlanDependency::new(
+    DependencyKey::for_command_implementation(&ck),
+    DependencyRelation::CommandImplementation,
+));
 ```
-
-**New signature:**
+Then traverse each `ParameterValue` in `parameters` recursively (helper function `collect_param_deps`):
 ```rust
-pub(crate) fn find_dependencies<'a, E: Environment>(
-    envref: EnvRef<E>,
-    plan: &'a Plan,
-    stack: &'a mut Vec<Key>,
-    cwd: Option<Key>,
-) -> Pin<Box<dyn Future<Output = Result<Vec<PlanDependency>, Error>> + Send + 'a>>
-```
-
-**Updated caller pattern:**
-```rust
-// In has_volatile_dependencies:
-let dependencies = find_dependencies(envref.clone(), plan, &mut stack, None).await?;
-for pd in &dependencies {
-    let Ok(key) = Key::try_from(&pd.key) else { continue };
-    // ... recipe check ...
+fn collect_param_deps(pv: &ParameterValue, out: &mut HashSet<PlanDependency>) {
+    match pv {
+        ParameterValue::ParameterLink(name, query, _) =>
+            out.insert(PlanDependency::new(DependencyKey::from(query), DependencyRelation::ParameterLink(name.clone()))),
+        ParameterValue::DefaultLink(name, query) =>
+            out.insert(PlanDependency::new(DependencyKey::from(query), DependencyRelation::DefaultLink(name.clone()))),
+        ParameterValue::OverrideLink(name, query) =>
+            out.insert(PlanDependency::new(DependencyKey::from(query), DependencyRelation::OverrideLink(name.clone()))),
+        ParameterValue::EnumLink(name, query, _) =>
+            out.insert(PlanDependency::new(DependencyKey::from(query), DependencyRelation::EnumLink(name.clone()))),
+        ParameterValue::MultipleParameters(vec) =>
+            for pv in vec { collect_param_deps(pv, out); }
+        _ => {}
+    }
 }
 ```
+
+**`Step::GetAsset*(key)` — also add Recipe dependency when recipe is found:**
+```rust
+// After adding the StateArgument dependency:
+if let Ok(Some(_recipe)) = envref.get_recipe_provider().recipe_opt(&resolved_key, envref.clone()).await {
+    dependencies.insert(PlanDependency::new(
+        DependencyKey::from_recipe_key(&resolved_key),
+        DependencyRelation::Recipe,
+    ));
+    // ... existing recursive recipe-plan traversal for cycle detection ...
+}
+```
+
+**`Step::GetAssetRecipe(key)`:**
+```rust
+let resolved_key = /* resolve relative to cwd */;
+if stack.contains(&resolved_key) {
+    return Err(Error::general_error(...).with_key(&resolved_key));
+}
+dependencies.insert(PlanDependency::new(
+    DependencyKey::from_recipe_key(&resolved_key),
+    DependencyRelation::Recipe,
+));
+```
+
+**`Step::Evaluate(query)` and `Step::Plan(nested_plan)` — full expansion:**
+
+Queries and inline plans cannot themselves be tracked as dependency keys (they have no stable `Key`). Instead, recursively collect all their keyed (`-R/` prefix) `PlanDependency` entries and add them as `StateArgument` dependencies of the current plan:
+```rust
+Step::Evaluate(query) => {
+    let cmr = envref.get_command_metadata_registry();
+    let eval_plan = PlanBuilder::new(query.clone(), cmr).build()?;
+    let sub_deps = find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone()).await?;
+    for dep in sub_deps {
+        // Only promote keyed (Key-convertible) deps; non-keyed queries are transient
+        if Key::try_from(&dep.key).is_ok() {
+            dependencies.insert(PlanDependency::new(dep.key, DependencyRelation::StateArgument));
+        }
+        // Non-keyed: command metadata/impl deps are still relevant — include them
+        else {
+            dependencies.insert(dep);
+        }
+    }
+}
+Step::Plan(nested_plan) => {
+    let sub_deps = find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone()).await?;
+    for dep in sub_deps {
+        if Key::try_from(&dep.key).is_ok() {
+            dependencies.insert(PlanDependency::new(dep.key, DependencyRelation::StateArgument));
+        } else {
+            dependencies.insert(dep);
+        }
+    }
+}
+```
+
+**Note on `DependencyRelation`/`PlanDependency` import:** These types are now in `crate::dependencies`. Add `use crate::dependencies::{DependencyRelation, PlanDependency};` to `plan.rs` imports (alongside the existing `use crate::metadata::DependencyKey;`).
+
+**Callers `has_volatile_dependencies` and `has_expirable_dependencies`:** Already use the `Key::try_from(&pd.key)` pattern — no further changes needed.
 
 **Validation:**
 ```bash
