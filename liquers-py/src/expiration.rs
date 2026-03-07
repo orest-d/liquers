@@ -1,8 +1,4 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    str::FromStr,
-};
+use std::str::FromStr;
 
 use pyo3::prelude::*;
 
@@ -50,12 +46,6 @@ impl Expires {
     pub fn __ne__(&self, other: &Self) -> bool {
         self.0 != other.0
     }
-
-    pub fn __hash__(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.0.hash(&mut hasher);
-        hasher.finish()
-    }
 }
 
 #[pyclass]
@@ -66,9 +56,17 @@ pub struct ExpirationTime(pub liquers_core::expiration::ExpirationTime);
 impl ExpirationTime {
     #[new]
     pub fn new(spec: &str) -> PyResult<Self> {
-        liquers_core::expiration::ExpirationTime::from_str(spec)
-            .map(ExpirationTime)
-            .map_err(|e| PyErr::from(Error::from(e)))
+        let value = match spec.trim().to_lowercase().as_str() {
+            "never" => liquers_core::expiration::ExpirationTime::Never,
+            "immediately" => liquers_core::expiration::ExpirationTime::Immediately,
+            _ => {
+                let dt = chrono::DateTime::parse_from_rfc3339(spec)
+                    .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?
+                    .with_timezone(&chrono::Utc);
+                liquers_core::expiration::ExpirationTime::At(dt)
+            }
+        };
+        Ok(ExpirationTime(value))
     }
 
     #[staticmethod]

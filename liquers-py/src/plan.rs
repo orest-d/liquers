@@ -1,4 +1,4 @@
-use liquers_core::{command_metadata, parse::parse_query, query};
+use liquers_core::parse::parse_query;
 use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::{command_metadata::CommandMetadataRegistry, error::Error};

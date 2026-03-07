@@ -45,10 +45,7 @@ pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
 impl EnumArgument {
     #[new]
     pub fn new(name: &str, typ: EnumArgumentType) -> Self {
-        Self(liquers_core::command_metadata::EnumArgument::new(
-            name,
-            typ.into(),
-        ))
+        Self(liquers_core::command_metadata::EnumArgument::new(name).with_value_type(typ.into()))
     }
 
     pub fn to_json(&self) -> PyResult<String> {
@@ -405,7 +402,7 @@ impl CommandMetadataRegistry {
     ) -> PyResult<()> {
         let mut cmd = liquers_core::command_metadata::CommandMetadata::new(command_name);
         cmd.with_namespace(namespace);
-        let x = Python::with_gil(|py| {
+        Python::with_gil(|py| {
             let list = arguments.bind(py);
             let mut args = Vec::new();
             for i in 0..list.len() {

@@ -7,7 +7,6 @@ use liquers_core::metadata::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyList;
 
 use crate::parse::{Key, Position, Query};
 
@@ -127,7 +126,7 @@ impl Metadata {
     }
 
     pub fn with_query(&mut self, query: Query) {
-        self.inner.with_query(query.0);
+        let _ = self.inner.with_query(query.0);
     }
 
     #[staticmethod]
@@ -420,7 +419,7 @@ impl MetadataRecord {
     }
 
     pub fn with_query(&mut self, query: Query) {
-        self.inner.with_query(query.0);
+        let _ = self.inner.with_query(query.0);
     }
 
     pub fn with_key(&mut self, key: Key) {
