@@ -13,7 +13,7 @@ use crate::query::{Key, Position, Query};
 
 /// A version is a 128-bit integer that identifies a specific revision of an asset's content.
 /// Versions are opaque — only equality matters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Version(pub(crate) u128);
 
 impl Version {
@@ -2091,6 +2091,24 @@ impl From<MetadataRecord> for Metadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_version_serialization_roundtrip_hex_width_32() {
+        let version = Version::new(0xdead_beef_cafe_babe_1234_5678_90ab_cdef);
+        let json = serde_json::to_string(&version).unwrap();
+
+        // Quoted 32-char lowercase hex string.
+        assert_eq!(json, "\"deadbeefcafebabe1234567890abcdef\"");
+
+        let decoded: Version = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, version);
+    }
+
+    #[test]
+    fn test_version_deserialize_rejects_non_hex() {
+        let result: Result<Version, _> = serde_json::from_str("\"xyz\"");
+        assert!(result.is_err());
+    }
 
     #[test]
     fn test_status_volatile_has_data() {

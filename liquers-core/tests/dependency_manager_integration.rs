@@ -77,7 +77,8 @@ async fn command_metadata_has_versions_after_registration() -> Result<(), Error>
 
     // metadata_version is computed by add_command via blake3 hash
     assert_ne!(
-        cmd.metadata_version, 0,
+        cmd.metadata_version,
+        Version::new(0),
         "metadata_version should be nonzero after registration"
     );
 
@@ -92,7 +93,7 @@ async fn command_metadata_has_versions_after_registration() -> Result<(), Error>
     let cmr = envref.get_command_metadata_registry();
     let ck2 = CommandKey::new_name("test_cmd");
     let cmd2 = cmr.get(ck2).unwrap();
-    assert_ne!(cmd2.metadata_version, 0);
+    assert_ne!(cmd2.metadata_version, Version::new(0));
 
     Ok(())
 }

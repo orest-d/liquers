@@ -2375,19 +2375,19 @@ impl<E: Environment> DefaultAssetManager<E> {
         let cmr = envref.get_command_metadata_registry();
         for cmd in &cmr.commands {
             let ck = cmd.key();
-            if cmd.metadata_version != 0 {
+            if cmd.metadata_version != crate::metadata::Version::new(0) {
                 self.dependency_manager
                     .register_version(
                         &crate::metadata::DependencyKey::for_command_metadata(&ck),
-                        crate::metadata::Version::new(cmd.metadata_version),
+                        cmd.metadata_version,
                     )
                     .await;
             }
-            if cmd.impl_version != 0 {
+            if cmd.impl_version != crate::metadata::Version::new(0) {
                 self.dependency_manager
                     .register_version(
                         &crate::metadata::DependencyKey::for_command_implementation(&ck),
-                        crate::metadata::Version::new(cmd.impl_version),
+                        cmd.impl_version,
                     )
                     .await;
             }

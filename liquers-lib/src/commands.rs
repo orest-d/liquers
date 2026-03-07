@@ -357,7 +357,7 @@ mod tests {
             .find_command("", "root", "to_text")
             .expect("to_text command not found");
 
-        assert_ne!(cmd.impl_version, 0);
+        assert_ne!(cmd.impl_version, liquers_core::metadata::Version::new(0));
         Ok(())
     }
 }

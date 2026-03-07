@@ -1248,22 +1248,19 @@ impl CommandSignature {
             Some(CommandImplVersionSpec::Auto) => {
                 let version_function_name = format_ident!("{}__VERSION_", fn_name);
                 quote! {
-                    cm.impl_version = #version_function_name();
+                    cm.impl_version = liquers_core::metadata::Version::new(#version_function_name());
                 }
             }
             Some(CommandImplVersionSpec::StringHash(v))
             | Some(CommandImplVersionSpec::Value(v)) => {
                 let v_lit = proc_macro2::Literal::u128_unsuffixed(*v);
                 quote! {
-                    cm.impl_version = #v_lit;
+                    cm.impl_version = liquers_core::metadata::Version::new(#v_lit);
                 }
             }
             Some(CommandImplVersionSpec::Now) => {
                 quote! {
-                    cm.impl_version = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos())
-                        .unwrap_or(0);
+                    cm.impl_version = liquers_core::metadata::Version::from_time_now();
                 }
             }
             None => quote!(),
@@ -2433,7 +2430,9 @@ mod tests {
         };
         let tokens = sig.command_registration();
         let tokens_str = tokens.to_string();
-        assert!(tokens_str.contains("cm . impl_version = test_fn__VERSION_ () ;"));
+        assert!(tokens_str.contains(
+            "cm . impl_version = liquers_core :: metadata :: Version :: new (test_fn__VERSION_ ()) ;"
+        ));
     }
 
     #[test]
@@ -2444,7 +2443,8 @@ mod tests {
         };
         let tokens = sig.command_registration();
         let tokens_str = tokens.to_string();
-        assert!(tokens_str.contains("cm . impl_version = std :: time :: SystemTime :: now ()"));
+        assert!(tokens_str
+            .contains("cm . impl_version = liquers_core :: metadata :: Version :: from_time_now () ;"));
     }
 
     #[test]
