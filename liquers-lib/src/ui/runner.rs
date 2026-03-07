@@ -372,7 +372,7 @@ where
             // Check if notification has changed (non-blocking)
             if monitored.notification_rx.has_changed().unwrap_or(false) {
                 // Acknowledge the change
-                let notification = monitored.notification_rx.borrow_and_update().clone();
+                let _notification = monitored.notification_rx.borrow_and_update().clone();
 
                 // Build fresh snapshot
                 let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
@@ -382,15 +382,6 @@ where
                     Self::deliver_snapshot(*handle, snapshot.clone(), app_state, &self.sender)
                         .await;
                 if !delivered {
-                    to_remove.push(*handle);
-                } else if matches!(
-                    notification,
-                    AssetNotificationMessage::JobFinished
-                        | AssetNotificationMessage::ErrorOccurred(_)
-                ) && snapshot.status.is_finished()
-                    && (snapshot.value.is_some() || snapshot.error.is_some())
-                {
-                    // Terminal snapshot has been delivered, no further monitoring needed.
                     to_remove.push(*handle);
                 }
             } else {

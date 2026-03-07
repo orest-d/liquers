@@ -36,7 +36,8 @@ pub enum AppMessage {
     /// Request AppRunner to evaluate a query and push `AssetSnapshot` updates
     /// to the element at the given handle. AppRunner monitors the asset
     /// lifecycle and delivers `UpdateMessage::AssetUpdate` on each notification
-    /// change. Monitoring auto-stops when the element is removed from AppState.
+    /// change, including expiration transitions. Monitoring auto-stops when the
+    /// element is removed from AppState.
     RequestAssetUpdates { handle: UIHandle, query: String },
     /// Request application quit.
     Quit,

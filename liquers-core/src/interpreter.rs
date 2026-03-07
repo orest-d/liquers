@@ -273,7 +273,7 @@ pub fn do_step<E: Environment>(
     }
 }
 
-pub fn evaluate<E: Environment, Q: TryToQuery>(
+pub fn evaluate<E: Environment, Q: TryToQuery>( // TODO: this should be docommissioned in favor of environment evaluate methods
     envref: EnvRef<E>,
     query: Q,
     cwd_key: Option<Key>,

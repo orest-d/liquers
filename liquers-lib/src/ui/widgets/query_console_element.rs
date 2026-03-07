@@ -10,7 +10,7 @@ use liquers_core::state::State;
 use crate::ui::app_state::AppState;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
 use crate::ui::handle::UIHandle;
-use crate::ui::message::{AppMessage, AssetSnapshot};
+use crate::ui::message::AppMessage;
 use crate::ui::ui_context::UIContext;
 use crate::utils::NextPreset;
 use crate::value::Value;
@@ -18,8 +18,8 @@ use crate::value::Value;
 /// Browser-like interactive query console widget.
 ///
 /// Manages query history, command preset resolution, and data/metadata view toggle.
-/// Passive: receives `AssetSnapshot` updates pushed by AppRunner via
-/// `UpdateMessage::AssetUpdate`. Has no channels, no background tasks, no polling.
+/// Receives `AssetSnapshot` updates pushed by AppRunner via
+/// `UpdateMessage::AssetUpdate`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueryConsoleElement {
     handle: Option<UIHandle>,
@@ -62,6 +62,10 @@ pub struct QueryConsoleElement {
     /// Stored separately so we can call `show_in_egui(&mut self, ...)` on it.
     #[serde(skip)]
     ui_element: Option<Box<dyn UIElement>>,
+
+    /// Last time a delayed volatile refresh was scheduled.
+    #[serde(skip)]
+    last_volatile_refresh_at: Option<std::time::Instant>,
 }
 
 impl QueryConsoleElement {
@@ -80,6 +84,7 @@ impl QueryConsoleElement {
             status: Status::None,
             next_presets: Vec::new(),
             ui_element: None,
+            last_volatile_refresh_at: None,
         }
     }
 
@@ -107,6 +112,44 @@ impl QueryConsoleElement {
                 query: self.query_text.clone(),
             });
         }
+    }
+
+    /// Request fresh updates for the current query without resetting current value/UI state.
+    fn request_asset_updates(&self, ctx: &UIContext) {
+        if self.query_text.is_empty() {
+            return;
+        }
+        if let Some(handle) = self.handle {
+            ctx.send_message(AppMessage::RequestAssetUpdates {
+                handle,
+                query: self.query_text.clone(),
+            });
+        }
+    }
+
+    /// For volatile assets, schedule a delayed refresh to get a new version.
+    fn schedule_volatile_refresh(&mut self, ctx: &UIContext) {
+        if self.query_text.is_empty() {
+            return;
+        }
+        let handle = match self.handle {
+            Some(h) => h,
+            None => return,
+        };
+        let now = std::time::Instant::now();
+        if let Some(last) = self.last_volatile_refresh_at {
+            if now.duration_since(last) < std::time::Duration::from_millis(400) {
+                return;
+            }
+        }
+        self.last_volatile_refresh_at = Some(now);
+
+        let query = self.query_text.clone();
+        let ctx_clone = ctx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            ctx_clone.send_message(AppMessage::RequestAssetUpdates { handle, query });
+        });
     }
 
     /// Navigate history backward. Returns true if position changed.
@@ -316,8 +359,17 @@ impl UIElement for QueryConsoleElement {
     fn update(&mut self, message: &UpdateMessage, _ctx: &UIContext) -> UpdateResponse {
         match message {
             UpdateMessage::AssetUpdate(snapshot) => {
-                // Full snapshot pushed by AppRunner
-                self.value = snapshot.value.clone();
+                // Full snapshot pushed by AppRunner.
+                // Preserve value when only expiration status changes to avoid UI flicker.
+                let previous_value = self.value.clone();
+                let is_expired = snapshot.status == Status::Expired;
+                let is_volatile = snapshot.status == Status::Volatile || snapshot.metadata.is_volatile();
+
+                if (is_volatile || is_expired) && snapshot.value.is_none() {
+                    self.value = previous_value;
+                } else {
+                    self.value = snapshot.value.clone();
+                }
                 self.metadata = Some(snapshot.metadata.clone());
                 self.error = snapshot.error.clone();
                 self.status = snapshot.status;
@@ -332,6 +384,14 @@ impl UIElement for QueryConsoleElement {
 
                 if self.value.is_some() {
                     self.data_view = true;
+                }
+
+                if is_volatile && snapshot.value.is_some() {
+                    self.schedule_volatile_refresh(_ctx);
+                }
+
+                if is_expired {
+                    self.request_asset_updates(_ctx);
                 }
                 UpdateResponse::NeedsRepaint
             }
@@ -368,7 +428,7 @@ impl UIElement for QueryConsoleElement {
 mod tests {
     use super::*;
     use crate::ui::app_state::DirectAppState;
-    use crate::ui::message::app_message_channel;
+    use crate::ui::message::{app_message_channel, AssetSnapshot};
     use liquers_core::assets::AssetNotificationMessage;
 
     fn create_test_context() -> (UIContext, crate::ui::message::AppMessageReceiver) {
@@ -609,6 +669,60 @@ mod tests {
         };
         c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
         assert!(c.data_view); // unchanged
+    }
+
+    #[test]
+    fn test_asset_update_expired_resubmits_without_invalidating_value() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "q".to_string());
+        c.set_handle(UIHandle(7));
+        c.value = Some(Arc::new(Value::from("keep")));
+        let (ctx, mut rx) = create_test_context();
+        let snapshot = AssetSnapshot {
+            value: None,
+            metadata: Metadata::new(),
+            error: None,
+            status: Status::Expired,
+        };
+        c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+        assert!(c.value.is_some());
+        assert_eq!(c.status, Status::Expired);
+
+        match rx.try_recv() {
+            Ok(AppMessage::RequestAssetUpdates { handle, query }) => {
+                assert_eq!(handle, UIHandle(7));
+                assert_eq!(query, "q");
+            }
+            other => panic!("Expected RequestAssetUpdates, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_volatile_asset_schedules_delayed_refresh() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "q".to_string());
+        c.set_handle(UIHandle(9));
+        let (ctx, mut rx) = create_test_context();
+        let snapshot = AssetSnapshot {
+            value: Some(Arc::new(Value::from("v1"))),
+            metadata: Metadata::new(),
+            error: None,
+            status: Status::Volatile,
+        };
+        c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+
+        assert!(rx.try_recv().is_err(), "refresh should be delayed");
+
+        let msg = tokio::time::timeout(std::time::Duration::from_millis(900), rx.recv())
+            .await
+            .expect("expected delayed refresh message")
+            .expect("channel closed unexpectedly");
+
+        match msg {
+            AppMessage::RequestAssetUpdates { handle, query } => {
+                assert_eq!(handle, UIHandle(9));
+                assert_eq!(query, "q");
+            }
+            other => panic!("Expected RequestAssetUpdates, got {other:?}"),
+        }
     }
 
     #[test]
