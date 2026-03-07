@@ -1,7 +1,86 @@
-use liquers_core::{command_metadata, parse::parse_query, query};
+use liquers_core::parse::parse_query;
 use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::{command_metadata::CommandMetadataRegistry, error::Error};
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct Step(pub liquers_core::plan::Step);
+
+#[pymethods]
+impl Step {
+    #[staticmethod]
+    fn info(message: String) -> Self {
+        Self(liquers_core::plan::Step::Info(message))
+    }
+
+    #[staticmethod]
+    fn warning(message: String) -> Self {
+        Self(liquers_core::plan::Step::Warning(message))
+    }
+
+    #[staticmethod]
+    fn error(message: String) -> Self {
+        Self(liquers_core::plan::Step::Error(message))
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    fn from_json(json: &str) -> PyResult<Self> {
+        let s: liquers_core::plan::Step =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(s))
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct ParameterValue(pub liquers_core::plan::ParameterValue);
+
+#[pymethods]
+impl ParameterValue {
+    #[staticmethod]
+    fn none() -> Self {
+        Self(liquers_core::plan::ParameterValue::None)
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    fn from_json(json: &str) -> PyResult<Self> {
+        let s: liquers_core::plan::ParameterValue =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(s))
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct ResolvedParameterValues(pub liquers_core::plan::ResolvedParameterValues);
+
+#[pymethods]
+impl ResolvedParameterValues {
+    #[new]
+    fn new() -> Self {
+        Self(liquers_core::plan::ResolvedParameterValues::new())
+    }
+
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    fn from_json(json: &str) -> PyResult<Self> {
+        let s: liquers_core::plan::ResolvedParameterValues =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(s))
+    }
+}
 
 #[pyclass]
 pub struct Plan(pub liquers_core::plan::Plan);
