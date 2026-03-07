@@ -1184,6 +1184,26 @@ impl MetadataRecord {
         self.set_expiration_time(expiration_time);
         self
     }
+
+    /// Get the dependency records.
+    pub fn get_dependencies(&self) -> &[DependencyRecord] {
+        &self.dependencies
+    }
+
+    /// Replace all dependency records.
+    pub fn set_dependencies(&mut self, deps: Vec<DependencyRecord>) {
+        self.dependencies = deps;
+    }
+
+    /// Upsert a dependency record: if a record with the same key exists, replace its version;
+    /// otherwise append a new record.
+    pub fn add_dependency(&mut self, record: DependencyRecord) {
+        if let Some(existing) = self.dependencies.iter_mut().find(|d| d.key == record.key) {
+            existing.version = record.version;
+        } else {
+            self.dependencies.push(record);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1687,6 +1707,52 @@ impl Metadata {
             }
             Metadata::LegacyMetadata(_) => Err(Error::general_error(
                 "Cannot set version on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    /// Get the dependency records from metadata.
+    pub fn get_dependencies(&self) -> &[DependencyRecord] {
+        match self {
+            Metadata::MetadataRecord(m) => &m.dependencies,
+            Metadata::LegacyMetadata(_) => &[],
+        }
+    }
+
+    /// Replace all dependency records in metadata.
+    pub fn set_dependencies(&mut self, deps: Vec<DependencyRecord>) -> Result<(), Error> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.set_dependencies(deps);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.set_dependencies(deps);
+                *self = Metadata::MetadataRecord(m);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot set dependencies on unsupported legacy metadata".to_string(),
+            )),
+        }
+    }
+
+    /// Upsert a dependency record into metadata.
+    pub fn add_dependency(&mut self, record: DependencyRecord) -> Result<(), Error> {
+        match self {
+            Metadata::MetadataRecord(m) => {
+                m.add_dependency(record);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(serde_json::Value::Null) => {
+                let mut m = MetadataRecord::new();
+                m.add_dependency(record);
+                *self = Metadata::MetadataRecord(m);
+                Ok(())
+            }
+            Metadata::LegacyMetadata(_) => Err(Error::general_error(
+                "Cannot add dependency on unsupported legacy metadata".to_string(),
             )),
         }
     }
@@ -2243,5 +2309,53 @@ mod tests {
         let m = Metadata::MetadataRecord(mr);
         assert!(m.has_expiration());
         assert!(m.is_expired());
+    }
+
+    #[test]
+    fn test_add_dependency_inserts_new() {
+        let mut mr = MetadataRecord::new();
+        assert!(mr.get_dependencies().is_empty());
+        let dep = DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(1));
+        mr.add_dependency(dep);
+        assert_eq!(mr.get_dependencies().len(), 1);
+        assert_eq!(mr.get_dependencies()[0].key, DependencyKey::new("dep-a"));
+        assert_eq!(mr.get_dependencies()[0].version, Version::new(1));
+    }
+
+    #[test]
+    fn test_add_dependency_replaces_version() {
+        let mut mr = MetadataRecord::new();
+        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(1)));
+        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(42)));
+        assert_eq!(mr.get_dependencies().len(), 1);
+        assert_eq!(mr.get_dependencies()[0].version, Version::new(42));
+    }
+
+    #[test]
+    fn test_set_dependencies_replaces_all() {
+        let mut mr = MetadataRecord::new();
+        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(1)));
+        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-b"), Version::new(2)));
+        assert_eq!(mr.get_dependencies().len(), 2);
+        mr.set_dependencies(vec![
+            DependencyRecord::new(DependencyKey::new("dep-c"), Version::new(3)),
+        ]);
+        assert_eq!(mr.get_dependencies().len(), 1);
+        assert_eq!(mr.get_dependencies()[0].key, DependencyKey::new("dep-c"));
+    }
+
+    #[test]
+    fn test_metadata_enum_add_dependency_legacy() {
+        // Null legacy promotes to MetadataRecord
+        let mut m = Metadata::LegacyMetadata(serde_json::Value::Null);
+        let dep = DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(1));
+        assert!(m.add_dependency(dep).is_ok());
+        assert_eq!(m.get_dependencies().len(), 1);
+
+        // Non-null legacy returns error
+        let mut m2 = Metadata::LegacyMetadata(serde_json::json!({"foo": "bar"}));
+        let dep2 = DependencyRecord::new(DependencyKey::new("dep-b"), Version::new(2));
+        assert!(m2.add_dependency(dep2).is_err());
+        assert!(m2.get_dependencies().is_empty());
     }
 }

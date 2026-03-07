@@ -76,7 +76,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
-use crate::metadata::{AssetInfo, LogEntry, MetadataRecord, ProgressEntry};
+use crate::metadata::{AssetInfo, DependencyKey, LogEntry, MetadataRecord, ProgressEntry, Version};
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
@@ -499,6 +499,42 @@ impl<E: Environment> AssetData<E> {
                 self.data = Some(Arc::new(value));
                 self.status = stored_status;
                 self.metadata = metadata;
+
+                // Validate stored dependencies against the DM
+                let envref = self.get_envref();
+                let manager = envref.get_asset_manager();
+                let dm = manager.dependency_manager();
+
+                if let Metadata::MetadataRecord(ref mr) = self.metadata {
+                    for dep_record in mr.get_dependencies() {
+                        if dep_record.version == Version::new(0) {
+                            continue; // unknown version — always compatible
+                        }
+                        if let Some(dm_version) = dm.get_version(&dep_record.key).await {
+                            if dm_version != Version::new(0) && dm_version != dep_record.version {
+                                eprintln!(
+                                    "Asset {} stale: dependency {} version mismatch (stored={:?}, DM={:?})",
+                                    self.id(), dep_record.key, dep_record.version, dm_version
+                                );
+                                self.clear_fast_track_payload();
+                                return Ok(false); // Force re-evaluation
+                            }
+                        }
+                    }
+                }
+
+                // Dependencies are consistent — register in DM
+                {
+                    let dep_key = DependencyKey::from(&key);
+                    if let Some(version) = self.metadata.version() {
+                        dm.register_version(&dep_key, version).await;
+                    }
+                    let deps = self.metadata.get_dependencies();
+                    if !deps.is_empty() {
+                        dm.load_from_records(&dep_key, deps).await;
+                    }
+                }
+
                 self.notification_tx
                     .send(AssetNotificationMessage::JobFinished)
                     .map_err(|e| {
@@ -1294,15 +1330,24 @@ impl<E: Environment> AssetRef<E> {
         };
         */
         let context = self.create_context().await;
+        let context_for_deps = context.clone(); // shares pending_dependencies Arc
         println!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
         println!("Recipe evaluated, result: {:?}", &res);
+
+        // Collect observed dependencies from context into metadata
+        let observed_deps = context_for_deps.take_pending_dependencies().await;
 
         let mut metadata = self.data.read().await.metadata.clone();
         if let Some(data) = self.data.read().await.data.as_ref() {
             metadata.with_type_identifier(data.identifier().to_string());
             metadata.with_type_name(data.type_name().to_string());
         }
+
+        for dep in observed_deps {
+            let _ = metadata.add_dependency(dep);
+        }
+
         Ok(State {
             data: res,
             metadata: Arc::new(metadata),
@@ -1379,10 +1424,31 @@ impl<E: Environment> AssetRef<E> {
                     .send(AssetNotificationMessage::ValueProduced);
                 let save_in_background = lock.save_in_background;
                 let cancelled = lock.is_cancelled();
+                let lock_is_volatile = lock.is_volatile;
+                let lock_metadata = lock.metadata.clone();
+                let lock_recipe = lock.recipe.clone();
                 drop(lock);
 
                 self.persist_with_status_tracking(save_in_background, cancelled)
                     .await;
+
+                // Register in DM for non-volatile assets
+                if !lock_is_volatile {
+                    let envref = self.get_envref().await;
+                    let manager = envref.get_asset_manager();
+                    let dm = manager.dependency_manager();
+                    if let Some(key) = lock_recipe.key().ok().flatten() {
+                        let dep_key = DependencyKey::from(&key);
+                        if let Some(version) = lock_metadata.version() {
+                            dm.register_version(&dep_key, version).await;
+                        }
+                        let deps = lock_metadata.get_dependencies();
+                        if !deps.is_empty() {
+                            dm.load_from_records(&dep_key, deps).await;
+                        }
+                    }
+                }
+
                 Ok(())
             }
             Err(e) => {

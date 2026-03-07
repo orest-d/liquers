@@ -359,6 +359,17 @@ impl<E: Environment> Context<E> {
         std::mem::take(&mut *self.pending_dependencies.lock().await)
     }
 
+    /// Upsert a dependency into the pending list.
+    /// If a record with the same key already exists, its version is replaced.
+    pub async fn add_dependency(&self, record: DependencyRecord) {
+        let mut deps = self.pending_dependencies.lock().await;
+        if let Some(existing) = deps.iter_mut().find(|d| d.key == record.key) {
+            existing.version = record.version;
+        } else {
+            deps.push(record);
+        }
+    }
+
     pub(crate) async fn set_value(&self, value: E::Value) -> Result<(), Error> {
         self.assetref.set_value(value).await
     }
@@ -495,6 +506,26 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
+
+            // Seed plan dependencies with Version(0) into context
+            if !plan.is_volatile {
+                for plan_dep in &plan.dependencies {
+                    context
+                        .add_dependency(DependencyRecord::new(
+                            plan_dep.key.clone(),
+                            Version::new(0),
+                        ))
+                        .await;
+                }
+                // Register plan dependencies in DM (best-effort)
+                if let Some(key) = plan.query.key() {
+                    let manager = envref.get_asset_manager();
+                    let _ = manager
+                        .register_plan_dependencies(&key, &plan.dependencies)
+                        .await;
+                }
+            }
+
             let res = apply_plan(plan, input_state, context, envref).await?;
 
             Ok(res)
@@ -617,6 +648,26 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
+
+            // Seed plan dependencies with Version(0) into context
+            if !plan.is_volatile {
+                for plan_dep in &plan.dependencies {
+                    context
+                        .add_dependency(DependencyRecord::new(
+                            plan_dep.key.clone(),
+                            Version::new(0),
+                        ))
+                        .await;
+                }
+                // Register plan dependencies in DM (best-effort)
+                if let Some(key) = plan.query.key() {
+                    let manager = envref.get_asset_manager();
+                    let _ = manager
+                        .register_plan_dependencies(&key, &plan.dependencies)
+                        .await;
+                }
+            }
+
             let res = apply_plan(plan, input_state, context, envref).await?;
 
             Ok(res)
