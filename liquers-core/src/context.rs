@@ -252,16 +252,19 @@ impl<E: Environment> Context<E> {
     }
 
     pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
-        self.assetref
-            .data
-            .read()
-            .await
-            .metadata
-            .metadata_record()
-            .ok_or(Error::unexpected_error(format!(
+        let metadata = {
+            let lock = self.assetref.data.read().await;
+            lock.metadata.metadata_record()
+        };
+
+        if let Some(metadata) = metadata {
+            Ok(metadata)
+        } else {
+            Err(Error::unexpected_error(format!(
                 "{} has legacy metadata",
                 self.assetref.asset_reference().await
             )))
+        }
     }
     pub fn progress(&self, progress: ProgressEntry) -> Result<(), Error> {
         self.service_tx

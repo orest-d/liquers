@@ -1813,6 +1813,13 @@ impl<E: Environment> AssetRef<E> {
         // Wait for either notifications or run completion
 
         loop {
+            // Notification channels are lossy wrt intermediate states (watch keeps only latest).
+            // Always check authoritative asset state first to avoid waiting forever if
+            // ValueProduced was overwritten by a later progress/log notification.
+            if let Some(state) = self.poll_state().await {
+                return Ok(state);
+            }
+
             let notification = rx.borrow().clone();
             println!(
                 "Getting asset {} state, current notification: {:?}",
@@ -2216,7 +2223,7 @@ impl<E: Environment> Default for DefaultAssetManager<E> {
 impl<E: Environment> DefaultAssetManager<E> {
     /// Constructs and initializes a default asset manager
     pub fn new() -> Self {
-        let job_queue = Arc::new(JobQueue::new(2));
+        let job_queue = Arc::new(JobQueue::new(4));
         let (monitor_tx, monitor_rx) = mpsc::unbounded_channel();
         let manager = DefaultAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
