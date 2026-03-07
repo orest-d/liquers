@@ -1,3 +1,8 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
 use pyo3::{exceptions::PyException, prelude::*, types::PyList};
 
 // TODO: Implement EnumArgumentType
@@ -30,6 +35,81 @@ pub enum EnumArgumentType {
     Boolean,
     #[serde(rename = "any")]
     Any,
+}
+
+#[pyclass]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
+
+#[pymethods]
+impl EnumArgument {
+    #[new]
+    pub fn new(name: &str, typ: EnumArgumentType) -> Self {
+        Self(liquers_core::command_metadata::EnumArgument::new(
+            name,
+            typ.into(),
+        ))
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let value =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(value))
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    pub fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
+    }
+}
+
+#[pyclass]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ArgumentType(pub liquers_core::command_metadata::ArgumentType);
+
+#[pymethods]
+impl ArgumentType {
+    #[staticmethod]
+    pub fn any() -> Self {
+        Self(liquers_core::command_metadata::ArgumentType::Any)
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let value =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(value))
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    pub fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
+    }
 }
 
 impl From<EnumArgumentType> for liquers_core::command_metadata::EnumArgumentType {
@@ -102,6 +182,18 @@ impl CommandKey {
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
     }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
+    }
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 #[pyclass]
@@ -136,6 +228,93 @@ impl ArgumentInfo {
         let a: liquers_core::command_metadata::ArgumentInfo =
             serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(ArgumentInfo(a))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandDefinition(pub liquers_core::command_metadata::CommandDefinition);
+
+#[pymethods]
+impl CommandDefinition {
+    #[staticmethod]
+    pub fn registered() -> Self {
+        Self(liquers_core::command_metadata::CommandDefinition::Registered)
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let value =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(value))
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    pub fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandPreset(pub liquers_core::command_metadata::CommandPreset);
+
+#[pymethods]
+impl CommandPreset {
+    #[new]
+    pub fn new(action: &str, label: &str, description: &str) -> PyResult<Self> {
+        liquers_core::command_metadata::CommandPreset::new(action, label, description)
+            .map(Self)
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let value =
+            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(Self(value))
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    pub fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    pub fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
     }
 }
 
@@ -185,6 +364,19 @@ impl CommandMetadata {
     #[getter]
     fn volatile(&self) -> bool {
         self.0.volatile
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+    fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+    fn __ne__(&self, other: &Self) -> bool {
+        self.0 != other.0
     }
 }
 

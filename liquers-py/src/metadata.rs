@@ -1,13 +1,109 @@
 use liquers_core::error::Error;
 use liquers_core::metadata::{
-    AssetInfo as CoreAssetInfo, LogEntry as CoreLogEntry, LogEntryKind as CoreLogEntryKind,
-    Metadata as CoreMetadata, MetadataRecord as CoreMetadataRecord, Status as CoreStatus,
+    AssetInfo as CoreAssetInfo, DependencyKey as CoreDependencyKey,
+    DependencyRecord as CoreDependencyRecord, LogEntry as CoreLogEntry,
+    LogEntryKind as CoreLogEntryKind, Metadata as CoreMetadata,
+    MetadataRecord as CoreMetadataRecord, Status as CoreStatus, Version as CoreVersion,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
 use crate::parse::{Key, Position, Query};
+
+#[pyclass]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Version {
+    pub inner: CoreVersion,
+}
+
+#[pymethods]
+impl Version {
+    #[new]
+    pub fn new(value: u128) -> Self {
+        Self {
+            inner: CoreVersion::new(value),
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        self.inner.to_string()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("Version('{}')", self.inner)
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+#[pyclass]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DependencyKey {
+    pub inner: CoreDependencyKey,
+}
+
+#[pymethods]
+impl DependencyKey {
+    #[new]
+    pub fn new(value: String) -> Self {
+        Self {
+            inner: CoreDependencyKey::new(value),
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        self.inner.to_string()
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("DependencyKey('{}')", self.inner)
+    }
+
+    pub fn __str__(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+#[pyclass]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DependencyRecord {
+    pub inner: CoreDependencyRecord,
+}
+
+#[pymethods]
+impl DependencyRecord {
+    #[new]
+    pub fn new(key: &DependencyKey, version: &Version) -> Self {
+        Self {
+            inner: CoreDependencyRecord::new(key.inner.clone(), version.inner),
+        }
+    }
+
+    #[getter]
+    pub fn key(&self) -> DependencyKey {
+        DependencyKey {
+            inner: self.inner.key.clone(),
+        }
+    }
+
+    #[getter]
+    pub fn version(&self) -> Version {
+        Version {
+            inner: self.inner.version,
+        }
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+}
 
 #[pyclass]
 pub struct Metadata {

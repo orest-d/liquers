@@ -9,6 +9,42 @@ pub struct Recipe {
     pub inner: CoreRecipe,
 }
 
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct RecipeList {
+    pub inner: liquers_core::recipes::RecipeList,
+}
+
+#[pymethods]
+impl RecipeList {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            inner: liquers_core::recipes::RecipeList::new(),
+        }
+    }
+
+    pub fn add_recipe(&mut self, recipe: &Recipe) {
+        self.inner.add_recipe(recipe.inner.clone());
+    }
+
+    pub fn __len__(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let inner = serde_json::from_str(json)
+            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+}
+
 #[pymethods]
 impl Recipe {
     #[new]
