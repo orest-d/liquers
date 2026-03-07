@@ -125,7 +125,7 @@ impl<E: Environment> DependencyManager<E> {
             Some(entry) => {
                 let stored = *entry.get();
                 drop(entry);
-                stored == Version::new(0) || stored == expected
+                stored.matches(&expected)
             }
             None => false,
         }
@@ -156,7 +156,7 @@ impl<E: Environment> DependencyManager<E> {
         version: Version,
     ) -> Result<(), Error> {
         // Version 0 — skip consistency check
-        if version != Version::new(0) {
+        if !version.is_unknown() {
             if !self.version_consistent(dependency, version).await {
                 return Err(Error::dependency_version_mismatch(
                     dependency,
@@ -331,7 +331,7 @@ impl<E: Environment> DependencyManager<E> {
                 if let Some(entry) = self.versions.get_async(&current).await {
                     let ver = *entry.get();
                     drop(entry);
-                    if ver == Version::new(0) {
+                    if ver.is_unknown() {
                         skip_cascade = true;
                     }
                 }

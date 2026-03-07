@@ -507,11 +507,8 @@ impl<E: Environment> AssetData<E> {
 
                 if let Metadata::MetadataRecord(ref mr) = self.metadata {
                     for dep_record in mr.get_dependencies() {
-                        if dep_record.version == Version::new(0) {
-                            continue; // unknown version — always compatible
-                        }
                         if let Some(dm_version) = dm.get_version(&dep_record.key).await {
-                            if dm_version != Version::new(0) && dm_version != dep_record.version {
+                            if !dm_version.matches(&dep_record.version) {
                                 eprintln!(
                                     "Asset {} stale: dependency {} version mismatch (stored={:?}, DM={:?})",
                                     self.id(), dep_record.key, dep_record.version, dm_version
@@ -2441,7 +2438,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         let cmr = envref.get_command_metadata_registry();
         for cmd in &cmr.commands {
             let ck = cmd.key();
-            if cmd.metadata_version != crate::metadata::Version::new(0) {
+            if !cmd.metadata_version.is_unknown() {
                 self.dependency_manager
                     .register_version(
                         &crate::metadata::DependencyKey::for_command_metadata(&ck),
@@ -2449,7 +2446,7 @@ impl<E: Environment> DefaultAssetManager<E> {
                     )
                     .await;
             }
-            if cmd.impl_version != crate::metadata::Version::new(0) {
+            if !cmd.impl_version.is_unknown() {
                 self.dependency_manager
                     .register_version(
                         &crate::metadata::DependencyKey::for_command_implementation(&ck),

@@ -352,7 +352,7 @@ fn version_zero() -> Version {
     Version::new(0)
 }
 fn version_is_zero(value: &Version) -> bool {
-    *value == Version::new(0)
+    value.is_unknown()
 }
 fn gui_info_is_none(gui_info: &ArgumentGUIInfo) -> bool {
     match gui_info {

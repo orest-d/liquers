@@ -48,6 +48,18 @@ impl Version {
 
     /// Creates a version that is unique within the process.
     /// Combines a monotonic counter (low 64 bits) with nanosecond timestamp (high 64 bits).
+    /// Returns `true` if this version is unknown (zero).
+    pub fn is_unknown(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Returns `true` if `self` is compatible with `other`.
+    /// Version(0) means "unknown" and is compatible with any version.
+    /// Otherwise, versions must be equal to be compatible.
+    pub fn matches(&self, other: &Version) -> bool {
+        self.is_unknown() || other.is_unknown() || self == other
+    }
+
     pub fn new_unique() -> Self {
         static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 =
             std::sync::atomic::AtomicU64::new(0);
@@ -2174,6 +2186,32 @@ mod tests {
     fn test_version_deserialize_rejects_non_hex() {
         let result: Result<Version, _> = serde_json::from_str("\"xyz\"");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_version_is_unknown() {
+        assert!(Version::new(0).is_unknown());
+        assert!(!Version::new(1).is_unknown());
+        assert!(!Version::new(42).is_unknown());
+    }
+
+    #[test]
+    fn test_version_matches() {
+        let v0 = Version::new(0);
+        let v1 = Version::new(1);
+        let v2 = Version::new(2);
+
+        // Zero matches anything
+        assert!(v0.matches(&v0));
+        assert!(v0.matches(&v1));
+        assert!(v1.matches(&v0));
+
+        // Equal non-zero versions match
+        assert!(v1.matches(&v1));
+
+        // Different non-zero versions don't match
+        assert!(!v1.matches(&v2));
+        assert!(!v2.matches(&v1));
     }
 
     #[test]
