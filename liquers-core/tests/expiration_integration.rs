@@ -7,11 +7,12 @@ use liquers_core::{
     error::Error,
     expiration::{ExpirationTime, Expires},
     interpreter::make_plan,
-    metadata::{MetadataRecord, Status},
+    metadata::{Metadata, MetadataRecord, Status},
     parse::{parse_key, parse_query},
     query::Key,
+    recipes::{DefaultRecipeProvider, Recipe, RecipeList},
     state::State,
-    store::AsyncMemoryStore,
+    store::{AsyncMemoryStore, AsyncStore},
     value::{Value, ValueInterface},
 };
 use liquers_macro::register_command;
@@ -253,28 +254,47 @@ async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {
     fn hello() -> Result<Value, Error> {
         Ok(Value::from_string("Hello".to_string()))
     }
-    fn world(state: &State<Value>) -> Result<Value, Error> {
+    async fn world(state: State<Value>) -> Result<Value, Error> {
         Ok(Value::from_string(format!(
             "{}, world!",
             state.try_into_string()?
         )))
     }
     let cr = &mut env.command_registry;
-    register_command!(cr, fn hello() -> result);
-    register_command!(cr, fn world(state) -> result);
+    register_command!(cr, fn hello() -> result)?;
+    register_command!(cr, async fn world(state) -> result)?;
+
+    let recipe = Recipe::new(
+        "hello/hello.txt".to_string(),
+        "Hello recipe".to_string(),
+        "Produces hello.txt from hello command".to_string(),
+    )?;
+    let mut recipe_list = RecipeList::new();
+    recipe_list.add_recipe(recipe);
+    let yaml_content = serde_yaml::to_string(&recipe_list)?;
+
+    let store = AsyncMemoryStore::new(&Key::new());
+    let recipes_key = parse_key("recipes.yaml")?;
+    store
+        .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
+        .await?;
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
 
     let envref = env.to_ref();
-    let asset = envref.evaluate("hello/world").await?;
+    let asset = envref.evaluate("-R/hello.txt/-/world").await?;
     assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
     assert_eq!(asset.status().await, Status::Ready);
 
-    let hello_asset = envref.evaluate("hello").await?; // This should be cached, so it should be the same asset as the one used above
+    let hello_asset = envref.evaluate("-R/hello.txt").await?;
     assert_eq!(hello_asset.get().await?.try_into_string()?, "Hello");
     assert_eq!(hello_asset.status().await, Status::Ready);
+
     hello_asset.expire().await?;
     assert_eq!(hello_asset.status().await, Status::Expired);
-    tokio::time::sleep(Duration::from_millis(600)).await; // Asset manager should react within half a second
-    assert_eq!(asset.status().await, Status::Expired); // Original asset should expire too
+
+    //tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(asset.status().await, Status::Expired);
 
     Ok(())
 }
