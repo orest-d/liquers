@@ -115,15 +115,28 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// Register (or update) the version for a dependency key.
-    pub async fn register_version(&self, key: &DependencyKey, version: Version) {
-        // FIXME: change of a version may trigger cascade expiration, so ExpiredDependents should be returned
+    ///
+    /// If the version changes, all transitive dependents are expired and returned.
+    pub async fn register_version(
+        &self,
+        key: &DependencyKey,
+        version: Version,
+    ) -> ExpiredDependents<E> {
+        let mut version_changed = false;
         match self.versions.entry_async(key.clone()).await {
             scc::hash_map::Entry::Occupied(mut entry) => {
+                version_changed = *entry.get() != version;
                 *entry.get_mut() = version;
             }
             scc::hash_map::Entry::Vacant(entry) => {
                 entry.insert_entry(version);
             }
+        }
+
+        if version_changed {
+            self.expire_dependents(key).await
+        } else {
+            ExpiredDependents::new()
         }
     }
 
@@ -165,16 +178,12 @@ impl<E: Environment> DependencyManager<E> {
         dependent: &DependencyKey,
         dependency: &DependencyKey,
         version: Version,
-    ) -> Result<(), Error> {
-        // FIXME: adding a dependency may trigger cascade expiration, so ExpiredDependents should be returned in the result
-
+    ) -> Result<ExpiredDependents<E>, Error> {
         // Version 0 — skip consistency check
         if !version.is_unknown() {
             if !self.version_consistent(dependency, version).await {
-                return Err(Error::dependency_version_mismatch(
-                    dependency,
-                    format!("expected version {}, but stored version differs", version),
-                ));
+                // Dependency is stale: expire the dependent cascade.
+                return Ok(self.expire(dependent).await);
             }
         }
 
@@ -192,7 +201,7 @@ impl<E: Environment> DependencyManager<E> {
         let _ = entry.get().insert_async(dependent.clone()).await;
         drop(entry);
 
-        Ok(())
+        Ok(ExpiredDependents::new())
     }
 
     /// Register an asset (via `AssetRef`) and all its dependencies into the DM.
@@ -202,8 +211,8 @@ impl<E: Environment> DependencyManager<E> {
     ///   `DependencyRecord`s from the asset's metadata via `load_from_records`.
     /// - For non-keyed (query) assets: registers as a `dependent_asset` (weak ref)
     ///   on each of its metadata dependencies.
-    pub async fn track_asset(&self, asset: &crate::assets::AssetRef<E>) {
-        // FIXME: tracking an asset may change/add dependencies may trigger cascade expiration, so ExpiredDependents should be returned in the result
+    pub async fn track_asset(&self, asset: &crate::assets::AssetRef<E>) -> ExpiredDependents<E> {
+        let mut expired = ExpiredDependents::new();
         let status = asset.status().await;
         match status {
             crate::metadata::Status::Ready
@@ -220,7 +229,7 @@ impl<E: Environment> DependencyManager<E> {
             | crate::metadata::Status::Storing
             | crate::metadata::Status::Expired
             | crate::metadata::Status::Cancelled
-            | crate::metadata::Status::Volatile => return,
+            | crate::metadata::Status::Volatile => return expired,
         }
 
         let lock = asset.data.read().await;
@@ -241,8 +250,12 @@ impl<E: Environment> DependencyManager<E> {
         if let Some(key) = key_opt {
             // Keyed asset: register version and load dependency records
             let dep_key = DependencyKey::from(&key);
-            self.register_version(&dep_key, version).await; // FIXME: Here dependencies may change and thus ExpiredDependents needs to be collected
-            self.load_from_records(&dep_key, &deps).await;
+            let mut e = self.register_version(&dep_key, version).await;
+            expired.keys.append(&mut e.keys);
+            expired.assets.append(&mut e.assets);
+            let mut e = self.load_from_records(&dep_key, &deps).await;
+            expired.keys.append(&mut e.keys);
+            expired.assets.append(&mut e.assets);
         } else {
             // Query asset: register as dependent_asset on each dependency
             for dep_record in &deps {
@@ -250,6 +263,7 @@ impl<E: Environment> DependencyManager<E> {
                     .await;
             }
         }
+        expired
     }
 
     /// Register a `WeakAssetRef` as a dependent of `dependency`.
@@ -323,6 +337,19 @@ impl<E: Environment> DependencyManager<E> {
     ///
     /// Acquires `expiration_lock` to serialize concurrent cascades.
     pub async fn expire(&self, key: &DependencyKey) -> ExpiredDependents<E> {
+        self.expire_internal(key, true).await
+    }
+
+    /// Cascade-expire transitive dependents of `key`, but keep `key` itself alive.
+    pub async fn expire_dependents(&self, key: &DependencyKey) -> ExpiredDependents<E> {
+        self.expire_internal(key, false).await
+    }
+
+    async fn expire_internal(
+        &self,
+        key: &DependencyKey,
+        include_root: bool,
+    ) -> ExpiredDependents<E> {
         let _lock = self.expiration_lock.lock().await;
 
         let mut expired_keys = Vec::new();
@@ -330,15 +357,42 @@ impl<E: Environment> DependencyManager<E> {
         let mut queue = VecDeque::new();
         let mut visited = std::collections::HashSet::new();
 
-        queue.push_back(key.clone());
-        visited.insert(key.clone());
+        if include_root {
+            queue.push_back(key.clone());
+            visited.insert(key.clone());
+        } else {
+            if let Some(entry) = self.keyed_dependents.get_async(key).await {
+                let set = entry.get();
+                set.iter_async(|dk| {
+                    if visited.insert(dk.clone()) {
+                        queue.push_back(dk.clone());
+                    }
+                    true
+                })
+                .await;
+                drop(entry);
+            }
+
+            if let Some(entry) = self.dependent_assets.get_async(key).await {
+                let assets = entry.get().clone();
+                drop(entry);
+                for weak in assets {
+                    if weak.upgrade().is_some() {
+                        expired_assets.push(weak);
+                    }
+                }
+            }
+            // Root key remains live, but its stale dependent lists should be dropped.
+            self.keyed_dependents.remove_async(key).await;
+            self.dependent_assets.remove_async(key).await;
+        }
 
         while let Some(current) = queue.pop_front() {
             // Check version BEFORE removing — Version(0) means "unknown".
             // The key itself is always expired, but if its version was 0,
             // we don't cascade to its dependents (except for the root key).
             let mut skip_cascade = false;
-            if current != *key {
+            if include_root || current != *key {
                 if let Some(entry) = self.versions.get_async(&current).await {
                     let ver = *entry.get();
                     drop(entry);
@@ -405,21 +459,27 @@ impl<E: Environment> DependencyManager<E> {
     ///
     /// For each record, calls `add_dependency`. Ignores `DependencyVersionMismatch`
     /// errors (the loaded dependency version may have advanced since the record was written).
-    pub async fn load_from_records(&self, dependent: &DependencyKey, records: &[DependencyRecord]) {
+    pub async fn load_from_records(
+        &self,
+        dependent: &DependencyKey,
+        records: &[DependencyRecord],
+    ) -> ExpiredDependents<E> {
+        let mut expired = ExpiredDependents::new();
         for record in records {
             match self
                 .add_dependency(dependent, &record.key, record.version)
                 .await
             {
-                Ok(()) => {}
-                Err(e) if e.error_type == crate::error::ErrorType::DependencyVersionMismatch => {
-                    // Expected on reload — version may have advanced. Skip.
+                Ok(mut e) => {
+                    expired.keys.append(&mut e.keys);
+                    expired.assets.append(&mut e.assets);
                 }
                 Err(_) => {
                     // Cycle or other error — skip gracefully.
                 }
             }
         }
+        expired
     }
 }
 
@@ -568,12 +628,8 @@ mod tests {
         let b = DependencyKey::new("-R/b");
         dm.register_version(&a, Version::new(1)).await;
         dm.register_version(&b, Version::new(2)).await;
-        let result = dm.add_dependency(&a, &b, Version::new(99)).await;
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().error_type,
-            crate::error::ErrorType::DependencyVersionMismatch
-        );
+        let expired = dm.add_dependency(&a, &b, Version::new(99)).await.unwrap();
+        assert!(expired.keys.contains(&a));
     }
 
     #[tokio::test]
@@ -583,8 +639,8 @@ mod tests {
         let b = DependencyKey::new("-R/b");
         dm.register_version(&a, Version::new(1)).await;
         // b not registered
-        let result = dm.add_dependency(&a, &b, Version::new(42)).await;
-        assert!(result.is_err());
+        let expired = dm.add_dependency(&a, &b, Version::new(42)).await.unwrap();
+        assert!(expired.keys.contains(&a));
     }
 
     #[tokio::test]

@@ -76,7 +76,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
-use crate::metadata::{AssetInfo, DependencyKey, LogEntry, MetadataRecord, ProgressEntry, Version};
+use crate::metadata::{AssetInfo, DependencyKey, LogEntry, MetadataRecord, ProgressEntry};
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
@@ -524,11 +524,13 @@ impl<E: Environment> AssetData<E> {
                 {
                     let dep_key = DependencyKey::from(&key);
                     if let Some(version) = self.metadata.version() {
-                        dm.register_version(&dep_key, version).await;
+                        let expired = dm.register_version(&dep_key, version).await;
+                        manager.expire_dependencies_result(expired).await;
                     }
                     let deps = self.metadata.get_dependencies();
                     if !deps.is_empty() {
-                        dm.load_from_records(&dep_key, deps).await;
+                        let expired = dm.load_from_records(&dep_key, deps).await;
+                        manager.expire_dependencies_result(expired).await;
                     }
                 }
 
@@ -1422,8 +1424,6 @@ impl<E: Environment> AssetRef<E> {
                 let save_in_background = lock.save_in_background;
                 let cancelled = lock.is_cancelled();
                 let lock_is_volatile = lock.is_volatile;
-                let lock_metadata = lock.metadata.clone();
-                let lock_recipe = lock.recipe.clone();
                 drop(lock);
 
                 self.persist_with_status_tracking(save_in_background, cancelled)
@@ -1434,16 +1434,8 @@ impl<E: Environment> AssetRef<E> {
                     let envref = self.get_envref().await;
                     let manager = envref.get_asset_manager();
                     let dm = manager.dependency_manager();
-                    if let Some(key) = lock_recipe.key().ok().flatten() {
-                        let dep_key = DependencyKey::from(&key);
-                        if let Some(version) = lock_metadata.version() {
-                            dm.register_version(&dep_key, version).await;
-                        }
-                        let deps = lock_metadata.get_dependencies();
-                        if !deps.is_empty() {
-                            dm.load_from_records(&dep_key, deps).await;
-                        }
-                    }
+                    let expired = dm.track_asset(self).await;
+                    manager.expire_dependencies_result(expired).await;
                 }
 
                 Ok(())
@@ -1739,11 +1731,32 @@ impl<E: Environment> AssetRef<E> {
     /// Source cannot be expired (no recipe to recover).
     /// Expired is idempotent (returns Ok if already expired).
     pub async fn expire(&self) -> Result<(), Error> {
-        // FIXME: DependencyManager should be notified about the expiration, expired dependencies ahould be processed
+        let key_opt = {
+            let lock = self.data.read().await;
+            lock.recipe.key().ok().flatten()
+        };
+
+        let transitioned_to_expired = self.mark_expired_status().await?;
+
+        if transitioned_to_expired {
+            if let Some(key) = key_opt {
+                let dep_key = DependencyKey::from(&key);
+                let envref = self.get_envref().await;
+                let manager = envref.get_asset_manager();
+                manager.cascade_expire_dependents(&dep_key).await;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn mark_expired_status(&self) -> Result<bool, Error> {
         let mut lock = self.data.write().await;
-        match lock.status {
+        let mut transitioned_to_expired = false;
+        let result = match lock.status {
             Status::Ready | Status::Override => {
                 lock.status = Status::Expired;
+                transitioned_to_expired = true;
                 if let Metadata::MetadataRecord(ref mut mr) = lock.metadata {
                     mr.status = Status::Expired;
                 }
@@ -1768,7 +1781,14 @@ impl<E: Environment> AssetRef<E> {
                 "Cannot expire asset in state {:?}",
                 lock.status
             ))),
-        }
+        };
+        drop(lock);
+
+        result.map(|_| transitioned_to_expired)
+    }
+
+    pub(crate) async fn expire_without_cascade(&self) -> Result<(), Error> {
+        self.mark_expired_status().await.map(|_| ())
     }
 
     /// Get the expiration time of this asset
@@ -2472,20 +2492,27 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// After DM expiration, expire the corresponding keyed and untracked assets.
     pub(crate) async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
         let expired = self.dependency_manager.expire(dep_key).await;
+        self.expire_dependencies_result(expired).await;
+    }
+
+    pub(crate) async fn expire_dependencies_result(
+        &self,
+        expired: crate::dependencies::ExpiredDependents<E>,
+    ) {
         // Expire keyed assets
         for dk in &expired.keys {
             if let Ok(k) = Key::try_from(dk) {
                 if let Some(entry) = self.assets.get_async(&k).await {
                     let ar = entry.get().clone();
                     drop(entry);
-                    let _ = ar.expire().await;
+                    let _ = ar.expire_without_cascade().await;
                 }
             }
         }
         // Expire untracked assets (WeakAssetRef)
         for weak_ref in &expired.assets {
             if let Some(ar) = weak_ref.upgrade() {
-                let _ = ar.expire().await;
+                let _ = ar.expire_without_cascade().await;
             }
         }
     }
@@ -2499,11 +2526,14 @@ impl<E: Environment> DefaultAssetManager<E> {
         let dep_key = crate::metadata::DependencyKey::from(dependent_key);
         for plan_dep in plan_deps {
             if let Some(ver) = self.dependency_manager.get_version(&plan_dep.key).await {
-                // Ignore errors here — version may have changed since planning
-                let _ = self
+                // Ignore cycle/other errors here — planning/evaluation may race.
+                if let Ok(expired) = self
                     .dependency_manager
                     .add_dependency(&dep_key, &plan_dep.key, ver)
-                    .await;
+                    .await
+                {
+                    self.expire_dependencies_result(expired).await;
+                }
             }
         }
         Ok(())
@@ -3057,13 +3087,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             Status::Ready | Status::Source | Status::Override
         ) {
             if let Some(version) = metadata.version {
-                let old_version = self.dependency_manager.get_version(&dep_key).await;
-                self.dependency_manager
+                let expired = self
+                    .dependency_manager
                     .register_version(&dep_key, version)
                     .await;
-                if old_version.is_some() && old_version != Some(version) {
-                    self.cascade_expire_dependents(&dep_key).await;
-                }
+                self.expire_dependencies_result(expired).await;
             }
         }
 
@@ -3223,16 +3251,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             Status::Ready | Status::Source | Status::Override
         ) {
             if let Some(version) = metadata.version() {
-                let old_version = self.dependency_manager.get_version(&dep_key).await;
-                self.dependency_manager
+                let expired = self
+                    .dependency_manager
                     .register_version(&dep_key, version)
                     .await;
-                if old_version.is_some() && old_version != Some(version) {
-                    self.cascade_expire_dependents(&dep_key).await;
-                }
+                self.expire_dependencies_result(expired).await;
             }
             // Track the asset in the dependency manager
-            self.dependency_manager.track_asset(&asset_ref).await;
+            let expired = self.dependency_manager.track_asset(&asset_ref).await;
+            self.expire_dependencies_result(expired).await;
         }
 
         Ok(())
