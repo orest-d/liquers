@@ -1330,7 +1330,7 @@ impl<E: Environment> AssetRef<E> {
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         println!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
-        println!("Recipe evaluated, result: {:?}", &res);
+        //println!("Recipe evaluated, result: {:?}", &res);
 
         // Collect observed dependencies from context into metadata
         let observed_deps = context_for_deps.take_pending_dependencies().await;
