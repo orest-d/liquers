@@ -1739,6 +1739,7 @@ impl<E: Environment> AssetRef<E> {
     /// Source cannot be expired (no recipe to recover).
     /// Expired is idempotent (returns Ok if already expired).
     pub async fn expire(&self) -> Result<(), Error> {
+        // FIXME: DependencyManager should be notified about the expiration, expired dependencies ahould be processed
         let mut lock = self.data.write().await;
         match lock.status {
             Status::Ready | Status::Override => {
@@ -2043,7 +2044,9 @@ impl<E: Environment> WeakAssetRef<E> {
 
     /// Try to upgrade to a strong [AssetRef].
     pub fn upgrade(&self) -> Option<AssetRef<E>> {
-        self.data.upgrade().map(|data| AssetRef { id: self.id, data })
+        self.data
+            .upgrade()
+            .map(|data| AssetRef { id: self.id, data })
     }
 }
 
@@ -2467,10 +2470,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Cascade-expire all dependents of a changed key.
     ///
     /// After DM expiration, expire the corresponding keyed and untracked assets.
-    pub(crate) async fn cascade_expire_dependents(
-        &self,
-        dep_key: &crate::metadata::DependencyKey,
-    ) {
+    pub(crate) async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
         let expired = self.dependency_manager.expire(dep_key).await;
         // Expire keyed assets
         for dk in &expired.keys {
@@ -3052,10 +3052,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
 
         // 6. Register version and cascade expire dependents (non-volatile only)
-        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+        if matches!(
+            final_status,
+            Status::Ready | Status::Source | Status::Override
+        ) {
             if let Some(version) = metadata.version {
                 let old_version = self.dependency_manager.get_version(&dep_key).await;
-                self.dependency_manager.register_version(&dep_key, version).await;
+                self.dependency_manager
+                    .register_version(&dep_key, version)
+                    .await;
                 if old_version.is_some() && old_version != Some(version) {
                     self.cascade_expire_dependents(&dep_key).await;
                 }
@@ -3213,10 +3218,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
 
         // 9. Register version and cascade expire dependents (non-volatile only)
-        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+        if matches!(
+            final_status,
+            Status::Ready | Status::Source | Status::Override
+        ) {
             if let Some(version) = metadata.version() {
                 let old_version = self.dependency_manager.get_version(&dep_key).await;
-                self.dependency_manager.register_version(&dep_key, version).await;
+                self.dependency_manager
+                    .register_version(&dep_key, version)
+                    .await;
                 if old_version.is_some() && old_version != Some(version) {
                     self.cascade_expire_dependents(&dep_key).await;
                 }
@@ -3661,9 +3671,8 @@ mod tests {
         let weak = {
             let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
             let key = parse_key("test/weak_drop.txt").unwrap();
-            let asset =
-                AssetData::<SimpleEnvironment<Value>>::new(43211, key.into(), env.to_ref())
-                    .to_ref();
+            let asset = AssetData::<SimpleEnvironment<Value>>::new(43211, key.into(), env.to_ref())
+                .to_ref();
             let weak = asset.downgrade();
             assert!(weak.upgrade().is_some());
             weak

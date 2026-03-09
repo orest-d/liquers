@@ -73,6 +73,19 @@ pub struct ExpiredDependents<E: Environment> {
     pub assets: Vec<WeakAssetRef<E>>,
 }
 
+impl<E: Environment> ExpiredDependents<E> {
+    /// Create an empty ExpiredDependents structure
+    pub fn new() -> Self {
+        ExpiredDependents {
+            keys: Vec::new(),
+            assets: Vec::new(),
+        }
+    }
+    /// Returns true if there are no expired dependents
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty() && self.assets.is_empty()
+    }
+}
 // ---------------------------------------------------------------------------
 // DependencyManager<E>
 // ---------------------------------------------------------------------------
@@ -103,6 +116,7 @@ impl<E: Environment> DependencyManager<E> {
 
     /// Register (or update) the version for a dependency key.
     pub async fn register_version(&self, key: &DependencyKey, version: Version) {
+        // FIXME: change of a version may trigger cascade expiration, so ExpiredDependents should be returned
         match self.versions.entry_async(key.clone()).await {
             scc::hash_map::Entry::Occupied(mut entry) => {
                 *entry.get_mut() = version;
@@ -133,14 +147,11 @@ impl<E: Environment> DependencyManager<E> {
 
     /// Get the currently registered version for `key`, if any.
     pub async fn get_version(&self, key: &DependencyKey) -> Option<Version> {
-        self.versions
-            .get_async(key)
-            .await
-            .map(|entry| {
-                let v = *entry.get();
-                drop(entry);
-                v
-            })
+        self.versions.get_async(key).await.map(|entry| {
+            let v = *entry.get();
+            drop(entry);
+            v
+        })
     }
 
     /// Register a dependency edge: `dependent` depends on `dependency` at `version`.
@@ -155,15 +166,14 @@ impl<E: Environment> DependencyManager<E> {
         dependency: &DependencyKey,
         version: Version,
     ) -> Result<(), Error> {
+        // FIXME: adding a dependency may trigger cascade expiration, so ExpiredDependents should be returned in the result
+
         // Version 0 — skip consistency check
         if !version.is_unknown() {
             if !self.version_consistent(dependency, version).await {
                 return Err(Error::dependency_version_mismatch(
                     dependency,
-                    format!(
-                        "expected version {}, but stored version differs",
-                        version
-                    ),
+                    format!("expected version {}, but stored version differs", version),
                 ));
             }
         }
@@ -193,6 +203,7 @@ impl<E: Environment> DependencyManager<E> {
     /// - For non-keyed (query) assets: registers as a `dependent_asset` (weak ref)
     ///   on each of its metadata dependencies.
     pub async fn track_asset(&self, asset: &crate::assets::AssetRef<E>) {
+        // FIXME: tracking an asset may change/add dependencies may trigger cascade expiration, so ExpiredDependents should be returned in the result
         let status = asset.status().await;
         match status {
             crate::metadata::Status::Ready
@@ -230,7 +241,7 @@ impl<E: Environment> DependencyManager<E> {
         if let Some(key) = key_opt {
             // Keyed asset: register version and load dependency records
             let dep_key = DependencyKey::from(&key);
-            self.register_version(&dep_key, version).await;
+            self.register_version(&dep_key, version).await; // FIXME: Here dependencies may change and thus ExpiredDependents needs to be collected
             self.load_from_records(&dep_key, &deps).await;
         } else {
             // Query asset: register as dependent_asset on each dependency
@@ -394,21 +405,14 @@ impl<E: Environment> DependencyManager<E> {
     ///
     /// For each record, calls `add_dependency`. Ignores `DependencyVersionMismatch`
     /// errors (the loaded dependency version may have advanced since the record was written).
-    pub async fn load_from_records(
-        &self,
-        dependent: &DependencyKey,
-        records: &[DependencyRecord],
-    ) {
+    pub async fn load_from_records(&self, dependent: &DependencyKey, records: &[DependencyRecord]) {
         for record in records {
             match self
                 .add_dependency(dependent, &record.key, record.version)
                 .await
             {
                 Ok(()) => {}
-                Err(e)
-                    if e.error_type
-                        == crate::error::ErrorType::DependencyVersionMismatch =>
-                {
+                Err(e) if e.error_type == crate::error::ErrorType::DependencyVersionMismatch => {
                     // Expected on reload — version may have advanced. Skip.
                 }
                 Err(_) => {
@@ -687,7 +691,7 @@ mod tests {
         // a is expired; b has Version(0) so its cascade is skipped; c not reached
         assert!(expired.keys.contains(&a));
         assert!(expired.keys.contains(&b)); // b is in the list (it was a direct dependent)
-        // c should NOT be expired because b had Version(0) — cascade stopped
+                                            // c should NOT be expired because b had Version(0) — cascade stopped
         assert!(!expired.keys.contains(&c));
     }
 

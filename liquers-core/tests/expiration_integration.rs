@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 // Integration tests for expiration system
 use liquers_core::{
     assets::{AssetManager, AssetRef},
@@ -10,7 +12,7 @@ use liquers_core::{
     query::Key,
     state::State,
     store::AsyncMemoryStore,
-    value::Value,
+    value::{Value, ValueInterface},
 };
 use liquers_macro::register_command;
 
@@ -238,6 +240,41 @@ async fn test_plan_expires_serialization_roundtrip() -> Result<(), Box<dyn std::
 
     assert_eq!(plan2.expires, plan.expires);
     assert_eq!(plan2.is_volatile, plan.is_volatile);
+
+    Ok(())
+}
+
+/// Dependent expiration
+#[tokio::test]
+async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = CommandEnvironment::new();
+
+    fn hello() -> Result<Value, Error> {
+        Ok(Value::from_string("Hello".to_string()))
+    }
+    fn world(state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from_string(format!(
+            "{}, world!",
+            state.try_into_string()?
+        )))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn hello() -> result);
+    register_command!(cr, fn world(state) -> result);
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("hello/world").await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
+    assert_eq!(asset.status().await, Status::Ready);
+
+    let hello_asset = envref.evaluate("hello").await?; // This should be cached, so it should be the same asset as the one used above
+    assert_eq!(hello_asset.get().await?.try_into_string()?, "Hello");
+    assert_eq!(hello_asset.status().await, Status::Ready);
+    hello_asset.expire().await?;
+    assert_eq!(hello_asset.status().await, Status::Expired);
+    tokio::time::sleep(Duration::from_millis(600)).await; // Asset manager should react within half a second
+    assert_eq!(asset.status().await, Status::Expired); // Original asset should expire too
 
     Ok(())
 }
