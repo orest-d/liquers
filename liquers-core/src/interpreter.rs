@@ -8,7 +8,7 @@ use crate::{
     commands::{CommandArguments, CommandExecutor},
     context::{Context, EnvRef, Environment},
     error::Error,
-    metadata::{LogEntry, Metadata},
+    metadata::{DependencyRecord, LogEntry, Metadata, Version},
     parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{
         has_expirable_dependencies, has_volatile_dependencies, ParameterValue, Plan, PlanBuilder,
@@ -19,6 +19,41 @@ use crate::{
     state::State,
     value::ValueInterface,
 };
+
+/// Complete plan setup after `recipe.to_plan()`:
+/// - Populates `plan.dependencies` via async `find_dependencies` (which `to_plan` cannot do
+///   because it is synchronous).
+/// - May update `plan.is_volatile` if any dependency asset is volatile.
+/// - May update `plan.expires` based on dependency recipe expiration policies.
+/// - Seeds `context.pending_dependencies` with all plan deps at `Version(0)`.
+/// - Registers dependency edges in the `DependencyManager` for keyed plans.
+///
+/// Must be called between `recipe.to_plan()` and `apply_plan()` in every `apply_recipe`
+/// implementation.
+pub async fn finalize_plan<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+    context: &Context<E>,
+) -> Result<(), Error> {
+    has_volatile_dependencies(envref.clone(), plan).await?;
+    has_expirable_dependencies(envref.clone(), plan).await?;
+
+    if !plan.is_volatile {
+        for plan_dep in &plan.dependencies {
+            context
+                .add_dependency(DependencyRecord::new(plan_dep.key.clone(), Version::new(0)))
+                .await;
+        }
+        if let Some(key) = plan.query.key() {
+            let manager = envref.get_asset_manager();
+            let _ = manager
+                .register_plan_dependencies(&key, &plan.dependencies)
+                .await;
+        }
+    }
+
+    Ok(())
+}
 
 pub async fn make_plan<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,

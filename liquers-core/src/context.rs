@@ -502,32 +502,15 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use crate::interpreter::apply_plan;
+        use crate::interpreter::{apply_plan, finalize_plan};
 
         async move {
-            let plan = {
+            let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
 
-            // Seed plan dependencies with Version(0) into context
-            if !plan.is_volatile {
-                for plan_dep in &plan.dependencies {
-                    context
-                        .add_dependency(DependencyRecord::new(
-                            plan_dep.key.clone(),
-                            Version::new(0),
-                        ))
-                        .await;
-                }
-                // Register plan dependencies in DM (best-effort)
-                if let Some(key) = plan.query.key() {
-                    let manager = envref.get_asset_manager();
-                    let _ = manager
-                        .register_plan_dependencies(&key, &plan.dependencies)
-                        .await;
-                }
-            }
+            finalize_plan(envref.clone(), &mut plan, &context).await?;
 
             let res = apply_plan(plan, input_state, context, envref).await?;
 
@@ -644,32 +627,15 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use crate::interpreter::apply_plan;
+        use crate::interpreter::{apply_plan, finalize_plan};
 
         async move {
-            let plan = {
+            let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
 
-            // Seed plan dependencies with Version(0) into context
-            if !plan.is_volatile {
-                for plan_dep in &plan.dependencies {
-                    context
-                        .add_dependency(DependencyRecord::new(
-                            plan_dep.key.clone(),
-                            Version::new(0),
-                        ))
-                        .await;
-                }
-                // Register plan dependencies in DM (best-effort)
-                if let Some(key) = plan.query.key() {
-                    let manager = envref.get_asset_manager();
-                    let _ = manager
-                        .register_plan_dependencies(&key, &plan.dependencies)
-                        .await;
-                }
-            }
+            finalize_plan(envref.clone(), &mut plan, &context).await?;
 
             let res = apply_plan(plan, input_state, context, envref).await?;
 
@@ -682,7 +648,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
-        panic!("No recipe provider configured in SimpleEnvironment");
+        panic!("No recipe provider configured in SimpleEnvironmentWithPayload");
     }
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {

@@ -117,13 +117,16 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
     ) -> std::pin::Pin<
         Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
     > {
-        use liquers_core::interpreter::apply_plan;
+        use liquers_core::interpreter::{apply_plan, finalize_plan};
 
         async move {
-            let plan = {
+            let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
+
+            finalize_plan(envref.clone(), &mut plan, &context).await?;
+
             let res = apply_plan(plan, input_state, context, envref).await?;
 
             Ok(res)
@@ -135,10 +138,14 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         if let Some(provider) = &self.recipe_provider {
             return provider.clone();
         }
-        panic!("No recipe provider configured in SimpleEnvironment");
+        panic!("No recipe provider configured in DefaultEnvironment");
     }
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
+        let am = self.get_asset_manager();
+        tokio::spawn(async move {
+            am.load_command_versions().await;
+        });
     }
 }

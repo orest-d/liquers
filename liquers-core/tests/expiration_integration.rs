@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use itertools::Itertools;
 // Integration tests for expiration system
 use liquers_core::{
     assets::{AssetManager, AssetRef},
@@ -254,15 +255,21 @@ async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {
     fn hello() -> Result<Value, Error> {
         Ok(Value::from_string("Hello".to_string()))
     }
-    async fn world(state: State<Value>) -> Result<Value, Error> {
+    fn world(state: &State<Value>) -> Result<Value, Error> {
         Ok(Value::from_string(format!(
             "{}, world!",
             state.try_into_string()?
         )))
     }
     let cr = &mut env.command_registry;
-    register_command!(cr, fn hello() -> result)?;
-    register_command!(cr, async fn world(state) -> result)?;
+    register_command!(cr,
+        fn hello() -> result
+        version: 123
+    )?;
+    register_command!(cr,
+        fn world(state) -> result
+        version: 234
+    )?;
 
     let recipe = Recipe::new(
         "hello/hello.txt".to_string(),
@@ -285,6 +292,19 @@ async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {
     let asset = envref.evaluate("-R/hello.txt/-/world").await?;
     assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
     assert_eq!(asset.status().await, Status::Ready);
+    let state = asset.get().await?;
+    let dependencies = state.metadata.get_dependencies();
+
+    println!("Dependencies:");
+    for (i, d) in dependencies.iter().enumerate() {
+        println!("  {i}: {}", d.key.as_str());
+    }
+    println!("----");
+    // DependencyKey format: "ns-dep/command_impl-{realm}-{namespace}-{name}"
+    // "world" is registered in the default realm/namespace, both normalized to "".
+    assert!(dependencies
+        .iter()
+        .any(|d| d.key.as_str() == "ns-dep/command_impl---world"));
 
     let hello_asset = envref.evaluate("-R/hello.txt").await?;
     assert_eq!(hello_asset.get().await?.try_into_string()?, "Hello");
