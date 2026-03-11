@@ -246,6 +246,33 @@ async fn test_plan_expires_serialization_roundtrip() -> Result<(), Box<dyn std::
     Ok(())
 }
 
+/// Timed expiration
+#[tokio::test]
+async fn test_timed_expiration() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = CommandEnvironment::new();
+
+    fn hello() -> Result<Value, Error> {
+        Ok(Value::from_string("Hello".to_string()))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn hello() -> result
+        version: 123
+        expires: "in 500 ms"
+    )?;
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("hello").await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "Hello");
+    assert_eq!(asset.status().await, Status::Ready);
+    let state = asset.get().await?;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(asset.status().await, Status::Expired);
+
+    Ok(())
+}
+
 /// Dependent expiration
 #[tokio::test]
 async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {

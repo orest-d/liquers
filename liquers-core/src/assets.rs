@@ -835,7 +835,10 @@ impl<E: Environment> AssetRef<E> {
         );
         let mut lock = self.data.write().await;
         if lock.data.is_some() {
-            if lock.is_volatile {
+            let metadata_expires = lock.metadata.expires();
+            let should_be_volatile = lock.is_volatile || metadata_expires.is_volatile();
+            if should_be_volatile {
+                lock.is_volatile = true;
                 lock.status = Status::Volatile;
                 lock.expiration_time = ExpirationTime::Immediately;
                 if let Err(e) = lock.metadata.set_volatile() {
@@ -855,8 +858,7 @@ impl<E: Environment> AssetRef<E> {
                         e,
                     )));
                 }
-                let recipe_expires = lock.recipe.expires.clone();
-                if let Err(e) = lock.metadata.set_expiration_time_from(&recipe_expires) {
+                if let Err(e) = lock.metadata.set_expiration_time_from(&metadata_expires) {
                     let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
                         "Failed to set expiration metadata on asset {}: {}",
                         self.id(),
@@ -1375,8 +1377,11 @@ impl<E: Environment> AssetRef<E> {
                     | Status::Dependencies
                     | Status::Processing
                     | Status::Storing => {
+                        let metadata_expires = lock.metadata.expires();
+                        let should_be_volatile = lock.is_volatile || metadata_expires.is_volatile();
                         // here is a value, so this is probably an old state - mark as ready or volatile
-                        if lock.is_volatile {
+                        if should_be_volatile {
+                            lock.is_volatile = true;
                             lock.status = Status::Volatile;
                             lock.expiration_time = ExpirationTime::Immediately;
                             if let Err(e) = lock.metadata.set_volatile() {
@@ -1396,8 +1401,8 @@ impl<E: Environment> AssetRef<E> {
                                     e,
                                 )));
                             }
-                            let recipe_expires = lock.recipe.expires.clone();
-                            if let Err(e) = lock.metadata.set_expiration_time_from(&recipe_expires)
+                            if let Err(e) =
+                                lock.metadata.set_expiration_time_from(&metadata_expires)
                             {
                                 let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
                                     "Failed to set expiration metadata on asset {}: {}",

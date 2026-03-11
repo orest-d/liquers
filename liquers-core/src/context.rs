@@ -20,6 +20,7 @@ use crate::{
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     error::Error,
+    expiration::Expires,
     metadata::{DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version},
     query::{Key, Query, TryToQuery},
     recipes::{AsyncRecipeProvider, Recipe},
@@ -387,6 +388,16 @@ impl<E: Environment> Context<E> {
         self.assetref.set_state(state).await
     }
 
+    pub(crate) async fn set_expires(&self, expires: Expires) -> Result<(), Error> {
+        let expiration_time = {
+            let mut lock = self.assetref.data.write().await;
+            lock.metadata.set_expiration_time_from(&expires)?;
+            lock.metadata.expiration_time()
+        };
+        self.assetref.set_expiration_time(expiration_time).await;
+        Ok(())
+    }
+
     pub async fn set_error(&self, error: Error) -> Result<(), Error> {
         self.assetref.set_error(error).await
     }
@@ -505,12 +516,15 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         use crate::interpreter::{apply_plan, finalize_plan};
 
         async move {
+            let recipe_expires = recipe.expires.clone();
             let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
 
             finalize_plan(envref.clone(), &mut plan, &context).await?;
+            let combined_expires = plan.expires.clone() | recipe_expires;
+            context.set_expires(combined_expires).await?;
 
             let res = apply_plan(plan, input_state, context, envref).await?;
 
@@ -630,12 +644,15 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         use crate::interpreter::{apply_plan, finalize_plan};
 
         async move {
+            let recipe_expires = recipe.expires.clone();
             let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
 
             finalize_plan(envref.clone(), &mut plan, &context).await?;
+            let combined_expires = plan.expires.clone() | recipe_expires;
+            context.set_expires(combined_expires).await?;
 
             let res = apply_plan(plan, input_state, context, envref).await?;
 
