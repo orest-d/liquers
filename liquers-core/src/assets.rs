@@ -840,7 +840,6 @@ impl<E: Environment> AssetRef<E> {
             if should_be_volatile {
                 lock.is_volatile = true;
                 lock.status = Status::Volatile;
-                lock.expiration_time = ExpirationTime::Immediately;
                 if let Err(e) = lock.metadata.set_volatile() {
                     let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
                         "Failed to set volatile metadata on asset {}: {}",
@@ -1362,74 +1361,25 @@ impl<E: Environment> AssetRef<E> {
         let res = self.evaluate_recipe().await;
         match res {
             Ok(State { data, metadata }) => {
-                let mut lock = self.data.write().await;
-                let mut metadata_clone = (*metadata).clone();
-                metadata_clone
-                    .with_type_identifier(data.identifier().to_string())
-                    .with_type_name(data.type_name().to_string());
-                lock.data = Some(data);
-                lock.status = metadata_clone.status();
-                lock.metadata = metadata_clone;
-                match lock.status {
-                    Status::None
-                    | Status::Recipe
-                    | Status::Submitted
-                    | Status::Dependencies
-                    | Status::Processing
-                    | Status::Storing => {
-                        let metadata_expires = lock.metadata.expires();
-                        let should_be_volatile = lock.is_volatile || metadata_expires.is_volatile();
-                        // here is a value, so this is probably an old state - mark as ready or volatile
-                        if should_be_volatile {
-                            lock.is_volatile = true;
-                            lock.status = Status::Volatile;
-                            lock.expiration_time = ExpirationTime::Immediately;
-                            if let Err(e) = lock.metadata.set_volatile() {
-                                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-                                    "Failed to set volatile metadata on asset {}: {}",
-                                    self.id(),
-                                    e,
-                                )));
-                            }
-                            lock.expiration_time = lock.metadata.expiration_time();
-                        } else {
-                            lock.status = Status::Ready;
-                            if let Err(e) = lock.metadata.set_status(Status::Ready) {
-                                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-                                    "Failed to set ready status metadata on asset {}: {}",
-                                    self.id(),
-                                    e,
-                                )));
-                            }
-                            if let Err(e) =
-                                lock.metadata.set_expiration_time_from(&metadata_expires)
-                            {
-                                let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-                                    "Failed to set expiration metadata on asset {}: {}",
-                                    self.id(),
-                                    e,
-                                )));
-                            }
-                            lock.expiration_time = lock.metadata.expiration_time();
-                        }
-                    }
-                    Status::Ready => {}
-                    Status::Partial => {}
-                    Status::Error => {}
-                    Status::Directory => {}
-                    Status::Cancelled => {}
-                    Status::Source => {}
-                    Status::Expired => {}
-                    Status::Override => {}
-                    Status::Volatile => {}
+                {
+                    let mut lock = self.data.write().await;
+                    let mut metadata_clone = (*metadata).clone();
+                    metadata_clone
+                        .with_type_identifier(data.identifier().to_string())
+                        .with_type_name(data.type_name().to_string());
+                    lock.data = Some(data);
+                    lock.metadata = metadata_clone;
                 }
-                let _ = lock
-                    .notification_tx
-                    .send(AssetNotificationMessage::ValueProduced);
-                let save_in_background = lock.save_in_background;
-                let cancelled = lock.is_cancelled();
-                let lock_is_volatile = lock.is_volatile;
-                drop(lock);
+                // Finalize status and expiration in one place (replaces inline match block).
+                // Must happen before persistence so poll_state() returns Some for serialization.
+                self.try_to_set_ready().await;
+                let (save_in_background, cancelled, lock_is_volatile) = {
+                    let lock = self.data.read().await;
+                    let _ = lock
+                        .notification_tx
+                        .send(AssetNotificationMessage::ValueProduced);
+                    (lock.save_in_background, lock.is_cancelled(), lock.is_volatile)
+                };
 
                 self.persist_with_status_tracking(save_in_background, cancelled)
                     .await;
