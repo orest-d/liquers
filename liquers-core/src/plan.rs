@@ -1719,14 +1719,14 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                                 let cmr = envref.get_command_metadata_registry();
                                 let mut pb = PlanBuilder::new(recipe_query, cmr);
                                 let recipe_plan = pb.build()?;
-                                // Indirect dependencies are handled later by dependency tracking.
-                                let _ = find_dependencies(
+                                let nested_dependencies = find_dependencies(
                                     envref.clone(),
                                     &recipe_plan,
                                     stack,
                                     current_cwd.clone(),
                                 )
                                 .await?;
+                                dependencies.extend(nested_dependencies);
                             }
                         }
                     }
@@ -1996,62 +1996,82 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
 ) -> Result<(), Error> {
-    let dependencies = if plan.dependencies.is_empty() {
-        let mut stack = Vec::new();
-        match find_dependencies(envref.clone(), plan, &mut stack, None).await {
-            Ok(dependencies) => {
-                plan.dependencies = dependencies.clone();
-                for dep in &dependencies {
-                    plan.init_info(format!(
-                        "Dependency detected: {} ({:?})",
-                        dep.key, dep.relation
-                    ));
+    has_expirable_dependencies_impl(envref, plan).await
+}
+
+fn has_expirable_dependencies_impl<'a, E: Environment>(
+    envref: EnvRef<E>,
+    plan: &'a mut Plan,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>> {
+    Box::pin(async move {
+        let dependencies = if plan.dependencies.is_empty() {
+            let mut stack = Vec::new();
+            match find_dependencies(envref.clone(), plan, &mut stack, None).await {
+                Ok(dependencies) => {
+                    plan.dependencies = dependencies.clone();
+                    for dep in &dependencies {
+                        plan.init_info(format!(
+                            "Dependency detected: {} ({:?})",
+                            dep.key, dep.relation
+                        ));
+                    }
+                    dependencies
                 }
-                dependencies
+                Err(error) => {
+                    dependency_check_error(plan, &error);
+                    return Err(error);
+                }
             }
-            Err(error) => {
-                dependency_check_error(plan, &error);
-                return Err(error);
-            }
-        }
-    } else {
-        plan.dependencies.clone()
-    };
-    let mut changed = false;
-
-    for dependency in dependencies {
-        let Ok(key) = Key::try_from(&dependency.key) else {
-            continue;
+        } else {
+            plan.dependencies.clone()
         };
-        // Check if recipe has expiration specification
-        if let Ok(Some(recipe)) = envref
-            .get_recipe_provider()
-            .recipe_opt(&key, envref.clone())
-            .await
-        {
-            let previous = plan.expires.clone();
-            plan.expires |= recipe.expires.clone();
-            if plan.expires != previous {
-                plan.init_info(format!(
-                    "Expiration combined with dependency {:?}: '{}' | '{}' -> '{}'",
-                    key, previous, recipe.expires, plan.expires
-                ));
-                changed = true;
+        let mut changed = false;
+
+        for dependency in dependencies {
+            let Some(key) = dependency.key.key()? else {
+                continue;
+            };
+
+            if let Ok(Some(recipe)) = envref
+                .get_recipe_provider()
+                .recipe_opt(&key, envref.clone())
+                .await
+            {
+                let mut dependency_expires = recipe.expires.clone();
+
+                if !recipe.query.is_empty() {
+                    if let Ok(recipe_query) = recipe.get_query() {
+                        let cmr = envref.get_command_metadata_registry();
+                        let mut pb = PlanBuilder::new(recipe_query, cmr);
+                        let mut recipe_plan = pb.build()?;
+                        has_expirable_dependencies_impl(envref.clone(), &mut recipe_plan).await?;
+                        dependency_expires |= recipe_plan.expires.clone();
+                    }
+                }
+
+                let previous = plan.expires.clone();
+                plan.expires |= dependency_expires.clone();
+                if plan.expires != previous {
+                    plan.init_info(format!(
+                        "Expiration combined with asset dependency {:?}: '{}' | '{}' -> '{}'",
+                        key, previous, dependency_expires, plan.expires
+                    ));
+                    changed = true;
+                }
             }
         }
-    }
 
-    // If combined expiration yields immediate expiry, mark as volatile too.
-    if changed && plan.expires.is_volatile() {
-        if !plan.is_volatile {
-            plan.is_volatile = true;
-            plan.init_info(
-                "Volatile: dependency combination includes Immediately expiration".to_string(),
-            );
+        if changed && plan.expires.is_volatile() {
+            if !plan.is_volatile {
+                plan.is_volatile = true;
+                plan.init_info(
+                    "Volatile: dependency combination includes Immediately expiration".to_string(),
+                );
+            }
         }
-    }
 
-    Ok(())
+        Ok(())
+    })
 }
 
 #[cfg(test)]

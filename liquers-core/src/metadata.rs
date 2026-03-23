@@ -118,6 +118,83 @@ impl DependencyKey {
         &self.0
     }
 
+    pub fn is_pure_key(&self) -> bool {
+        self.0 == "-R" || self.0.starts_with("-R/")
+    }
+
+    pub fn is_recipe_key(&self) -> bool {
+        self.0 == "-R-recipe" || self.0.starts_with("-R-recipe/")
+    }
+
+    pub fn is_dir_key(&self) -> bool {
+        self.0 == "-R-dir" || self.0.starts_with("-R-dir/")
+    }
+
+    pub fn is_command_metadata(&self) -> bool {
+        self.0.starts_with("ns-dep/command_metadata-")
+    }
+
+    pub fn is_command_implementation(&self) -> bool {
+        self.0.starts_with("ns-dep/command_impl-")
+    }
+
+    fn extract_prefixed_key(&self, prefix: &str) -> Result<Option<Key>, Error> {
+        if self.0 == prefix {
+            return Ok(Some(Key::new()));
+        }
+        if let Some(encoded) = self.0.strip_prefix(&format!("{}/", prefix)) {
+            return parse_key(encoded).map(Some);
+        }
+        Ok(None)
+    }
+
+    fn extract_command_key(&self, prefix: &str) -> Result<Option<CommandKey>, Error> {
+        let Some(encoded) = self.0.strip_prefix(prefix) else {
+            return Ok(None);
+        };
+
+        // TODO: CommandKey currently formats as realm-namespace-name, which is ambiguous
+        // if any component can contain '-'. Switch to an unambiguous encoding when possible.
+        let mut parts = encoded.splitn(3, '-');
+        let realm = parts.next().unwrap_or_default();
+        let namespace = parts.next().ok_or_else(|| {
+            Error::not_supported(format!(
+                "DependencyKey {} does not contain a valid command key",
+                self.as_str()
+            ))
+        })?;
+        let name = parts.next().ok_or_else(|| {
+            Error::not_supported(format!(
+                "DependencyKey {} does not contain a valid command key",
+                self.as_str()
+            ))
+        })?;
+
+        Ok(Some(CommandKey::new(realm, namespace, name)))
+    }
+
+    pub fn key(&self) -> Result<Option<Key>, Error> {
+        self.extract_prefixed_key("-R")
+    }
+
+    pub fn recipe_key(&self) -> Result<Option<Key>, Error> {
+        self.extract_prefixed_key("-R-recipe")
+    }
+
+    pub fn dir_key(&self) -> Result<Option<Key>, Error> {
+        self.extract_prefixed_key("-R-dir")
+    }
+
+    pub fn command_key(&self) -> Result<Option<CommandKey>, Error> {
+        if self.is_command_metadata() {
+            self.extract_command_key("ns-dep/command_metadata-")
+        } else if self.is_command_implementation() {
+            self.extract_command_key("ns-dep/command_impl-")
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Convert to a `Query` by parsing the inner string.
     pub fn to_query(&self) -> Result<Query, Error> {
         crate::parse::parse_query(&self.0)
@@ -156,13 +233,12 @@ impl TryFrom<&DependencyKey> for Key {
     type Error = Error;
 
     fn try_from(value: &DependencyKey) -> Result<Self, Self::Error> {
-        if let Some(encoded) = value.as_str().strip_prefix("-R/") {
-            parse_key(encoded)
-        } else {
-            Err(Error::not_supported(format!(
+        match value.key()? {
+            Some(key) => Ok(key),
+            None => Err(Error::not_supported(format!(
                 "DependencyKey '{}' does not represent a plain asset key",
                 value.as_str()
-            )))
+            ))),
         }
     }
 }

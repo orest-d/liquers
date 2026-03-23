@@ -345,3 +345,99 @@ async fn test_dependent_expiration() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// Dependent expiration 2
+#[tokio::test]
+async fn test_dependent_expiration2() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = CommandEnvironment::new();
+
+    fn hello() -> Result<Value, Error> {
+        Ok(Value::from_string("Hello".to_string()))
+    }
+    fn world(state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from_string(format!(
+            "{}, world!",
+            state.try_into_string()?
+        )))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn hello() -> result
+        version: 123
+        expires: "in 500 ms"
+    )?;
+    register_command!(cr,
+        fn world(state) -> result
+        version: 234
+        expires: "never"
+    )?;
+
+    let recipe = Recipe::new(
+        "hello/hello.txt".to_string(),
+        "Hello recipe".to_string(),
+        "Produces hello.txt from hello command".to_string(),
+    )?;
+    let mut recipe_list = RecipeList::new();
+    recipe_list.add_recipe(recipe);
+    let yaml_content = serde_yaml::to_string(&recipe_list)?;
+
+    let store = AsyncMemoryStore::new(&Key::new());
+    let recipes_key = parse_key("recipes.yaml")?;
+    store
+        .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
+        .await?;
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("-R/hello.txt/-/world").await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
+    assert_eq!(asset.status().await, Status::Ready);
+    let state = asset.get().await?;
+    assert_eq!(state.metadata.expires(), Expires::InDuration(std::time::Duration::from_millis(500)));
+  
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(asset.status().await, Status::Expired);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_commands_chain_expiration() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = CommandEnvironment::new();
+
+    fn hello() -> Result<Value, Error> {
+        Ok(Value::from_string("Hello".to_string()))
+    }
+    fn world(state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from_string(format!(
+            "{}, world!",
+            state.try_into_string()?
+        )))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn hello() -> result
+        version: 123
+        expires: "in 500 ms"
+    )?;
+    register_command!(cr,
+        fn world(state) -> result
+        version: 234
+        expires: "never"
+    )?;
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("hello/world").await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
+    assert_eq!(asset.status().await, Status::Ready);
+    let state = asset.get().await?;
+    assert_eq!(state.metadata.expires(), Expires::InDuration(std::time::Duration::from_millis(500)));
+
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(asset.status().await, Status::Expired);
+
+    Ok(())
+}

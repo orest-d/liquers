@@ -492,6 +492,8 @@ mod tests {
     use super::*;
     use crate::command_metadata::CommandKey;
     use crate::metadata::{DependencyKey, DependencyRecord, Version};
+    use crate::parse::parse_key;
+    use crate::query::Key;
     use crate::value::Value;
 
     type TestEnv = crate::context::SimpleEnvironment<Value>;
@@ -856,4 +858,85 @@ mod tests {
         let dk = DependencyKey::for_command_implementation(&ck);
         assert!(dk.as_str().starts_with("ns-dep/command_impl-"));
     }
+
+    #[test]
+    fn dependency_key_classifies_and_extracts_pure_key() {
+        let key = parse_key("a/b.txt").unwrap();
+        let dk = DependencyKey::from(&key);
+
+        assert!(dk.is_pure_key());
+        assert!(!dk.is_recipe_key());
+        assert!(!dk.is_dir_key());
+        assert_eq!(dk.key().unwrap(), Some(key));
+        assert_eq!(Key::try_from(&dk).unwrap(), parse_key("a/b.txt").unwrap());
+        assert_eq!(dk.recipe_key().unwrap(), None);
+        assert_eq!(dk.dir_key().unwrap(), None);
+        assert_eq!(dk.command_key().unwrap(), None);
+    }
+
+    #[test]
+    fn dependency_key_classifies_empty_pure_key() {
+        let dk = DependencyKey::new("-R");
+
+        assert!(dk.is_pure_key());
+        assert_eq!(dk.key().unwrap(), Some(crate::query::Key::new()));
+        assert_eq!(Key::try_from(&dk).unwrap(), crate::query::Key::new());
+    }
+
+    #[test]
+    fn dependency_key_classifies_and_extracts_recipe_key() {
+        let key = parse_key("recipes/demo.txt").unwrap();
+        let dk = DependencyKey::from_recipe_key(&key);
+
+        assert!(dk.is_recipe_key());
+        assert!(!dk.is_pure_key());
+        assert!(!dk.is_dir_key());
+        assert_eq!(dk.recipe_key().unwrap(), Some(key));
+        assert_eq!(dk.key().unwrap(), None);
+        assert_eq!(dk.dir_key().unwrap(), None);
+        assert_eq!(dk.command_key().unwrap(), None);
+    }
+
+    #[test]
+    fn dependency_key_classifies_and_extracts_dir_key() {
+        let key = parse_key("reports").unwrap();
+        let dk = DependencyKey::from_dir_key(&key);
+
+        assert!(dk.is_dir_key());
+        assert!(!dk.is_pure_key());
+        assert!(!dk.is_recipe_key());
+        assert_eq!(dk.dir_key().unwrap(), Some(key));
+        assert_eq!(dk.key().unwrap(), None);
+        assert_eq!(dk.recipe_key().unwrap(), None);
+        assert_eq!(dk.command_key().unwrap(), None);
+    }
+
+    #[test]
+    fn dependency_key_classifies_and_extracts_command_metadata_key() {
+        let ck = CommandKey::new("", "root", "hello");
+        let dk = DependencyKey::for_command_metadata(&ck);
+
+        assert!(dk.is_command_metadata());
+        assert!(!dk.is_command_implementation());
+        assert_eq!(dk.command_key().unwrap(), Some(ck));
+        assert_eq!(dk.key().unwrap(), None);
+    }
+
+    #[test]
+    fn dependency_key_classifies_and_extracts_command_implementation_key() {
+        let ck = CommandKey::new("realm", "ns", "hello");
+        let dk = DependencyKey::for_command_implementation(&ck);
+
+        assert!(dk.is_command_implementation());
+        assert!(!dk.is_command_metadata());
+        assert_eq!(dk.command_key().unwrap(), Some(ck));
+        assert_eq!(dk.key().unwrap(), None);
+    }
+
+    #[test]
+    fn dependency_key_command_key_rejects_invalid_format() {
+        let dk = DependencyKey::new("ns-dep/command_metadata-broken");
+        assert!(dk.command_key().is_err());
+    }
 }
+

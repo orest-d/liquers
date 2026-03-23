@@ -35,6 +35,9 @@ pub async fn finalize_plan<E: Environment>(
     plan: &mut Plan,
     context: &Context<E>,
 ) -> Result<(), Error> {
+    // FIXME: Problem 1: this calls find_dependencies twice
+    // FIXME: Problem 2: if the plan is volatile due to a dependency, it does not need to check expirability since it expires immediately
+    // FIXME: Problem 3: only direct dependencies should be registered
     has_volatile_dependencies(envref.clone(), plan).await?;
     has_expirable_dependencies(envref.clone(), plan).await?;
 
