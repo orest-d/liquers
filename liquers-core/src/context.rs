@@ -388,7 +388,8 @@ impl<E: Environment> Context<E> {
         self.assetref.set_state(state).await
     }
 
-    pub(crate) async fn set_expires(&self, expires: Expires) -> Result<(), Error> {
+    // FIXME: Should not be public (only pub(crate)) - but needs to be used now in every environment in apply_recipe
+    pub async fn set_expires(&self, expires: Expires) -> Result<(), Error> {
         let expiration_time = {
             let mut lock = self.assetref.data.write().await;
             lock.metadata.set_expiration_time_from(&expires)?;

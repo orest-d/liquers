@@ -120,12 +120,15 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         use liquers_core::interpreter::{apply_plan, finalize_plan};
 
         async move {
+            let recipe_expires = recipe.expires.clone();
             let mut plan = {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
 
             finalize_plan(envref.clone(), &mut plan, &context).await?;
+            let combined_expires = plan.expires.clone() | recipe_expires;
+            context.set_expires(combined_expires).await?;
 
             let res = apply_plan(plan, input_state, context, envref).await?;
 
