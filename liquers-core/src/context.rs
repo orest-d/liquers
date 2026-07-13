@@ -219,7 +219,10 @@ impl<E: Environment> Context<E> {
             }
         }
 
-        // Perform the evaluation
+        // Perform the evaluation and record the edge before the caller decides
+        // whether to await the returned asset.  This keeps runtime dependency
+        // capture path-independent: queued and immediate evaluations both drain
+        // this context-owned pending list after command execution.
         let result = manager.get_asset(query).await?;
 
         // Record the dependency
@@ -228,7 +231,7 @@ impl<E: Environment> Context<E> {
             .dependency_manager()
             .get_version(&query_dep_key)
             .await
-            .unwrap_or(Version::new(0));
+            .unwrap_or_else(Version::unknown);
 
         // Register as untracked dependent if current asset has a key
         if current_key_opt.is_some() {
@@ -238,11 +241,16 @@ impl<E: Environment> Context<E> {
                 .await;
         }
 
-        // Record in pending_dependencies
-        self.pending_dependencies
-            .lock()
-            .await
-            .push(DependencyRecord::new(query_dep_key, version));
+        self.add_dependency(DependencyRecord::new(query_dep_key, version))
+            .await;
+
+        // `Status::Dependencies` is the single lifecycle marker for a parent
+        // whose command is about to wait for a child asset.  Do not persist a
+        // second waiting model here; the dependency graph and metadata records
+        // above remain authoritative.
+        if result.poll_state().await.is_none() {
+            self.assetref.enter_dependencies(&result).await?;
+        }
 
         Ok(result)
     }
@@ -368,7 +376,12 @@ impl<E: Environment> Context<E> {
     pub async fn add_dependency(&self, record: DependencyRecord) {
         let mut deps = self.pending_dependencies.lock().await;
         if let Some(existing) = deps.iter_mut().find(|d| d.key == record.key) {
-            existing.version = record.version;
+            // Version(0) is the dependency-manager sentinel for "unknown".
+            // Do not let an unknown later observation erase a previously known
+            // version for the same dependency.
+            if existing.version.is_unknown() || !record.version.is_unknown() {
+                existing.version = record.version;
+            }
         } else {
             deps.push(record);
         }

@@ -311,7 +311,8 @@ pub fn do_step<E: Environment>(
     }
 }
 
-pub fn evaluate<E: Environment, Q: TryToQuery>( // TODO: this should be docommissioned in favor of environment evaluate methods
+pub fn evaluate<E: Environment, Q: TryToQuery>(
+    // TODO: this should be docommissioned in favor of environment evaluate methods
     envref: EnvRef<E>,
     query: Q,
     cwd_key: Option<Key>,
@@ -334,9 +335,14 @@ pub fn evaluate<E: Environment, Q: TryToQuery>( // TODO: this should be docommis
         */
         let input_state = State::<<E as Environment>::Value>::new();
         let res = apply_plan(plan, input_state, context.clone(), envref).await?;
+        let observed_deps = context.take_pending_dependencies().await;
+        let mut metadata = context.get_metadata().await?;
+        for dep in observed_deps {
+            let _ = metadata.add_dependency(dep);
+        }
         Ok(State::new()
             .with_data((*res).clone())
-            .with_metadata(context.get_metadata().await?.into()))
+            .with_metadata(metadata.into()))
     }
     .boxed()
 }
@@ -635,6 +641,12 @@ mod tests {
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Hello, world from moon!");
+        let moon_dependency_key = crate::metadata::DependencyKey::from(&parse_query("moon")?);
+        let deps = state.metadata.get_dependencies();
+        assert!(
+            deps.iter().any(|d| d.key == moon_dependency_key),
+            "context.evaluate() should record the runtime dependency in result metadata"
+        );
         Ok(())
     }
 

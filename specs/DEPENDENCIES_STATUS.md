@@ -2,270 +2,209 @@
 
 ## Overview
 
-The `Dependencies` status indicates that an asset is waiting for its dependencies to be evaluated before it can proceed with its own computation. This status should be set by the interpreter/plan executor when an asset's recipe requires other assets that are not yet ready.
+`Status::Dependencies` is the lifecycle state used when an asset cannot expose a value because it
+is waiting for one or more dependency assets. It is not a terminal state and it does not contain
+asset data: `poll_state()` returns `None` while the asset is in `Dependencies`.
 
-## Current State
+The dependency graph remains the source of truth. Static plan dependencies, runtime dependencies
+recorded by `Context`, persisted `MetadataRecord.dependencies`, and `DependencyManager` edges are
+the dependency facts. `Status::Dependencies` only describes the current lifecycle wait.
 
-- `Status::Dependencies` exists in the enum (`liquers-core/src/metadata.rs`)
-- Status properties are defined:
-  - `has_data()`: false
-  - `is_finished()`: false
-  - `is_processing()`: false
-  - `can_have_tracked_dependencies()`: false
-- **Not currently used**: No code sets this status
+## Issue F-1 and the implemented fix
 
-## Intended Behavior
+Review issue **F-1** identified a hard deadlock in pure-key recipe delegation:
 
-### When to Set Dependencies Status
+1. Parent asset `A` starts in the job queue and occupies one queue slot.
+2. During `AssetRef::evaluate_recipe()`, `A` discovers that its recipe delegates to keyed asset
+   `B`.
+3. The old code called `B.get().await` directly while `A` still occupied its slot.
+4. If the queue was already at capacity, `B` stayed `Submitted` and could not start. A delegation
+   chain deeper than queue capacity therefore hung forever.
 
-The interpreter should set `Status::Dependencies` when:
-1. An asset's recipe is being evaluated
-2. The recipe contains a query/key reference to another asset
-3. That referenced asset is not yet ready (`!status.is_finished()` or `!status.has_data()`)
+The current implementation solves F-1 by making delegation an explicit dependency wait:
 
-### State Transitions
+- `AssetRef::record_dependency_on_asset(&child)` records the delegated child in parent metadata and
+  in `DependencyManager` before waiting.
+- `AssetRef::enter_dependencies(&child)` moves the parent to `Status::Dependencies` and notifies
+  observers that the parent is blocked on the child.
+- If the delegated child is still only queued, the parent path runs that child job inline. This is
+  the current deadlock guard: the child no longer needs to wait for another queue slot before it can
+  make progress.
+- `AssetRef::fail_due_to_dependency(error)` turns parent evaluation into `Error` when the delegated
+  child fails.
+- `AssetRef::leave_dependencies_for_resubmit()` clears the dependency wait once the child is ready,
+  and the parent can finish normally.
+- `JobQueue` is notify-driven (`Notify`) rather than a periodic sleeper, so submitted work and job
+  completion wake dispatch promptly. `DefaultAssetManager::with_capacity()` allows capacity=1
+  regression coverage, and `shutdown()` stops queue/expiration background tasks.
 
-```
-┌───────────────┐
-│   Submitted   │
-└───────┬───────┘
-        │
-        │ JobStarted (interpreter begins)
-        ▼
-┌───────────────┐
-│  Processing   │
-└───────┬───────┘
-        │
-        │ (interpreter finds unready dependency)
-        ▼
-┌───────────────┐
-│ Dependencies  │ ◄─────┐
-└───────┬───────┘       │
-        │               │
-        │ (dependency   │ (another dependency
-        │  ready)       │  not ready)
-        │               │
-        ▼               │
-┌───────────────┐       │
-│  Processing   │ ──────┘
-└───────┬───────┘
-        │
-        │ (all dependencies ready, computation complete)
-        ▼
-┌───────────────┐
-│     Ready     │
-└───────────────┘
-```
+The result is that the parent no longer waits invisibly in `Processing`; consumers see
+`Dependencies`, dependency metadata/graph edges exist, and a queued child can progress even under
+queue-capacity pressure.
 
-### Notifications
+## Current contract
 
-When transitioning to Dependencies:
-- Service: (none needed, internal transition)
-- Notification: `StatusChanged(Dependencies)`
+- `Status::Dependencies` is the only status used for dependency waiting; there is no
+  `WaitingForDependency` status.
+- `Status::Dependencies` has no data, is not finished, is not considered processing, and remains
+  cancellable like `Processing`.
+- Dependency edges are graph/metadata facts, not status facts. Scheduler-local wait bookkeeping is
+  diagnostic only.
+- `Version::unknown()` (`Version(0)`) means the dependency version is not known yet. Unknown
+  versions may record edges, but they must not replace an already-known dependency version in
+  metadata.
+- Dependency-cycle checks use `DependencyManager::would_create_cycle()` / `add_dependency()` and
+  static dependency discovery. There is no separate canonical wait-cycle graph.
 
-When transitioning out of Dependencies:
-- Service: (none, driven by dependency completion)
-- Notification: `StatusChanged(Processing)`
+## Detailed evaluation flows
 
-## Implementation
+The flows below describe the most complex paths first. Simpler paths skip the marked steps.
 
-### 1. Interpreter Changes
+### Flow A: queued keyed asset with pure-key delegation and a queued child
 
-In the plan/query interpreter (`liquers-core/src/interpreter.rs` or similar):
+This is the F-1 path.
 
-```rust
-async fn evaluate_step(&mut self, step: &PlanStep) -> Result<(), Error> {
-    // Check if step requires a dependency
-    if let Some(dep_query) = step.get_dependency() {
-        let dep_asset = self.env.get_asset_manager().get_asset(&dep_query).await?;
+1. **Submit parent**
+   - `DefaultAssetManager::get()` or `get_asset()` obtains/creates parent asset `A`.
+   - `JobQueue::submit(A)` either starts `A` immediately or marks it `Submitted`.
+   - `JobQueue::run()` wakes via `Notify`, collects candidate jobs without awaiting while holding
+     the queue mutex, marks selected jobs `Processing`, and spawns `A.run()`.
 
-        if !dep_asset.status().await.has_data() {
-            // Set Dependencies status
-            self.current_asset.set_status(Status::Dependencies).await?;
+2. **Start evaluation**
+   - `A.run()` calls `evaluate_and_store()` / `evaluate_recipe()`.
+   - `evaluate_recipe()` checks whether the current recipe's key maps to another asset. If it maps
+     to `A` itself, this is the normal self-recipe path and steps 3-8 are skipped.
 
-            // Wait for dependency
-            dep_asset.wait_for_ready().await?;
+3. **Discover delegated child**
+   - `evaluate_recipe()` finds child asset `B` for the same key/delegation target.
+   - `record_dependency_on_asset(B)` computes the child `DependencyKey`, finds the best available
+     version (child metadata version, `DependencyManager` version, or `Version::unknown()`), and
+     upserts the parent metadata dependency.
+   - If parent `A` is keyed, `record_dependency_on_asset(B)` checks `would_create_cycle(A, B)` and
+     then calls `DependencyManager::add_dependency(A, B, version)`.
+   - If `version == Version::unknown()`, `DependencyManager` still records the edge but skips stale
+     version comparison. This preserves graph shape without pretending to know a concrete version.
 
-            // Back to Processing
-            self.current_asset.set_status(Status::Processing).await?;
-        }
+4. **Enter dependency wait**
+   - If `B.poll_state()` is `None`, `A.enter_dependencies(B)` sets `A` to
+     `Status::Dependencies`, writes the metadata status, logs the wait, and sends
+     `StatusChanged(Dependencies)`.
+   - While this status is active, `A.poll_state()` returns `None` even if stale data happens to be
+     present.
 
-        // Use dependency value...
-    }
-    // ... rest of step evaluation
-}
-```
+5. **Deadlock guard for queued child**
+   - If `B.status()` is `Submitted` or `Dependencies`, the parent path invokes `B.run()` inline.
+   - This step is skipped when `B` is already ready, already processing elsewhere, or already
+     terminal.
+   - This is the concrete F-1 fix for queue-capacity deadlocks: a child that could not acquire a
+     queue slot can still run to completion.
 
-### 2. AssetRef Helper Method
+6. **Child completion**
+   - `B.run()` follows the same evaluation machinery recursively. If `B` delegates again, steps
+     3-6 repeat for the next child.
+   - On success, `B` reaches `Ready`/`Volatile`/another data-bearing state and notifies waiters.
+   - On failure, `B.run()` returns an error.
 
-Add a method to wait for an asset to become ready:
+7. **Propagate child result**
+   - If the inline child run failed, `A.fail_due_to_dependency(error)` clears parent data/binary,
+     sets `Status::Error`, records error metadata, and sends `ErrorOccurred`.
+   - Otherwise `A` calls `B.get()` and obtains the child state. If `get()` returns an error,
+     parent evaluation returns a dependency-context error.
 
-```rust
-impl<E: Environment> AssetRef<E> {
-    /// Wait for the asset to reach a finished state with data
-    pub async fn wait_for_ready(&self) -> Result<(), Error> {
-        let mut rx = self.subscribe_notifications();
+8. **Leave dependency wait and finish parent**
+   - `A.leave_dependencies_for_resubmit()` changes `Dependencies` back to `Submitted` before final
+     completion.
+   - `evaluate_recipe()` returns the delegated state. `evaluate_and_store()` stores it on `A`,
+     finalizes status/expiration, persists if needed, and registers finished non-volatile metadata
+     dependencies with `DependencyManager::track_asset()`.
 
-        loop {
-            let status = self.status().await;
-            if status.has_data() {
-                return Ok(());
-            }
-            if status.is_finished() && !status.has_data() {
-                // Finished but no data (Error, Cancelled)
-                return Err(Error::dependency_not_ready(&self.get_query()));
-            }
+### Flow B: queued or immediate command uses `Context::evaluate()` at runtime
 
-            // Wait for next notification
-            rx.changed().await.map_err(|_| {
-                Error::general_error("Notification channel closed".to_string())
-            })?;
-        }
-    }
-}
-```
+This is the runtime dependency path for commands that discover dependencies while running.
 
-### 3. Context Integration
+1. **Command receives `Context`**
+   - Both queued recipe evaluation and immediate evaluation create a `Context` for the current
+     asset.
+   - The context owns a shared `pending_dependencies` vector, also shared with cloned contexts.
 
-The `Context` passed to commands should provide dependency resolution:
+2. **Command requests dependency**
+   - The command calls `context.evaluate(query)`.
+   - `Context::evaluate()` gets the current asset key when available.
+   - If current and dependency keys are known, it calls
+     `DependencyManager::would_create_cycle(current, dependency)` before recording the edge.
 
-```rust
-impl<E: Environment> Context<E> {
-    /// Get a dependency asset, setting Dependencies status if needed
-    pub async fn get_dependency(&self, query: &Query) -> Result<State<E::Value>, Error> {
-        let asset = self.env.get_asset_manager().get_asset(query).await?;
+3. **Obtain child asset**
+   - `Context::evaluate()` calls `manager.get_asset(query)`, which creates/submits or returns the
+     dependency asset.
+   - If the dependency is already data-bearing, steps 5-6 are skipped.
 
-        if !asset.status().await.has_data() {
-            // Update our asset's status
-            self.set_status(Status::Dependencies).await?;
+4. **Record pending dependency**
+   - `Context::evaluate()` computes the dependency key and version.
+   - Missing versions are represented as `Version::unknown()`.
+   - `Context::add_dependency(record)` upserts into `pending_dependencies`; if a known version is
+     already present, a later unknown observation is ignored instead of downgrading it.
+   - If the current asset is keyed, `add_dependent_asset()` also records the current asset as an
+     untracked dependent of the dependency key.
 
-            // Wait for dependency
-            asset.wait_for_ready().await?;
+5. **Enter dependency wait**
+   - If the dependency asset is not ready, `Context::evaluate()` calls
+     `current_asset.enter_dependencies(child)`.
+   - The command may then call `child.get().await` to obtain the child state; while it waits, the
+     current asset is observable as `Status::Dependencies`.
 
-            // Back to processing
-            self.set_status(Status::Processing).await?;
-        }
+6. **Drain runtime dependencies**
+   - Queued `evaluate_recipe()` drains `context.take_pending_dependencies()` after recipe execution
+     and merges the records into the produced metadata.
+   - Immediate `evaluate_immediately()` does the same before publishing `ValueProduced`.
+   - The legacy interpreter-level `evaluate()` helper also drains pending dependencies into the
+     returned `State` metadata.
+   - If no runtime dependencies were recorded, this drain is a no-op.
 
-        asset.get_state().await
-    }
-}
-```
+7. **Finalize**
+   - The asset eventually reaches a data-bearing status, `Error`, or `Cancelled`.
+   - For non-volatile ready assets, `DependencyManager::track_asset()` loads persisted metadata
+     dependencies back into the graph.
 
-## Dependency Tracking
+### Flow C: static plan dependencies
 
-### Recording Dependencies
+This path handles dependencies known before command execution.
 
-When an asset uses another asset as a dependency, this should be recorded for:
-1. Cache invalidation (when dependency changes, dependent should be invalidated)
-2. Debugging/visualization of dependency graph
+1. `recipe.to_plan()` builds a plan.
+2. `finalize_plan()` performs static dependency analysis for volatility/expiration and seeds
+   `Context::pending_dependencies` with plan dependencies.
+3. If the plan's query is keyed, `DefaultAssetManager::register_plan_dependencies()` registers
+   direct plan edges in `DependencyManager` when concrete dependency versions are available.
+4. Later runtime dependency drains merge these static records with runtime records. Duplicate keys
+   are represented once, and known versions are preserved over unknown versions in the context
+   pending-dependency path.
 
-```rust
-pub struct DependencyRecord {
-    /// The asset that has the dependency
-    pub dependent: Query,
-    /// The asset being depended upon
-    pub dependency: Query,
-    /// When the dependency was recorded
-    pub timestamp: String,
-}
-```
+### Flow D: cancellation and failures while waiting
 
-### Metadata Extension
+1. Cancellation of an asset in `Dependencies` is handled like cancellation from `Processing`:
+   the current asset transitions to `Cancelled`.
+2. The dependency asset is not cancelled; it may be needed by other assets.
+3. Dependency failures propagate through `fail_due_to_dependency()` in the delegation path or as
+   errors returned from `child.get().await` in runtime-command paths.
+4. `Status::Dependencies` itself is never terminal and never exposes data.
 
-Add to `MetadataRecord`:
+## Function glossary
 
-```rust
-pub struct MetadataRecord {
-    // ... existing fields ...
-
-    /// Assets this asset depends on
-    #[serde(default)]
-    pub dependencies: Vec<Query>,
-
-    /// Assets that depend on this asset (reverse lookup, optional)
-    #[serde(default)]
-    pub dependents: Vec<Query>,
-}
-```
-
-## Cancellation Behavior
-
-When an asset in `Dependencies` status receives a `Cancel` message:
-1. Stop waiting for dependencies
-2. Transition to `Cancelled`
-3. Do NOT cancel the dependencies (they may be used by others)
-
-```rust
-AssetServiceMessage::Cancel => {
-    // Works same as Processing - just set Cancelled
-    self.set_status(Status::Cancelled).await?;
-    // ... send notifications
-}
-```
-
-## Files to Modify
-
-1. **`liquers-core/src/assets.rs`**
-   - Add `wait_for_ready()` to AssetRef
-   - Add `subscribe_notifications()` if not present
-   - Handle Dependencies in `process_service_messages()` (no special handling needed)
-
-2. **`liquers-core/src/context.rs`**
-   - Add `get_dependency()` method
-   - Add `set_status()` delegation to asset
-
-3. **`liquers-core/src/interpreter.rs`** (or plan executor)
-   - Set Dependencies status when waiting for dependencies
-   - Use Context methods for dependency resolution
-
-4. **`liquers-core/src/metadata.rs`**
-   - Add `dependencies` field to MetadataRecord
-   - Add `dependents` field (optional)
-
-5. **`liquers-core/src/error.rs`**
-   - Add `DependencyNotReady` error type
-
-## Tests
-
-```rust
-#[tokio::test]
-async fn test_dependencies_status_set_when_waiting() {
-    // Create asset A that depends on asset B
-    // Asset B is not ready
-    // Verify A transitions to Dependencies status
-}
-
-#[tokio::test]
-async fn test_dependencies_to_processing_when_ready() {
-    // Asset A waiting on B
-    // B becomes Ready
-    // Verify A transitions back to Processing
-}
-
-#[tokio::test]
-async fn test_cancel_during_dependencies() {
-    // Asset in Dependencies status
-    // Send Cancel
-    // Verify transitions to Cancelled
-}
-
-#[tokio::test]
-async fn test_dependency_error_propagation() {
-    // Asset A depends on B
-    // B fails with Error
-    // Verify A receives appropriate error
-}
-```
-
-## Open Questions
-
-1. **Circular Dependencies**: How to detect and handle circular dependencies? (A depends on B, B depends on A)
-
-2. **Timeout**: Should there be a timeout for waiting on dependencies?
-
-3. **Partial Dependencies**: If an asset has multiple dependencies and one fails, should it:
-   - Fail immediately?
-   - Wait for all to complete/fail?
-   - Continue with available dependencies?
-
-4. **Dependency Caching**: Should resolved dependency values be cached in the dependent's context to avoid re-fetching?
+- `Context::evaluate(query)`: runtime dependency entry point for commands. It requests/submits the
+  dependency asset, records a pending dependency, performs graph-cycle checks when possible, and
+  enters `Status::Dependencies` if the child is not ready.
+- `Context::add_dependency(record)`: pending dependency upsert helper. It preserves a known version
+  over a later `Version::unknown()` observation.
+- `Context::take_pending_dependencies()`: drains runtime/static dependency records for metadata
+  assembly after evaluation.
+- `AssetRef::record_dependency_on_asset(child)`: direct asset dependency recorder used by pure-key
+  delegation. It updates parent metadata and keyed `DependencyManager` edges.
+- `AssetRef::enter_dependencies(child)`: status/metadata/notification helper for entering the
+  dependency wait state.
+- `AssetRef::leave_dependencies_for_resubmit()`: helper for leaving `Dependencies` before parent
+  evaluation finishes or is resubmitted.
+- `AssetRef::fail_due_to_dependency(error)`: helper for converting dependency failure into parent
+  `Error` state.
+- `DefaultAssetManager::with_capacity(capacity)`: constructs a manager with configurable queue
+  capacity, used to exercise F-1 capacity-sensitive paths.
+- `DefaultAssetManager::shutdown()` and `JobQueue::shutdown()`: stop background queue/expiration
+  tasks.
