@@ -66,17 +66,19 @@
 
 use std::{
     collections::BTreeSet,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     sync::{Arc, Weak},
 };
 
 use async_trait::async_trait;
 use scc;
-use tokio::sync::{mpsc, watch, Mutex, RwLock};
+use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
-use crate::metadata::{AssetInfo, DependencyKey, LogEntry, MetadataRecord, ProgressEntry};
+use crate::metadata::{
+    AssetInfo, DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version,
+};
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
@@ -739,6 +741,127 @@ impl<E: Environment> Clone for WeakAssetRef<E> {
 }
 
 impl<E: Environment> AssetRef<E> {
+    /// Enter the canonical dependency-waiting status for this asset.
+    ///
+    /// This is scheduler-local lifecycle bookkeeping only: dependency facts are
+    /// recorded in metadata and the `DependencyManager`.
+    pub(crate) async fn enter_dependencies(&self, dependency: &AssetRef<E>) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        if lock.status.is_finished() {
+            return Ok(());
+        }
+        lock.set_status(Status::Dependencies)?;
+        let _ = lock.metadata.add_log_entry(LogEntry::info(format!(
+            "Waiting for dependency asset {}",
+            dependency.id()
+        )));
+        let _ = lock
+            .notification_tx
+            .send(AssetNotificationMessage::StatusChanged(
+                Status::Dependencies,
+            ));
+        Ok(())
+    }
+
+    /// Leave dependency wait before retrying/resuming evaluation.
+    pub(crate) async fn leave_dependencies_for_resubmit(&self) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        if lock.status == Status::Dependencies {
+            lock.set_status(Status::Submitted)?;
+            let _ = lock
+                .notification_tx
+                .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+        }
+        Ok(())
+    }
+
+    /// Fail this asset because a dependency failed.
+    pub(crate) async fn fail_due_to_dependency(&self, error: Error) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        lock.data = None;
+        lock.binary = None;
+        lock.status = Status::Error;
+        lock.metadata.with_error(error.clone());
+        let _ = lock
+            .notification_tx
+            .send(AssetNotificationMessage::ErrorOccurred(error));
+        Ok(())
+    }
+
+    /// Record a direct dependency on another asset in metadata and the dependency manager.
+    pub(crate) async fn record_dependency_on_asset(
+        &self,
+        dependency: &AssetRef<E>,
+    ) -> Result<(), Error> {
+        let dep_key = {
+            let dep_lock = dependency.data.read().await;
+            if let Ok(Some(key)) = dep_lock.recipe.key() {
+                DependencyKey::from(&key)
+            } else if let Some(query) = dep_lock.query.as_ref().as_ref() {
+                DependencyKey::from(query)
+            } else {
+                return Ok(());
+            }
+        };
+        let version = {
+            let dep_lock = dependency.data.read().await;
+            dep_lock.metadata.version()
+        };
+        let envref = self.get_envref().await;
+        let manager = envref.get_asset_manager();
+        let version = version
+            .or(manager.dependency_manager().get_version(&dep_key).await)
+            .unwrap_or_else(Version::unknown);
+
+        {
+            let mut lock = self.data.write().await;
+            if let Some(existing) = lock
+                .metadata
+                .get_dependencies()
+                .iter()
+                .find(|d| d.key == dep_key)
+            {
+                // Keep a concrete version if we have one; Version(0) is
+                // DependencyManager's "unknown" sentinel and should not
+                // downgrade a better record.
+                if existing.version.is_unknown() || !version.is_unknown() {
+                    let _ = lock
+                        .metadata
+                        .add_dependency(DependencyRecord::new(dep_key.clone(), version));
+                }
+            } else {
+                let _ = lock
+                    .metadata
+                    .add_dependency(DependencyRecord::new(dep_key.clone(), version));
+            }
+        }
+
+        if let Some(current_key) = {
+            let lock = self.data.read().await;
+            lock.recipe.key().ok().flatten()
+        } {
+            let current_dep_key = DependencyKey::from(&current_key);
+            if manager
+                .dependency_manager()
+                .would_create_cycle(&current_dep_key, &dep_key)
+                .await
+            {
+                return Err(Error::dependency_cycle(&current_dep_key));
+            }
+            // Passing Version::unknown() is intentional: dependency-manager
+            // semantics still register the edge but skip stale-version checks
+            // because no concrete dependency version is available yet.
+            if let Ok(expired) = manager
+                .dependency_manager()
+                .add_dependency(&current_dep_key, &dep_key, version)
+                .await
+            {
+                manager.expire_dependencies_result(expired).await;
+            }
+        }
+        Ok(())
+    }
+
     /// Returns true if asset is finished and can't receive/process more messages
     /// Used by: `process_service_messages` in this module.
     async fn is_finished(&self) -> bool {
@@ -1309,12 +1432,37 @@ impl<E: Environment> AssetRef<E> {
                     (input_state, recipe)
                 } else {
                     println!(
-                        "Delegating evaluation of asset {} to asset {} - FIXME",
+                        "Delegating evaluation of asset {} to asset {}",
                         self.id(),
                         asset.id()
                     );
-                    // FIXME: !!! this should make sure that the recipe starts in the queue, otherwise it might lead to deadlock
-                    return asset.get().await;
+                    // Record delegation as a dependency wait before awaiting the child.
+                    self.record_dependency_on_asset(&asset).await?;
+                    if asset.poll_state().await.is_none() {
+                        self.enter_dependencies(&asset).await?;
+                        // Avoid queue-capacity deadlocks for pure-key delegation chains:
+                        // if the child is still only queued, run it in this task.  The
+                        // child's own `run_with_future` is idempotent for finished
+                        // assets, so a later queued wake-up becomes a no-op.
+                        if matches!(
+                            asset.status().await,
+                            Status::Submitted | Status::Dependencies
+                        ) {
+                            if let Err(e) = Box::pin(asset.run()).await {
+                                self.fail_due_to_dependency(e.clone()).await?;
+                                return Err(e);
+                            }
+                        }
+                    }
+                    let state = asset.get().await.map_err(|e| {
+                        Error::general_error(format!(
+                            "Delegated dependency asset {} failed: {}",
+                            asset.id(),
+                            e
+                        ))
+                    })?;
+                    self.leave_dependencies_for_resubmit().await?;
+                    return Ok(state);
                 }
             } else {
                 (input_state, recipe)
@@ -1378,7 +1526,11 @@ impl<E: Environment> AssetRef<E> {
                     let _ = lock
                         .notification_tx
                         .send(AssetNotificationMessage::ValueProduced);
-                    (lock.save_in_background, lock.is_cancelled(), lock.is_volatile)
+                    (
+                        lock.save_in_background,
+                        lock.is_cancelled(),
+                        lock.is_volatile,
+                    )
                 };
 
                 self.persist_with_status_tracking(save_in_background, cancelled)
@@ -1421,13 +1573,21 @@ impl<E: Environment> AssetRef<E> {
 
         let envref = self.get_envref().await;
         let mut context = self.create_context().await;
+        let context_for_deps = context.clone();
         if let Some(payload) = payload {
             context.set_payload(payload);
         }
         let res = envref.apply_recipe(input_state, recipe, context).await?;
+        let observed_deps = context_for_deps.take_pending_dependencies().await;
 
         let mut lock = self.data.write().await;
         lock.data = Some(res.clone());
+        lock.metadata
+            .with_type_identifier(res.identifier().to_string())
+            .with_type_name(res.type_name().to_string());
+        for dep in observed_deps {
+            let _ = lock.metadata.add_dependency(dep);
+        }
         let _ = lock
             .notification_tx
             .send(AssetNotificationMessage::ValueProduced);
@@ -2201,7 +2361,12 @@ impl<E: Environment> Default for DefaultAssetManager<E> {
 impl<E: Environment> DefaultAssetManager<E> {
     /// Constructs and initializes a default asset manager
     pub fn new() -> Self {
-        let job_queue = Arc::new(JobQueue::new(4));
+        Self::with_capacity(4)
+    }
+
+    /// Constructs and initializes a default asset manager with a custom job capacity.
+    pub fn with_capacity(capacity: usize) -> Self {
+        let job_queue = Arc::new(JobQueue::new(capacity));
         let (monitor_tx, monitor_rx) = mpsc::unbounded_channel();
         let manager = DefaultAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
@@ -2219,6 +2384,12 @@ impl<E: Environment> DefaultAssetManager<E> {
         });
         tokio::spawn(Self::run_expiration_monitor(monitor_rx));
         manager
+    }
+
+    /// Shut down background manager tasks.
+    pub fn shutdown(&self) {
+        self.job_queue.shutdown();
+        let _ = self.monitor_tx.send(ExpirationMonitorMessage::Shutdown);
     }
 
     /// Expiration monitor task: manages a priority queue of pending expirations.
@@ -3312,6 +3483,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
     running_count: Arc<AtomicUsize>,
+    notify: Arc<Notify>,
+    shutdown: Arc<AtomicBool>,
     capacity: usize,
 }
 
@@ -3322,6 +3495,8 @@ impl<E: Environment + 'static> JobQueue<E> {
         JobQueue {
             jobs: Arc::new(Mutex::new(Vec::new())),
             running_count: Arc::new(AtomicUsize::new(0)),
+            notify: Arc::new(Notify::new()),
+            shutdown: Arc::new(AtomicBool::new(false)),
             capacity,
         }
     }
@@ -3346,6 +3521,7 @@ impl<E: Environment + 'static> JobQueue<E> {
             // Add to jobs list for tracking
             jobs.push(asset.clone());
         }
+        self.notify.notify_one();
 
         // Check if we can run immediately using atomic counter
         let current_running = self.running_count.load(Ordering::SeqCst);
@@ -3365,6 +3541,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                 // Successfully reserved a slot - run immediately
                 let asset_clone = asset.clone();
                 let running_count = self.running_count.clone();
+                let notify = self.notify.clone();
 
                 // Status set directly, since message processing is not running yet
                 if let Err(e) = asset_clone.set_status(Status::Processing).await {
@@ -3383,6 +3560,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                     let _ = asset_clone.run().await;
                     // Decrement running count when job finishes
                     running_count.fetch_sub(1, Ordering::SeqCst);
+                    notify.notify_one();
                     eprintln!("Asset job {} finished", asset_clone.id());
                 });
                 return Ok(());
@@ -3397,6 +3575,7 @@ impl<E: Environment + 'static> JobQueue<E> {
             self.running_count(),
             self.capacity
         );
+        self.notify.notify_one();
 
         Ok(())
     }
@@ -3427,26 +3606,29 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// Start processing jobs up to capacity
     pub async fn run(self: Arc<Self>) {
         eprintln!("Starting job queue");
-        let mut cleanup_counter = 0;
         loop {
+            if self.shutdown.load(Ordering::SeqCst) {
+                return;
+            }
             let current_running = self.running_count.load(Ordering::SeqCst);
 
             // Check if we can start more jobs
             if current_running < self.capacity {
                 let available_slots = self.capacity - current_running;
+                let candidates = {
+                    let jobs = self.jobs.lock().await;
+                    jobs.iter().cloned().collect::<Vec<_>>()
+                };
                 let mut jobs_to_start = Vec::new();
 
                 // Find submitted jobs
-                {
-                    let jobs = self.jobs.lock().await;
-                    for asset in jobs.iter() {
-                        if jobs_to_start.len() >= available_slots {
-                            break;
-                        }
+                for asset in candidates {
+                    if jobs_to_start.len() >= available_slots {
+                        break;
+                    }
 
-                        if asset.status().await == Status::Submitted {
-                            jobs_to_start.push(asset.clone());
-                        }
+                    if asset.status().await == Status::Submitted {
+                        jobs_to_start.push(asset.clone());
                     }
                 }
 
@@ -3465,6 +3647,7 @@ impl<E: Environment + 'static> JobQueue<E> {
                     {
                         let asset_clone = asset.clone();
                         let running_count = self.running_count.clone();
+                        let notify = self.notify.clone();
 
                         // Status set directly, since message processing is not running yet
                         if let Err(e) = asset_clone.set_status(Status::Processing).await {
@@ -3481,26 +3664,25 @@ impl<E: Environment + 'static> JobQueue<E> {
                         tokio::spawn(async move {
                             let _ = asset_clone.run().await;
                             running_count.fetch_sub(1, Ordering::SeqCst);
+                            notify.notify_one();
                             eprintln!("Asset job {} finished", asset_clone.id());
                         });
                     }
                 }
             }
 
-            // Periodic cleanup of finished jobs
-            cleanup_counter += 1;
-            if cleanup_counter >= 50 {
-                // Every 5 seconds (50 * 100ms)
-                cleanup_counter = 0;
-                let removed = self.cleanup_completed_internal().await;
-                if removed > 0 {
-                    eprintln!("Cleaned up {} finished jobs", removed);
-                }
+            let removed = self.cleanup_completed_internal().await;
+            if removed > 0 {
+                eprintln!("Cleaned up {} finished jobs", removed);
             }
 
-            // Sleep briefly to avoid busy waiting
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            self.notify.notified().await;
         }
+    }
+
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
     }
 
     /// Internal cleanup method that doesn't require &mut self
@@ -3540,7 +3722,7 @@ mod tests {
     use super::*;
     use crate::command_metadata::CommandKey;
     use crate::context::{SimpleEnvironment, SimpleEnvironmentWithPayload};
-    use crate::metadata::{Metadata, MetadataRecord};
+    use crate::metadata::{DependencyRecord, Metadata, MetadataRecord, Version};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
     use crate::store::{AsyncMemoryStore, AsyncStore};
@@ -3869,6 +4051,87 @@ mod tests {
 
         assetref.run().await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
+    }
+
+    #[tokio::test]
+    async fn test_dependencies_status_has_no_data() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            2236,
+            parse_query("test").unwrap().into(),
+            env.to_ref(),
+        )
+        .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.data = Some(Arc::new(Value::from("hidden while waiting")));
+            lock.set_status(Status::Dependencies).unwrap();
+        }
+
+        assert_eq!(asset.status().await, Status::Dependencies);
+        assert!(asset.poll_state().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_context_add_dependency_does_not_downgrade_known_version_to_unknown() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            2237,
+            parse_query("test").unwrap().into(),
+            env.to_ref(),
+        )
+        .to_ref();
+        let context = asset.create_context().await;
+        let dep_key = DependencyKey::new("-R/dep.txt");
+
+        context
+            .add_dependency(DependencyRecord::new(dep_key.clone(), Version::new(42)))
+            .await;
+        context
+            .add_dependency(DependencyRecord::new(dep_key.clone(), Version::unknown()))
+            .await;
+
+        let deps = context.take_pending_dependencies().await;
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].key, dep_key);
+        assert_eq!(deps[0].version, Version::new(42));
+    }
+
+    #[tokio::test]
+    async fn test_record_dependency_on_asset_does_not_downgrade_known_metadata_version_to_unknown()
+    {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let parent_key = parse_key("parent.txt").unwrap();
+        let dep_key = parse_key("dep.txt").unwrap();
+        let parent =
+            AssetData::<SimpleEnvironment<Value>>::new(2238, parent_key.into(), envref.clone())
+                .to_ref();
+        let dependency =
+            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), envref)
+                .to_ref();
+        let dependency_record_key = DependencyKey::from(&dep_key);
+
+        {
+            let mut lock = parent.data.write().await;
+            lock.metadata
+                .add_dependency(DependencyRecord::new(
+                    dependency_record_key.clone(),
+                    Version::new(42),
+                ))
+                .unwrap();
+        }
+
+        parent
+            .record_dependency_on_asset(&dependency)
+            .await
+            .unwrap();
+
+        let metadata = parent.get_metadata().await.unwrap();
+        let deps = metadata.get_dependencies();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].key, dependency_record_key);
+        assert_eq!(deps[0].version, Version::new(42));
     }
 
     #[tokio::test]

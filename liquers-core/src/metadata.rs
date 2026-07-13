@@ -21,6 +21,14 @@ impl Version {
         Version(v)
     }
 
+    /// The sentinel version for an unknown dependency revision.
+    ///
+    /// `Version(0)` is intentionally not a concrete asset/content version:
+    /// dependency checks treat it as compatible with any known version.
+    pub fn unknown() -> Self {
+        Version(0)
+    }
+
     /// Creates a version by hashing `bytes` with BLAKE3 and taking the first 16 bytes as u128.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let hash = blake3::hash(bytes);
