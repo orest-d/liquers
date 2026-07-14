@@ -6,8 +6,8 @@
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design (drafted, awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved 2026-07-14)
+- [ ] Phase 2: Solution & Architecture (drafted, reviewed, awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
@@ -67,6 +67,23 @@
   Authoritative shareability test: manager-map membership (encodes "someone else can
   obtain this AssetRef"; covers ad-hoc assets automatically; the cleanup runs in
   JobQueue/DefaultAssetManager, which owns the maps).
+- 2026-07-14 Phase 2 gate decisions (user):
+  - Relevant commands: CONFIRMED none — mechanism is command-transparent; no
+    liquers-lib namespace is modified.
+  - Cycle model REFINED (supersedes the "nearest keyed ancestor" wording above):
+    "only keyed assets can be nodes of a dependency tree; a non-keyed asset should
+    be treated as the set of keyed assets it depends on." Phase 2 implements this
+    as expression ATTRIBUTION SETS in the DependencyManager
+    (ScheduleNode::{Keyed,Expression}; transient expression_dependents /
+    expression_keyed_deps / expression_expr_deps maps;
+    register_scheduled_dependency expands expression edges onto their keyed
+    dependents with cycle checks; remove_expression cleanup at expression terminal
+    status). Late-joining keyed dependents of a shared expression inherit edges to
+    the expression's already-known keyed dependencies, so K2→Q→K2 through a shared
+    expression is caught; pure-expression self-schedules and attribution-traversal
+    re-entry fail fast with Error::dependency_cycle.
+  - Phase 2 multi-agent review (2 reviewers: Phase 1 conformity, codebase
+    alignment): NO ISSUES FOUND; fixer skipped per workflow.
 
 ## Links
 
