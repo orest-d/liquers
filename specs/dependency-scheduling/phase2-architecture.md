@@ -428,6 +428,29 @@ Keep `record_dependency_on_asset(&asset)`; replace the ad-hoc
 `manager.wait_for_dependency(self, &asset).await` — the F-1 inline guard retires
 onto the shared, claim-based primitive.
 
+## Integration Points
+
+### Crate: liquers-core (only crate touched)
+
+| File | Changes |
+|---|---|
+| `liquers-core/src/assets.rs` | `StartOutcome`, `RunClaim`, `JobQueue.local_deps` + `try_to_start_immediately`/`push_local_dependency`/`pop_local_dependency`/`take_local_dependencies`, `submit`/worker-`run` refactor, `AssetRef::try_claim_for_run`/`leave_dependencies_and_resume`, `DependencyHandle`, `AssetManager` trait extension + `DefaultAssetManager` overrides, `cleanup_local_dependencies`, `evaluate_recipe` delegation migration |
+| `liquers-core/src/context.rs` | `Context::schedule_dependency`/`evaluate_local_queue`/`get_dependency_state`, `Context::evaluate` reimplementation |
+| `liquers-core/src/interpreter.rs` | `PlanDependencySchedule`, `schedule_plan_dependencies` pre-pass, `apply_plan`/`do_step` migration to handles |
+| `liquers-core/src/dependencies.rs` | `ScheduleNode`, expression attribution maps, `register_scheduled_dependency`, `remove_expression` |
+| `liquers-core/tests/dependency_scheduling.rs` | new integration test suite (Phase 3) |
+
+### Dependencies
+
+No new crate dependencies: `tokio` (sync primitives), `scc`, and `async_trait` are
+already workspace dependencies of `liquers-core`.
+
+### Downstream crates
+
+`liquers-store`, `liquers-lib`, `liquers-axum`: no code changes; behavior-transparent.
+`liquers-py`: no API change expected (trait methods have defaults); verified by
+`cargo check -p liquers-py`.
+
 ## Cycle Handling (keyed-only graph; expressions expand to their keyed dependencies)
 
 Design principle (user decision, Phase 2 gate): **only keyed assets can be nodes of
