@@ -30,11 +30,15 @@ a `DependencyHandle`, plus `get_dependency_state(query)` (schedule + wait) and
 ### Asset System
 Main integration point. `JobQueue::submit` is refactored over a new
 `try_to_start_immediately`; an atomic run-claim guarantees each asset body runs at most
-once; each `AssetData` gains a local dependency queue drained inline by its own future.
-The interpreter schedules all known plan dependencies first, then executes steps using
-the captured handles. Volatile dependencies are resolved once per parent evaluation
-(handle capture), guaranteeing execute-once. Cycle detection stays in DependencyManager;
-a defensive inline-run re-entry guard fails fast instead of hanging (to be confirmed).
+once. The JobQueue maintains per-dependent local queues (an implementation detail of
+the queue mechanism, lazily created on the capacity-fallback path and removed when
+drained — no per-asset memory); the dependent asset drains its queue inline from its
+own future. The interpreter schedules all known plan dependencies first, then executes
+steps using the captured handles. Volatile dependencies are resolved once per parent
+evaluation (handle capture), guaranteeing execute-once. Cycle detection stays in
+DependencyManager: only keyed assets are dependencies; non-keyed assets are expressions
+whose dependency edges are attributed to the nearest keyed ancestor (closing verified
+gaps where checks were skipped for non-keyed dependents — see DESIGN.md notes).
 `Status::Dependencies` remains the sole waiting status (WP-1); the wait resumes the
 parent as `Processing`. Supersedes WP-1 Phase 2A (slot-release/resubmit design).
 
@@ -54,11 +58,11 @@ mechanics, no rich types. `cargo check -p liquers-py` guards binding compatibili
 
 ## Open Questions
 
-1. Confirm the defensive inline-run cycle guard (assumed chosen; the answer was lost in a
-   tool error). It is diagnostic-only; DependencyManager stays authoritative.
-2. Leftover never-awaited local-queue entries at parent finish: hand off to the global
-   JobQueue (current design) or drop with a warning? (Resolved in Phase 2.)
-3. Exact placement of `DependencyHandle` (assets.rs vs a small new module). (Phase 2.)
+1. ~~Leftover never-awaited local-queue entries at parent finish~~ — RESOLVED:
+   shared (managed, present in manager maps) leftovers are kept as `Submitted` and
+   handed to the global JobQueue; non-shared (volatile / ad-hoc, outside the maps)
+   leftovers are discarded with a debug log. See DESIGN.md notes.
+2. Exact placement of `DependencyHandle` (assets.rs vs a small new module). (Phase 2.)
 
 ## References
 
