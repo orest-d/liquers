@@ -28,6 +28,13 @@ assertions). Implementation lands in Phase 4.
 | I7 | Integration | Cancellation repair | Parent cancelled mid-drain; `RunClaim` Drop re-parks the dep; a second waiter recovers it. |
 | I8 | Integration | Backward compatibility | Existing `async_hellow_world` / q-instruction suites pass unchanged (the `evaluate` surface is stable). |
 
+Additional unit and integration tests carried over from the predecessor **WP-1** plan
+(`plan20260707.md`) are listed in the Test Plan below and mapped in
+[WP-1 Test Reconciliation](#wp-1-test-reconciliation-predecessor-plan-plan20260707md):
+runtime-dependency recording + dedup, `Status::Dependencies` contract, depth-chain
+no-deadlock, keyed delegation-cycle, exactly-once parent resume, and shared-child
+cancellation.
+
 ## Example 1: Diamond dependency, non-blocking concurrent execution
 
 **Scenario:** A `combine` command evaluates two independent sub-queries `left` and
@@ -206,6 +213,8 @@ Follow existing JobQueue unit-test conventions (`JobQueue::new(capacity)`, `subm
 | `test_register_scheduled_dependency_keyed_edge` | `k1→k2` registered; `would_create_cycle` sees it |
 | `test_register_scheduled_dependency_detects_all_cycle_shapes` | self, `K→Q→K`, `K2→Q→K2` late-join, `Q1→Q2→Q1` → `Err(dependency_cycle)` |
 | `test_submit_bool_parity` | no-duplicates / respects-capacity / immediate-when-capacity (mirrors existing `test_jobqueue_submit_*`) |
+| `test_dependencies_status_has_no_data` *(WP-1)* | asset set to `Status::Dependencies` → `poll_state()` is `None` and status is not finished (pins the "no extra waiting status, Dependencies has no data" principle) |
+| `test_leftover_local_queue_cleanup_at_terminal` *(WP-1)* | at parent terminal status, a shared leftover (present in maps) is re-`submit`ted globally; a non-shared/volatile leftover is discarded — no strong ref retained (`take_local_dependencies` then empty) |
 
 ### Integration Tests (`liquers-core/tests/dependency_scheduling.rs`)
 `SimpleEnvironment<Value>` + `register_command!`; keyed/cycle cases add a
@@ -223,9 +232,51 @@ loudly instead of hanging.
 | `test_cycle_dynamic_keyed_mutual` | E3(3): `K1↔K2` → `Err(dependency_cycle)` (today's deadlock case) |
 | `test_volatile_dependency_evaluates_once_per_eval` | volatile dep referenced twice in one plan → one evaluation; re-`evaluate` → fresh evaluation |
 | `test_dependency_failure_propagates_to_parent` | failing dep → parent `Error` carrying dependency context |
-| `test_status_flow_processing_dependencies_processing` | subscribe to parent notifications; observe the three-phase transition |
-| `test_cancellation_repairs_stranded_dependency` | drop parent mid-drain; second waiter still resolves the dep (Drop repair) |
+| `test_status_flow_processing_dependencies_processing` | gated child not ready → parent **enters** `Status::Dependencies` (`poll_state()` `None`); release child → parent **leaves** and resumes `Processing`→`Ready`; observed via notifications *(subsumes WP-1 enter/leave + delegated-status tests)* |
+| `test_cancellation_repairs_stranded_dependency` | drop parent mid-**inline-drain**; second waiter still resolves the dep (`RunClaim` Drop repair) |
+| `test_context_evaluate_records_runtime_dependency` *(WP-1)* | command calls `context.evaluate("dep")` / `get_dependency_state`; result metadata contains the `dep` dependency record |
+| `test_immediate_and_queued_record_same_dependencies` *(WP-1)* | same command via immediate vs queued evaluation records identical dependency metadata (path-independent) |
+| `test_static_and_runtime_dependencies_deduplicated` *(WP-1)* | recipe has static `GetAsset(dep)` and the command also evaluates `dep` → one record, best non-unknown version (pre-pass vs static upsert) |
+| `test_dependency_chain_deeper_than_capacity_completes` *(WP-1)* | delegation/dependency chain `a→b→c→…` longer than queue capacity (incl. capacity 1) completes; all `Ready`; within timeout — the depth no-deadlock property |
+| `test_delegation_cycle_fails_fast` *(WP-1)* | keyed resource recipes `a.txt→-R/b.txt`, `b.txt→-R/a.txt` (store present) → `Err(dependency_cycle)`, no hang |
+| `test_parent_body_runs_once_across_dependency_wait` *(WP-1, reframed)* | parent waits on a child then resumes; parent command body executes exactly once (claim-guaranteed; replaces the old "resubmits parent once") |
+| `test_cancel_parent_does_not_cancel_shared_child` *(WP-1)* | parent waits on a **shared** gated child, then parent cancelled → parent `Cancelled`; child still completes and is reusable by another asset |
+| `test_parent_cancelled_before_child_completion_not_resubmitted` *(WP-1)* | parent cancelled while waiting; child completes later → parent stays `Cancelled`, no new parent work scheduled |
 | `test_backward_compat_existing_suites` | re-assert `async_hellow_world` + q-instruction flows are unaffected |
+
+### WP-1 Test Reconciliation (predecessor plan `plan20260707.md`)
+
+This design supersedes WP-1 Phase 2A (`EvaluationOutcome::Delegated`), so WP-1's
+dependency-waiting and scheduler-no-deadlock tests are the behavioral contract this
+feature must still satisfy. Each WP-1 test was evaluated for relevance under the new
+inline-wait + claim model:
+
+| WP-1 test | Disposition | Where |
+|-----------|-------------|-------|
+| `test_context_dependency_records_runtime_dependency` | **Incorporated** | `test_context_evaluate_records_runtime_dependency` |
+| `test_immediate_evaluation_records_runtime_dependencies` | **Incorporated** | `test_immediate_and_queued_record_same_dependencies` |
+| `test_static_and_runtime_dependencies_are_deduplicated` | **Incorporated** | `test_static_and_runtime_dependencies_deduplicated` |
+| `test_parent_enters_dependencies_when_context_dependency_not_ready` | **Incorporated (merged)** | `test_status_flow_processing_dependencies_processing` (enter half) |
+| `test_parent_leaves_dependencies_after_child_ready` | **Incorporated (merged)** | `test_status_flow_…` (leave half) |
+| `test_dependency_error_propagates_to_parent` | Already covered | `test_dependency_failure_propagates_to_parent` (I5) |
+| `test_cancel_while_in_dependencies_does_not_cancel_child` | **Incorporated** | `test_cancel_parent_does_not_cancel_shared_child` |
+| `test_dynamic_dependency_cycle_fails_via_dependency_manager` | Already covered | `test_cycle_dynamic_keyed_mutual` (I5c) |
+| `test_dependencies_status_has_no_data` | **Incorporated** | unit `test_dependencies_status_has_no_data` |
+| `test_delegation_chain_deeper_than_capacity` | **Incorporated** | `test_dependency_chain_deeper_than_capacity_completes` |
+| `test_delegation_completes_with_capacity_1` | **Incorporated (merged)** | same (chain incl. capacity 1) + `test_capacity_one_fanout_…` (breadth) |
+| `test_parent_status_dependencies_while_delegated` | **Incorporated (merged)** | `test_status_flow_…` (delegation variant) |
+| `test_delegation_cycle_fails_fast` | **Incorporated** | `test_delegation_cycle_fails_fast` (keyed `-R/` recipes) |
+| `test_delegation_error_propagates_to_parent` | Already covered (delegation regression) | `test_dependency_failure_propagates_to_parent` (I5), delegation input |
+| `test_dependency_completion_resubmits_parent_once` | **Incorporated (reframed)** | `test_parent_body_runs_once_across_dependency_wait` |
+| `test_parent_cancelled_before_child_completion_is_not_resubmitted` | **Incorporated** | `test_parent_cancelled_before_child_completion_not_resubmitted` |
+| `test_queue_shutdown_stops_worker` | **Out of scope** | shutdown semantics unchanged by this feature; remains a pre-existing JobQueue regression concern, not re-specified here |
+| `test_queue_does_not_retain_finished_assets` | **Incorporated (adapted)** | unit `test_leftover_local_queue_cleanup_at_terminal` (+ existing `test_jobqueue_cleanup_removes_finished`) |
+
+Notes carried from WP-1 discipline (adopted here): red→green ordering (new-API tests
+cannot compile until the API exists); `tokio::time::timeout` (10 s) as a hang guard on
+every wait/cycle test; deterministic gating via a shared `tokio::sync::oneshot`/
+`Semaphore` rather than sleeps; delegation/keyed tests require a `-R/` store
+(`MemoryStore` + `RecipeProvider`).
 
 ### Manual Validation
 ```bash

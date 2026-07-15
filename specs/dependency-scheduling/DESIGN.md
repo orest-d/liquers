@@ -101,7 +101,17 @@
 - 2026-07-15 Phase 3 drafted (conceptual code, user choice): 3 examples (diamond
   non-blocking, capacity-1 local-queue fan-out, schedule-time cycle rejection),
   corner cases (memory/concurrency/errors/serialization/integration), and a test
-  plan (11 unit + 8 integration tests, with timeout guards proving no-hang).
+  plan (13 unit + 16 integration tests, with timeout guards proving no-hang).
+- 2026-07-15 Phase 3 WP-1 reconciliation: evaluated the predecessor plan's
+  (`plan20260707.md`) WP-1 dependency-waiting + scheduler tests. Incorporated the
+  additive ones (runtime-dependency recording + immediate/queued parity + static/
+  runtime dedup, `Status::Dependencies`-has-no-data contract, delegation chain
+  deeper-than-capacity no-deadlock, keyed delegation-cycle fail-fast, exactly-once
+  parent resume, shared-child + not-resubmitted cancellation, leftover cleanup /
+  no-retention); noted those already covered (dependency-error propagation, dynamic
+  keyed cycle); marked `test_queue_shutdown_stops_worker` out of scope (shutdown
+  semantics unchanged). Adopted WP-1 test discipline: red→green, 10 s
+  `tokio::time::timeout` hang guards, deterministic gating (no sleeps).
 
 ## Links
 
