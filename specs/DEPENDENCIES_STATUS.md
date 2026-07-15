@@ -208,3 +208,26 @@ This path handles dependencies known before command execution.
   capacity, used to exercise F-1 capacity-sensitive paths.
 - `DefaultAssetManager::shutdown()` and `JobQueue::shutdown()`: stop background queue/expiration
   tasks.
+
+## Non-blocking dependency scheduling (2026-07-15)
+
+Dependency evaluation is now non-blocking and deadlock-free (see
+`specs/dependency-scheduling/`). Key points for status semantics:
+
+- A parent waiting for a dependency follows the truthful flow
+  `Processing → Dependencies → Processing`: it enters `Status::Dependencies` only at
+  drain/wait time (via `AssetRef::leave_dependencies_and_resume`, the resume
+  counterpart of `enter_dependencies`), not eagerly at schedule time. `Status::Dependencies`
+  remains the sole waiting status and carries no data (`poll_state()` is `None`).
+- "Who runs an asset" is a single atomic decision: `AssetRef::try_claim_for_run`
+  transitions a not-yet-running asset to `Processing` under one lock and hands out a
+  `RunClaim`; `run()` is only ever called by a claim holder (execute-once). A claim
+  dropped mid-run (cancelled parent) re-parks the asset as `Submitted` and re-submits it.
+- Dependencies are scheduled without occupying a parent's queue slot: they start
+  immediately when capacity allows, else park on the parent's local queue and are
+  drained inline from the parent's own future (`AssetManager::wait_for_dependency`
+  drains + direct-claims before ever blocking). Cancelling a parent never cancels its
+  dependencies.
+- Schedule-time cycle detection (`DependencyManager::register_scheduled_dependency`,
+  keyed-expansion model) rejects dependency cycles with `Error::dependency_cycle`
+  instead of hanging.

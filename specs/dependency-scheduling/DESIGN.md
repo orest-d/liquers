@@ -9,8 +9,8 @@
 - [x] Phase 1: High-Level Design (approved 2026-07-14)
 - [x] Phase 2: Solution & Architecture (approved 2026-07-15)
 - [x] Phase 3: Examples & Testing (approved 2026-07-15)
-- [ ] Phase 4: Implementation Plan (drafted, awaiting approval)
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan (approved 2026-07-15)
+- [x] Implementation Complete (2026-07-15)
 
 ## Notes
 
@@ -122,6 +122,28 @@
   discipline and 10 s timeout hang-guards carried from Phase 3/WP-1. Note:
   `rust-best-practices` skill is not installed here; its intent is met via CLAUDE.md
   conventions applied inline.
+
+- 2026-07-15 Implementation complete (branch claude/dependency-eval-blocking-e7f7ba),
+  10 committed steps, all in liquers-core:
+  1. dependencies.rs: ScheduleNode + register_scheduled_dependency + expression
+     attribution + remove_expression (schedule-time cycle checks).
+  2. assets.rs: RunClaim + AssetRef::try_claim_for_run / leave_dependencies_and_resume.
+  3. assets.rs: JobQueue.local_deps + try_to_start_immediately(bool) + submit/worker
+     refactor + push/pop/take_local_dependency.
+  4. assets.rs: AssetManager trait extension (get_dependency_asset / drain_dependencies /
+     wait_for_dependency, defaults) + DefaultAssetManager overrides.
+  5. assets.rs: evaluate_recipe delegation migrated onto wait_for_dependency.
+  6. context.rs: schedule_dependency_asset / wait_for_dependency / evaluate_local_queue /
+     get_dependency_state + evaluate reimplementation (+ AssetRef::query accessor).
+  7. interpreter.rs: schedule_plan_dependencies pre-pass + apply_plan wiring + do_step
+     migrated to claim-aware waits.
+  8. tests/dependency_scheduling.rs: execute-once, nested-chain, dynamic-cycle-no-hang.
+  9. Docs (DEPENDENCIES_STATUS.md status flow) + this tracker.
+  Validation: full liquers-core suite (320 lib+integration) green; cargo check
+  -p liquers-py green. Note: the interpreter pre-pass pre-schedules KEYED deps only
+  (non-keyed/volatile scheduled on-demand in do_step) — a deliberate scope narrowing
+  vs. the phase-4 PlanDependencySchedule map to avoid orphaning volatile evaluations;
+  the no-deadlock + execute-once guarantees come from the claim-aware wait path.
 
 ## Links
 
