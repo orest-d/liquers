@@ -14,25 +14,24 @@ before executing plan steps. No new commands, value types, or endpoints.
 
 ## Data Structures
 
-### New Enums
+### `try_to_start_immediately` return convention (boolean, not an enum)
 
-#### StartOutcome
-```rust
-/// Outcome of JobQueue::try_to_start_immediately (liquers-core/src/assets.rs).
-pub(crate) enum StartOutcome {
-    /// A capacity slot was reserved, the asset was claimed and spawned.
-    Started,
-    /// The asset is already Processing elsewhere or is finished; nothing to do.
-    AlreadyActive,
-    /// Capacity exhausted; the caller must guarantee progress
-    /// (park globally in `submit`, or enqueue on the parent's local queue).
-    NoCapacity,
-}
-```
-**Variant semantics:** `Started` — slot consumed, `tokio::spawn(asset.run())` issued;
-`AlreadyActive` — claim failed (raced by another runner) and any reserved slot was
-released; `NoCapacity` — CAS on `running_count` failed against `capacity`.
-**No default match arm** — all `match` on `StartOutcome` list all three variants.
+`JobQueue::try_to_start_immediately` returns `Result<bool, Error>`:
+
+- `true` — **the asset is being taken care of**: either a capacity slot was
+  reserved and `tokio::spawn(asset.run())` was issued, or the asset was already
+  claimed/finished elsewhere (the CAS-reserved slot, if any, was released before
+  returning). Callers do nothing.
+- `false` — **no capacity** (`running_count` CAS failed against `capacity`): the
+  caller must guarantee progress (park globally in `submit`, or enqueue on the
+  parent's local dependency queue).
+
+An earlier draft modelled this as a three-variant `StartOutcome`
+(`Started`/`AlreadyActive`/`NoCapacity`), but every call site treats
+`Started` and `AlreadyActive` identically and branches only on the no-capacity
+case, so a boolean is the simpler, equally expressive surface. The
+started-vs-already-active distinction (slot reserve/release, claim arbitration)
+is fully internal to `try_to_start_immediately` and never observed by callers.
 
 ### New Structs
 
@@ -73,7 +72,7 @@ pub struct JobQueue<E: Environment> {
     capacity: usize,                             // unchanged
     /// NEW: per-dependent local dependency queues — an implementation detail of
     /// the queue mechanism (Phase 1 decision). Keyed by the DEPENDENT asset id.
-    /// Entries are created lazily on the NoCapacity fallback and removed when the
+    /// Entries are created lazily on the no-capacity fallback and removed when the
     /// dependent drains them or finishes: zero per-asset cost otherwise.
     local_deps: Arc<Mutex<HashMap<u64, VecDeque<AssetRef<E>>>>>,
 }
@@ -220,15 +219,19 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// (3) atomically claim via asset.try_claim_for_run();
     /// (4) tokio::spawn: run, complete claim, decrement, notify,
     ///     then manager-side local-queue cleanup for this asset id (see Cleanup).
+    /// Returns `true` when the asset is being taken care of (slot reserved and
+    /// spawned, or already claimed/finished elsewhere), `false` on no capacity
+    /// (the caller must then guarantee progress).
     pub(crate) async fn try_to_start_immediately(
         &self,
         asset: &AssetRef<E>,
-    ) -> Result<StartOutcome, Error>;
+    ) -> Result<bool, Error>;
 
     /// Public semantics unchanged (assets.rs:3510). Reimplemented:
-    /// match try_to_start_immediately {
-    ///   Started | AlreadyActive => Ok(()),
-    ///   NoCapacity => { asset.submitted().await?; notify_one(); Ok(()) } }
+    /// if !try_to_start_immediately(&asset).await? {   // no capacity
+    ///     asset.submitted().await?; notify_one();
+    /// }
+    /// Ok(())
     pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error>;
 
     /// Push `dep` onto the local queue of dependent `parent_id`
@@ -246,9 +249,10 @@ impl<E: Environment + 'static> JobQueue<E> {
 ```
 
 The worker loop `run()` (assets.rs:3607) is reimplemented on the same primitives:
-each `Submitted` candidate goes through `try_to_start_immediately`; `AlreadyActive`
-(claimed meanwhile by an inline drain) is skipped and removed from `jobs` on the next
-cleanup pass. This removes the existing TOCTOU between the status read (:3630) and
+each `Submitted` candidate goes through `try_to_start_immediately`; a candidate
+already claimed elsewhere (e.g. by an inline drain) makes `try_to_start_immediately`
+return `true` without this worker spawning it, and its now-stale `jobs` entry is
+removed on the next cleanup pass. This removes the existing TOCTOU between the status read (:3630) and
 `set_status(Processing)` (:3653).
 
 ### Module: liquers_core::assets — AssetRef
@@ -287,11 +291,11 @@ impl<E: Environment + 'static> AssetManager<E> for DefaultAssetManager<E> {
     ///    query_assets entry or a fresh volatile asset (as get_asset(),
     ///    assets.rs:2886, minus the submit); try_fast_track as today;
     /// 2. if poll_state() is Some or status is finished: return;
-    /// 3. job_queue.try_to_start_immediately(&asset):
-    ///    Started | AlreadyActive => return,
-    ///    NoCapacity => asset.submitted().await?  (Status::Submitted = "queued",
-    ///                  here on a local queue, NOT in the global jobs list);
-    ///                  job_queue.push_local_dependency(parent.id(), &asset);
+    /// 3. if !job_queue.try_to_start_immediately(&asset).await? {  // no capacity
+    ///        asset.submitted().await?;  (Status::Submitted = "queued", here on a
+    ///                  local queue, NOT in the global jobs list);
+    ///        job_queue.push_local_dependency(parent.id(), &asset);
+    ///    }  // else the asset was started or already active — return;
     async fn get_dependency_asset(&self, parent: &AssetRef<E>, query: &Query)
         -> Result<AssetRef<E>, Error>;
 
@@ -434,7 +438,7 @@ onto the shared, claim-based primitive.
 
 | File | Changes |
 |---|---|
-| `liquers-core/src/assets.rs` | `StartOutcome`, `RunClaim`, `JobQueue.local_deps` + `try_to_start_immediately`/`push_local_dependency`/`pop_local_dependency`/`take_local_dependencies`, `submit`/worker-`run` refactor, `AssetRef::try_claim_for_run`/`leave_dependencies_and_resume`, `DependencyHandle`, `AssetManager` trait extension + `DefaultAssetManager` overrides, `cleanup_local_dependencies`, `evaluate_recipe` delegation migration |
+| `liquers-core/src/assets.rs` | `RunClaim`, `JobQueue.local_deps` + `try_to_start_immediately`/`push_local_dependency`/`pop_local_dependency`/`take_local_dependencies`, `submit`/worker-`run` refactor, `AssetRef::try_claim_for_run`/`leave_dependencies_and_resume`, `DependencyHandle`, `AssetManager` trait extension + `DefaultAssetManager` overrides, `cleanup_local_dependencies`, `evaluate_recipe` delegation migration |
 | `liquers-core/src/context.rs` | `Context::schedule_dependency`/`evaluate_local_queue`/`get_dependency_state`, `Context::evaluate` reimplementation |
 | `liquers-core/src/interpreter.rs` | `PlanDependencySchedule`, `schedule_plan_dependencies` pre-pass, `apply_plan`/`do_step` migration to handles |
 | `liquers-core/src/dependencies.rs` | `ScheduleNode`, expression attribution maps, `register_scheduled_dependency`, `remove_expression` |
@@ -641,7 +645,7 @@ No new error types; typed constructors only (CLAUDE.md).
 
 ## Serialization Strategy
 
-None of the new types (`StartOutcome`, `RunClaim`, `DependencyHandle`,
+None of the new types (`RunClaim`, `DependencyHandle`,
 `PlanDependencySchedule`, the `local_deps` map) is serialized or persisted — all are
 runtime scheduling state. No serde derives. Metadata/DependencyRecord serialization
 is unchanged.
