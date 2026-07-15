@@ -79,6 +79,40 @@ pub async fn make_plan<E: Environment, Q: TryToQuery>(
 }
 
 // TODO: Implement check plan, which would make a quick deep check of the plan and return list of errors or warnings
+/// Pre-pass: schedule the plan's known KEYED dependencies up front so independent
+/// dependencies start concurrently (or land on the local queue) before the sequential
+/// step loop runs. Deduplicated by key. Non-keyed / possibly-volatile queries are left
+/// for on-demand scheduling in `do_step` (avoids orphaning a fresh volatile evaluation);
+/// `Step::Plan` sub-plans run their own pass via the recursive `apply_plan`. Cycle errors
+/// surface here (via `schedule_dependency_asset`). Best-effort: a scheduling error aborts
+/// the pre-pass and is returned so the plan fails fast.
+async fn schedule_plan_dependencies<E: Environment>(
+    plan: &Plan,
+    context: &Context<E>,
+) -> Result<(), Error> {
+    let mut seen: std::collections::HashSet<Key> = std::collections::HashSet::new();
+    for i in 0..plan.len() {
+        let keys: Vec<Key> = match &plan[i] {
+            Step::GetAsset(k) | Step::GetAssetBinary(k) | Step::GetAssetMetadata(k) => {
+                vec![k.clone()]
+            }
+            Step::Evaluate(q) => q.key().into_iter().collect(),
+            Step::Action { parameters, .. } => parameters
+                .0
+                .iter()
+                .filter_map(|p| p.link().and_then(|q| q.key()))
+                .collect(),
+            _ => Vec::new(),
+        };
+        for k in keys {
+            if seen.insert(k.clone()) {
+                context.schedule_dependency_asset(&k.into()).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn apply_plan<E: Environment>(
     plan: Plan,
     input_state: State<E::Value>,
@@ -90,6 +124,10 @@ pub fn apply_plan<E: Environment>(
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
+        // Pre-pass: schedule known dependencies before executing steps (concurrency +
+        // one inline drain so at-capacity dependencies begin executing up front).
+        schedule_plan_dependencies(&plan, &context).await?;
+        context.evaluate_local_queue().await?;
         let mut state = input_state;
         for i in 0..plan.len() {
             println!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
@@ -168,8 +206,12 @@ pub fn do_step<E: Environment>(
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
-                let asset = envref.get_asset_manager().get_asset(&query).await?;
-                asset.get().await.map(|s| s.data.clone())
+                // Claim-aware wait (drain the parent's local queue + direct-claim before
+                // blocking) so an at-capacity dependency never deadlocks the parent.
+                context
+                    .get_dependency_state(&query)
+                    .await
+                    .map(|s| s.data.clone())
             }
             .boxed()
         }
@@ -190,12 +232,7 @@ pub fn do_step<E: Environment>(
             arguments.action_position = position.clone();
             for (i, param) in parameters.0.iter().enumerate() {
                 if let Some(arg_query) = param.link() {
-                    let arg_value = envref
-                        .get_asset_manager()
-                        .get_asset(&arg_query)
-                        .await?
-                        .get()
-                        .await?;
+                    let arg_value = context.get_dependency_state(&arg_query).await?;
                     arguments.set_value(i, arg_value.data.clone());
                 }
             }
@@ -241,17 +278,13 @@ pub fn do_step<E: Environment>(
         .boxed(),
         Step::Plan(plan) => async move { apply_plan(plan, input, context, envref).await }.boxed(),
         Step::GetAsset(key) => async move {
-            let envref1 = envref.clone();
-            let asset_store = envref1.get_asset_manager();
-            let asset = asset_store.get(&key).await?;
-            let asset_state = asset.get().await?;
+            let asset_state = context.get_dependency_state(&key.into()).await?;
             Ok(asset_state.data.clone())
         }
         .boxed(),
         Step::GetAssetBinary(key) => async move {
-            let envref1 = envref.clone();
-            let asset_store = envref1.get_asset_manager();
-            let asset = asset_store.get(&key).await?;
+            let asset = context.schedule_dependency_asset(&key.into()).await?;
+            context.wait_for_dependency(&asset).await?;
             let (binary, _metadata) = asset.get_binary().await?;
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_bytes((*binary).clone()),
@@ -259,10 +292,8 @@ pub fn do_step<E: Environment>(
         }
         .boxed(),
         Step::GetAssetMetadata(key) => async move {
-            let envref1 = envref.clone();
-            let asset_store = envref1.get_asset_manager();
-            let asset = asset_store.get(&key).await?;
-            let asset_state = asset.get().await?;
+            let asset = context.schedule_dependency_asset(&key.clone().into()).await?;
+            let asset_state = context.wait_for_dependency(&asset).await?;
             match &*asset_state.metadata {
                 Metadata::LegacyMetadata(value) => {
                     context.add_log_entry(
