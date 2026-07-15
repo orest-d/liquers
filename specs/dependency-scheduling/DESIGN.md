@@ -7,8 +7,8 @@
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-07-14)
-- [ ] Phase 2: Solution & Architecture (drafted, reviewed, awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved 2026-07-15)
+- [ ] Phase 3: Examples & Testing (drafted, awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 
@@ -84,6 +84,24 @@
     re-entry fail fast with Error::dependency_cycle.
   - Phase 2 multi-agent review (2 reviewers: Phase 1 conformity, codebase
     alignment): NO ISSUES FOUND; fixer skipped per workflow.
+- 2026-07-15 Phase 2 approval-round corrections (applied, approved):
+  1. `StartOutcome` enum → `Result<bool, Error>` on `try_to_start_immediately`
+     (`Started`/`AlreadyActive` never diverged at any call site; only no-capacity
+     branches — `true` = being taken care of, `false` = no capacity).
+  2. Removed `DependencyHandle` and the public `Context::schedule_dependency`; the
+     scheduling logic survives as `pub(crate) schedule_dependency_asset` returning a
+     bare `AssetRef`, and `PlanDependencySchedule` now stores
+     `HashMap<Query, AssetRef>` (the map is the volatility anchor);
+     `pub(crate) Context::wait_for_dependency` replaces `DependencyHandle::get`.
+     Tradeoff: no command-facing schedule-then-wait API (batch pre-scheduling stays
+     internal to the interpreter); commands keep `evaluate`/`get_dependency_state`.
+  3. Added "Why needed" rationale (prose + condensed doc-strings) for `RunClaim`
+     (execute-once + cancellation-liveness RAII token) and `PlanDependencySchedule`
+     (schedule→wait hand-off enabling non-blocking evaluation).
+- 2026-07-15 Phase 3 drafted (conceptual code, user choice): 3 examples (diamond
+  non-blocking, capacity-1 local-queue fan-out, schedule-time cycle rejection),
+  corner cases (memory/concurrency/errors/serialization/integration), and a test
+  plan (11 unit + 8 integration tests, with timeout guards proving no-hang).
 
 ## Links
 
