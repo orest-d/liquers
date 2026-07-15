@@ -1454,32 +1454,15 @@ impl<E: Environment> AssetRef<E> {
                         self.id(),
                         asset.id()
                     );
-                    // Record delegation as a dependency wait before awaiting the child.
+                    // Record delegation as a dependency wait, then delegate the F-1 inline
+                    // guard onto the shared, claim-based wait primitive: it drains this
+                    // asset's own local queue, direct-claims the child if still runnable
+                    // (no queue slot consumed), or subscribes — guaranteeing progress for
+                    // pure-key delegation chains without the old ad-hoc inline run.
                     self.record_dependency_on_asset(&asset).await?;
-                    if asset.poll_state().await.is_none() {
-                        self.enter_dependencies(&asset).await?;
-                        // Avoid queue-capacity deadlocks for pure-key delegation chains:
-                        // if the child is still only queued, run it in this task.  The
-                        // child's own `run_with_future` is idempotent for finished
-                        // assets, so a later queued wake-up becomes a no-op.
-                        if matches!(
-                            asset.status().await,
-                            Status::Submitted | Status::Dependencies
-                        ) {
-                            if let Err(e) = Box::pin(asset.run()).await {
-                                self.fail_due_to_dependency(e.clone()).await?;
-                                return Err(e);
-                            }
-                        }
-                    }
-                    let state = asset.get().await.map_err(|e| {
-                        Error::general_error(format!(
-                            "Delegated dependency asset {} failed: {}",
-                            asset.id(),
-                            e
-                        ))
-                    })?;
-                    self.leave_dependencies_for_resubmit().await?;
+                    let envref = self.get_envref().await;
+                    let manager = envref.get_asset_manager();
+                    let state = manager.wait_for_dependency(self, &asset).await?;
                     return Ok(state);
                 }
             } else {
