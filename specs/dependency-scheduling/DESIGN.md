@@ -8,8 +8,8 @@
 
 - [x] Phase 1: High-Level Design (approved 2026-07-14)
 - [x] Phase 2: Solution & Architecture (approved 2026-07-15)
-- [ ] Phase 3: Examples & Testing (drafted, awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved 2026-07-15)
+- [ ] Phase 4: Implementation Plan (drafted, awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
@@ -112,6 +112,16 @@
   keyed cycle); marked `test_queue_shutdown_stops_worker` out of scope (shutdown
   semantics unchanged). Adopted WP-1 test discipline: red→green, 10 s
   `tokio::time::timeout` hang guards, deterministic gating (no sleeps).
+
+- 2026-07-15 Phase 4 drafted: 10 bottom-up implementation steps
+  (DependencyManager scheduling/expansion → RunClaim → JobQueue refactor →
+  AssetManager trait + DefaultAssetManager overrides → evaluate_recipe migration →
+  Context API → interpreter pre-pass/do_step → integration suite → docs →
+  workspace validation), each with file paths, Phase 2 signature refs, validation
+  commands, per-step rollback, and agent model/skill assignments. Red→green
+  discipline and 10 s timeout hang-guards carried from Phase 3/WP-1. Note:
+  `rust-best-practices` skill is not installed here; its intent is met via CLAUDE.md
+  conventions applied inline.
 
 ## Links
 
