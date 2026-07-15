@@ -65,7 +65,7 @@
 //!
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, VecDeque},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     sync::{Arc, Weak},
 };
@@ -3607,6 +3607,10 @@ pub struct JobQueue<E: Environment> {
     notify: Arc<Notify>,
     shutdown: Arc<AtomicBool>,
     capacity: usize,
+    /// Per-dependent local dependency queues, keyed by the DEPENDENT asset id.
+    /// Created lazily on the no-capacity fallback and removed when drained or when the
+    /// dependent finishes — zero per-asset cost on the common path.
+    local_deps: Arc<Mutex<HashMap<u64, VecDeque<AssetRef<E>>>>>,
 }
 
 impl<E: Environment + 'static> JobQueue<E> {
@@ -3619,6 +3623,7 @@ impl<E: Environment + 'static> JobQueue<E> {
             notify: Arc::new(Notify::new()),
             shutdown: Arc::new(AtomicBool::new(false)),
             capacity,
+            local_deps: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -3627,78 +3632,134 @@ impl<E: Environment + 'static> JobQueue<E> {
         self.running_count.load(Ordering::SeqCst)
     }
 
-    /// Submit an asset for processing
-    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
+    /// Submit an asset for processing.
+    ///
+    /// Public semantics unchanged: start immediately if capacity allows, otherwise park
+    /// the asset globally as `Submitted` for the worker loop. Reimplemented over
+    /// [`try_to_start_immediately`](Self::try_to_start_immediately).
+    pub async fn submit(self: &Arc<Self>, asset: AssetRef<E>) -> Result<(), Error> {
+        if !self.try_to_start_immediately(&asset).await? {
+            // No capacity — park globally as Submitted so the worker runs it later.
+            asset.submitted().await?;
+            self.notify.notify_one();
+        }
+        Ok(())
+    }
+
+    /// Try to start `asset` on a reserved capacity slot right now.
+    ///
+    /// Returns `Ok(true)` when the asset is being taken care of — either a slot was
+    /// reserved and the asset was atomically claimed and spawned, or it was already
+    /// claimed/finished elsewhere (any reserved slot released). Returns `Ok(false)` on
+    /// no capacity, in which case the caller must guarantee progress (park globally in
+    /// `submit`, or enqueue on the parent's local dependency queue).
+    pub(crate) async fn try_to_start_immediately(
+        self: &Arc<Self>,
+        asset: &AssetRef<E>,
+    ) -> Result<bool, Error> {
         let asset_id = asset.id();
 
-        // Check for duplicates and add to queue atomically
+        // Dedup-register in the global jobs list (as submit did before).
         {
             let mut jobs = self.jobs.lock().await;
-            if jobs.iter().any(|a| a.id() == asset_id) {
-                // Asset already in queue, don't add duplicate
-                eprintln!("Asset {} already in queue, skipping", asset_id);
-                return Ok(());
+            if !jobs.iter().any(|a| a.id() == asset_id) {
+                jobs.push(asset.clone());
             }
-            // Add to jobs list for tracking
-            jobs.push(asset.clone());
         }
         self.notify.notify_one();
 
-        // Check if we can run immediately using atomic counter
-        let current_running = self.running_count.load(Ordering::SeqCst);
-        if current_running < self.capacity {
-            // Try to increment running count
-            // Use compare_exchange to avoid race conditions
-            if self
-                .running_count
-                .compare_exchange(
-                    current_running,
-                    current_running + 1,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                )
-                .is_ok()
-            {
-                // Successfully reserved a slot - run immediately
+        // Reserve a capacity slot via CAS.
+        let current = self.running_count.load(Ordering::SeqCst);
+        if current >= self.capacity {
+            return Ok(false);
+        }
+        if self
+            .running_count
+            .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            // Lost the reservation race — let the caller guarantee progress.
+            return Ok(false);
+        }
+
+        // Slot reserved: atomically claim the asset for running.
+        match asset.try_claim_for_run(self).await? {
+            Some(claim) => {
                 let asset_clone = asset.clone();
                 let running_count = self.running_count.clone();
                 let notify = self.notify.clone();
-
-                // Status set directly, since message processing is not running yet
-                if let Err(e) = asset_clone.set_status(Status::Processing).await {
-                    eprintln!("Failed to set status for asset {}: {}", asset_id, e);
-                    // Decrement counter since we won't actually run
-                    running_count.fetch_sub(1, Ordering::SeqCst);
-                    return Err(e);
-                }
-
-                eprintln!(
-                    "Starting asset job {} immediately (running: {})",
-                    asset_id,
-                    current_running + 1
-                );
+                let queue = self.clone();
+                eprintln!("Starting asset job {} immediately", asset_id);
                 tokio::spawn(async move {
                     let _ = asset_clone.run().await;
-                    // Decrement running count when job finishes
+                    claim.complete();
                     running_count.fetch_sub(1, Ordering::SeqCst);
                     notify.notify_one();
+                    // Re-park any undrained local dependencies of the finished asset so
+                    // waiters are never stranded (shared re-park; the manager refines this
+                    // for non-shared entries at its cleanup point). Re-parked directly
+                    // (not via submit) to avoid recursing into try_to_start_immediately.
+                    for dep in queue.take_local_dependencies(asset_id).await {
+                        let _ = queue.repark_as_submitted(&dep).await;
+                    }
                     eprintln!("Asset job {} finished", asset_clone.id());
                 });
-                return Ok(());
+                Ok(true)
+            }
+            None => {
+                // Already claimed/finished elsewhere — release the reserved slot.
+                self.running_count.fetch_sub(1, Ordering::SeqCst);
+                Ok(true)
             }
         }
+    }
 
-        // At capacity or lost race - queue the job with Submitted status
+    /// Re-park `asset` globally as `Submitted` for the worker loop, without attempting an
+    /// immediate start. Non-recursive counterpart used by cleanup paths (avoids recursing
+    /// through `try_to_start_immediately`).
+    async fn repark_as_submitted(&self, asset: &AssetRef<E>) -> Result<(), Error> {
+        {
+            let mut jobs = self.jobs.lock().await;
+            let id = asset.id();
+            if !jobs.iter().any(|a| a.id() == id) {
+                jobs.push(asset.clone());
+            }
+        }
         asset.submitted().await?;
-        eprintln!(
-            "Asset {} queued (running: {}, capacity: {})",
-            asset_id,
-            self.running_count(),
-            self.capacity
-        );
         self.notify.notify_one();
-
         Ok(())
+    }
+
+    /// Push `dep` onto the local dependency queue of dependent `parent_id`
+    /// (lazily creating the entry; dedup by asset id within that queue).
+    pub(crate) async fn push_local_dependency(&self, parent_id: u64, dep: &AssetRef<E>) {
+        let mut map = self.local_deps.lock().await;
+        let queue = map.entry(parent_id).or_insert_with(VecDeque::new);
+        let dep_id = dep.id();
+        if !queue.iter().any(|a| a.id() == dep_id) {
+            queue.push_back(dep.clone());
+        }
+    }
+
+    /// Pop the next local dependency of `parent_id`, if any (removing the map entry when
+    /// the queue becomes empty).
+    pub(crate) async fn pop_local_dependency(&self, parent_id: u64) -> Option<AssetRef<E>> {
+        let mut map = self.local_deps.lock().await;
+        let result = map.get_mut(&parent_id).and_then(|q| q.pop_front());
+        if let Some(q) = map.get(&parent_id) {
+            if q.is_empty() {
+                map.remove(&parent_id);
+            }
+        }
+        result
+    }
+
+    /// Remove and return all remaining local dependencies of `parent_id` (terminal cleanup).
+    pub(crate) async fn take_local_dependencies(&self, parent_id: u64) -> Vec<AssetRef<E>> {
+        let mut map = self.local_deps.lock().await;
+        map.remove(&parent_id)
+            .map(|q| q.into_iter().collect())
+            .unwrap_or_default()
     }
 
     /// Count how many jobs are currently running (from atomic counter)
@@ -3731,63 +3792,30 @@ impl<E: Environment + 'static> JobQueue<E> {
             if self.shutdown.load(Ordering::SeqCst) {
                 return;
             }
-            let current_running = self.running_count.load(Ordering::SeqCst);
-
             // Check if we can start more jobs
-            if current_running < self.capacity {
-                let available_slots = self.capacity - current_running;
+            if self.running_count.load(Ordering::SeqCst) < self.capacity {
                 let candidates = {
                     let jobs = self.jobs.lock().await;
                     jobs.iter().cloned().collect::<Vec<_>>()
                 };
-                let mut jobs_to_start = Vec::new();
 
-                // Find submitted jobs
                 for asset in candidates {
-                    if jobs_to_start.len() >= available_slots {
+                    if self.running_count.load(Ordering::SeqCst) >= self.capacity {
                         break;
                     }
-
                     if asset.status().await == Status::Submitted {
-                        jobs_to_start.push(asset.clone());
-                    }
-                }
-
-                // Start jobs
-                for asset in jobs_to_start {
-                    // Try to reserve a slot
-                    let current = self.running_count.load(Ordering::SeqCst);
-                    if current >= self.capacity {
-                        break; // No more slots available
-                    }
-
-                    if self
-                        .running_count
-                        .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        let asset_clone = asset.clone();
-                        let running_count = self.running_count.clone();
-                        let notify = self.notify.clone();
-
-                        // Status set directly, since message processing is not running yet
-                        if let Err(e) = asset_clone.set_status(Status::Processing).await {
-                            eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
-                            running_count.fetch_sub(1, Ordering::SeqCst);
-                            continue;
+                        // One primitive reserves the slot, atomically claims, and spawns.
+                        // `false` = no capacity (stop this pass); an asset already claimed
+                        // by an inline drain returns `true` without a double spawn and is
+                        // removed from `jobs` on the next cleanup pass. This removes the
+                        // former TOCTOU between the status read and set_status(Processing).
+                        match self.try_to_start_immediately(&asset).await {
+                            Ok(true) => {}
+                            Ok(false) => break,
+                            Err(e) => {
+                                eprintln!("Failed to start asset {}: {}", asset.id(), e);
+                            }
                         }
-
-                        eprintln!(
-                            "Starting asset job {} from queue (running: {})",
-                            asset.id(),
-                            current + 1
-                        );
-                        tokio::spawn(async move {
-                            let _ = asset_clone.run().await;
-                            running_count.fetch_sub(1, Ordering::SeqCst);
-                            notify.notify_one();
-                            eprintln!("Asset job {} finished", asset_clone.id());
-                        });
                     }
                 }
             }
@@ -4717,6 +4745,64 @@ mod tests {
             repaired.is_ok(),
             "armed Drop should re-park the asset as Submitted"
         );
+    }
+
+    #[tokio::test]
+    async fn test_try_to_start_immediately_false_at_capacity() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(20, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+        assert!(!queue.try_to_start_immediately(&asset).await.unwrap());
+        assert_eq!(queue.running_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_try_to_start_immediately_true_when_already_active() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(21, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Processing).await.unwrap();
+        // Already Processing: no claim available -> true, and the reserved slot is released.
+        assert!(queue.try_to_start_immediately(&asset).await.unwrap());
+        assert_eq!(queue.running_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_local_dependency_fifo_dedup_and_removal() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let mk = |id: u64| {
+            AssetData::<SimpleEnvironment<Value>>::new(id, query.clone().into(), envref.clone())
+                .to_ref()
+        };
+        let d1 = mk(11);
+        let d2 = mk(12);
+        let d3 = mk(13);
+
+        queue.push_local_dependency(100, &d1).await;
+        queue.push_local_dependency(100, &d2).await;
+        queue.push_local_dependency(100, &d1).await; // dedup by id
+        queue.push_local_dependency(100, &d3).await;
+
+        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(11));
+        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(12));
+        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(13));
+        assert!(queue.pop_local_dependency(100).await.is_none());
+
+        queue.push_local_dependency(200, &d1).await;
+        queue.push_local_dependency(200, &d2).await;
+        let taken = queue.take_local_dependencies(200).await;
+        assert_eq!(taken.len(), 2);
+        assert!(queue.pop_local_dependency(200).await.is_none());
     }
 
     #[tokio::test]
