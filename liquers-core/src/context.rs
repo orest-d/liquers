@@ -19,6 +19,7 @@ use crate::{
     cache::Cache,
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
+    dependencies::ScheduleNode,
     error::Error,
     expiration::Expires,
     metadata::{DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version},
@@ -195,64 +196,107 @@ impl<E: Environment> Context<E> {
         self.payload.clone()
     }
 
-    pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+    /// Schedule a dependency of the current asset without waiting for it, returning the
+    /// captured child `AssetRef`. Internal helper (not a command-facing schedule/wait API):
+    /// the only callers are `evaluate`, `get_dependency_state`, and the interpreter pre-pass.
+    ///
+    /// Classifies dependent/dependency as `ScheduleNode`s, cycle-checks and registers the
+    /// edge at schedule time via `register_scheduled_dependency` (keyed-expansion model),
+    /// captures the AssetRef exactly once (volatile-safe) via `get_dependency_asset`, and
+    /// records the runtime dependency (metadata + untracked dependent). Does NOT enter
+    /// `Status::Dependencies` — that happens at drain/wait time.
+    pub(crate) async fn schedule_dependency_asset(
+        &self,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
+        let query_dep_key = DependencyKey::from(query);
 
-        // Get current asset's key for cycle detection (if keyed)
+        // Current asset's key (if keyed) for dependent classification.
         let current_key_opt = {
             let lock = self.assetref.data.read().await;
             lock.recipe.key().ok().flatten()
         };
 
-        // If current asset has a key, check for dependency cycle
-        if let Some(ref current_key) = current_key_opt {
-            let current_dep_key = DependencyKey::from(current_key);
-            let query_dep_key = DependencyKey::from(query);
-
-            if manager
-                .dependency_manager()
-                .would_create_cycle(&current_dep_key, &query_dep_key)
-                .await
-            {
-                return Err(Error::dependency_cycle(&current_dep_key));
-            }
-        }
-
-        // Perform the evaluation and record the edge before the caller decides
-        // whether to await the returned asset.  This keeps runtime dependency
-        // capture path-independent: queued and immediate evaluations both drain
-        // this context-owned pending list after command execution.
-        let result = manager.get_asset(query).await?;
-
-        // Record the dependency
-        let query_dep_key = DependencyKey::from(query);
         let version = manager
             .dependency_manager()
             .get_version(&query_dep_key)
             .await
             .unwrap_or_else(Version::unknown);
 
-        // Register as untracked dependent if current asset has a key
+        // Classify the dependent: keyed asset -> graph node; non-keyed query -> expression;
+        // ad-hoc (no key, no query) -> skip registration (not a graph participant).
+        let dependent_opt = if let Some(ref k) = current_key_opt {
+            Some(ScheduleNode::Keyed(DependencyKey::from(k)))
+        } else if let Some(q) = self.assetref.query().await {
+            Some(ScheduleNode::Expression(DependencyKey::from(&q)))
+        } else {
+            None
+        };
+        if let Some(dependent) = &dependent_opt {
+            let dependency = if query.key().is_some() {
+                ScheduleNode::Keyed(query_dep_key.clone())
+            } else {
+                ScheduleNode::Expression(query_dep_key.clone())
+            };
+            // Cycle check + edge registration at schedule time (may return dependency_cycle).
+            manager
+                .dependency_manager()
+                .register_scheduled_dependency(dependent, &dependency, version)
+                .await?;
+        }
+
+        // Capture the AssetRef exactly once (volatile-safe) and schedule it.
+        let asset = manager
+            .get_dependency_asset(&self.assetref, query)
+            .await?;
+
+        // Record the runtime dependency (path-independent capture) as evaluate did.
         if current_key_opt.is_some() {
             manager
                 .dependency_manager()
                 .add_dependent_asset(&query_dep_key, self.assetref.downgrade())
                 .await;
         }
-
         self.add_dependency(DependencyRecord::new(query_dep_key, version))
             .await;
 
-        // `Status::Dependencies` is the single lifecycle marker for a parent
-        // whose command is about to wait for a child asset.  Do not persist a
-        // second waiting model here; the dependency graph and metadata records
-        // above remain authoritative.
-        if result.poll_state().await.is_none() {
-            self.assetref.enter_dependencies(&result).await?;
-        }
+        Ok(asset)
+    }
 
-        Ok(result)
+    /// Wait on a previously-scheduled dependency AssetRef on behalf of the current asset.
+    /// Thin wrapper over `AssetManager::wait_for_dependency`; idempotent.
+    pub(crate) async fn wait_for_dependency(
+        &self,
+        asset: &AssetRef<E>,
+    ) -> Result<State<E::Value>, Error> {
+        let envref = self.assetref.get_envref().await;
+        let manager = envref.get_asset_manager();
+        manager.wait_for_dependency(&self.assetref, asset).await
+    }
+
+    /// Drain the current asset's local dependency queue
+    /// (= `AssetManager::drain_dependencies(current asset)`).
+    pub async fn evaluate_local_queue(&self) -> Result<(), Error> {
+        let envref = self.assetref.get_envref().await;
+        let manager = envref.get_asset_manager();
+        manager.drain_dependencies(&self.assetref).await
+    }
+
+    /// Convenience: schedule a dependency and wait for its state.
+    pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
+        let asset = self.schedule_dependency_asset(query).await?;
+        self.wait_for_dependency(&asset).await
+    }
+
+    /// Backwards-compatible: schedule the dependency, eagerly drain the local queue (so a
+    /// handle-unaware caller may still `.get().await` the returned AssetRef safely), and
+    /// return the captured AssetRef. Public signature unchanged.
+    pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        let asset = self.schedule_dependency_asset(query).await?;
+        self.evaluate_local_queue().await?;
+        Ok(asset)
     }
 
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {

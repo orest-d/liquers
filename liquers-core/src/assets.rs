@@ -926,6 +926,13 @@ impl<E: Environment> AssetRef<E> {
         self.id
     }
 
+    /// The query this asset was created from, if any. Used for schedule-time
+    /// classification of a non-keyed (expression) dependent.
+    pub(crate) async fn query(&self) -> Option<Query> {
+        let lock = self.data.read().await;
+        (*lock.query).clone()
+    }
+
     /// Create a weak reference to this asset.
     pub fn downgrade(&self) -> WeakAssetRef<E> {
         WeakAssetRef {
