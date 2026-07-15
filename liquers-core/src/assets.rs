@@ -2224,6 +2224,46 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// Check if resource is volatile
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error>;
 
+    /// Resolve the asset for `query` and schedule it as a dependency of `parent`: start it
+    /// immediately if queue capacity allows, otherwise enqueue it on `parent`'s local
+    /// dependency queue (local-only parking — NOT parked in the global jobs list here).
+    /// Does NOT record dependency facts or cycle-check — `Context` does that.
+    ///
+    /// Default: plain `get_asset` (global submit) — a safe fallback for managers without a
+    /// JobQueue; `DefaultAssetManager` overrides.
+    async fn get_dependency_asset(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        self.get_asset(query).await
+    }
+
+    /// Drain `parent`'s local dependency queue: claim and inline-run each still-runnable
+    /// entry sequentially inside the caller's future. Default: no-op (managers without
+    /// local queues have nothing to drain).
+    async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
+        let _ = parent;
+        Ok(())
+    }
+
+    /// Claim-aware wait for `dependency` on behalf of `parent`: guarantees progress and
+    /// maintains `Status::Dependencies` on the parent while waiting. Default: enter
+    /// dependencies, await the dependency's own `get()`, then resume (correct, but without
+    /// the local-queue progress guarantee — fine for managers whose `get_asset` submits
+    /// globally).
+    async fn wait_for_dependency(
+        &self,
+        parent: &AssetRef<E>,
+        dependency: &AssetRef<E>,
+    ) -> Result<State<E::Value>, Error> {
+        parent.enter_dependencies(dependency).await?;
+        let result = dependency.get().await;
+        parent.leave_dependencies_and_resume().await?;
+        result
+    }
+
     /// Remove asset data from AssetManager and store.
     /// This does NOT trigger recalculation.
     async fn remove(&self, key: &Key) -> Result<(), Error>;
@@ -2933,6 +2973,132 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
         }
     }
+
+    async fn get_dependency_asset(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
+        // Resolve the AssetRef WITHOUT global submission (captured exactly once).
+        let asset = if let Some(key) = query.key() {
+            self.get_resource_asset(&key).await?
+        } else {
+            self.get_query_asset(query).await?
+        };
+        // Already data-bearing or finished — nothing to schedule.
+        if asset.poll_state().await.is_some() || asset.status().await.is_finished() {
+            return Ok(asset);
+        }
+        // Fast-track from the store if the value is already persisted.
+        let fast_tracked = {
+            let mut lock = asset.data.write().await;
+            lock.try_fast_track().await?
+        };
+        if fast_tracked {
+            return Ok(asset);
+        }
+        // Schedule: start now if capacity allows, else enqueue on the parent's LOCAL queue
+        // (Status::Submitted here means "queued on a local queue", not the global jobs list).
+        if !self.job_queue.try_to_start_immediately(&asset).await? {
+            asset.submitted().await?;
+            self.job_queue
+                .push_local_dependency(parent.id(), &asset)
+                .await;
+        }
+        Ok(asset)
+    }
+
+    async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
+        let parent_id = parent.id();
+        let mut entered = false;
+        while let Some(dep) = self.job_queue.pop_local_dependency(parent_id).await {
+            if dep.poll_state().await.is_some() || dep.status().await.is_finished() {
+                continue;
+            }
+            match dep.try_claim_for_run(&self.job_queue).await? {
+                Some(claim) => {
+                    parent.enter_dependencies(&dep).await?;
+                    entered = true;
+                    // Inline, recursive: dep.run() may itself schedule and drain dep's own
+                    // local queue in this same task. Box::pin bounds the future type; depth
+                    // is bounded by the (cycle-free) dependency DAG.
+                    let _ = Box::pin(dep.run()).await;
+                    claim.complete();
+                }
+                None => {
+                    // Running or finished elsewhere — skip.
+                }
+            }
+        }
+        if entered {
+            parent.leave_dependencies_and_resume().await?;
+        }
+        Ok(())
+    }
+
+    async fn wait_for_dependency(
+        &self,
+        parent: &AssetRef<E>,
+        dependency: &AssetRef<E>,
+    ) -> Result<State<E::Value>, Error> {
+        loop {
+            // Authoritative status first: poll_state fabricates a none-valued state for
+            // Error/Cancelled, so those MUST be handled before polling.
+            let status = dependency.status().await;
+            match status {
+                Status::Error | Status::Cancelled => {
+                    let e = Error::general_error(format!(
+                        "Dependency asset {} did not produce a value (status {:?})",
+                        dependency.id(),
+                        status
+                    ));
+                    let _ = parent.fail_due_to_dependency(e.clone()).await;
+                    return Err(e);
+                }
+                Status::Ready
+                | Status::Source
+                | Status::Override
+                | Status::Volatile
+                | Status::Directory => {
+                    if let Some(state) = dependency.poll_state().await {
+                        let _ = parent.leave_dependencies_and_resume().await;
+                        return Ok(state);
+                    }
+                }
+                Status::None
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Expired => {}
+            }
+
+            // Guarantee progress: drain our own local queue (may inline-run the dependency).
+            self.drain_dependencies(parent).await?;
+            if dependency.poll_state().await.is_some() {
+                // Resolved (data-bearing) or now Error/Cancelled — let the loop top decide.
+                continue;
+            }
+
+            // Not on our queue and not yet resolved: claim it directly (recovers deps
+            // re-parked by a cancelled holder or globally submitted), else subscribe & wait.
+            match dependency.try_claim_for_run(&self.job_queue).await? {
+                Some(claim) => {
+                    parent.enter_dependencies(dependency).await?;
+                    let _ = Box::pin(dependency.run()).await;
+                    claim.complete();
+                }
+                None => {
+                    parent.enter_dependencies(dependency).await?;
+                    let mut rx = dependency.subscribe_to_notifications().await;
+                    let _ = rx.changed().await;
+                }
+            }
+        }
+    }
+
     /// Get asset infor for a resource asset
     ///
     /// Arguments:
