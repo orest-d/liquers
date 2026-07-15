@@ -6,11 +6,12 @@ Non-blocking dependency scheduling is implemented entirely in `liquers-core` as 
 cooperating pieces: (1) an **atomic run claim** on `AssetRef` that makes "who executes
 this asset" a single CAS decision shared by every execution path; (2) a `JobQueue`
 refactor extracting `try_to_start_immediately` plus **queue-resident per-dependent
-local queues** used as a capacity fallback; (3) a **schedule/wait API**
-(`Context::schedule_dependency` → `DependencyHandle`) that captures the dependency
-`AssetRef` exactly once (volatile-safe), records dependency facts, cycle-checks via the
-existing `DependencyManager`, and lets the interpreter schedule all known dependencies
-before executing plan steps. No new commands, value types, or endpoints.
+local queues** used as a capacity fallback; (3) an **internal schedule helper**
+(`Context::schedule_dependency_asset`) that captures the dependency `AssetRef`
+exactly once (volatile-safe), records dependency facts, and cycle-checks via the
+existing `DependencyManager`, letting the interpreter pre-pass schedule all known
+dependencies (storing their AssetRefs) before executing plan steps, then wait on
+each via `Context::wait_for_dependency`. No new commands, value types, or endpoints.
 
 ## Data Structures
 
@@ -82,36 +83,22 @@ pub struct JobQueue<E: Environment> {
 (rare by design) and drains pop one entry at a time; the lock is never held across
 `.await` of asset execution. `VecDeque` preserves scheduling order (FIFO drain).
 
-#### DependencyHandle
-```rust
-/// Handle to a dependency scheduled for a parent asset
-/// (liquers-core/src/assets.rs).
-///
-/// Owns the child AssetRef captured at schedule time. This is the volatility
-/// anchor: a volatile query yields a FRESH AssetRef on every
-/// AssetManager::get_asset call, so waiting MUST reuse this captured reference.
-/// Waiting twice on the same handle returns the same result; re-scheduling the
-/// same volatile query intentionally creates a new evaluation.
-pub struct DependencyHandle<E: Environment> {
-    parent: AssetRef<E>,
-    asset: AssetRef<E>,
-    envref: EnvRef<E>,   // reach the AssetManager for drain/wait
-    query: Query,        // as scheduled; diagnostics and error context
-}
-```
-**Placement decision (Phase 1 open question 2):** `liquers-core/src/assets.rs`,
-next to `AssetRef` — it is part of the asset/scheduling vocabulary, needs nothing
-outside `assets.rs` + `context.rs`, and a new module for one type is not justified.
-Not serializable (runtime-only).
-
 #### PlanDependencySchedule
 ```rust
-/// Known-dependency handles captured by the interpreter pre-pass
+/// Known-dependency AssetRefs captured by the interpreter pre-pass
 /// (liquers-core/src/interpreter.rs). Deduplicated by Query so a volatile
 /// dependency referenced by several steps/links evaluates exactly once per
 /// parent evaluation.
+///
+/// The map IS the volatility anchor: a volatile query yields a FRESH AssetRef
+/// on every resolution, so the captured AssetRef stored here MUST be reused by
+/// every later wait. Waiting twice on the same stored AssetRef returns the same
+/// result; re-scheduling the same volatile query intentionally creates a new
+/// evaluation. (This subsumes the earlier `DependencyHandle` type — the map
+/// holds the child AssetRef directly, and parent/manager come from the Context
+/// the waiter already holds.)
 pub(crate) struct PlanDependencySchedule<E: Environment> {
-    handles: HashMap<Query, DependencyHandle<E>>,
+    assets: HashMap<Query, AssetRef<E>>,
 }
 ```
 `Query` already implements `Hash + Eq` (it is used as the key of the manager's
@@ -199,9 +186,9 @@ existing spawn sites use). No new bounds introduced.
 | `AssetManager::get_dependency_asset` | Yes | resolves assets (store/recipe I/O) |
 | `AssetManager::drain_dependencies` | Yes | runs dependency evaluations inline |
 | `AssetManager::wait_for_dependency` | Yes | awaits notifications |
-| `Context::schedule_dependency` | Yes | asset resolution + DependencyManager calls |
+| `Context::schedule_dependency_asset` | Yes | asset resolution + DependencyManager calls |
 | `Context::evaluate_local_queue` | Yes | delegates to drain_dependencies |
-| `DependencyHandle::get` | Yes | delegates to wait_for_dependency |
+| `Context::wait_for_dependency` | Yes | delegates to `AssetManager::wait_for_dependency` |
 | `RunClaim::complete` | No | flips a bool; Drop must be sync anyway |
 
 Async is the default throughout (CLAUDE.md); no sync wrappers are needed — Python
@@ -343,7 +330,10 @@ impl<E: Environment + 'static> AssetManager<E> for DefaultAssetManager<E> {
 
 ```rust
 impl<E: Environment> Context<E> {
-    /// Schedule a dependency of the current asset without waiting for it.
+    /// Internal helper: schedule a dependency of the current asset without
+    /// waiting for it, returning the captured child AssetRef. NOT public — the
+    /// only callers are `evaluate`, `get_dependency_state`, and the interpreter
+    /// pre-pass; there is no command-facing schedule-then-wait API.
     /// 1. dependent = ScheduleNode: Keyed(key) if the current asset is keyed,
     ///    else Expression(query dep key) (the key-or-query pattern of
     ///    record_dependency_on_asset, assets.rs:796-805);
@@ -354,41 +344,43 @@ impl<E: Environment> Context<E> {
     ///    principle (see Cycle Handling) and registers keyed edges / expression
     ///    attribution; Err(Error::dependency_cycle) aborts the schedule;
     /// 4. asset = manager.get_dependency_asset(self.get_asset_ref(), query)
-    ///    — captures the AssetRef exactly ONCE (volatile-safe);
+    ///    — captures the AssetRef exactly ONCE (volatile-safe); the caller stores
+    ///    this AssetRef (in PlanDependencySchedule or a local) and reuses it for
+    ///    the later wait;
     /// 5. record DependencyRecord in pending_dependencies (upsert, version-
     ///    preference rules as today, context.rs:376-388) and
     ///    add_dependent_asset(dep_key, weak self) as today (context.rs:237-242);
-    /// 6. return DependencyHandle { parent, asset, envref, query }.
+    /// 6. return the captured AssetRef.
     /// Does NOT enter Status::Dependencies (that happens at drain/wait time,
     /// removing today's status flicker for already-ready dependencies).
-    pub async fn schedule_dependency(&self, query: &Query)
-        -> Result<DependencyHandle<E>, Error>;
+    pub(crate) async fn schedule_dependency_asset(&self, query: &Query)
+        -> Result<AssetRef<E>, Error>;
+
+    /// Wait on a previously-scheduled dependency AssetRef on behalf of the
+    /// current asset. Thin wrapper:
+    /// = manager.wait_for_dependency(&self.get_asset_ref(), asset).
+    /// Idempotent: a second call re-reads the asset-held result.
+    pub(crate) async fn wait_for_dependency(&self, asset: &AssetRef<E>)
+        -> Result<State<E::Value>, Error>;
 
     /// Drain the current asset's local dependency queue
     /// (= manager.drain_dependencies(current asset)).
     pub async fn evaluate_local_queue(&self) -> Result<(), Error>;
 
     /// Convenience: schedule + wait; returns the dependency state
-    /// (WP-1 Phase 1C's Context::get_dependency_state).
+    /// (WP-1 Phase 1C's Context::get_dependency_state). Reimplemented:
+    /// let asset = self.schedule_dependency_asset(query).await?;
+    /// self.wait_for_dependency(&asset).await
     pub async fn get_dependency_state(&self, query: &Query)
         -> Result<State<E::Value>, Error>;
 
     /// Backwards-compatible (public signature unchanged, context.rs:198).
-    /// Reimplemented: let h = self.schedule_dependency(query).await?;
+    /// Reimplemented: let asset = self.schedule_dependency_asset(query).await?;
     /// self.evaluate_local_queue().await?;  // eager drain: the returned
     /// AssetRef is data-bearing, terminal, or claimed by a live runner, so
-    /// handle-unaware callers may still `.get().await` it safely.
-    /// Ok(h.into_asset())
+    /// callers may still `.get().await` it safely.
+    /// Ok(asset)
     pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error>;
-}
-
-impl<E: Environment> DependencyHandle<E> {
-    pub fn asset(&self) -> &AssetRef<E>;
-    pub fn query(&self) -> &Query;
-    pub fn into_asset(self) -> AssetRef<E>;
-    /// = envref.get_asset_manager().wait_for_dependency(&self.parent, &self.asset)
-    /// Idempotent: a second call re-reads the asset-held result.
-    pub async fn get(&self) -> Result<State<E::Value>, Error>;
 }
 ```
 
@@ -407,19 +399,21 @@ pub(crate) async fn schedule_plan_dependencies<E: Environment>(
 ) -> Result<PlanDependencySchedule<E>, Error>;
 
 impl<E: Environment> PlanDependencySchedule<E> {
-    /// Handle lookup used by do_step (None for dynamically-formed queries,
-    /// which fall back to context.get_dependency_state).
-    pub(crate) fn handle(&self, query: &Query) -> Option<&DependencyHandle<E>>;
+    /// Captured-AssetRef lookup used by do_step (None for dynamically-formed
+    /// queries, which fall back to context.get_dependency_state).
+    pub(crate) fn asset(&self, query: &Query) -> Option<&AssetRef<E>>;
 }
 ```
 
 `apply_plan` (interpreter.rs:82): after creating the context, call
-`schedule_plan_dependencies`, then `context.evaluate_local_queue()` (one inline drain
-so at-capacity dependencies execute before the step loop), then run the step loop
-passing `&PlanDependencySchedule` into `do_step`. `do_step` (interpreter.rs:109)
-replaces each `get_asset(...).await?.get().await?` (Action links :191-201, Evaluate
-:168-175, GetAsset* :243-305) with `schedule.handle(q)` → `handle.get().await`
-(fallback: `context.get_dependency_state(q)` when absent). Side benefit: GetAsset*/
+`schedule_plan_dependencies` (which stores each scheduled dependency's AssetRef via
+`context.schedule_dependency_asset`), then `context.evaluate_local_queue()` (one
+inline drain so at-capacity dependencies execute before the step loop), then run the
+step loop passing `&PlanDependencySchedule` into `do_step`. `do_step`
+(interpreter.rs:109) replaces each `get_asset(...).await?.get().await?` (Action links
+:191-201, Evaluate :168-175, GetAsset* :243-305) with `schedule.asset(q)` →
+`context.wait_for_dependency(asset).await` (fallback: `context.get_dependency_state(q)`
+when absent). Side benefit: GetAsset*/
 Evaluate step dependencies now flow through `pending_dependencies` recording (today
 they bypass `Context::evaluate` entirely). `finalize_plan` (interpreter.rs:33) is
 unchanged; `Context::add_dependency`'s upsert-by-key dedupes against the pre-pass.
@@ -438,9 +432,9 @@ onto the shared, claim-based primitive.
 
 | File | Changes |
 |---|---|
-| `liquers-core/src/assets.rs` | `RunClaim`, `JobQueue.local_deps` + `try_to_start_immediately`/`push_local_dependency`/`pop_local_dependency`/`take_local_dependencies`, `submit`/worker-`run` refactor, `AssetRef::try_claim_for_run`/`leave_dependencies_and_resume`, `DependencyHandle`, `AssetManager` trait extension + `DefaultAssetManager` overrides, `cleanup_local_dependencies`, `evaluate_recipe` delegation migration |
-| `liquers-core/src/context.rs` | `Context::schedule_dependency`/`evaluate_local_queue`/`get_dependency_state`, `Context::evaluate` reimplementation |
-| `liquers-core/src/interpreter.rs` | `PlanDependencySchedule`, `schedule_plan_dependencies` pre-pass, `apply_plan`/`do_step` migration to handles |
+| `liquers-core/src/assets.rs` | `RunClaim`, `JobQueue.local_deps` + `try_to_start_immediately`/`push_local_dependency`/`pop_local_dependency`/`take_local_dependencies`, `submit`/worker-`run` refactor, `AssetRef::try_claim_for_run`/`leave_dependencies_and_resume`, `AssetManager` trait extension + `DefaultAssetManager` overrides, `cleanup_local_dependencies`, `evaluate_recipe` delegation migration |
+| `liquers-core/src/context.rs` | `Context::schedule_dependency_asset`/`wait_for_dependency`/`evaluate_local_queue`/`get_dependency_state`, `Context::evaluate` reimplementation |
+| `liquers-core/src/interpreter.rs` | `PlanDependencySchedule`, `schedule_plan_dependencies` pre-pass, `apply_plan`/`do_step` migration to captured AssetRefs |
 | `liquers-core/src/dependencies.rs` | `ScheduleNode`, expression attribution maps, `register_scheduled_dependency`, `remove_expression` |
 | `liquers-core/tests/dependency_scheduling.rs` | new integration test suite (Phase 3) |
 
@@ -495,7 +489,7 @@ pub(crate) struct DependencyManager<E: Environment> {
 
 impl<E: Environment> DependencyManager<E> {
     /// Register a scheduled dependency edge under the expansion principle;
-    /// performs all cycle checks. Called by Context::schedule_dependency.
+    /// performs all cycle checks. Called by Context::schedule_dependency_asset.
     ///
     /// A = attribution set of `dependent`:
     ///     Keyed(k) => {k};  Expression(q) => expression_dependents[q]
@@ -569,7 +563,7 @@ end of inline runs in `drain_dependencies`. For each leftover obtained via
 | Leftover kind | Test | Action |
 |---|---|---|
 | Shared (managed) | present in `assets` / `query_assets` maps | keep `Submitted`: insert into the global jobs list via `job_queue.submit` so the worker runs it and plain `get().await` waiters are never stranded |
-| Non-shared | not in the maps (volatile / ad-hoc) | discard with a debug log — the handle/local queue were the only references |
+| Non-shared | not in the maps (volatile / ad-hoc) | discard with a debug log — the `PlanDependencySchedule` entry and the local queue were the only references |
 
 Also: the `DependencyManager::remove_expression(query_dep_key)` transient-attribution
 cleanup (see Cycle Handling) runs at the same terminal point for non-keyed assets.
@@ -598,13 +592,14 @@ whose parent future is dropped is re-parked by the `RunClaim` Drop repair.
 
 ## Volatility Semantics (execute-once guarantee)
 
-- `schedule_dependency` performs the single resolution; volatile queries yield a
+- `schedule_dependency_asset` performs the single resolution; volatile queries yield a
   fresh AssetRef exactly there (`get_volatile_query_asset`, assets.rs:2838 /
-  `get_volatile_resource_asset`, :2786). The `DependencyHandle` and the local-queue
-  entry alias that one AssetRef.
-- Waiting twice on one handle returns the same result (`Status::Volatile` is
-  data-bearing). Re-scheduling the same volatile query = a new evaluation
-  (documented, intended).
+  `get_volatile_resource_asset`, :2786). The `PlanDependencySchedule` map entry (or
+  the local variable in `get_dependency_state`/`evaluate`) and the local-queue entry
+  alias that one AssetRef.
+- Waiting twice on the same captured AssetRef returns the same result
+  (`Status::Volatile` is data-bearing). Re-scheduling the same volatile query = a new
+  evaluation (documented, intended).
 - The interpreter pre-pass dedupes by `Query` within one `apply_plan`, so a volatile
   dependency referenced by several steps/links of one plan evaluates exactly once
   per parent evaluation; re-evaluating the parent re-schedules freshly.
@@ -616,8 +611,10 @@ whose parent future is dropped is re-parked by the `RunClaim` Drop repair.
 ### New Commands
 
 **None.** The mechanism is command-transparent: commands interact with it only
-through the `Context` API (`schedule_dependency`, `get_dependency_state`,
-`evaluate_local_queue`, and the unchanged `evaluate`).
+through the `Context` API (`get_dependency_state`, `evaluate_local_queue`, and the
+unchanged `evaluate`). Scheduling is not exposed to commands — the schedule/wait
+split (`schedule_dependency_asset` + `wait_for_dependency`) is `pub(crate)` and used
+only by the interpreter pre-pass and the two convenience methods above.
 
 ### Relevant Existing Namespaces
 
@@ -645,8 +642,8 @@ No new error types; typed constructors only (CLAUDE.md).
 
 ## Serialization Strategy
 
-None of the new types (`RunClaim`, `DependencyHandle`,
-`PlanDependencySchedule`, the `local_deps` map) is serialized or persisted — all are
+None of the new types (`RunClaim`, `PlanDependencySchedule`, the `local_deps` map) is
+serialized or persisted — all are
 runtime scheduling state. No serde derives. Metadata/DependencyRecord serialization
 is unchanged.
 
