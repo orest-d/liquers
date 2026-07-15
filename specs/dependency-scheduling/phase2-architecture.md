@@ -37,9 +37,34 @@ is fully internal to `try_to_start_immediately` and never observed by callers.
 ### New Structs
 
 #### RunClaim
+
+**Why needed.** Several independent paths may each try to *execute the same asset's
+body* — the JobQueue worker, inline drains of a parent's local queue
+(`drain_dependencies`), claim-recovery in `wait_for_dependency`, and the migrated
+`evaluate_recipe` delegation. Today the only guard against a double run is
+`run_with_future`'s `is_finished()` check (assets.rs:1373), which rejects an
+already-*finished* asset but not one *currently* running — so two live paths can both
+start a not-yet-finished asset (wasteful, and wrong for volatile/side-effecting
+recipes). `RunClaim` closes this and one further gap:
+
+1. **Execute-once arbitration** — `try_claim_for_run` makes one atomic status
+   transition (not-yet-running → `Processing`) under a single write lock and hands the
+   token only to the winner; `run()` is called *only* by a claim holder, so the body
+   runs at most once.
+2. **Cancellation liveness** — an inline drain may hold the claim inside a parent
+   future; if that future is dropped, the dependency would be stranded in `Processing`
+   with nobody driving it. `Drop` (while armed) re-parks + notifies so another runner
+   recovers it. Both guarantees are lifetime-scoped ⇒ an RAII `Drop` guard, not a
+   `bool`.
+
 ```rust
-/// Proof that the holder is the unique runner of an asset. Obtained by an atomic
-/// status transition (not-yet-running -> Processing) under one AssetData write lock.
+/// Proof that the holder is the unique runner of an asset, from an atomic status
+/// transition (not-yet-running -> Processing) under one AssetData write lock.
+/// Exists to give two guarantees a plain flag cannot:
+/// - execute-once: run() is called only by a claim holder, closing the double-run
+///   window left by run_with_future's is_finished()-only guard (assets.rs:1373);
+/// - cancellation liveness: if the holder's future is dropped mid-run, Drop (while
+///   armed) re-parks + notifies so another runner recovers the stranded asset.
 pub(crate) struct RunClaim<E: Environment> {
     asset: AssetRef<E>,
     queue: Arc<JobQueue<E>>, // for Drop repair (re-park + notify)
@@ -84,19 +109,28 @@ pub struct JobQueue<E: Environment> {
 `.await` of asset execution. `VecDeque` preserves scheduling order (FIFO drain).
 
 #### PlanDependencySchedule
+
+**Why needed.** This is the hand-off table that makes evaluation non-blocking. Today
+`do_step` resolves and immediately blocks on each dependency in turn
+(`get_asset(q).await?.get().await?`, interpreter.rs:171-172/194-197/245-305),
+serializing independent dependencies. The new design runs a pre-pass that schedules
+*all* known dependencies up front (starting each if the queue has capacity, else
+enqueuing it) and lets the step loop *wait* only when a step needs the result. That
+split means a step must later wait on the *exact* AssetRef the pre-pass scheduled —
+decisive for volatile queries, which return a fresh AssetRef on every resolution:
+re-resolving would orphan the started work and run it twice. The map captures
+`Query → scheduled AssetRef` for one `apply_plan`, so waits reuse the started asset and
+each dependency is scheduled once per parent evaluation.
+
 ```rust
-/// Known-dependency AssetRefs captured by the interpreter pre-pass
-/// (liquers-core/src/interpreter.rs). Deduplicated by Query so a volatile
-/// dependency referenced by several steps/links evaluates exactly once per
-/// parent evaluation.
-///
-/// The map IS the volatility anchor: a volatile query yields a FRESH AssetRef
-/// on every resolution, so the captured AssetRef stored here MUST be reused by
-/// every later wait. Waiting twice on the same stored AssetRef returns the same
-/// result; re-scheduling the same volatile query intentionally creates a new
-/// evaluation. (This subsumes the earlier `DependencyHandle` type — the map
-/// holds the child AssetRef directly, and parent/manager come from the Context
-/// the waiter already holds.)
+/// Schedule->wait hand-off for one apply_plan: Query -> the AssetRef the pre-pass
+/// scheduled (liquers-core/src/interpreter.rs). Makes evaluation non-blocking
+/// (schedule all known deps up front, wait later) while preserving execute-once:
+/// the step loop waits on the SAME AssetRef, never re-resolving. The map is the
+/// volatility anchor — a volatile query yields a FRESH AssetRef on each resolution,
+/// so the stored one MUST be reused; dedup by Query means each dependency is
+/// scheduled once per parent evaluation. Subsumes the earlier DependencyHandle:
+/// parent/manager come from the waiter's Context, so only the AssetRef is stored.
 pub(crate) struct PlanDependencySchedule<E: Environment> {
     assets: HashMap<Query, AssetRef<E>>,
 }
