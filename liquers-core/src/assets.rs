@@ -788,6 +788,24 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// Leave `Status::Dependencies` and resume this asset as `Processing`.
+    ///
+    /// Counterpart of [`enter_dependencies`](Self::enter_dependencies) for the inline
+    /// wait path (truthful status flow `Processing → Dependencies → Processing`).
+    /// Unlike [`leave_dependencies_for_resubmit`](Self::leave_dependencies_for_resubmit)
+    /// — which re-parks as `Submitted` for the genuine resubmission path — this keeps
+    /// the caller's future as the live runner.
+    pub(crate) async fn leave_dependencies_and_resume(&self) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        if lock.status == Status::Dependencies {
+            lock.set_status(Status::Processing)?;
+            let _ = lock
+                .notification_tx
+                .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+        }
+        Ok(())
+    }
+
     /// Record a direct dependency on another asset in metadata and the dependency manager.
     pub(crate) async fn record_dependency_on_asset(
         &self,
@@ -3480,6 +3498,109 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 }
 
 /// The job queue structure
+/// Proof that the holder is the unique runner of an asset, obtained by an atomic status
+/// transition (not-yet-running → `Processing`) under one `AssetData` write lock.
+///
+/// Exists to give two guarantees a plain flag cannot:
+/// - **execute-once**: `run()`/`run_immediately()` are called only by a claim holder,
+///   closing the double-run window left by `run_with_future`'s `is_finished()`-only guard;
+/// - **cancellation liveness**: if the holder's future is dropped mid-run, `Drop` (while
+///   armed) re-parks the asset as `Submitted` and re-submits it so another runner recovers
+///   the otherwise-stranded `Processing` asset. `complete()` disarms once `run()` returns.
+pub(crate) struct RunClaim<E: Environment + 'static> {
+    asset: AssetRef<E>,
+    /// `Arc` so the Drop repair can reach the queue even after the borrow it came from.
+    queue: Arc<JobQueue<E>>,
+    armed: bool,
+}
+
+impl<E: Environment + 'static> RunClaim<E> {
+    /// Disarm the claim after `run()` returned (Ok or Err); the asset's own terminal or
+    /// error status is authoritative from then on, so Drop must not repair.
+    pub(crate) fn complete(mut self) {
+        self.armed = false;
+    }
+}
+
+impl<E: Environment + 'static> Drop for RunClaim<E> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // The owning future was dropped mid-run (e.g. parent cancellation dropped an
+        // inline drain). Spawn a best-effort repair: if the asset is still Processing,
+        // reset it to Submitted and re-park globally so another runner recovers it.
+        let asset = self.asset.clone();
+        let queue = self.queue.clone();
+        tokio::spawn(async move {
+            let mut lock = asset.data.write().await;
+            match lock.status {
+                Status::Processing => {
+                    let _ = lock.set_status(Status::Submitted);
+                    let _ = lock
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                    drop(lock);
+                    let _ = queue.submit(asset.clone()).await;
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Partial
+                | Status::Error
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Finished or already handled by another path; nothing to repair.
+                }
+            }
+        });
+    }
+}
+
+impl<E: Environment + 'static> AssetRef<E> {
+    /// Atomically claim the exclusive right to execute this asset's body.
+    ///
+    /// Under one `data.write()` lock, an explicit status match (no default arm) either
+    /// transitions a not-yet-running asset to `Processing` and returns `Some(RunClaim)`,
+    /// or returns `None` if the asset is already running/finished. Invariant: `run()` /
+    /// `run_immediately()` are invoked only by claim holders.
+    pub(crate) async fn try_claim_for_run(
+        &self,
+        queue: &Arc<JobQueue<E>>,
+    ) -> Result<Option<RunClaim<E>>, Error> {
+        let mut lock = self.data.write().await;
+        match lock.status {
+            Status::None | Status::Recipe | Status::Submitted | Status::Dependencies => {
+                lock.set_status(Status::Processing)?;
+                drop(lock);
+                Ok(Some(RunClaim {
+                    asset: self.clone(),
+                    queue: queue.clone(),
+                    armed: true,
+                }))
+            }
+            Status::Directory
+            | Status::Processing
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => Ok(None),
+        }
+    }
+}
+
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
     running_count: Arc<AtomicUsize>,
@@ -4494,6 +4615,108 @@ mod tests {
         assert_eq!(queue.capacity, 4);
         assert_eq!(queue.running_count(), 0);
         assert_eq!(queue.queued_jobs_count().await, 0);
+    }
+
+    // ============ RunClaim / try_claim_for_run Tests ============
+
+    #[tokio::test]
+    async fn test_try_claim_for_run_unique_under_race() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(1, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        let (a, b) = tokio::join!(
+            asset.try_claim_for_run(&queue),
+            asset.try_claim_for_run(&queue)
+        );
+        let a = a.unwrap();
+        let b = b.unwrap();
+        assert_ne!(a.is_some(), b.is_some(), "exactly one claimer should win");
+        assert_eq!(asset.status().await, Status::Processing);
+        // Disarm the winner so no Drop repair fires.
+        if let Some(c) = a {
+            c.complete();
+        }
+        if let Some(c) = b {
+            c.complete();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_try_claim_for_run_none_when_finished_or_processing() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(2, query.into(), envref.clone()).to_ref();
+
+        asset.set_status(Status::Ready).await.unwrap();
+        assert!(asset.try_claim_for_run(&queue).await.unwrap().is_none());
+        asset.set_status(Status::Processing).await.unwrap();
+        assert!(asset.try_claim_for_run(&queue).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_runclaim_complete_disarms() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(3, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        let claim = asset
+            .try_claim_for_run(&queue)
+            .await
+            .unwrap()
+            .expect("should claim");
+        assert_eq!(asset.status().await, Status::Processing);
+        claim.complete();
+        // No repair task: status stays Processing.
+        tokio::task::yield_now().await;
+        assert_eq!(asset.status().await, Status::Processing);
+    }
+
+    #[tokio::test]
+    async fn test_runclaim_drop_reparks_when_armed() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(4, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run(&queue)
+                .await
+                .unwrap()
+                .expect("should claim");
+            assert_eq!(asset.status().await, Status::Processing);
+            // `_claim` drops here (still armed) → spawns the repair task.
+        }
+
+        let repaired = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if asset.status().await == Status::Submitted {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            repaired.is_ok(),
+            "armed Drop should re-park the asset as Submitted"
+        );
     }
 
     #[tokio::test]
