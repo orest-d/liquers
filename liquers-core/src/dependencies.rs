@@ -87,6 +87,34 @@ impl<E: Environment> ExpiredDependents<E> {
     }
 }
 // ---------------------------------------------------------------------------
+// ScheduleNode — schedule-time dependency-graph participation
+// ---------------------------------------------------------------------------
+
+/// How an asset participates in dependency-graph bookkeeping at schedule time.
+///
+/// Only keyed assets are real graph nodes. A non-keyed asset (an expression /
+/// ad-hoc query) is NOT a node; it stands for the set of keyed assets that depend
+/// on it (its *attribution set*), and its own dependency edges are attributed onto
+/// those keyed ancestors. See [`DependencyManager::register_scheduled_dependency`].
+#[derive(Debug, Clone)]
+pub(crate) enum ScheduleNode {
+    /// Keyed asset: a real graph node, identified by its key.
+    Keyed(DependencyKey),
+    /// Non-keyed asset (expression), identified by its query key; NOT a graph node.
+    Expression(DependencyKey),
+}
+
+impl ScheduleNode {
+    /// The underlying `DependencyKey` regardless of variant.
+    pub(crate) fn key(&self) -> &DependencyKey {
+        match self {
+            ScheduleNode::Keyed(k) => k,
+            ScheduleNode::Expression(q) => q,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // DependencyManager<E>
 // ---------------------------------------------------------------------------
 
@@ -102,6 +130,14 @@ pub(crate) struct DependencyManager<E: Environment> {
     dependent_assets: scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>,
     /// Serializes cascade expiration to prevent concurrent interleaved updates.
     expiration_lock: tokio::sync::Mutex<()>,
+    /// Transient (schedule-time) attribution set: for expression Q, the keyed assets
+    /// that (directly or through expression chains) depend on Q.
+    expression_dependents: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
+    /// Transient: keyed dependencies discovered so far for expression Q.
+    expression_keyed_deps: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
+    /// Transient: expression dependencies of expression Q (to propagate late-joining
+    /// keyed dependents down expression chains).
+    expression_expr_deps: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
 }
 
 impl<E: Environment> DependencyManager<E> {
@@ -111,6 +147,9 @@ impl<E: Environment> DependencyManager<E> {
             keyed_dependents: scc::HashMap::new(),
             dependent_assets: scc::HashMap::new(),
             expiration_lock: tokio::sync::Mutex::new(()),
+            expression_dependents: scc::HashMap::new(),
+            expression_keyed_deps: scc::HashMap::new(),
+            expression_expr_deps: scc::HashMap::new(),
         }
     }
 
@@ -327,6 +366,147 @@ impl<E: Environment> DependencyManager<E> {
             }
         }
         false
+    }
+
+    // --- Schedule-time dependency registration (keyed-expansion model) ---
+
+    /// Snapshot the contents of a `DependencyKey -> HashSet<DependencyKey>` map entry.
+    async fn snapshot_set(
+        &self,
+        map: &scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
+        key: &DependencyKey,
+    ) -> Vec<DependencyKey> {
+        let mut out = Vec::new();
+        if let Some(entry) = map.get_async(key).await {
+            entry
+                .get()
+                .iter_async(|dk| {
+                    out.push(dk.clone());
+                    true
+                })
+                .await;
+            drop(entry);
+        }
+        out
+    }
+
+    /// Insert `value` into the set stored at `key` in `map` (lazily creating the entry).
+    async fn insert_set(
+        &self,
+        map: &scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
+        key: &DependencyKey,
+        value: &DependencyKey,
+    ) {
+        let entry = map
+            .entry_async(key.clone())
+            .await
+            .or_insert(scc::HashSet::new());
+        let _ = entry.get().insert_async(value.clone()).await;
+        drop(entry);
+    }
+
+    /// Register a scheduled dependency edge (`dependent` depends on `dependency`) under
+    /// the keyed-expansion model, performing all cycle checks. Called at schedule time
+    /// by `Context::schedule_dependency_asset`.
+    ///
+    /// Only keyed assets are graph nodes; an expression is expanded onto its attribution
+    /// set (the keyed assets that depend on it). Returns `Err(dependency_cycle)` if the
+    /// edge — after expansion — would create a cycle. No default match arm.
+    pub(crate) async fn register_scheduled_dependency(
+        &self,
+        dependent: &ScheduleNode,
+        dependency: &ScheduleNode,
+        version: Version,
+    ) -> Result<(), Error> {
+        // A = attribution set of `dependent`.
+        let attribution: Vec<DependencyKey> = match dependent {
+            ScheduleNode::Keyed(k) => vec![k.clone()],
+            ScheduleNode::Expression(q) => {
+                self.snapshot_set(&self.expression_dependents, q).await
+            }
+        };
+
+        match dependency {
+            ScheduleNode::Keyed(d) => {
+                for r in &attribution {
+                    if self.would_create_cycle(r, d).await {
+                        return Err(Error::dependency_cycle(r));
+                    }
+                    let _ = self.add_dependency(r, d, version).await?;
+                }
+                if let ScheduleNode::Expression(q) = dependent {
+                    self.insert_set(&self.expression_keyed_deps, q, d).await;
+                }
+            }
+            ScheduleNode::Expression(dq) => {
+                if let ScheduleNode::Expression(q) = dependent {
+                    if q == dq {
+                        // Direct self-schedule of an expression.
+                        return Err(Error::dependency_cycle(q));
+                    }
+                }
+                let origin = match dependent {
+                    ScheduleNode::Expression(q) => Some(q.clone()),
+                    ScheduleNode::Keyed(_) => None,
+                };
+                let mut visited = std::collections::HashSet::new();
+                self.propagate_attribution(dq, &attribution, origin.as_ref(), &mut visited)
+                    .await?;
+                if let ScheduleNode::Expression(q) = dependent {
+                    self.insert_set(&self.expression_expr_deps, q, dq).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Attribution propagation: join `attribution` (new keyed dependents) onto expression
+    /// `expr` and every expression it transitively depends on, registering the implied
+    /// keyed edges with cycle checks. `origin` is the originating dependent expression (if
+    /// any); re-encountering it means a pure-expression cycle. `visited` bounds the walk.
+    /// This is traversal of the attribution bookkeeping, not a second cycle detector —
+    /// keyed cycle detection stays in `would_create_cycle`.
+    async fn propagate_attribution(
+        &self,
+        expr: &DependencyKey,
+        attribution: &[DependencyKey],
+        origin: Option<&DependencyKey>,
+        visited: &mut std::collections::HashSet<DependencyKey>,
+    ) -> Result<(), Error> {
+        if let Some(o) = origin {
+            if expr == o {
+                return Err(Error::dependency_cycle(expr));
+            }
+        }
+        if !visited.insert(expr.clone()) {
+            return Ok(());
+        }
+        // Every R in the attribution set now depends (through expr) on expr's keyed deps.
+        for r in attribution {
+            self.insert_set(&self.expression_dependents, expr, r).await;
+        }
+        let keyed_deps = self.snapshot_set(&self.expression_keyed_deps, expr).await;
+        for r in attribution {
+            for x in &keyed_deps {
+                if self.would_create_cycle(r, x).await {
+                    return Err(Error::dependency_cycle(r));
+                }
+                let _ = self.add_dependency(r, x, Version::unknown()).await?;
+            }
+        }
+        let expr_deps = self.snapshot_set(&self.expression_expr_deps, expr).await;
+        for dq in &expr_deps {
+            Box::pin(self.propagate_attribution(dq, attribution, origin, visited)).await?;
+        }
+        Ok(())
+    }
+
+    /// Drop the transient schedule-time attribution entries for expression `expr`.
+    /// Called when the expression asset reaches a terminal status.
+    pub(crate) async fn remove_expression(&self, expr: &DependencyKey) {
+        self.expression_dependents.remove_async(expr).await;
+        self.expression_keyed_deps.remove_async(expr).await;
+        self.expression_expr_deps.remove_async(expr).await;
     }
 
     /// Cascade-expire a key and all its transitive dependents.
@@ -937,6 +1117,168 @@ mod tests {
     fn dependency_key_command_key_rejects_invalid_format() {
         let dk = DependencyKey::new("ns-dep/command_metadata-broken");
         assert!(dk.command_key().is_err());
+    }
+
+    // --- Scheduled dependency (keyed-expansion) tests ---
+
+    #[tokio::test]
+    async fn scheduled_keyed_edge_is_registered() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        // a depends on b (unknown version — dynamic schedule)
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Keyed(a.clone()),
+            &ScheduleNode::Keyed(b.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("first edge should register");
+        // The edge a→b is now visible to cycle detection.
+        assert!(dm.would_create_cycle(&b, &a).await);
+    }
+
+    #[tokio::test]
+    async fn scheduled_self_cycle_is_rejected() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let err = dm
+            .register_scheduled_dependency(
+                &ScheduleNode::Keyed(a.clone()),
+                &ScheduleNode::Keyed(a.clone()),
+                Version::unknown(),
+            )
+            .await
+            .expect_err("self-cycle must be rejected");
+        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+    }
+
+    #[tokio::test]
+    async fn scheduled_dynamic_keyed_mutual_cycle_is_rejected() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k1 = DependencyKey::new("-R/k1");
+        let k2 = DependencyKey::new("-R/k2");
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Keyed(k1.clone()),
+            &ScheduleNode::Keyed(k2.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("k1->k2 ok");
+        let err = dm
+            .register_scheduled_dependency(
+                &ScheduleNode::Keyed(k2.clone()),
+                &ScheduleNode::Keyed(k1.clone()),
+                Version::unknown(),
+            )
+            .await
+            .expect_err("k2->k1 must cycle");
+        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+    }
+
+    #[tokio::test]
+    async fn scheduled_keyed_through_expression_cycle_is_rejected() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let q = DependencyKey::new("q-expr");
+        // K depends on expression Q.
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Keyed(k.clone()),
+            &ScheduleNode::Expression(q.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("K->Q ok");
+        // Q's command evaluates K -> cycle (K depends on Q depends on K).
+        let err = dm
+            .register_scheduled_dependency(
+                &ScheduleNode::Expression(q.clone()),
+                &ScheduleNode::Keyed(k.clone()),
+                Version::unknown(),
+            )
+            .await
+            .expect_err("Q->K must cycle");
+        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+    }
+
+    #[tokio::test]
+    async fn scheduled_shared_expression_second_parent_cycle_is_rejected() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k1 = DependencyKey::new("-R/k1");
+        let k2 = DependencyKey::new("-R/k2");
+        let q = DependencyKey::new("q-expr");
+        // k1 depends on Q; Q depends on k2 (registers k1->k2, Q.keyed_deps={k2}).
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Keyed(k1.clone()),
+            &ScheduleNode::Expression(q.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("k1->Q");
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Expression(q.clone()),
+            &ScheduleNode::Keyed(k2.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("Q->k2");
+        // k2 now depends on Q -> k2 depends on k2 through Q -> cycle.
+        let err = dm
+            .register_scheduled_dependency(
+                &ScheduleNode::Keyed(k2.clone()),
+                &ScheduleNode::Expression(q.clone()),
+                Version::unknown(),
+            )
+            .await
+            .expect_err("k2->Q must cycle");
+        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+    }
+
+    #[tokio::test]
+    async fn scheduled_pure_expression_cycle_is_rejected() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let q1 = DependencyKey::new("q1-expr");
+        let q2 = DependencyKey::new("q2-expr");
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Expression(q1.clone()),
+            &ScheduleNode::Expression(q2.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("q1->q2");
+        let err = dm
+            .register_scheduled_dependency(
+                &ScheduleNode::Expression(q2.clone()),
+                &ScheduleNode::Expression(q1.clone()),
+                Version::unknown(),
+            )
+            .await
+            .expect_err("q2->q1 must cycle");
+        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+    }
+
+    #[tokio::test]
+    async fn remove_expression_clears_transient_attribution() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let q = DependencyKey::new("q-expr");
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Keyed(k.clone()),
+            &ScheduleNode::Expression(q.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("k->Q");
+        dm.remove_expression(&q).await;
+        // With Q's attribution cleared, Q->k no longer re-attributes k, so no cycle
+        // is produced (without the remove this would be a K→Q→K cycle).
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Expression(q.clone()),
+            &ScheduleNode::Keyed(k.clone()),
+            Version::unknown(),
+        )
+        .await
+        .expect("Q->k ok after remove_expression");
     }
 }
 

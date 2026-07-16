@@ -65,7 +65,7 @@
 //!
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, VecDeque},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     sync::{Arc, Weak},
 };
@@ -279,6 +279,11 @@ pub struct AssetData<E: Environment> {
     /// Last persistence error, when relevant.
     last_persistence_error: Option<Error>,
 
+    /// Set when this asset consumed a dependency whose value had expired mid-execution.
+    /// The stale value is used (no mid-run recompute), but at completion the asset is
+    /// labeled `Expired` so the next access recomputes it. See `wait_for_dependency`.
+    stale_dependency: bool,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -347,6 +352,7 @@ impl<E: Environment> AssetData<E> {
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
+            stale_dependency: false,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -788,6 +794,45 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
+    /// Leave `Status::Dependencies` and resume this asset as `Processing`.
+    ///
+    /// Counterpart of [`enter_dependencies`](Self::enter_dependencies) for the inline
+    /// wait path (truthful status flow `Processing → Dependencies → Processing`).
+    /// Unlike [`leave_dependencies_for_resubmit`](Self::leave_dependencies_for_resubmit)
+    /// — which re-parks as `Submitted` for the genuine resubmission path — this keeps
+    /// the caller's future as the live runner.
+    pub(crate) async fn leave_dependencies_and_resume(&self) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        if lock.status == Status::Dependencies {
+            lock.set_status(Status::Processing)?;
+            let _ = lock
+                .notification_tx
+                .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+        }
+        Ok(())
+    }
+
+    /// Record that this asset consumed a dependency whose value had expired *mid-execution*.
+    ///
+    /// Execution-time expiry policy (see `AssetManager::wait_for_dependency`): the dependency
+    /// is NOT recomputed here (that risks unbounded re-execution when its freshness window is
+    /// shorter than this asset's evaluation time). The stale value is used and this flag is
+    /// set so that, at completion, the asset is labeled `Expired` and recomputed on next
+    /// access (staleness propagation). A warning is logged now for timing diagnostics.
+    pub(crate) async fn note_expired_dependency(
+        &self,
+        dependency: &AssetRef<E>,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        lock.stale_dependency = true;
+        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+            "Dependency asset {} expired during evaluation; using its stale value and \
+             marking this asset expired for recomputation on next access",
+            dependency.id()
+        )));
+        Ok(())
+    }
+
     /// Record a direct dependency on another asset in metadata and the dependency manager.
     pub(crate) async fn record_dependency_on_asset(
         &self,
@@ -906,6 +951,13 @@ impl<E: Environment> AssetRef<E> {
     /// Get the unique id of the asset
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// The query this asset was created from, if any. Used for schedule-time
+    /// classification of a non-keyed (expression) dependent.
+    pub(crate) async fn query(&self) -> Option<Query> {
+        let lock = self.data.read().await;
+        (*lock.query).clone()
     }
 
     /// Create a weak reference to this asset.
@@ -1340,6 +1392,20 @@ impl<E: Environment> AssetRef<E> {
                 | Status::Override
                 | Status::Volatile => {}
             }
+            // If a dependency expired mid-evaluation, we used its stale value rather than
+            // recompute (see `wait_for_dependency`). Do not cache this result as fresh:
+            // label the asset `Expired` so the next access recomputes it.
+            {
+                let mut lock = self.data.write().await;
+                if lock.stale_dependency && lock.status == Status::Ready {
+                    let _ = lock.set_status(Status::Expired);
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                        "Asset evaluated with an expired dependency value; labeled expired \
+                         for recomputation on next access"
+                            .to_string(),
+                    ));
+                }
+            }
             // Schedule expiration if asset has a finite expiration time
             let exp_time = self.expiration_time().await;
             if !exp_time.is_never() && !exp_time.is_expired() {
@@ -1436,32 +1502,15 @@ impl<E: Environment> AssetRef<E> {
                         self.id(),
                         asset.id()
                     );
-                    // Record delegation as a dependency wait before awaiting the child.
+                    // Record delegation as a dependency wait, then delegate the F-1 inline
+                    // guard onto the shared, claim-based wait primitive: it drains this
+                    // asset's own local queue, direct-claims the child if still runnable
+                    // (no queue slot consumed), or subscribes — guaranteeing progress for
+                    // pure-key delegation chains without the old ad-hoc inline run.
                     self.record_dependency_on_asset(&asset).await?;
-                    if asset.poll_state().await.is_none() {
-                        self.enter_dependencies(&asset).await?;
-                        // Avoid queue-capacity deadlocks for pure-key delegation chains:
-                        // if the child is still only queued, run it in this task.  The
-                        // child's own `run_with_future` is idempotent for finished
-                        // assets, so a later queued wake-up becomes a no-op.
-                        if matches!(
-                            asset.status().await,
-                            Status::Submitted | Status::Dependencies
-                        ) {
-                            if let Err(e) = Box::pin(asset.run()).await {
-                                self.fail_due_to_dependency(e.clone()).await?;
-                                return Err(e);
-                            }
-                        }
-                    }
-                    let state = asset.get().await.map_err(|e| {
-                        Error::general_error(format!(
-                            "Delegated dependency asset {} failed: {}",
-                            asset.id(),
-                            e
-                        ))
-                    })?;
-                    self.leave_dependencies_for_resubmit().await?;
+                    let envref = self.get_envref().await;
+                    let manager = envref.get_asset_manager();
+                    let state = manager.wait_for_dependency(self, &asset).await?;
                     return Ok(state);
                 }
             } else {
@@ -2206,6 +2255,46 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     /// Check if resource is volatile
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error>;
 
+    /// Resolve the asset for `query` and schedule it as a dependency of `parent`: start it
+    /// immediately if queue capacity allows, otherwise enqueue it on `parent`'s local
+    /// dependency queue (local-only parking — NOT parked in the global jobs list here).
+    /// Does NOT record dependency facts or cycle-check — `Context` does that.
+    ///
+    /// Default: plain `get_asset` (global submit) — a safe fallback for managers without a
+    /// JobQueue; `DefaultAssetManager` overrides.
+    async fn get_dependency_asset(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        self.get_asset(query).await
+    }
+
+    /// Drain `parent`'s local dependency queue: claim and inline-run each still-runnable
+    /// entry sequentially inside the caller's future. Default: no-op (managers without
+    /// local queues have nothing to drain).
+    async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
+        let _ = parent;
+        Ok(())
+    }
+
+    /// Claim-aware wait for `dependency` on behalf of `parent`: guarantees progress and
+    /// maintains `Status::Dependencies` on the parent while waiting. Default: enter
+    /// dependencies, await the dependency's own `get()`, then resume (correct, but without
+    /// the local-queue progress guarantee — fine for managers whose `get_asset` submits
+    /// globally).
+    async fn wait_for_dependency(
+        &self,
+        parent: &AssetRef<E>,
+        dependency: &AssetRef<E>,
+    ) -> Result<State<E::Value>, Error> {
+        parent.enter_dependencies(dependency).await?;
+        let result = dependency.get().await;
+        parent.leave_dependencies_and_resume().await?;
+        result
+    }
+
     /// Remove asset data from AssetManager and store.
     /// This does NOT trigger recalculation.
     async fn remove(&self, key: &Key) -> Result<(), Error>;
@@ -2915,6 +3004,189 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
         }
     }
+
+    async fn get_dependency_asset(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
+        loop {
+            // Resolve the AssetRef WITHOUT global submission (captured exactly once).
+            let asset = if let Some(key) = query.key() {
+                self.get_resource_asset(&key).await?
+            } else {
+                self.get_query_asset(query).await?
+            };
+            // Expired at SCHEDULING time: evict and recompute. This is the ONLY point where an
+            // expired dependency is refreshed — once the dependent is executing,
+            // `wait_for_dependency` uses the stale value instead (no mid-run recompute).
+            // Mirrors the expired-evict loops in `get`/`get_asset`; a freshly resolved asset
+            // starts in a pre-execution state, so this cannot spin.
+            if asset.status().await == Status::Expired {
+                match query.key() {
+                    Some(key) => {
+                        self.remove_expired_from_maps(asset.id(), None, Some(&key))
+                            .await;
+                    }
+                    None => {
+                        self.remove_expired_from_maps(asset.id(), Some(query), None)
+                            .await;
+                    }
+                }
+                continue;
+            }
+            // Already data-bearing or finished — nothing to schedule.
+            if asset.poll_state().await.is_some() || asset.status().await.is_finished() {
+                return Ok(asset);
+            }
+            // Fast-track from the store if the value is already persisted.
+            let fast_tracked = {
+                let mut lock = asset.data.write().await;
+                lock.try_fast_track().await?
+            };
+            if fast_tracked {
+                return Ok(asset);
+            }
+            // Schedule: start now if capacity allows, else enqueue on the parent's LOCAL queue
+            // (Status::Submitted here means "queued on a local queue", not the global jobs list).
+            if !self.job_queue.try_to_start_immediately(&asset).await? {
+                asset.submitted().await?;
+                self.job_queue
+                    .push_local_dependency(parent.id(), &asset)
+                    .await;
+            }
+            return Ok(asset);
+        }
+    }
+
+    async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
+        let parent_id = parent.id();
+        let mut entered = false;
+        while let Some(dep) = self.job_queue.pop_local_dependency(parent_id).await {
+            if dep.poll_state().await.is_some() || dep.status().await.is_finished() {
+                continue;
+            }
+            match dep.try_claim_for_run(&self.job_queue).await? {
+                Some(claim) => {
+                    parent.enter_dependencies(&dep).await?;
+                    entered = true;
+                    // Inline, recursive: dep.run() may itself schedule and drain dep's own
+                    // local queue in this same task. Box::pin bounds the future type; depth
+                    // is bounded by the (cycle-free) dependency DAG.
+                    let _ = Box::pin(dep.run()).await;
+                    claim.complete();
+                }
+                None => {
+                    // Running or finished elsewhere — skip.
+                }
+            }
+        }
+        if entered {
+            parent.leave_dependencies_and_resume().await?;
+        }
+        Ok(())
+    }
+
+    async fn wait_for_dependency(
+        &self,
+        parent: &AssetRef<E>,
+        dependency: &AssetRef<E>,
+    ) -> Result<State<E::Value>, Error> {
+        loop {
+            // Authoritative status first: poll_state fabricates a none-valued state for
+            // Error/Cancelled, so those MUST be handled before polling.
+            let status = dependency.status().await;
+            match status {
+                Status::Error | Status::Cancelled => {
+                    let e = Error::general_error(format!(
+                        "Dependency asset {} did not produce a value (status {:?})",
+                        dependency.id(),
+                        status
+                    ));
+                    let _ = parent.fail_due_to_dependency(e.clone()).await;
+                    return Err(e);
+                }
+                Status::Ready
+                | Status::Source
+                | Status::Override
+                | Status::Volatile
+                | Status::Directory => {
+                    if let Some(state) = dependency.poll_state().await {
+                        let _ = parent.leave_dependencies_and_resume().await;
+                        return Ok(state);
+                    }
+                }
+                Status::Expired => {
+                    // Execution-time expiry: this dependent's evaluation has already started,
+                    // so we do NOT recompute the dependency (that risks unbounded re-execution
+                    // when its freshness window is shorter than this asset's evaluation time —
+                    // scheduling-time refresh happens only in `get_dependency_asset`).
+                    match dependency.poll_state().await {
+                        // Stale value still present: use it and propagate staleness — this
+                        // dependent is labeled expired at completion (see finish_run_with_result).
+                        Some(state) => {
+                            parent.note_expired_dependency(dependency).await?;
+                            let _ = parent.leave_dependencies_and_resume().await;
+                            return Ok(state);
+                        }
+                        // Expired AND evicted: the input is gone and cannot be reproduced
+                        // here — fail the dependent's evaluation.
+                        None => {
+                            let e = Error::general_error(format!(
+                                "Dependency asset {} expired and was evicted before its value \
+                                 could be used",
+                                dependency.id()
+                            ));
+                            let _ = parent.fail_due_to_dependency(e.clone()).await;
+                            return Err(e);
+                        }
+                    }
+                }
+                Status::None
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing => {}
+            }
+
+            // Guarantee progress: drain our own local queue (may inline-run the dependency).
+            self.drain_dependencies(parent).await?;
+            if dependency.poll_state().await.is_some() {
+                // Resolved (data-bearing) or now Error/Cancelled — let the loop top decide.
+                continue;
+            }
+
+            // Not on our queue and not yet resolved: claim it directly (recovers deps
+            // re-parked by a cancelled holder or globally submitted), else subscribe & wait.
+            match dependency.try_claim_for_run(&self.job_queue).await? {
+                Some(claim) => {
+                    parent.enter_dependencies(dependency).await?;
+                    let _ = Box::pin(dependency.run()).await;
+                    claim.complete();
+                }
+                None => {
+                    parent.enter_dependencies(dependency).await?;
+                    let mut rx = dependency.subscribe_to_notifications().await;
+                    // Close the lost-wakeup race: the dependency may have resolved between
+                    // the claim attempt above and this subscribe, in which case its
+                    // ValueProduced/JobFinished notification already fired and `changed()`
+                    // would block forever. The resolving write (`set_state`/`set_value`)
+                    // stores the value under the same `data.write()` lock it then sends the
+                    // notification from, so if we still observe no resolution here, a future
+                    // notification is guaranteed to arrive. Re-poll before awaiting; the loop
+                    // top re-evaluates once we return, so no extra notification is needed.
+                    if dependency.poll_state().await.is_none()
+                        && !dependency.status().await.is_finished()
+                    {
+                        let _ = rx.changed().await;
+                    }
+                }
+            }
+        }
+    }
+
     /// Get asset infor for a resource asset
     ///
     /// Arguments:
@@ -3480,12 +3752,127 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 }
 
 /// The job queue structure
+/// Proof that the holder is the unique runner of an asset, obtained by an atomic status
+/// transition (not-yet-running → `Processing`) under one `AssetData` write lock.
+///
+/// Exists to give two guarantees a plain flag cannot:
+/// - **execute-once**: `run()`/`run_immediately()` are called only by a claim holder,
+///   closing the double-run window left by `run_with_future`'s `is_finished()`-only guard;
+/// - **cancellation liveness**: if the holder's future is dropped mid-run, `Drop` (while
+///   armed) re-parks the asset as `Submitted` and re-submits it so another runner recovers
+///   the otherwise-stranded `Processing` asset. `complete()` disarms once `run()` returns.
+pub(crate) struct RunClaim<E: Environment + 'static> {
+    asset: AssetRef<E>,
+    /// `Arc` so the Drop repair can reach the queue even after the borrow it came from.
+    queue: Arc<JobQueue<E>>,
+    armed: bool,
+}
+
+impl<E: Environment + 'static> RunClaim<E> {
+    /// Disarm the claim after `run()` returned (Ok or Err); the asset's own terminal or
+    /// error status is authoritative from then on, so Drop must not repair.
+    pub(crate) fn complete(mut self) {
+        self.armed = false;
+    }
+}
+
+impl<E: Environment + 'static> Drop for RunClaim<E> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // The owning future was dropped mid-run (e.g. parent cancellation dropped an
+        // inline drain). Spawn a best-effort repair: if the asset is still owned by this
+        // (now-gone) runner — `Processing`, or `Dependencies` when it was parked awaiting a
+        // child — reset it to Submitted and re-park globally so another runner recovers it.
+        let asset = self.asset.clone();
+        let queue = self.queue.clone();
+        tokio::spawn(async move {
+            let mut lock = asset.data.write().await;
+            match lock.status {
+                Status::Processing | Status::Dependencies => {
+                    let _ = lock.set_status(Status::Submitted);
+                    let _ = lock
+                        .notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                    drop(lock);
+                    let _ = queue.submit(asset.clone()).await;
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Partial
+                | Status::Error
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Cancelled
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => {
+                    // Finished or already handled by another path; nothing to repair.
+                }
+            }
+        });
+    }
+}
+
+impl<E: Environment + 'static> AssetRef<E> {
+    /// Atomically claim the exclusive right to execute this asset's body.
+    ///
+    /// Under one `data.write()` lock, an explicit status match (no default arm) either
+    /// transitions a not-yet-running asset to `Processing` and returns `Some(RunClaim)`,
+    /// or returns `None` if the asset is already running/finished. Invariant: `run()` /
+    /// `run_immediately()` are invoked only by claim holders.
+    ///
+    /// `Status::Dependencies` is an **active** state (set by the interpreter once evaluation
+    /// has started and the live runner is parked awaiting a child), so it is treated like
+    /// `Processing` — NOT claimable. Claiming it would let a second waiter re-run an asset
+    /// whose runner is merely parked, breaking the execute-once guarantee. A runner dropped
+    /// while parked in `Dependencies` is recovered by the `RunClaim` Drop repair, which
+    /// re-parks it as `Submitted`.
+    pub(crate) async fn try_claim_for_run(
+        &self,
+        queue: &Arc<JobQueue<E>>,
+    ) -> Result<Option<RunClaim<E>>, Error> {
+        let mut lock = self.data.write().await;
+        match lock.status {
+            Status::None | Status::Recipe | Status::Submitted => {
+                lock.set_status(Status::Processing)?;
+                drop(lock);
+                Ok(Some(RunClaim {
+                    asset: self.clone(),
+                    queue: queue.clone(),
+                    armed: true,
+                }))
+            }
+            Status::Directory
+            | Status::Processing
+            | Status::Dependencies
+            | Status::Partial
+            | Status::Error
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => Ok(None),
+        }
+    }
+}
+
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
     running_count: Arc<AtomicUsize>,
     notify: Arc<Notify>,
     shutdown: Arc<AtomicBool>,
     capacity: usize,
+    /// Per-dependent local dependency queues, keyed by the DEPENDENT asset id.
+    /// Created lazily on the no-capacity fallback and removed when drained or when the
+    /// dependent finishes — zero per-asset cost on the common path.
+    local_deps: Arc<Mutex<HashMap<u64, VecDeque<AssetRef<E>>>>>,
 }
 
 impl<E: Environment + 'static> JobQueue<E> {
@@ -3498,6 +3885,7 @@ impl<E: Environment + 'static> JobQueue<E> {
             notify: Arc::new(Notify::new()),
             shutdown: Arc::new(AtomicBool::new(false)),
             capacity,
+            local_deps: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -3506,78 +3894,134 @@ impl<E: Environment + 'static> JobQueue<E> {
         self.running_count.load(Ordering::SeqCst)
     }
 
-    /// Submit an asset for processing
-    pub async fn submit(&self, asset: AssetRef<E>) -> Result<(), Error> {
+    /// Submit an asset for processing.
+    ///
+    /// Public semantics unchanged: start immediately if capacity allows, otherwise park
+    /// the asset globally as `Submitted` for the worker loop. Reimplemented over
+    /// [`try_to_start_immediately`](Self::try_to_start_immediately).
+    pub async fn submit(self: &Arc<Self>, asset: AssetRef<E>) -> Result<(), Error> {
+        if !self.try_to_start_immediately(&asset).await? {
+            // No capacity — park globally as Submitted so the worker runs it later.
+            asset.submitted().await?;
+            self.notify.notify_one();
+        }
+        Ok(())
+    }
+
+    /// Try to start `asset` on a reserved capacity slot right now.
+    ///
+    /// Returns `Ok(true)` when the asset is being taken care of — either a slot was
+    /// reserved and the asset was atomically claimed and spawned, or it was already
+    /// claimed/finished elsewhere (any reserved slot released). Returns `Ok(false)` on
+    /// no capacity, in which case the caller must guarantee progress (park globally in
+    /// `submit`, or enqueue on the parent's local dependency queue).
+    pub(crate) async fn try_to_start_immediately(
+        self: &Arc<Self>,
+        asset: &AssetRef<E>,
+    ) -> Result<bool, Error> {
         let asset_id = asset.id();
 
-        // Check for duplicates and add to queue atomically
+        // Dedup-register in the global jobs list (as submit did before).
         {
             let mut jobs = self.jobs.lock().await;
-            if jobs.iter().any(|a| a.id() == asset_id) {
-                // Asset already in queue, don't add duplicate
-                eprintln!("Asset {} already in queue, skipping", asset_id);
-                return Ok(());
+            if !jobs.iter().any(|a| a.id() == asset_id) {
+                jobs.push(asset.clone());
             }
-            // Add to jobs list for tracking
-            jobs.push(asset.clone());
         }
         self.notify.notify_one();
 
-        // Check if we can run immediately using atomic counter
-        let current_running = self.running_count.load(Ordering::SeqCst);
-        if current_running < self.capacity {
-            // Try to increment running count
-            // Use compare_exchange to avoid race conditions
-            if self
-                .running_count
-                .compare_exchange(
-                    current_running,
-                    current_running + 1,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                )
-                .is_ok()
-            {
-                // Successfully reserved a slot - run immediately
+        // Reserve a capacity slot via CAS.
+        let current = self.running_count.load(Ordering::SeqCst);
+        if current >= self.capacity {
+            return Ok(false);
+        }
+        if self
+            .running_count
+            .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            // Lost the reservation race — let the caller guarantee progress.
+            return Ok(false);
+        }
+
+        // Slot reserved: atomically claim the asset for running.
+        match asset.try_claim_for_run(self).await? {
+            Some(claim) => {
                 let asset_clone = asset.clone();
                 let running_count = self.running_count.clone();
                 let notify = self.notify.clone();
-
-                // Status set directly, since message processing is not running yet
-                if let Err(e) = asset_clone.set_status(Status::Processing).await {
-                    eprintln!("Failed to set status for asset {}: {}", asset_id, e);
-                    // Decrement counter since we won't actually run
-                    running_count.fetch_sub(1, Ordering::SeqCst);
-                    return Err(e);
-                }
-
-                eprintln!(
-                    "Starting asset job {} immediately (running: {})",
-                    asset_id,
-                    current_running + 1
-                );
+                let queue = self.clone();
+                eprintln!("Starting asset job {} immediately", asset_id);
                 tokio::spawn(async move {
                     let _ = asset_clone.run().await;
-                    // Decrement running count when job finishes
+                    claim.complete();
                     running_count.fetch_sub(1, Ordering::SeqCst);
                     notify.notify_one();
+                    // Re-park any undrained local dependencies of the finished asset so
+                    // waiters are never stranded (shared re-park; the manager refines this
+                    // for non-shared entries at its cleanup point). Re-parked directly
+                    // (not via submit) to avoid recursing into try_to_start_immediately.
+                    for dep in queue.take_local_dependencies(asset_id).await {
+                        let _ = queue.repark_as_submitted(&dep).await;
+                    }
                     eprintln!("Asset job {} finished", asset_clone.id());
                 });
-                return Ok(());
+                Ok(true)
+            }
+            None => {
+                // Already claimed/finished elsewhere — release the reserved slot.
+                self.running_count.fetch_sub(1, Ordering::SeqCst);
+                Ok(true)
             }
         }
+    }
 
-        // At capacity or lost race - queue the job with Submitted status
+    /// Re-park `asset` globally as `Submitted` for the worker loop, without attempting an
+    /// immediate start. Non-recursive counterpart used by cleanup paths (avoids recursing
+    /// through `try_to_start_immediately`).
+    async fn repark_as_submitted(&self, asset: &AssetRef<E>) -> Result<(), Error> {
+        {
+            let mut jobs = self.jobs.lock().await;
+            let id = asset.id();
+            if !jobs.iter().any(|a| a.id() == id) {
+                jobs.push(asset.clone());
+            }
+        }
         asset.submitted().await?;
-        eprintln!(
-            "Asset {} queued (running: {}, capacity: {})",
-            asset_id,
-            self.running_count(),
-            self.capacity
-        );
         self.notify.notify_one();
-
         Ok(())
+    }
+
+    /// Push `dep` onto the local dependency queue of dependent `parent_id`
+    /// (lazily creating the entry; dedup by asset id within that queue).
+    pub(crate) async fn push_local_dependency(&self, parent_id: u64, dep: &AssetRef<E>) {
+        let mut map = self.local_deps.lock().await;
+        let queue = map.entry(parent_id).or_insert_with(VecDeque::new);
+        let dep_id = dep.id();
+        if !queue.iter().any(|a| a.id() == dep_id) {
+            queue.push_back(dep.clone());
+        }
+    }
+
+    /// Pop the next local dependency of `parent_id`, if any (removing the map entry when
+    /// the queue becomes empty).
+    pub(crate) async fn pop_local_dependency(&self, parent_id: u64) -> Option<AssetRef<E>> {
+        let mut map = self.local_deps.lock().await;
+        let result = map.get_mut(&parent_id).and_then(|q| q.pop_front());
+        if let Some(q) = map.get(&parent_id) {
+            if q.is_empty() {
+                map.remove(&parent_id);
+            }
+        }
+        result
+    }
+
+    /// Remove and return all remaining local dependencies of `parent_id` (terminal cleanup).
+    pub(crate) async fn take_local_dependencies(&self, parent_id: u64) -> Vec<AssetRef<E>> {
+        let mut map = self.local_deps.lock().await;
+        map.remove(&parent_id)
+            .map(|q| q.into_iter().collect())
+            .unwrap_or_default()
     }
 
     /// Count how many jobs are currently running (from atomic counter)
@@ -3610,63 +4054,30 @@ impl<E: Environment + 'static> JobQueue<E> {
             if self.shutdown.load(Ordering::SeqCst) {
                 return;
             }
-            let current_running = self.running_count.load(Ordering::SeqCst);
-
             // Check if we can start more jobs
-            if current_running < self.capacity {
-                let available_slots = self.capacity - current_running;
+            if self.running_count.load(Ordering::SeqCst) < self.capacity {
                 let candidates = {
                     let jobs = self.jobs.lock().await;
                     jobs.iter().cloned().collect::<Vec<_>>()
                 };
-                let mut jobs_to_start = Vec::new();
 
-                // Find submitted jobs
                 for asset in candidates {
-                    if jobs_to_start.len() >= available_slots {
+                    if self.running_count.load(Ordering::SeqCst) >= self.capacity {
                         break;
                     }
-
                     if asset.status().await == Status::Submitted {
-                        jobs_to_start.push(asset.clone());
-                    }
-                }
-
-                // Start jobs
-                for asset in jobs_to_start {
-                    // Try to reserve a slot
-                    let current = self.running_count.load(Ordering::SeqCst);
-                    if current >= self.capacity {
-                        break; // No more slots available
-                    }
-
-                    if self
-                        .running_count
-                        .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        let asset_clone = asset.clone();
-                        let running_count = self.running_count.clone();
-                        let notify = self.notify.clone();
-
-                        // Status set directly, since message processing is not running yet
-                        if let Err(e) = asset_clone.set_status(Status::Processing).await {
-                            eprintln!("Failed to set status for asset {}: {}", asset.id(), e);
-                            running_count.fetch_sub(1, Ordering::SeqCst);
-                            continue;
+                        // One primitive reserves the slot, atomically claims, and spawns.
+                        // `false` = no capacity (stop this pass); an asset already claimed
+                        // by an inline drain returns `true` without a double spawn and is
+                        // removed from `jobs` on the next cleanup pass. This removes the
+                        // former TOCTOU between the status read and set_status(Processing).
+                        match self.try_to_start_immediately(&asset).await {
+                            Ok(true) => {}
+                            Ok(false) => break,
+                            Err(e) => {
+                                eprintln!("Failed to start asset {}: {}", asset.id(), e);
+                            }
                         }
-
-                        eprintln!(
-                            "Starting asset job {} from queue (running: {})",
-                            asset.id(),
-                            current + 1
-                        );
-                        tokio::spawn(async move {
-                            let _ = asset_clone.run().await;
-                            running_count.fetch_sub(1, Ordering::SeqCst);
-                            notify.notify_one();
-                            eprintln!("Asset job {} finished", asset_clone.id());
-                        });
                     }
                 }
             }
@@ -4494,6 +4905,261 @@ mod tests {
         assert_eq!(queue.capacity, 4);
         assert_eq!(queue.running_count(), 0);
         assert_eq!(queue.queued_jobs_count().await, 0);
+    }
+
+    // ============ RunClaim / try_claim_for_run Tests ============
+
+    #[tokio::test]
+    async fn test_try_claim_for_run_unique_under_race() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(1, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        let (a, b) = tokio::join!(
+            asset.try_claim_for_run(&queue),
+            asset.try_claim_for_run(&queue)
+        );
+        let a = a.unwrap();
+        let b = b.unwrap();
+        assert_ne!(a.is_some(), b.is_some(), "exactly one claimer should win");
+        assert_eq!(asset.status().await, Status::Processing);
+        // Disarm the winner so no Drop repair fires.
+        if let Some(c) = a {
+            c.complete();
+        }
+        if let Some(c) = b {
+            c.complete();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_try_claim_for_run_none_when_finished_or_processing() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(2, query.into(), envref.clone()).to_ref();
+
+        asset.set_status(Status::Ready).await.unwrap();
+        assert!(asset.try_claim_for_run(&queue).await.unwrap().is_none());
+        asset.set_status(Status::Processing).await.unwrap();
+        assert!(asset.try_claim_for_run(&queue).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_runclaim_complete_disarms() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(3, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        let claim = asset
+            .try_claim_for_run(&queue)
+            .await
+            .unwrap()
+            .expect("should claim");
+        assert_eq!(asset.status().await, Status::Processing);
+        claim.complete();
+        // No repair task: status stays Processing.
+        tokio::task::yield_now().await;
+        assert_eq!(asset.status().await, Status::Processing);
+    }
+
+    #[tokio::test]
+    async fn test_runclaim_drop_reparks_when_armed() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(4, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run(&queue)
+                .await
+                .unwrap()
+                .expect("should claim");
+            assert_eq!(asset.status().await, Status::Processing);
+            // `_claim` drops here (still armed) → spawns the repair task.
+        }
+
+        let repaired = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if asset.status().await == Status::Submitted {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            repaired.is_ok(),
+            "armed Drop should re-park the asset as Submitted"
+        );
+    }
+
+    /// `Status::Dependencies` is an active state (a live runner parked awaiting a child),
+    /// so it must NOT be claimable — otherwise a second waiter would re-run the asset,
+    /// breaking execute-once. (PR #6 review, comment 1.)
+    #[tokio::test]
+    async fn test_try_claim_for_run_none_when_dependencies() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(30, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Dependencies).await.unwrap();
+        assert!(
+            asset.try_claim_for_run(&queue).await.unwrap().is_none(),
+            "an asset parked in Dependencies must not be claimable"
+        );
+        assert_eq!(asset.status().await, Status::Dependencies);
+    }
+
+    /// A runner dropped while parked in `Dependencies` (its claim still armed) must be
+    /// recovered: the Drop repair re-parks the asset as `Submitted`. (PR #6 review, comment 1.)
+    #[tokio::test]
+    async fn test_runclaim_drop_reparks_from_dependencies() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(31, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run(&queue)
+                .await
+                .unwrap()
+                .expect("should claim");
+            // Runner parks on a child dependency.
+            asset.set_status(Status::Dependencies).await.unwrap();
+            // `_claim` drops here (still armed) while status is Dependencies.
+        }
+
+        let repaired = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if asset.status().await == Status::Submitted {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            repaired.is_ok(),
+            "armed Drop should re-park a Dependencies-parked asset as Submitted"
+        );
+    }
+
+    /// An asset that consumed a dependency which expired mid-execution must be labeled
+    /// `Expired` at completion (staleness propagation): the produced value is kept but the
+    /// asset is recomputed on next access. (PR #6 review, comment 3.)
+    #[tokio::test]
+    async fn test_stale_dependency_labels_asset_expired_on_completion() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), envref.clone()).to_ref();
+        // A throwaway dependency, only used for its id in the diagnostic warning.
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            33,
+            parse_query("dep").unwrap().into(),
+            envref.clone(),
+        )
+        .to_ref();
+        asset.note_expired_dependency(&dep).await.unwrap();
+
+        asset.run().await.unwrap();
+
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "an asset that used a stale dependency must be labeled Expired"
+        );
+        // The produced value is still present (used, not discarded).
+        let state = asset.poll_state().await;
+        assert!(state.is_some(), "the produced value must be retained");
+        assert_eq!(state.unwrap().data.try_into_string().unwrap(), "Hello, world!");
+    }
+
+    #[tokio::test]
+    async fn test_try_to_start_immediately_false_at_capacity() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(20, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+        assert!(!queue.try_to_start_immediately(&asset).await.unwrap());
+        assert_eq!(queue.running_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_try_to_start_immediately_true_when_already_active() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(21, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Processing).await.unwrap();
+        // Already Processing: no claim available -> true, and the reserved slot is released.
+        assert!(queue.try_to_start_immediately(&asset).await.unwrap());
+        assert_eq!(queue.running_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_local_dependency_fifo_dedup_and_removal() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let mk = |id: u64| {
+            AssetData::<SimpleEnvironment<Value>>::new(id, query.clone().into(), envref.clone())
+                .to_ref()
+        };
+        let d1 = mk(11);
+        let d2 = mk(12);
+        let d3 = mk(13);
+
+        queue.push_local_dependency(100, &d1).await;
+        queue.push_local_dependency(100, &d2).await;
+        queue.push_local_dependency(100, &d1).await; // dedup by id
+        queue.push_local_dependency(100, &d3).await;
+
+        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(11));
+        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(12));
+        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(13));
+        assert!(queue.pop_local_dependency(100).await.is_none());
+
+        queue.push_local_dependency(200, &d1).await;
+        queue.push_local_dependency(200, &d2).await;
+        let taken = queue.take_local_dependencies(200).await;
+        assert_eq!(taken.len(), 2);
+        assert!(queue.pop_local_dependency(200).await.is_none());
     }
 
     #[tokio::test]
