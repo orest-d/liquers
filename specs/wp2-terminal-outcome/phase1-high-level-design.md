@@ -27,11 +27,27 @@ encodes the full terminal outcome — `Metadata` carries `Status` and the typed 
   finished status, where the `State` faithfully carries data **or** the typed error. This
   replaces `poll_outcome()`. (Today it fabricates a `Some(none-value)` error-state — the value
   side is what must change, not the return type.)
-- **`get() -> Result<State, Error>` is kept** (see Open Question 1): `Err` for computed
-  failure (Error/Cancelled) and for infrastructure failure (not-running/hang/closed channel),
-  preserving `?` ergonomics; `Ok(state)` iff the state holds data.
+- **Two failure axes, not one.** *Computed failure* = the asset evaluated to an error
+  (`Error`/`Cancelled`); a rich terminal `State` exists (log, query, typed `error_data`) and
+  should be **returned**, not discarded. *Delivery failure* = the terminal `State` could not be
+  obtained (store I/O, closed channel, hang guard, uninitialized env; confirmed reachable at
+  `try_fast_track` `store.get().await?`, `assets.rs:471`); no faithful `State` exists → `Err`.
+- **Three accessors** (resolves Open Question 1):
+  - `poll_state() -> Option<State>` — sync; `None` iff not finished, else the rich terminal
+    `State` (value **or** error+log). Replaces `poll_outcome()`.
+  - `get_state() -> Result<State, Error>` — async; `Ok(state)` for **any** obtained terminal
+    outcome *including a computed-error state* (caller inspects `status()`/`error_result()`);
+    `Err` reserved strictly for **delivery** failure. Preserves the log on computed failure.
+  - `get() -> Result<State, Error>` — async, ergonomic, **unchanged semantics for existing
+    callers**: `Ok(state)` iff it holds a value, `Err` for computed *or* delivery failure
+    (preserves `?` and `#[must_use]`). The log remains retrievable via `poll_state`/`get_metadata`.
 - Cancellation becomes a **typed** error (new `ErrorType::Cancelled`) so "cancelled" survives
   as an error, not a generic message.
+- **`Err`-vs-error-`State` classification is itself part of the work.** The current code blurs
+  the two axes: some sites emit `Err` for what is really a *computed* failure that should put
+  the asset into `Status::Error` and yield an error-carrying `State`. Phase 2 must audit every
+  `Err`-returning site in the get/evaluate/finish/fast-track paths and classify each as
+  delivery (stays `Err`) or computed (must become an error `State`). See Phase 2 scope below.
 
 ## Core Interactions
 
@@ -68,21 +84,29 @@ terminal `State` (`state.error_result()`), so overwritten notifications cannot l
 **liquers-core** (`assets.rs`, `state.rs`, `metadata.rs`, `error.rs`) — primary. Downstream
 audits/migration in **liquers-lib** (UI), **liquers-axum** (handlers), **liquers-py**.
 
+## Phase 2 scope (mandatory deliverables carried from clarification)
+
+- **`Err`-vs-error-`State` classification audit.** Enumerate every `Err`-returning site in the
+  asset get/evaluate/finish/fast-track paths (e.g. `get` "finished but no data" `assets.rs:2034`;
+  `finish_run_with_result` `:1354`; `process_service_messages` error/join paths; `try_fast_track`
+  I/O `:471`). For each, decide: **delivery** (framework could not produce/obtain a State →
+  stays `Err`) or **computed** (this asset's own failed outcome → must set `Status::Error` +
+  `metadata.with_error` and surface as an error-carrying `State`). Produce a table; the
+  reclassification set is a first-class output feeding the implementation plan.
+
 ## Open Questions
 
-1. **`get()` signature — `Result<State>` (recommended) vs. bare `State`.** Returning bare
-   `State` (the proposal under evaluation) unifies the model but loses `?`-based propagation
-   and the `#[must_use]` guarantee, re-creating the "caller forgot to check" bug in new
-   clothes, and leaves infrastructure errors (not-running/hang/closed channel) with no clean
-   channel. Recommendation: keep `Result<State, Error>` as the ergonomic boundary but derive
-   its `Err` from the terminal `State` (`state.error_result()`), and add
-   `get_state() -> Result<State, Error>` returning `Ok(error_state)` for callers (UI,
-   WebSocket) that want to *render* the failure rather than propagate it. → Decide before
-   Phase 2 freezes signatures.
-2. Should `Partial` be pollable (serve partial data) under this contract, or stay `None` until
+1. Should `Partial` be pollable (serve partial data) under this contract, or stay `None` until
    terminal? WP-2 leaves `Expired` to WP-3; confirm `Partial` scope here. → Phase 2.
-3. Exact `ErrorType::Cancelled` semantics and whether existing cancellation paths already
+2. Exact `ErrorType::Cancelled` semantics and whether existing cancellation paths already
    attach an error we can reuse. → Phase 2 (caller audit).
+3. Naming: keep `get()` ergonomic + add `get_state()` (recommended, migration-safe), vs. rename
+   for clarity (`try_get_value` / `get_terminal_state`). → Phase 2, low-risk.
+
+*(Resolved during clarification: `get()` stays `Result<State, Error>`; the model is three
+accessors — `poll_state`, `get_state`, `get` — with `Err` reserved for delivery failure and
+computed failures preserved as rich error-`State`s. `AssetOutcome`/`poll_outcome`/separate
+`AssetData.error` dropped as redundant with `State` + `Metadata.error_data`.)*
 
 ## References
 
