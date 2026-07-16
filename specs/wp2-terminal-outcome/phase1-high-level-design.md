@@ -32,15 +32,26 @@ encodes the full terminal outcome — `Metadata` carries `Status` and the typed 
   should be **returned**, not discarded. *Delivery failure* = the terminal `State` could not be
   obtained (store I/O, closed channel, hang guard, uninitialized env; confirmed reachable at
   `try_fast_track` `store.get().await?`, `assets.rs:471`); no faithful `State` exists → `Err`.
-- **Three accessors** (resolves Open Question 1):
+- **Single `get()`, ergonomics built into `State`** (resolves Open Question 1). One
+  outcome-returning method; the value projection is opt-in on `State`, so the rich `State` can
+  never be *accidentally discarded* by picking the wrong method:
   - `poll_state() -> Option<State>` — sync; `None` iff not finished, else the rich terminal
     `State` (value **or** error+log). Replaces `poll_outcome()`.
-  - `get_state() -> Result<State, Error>` — async; `Ok(state)` for **any** obtained terminal
-    outcome *including a computed-error state* (caller inspects `status()`/`error_result()`);
-    `Err` reserved strictly for **delivery** failure. Preserves the log on computed failure.
-  - `get() -> Result<State, Error>` — async, ergonomic, **unchanged semantics for existing
-    callers**: `Ok(state)` iff it holds a value, `Err` for computed *or* delivery failure
-    (preserves `?` and `#[must_use]`). The log remains retrievable via `poll_state`/`get_metadata`.
+  - `get() -> Result<State, Error>` — async; `Ok(state)` for **any** obtained terminal outcome
+    *including a computed-error state* (caller inspects `status()`/`error_result()` or projects
+    via `value_state()`); `Err` reserved strictly for **delivery** failure (store I/O, closed
+    channel, hang, uninit env). Preserves the log on computed failure. *(This is what the
+    interim design called `get_state`; the separate ergonomic `get` is dropped.)*
+  - `State::value_state(self) -> Result<State, Error>` — `{ self.error_result()?; Ok(self) }`.
+    Ergonomic path is `get().await?.value_state()?`: first `?` = delivery failure, second `?` =
+    computed failure. Reuses existing `error_result()` (typed error from `Metadata.error_data`).
+- **Safety net (load-bearing).** A single rich `get()` flips the risk from "discard the State"
+  to "consume an error-State as a value." To keep the forgotten-projection path fail-safe:
+  (a) value extraction on `State` (`try_into_string`, `as_bytes`, a new `value()`/`data()`
+  accessor) calls `error_result()?` first — extracting a *value* from an *error* `State`
+  returns the error; (b) `State.data` stops being `pub` (existing `// TODO: remove pub`) so the
+  guard cannot be bypassed. Render-the-error callers use `poll_state`/`status`/`error_result`
+  and never hit the value extractors, so they are unaffected.
 - Cancellation becomes a **typed** error (new `ErrorType::Cancelled`) so "cancelled" survives
   as an error, not a generic message.
 - **`Err`-vs-error-`State` classification is itself part of the work.** The current code blurs
@@ -92,7 +103,14 @@ audits/migration in **liquers-lib** (UI), **liquers-axum** (handlers), **liquers
   I/O `:471`). For each, decide: **delivery** (framework could not produce/obtain a State →
   stays `Err`) or **computed** (this asset's own failed outcome → must set `Status::Error` +
   `metadata.with_error` and surface as an error-carrying `State`). Produce a table; the
-  reclassification set is a first-class output feeding the implementation plan.
+  reclassification set is a first-class output feeding the implementation plan. *This audit is
+  now doubly critical:* with a single rich `get()`, `Err` means **only** delivery, so any
+  computed failure still returning `Err` silently loses its `State`/log.
+- **`get()` caller migration audit.** Because `get()` now returns `Ok(error_state)` on computed
+  failure (not `Err`), every value-wanting caller must add `.value_state()?`. Enumerate and fix:
+  `get_binary` (`:2057`), `wait_for_dependency` (`:2293`, dependency-error propagation — WP-1
+  overlap), axum handlers (×2), `interpreter.rs`, `liquers-py`. The `State` value-extraction
+  guard is the backstop for any missed site; the audit is the actual fix.
 
 ## Open Questions
 
@@ -100,13 +118,17 @@ audits/migration in **liquers-lib** (UI), **liquers-axum** (handlers), **liquers
    terminal? WP-2 leaves `Expired` to WP-3; confirm `Partial` scope here. → Phase 2.
 2. Exact `ErrorType::Cancelled` semantics and whether existing cancellation paths already
    attach an error we can reuse. → Phase 2 (caller audit).
-3. Naming: keep `get()` ergonomic + add `get_state()` (recommended, migration-safe), vs. rename
-   for clarity (`try_get_value` / `get_terminal_state`). → Phase 2, low-risk.
+3. Naming: `get()` returning `Ok` on computed error slightly mismatches the intuitive "get the
+   value" reading; confirm `get`/`value_state` names vs. alternatives. → Phase 2, low-risk.
+4. Policy: a persisted `Status::Error` state is currently **not** fast-tracked (`:473` loads only
+   `Ready/Source/Override`) → it re-evaluates. Confirm this is the intended behavior under the
+   contract. → Phase 2.
 
-*(Resolved during clarification: `get()` stays `Result<State, Error>`; the model is three
-accessors — `poll_state`, `get_state`, `get` — with `Err` reserved for delivery failure and
-computed failures preserved as rich error-`State`s. `AssetOutcome`/`poll_outcome`/separate
-`AssetData.error` dropped as redundant with `State` + `Metadata.error_data`.)*
+*(Resolved during clarification: single `get() -> Result<State, Error>` with `Err` reserved
+strictly for delivery failure and computed failures preserved as rich error-`State`s;
+ergonomics via `State::value_state()` + error-checked value extraction and a private `data`
+field. Separate ergonomic `get`, `AssetOutcome`, `poll_outcome`, and a separate
+`AssetData.error` are all dropped as redundant with `State` + `Metadata.error_data`.)*
 
 ## References
 
