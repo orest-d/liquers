@@ -279,6 +279,11 @@ pub struct AssetData<E: Environment> {
     /// Last persistence error, when relevant.
     last_persistence_error: Option<Error>,
 
+    /// Set when this asset consumed a dependency whose value had expired mid-execution.
+    /// The stale value is used (no mid-run recompute), but at completion the asset is
+    /// labeled `Expired` so the next access recomputes it. See `wait_for_dependency`.
+    stale_dependency: bool,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -347,6 +352,7 @@ impl<E: Environment> AssetData<E> {
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
+            stale_dependency: false,
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -803,6 +809,27 @@ impl<E: Environment> AssetRef<E> {
                 .notification_tx
                 .send(AssetNotificationMessage::StatusChanged(Status::Processing));
         }
+        Ok(())
+    }
+
+    /// Record that this asset consumed a dependency whose value had expired *mid-execution*.
+    ///
+    /// Execution-time expiry policy (see `AssetManager::wait_for_dependency`): the dependency
+    /// is NOT recomputed here (that risks unbounded re-execution when its freshness window is
+    /// shorter than this asset's evaluation time). The stale value is used and this flag is
+    /// set so that, at completion, the asset is labeled `Expired` and recomputed on next
+    /// access (staleness propagation). A warning is logged now for timing diagnostics.
+    pub(crate) async fn note_expired_dependency(
+        &self,
+        dependency: &AssetRef<E>,
+    ) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        lock.stale_dependency = true;
+        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
+            "Dependency asset {} expired during evaluation; using its stale value and \
+             marking this asset expired for recomputation on next access",
+            dependency.id()
+        )));
         Ok(())
     }
 
@@ -1364,6 +1391,20 @@ impl<E: Environment> AssetRef<E> {
                 | Status::Source
                 | Status::Override
                 | Status::Volatile => {}
+            }
+            // If a dependency expired mid-evaluation, we used its stale value rather than
+            // recompute (see `wait_for_dependency`). Do not cache this result as fresh:
+            // label the asset `Expired` so the next access recomputes it.
+            {
+                let mut lock = self.data.write().await;
+                if lock.stale_dependency && lock.status == Status::Ready {
+                    let _ = lock.set_status(Status::Expired);
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                        "Asset evaluated with an expired dependency value; labeled expired \
+                         for recomputation on next access"
+                            .to_string(),
+                    ));
+                }
             }
             // Schedule expiration if asset has a finite expiration time
             let exp_time = self.expiration_time().await;
@@ -2969,33 +3010,53 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         parent: &AssetRef<E>,
         query: &Query,
     ) -> Result<AssetRef<E>, Error> {
-        // Resolve the AssetRef WITHOUT global submission (captured exactly once).
-        let asset = if let Some(key) = query.key() {
-            self.get_resource_asset(&key).await?
-        } else {
-            self.get_query_asset(query).await?
-        };
-        // Already data-bearing or finished — nothing to schedule.
-        if asset.poll_state().await.is_some() || asset.status().await.is_finished() {
+        loop {
+            // Resolve the AssetRef WITHOUT global submission (captured exactly once).
+            let asset = if let Some(key) = query.key() {
+                self.get_resource_asset(&key).await?
+            } else {
+                self.get_query_asset(query).await?
+            };
+            // Expired at SCHEDULING time: evict and recompute. This is the ONLY point where an
+            // expired dependency is refreshed — once the dependent is executing,
+            // `wait_for_dependency` uses the stale value instead (no mid-run recompute).
+            // Mirrors the expired-evict loops in `get`/`get_asset`; a freshly resolved asset
+            // starts in a pre-execution state, so this cannot spin.
+            if asset.status().await == Status::Expired {
+                match query.key() {
+                    Some(key) => {
+                        self.remove_expired_from_maps(asset.id(), None, Some(&key))
+                            .await;
+                    }
+                    None => {
+                        self.remove_expired_from_maps(asset.id(), Some(query), None)
+                            .await;
+                    }
+                }
+                continue;
+            }
+            // Already data-bearing or finished — nothing to schedule.
+            if asset.poll_state().await.is_some() || asset.status().await.is_finished() {
+                return Ok(asset);
+            }
+            // Fast-track from the store if the value is already persisted.
+            let fast_tracked = {
+                let mut lock = asset.data.write().await;
+                lock.try_fast_track().await?
+            };
+            if fast_tracked {
+                return Ok(asset);
+            }
+            // Schedule: start now if capacity allows, else enqueue on the parent's LOCAL queue
+            // (Status::Submitted here means "queued on a local queue", not the global jobs list).
+            if !self.job_queue.try_to_start_immediately(&asset).await? {
+                asset.submitted().await?;
+                self.job_queue
+                    .push_local_dependency(parent.id(), &asset)
+                    .await;
+            }
             return Ok(asset);
         }
-        // Fast-track from the store if the value is already persisted.
-        let fast_tracked = {
-            let mut lock = asset.data.write().await;
-            lock.try_fast_track().await?
-        };
-        if fast_tracked {
-            return Ok(asset);
-        }
-        // Schedule: start now if capacity allows, else enqueue on the parent's LOCAL queue
-        // (Status::Submitted here means "queued on a local queue", not the global jobs list).
-        if !self.job_queue.try_to_start_immediately(&asset).await? {
-            asset.submitted().await?;
-            self.job_queue
-                .push_local_dependency(parent.id(), &asset)
-                .await;
-        }
-        Ok(asset)
     }
 
     async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
@@ -3055,14 +3116,39 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                         return Ok(state);
                     }
                 }
+                Status::Expired => {
+                    // Execution-time expiry: this dependent's evaluation has already started,
+                    // so we do NOT recompute the dependency (that risks unbounded re-execution
+                    // when its freshness window is shorter than this asset's evaluation time —
+                    // scheduling-time refresh happens only in `get_dependency_asset`).
+                    match dependency.poll_state().await {
+                        // Stale value still present: use it and propagate staleness — this
+                        // dependent is labeled expired at completion (see finish_run_with_result).
+                        Some(state) => {
+                            parent.note_expired_dependency(dependency).await?;
+                            let _ = parent.leave_dependencies_and_resume().await;
+                            return Ok(state);
+                        }
+                        // Expired AND evicted: the input is gone and cannot be reproduced
+                        // here — fail the dependent's evaluation.
+                        None => {
+                            let e = Error::general_error(format!(
+                                "Dependency asset {} expired and was evicted before its value \
+                                 could be used",
+                                dependency.id()
+                            ));
+                            let _ = parent.fail_due_to_dependency(e.clone()).await;
+                            return Err(e);
+                        }
+                    }
+                }
                 Status::None
                 | Status::Recipe
                 | Status::Submitted
                 | Status::Dependencies
                 | Status::Processing
                 | Status::Partial
-                | Status::Storing
-                | Status::Expired => {}
+                | Status::Storing => {}
             }
 
             // Guarantee progress: drain our own local queue (may inline-run the dependency).
@@ -3083,7 +3169,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 None => {
                     parent.enter_dependencies(dependency).await?;
                     let mut rx = dependency.subscribe_to_notifications().await;
-                    let _ = rx.changed().await;
+                    // Close the lost-wakeup race: the dependency may have resolved between
+                    // the claim attempt above and this subscribe, in which case its
+                    // ValueProduced/JobFinished notification already fired and `changed()`
+                    // would block forever. The resolving write (`set_state`/`set_value`)
+                    // stores the value under the same `data.write()` lock it then sends the
+                    // notification from, so if we still observe no resolution here, a future
+                    // notification is guaranteed to arrive. Re-poll before awaiting; the loop
+                    // top re-evaluates once we return, so no extra notification is needed.
+                    if dependency.poll_state().await.is_none()
+                        && !dependency.status().await.is_finished()
+                    {
+                        let _ = rx.changed().await;
+                    }
                 }
             }
         }
@@ -3684,14 +3782,15 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
             return;
         }
         // The owning future was dropped mid-run (e.g. parent cancellation dropped an
-        // inline drain). Spawn a best-effort repair: if the asset is still Processing,
-        // reset it to Submitted and re-park globally so another runner recovers it.
+        // inline drain). Spawn a best-effort repair: if the asset is still owned by this
+        // (now-gone) runner — `Processing`, or `Dependencies` when it was parked awaiting a
+        // child — reset it to Submitted and re-park globally so another runner recovers it.
         let asset = self.asset.clone();
         let queue = self.queue.clone();
         tokio::spawn(async move {
             let mut lock = asset.data.write().await;
             match lock.status {
-                Status::Processing => {
+                Status::Processing | Status::Dependencies => {
                     let _ = lock.set_status(Status::Submitted);
                     let _ = lock
                         .notification_tx
@@ -3703,7 +3802,6 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
                 | Status::Directory
                 | Status::Recipe
                 | Status::Submitted
-                | Status::Dependencies
                 | Status::Partial
                 | Status::Error
                 | Status::Storing
@@ -3727,13 +3825,20 @@ impl<E: Environment + 'static> AssetRef<E> {
     /// transitions a not-yet-running asset to `Processing` and returns `Some(RunClaim)`,
     /// or returns `None` if the asset is already running/finished. Invariant: `run()` /
     /// `run_immediately()` are invoked only by claim holders.
+    ///
+    /// `Status::Dependencies` is an **active** state (set by the interpreter once evaluation
+    /// has started and the live runner is parked awaiting a child), so it is treated like
+    /// `Processing` — NOT claimable. Claiming it would let a second waiter re-run an asset
+    /// whose runner is merely parked, breaking the execute-once guarantee. A runner dropped
+    /// while parked in `Dependencies` is recovered by the `RunClaim` Drop repair, which
+    /// re-parks it as `Submitted`.
     pub(crate) async fn try_claim_for_run(
         &self,
         queue: &Arc<JobQueue<E>>,
     ) -> Result<Option<RunClaim<E>>, Error> {
         let mut lock = self.data.write().await;
         match lock.status {
-            Status::None | Status::Recipe | Status::Submitted | Status::Dependencies => {
+            Status::None | Status::Recipe | Status::Submitted => {
                 lock.set_status(Status::Processing)?;
                 drop(lock);
                 Ok(Some(RunClaim {
@@ -3744,6 +3849,7 @@ impl<E: Environment + 'static> AssetRef<E> {
             }
             Status::Directory
             | Status::Processing
+            | Status::Dependencies
             | Status::Partial
             | Status::Error
             | Status::Storing
@@ -4901,6 +5007,101 @@ mod tests {
             repaired.is_ok(),
             "armed Drop should re-park the asset as Submitted"
         );
+    }
+
+    /// `Status::Dependencies` is an active state (a live runner parked awaiting a child),
+    /// so it must NOT be claimable — otherwise a second waiter would re-run the asset,
+    /// breaking execute-once. (PR #6 review, comment 1.)
+    #[tokio::test]
+    async fn test_try_claim_for_run_none_when_dependencies() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(4));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(30, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Dependencies).await.unwrap();
+        assert!(
+            asset.try_claim_for_run(&queue).await.unwrap().is_none(),
+            "an asset parked in Dependencies must not be claimable"
+        );
+        assert_eq!(asset.status().await, Status::Dependencies);
+    }
+
+    /// A runner dropped while parked in `Dependencies` (its claim still armed) must be
+    /// recovered: the Drop repair re-parks the asset as `Submitted`. (PR #6 review, comment 1.)
+    #[tokio::test]
+    async fn test_runclaim_drop_reparks_from_dependencies() {
+        let query = parse_query("test").unwrap();
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        // Capacity 0 so the repair's submit re-parks as Submitted without spawning run().
+        let queue = Arc::new(JobQueue::<SimpleEnvironment<Value>>::new(0));
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(31, query.into(), envref.clone()).to_ref();
+        asset.set_status(Status::Submitted).await.unwrap();
+
+        {
+            let _claim = asset
+                .try_claim_for_run(&queue)
+                .await
+                .unwrap()
+                .expect("should claim");
+            // Runner parks on a child dependency.
+            asset.set_status(Status::Dependencies).await.unwrap();
+            // `_claim` drops here (still armed) while status is Dependencies.
+        }
+
+        let repaired = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if asset.status().await == Status::Submitted {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await;
+        assert!(
+            repaired.is_ok(),
+            "armed Drop should re-park a Dependencies-parked asset as Submitted"
+        );
+    }
+
+    /// An asset that consumed a dependency which expired mid-execution must be labeled
+    /// `Expired` at completion (staleness propagation): the produced value is kept but the
+    /// asset is recomputed on next access. (PR #6 review, comment 3.)
+    #[tokio::test]
+    async fn test_stale_dependency_labels_asset_expired_on_completion() {
+        let query = parse_query("test").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = CommandKey::new_name("test");
+        env.command_registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::from("Hello, world!")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), envref.clone()).to_ref();
+        // A throwaway dependency, only used for its id in the diagnostic warning.
+        let dep = AssetData::<SimpleEnvironment<Value>>::new(
+            33,
+            parse_query("dep").unwrap().into(),
+            envref.clone(),
+        )
+        .to_ref();
+        asset.note_expired_dependency(&dep).await.unwrap();
+
+        asset.run().await.unwrap();
+
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "an asset that used a stale dependency must be labeled Expired"
+        );
+        // The produced value is still present (used, not discarded).
+        let state = asset.poll_state().await;
+        assert!(state.is_some(), "the produced value must be retained");
+        assert_eq!(state.unwrap().data.try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
