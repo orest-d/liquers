@@ -23,6 +23,13 @@ encodes the full terminal outcome — `Metadata` carries `Status` and the typed 
 
 - **Invariant:** value **XOR** error. A terminal `State` has data (`Ready/Source/Override/
   Volatile/Directory`) or an error (`Error`/`Cancelled`), never both.
+- **Core design principle: a `State` is *always potentially* an error.** Every site that
+  consumes a `State` as a value MUST check it (`value_state()` / `error_result()` / an
+  error-checked value extractor) before using the value. This is an invariant of the model,
+  not an optional ergonomic. Any existing code that consumes a `State` as a value without
+  checking is a **bug to be fixed under this WP** — including WP-1's dependency-propagation
+  path (`wait_for_dependency` `:2293` and the recipe-delegation copy path) where a
+  computed-failed dependency must fail the parent, not be consumed as a valid value.
 - **`poll_state() -> Option<State>`:** `None` iff not finished; `Some(state)` for every
   finished status, where the `State` faithfully carries data **or** the typed error. This
   replaces `poll_outcome()`. (Today it fabricates a `Some(none-value)` error-state — the value
@@ -106,11 +113,16 @@ audits/migration in **liquers-lib** (UI), **liquers-axum** (handlers), **liquers
   reclassification set is a first-class output feeding the implementation plan. *This audit is
   now doubly critical:* with a single rich `get()`, `Err` means **only** delivery, so any
   computed failure still returning `Err` silently loses its `State`/log.
-- **`get()` caller migration audit.** Because `get()` now returns `Ok(error_state)` on computed
-  failure (not `Err`), every value-wanting caller must add `.value_state()?`. Enumerate and fix:
-  `get_binary` (`:2057`), `wait_for_dependency` (`:2293`, dependency-error propagation — WP-1
-  overlap), axum handlers (×2), `interpreter.rs`, `liquers-py`. The `State` value-extraction
-  guard is the backstop for any missed site; the audit is the actual fix.
+- **`get()` caller migration audit (enforces the "always check the State" principle).** Because
+  `get()` now returns `Ok(error_state)` on computed failure (not `Err`), every value-wanting
+  caller must check the `State` (`.value_state()?` or an error-checked extractor). Enumerate and
+  fix: `get_binary` (`:2057`), `wait_for_dependency` (`:2293`, dependency-error propagation —
+  **WP-1 overlap; fix here if WP-1 does not**), the recipe-delegation copy path, axum handlers
+  (×2), `interpreter.rs`, `liquers-py`. The `State` value-extraction guard is the backstop for
+  any missed site; the audit is the actual fix. Where a consuming site legitimately wants to
+  *forward* an error-`State` (e.g. delegation copying a child's terminal state), that is allowed
+  precisely because the `State` still carries the error — the rule is "check, don't silently
+  treat as a value," not "always convert to `Err`."
 
 ## Open Questions
 
