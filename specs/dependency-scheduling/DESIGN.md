@@ -145,6 +145,45 @@
   vs. the phase-4 PlanDependencySchedule map to avoid orphaning volatile evaluations;
   the no-deadlock + execute-once guarantees come from the claim-aware wait path.
 
+- 2026-07-16 PR #6 review follow-ups (owner review of the implementation branch),
+  all in liquers-core/src/assets.rs unless noted:
+  1. **Execute-once: `Status::Dependencies` is not claimable.** `try_claim_for_run`
+     previously transitioned `Dependencies` → `Processing`, letting a second waiter re-run
+     an asset whose live runner was merely parked awaiting a child. `Dependencies` is now
+     treated like `Processing` (active, non-claimable); only `None | Recipe | Submitted`
+     are claimable. To keep cancellation-liveness, the `RunClaim` Drop repair now also
+     re-parks a `Dependencies`-status asset (dropped mid-park) back to `Submitted`.
+  2. **Lost-wakeup close in `wait_for_dependency`.** After `subscribe_to_notifications`
+     the code awaited `changed()`; a dependency that resolved in the claim→subscribe window
+     had already fired its notification, so `changed()` could block forever. Verified the
+     ordering guarantee (`set_state`/`set_value` store the value and send `ValueProduced`
+     under the *same* `data.write()` lock; the error path sets error status before its
+     sends), then added a timeout-free re-poll: only await `changed()` when the dependency
+     is still unresolved after subscribing. The loop top re-evaluates on return.
+  3. **Expired-dependency semantics (scheduling vs execution).**
+     - Scheduling time (`get_dependency_asset`): an `Expired` dependency is evicted and
+       recomputed (loop mirroring `get`/`get_asset`, reusing `remove_expired_from_maps`),
+       instead of being early-returned as resolved.
+     - Execution time (`wait_for_dependency`): no recompute (avoids unbounded re-execution
+       when a dependency's freshness window is shorter than the dependent's eval time). If
+       the stale value is present it is used and staleness is propagated — the dependent is
+       labeled `Expired` at completion (`finish_run_with_result` honors a new
+       `AssetData.stale_dependency` flag set by `note_expired_dependency`) so it recomputes
+       on next access; if the value was evicted, the dependent fails via
+       `fail_due_to_dependency`. A warning is stored in metadata for timing diagnostics.
+  4. **`ScheduleNode` kept (design question).** Evaluated replacing the
+     `ScheduleNode::{Keyed, Expression}` enum with a flat "set of dependencies". Rejected:
+     the enum is load-bearing — only *keyed* assets are real graph nodes, while an
+     *Expression* is a NON-node that stands for its attribution set (the keyed assets
+     depending on it) and whose edges are attributed onto those keyed ancestors
+     (`register_scheduled_dependency` + `propagate_attribution`, dependencies.rs). A flat
+     dependency set cannot express "this participant is not itself a node" without
+     reintroducing the same Keyed/Expression tag, so it would be neither simpler nor
+     shorter. No code change.
+  Tests: 3 deterministic unit tests added in assets.rs (Dependencies not claimable;
+  Drop re-parks a Dependencies-parked asset; stale-dependency labels the asset Expired at
+  completion). Full liquers-core suite green (320 lib + integration).
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
