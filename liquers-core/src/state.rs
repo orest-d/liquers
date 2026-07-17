@@ -107,38 +107,23 @@ impl<V: ValueInterface> State<V> {
     /// NOTE: this is intentionally not `error_result()`. A cancelled state has `is_error ==
     /// false`, so its `error_result()` is `Ok`; value extraction must consult the status.
     pub fn value_error(&self) -> Option<Error> {
-        match self.status() {
-            // Failure statuses: extracting a value is an error.
-            Status::Error => Some(match self.metadata.error_result() {
-                Err(e) => e,
-                // Error status without a stored error (should not happen): synthesize one.
-                Ok(()) => Error::general_error("Asset finished with an error".to_string()),
-            }),
-            Status::Cancelled => {
-                let msg = self.message();
-                if msg.is_empty() {
-                    Some(Error::cancelled("Asset was cancelled"))
-                } else {
-                    Some(Error::cancelled(msg.to_string()))
-                }
-            }
-            // All other statuses carry (or may legitimately carry) an extractable value,
-            // including non-terminal intermediate states produced during evaluation and
-            // success-with-none. Value extraction is allowed.
-            Status::None
-            | Status::Directory
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing
-            | Status::Ready
-            | Status::Expired
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => None,
+        // Cancellation is a status, not a stored error: synthesize a typed cancellation error.
+        if self.status() == Status::Cancelled {
+            let msg = self.message();
+            return Some(if msg.is_empty() {
+                Error::cancelled("Asset was cancelled")
+            } else {
+                Error::cancelled(msg.to_string())
+            });
         }
+        // A computed error is recorded in the metadata (is_error / error_data), whether the
+        // status was explicitly set to Error (asset path) or only the metadata was flagged
+        // (e.g. `State::from_error`). Non-error states — including non-terminal intermediate
+        // states and success-with-none — return None and allow value extraction.
+        if let Err(e) = self.metadata.error_result() {
+            return Some(e);
+        }
+        None
     }
 
     /// Validating projection: `Ok(self)` if this is a value-bearing state, otherwise the typed
