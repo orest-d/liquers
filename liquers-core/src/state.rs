@@ -12,9 +12,12 @@ use crate::{
 ///  It is thread-safe and can be cloned.
 #[derive(Debug)]
 pub struct State<V: ValueInterface> {
-    // TODO: remove pub
     // TODO: try to remove rwlock
-    pub data: Arc<V>,
+    // `data` is private: a State is always potentially an error/cancelled state, so value
+    // extraction must go through the guarded accessors (`value`, `value_state`,
+    // `try_into_string`, `as_bytes`). Use `data_unchecked()` only to forward/inspect a
+    // terminal state without extracting a value (delegation copy, UI rendering).
+    data: Arc<V>,
     pub metadata: Arc<Metadata>,
 }
 
@@ -34,6 +37,14 @@ impl<V: ValueInterface> State<V> {
             metadata: Arc::new(metadata),
         }
     }
+    /// Creates a State directly from an already-shared value handle and metadata, without
+    /// syncing type identifiers. Low-level constructor for the asset layer (e.g. building a
+    /// terminal error/none state from stored metadata). Prefer `from_value_and_metadata` for
+    /// value states that should have their type info synced.
+    pub fn from_parts(data: Arc<V>, metadata: Arc<Metadata>) -> State<V> {
+        State { data, metadata }
+    }
+
     /// Creates a new State with the given value and metadata.
     pub fn from_value_and_metadata(value: V, metadata: Arc<Metadata>) -> State<V> {
         let data = Arc::new(value);
@@ -86,13 +97,77 @@ impl<V: ValueInterface> State<V> {
     pub fn with_string(&self, text: &str) -> Self {
         self.clone().with_data(V::new(text))
     }
+    /// The single "can I take a value from this state?" gate.
+    /// Returns `None` if the state carries an extractable value (`status().has_data()`);
+    /// otherwise the typed error that value extraction should yield:
+    /// - `Status::Cancelled` → a synthesized `Error::cancelled` (`ErrorType::Cancelled`);
+    /// - `Status::Error` (or any other non-data terminal) → the stored computed error if any,
+    ///   else a generic "no value" error.
+    ///
+    /// NOTE: this is intentionally not `error_result()`. A cancelled state has `is_error ==
+    /// false`, so its `error_result()` is `Ok`; value extraction must consult the status.
+    pub fn value_error(&self) -> Option<Error> {
+        let status = self.status();
+        if status.has_data() {
+            return None;
+        }
+        match status {
+            Status::Cancelled => {
+                let msg = self.message();
+                if msg.is_empty() {
+                    Some(Error::cancelled("Asset was cancelled"))
+                } else {
+                    Some(Error::cancelled(msg.to_string()))
+                }
+            }
+            _ => match self.metadata.error_result() {
+                Err(e) => Some(e),
+                Ok(()) => Some(Error::general_error(format!(
+                    "No value available (status {:?})",
+                    status
+                ))),
+            },
+        }
+    }
+
+    /// Validating projection: `Ok(self)` if this is a value-bearing state, otherwise the typed
+    /// error from [`Self::value_error`]. Ergonomic terminal-value path: `asset.get().await?.value_state()?`.
+    pub fn value_state(self) -> Result<Self, Error> {
+        match self.value_error() {
+            Some(e) => Err(e),
+            None => Ok(self),
+        }
+    }
+
+    /// Error-checked value accessor: `Err` on an error/cancelled state (via [`Self::value_error`]),
+    /// else a cheap clone of the shared value handle.
+    pub fn value(&self) -> Result<Arc<V>, Error> {
+        match self.value_error() {
+            Some(e) => Err(e),
+            None => Ok(self.data.clone()),
+        }
+    }
+
+    /// Raw, UNCHECKED access to the underlying value handle. Use only to forward/inspect a
+    /// terminal state without extracting a value (delegation copy, UI rendering); prefer
+    /// [`Self::value`]/[`Self::value_state`] everywhere else.
+    pub fn data_unchecked(&self) -> &Arc<V> {
+        &self.data
+    }
+
     pub fn as_bytes(&self) -> Result<Vec<u8>, Error> {
+        if let Some(e) = self.value_error() {
+            return Err(e);
+        }
         self.data.as_bytes(&self.metadata.get_data_format())
     }
     pub fn is_none(&self) -> bool {
         self.data.is_none()
     }
     pub fn try_into_string(&self) -> Result<String, Error> {
+        if let Some(e) = self.value_error() {
+            return Err(e);
+        }
         self.data.try_into_string()
     }
     /// Checks metadata for error.
@@ -151,6 +226,9 @@ impl<V: ValueInterface> State<V> {
 
     /// Serialize data to bytes with the given data format.
     pub fn as_bytes_with_data_format(&self, data_format: &str) -> Result<Vec<u8>, Error> {
+        if let Some(e) = self.value_error() {
+            return Err(e);
+        }
         self.data.as_bytes(data_format)
     }
 }

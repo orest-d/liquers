@@ -599,10 +599,10 @@ impl<E: Environment> AssetData<E> {
             Status::Directory => {
                 let mut metadata = self.metadata.clone();
                 metadata.with_type_identifier("dir".to_string());
-                Some(State {
-                    data: Arc::new(E::Value::none()),
-                    metadata: Arc::new(metadata),
-                })
+                Some(State::from_parts(
+                    Arc::new(E::Value::none()),
+                    Arc::new(metadata),
+                ))
             }
             Status::Recipe => None,
             Status::Submitted => None,
@@ -610,11 +610,11 @@ impl<E: Environment> AssetData<E> {
             Status::Processing => None,
             Status::Partial => None,
             Status::Error | Status::Cancelled => {
-                let mut metadata = self.metadata.clone();
-                Some(State {
-                    data: Arc::new(E::Value::none()),
-                    metadata: Arc::new(metadata),
-                })
+                let metadata = self.metadata.clone();
+                Some(State::from_parts(
+                    Arc::new(E::Value::none()),
+                    Arc::new(metadata),
+                ))
             }
             Status::Storing => None,
             Status::Ready
@@ -627,10 +627,7 @@ impl<E: Environment> AssetData<E> {
                     metadata.with_type_identifier(data.identifier().to_string());
                     metadata.with_type_name(data.type_name().to_string());
 
-                    Some(State {
-                        data: data.clone(),
-                        metadata: Arc::new(metadata),
-                    })
+                    Some(State::from_parts(data.clone(), Arc::new(metadata)))
                 } else {
                     None
                 }
@@ -1114,7 +1111,8 @@ impl<E: Environment> AssetRef<E> {
             | ErrorType::UnexpectedError
             | ErrorType::ExecutionError
             | ErrorType::DependencyVersionMismatch
-            | ErrorType::DependencyCycle => PersistenceStatus::NotPersisted,
+            | ErrorType::DependencyCycle
+            | ErrorType::Cancelled => PersistenceStatus::NotPersisted,
         }
     }
 
@@ -1545,10 +1543,7 @@ impl<E: Environment> AssetRef<E> {
             let _ = metadata.add_dependency(dep);
         }
 
-        Ok(State {
-            data: res,
-            metadata: Arc::new(metadata),
-        })
+        Ok(State::from_parts(res, Arc::new(metadata)))
     }
 
     /// Evaluate and store the result (in store)
@@ -1557,7 +1552,9 @@ impl<E: Environment> AssetRef<E> {
         self.resolve_volatility_before_evaluation().await;
         let res = self.evaluate_recipe().await;
         match res {
-            Ok(State { data, metadata }) => {
+            Ok(state) => {
+                let data = state.data_unchecked().clone();
+                let metadata = state.metadata.clone();
                 {
                     let mut lock = self.data.write().await;
                     let mut metadata_clone = (*metadata).clone();
@@ -2162,11 +2159,11 @@ impl<E: Environment> AssetRef<E> {
     ) -> Result<(), Error> {
         println!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
-        let data = state.data.clone();
+        let data = state.data_unchecked().clone();
         lock.data = Some(data);
         let mut merged_metadata = (*state.metadata).clone();
-        merged_metadata.with_type_identifier(state.data.identifier().to_string());
-        merged_metadata.with_type_name(state.data.type_name().to_string());
+        merged_metadata.with_type_identifier(state.data_unchecked().identifier().to_string());
+        merged_metadata.with_type_name(state.data_unchecked().type_name().to_string());
         lock.metadata = merged_metadata;
         lock.binary = None; // Invalidate binary
         let status = lock.metadata.status();
@@ -3612,7 +3609,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             State::new(), // Empty initial state
             self.get_envref(),
         );
-        asset_data.data = Some(Arc::new(state.data.as_ref().clone()));
+        asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
         asset_data.metadata = metadata.clone();
         asset_data.status = final_status;
         asset_data.binary = None; // Clear binary, we have the data
