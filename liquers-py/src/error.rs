@@ -26,6 +26,7 @@ pub enum ErrorType {
     ExecutionError,
     DependencyVersionMismatch,
     DependencyCycle,
+    Cancelled,
 }
 
 impl From<ErrorType> for liquers_core::error::ErrorType {
@@ -56,6 +57,7 @@ impl From<ErrorType> for liquers_core::error::ErrorType {
                 liquers_core::error::ErrorType::DependencyVersionMismatch
             }
             ErrorType::DependencyCycle => liquers_core::error::ErrorType::DependencyCycle,
+            ErrorType::Cancelled => liquers_core::error::ErrorType::Cancelled,
         }
     }
 }
@@ -88,6 +90,7 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
                 ErrorType::DependencyVersionMismatch
             }
             liquers_core::error::ErrorType::DependencyCycle => ErrorType::DependencyCycle,
+            liquers_core::error::ErrorType::Cancelled => ErrorType::Cancelled,
         }
     }
 }
