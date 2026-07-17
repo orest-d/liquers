@@ -188,7 +188,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         state: &State<Value>,
     ) -> Result<UIHandle, Error> {
-        let value = &*state.data;
+        let value = state.data_unchecked().as_ref();
 
         // Extract source from metadata query
         let source = match state.metadata.query() {

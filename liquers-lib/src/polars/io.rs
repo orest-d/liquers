@@ -22,11 +22,11 @@ pub fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error>
     };
 
     // Get data as bytes
-    let csv_data = if let Ok(text) = state.data.try_into_string() {
+    let csv_data = if let Ok(text) = state.data_unchecked().try_into_string() {
         text.into_bytes()
     } else {
         state
-            .data
+            .data_unchecked()
             .try_into_bytes()
             .map_err(|e| Error::general_error(format!("Cannot get CSV data as bytes: {}", e)))?
     };

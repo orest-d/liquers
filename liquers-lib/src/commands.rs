@@ -57,7 +57,7 @@ pub fn from_yaml<E: Environment<Value = Value>>(
     state: &State<E::Value>,
     context: Context<E>,
 ) -> Result<E::Value, Error> {
-    let x = &*(state.data);
+    let x = state.data_unchecked().as_ref();
     match x {
         Value::Base(SimpleValue::Text { value }) => {
             context.info("Parsing yaml string");

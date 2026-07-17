@@ -36,9 +36,9 @@ where
 {
     println!(
         "text_editor command called, state type: {}",
-        state.data.type_name()
+        state.data_unchecked().type_name()
     );
-    let key = state.data.try_into_key()?;
+    let key = state.data_unchecked().try_into_key()?;
     Ok(E::Value::from_widget(Arc::new(std::sync::Mutex::new(
         crate::egui::widgets::TextEditor::<E>::new(key, context.get_envref()),
     ))))

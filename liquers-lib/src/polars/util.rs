@@ -17,12 +17,12 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
     state: &State<V>,
 ) -> Result<Arc<DataFrame>, Error> {
     // Try direct conversion first
-    if let Ok(df) = state.data.as_polars_dataframe() {
+    if let Ok(df) = state.data_unchecked().as_polars_dataframe() {
         return Ok(df);
     }
 
     let mut format = state.metadata.get_data_format();
-    let source_bytes = if let Ok(text) = state.data.try_into_string() {
+    let source_bytes = if let Ok(text) = state.data_unchecked().try_into_string() {
         if format.is_empty() {
             format = "csv".to_string();
         }
@@ -34,7 +34,7 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
                     .to_string(),
             ));
         }
-        state.data.try_into_bytes()?
+        state.data_unchecked().try_into_bytes()?
     };
 
     let df = deserialize_dataframe_from_reader(Cursor::new(source_bytes), &format)?;

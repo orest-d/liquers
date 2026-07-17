@@ -303,7 +303,7 @@ impl AssetViewElement {
         let initial_info = asset_ref.get_asset_info().await.ok();
         let notification_rx = asset_ref.subscribe_to_notifications().await;
 
-        let initial_value = initial_state.map(|s| Arc::new((*s.data).clone()));
+        let initial_value = initial_state.map(|s| Arc::new(s.data_unchecked().as_ref().clone()));
         let initial_mode = if initial_value.is_some() {
             AssetViewMode::Value
         } else {
@@ -324,23 +324,28 @@ impl AssetViewElement {
             loop {
                 match rx.changed().await {
                     Ok(()) => {
+                        // WP-2 terminal-outcome contract: derive the error from the terminal
+                        // STATE (value_error), not the transient ErrorOccurred notification —
+                        // so an overwritten/lossy notification cannot lose the error. A terminal
+                        // error/cancelled state carries no extractable value, so only the error
+                        // is surfaced in that case.
                         if let Some(state) = asset_ref.poll_state().await {
-                            if let Ok(mut v) = value_clone.write() {
-                                *v = Some(Arc::new((*state.data).clone()));
+                            match state.value_error() {
+                                None => {
+                                    if let Ok(mut v) = value_clone.write() {
+                                        *v = Some(Arc::new(state.data_unchecked().as_ref().clone()));
+                                    }
+                                }
+                                Some(err) => {
+                                    if let Ok(mut e) = error_clone.write() {
+                                        *e = Some(err);
+                                    }
+                                }
                             }
                         }
                         if let Ok(asset_info) = asset_ref.get_asset_info().await {
                             if let Ok(mut i) = info_clone.write() {
                                 *i = Some(asset_info);
-                            }
-                        }
-                        // Check for error in notification
-                        let notif = rx.borrow().clone();
-                        if let liquers_core::assets::AssetNotificationMessage::ErrorOccurred(e) =
-                            notif
-                        {
-                            if let Ok(mut err) = error_clone.write() {
-                                *err = Some(e);
                             }
                         }
                     }
@@ -603,7 +608,7 @@ impl StateViewElement {
                 t
             }
         };
-        let mut elem = Self::new(title, Arc::new((*state.data).clone()));
+        let mut elem = Self::new(title, Arc::new(state.data_unchecked().as_ref().clone()));
         elem.metadata = Some((*state.metadata).clone());
         elem
     }

@@ -27,6 +27,11 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
         ErrorType::NotAvailable => StatusCode::NOT_FOUND,
         ErrorType::DependencyVersionMismatch => StatusCode::CONFLICT,
         ErrorType::DependencyCycle => StatusCode::CONFLICT,
+        // Asset processing was cancelled: 499 Client Closed Request (falls back to 503 if the
+        // non-standard code is unavailable).
+        ErrorType::Cancelled => {
+            StatusCode::from_u16(499).unwrap_or(StatusCode::SERVICE_UNAVAILABLE)
+        }
     }
 }
 
@@ -66,6 +71,7 @@ pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
         "NotAvailable" => Ok(ErrorType::NotAvailable),
         "DependencyVersionMismatch" => Ok(ErrorType::DependencyVersionMismatch),
         "DependencyCycle" => Ok(ErrorType::DependencyCycle),
+        "Cancelled" => Ok(ErrorType::Cancelled),
         _ => Err(format!("Unknown error type: {}", type_str)),
     }
 }
