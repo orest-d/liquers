@@ -59,8 +59,17 @@ encodes the full terminal outcome — `Metadata` carries `Status` and the typed 
   returns the error; (b) `State.data` stops being `pub` (existing `// TODO: remove pub`) so the
   guard cannot be bypassed. Render-the-error callers use `poll_state`/`status`/`error_result`
   and never hit the value extractors, so they are unaffected.
-- Cancellation becomes a **typed** error (new `ErrorType::Cancelled`) so "cancelled" survives
-  as an error, not a generic message.
+- **`Cancelled` and `Error` are legitimate terminal statuses, not errors in themselves.** Being
+  in either status is fine (`get()` → `Ok(state)`); *only asking such a state for a value* is an
+  error. `Status::Error` stores a computed `Error`; `Status::Cancelled` stores **no** error —
+  value extraction synthesizes a typed `Error::cancelled` (`ErrorType::Cancelled`, reserved for
+  exactly this). Cancellation does not go through the failure routine.
+- **Re-evaluation policy.** Values are assumed effectively deterministic across evaluations
+  (except after expiration); but since an `Error`/`Cancelled` outcome may be transient
+  (hardware/volatile), a stored `Error`/`Cancelled`/`Expired` asset is a **cache miss** and is
+  **re-evaluated when requested from the manager** (not inside `AssetRef::get()`). Dependencies:
+  stale `Error`/`Cancelled` re-evaluate; a fresh error propagates; a fresh/mid-flight cancellation
+  cascade-cancels the parent. (Details in Phase 2.)
 - **`Err`-vs-error-`State` classification is itself part of the work.** The current code blurs
   the two axes: some sites emit `Err` for what is really a *computed* failure that should put
   the asset into `Status::Error` and yield an error-carrying `State`. Phase 2 must audit every

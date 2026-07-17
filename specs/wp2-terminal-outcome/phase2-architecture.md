@@ -31,15 +31,27 @@ callers to check the `State`.
 pub enum ErrorType {
     // ... existing variants ...
     DependencyCycle,
-    Cancelled,          // NEW: asset processing was cancelled (a terminal error kind)
+    Cancelled,          // NEW: the error TYPE returned when a *value* is requested from a
+                        // cancelled state. NOT stored as the asset's computed error.
 }
 ```
 
-**Variant semantics:** `Cancelled` marks an `Error` produced by cancellation, so "cancelled is
-an error" is faithful and type-inspectable (`error.error_type == ErrorType::Cancelled`) rather
-than a generic message. **No default match arm** exists on `ErrorType` today; every `match` over
-it (e.g. HTTP status mapping in `liquers-axum`) must add an explicit `Cancelled` arm — this is
-intentional (compiler-driven caller audit).
+**Conceptual model (per clarification — this is the important correction).**
+`Status::Cancelled` and `Status::Error` are *separate, legitimate terminal statuses*. Being in
+either status is **not itself an error** — `poll_state()`/`get()` return such a state as `Ok`.
+**Only asking such a state for a value is an error.** The two statuses differ in where the error
+comes from at value-extraction time:
+
+- `Status::Error` → the asset stored a *computed* `Error` in `Metadata.error_data`; value
+  extraction returns that stored error.
+- `Status::Cancelled` → **no error is stored** (`is_error` stays `false`, `error_data` stays
+  `None`); value extraction *synthesizes* `Error::cancelled(...)` (type `ErrorType::Cancelled`).
+
+Consequences: **cancellation does not go through `fail_asset`** and does **not** set
+`is_error`/`error_data` — it only sets `Status::Cancelled` (as the current `Cancel` arm already
+does, `:1222`). `ErrorType::Cancelled` is reserved strictly for the value-extraction error.
+**No default match arm** exists on `ErrorType` today; every `match` over it must add an explicit
+`Cancelled` arm (compiler-driven audit).
 
 **No new structs, no new `ExtValue` variants, no `AssetOutcome` enum.** `AssetOutcome`,
 `poll_outcome()`, and a separate `AssetData.error` field (all proposed by WP-2) are **dropped**
@@ -62,24 +74,38 @@ pub struct State<V: ValueInterface> {
 }
 
 impl<V: ValueInterface> State<V> {
-    /// Validating projection. Ok(self) if this is a value-state; Err(typed error) if this is a
-    /// terminal error-state. The ergonomic path is `asset.get().await?.value_state()?`.
-    pub fn value_state(self) -> Result<Self, Error>;      // { self.error_result()?; Ok(self) }
+    /// The single "can I take a value from this state?" gate. Returns:
+    ///   - None            if the state carries an extractable value (status().has_data()),
+    ///   - Some(stored)    for Status::Error (the computed Metadata.error_data),
+    ///   - Some(cancelled) for Status::Cancelled (synthesized Error::cancelled, ErrorType::Cancelled),
+    ///   - Some(no-value)  for any other non-data status (defensive; get() only yields terminals).
+    /// NOTE: this is NOT error_result() — error_result() is Error-only; a Cancelled state's
+    /// error_result() is Ok, which is exactly why value extraction must consult status.
+    pub fn value_error(&self) -> Option<Error>;
 
-    /// Error-checked value accessors (the safety net). Each returns Err(error) on an error-state
-    /// BEFORE touching the (none) value, so a forgotten `value_state()` fails at value access.
+    /// Validating projection. Ok(self) if this is a value-state; Err otherwise (see value_error).
+    /// The ergonomic path is `asset.get().await?.value_state()?`.
+    pub fn value_state(self) -> Result<Self, Error>;      // { if let Some(e)=self.value_error(){Err(e)}else{Ok(self)} }
+
+    /// Error-checked value accessors (the safety net). Each returns value_error() BEFORE touching
+    /// the (none) value, so a forgotten `value_state()` fails at value access — for Cancelled too.
     pub fn value(&self) -> Result<Arc<V>, Error>;         // checked replacement for `.data`
-    pub fn try_into_string(&self) -> Result<String, Error>;   // now: error_result()? then extract
-    pub fn as_bytes(&self) -> Result<Vec<u8>, Error>;         // now: error_result()? then extract
+    pub fn try_into_string(&self) -> Result<String, Error>;   // now: value_error()? then extract
+    pub fn as_bytes(&self) -> Result<Vec<u8>, Error>;         // now: value_error()? then extract
 
-    /// Raw, UNCHECKED access for the few callers that legitimately forward/inspect an error-state
-    /// (delegation copy, UI rendering). Named to make the bypass explicit and greppable.
+    /// Raw, UNCHECKED access for the few callers that legitimately forward/inspect an error- or
+    /// cancelled-state (delegation copy, UI rendering). Explicit & greppable bypass.
     pub fn data_unchecked(&self) -> &Arc<V>;
 
-    // Unchanged / already present: status(), error_result(), is_error(), from_error(),
-    // with_data(), with_metadata(), get_asset_info(), extension(), ...
+    // Unchanged / already present: status(), error_result() (Error-only), is_error(),
+    // from_error(), with_data(), with_metadata(), get_asset_info(), extension(), ...
 }
 ```
+
+**Why `value_error()` and not `error_result()`:** a `Status::Cancelled` state has `is_error =
+false`, so `error_result()` returns `Ok` — a caller relying on it would wrongly treat a cancelled
+state as value-bearing. `value_error()` keys on `status().has_data()` so both `Error` and
+`Cancelled` (and any future non-data terminal) are gated, each mapped to the right typed error.
 
 **Ownership rationale:** `value_state(self)` consumes and returns `Self` (no clone) — it is a
 type-level tag that the state was checked. `value()` returns `Arc<V>` (cheap clone of the Arc)
@@ -106,9 +132,10 @@ impl Error {
 ```rust
 // (1) UNIFIED FAILURE ROUTINE — replaces the 3 divergent error-recording sites.
 impl<E: Environment> AssetRef<E> {
-    /// Put the asset into a terminal error state, preserving the metadata audit trail.
-    /// data=None, binary=None, status=Error (or Cancelled), metadata.with_error(e) (NOT
-    /// Metadata::from_error), notify once. Idempotent if already terminal-failed.
+    /// Put the asset into a terminal ERROR state (Status::Error), preserving the metadata audit
+    /// trail: data=None, binary=None, metadata.with_error(e) (NOT Metadata::from_error), notify
+    /// once. Idempotent if already terminal-failed. Used ONLY for computed errors — cancellation
+    /// does NOT use this (it sets Status::Cancelled without storing an error; see cancel path).
     pub(crate) async fn fail_asset(&self, e: Error) -> Result<(), Error>;
 }
 
@@ -154,7 +181,7 @@ Every `Err`/error-recording site in the get/evaluate/finish/fast-track paths, cl
 | `finish_run_with_result` result=Err (`:1354–1359`) | `Metadata::from_error` (destroys log/query) | **Computed** | Route through `fail_asset` → `with_error` (preserve) |
 | `AssetRef::set_error` (`:2206–2209`) | `Metadata::from_error` + sends `ErrorOccurred` | **Computed** | Reimplement as `fail_asset`; keep single notify |
 | `process_service_messages` `ErrorOccurred` arm (`:1277–1288`) | `metadata.with_error` (already preserves) ✓ | **Computed** | Fold into `fail_asset` for one code path |
-| `process_service_messages` `Cancel` arm (`:1221–1232`) | sets `Status::Cancelled`, no error stored | **Computed** | `fail_asset(Error::cancelled(...))` so cancel carries a typed error |
+| `process_service_messages` `Cancel` arm (`:1221–1232`) | sets `Status::Cancelled`, no error stored ✓ | **Cancellation (not error)** | Keep as-is: set `Status::Cancelled`, do **not** store an error / set `is_error`. Value extraction later synthesizes `Error::cancelled`. Ensure `is_error`/`error_data` remain unset. |
 | `get()` `ErrorOccurred => Err(e)` (`:2020`) | `Err` | **Computed** | Delete; `poll_state` returns error-state |
 | `get()` `JobFinished`→"no data" `Err` (`:2034`) | `Err(unexpected)` | **Delivery** (anomaly) | Keep as delivery `Err`; now off the normal failure path |
 | `get()` `Expired => Err` (`:2039`) | `Err` | **Delivery** (WP-3 will re-evaluate) | Leave for WP-3; keep `Err` for now, documented |
@@ -181,6 +208,60 @@ The `State` value-extraction guard is the backstop; these are the explicit fixes
 that copies/forwards an error-`State` (delegation) is correct because the `State` still carries
 the error; only *value extraction* must be guarded.
 
+## Re-evaluation policy — `Error` / `Cancelled` / `Expired` are a cache miss at the *manager request boundary*
+
+**Best-practice assumption (documented, not enforced):** an asset's value should not change from
+one evaluation to the next *unless it expired*; evaluation is expected to be effectively
+deterministic. Under that assumption a logic `Error` tends to recur and a `Cancelled` asset tends
+to succeed on retry — **but neither is guaranteed** (errors can come from hardware or volatile
+logic). Therefore a *usable value* cannot be assumed for a stored `Error` or `Cancelled` state,
+so **both, like `Expired`, must be re-evaluated when the asset is requested from the manager.**
+
+**Placement (this is what reconciles it with the get() contract).** Re-evaluation is triggered at
+the **manager request boundary** — `DefaultAssetManager::get(key)` and the query/dependency
+request paths — **not** inside `AssetRef::get()`'s wait loop. The manager already does exactly
+this for `Expired` (`assets.rs:3260`: remove the stale asset from the map, `continue`, rebuild
+fresh). The change: extend that stale-terminal branch from `{Expired}` to
+`{Expired, Error, Cancelled}`.
+
+```
+// DefaultAssetManager::get(key), :3255 — conceptual
+let status = asset_ref.status().await;
+if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+    // stale terminal → drop from map and rebuild a fresh asset from its recipe
+    remove_from_map_if_same_id(...); continue;
+}
+if status.is_finished() { return Ok(asset_ref); }   // Ready/Source/Override/... served as-is
+```
+
+- **Boundary vs. await.** `AssetRef::get()` still returns the *current* evaluation's terminal
+  outcome as `Ok(state)` (incl. an error- or cancelled-state). It does **not** re-evaluate. So
+  `get()` called N times on one completed evaluation yields the same error N times (the WP-2
+  contract); re-evaluation only happens when the asset is *re-requested from the manager*.
+- **No re-eval storm / no loop.** Removing the stale terminal and looping creates a *fresh*
+  (non-finished) asset that is submitted, not re-matched by the branch. Deterministic errors will
+  re-run on each fresh top-level request (accepted cost); within one request there is no loop.
+- **Requires a recipe.** Re-evaluation needs a recipe; a source/stored asset with no recipe that
+  is `Error`/`Cancelled` cannot be rebuilt — its terminal state stands. (Edge; Phase 3 corner case.)
+
+### Dependency composition (WP-1 overlap — contract this WP defines, WP-1 consumes)
+
+Dependencies are requested through the manager, so the same rule applies, plus an in-flight rule:
+
+| Dependency situation | Behavior |
+|---|---|
+| Requested and currently `Error`/`Cancelled`/`Expired` (stale terminal from a prior lifecycle) | **Re-evaluate** (cache miss, per above) — do **not** propagate the stale error/cancellation |
+| Fresh evaluation of the dependency reaches `Error` | Parent fails: propagate as a **dependency error** (`fail_asset` with dependency context) |
+| Fresh evaluation of the dependency reaches `Cancelled` | **Cascade-cancel** the parent (`Status::Cancelled`) |
+| Dependency `Cancelled` **mid-flight** while the parent waits in `Status::Dependencies` | **Cascade-cancel** the parent |
+| Dependency `Ready` | Use its value (parent continues) |
+
+This makes cancellation and error genuinely different at the dependency level: a *stale* error or
+cancellation is a cache miss (re-evaluate), an *error outcome* propagates as failure, and a
+*cancellation outcome* (fresh or mid-flight) cascades cancellation. `wait_for_dependency`
+(`:2287`) and the WP-1 dependency-readiness checks must implement this; if WP-1 has not landed it,
+it is fixed here.
+
 ## Post-finish message policy (resolves ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS)
 
 `process_service_messages` already drops most late messages when `is_finished()` (`:1193–1211`),
@@ -192,8 +273,8 @@ introduce a `finishing` phase entered on `JobFinishing` and treat the policy as 
 | `LogMessage` | append to metadata log + notify | **debug-log & drop** (was: still mutated metadata) |
 | `UpdatePrimaryProgress` / `UpdateSecondaryProgress` | update + notify | debug-log & drop (already dropped) |
 | `JobSubmitted` / `JobStarted` | status transition | debug-log & drop (already dropped) |
-| `Cancel` | `fail_asset(Error::cancelled(..))` | **no-op** + debug-log (already dropped) |
-| `ErrorOccurred(e)` | `fail_asset(e)` | debug-log & drop (already dropped) |
+| `Cancel` | set `Status::Cancelled` (no stored error, `is_error` stays false) | **no-op** + debug-log (already dropped) |
+| `ErrorOccurred(e)` | `fail_asset(e)` (Status::Error, stores error) | debug-log & drop (already dropped) |
 | `JobFinishing` | enter finishing phase, return | idempotent |
 | `JobFinished` | return | idempotent |
 
@@ -230,9 +311,12 @@ introduce a `finishing` phase entered on `JobFinishing` and treat the policy as 
 No new serialized types. `Metadata.error_data: Option<Error>` and `is_error: bool` are already
 serde fields, so a persisted error-`State` round-trips with its typed error. `ErrorType`
 (de)serializes by variant name — adding `Cancelled` is backward-compatible for writing; reading
-an unknown future variant is out of scope. Fast-track loads only `Ready/Source/Override`
-(`:473`), so a persisted `Error`/`Cancelled` state is **re-evaluated**, not served — confirm as
-policy (Phase-1 Open Question 4).
+an unknown future variant is out of scope. `Status::Cancelled` stores no error (`is_error` false,
+`error_data` none), so a persisted cancelled state carries no error payload; the cancellation
+error is synthesized at value-extraction time. Fast-track loads only `Ready/Source/Override`
+(`:473`) **and** the manager treats a stored/in-memory `Error`/`Cancelled`/`Expired` as a cache
+miss (re-evaluate) — this is now **decided policy** (see Re-evaluation policy), superseding
+Phase-1 Open Question 4.
 
 ## Concurrency Considerations
 
@@ -250,7 +334,7 @@ policy (Phase-1 Open Question 4).
 |---|---|---|
 | liquers-core | `src/error.rs` | Add `ErrorType::Cancelled`, `Error::cancelled`, `Error::is_cancelled` |
 | liquers-core | `src/state.rs` | Private `data`; add `value_state`, `value`, `data_unchecked`; error-check `try_into_string`/`as_bytes` |
-| liquers-core | `src/assets.rs` | Add `fail_asset`; rewrite `get()` loop; reroute `finish_run_with_result`/`set_error`/psm error+cancel arms; post-finish message phase |
+| liquers-core | `src/assets.rs` | Add `fail_asset`; rewrite `get()` loop; reroute `finish_run_with_result`/`set_error`/psm error arms (`Cancel` arm stays status-only); post-finish message phase; **extend manager `get(key)` stale-terminal branch (`:3260`) from `{Expired}` to `{Expired, Error, Cancelled}`** (re-eval policy) |
 | liquers-core | `src/interpreter.rs` | Add `.value_state()?` where a value is required |
 | liquers-lib | `src/ui/element.rs` | Error source → `state.error_result()`; `data_unchecked()` for display |
 | liquers-axum | `src/assets/handlers.rs` | Map computed error-`State` to HTTP error via `value_state()`; add `Cancelled` status mapping |
@@ -310,12 +394,23 @@ No scope creep (WP-1 delegation and WP-3 expiration are referenced as overlaps, 
 `poll_state` error arm are kept, not reinvented. Risk noted: privatizing `State.data` has the
 widest blast radius (py + UI) — mitigated by `data_unchecked()` for legitimate raw access.
 
+**Corrections folded in from clarification (no longer open):** `Cancelled`/`Error` are legitimate
+terminal *statuses*, not errors in themselves — only value extraction errors; `ErrorType::Cancelled`
+is reserved for the value-extraction error and is **not** stored; cancellation does not use
+`fail_asset`. `Error`/`Cancelled`/`Expired` are re-evaluated at the manager request boundary
+(supersedes old Open Question 4). Dependency error propagates, dependency cancellation cascades,
+stale dependency re-evaluates.
+
 **Open questions for you (genuine decisions, not resolvable from code):**
 1. **py error-state policy:** should `liquers-py` `State.value()`/`__value__` **raise** on an
-   error-state (recommended, matches the "always check" principle) or return `None`?
-2. **axum cancellation status:** HTTP code for `ErrorType::Cancelled` (499 client-closed vs 503 vs
-   a 200 with error body for the render-style endpoints)?
+   error- or cancelled-state (recommended, matches the "always check" principle) or return `None`?
+2. **axum status codes:** HTTP code for a computed `Error` (500?) vs. `ErrorType::Cancelled`
+   (499 client-closed vs 503 vs a 200 with error body for render-style endpoints)?
 3. **Interim logging:** WP-6 adds `tracing`; until then, log post-finish drops via a
    `debug`-guarded `eprintln!` or drop silently?
 4. **`State.data` privatization now vs. deferred:** enforce the guard fully in this WP (recommended;
    it *is* the safety net) or land `value_state()` first and privatize as a fast follow?
+5. **Re-eval boundary scope:** re-evaluate `Error`/`Cancelled` on *every* manager request
+   (recommended, matches `Expired`), or gate it (e.g. only for volatile/expirable assets) to avoid
+   re-running expensive deterministic failures? The determinism best-practice suggests "always",
+   but there is a cost tradeoff worth your call.
