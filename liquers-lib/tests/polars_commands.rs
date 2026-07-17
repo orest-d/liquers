@@ -49,7 +49,7 @@ async fn test_shape() -> Result<(), Box<dyn std::error::Error>> {
 
     // Convert CSV to DataFrame first
     let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
-    state.data = Arc::new(Value::from_polars_dataframe((*df).clone()));
+    state = state.with_data(Value::from_polars_dataframe((*df).clone()));
 
     // Now test shape command - we need to call it through the command system
     // For now, let's just test the DataFrame directly

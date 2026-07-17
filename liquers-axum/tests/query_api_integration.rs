@@ -114,10 +114,7 @@ async fn test_handler_state_creation() {
     let value = Value::from("test content");
     let metadata = metadata_with_type("text/plain");
 
-    let state = State {
-        data: Arc::new(value),
-        metadata: Arc::new(metadata),
-    };
+    let state = State::from_parts(Arc::new(value), Arc::new(metadata));
 
     assert_eq!(state.metadata.get_media_type(), "text/plain");
 }
@@ -401,13 +398,10 @@ async fn test_value_serialization_deterministic() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_state_creation() {
     let value = Value::from("test");
-    let state = State {
-        data: Arc::new(value),
-        metadata: Arc::new(Metadata::new()),
-    };
+    let state = State::from_parts(Arc::new(value), Arc::new(Metadata::new()));
 
     // Verify state was created with non-empty data
-    assert_eq!(Arc::strong_count(&state.data), 1);
+    assert_eq!(Arc::strong_count(state.data_unchecked()), 1);
 }
 
 /// Test State with metadata influences HTTP response headers
@@ -415,10 +409,7 @@ async fn test_state_creation() {
 async fn test_state_with_metadata() {
     let metadata = metadata_with_type("text/plain");
 
-    let state = State {
-        data: Arc::new(Value::from("content")),
-        metadata: Arc::new(metadata),
-    };
+    let state = State::from_parts(Arc::new(Value::from("content")), Arc::new(metadata));
 
     assert_eq!(state.metadata.get_media_type(), "text/plain");
     // Handler uses this to set Content-Type header
@@ -427,18 +418,15 @@ async fn test_state_with_metadata() {
 /// Test State cloning for async task movement
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_state_cloning() {
-    let state = State {
-        data: Arc::new(Value::from("shareable data")),
-        metadata: Arc::new(Metadata::new()),
-    };
+    let state = State::from_parts(Arc::new(Value::from("shareable data")), Arc::new(Metadata::new()));
 
     // Both tasks can hold Arc references
     let state1 = state.clone();
     let state2 = state.clone();
 
     // Verify all Arcs point to the same allocation
-    assert_eq!(Arc::strong_count(&state1.data), 3); // original + 2 clones
-    assert_eq!(Arc::strong_count(&state2.data), 3);
+    assert_eq!(Arc::strong_count(state1.data_unchecked()), 3); // original + 2 clones
+    assert_eq!(Arc::strong_count(state2.data_unchecked()), 3);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

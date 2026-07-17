@@ -138,10 +138,7 @@ mod tests {
     use std::sync::Arc;
 
     fn make_state() -> State<Value> {
-        State {
-            data: Arc::new(Value::from("test")),
-            metadata: Arc::new(Metadata::new()),
-        }
+        State::from_parts(Arc::new(Value::from("test")), Arc::new(Metadata::new()))
     }
 
     fn make_registry_with_preset() -> CommandMetadataRegistry {

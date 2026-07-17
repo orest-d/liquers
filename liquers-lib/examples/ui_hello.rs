@@ -62,7 +62,7 @@ impl HelloApp {
                 .await
                 .expect("Failed to evaluate hello query");
 
-            let value = Arc::new((*state.data).clone());
+            let value = Arc::new(state.data_unchecked().as_ref().clone());
             let mut element = AssetViewElement::new_value("Hello".to_string(), value);
             element.set_handle(root_handle);
             app_state
