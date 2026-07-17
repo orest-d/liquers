@@ -20,10 +20,10 @@ fn create_csv_state(csv_text: &str) -> State<Value> {
     metadata.data_format = Some("csv".to_string());
     metadata.with_type_identifier("text".to_string());
 
-    State {
-        data: Arc::new(Value::from(csv_text.to_string())),
-        metadata: Arc::new(metadata.into()),
-    }
+    State::from_parts(
+        Arc::new(Value::from(csv_text.to_string())),
+        Arc::new(metadata.into()),
+    )
 }
 
 #[tokio::test(flavor = "multi_thread")]
