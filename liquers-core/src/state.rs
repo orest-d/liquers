@@ -107,11 +107,13 @@ impl<V: ValueInterface> State<V> {
     /// NOTE: this is intentionally not `error_result()`. A cancelled state has `is_error ==
     /// false`, so its `error_result()` is `Ok`; value extraction must consult the status.
     pub fn value_error(&self) -> Option<Error> {
-        let status = self.status();
-        if status.has_data() {
-            return None;
-        }
-        match status {
+        match self.status() {
+            // Failure statuses: extracting a value is an error.
+            Status::Error => Some(match self.metadata.error_result() {
+                Err(e) => e,
+                // Error status without a stored error (should not happen): synthesize one.
+                Ok(()) => Error::general_error("Asset finished with an error".to_string()),
+            }),
             Status::Cancelled => {
                 let msg = self.message();
                 if msg.is_empty() {
@@ -120,13 +122,22 @@ impl<V: ValueInterface> State<V> {
                     Some(Error::cancelled(msg.to_string()))
                 }
             }
-            _ => match self.metadata.error_result() {
-                Err(e) => Some(e),
-                Ok(()) => Some(Error::general_error(format!(
-                    "No value available (status {:?})",
-                    status
-                ))),
-            },
+            // All other statuses carry (or may legitimately carry) an extractable value,
+            // including non-terminal intermediate states produced during evaluation and
+            // success-with-none. Value extraction is allowed.
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => None,
         }
     }
 

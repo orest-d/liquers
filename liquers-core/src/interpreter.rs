@@ -841,10 +841,10 @@ mod tests {
         let a = envref.evaluate("-R-dir/folder").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 3);
             let names: std::collections::HashSet<String> = a
                 .iter()
@@ -890,10 +890,10 @@ mod tests {
         let a = envref.evaluate("-R-dir/folder").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
             let names: std::collections::HashSet<String> = a
                 .iter()
@@ -908,10 +908,10 @@ mod tests {
         let a = envref.evaluate("-R-dir").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
             let names: std::collections::HashSet<String> = a
                 .iter()
@@ -953,10 +953,10 @@ mod tests {
         let a = envref.evaluate("-R-dir").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
             let names: std::collections::HashSet<String> = a
                 .iter()
