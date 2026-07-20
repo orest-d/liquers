@@ -428,16 +428,30 @@ depend on it.
 
 ### New Commands
 
-**None required for Phase 1.** The web backend is pure rendering + the
-`WebValueExtension`; it introduces no query-language commands. The entire `lui`
-namespace (`add`, `remove`, `query_console`, `markdown`, `ui_spec`, navigation) is
-already framework-agnostic and drives the web tree unchanged.
+**None. Decided.** `liquers_lib::ui` is the single shared UI layer for all backends.
+A backend contributes *only* conditionally-compiled rendering methods on the
+`UIElement` trait (`show_in_web` alongside `show_in_egui`) plus its render helpers —
+**no new command namespace and no changes to `lui`**. The web backend therefore works
+"out of the box" against the existing tree.
 
-**Optional (candidate, pending user decision):** a small `web`/`lweb` namespace
-mirroring the egui reference commands (`egui/label`, `egui/show_asset_info`) — i.e.
-`web/label`, `web/show_asset_info` — producing web-renderable values. Deferring keeps
-Phase 1 minimal (YAGNI); the egui reference registers these but they are not needed to
-render `lui`-built trees.
+**Verified against the codebase:**
+- The UI core (`ui/commands.rs`, `runner.rs`, `app_state.rs`, `message.rs`,
+  `resolve.rs`, `payload.rs`, `handle.rs`) references no egui at all — `lui` builds
+  and navigates the tree framework-agnostically, so it renders unchanged in a webui
+  build.
+- egui coupling inside `ui/` is confined to exactly 5 files (`element.rs`,
+  `shortcuts.rs`, and the 3 widget elements). These are precisely the files that gain
+  a gated `show_in_web` peer (or `#[cfg]` gating), matching this "extra methods per
+  backend" model.
+
+**Note (conscious scope boundary):** the egui reference *also* ships value-producing
+commands in the separate `liquers_lib::egui` module (`label`, `text_editor`,
+`show_asset_info`) that emit egui-only `ExtValue::UiCommand`/`Widget`. These are out
+of scope (the task explicitly disregards `liquers_lib::egui`) and are gated out of a
+webui build. Consequence: a query written specifically against those egui commands
+produces a value with no web representation in a webui-only build — expected and
+acceptable, since such queries are egui-specific. Trees built with `lui` (the shared
+path) render fully.
 
 ### Relevant Existing Namespaces
 
@@ -447,9 +461,9 @@ render `lui`-built trees.
 | `egui` | **Reference only** (not compiled under webui). Value-producing render commands whose web peers are the optional `web` namespace. | `label`, `text_editor`, `show_asset_info` |
 | root/core value commands | Produce the base `Value`s the `WebValueExtension` renders (text, json, etc.). | `text`, `json`, ... |
 
-**Ask user:** (1) Is `lui` the correct primary namespace, and (2) should Phase 1
-include the optional `web`/`lweb` value-producing commands mirroring `egui`'s, or
-defer them?
+**User-confirmed:** `lui` is the correct primary namespace, and no `web`/`lweb`
+value-producing command namespace is added — backends contribute rendering methods
+only (see "New Commands").
 
 ## Web Endpoints (if applicable)
 
