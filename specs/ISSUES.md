@@ -3,7 +3,7 @@
 ## Open
 
 ### Issue: ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS
-Status: Open
+Status: Partially Resolved (WP-2)
 Priority: High
 
 #### Problem
@@ -28,3 +28,22 @@ This assumption needs thorough verification and explicit handling. In future, ad
 
 #### Expected outcome
 A formalized message lifecycle contract for assets, with implementation and tests ensuring correctness under current and future multi-source message scenarios.
+
+#### Implemented policy (WP-2)
+Post-finish message policy, by kind × phase (see `specs/ASSETS.md` → Terminal Outcome Contract
+and `specs/wp2-terminal-outcome/`):
+
+| Message kind | Before finish | After finish |
+|---|---|---|
+| `UpdatePrimaryProgress` / `UpdateSecondaryProgress` | apply + notify | drop (debug-logged) |
+| `JobSubmitted` / `JobStarted` | status transition | drop |
+| `Cancel` | → `Status::Cancelled` (no stored error) | drop (no-op) |
+| `ErrorOccurred(e)` | `fail_asset(e)` (→ `Status::Error`, metadata-preserving) | drop |
+| `LogMessage` | append to metadata log | tolerated (at most one late entry) |
+| `JobFinishing` / `JobFinished` | end the service loop | idempotent |
+
+Also resolved: the terminal-outcome side (`get()` returns `Ok(error_state)` and consults status
+rather than lossy notification content, so an overwritten `ErrorOccurred` cannot lose the error),
+the unified metadata-preserving `fail_asset` routine, and deletion of the dead "meaningless"
+post-finalization `JobFinished` service send. Remaining for a future WP: authorization and the
+allowed message subset for genuinely external/multi-source producers.

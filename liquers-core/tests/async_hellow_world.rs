@@ -78,7 +78,7 @@ async fn test_q_instruction_evaluation() -> Result<(), Box<dyn std::error::Error
 
     // Command that accepts a query as input and converts it to string
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
-        match state.data.as_ref() {
+        match state.data_unchecked().as_ref() {
             Value::Query(q) => Ok(Value::from(q.encode())),
             _ => Err(Error::conversion_error("query", "string")),
         }
@@ -134,7 +134,7 @@ async fn test_q_instruction_at_end() -> Result<(), Box<dyn std::error::Error>> {
 
     // Command that accepts a query as input and converts it to string
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
-        match state.data.as_ref() {
+        match state.data_unchecked().as_ref() {
             Value::Query(q) => Ok(Value::from(q.encode())),
             _ => Err(Error::conversion_error("query", "string")),
         }
@@ -170,7 +170,7 @@ async fn test_q_instruction_with_filename() -> Result<(), Box<dyn std::error::Er
 
     // Command that accepts a query as input and converts it to string
     fn query_to_string(state: &State<Value>) -> Result<Value, Error> {
-        match state.data.as_ref() {
+        match state.data_unchecked().as_ref() {
             Value::Query(q) => Ok(Value::from(q.encode())),
             _ => Err(Error::conversion_error("query", "string")),
         }

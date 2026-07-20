@@ -34,11 +34,13 @@ pub fn text_editor<E: Environment>(
 where
     E::Value: UIValueExtension,
 {
+    // Guarded value access: a terminal Error/Cancelled input propagates instead of being coerced.
+    let value = state.value()?;
     println!(
         "text_editor command called, state type: {}",
-        state.data.type_name()
+        value.type_name()
     );
-    let key = state.data.try_into_key()?;
+    let key = value.try_into_key()?;
     Ok(E::Value::from_widget(Arc::new(std::sync::Mutex::new(
         crate::egui::widgets::TextEditor::<E>::new(key, context.get_envref()),
     ))))

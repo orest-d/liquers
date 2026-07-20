@@ -21,12 +21,13 @@ pub fn from_csv(state: &State<Value>, separator: String) -> Result<Value, Error>
         format!("csv:{}", separator.trim())
     };
 
-    // Get data as bytes
-    let csv_data = if let Ok(text) = state.data.try_into_string() {
+    // Get data as bytes (guarded: a terminal Error/Cancelled input propagates instead of being
+    // probed as a none-valued CSV source).
+    let value = state.value()?;
+    let csv_data = if let Ok(text) = value.try_into_string() {
         text.into_bytes()
     } else {
-        state
-            .data
+        value
             .try_into_bytes()
             .map_err(|e| Error::general_error(format!("Cannot get CSV data as bytes: {}", e)))?
     };

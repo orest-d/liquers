@@ -599,10 +599,10 @@ impl<E: Environment> AssetData<E> {
             Status::Directory => {
                 let mut metadata = self.metadata.clone();
                 metadata.with_type_identifier("dir".to_string());
-                Some(State {
-                    data: Arc::new(E::Value::none()),
-                    metadata: Arc::new(metadata),
-                })
+                Some(State::from_parts(
+                    Arc::new(E::Value::none()),
+                    Arc::new(metadata),
+                ))
             }
             Status::Recipe => None,
             Status::Submitted => None,
@@ -610,11 +610,11 @@ impl<E: Environment> AssetData<E> {
             Status::Processing => None,
             Status::Partial => None,
             Status::Error | Status::Cancelled => {
-                let mut metadata = self.metadata.clone();
-                Some(State {
-                    data: Arc::new(E::Value::none()),
-                    metadata: Arc::new(metadata),
-                })
+                let metadata = self.metadata.clone();
+                Some(State::from_parts(
+                    Arc::new(E::Value::none()),
+                    Arc::new(metadata),
+                ))
             }
             Status::Storing => None,
             Status::Ready
@@ -627,10 +627,7 @@ impl<E: Environment> AssetData<E> {
                     metadata.with_type_identifier(data.identifier().to_string());
                     metadata.with_type_name(data.type_name().to_string());
 
-                    Some(State {
-                        data: data.clone(),
-                        metadata: Arc::new(metadata),
-                    })
+                    Some(State::from_parts(data.clone(), Arc::new(metadata)))
                 } else {
                     None
                 }
@@ -1114,7 +1111,8 @@ impl<E: Environment> AssetRef<E> {
             | ErrorType::UnexpectedError
             | ErrorType::ExecutionError
             | ErrorType::DependencyVersionMismatch
-            | ErrorType::DependencyCycle => PersistenceStatus::NotPersisted,
+            | ErrorType::DependencyCycle
+            | ErrorType::Cancelled => PersistenceStatus::NotPersisted,
         }
     }
 
@@ -1191,6 +1189,12 @@ impl<E: Environment> AssetRef<E> {
         while let Some(msg) = rx.recv().await {
             println!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
+                // Post-finish message policy: once the asset is finalized, DISPLAY-mutating and
+                // control messages are dropped so a late producer cannot corrupt the terminal
+                // state (status, progress) or resurrect processing. A late `LogMessage` is NOT
+                // dropped here: it can at most append one log entry (harmless, and the contract
+                // in specs tolerates it), and dropping it would race with legitimate in-run logs
+                // that are dequeued just after the status flips to Ready on the fast path.
                 let should_ignore = matches!(
                     msg,
                     AssetServiceMessage::UpdatePrimaryProgress(_)
@@ -1201,11 +1205,14 @@ impl<E: Environment> AssetRef<E> {
                         | AssetServiceMessage::ErrorOccurred(_)
                 );
                 if should_ignore {
-                    println!(
-                        "Ignoring late service message {:?} for finished asset {}",
-                        msg,
-                        self.id()
-                    );
+                    // Interim debug logging (WP-6 will migrate to `tracing::debug!`).
+                    if cfg!(debug_assertions) {
+                        eprintln!(
+                            "Dropping late service message {:?} for finished asset {}",
+                            msg,
+                            self.id()
+                        );
+                    }
                     continue;
                 }
             }
@@ -1275,16 +1282,8 @@ impl<E: Environment> AssetRef<E> {
                     return Ok(());
                 }
                 AssetServiceMessage::ErrorOccurred(error) => {
-                    {
-                        let mut lock = self.data.write().await;
-                        lock.status = Status::Error;
-                        lock.metadata.with_error(error.clone());
-                        lock.metadata
-                            .set_primary_progress(&ProgressEntry::done("Error".to_string()));
-                        lock.save_metadata_to_store().await?;
-                    }
-                    let _ = notification_tx.send(AssetNotificationMessage::ErrorOccurred(error));
-                    let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+                    // Unified failure routine (metadata-preserving, single notify).
+                    let _ = self.fail_asset(error).await;
                     return Ok(());
                 }
             }
@@ -1352,11 +1351,9 @@ impl<E: Environment> AssetRef<E> {
         }
 
         if let Err(e) = &result {
-            let mut lock = self.data.write().await;
-            lock.data = None;
-            lock.status = Status::Error;
-            lock.binary = None;
-            lock.metadata = Metadata::from_error(e.clone());
+            // Unified failure routine: preserves the metadata audit trail (with_error) instead
+            // of replacing it (Metadata::from_error).
+            let _ = self.fail_asset(e.clone()).await;
         } else {
             // Finalization is guarded by current status because concurrent service messages may
             // already have transitioned the asset (e.g. cancellation/error). This is non-recursive:
@@ -1413,10 +1410,9 @@ impl<E: Environment> AssetRef<E> {
             }
         }
 
-        self.service_sender() // FIXME: At this point the processing of service messages (psm) should not be running, so this is meaningless.
-            .await
-            .send(AssetServiceMessage::JobFinished)
-            .ok();
+        // Note: the psm loop has already terminated via the JobFinishing message sent in
+        // run_with_future, so the previous JobFinished *service* message here was dead code
+        // (resolves the "meaningless send" FIXME). Only the notification wake-up remains.
         {
             let lock = self.data.write().await;
             lock.notification_tx
@@ -1545,10 +1541,7 @@ impl<E: Environment> AssetRef<E> {
             let _ = metadata.add_dependency(dep);
         }
 
-        Ok(State {
-            data: res,
-            metadata: Arc::new(metadata),
-        })
+        Ok(State::from_parts(res, Arc::new(metadata)))
     }
 
     /// Evaluate and store the result (in store)
@@ -1557,7 +1550,9 @@ impl<E: Environment> AssetRef<E> {
         self.resolve_volatility_before_evaluation().await;
         let res = self.evaluate_recipe().await;
         match res {
-            Ok(State { data, metadata }) => {
+            Ok(state) => {
+                let data = state.data_unchecked().clone();
+                let metadata = state.metadata.clone();
                 {
                     let mut lock = self.data.write().await;
                     let mut metadata_clone = (*metadata).clone();
@@ -2006,20 +2001,16 @@ impl<E: Environment> AssetRef<E> {
             }
 
             let notification = rx.borrow().clone();
-            println!(
-                "Getting asset {} state, current notification: {:?}",
-                self.id(),
-                notification
-            );
             match notification {
                 AssetNotificationMessage::ValueProduced => {
                     if let Some(state) = self.poll_state().await {
                         return Ok(state);
                     }
                 }
-                AssetNotificationMessage::ErrorOccurred(e) => {
-                    return Err(e);
-                }
+                // The notification CONTENT is no longer matched for terminal decisions: a failed
+                // asset now has a terminal error-state that poll_state() returns as Ok(...). This
+                // arm is a pure wake-up, so an overwritten ErrorOccurred cannot lose the error.
+                AssetNotificationMessage::ErrorOccurred(_) => {}
                 AssetNotificationMessage::Initial => {}
                 AssetNotificationMessage::StatusChanged(_) => {}
                 AssetNotificationMessage::PrimaryProgressUpdated(_) => {}
@@ -2162,11 +2153,11 @@ impl<E: Environment> AssetRef<E> {
     ) -> Result<(), Error> {
         println!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
-        let data = state.data.clone();
+        let data = state.data_unchecked().clone();
         lock.data = Some(data);
         let mut merged_metadata = (*state.metadata).clone();
-        merged_metadata.with_type_identifier(state.data.identifier().to_string());
-        merged_metadata.with_type_name(state.data.type_name().to_string());
+        merged_metadata.with_type_identifier(state.data_unchecked().identifier().to_string());
+        merged_metadata.with_type_name(state.data_unchecked().type_name().to_string());
         lock.metadata = merged_metadata;
         lock.binary = None; // Invalidate binary
         let status = lock.metadata.status();
@@ -2202,21 +2193,40 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
-    /// Sets an error state for the asset, with the provided error information.
-    pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
-        let mut lock = self.data.write().await;
-        lock.data = None;
-        lock.metadata = Metadata::from_error(error.clone());
-        lock.binary = None; // Invalidate binary
-        lock.service_sender()
-            .send(AssetServiceMessage::ErrorOccurred(error.clone()))
-            .map_err(|e| {
-                Error::general_error(format!(
-                    "Failed to send ErrorOccurred message: {}\n{}",
-                    e, error
-                ))
-            })?;
+    /// The single "asset failed" routine. Puts the asset into a terminal `Status::Error`,
+    /// **preserving** the metadata audit trail (log, query, type info) via `metadata.with_error`
+    /// (NOT `Metadata::from_error`, which replaces the record). Clears data and binary, records
+    /// the typed error, and notifies subscribers once.
+    ///
+    /// Idempotent: if the asset is already in `Status::Error`, the first error is kept.
+    /// Used ONLY for computed errors — cancellation is a separate status (`Status::Cancelled`)
+    /// that stores no error and does not use this routine.
+    pub(crate) async fn fail_asset(&self, error: Error) -> Result<(), Error> {
+        let notification_tx = {
+            let mut lock = self.data.write().await;
+            if lock.status == Status::Error {
+                return Ok(()); // already failed; keep the first error
+            }
+            lock.data = None;
+            lock.binary = None;
+            lock.status = Status::Error;
+            lock.metadata.with_error(error.clone());
+            let _ = lock.metadata.set_status(Status::Error);
+            lock.metadata
+                .set_primary_progress(&ProgressEntry::done("Error".to_string()));
+            lock.notification_tx.clone()
+        };
+        // A persistence hiccup here must not mask the computed error, so ignore its result.
+        let _ = self.save_metadata_to_store().await;
+        let _ = notification_tx.send(AssetNotificationMessage::ErrorOccurred(error));
+        let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
         Ok(())
+    }
+
+    /// Sets an error state for the asset, with the provided error information.
+    /// Delegates to the unified [`Self::fail_asset`] routine (metadata-preserving).
+    pub(crate) async fn set_error(&self, error: Error) -> Result<(), Error> {
+        self.fail_asset(error).await
     }
 }
 
@@ -2979,7 +2989,14 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             loop {
                 let assetref = self.get_query_asset(query).await?;
                 let status = assetref.status().await;
-                if status == Status::Expired {
+                // Stale-terminal states are a cache miss: Expired, Error and Cancelled are all
+                // re-evaluated on a fresh manager request (a failure may be transient). Dropping
+                // the entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since
+                // a stored Error/Cancelled is not fast-tracked).
+                if matches!(
+                    status,
+                    Status::Expired | Status::Error | Status::Cancelled
+                ) {
                     let asset_id = assetref.id();
                     if let Some(entry) = self.query_assets.get_async(query).await {
                         if entry.get().id() == asset_id {
@@ -3017,12 +3034,18 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             } else {
                 self.get_query_asset(query).await?
             };
-            // Expired at SCHEDULING time: evict and recompute. This is the ONLY point where an
-            // expired dependency is refreshed — once the dependent is executing,
-            // `wait_for_dependency` uses the stale value instead (no mid-run recompute).
-            // Mirrors the expired-evict loops in `get`/`get_asset`; a freshly resolved asset
-            // starts in a pre-execution state, so this cannot spin.
-            if asset.status().await == Status::Expired {
+            // Stale-terminal at SCHEDULING time: evict and recompute. Expired, Error and
+            // Cancelled are all treated as a cache miss (a failure may be transient), mirroring
+            // the stale-terminal eviction in `get`/`get_asset` so a dependency request rebuilds
+            // exactly like a top-level one. This is the ONLY point where such a dependency is
+            // refreshed — once the dependent is executing, `wait_for_dependency` uses the stale
+            // value (Expired) or fails the parent (a *fresh* Error/Cancelled produced during this
+            // evaluation), with no mid-run recompute. A freshly resolved asset starts in a
+            // pre-execution state, so this cannot spin.
+            if matches!(
+                asset.status().await,
+                Status::Expired | Status::Error | Status::Cancelled
+            ) {
                 match query.key() {
                     Some(key) => {
                         self.remove_expired_from_maps(asset.id(), None, Some(&key))
@@ -3257,7 +3280,14 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             eprintln!("Getting asset for key {}", key);
             let asset_ref = self.get_resource_asset(key).await?;
             let status = asset_ref.status().await;
-            if status == Status::Expired {
+            // Stale-terminal states are a cache miss: Expired, Error and Cancelled are all
+            // re-evaluated on a fresh manager request (a failure may be transient). Dropping the
+            // entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since a stored
+            // Error/Cancelled is not fast-tracked).
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled
+            ) {
                 let asset_id = asset_ref.id();
                 if let Some(entry) = self.assets.get_async(key).await {
                     if entry.get().id() == asset_id {
@@ -3612,7 +3642,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             State::new(), // Empty initial state
             self.get_envref(),
         );
-        asset_data.data = Some(Arc::new(state.data.as_ref().clone()));
+        asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
         asset_data.metadata = metadata.clone();
         asset_data.status = final_status;
         asset_data.binary = None; // Clear binary, we have the data
@@ -4292,7 +4322,7 @@ mod tests {
         assert!(bin.is_some());
         assert_eq!(bin.unwrap().0.as_ref(), b"Hello, world!");
         assert_eq!(
-            state.unwrap().data.try_into_string().unwrap(),
+            state.unwrap().try_into_string().unwrap(),
             "Hello, world!"
         );
     }
@@ -4352,7 +4382,7 @@ mod tests {
 
         assert!(asset_data.try_fast_track().await.unwrap());
         let state = asset_data.poll_state().expect("state must be available");
-        assert_eq!(state.data.try_into_bytes().unwrap(), raw);
+        assert_eq!(state.data_unchecked().try_into_bytes().unwrap(), raw);
     }
 
     #[tokio::test]
@@ -4411,7 +4441,7 @@ mod tests {
         let state = assetref.poll_state().await;
         assert!(state.is_some());
         assert_eq!(
-            state.unwrap().data.try_into_string().unwrap(),
+            state.unwrap().try_into_string().unwrap(),
             "Hello, world!"
         );
     }
@@ -4436,7 +4466,7 @@ mod tests {
         let state = assetref.poll_state().await;
         assert!(state.is_some());
         assert_eq!(
-            state.unwrap().data.try_into_string().unwrap(),
+            state.unwrap().try_into_string().unwrap(),
             "Hello, world!"
         );
     }
@@ -5101,7 +5131,7 @@ mod tests {
         // The produced value is still present (used, not discarded).
         let state = asset.poll_state().await;
         assert!(state.is_some(), "the produced value must be retained");
-        assert_eq!(state.unwrap().data.try_into_string().unwrap(), "Hello, world!");
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -5643,6 +5673,68 @@ mod tests {
         let fresh = manager.get_asset(&query).await.unwrap();
         assert_ne!(fresh.id(), stale.id());
         assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    /// A dependency resolved at scheduling time that is a stale terminal Error is evicted and
+    /// rebuilt — the same cache-miss policy as top-level `get`/`get_asset`, not left cached to
+    /// fail every dependent. (Regression: `get_dependency_asset` previously evicted only Expired.)
+    #[tokio::test]
+    async fn test_get_dependency_skips_stale_error_cached_asset() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let command = CommandKey::new_name("dep_error_cmd");
+        env.command_registry
+            .register_command(command, |_, _, _| Ok(Value::from("ok")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let query = parse_query("dep_error_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        stale.set_status(Status::Error).await.unwrap();
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), stale.clone())
+            .await;
+
+        let parent = manager.create_asset(parse_query("dep_error_parent").unwrap().into());
+        let fresh = manager
+            .get_dependency_asset(&parent, &query)
+            .await
+            .unwrap();
+        assert_ne!(fresh.id(), stale.id(), "stale Error dependency must be evicted");
+        assert_ne!(fresh.status().await, Status::Error);
+    }
+
+    /// Same policy for a stale Cancelled dependency.
+    #[tokio::test]
+    async fn test_get_dependency_skips_stale_cancelled_cached_asset() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let command = CommandKey::new_name("dep_cancelled_cmd");
+        env.command_registry
+            .register_command(command, |_, _, _| Ok(Value::from("ok")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let query = parse_query("dep_cancelled_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        stale.set_status(Status::Cancelled).await.unwrap();
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), stale.clone())
+            .await;
+
+        let parent = manager.create_asset(parse_query("dep_cancelled_parent").unwrap().into());
+        let fresh = manager
+            .get_dependency_asset(&parent, &query)
+            .await
+            .unwrap();
+        assert_ne!(
+            fresh.id(),
+            stale.id(),
+            "stale Cancelled dependency must be evicted"
+        );
+        assert_ne!(fresh.status().await, Status::Cancelled);
     }
 
     #[tokio::test]

@@ -23,29 +23,30 @@ impl State {
     }
 
     pub fn get_value(&self) -> PyResult<Value> {
-        if self.is_error()? {
-            Err(PyException::new_err("ERROR".to_string()))
-        } else {
-            Ok((*self.0.data).clone())
+        // WP-2 contract: requesting a value from an error/cancelled state raises (with the typed
+        // error message), while a value-bearing state returns the value.
+        match self.0.value() {
+            Ok(value) => Ok((*value).clone()),
+            Err(e) => Err(crate::error::Error(e).into()),
         }
     }
 
     pub fn get(&self) -> PyResult<PyObject> {
-        if self.is_error()? {
-            Err(PyException::new_err("ERROR".to_string()))
-        } else {
-            Python::with_gil(|py| (*self.0.data).as_pyobject(py))
+        match self.0.value() {
+            Ok(value) => Python::with_gil(|py| value.as_pyobject(py)),
+            Err(e) => Err(crate::error::Error(e).into()),
         }
     }
 
     pub fn __str__(&self) -> PyResult<String> {
-        self.0.data.__str__()
+        // Display accessors show the underlying (possibly none) value without raising.
+        self.0.data_unchecked().__str__()
     }
 
     pub fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "State(data={}, metadata={:?})",
-            self.0.data.__repr__()?,
+            self.0.data_unchecked().__repr__()?,
             *self.0.metadata
         ))
     }

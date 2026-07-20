@@ -708,14 +708,14 @@ mod tests {
         let a = envref.evaluate("-R-dir/src").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
         println!("----------------------------");
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = s.data_unchecked().as_ref() {
             let names: std::collections::HashSet<String> = a
                 .iter()
                 .map(|x| x.filename.as_ref().unwrap().clone())
                 .collect();
             println!("Names: {:?}", names);
         } else {
-            println!("Expected AssetInfo value, got {:?}", s.data);
+            println!("Expected AssetInfo value, got {:?}", s.data_unchecked());
         }
     }
 }

@@ -131,14 +131,14 @@ fn pycall(
         None
     } else if pass_state == "pyobject" {
         Some(Python::with_gil(|py| {
-            value_to_pyobject(&(*state.data), py)
+            value_to_pyobject(state.data_unchecked().as_ref(), py)
         })?)
     } else if pass_state == "state" {
         Some(Python::with_gil(|py| {
             crate::state::State(state.clone()).into_py(py)
         }))
     } else if pass_state == "value" {
-        let data = (&*state.data).clone();
+        let data = state.data_unchecked().as_ref().clone();
         Some(Python::with_gil(|py| data.into_py(py)))
     } else {
         return Err(liquers_core::error::Error::unexpected_error(format!(

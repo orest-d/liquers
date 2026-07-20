@@ -666,16 +666,58 @@ Result: Memory has "B", Store has "A" → INCONSISTENT
 
 **Solution**: Hold the write lock until store.set() completes.
 
+## Terminal Outcome Contract (WP-2)
+
+A finished asset has exactly **one observable terminal `State`**, and that `State` (backed by
+its `Metadata`) is the single source of truth for the outcome. There is no separate outcome enum.
+
+**Value XOR error.** A terminal `State` either carries a value (`Ready`/`Source`/`Override`/
+`Volatile`/`Directory`) or represents a failure (`Error`/`Cancelled`) with no value — never both.
+
+**`Cancelled` and `Error` are statuses, not errors in themselves.** Holding a state in either
+status is legitimate; only *requesting a value* from it is an error:
+- `Status::Error` stores the computed `Error` in `MetadataRecord.error_data` (serializable, so it
+  survives persistence). Value extraction returns that stored error.
+- `Status::Cancelled` stores **no** error (`is_error == false`). Value extraction *synthesizes*
+  `Error::cancelled(...)` (`ErrorType::Cancelled`, reserved for exactly this).
+
+**Accessors.**
+- `AssetRef::poll_state() -> Option<State>`: `None` iff not finished; otherwise the terminal
+  `State` (value- or error/cancelled-bearing).
+- `AssetRef::get() -> Result<State, Error>`: waits, then returns `Ok(state)` for **any** obtained
+  terminal outcome (including an error/cancelled state). `Err` is reserved for **delivery**
+  failures — the terminal state could not be produced/obtained (store I/O, closed channel,
+  finished-but-no-state anomaly). It consults status (`poll_state`), not notification *content*,
+  so an overwritten `ErrorOccurred` notification cannot lose the error.
+- `State::value_state(self) -> Result<State, Error>` and the guarded extractors
+  (`value`, `try_into_string`, `as_bytes`) return the failure error via `State::value_error()`.
+  The ergonomic value path is `asset.get().await?.value_state()?`. `State.data` is private; use
+  `data_unchecked()` only to forward/inspect a state without extracting a value.
+
+**Failure recording.** One routine, `AssetRef::fail_asset(e)`, records a computed failure by
+mutating the existing metadata (`with_error`, preserving the log/query/type audit trail) — it does
+**not** replace the record. Cancellation is a separate `Status::Cancelled` transition that stores
+no error.
+
+**Re-evaluation.** `Error`, `Cancelled` and `Expired` are a **cache miss at the manager request
+boundary**: `get(key)`/`get_asset(query)` drop such a stale-terminal asset and rebuild a fresh one
+(a failure may be transient — hardware/volatile). `AssetRef::get()` itself does not re-evaluate, so
+awaiting a completed evaluation reports the same outcome repeatably. Dependencies: a stale
+`Error`/`Cancelled` dependency re-evaluates; a fresh error propagates as a dependency failure; a
+fresh or mid-flight cancellation cascade-cancels the parent.
+
+**Post-finish messages.** Once finalized, display-mutating/control service messages
+(`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
+`ErrorOccurred`) are dropped (debug-logged); a late `LogMessage` is tolerated (at most one extra
+log entry).
+
 ## Open Issues
 
-### Issue 1: Error Recovery / Retry
-**Problem**: After Error status, how does retry work?
-
-**Current understanding**: Retry would need to:
-1. Reset status to Recipe or None
-2. Resubmit to job queue
-
-**Question**: Should there be an explicit `retry()` method, or should `get_asset()` automatically retry failed assets?
+### Issue 1: Error Recovery / Retry — RESOLVED (WP-2)
+**Resolution**: `get_asset()`/`get(key)` automatically re-evaluate a stale `Error`/`Cancelled`
+(and `Expired`) asset by dropping it from the manager map and rebuilding a fresh asset from its
+recipe (see Terminal Outcome Contract → Re-evaluation). No explicit `retry()` method is needed;
+re-evaluation is a property of *requesting* the asset, not of awaiting an in-flight one.
 
 ### Issue 2: Circular Dependencies
 **Problem**: When implementing Dependencies status, how to detect A→B→A cycles?

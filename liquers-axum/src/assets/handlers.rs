@@ -48,7 +48,7 @@ pub async fn get_data_handler<E: Environment>(
         }
     };
 
-    // Get state from asset (waits for asset to be ready)
+    // Get state from asset (waits for asset to be ready). Err here is a delivery failure.
     let state = match asset_ref.get().await {
         Ok(s) => s,
         Err(e) => {
@@ -59,8 +59,19 @@ pub async fn get_data_handler<E: Environment>(
         }
     };
 
+    // A terminal error/cancelled state surfaces as a failure to extract a value (WP-2 contract).
+    let state = match state.value_state() {
+        Ok(s) => s,
+        Err(e) => {
+            let error_detail = error_to_detail(&e);
+            let response: ApiResponse<()> =
+                ApiResponse::error(error_detail, "Asset evaluation failed");
+            return response.into_response();
+        }
+    };
+
     // Serialize value to bytes
-    let data = match state.data.try_into_bytes() {
+    let data = match state.data_unchecked().try_into_bytes() {
         Ok(bytes) => bytes,
         Err(e) => {
             let error_detail = error_to_detail(&e);
@@ -215,7 +226,7 @@ pub async fn get_entry_handler<E: Environment>(
         }
     };
 
-    // Get state
+    // Get state. Err here is a delivery failure.
     let state = match asset_ref.get().await {
         Ok(s) => s,
         Err(e) => {
@@ -226,8 +237,19 @@ pub async fn get_entry_handler<E: Environment>(
         }
     };
 
+    // A terminal error/cancelled state surfaces as a failure to extract a value (WP-2 contract).
+    let state = match state.value_state() {
+        Ok(s) => s,
+        Err(e) => {
+            let error_detail = error_to_detail(&e);
+            let response: ApiResponse<()> =
+                ApiResponse::error(error_detail, "Asset evaluation failed");
+            return response.into_response();
+        }
+    };
+
     // Serialize value to bytes
-    let data = match state.data.try_into_bytes() {
+    let data = match state.data_unchecked().try_into_bytes() {
         Ok(bytes) => bytes,
         Err(e) => {
             let error_detail = error_to_detail(&e);

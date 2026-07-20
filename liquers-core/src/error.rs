@@ -32,6 +32,10 @@ pub enum ErrorType {
     ExecutionError,
     DependencyVersionMismatch,
     DependencyCycle,
+    /// The error type returned when a *value* is requested from a cancelled asset/state.
+    /// It is NOT stored as an asset's computed error; being in `Status::Cancelled` is a
+    /// legitimate terminal state, and this error is synthesized only at value extraction.
+    Cancelled,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -116,6 +120,22 @@ impl Error {
     /// This is used e.g. in cache or store when the requested data is not available.    
     pub fn is_not_available(&self) -> bool {
         self.error_type == ErrorType::NotAvailable
+    }
+    /// Constructs a cancellation error (`ErrorType::Cancelled`).
+    /// Used when a value is requested from an asset/state in `Status::Cancelled`.
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Error {
+            error_type: ErrorType::Cancelled,
+            message: message.into(),
+            position: Position::unknown(),
+            query: None,
+            key: None,
+            command_key: None,
+        }
+    }
+    /// Returns true if this error represents a cancellation.
+    pub fn is_cancelled(&self) -> bool {
+        self.error_type == ErrorType::Cancelled
     }
     pub fn cache_not_supported() -> Self {
         Error {

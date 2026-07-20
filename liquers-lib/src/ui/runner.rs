@@ -275,7 +275,7 @@ where
             match state.error_result() {
                 Ok(()) => {
                     // Check if value is already a UIElement
-                    if let Ok(ui_elem) = state.data.as_ui_element() {
+                    if let Ok(ui_elem) = state.data_unchecked().as_ui_element() {
                         Self::set_element_and_init(
                             &mut *app,
                             handle,
@@ -409,7 +409,7 @@ where
 
         let (value, error) = match &state {
             Some(s) => {
-                let val = Some(s.data.clone());
+                let val = Some(s.data_unchecked().clone());
                 let err = s.error_result().err();
                 (val, err)
             }

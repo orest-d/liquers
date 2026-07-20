@@ -188,7 +188,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         state: &State<Value>,
     ) -> Result<UIHandle, Error> {
-        let value = &*state.data;
+        let value = state.data_unchecked().as_ref();
 
         // Extract source from metadata query
         let source = match state.metadata.query() {
@@ -1106,10 +1106,7 @@ mod tests {
         s.set_element(p, Box::new(Placeholder::new())).unwrap();
         let c1 = s.add_node(Some(p), 0, ElementSource::None).unwrap();
 
-        let state = State {
-            data: Arc::new(Value::from("replaced")),
-            metadata: Arc::new(liquers_core::metadata::Metadata::new()),
-        };
+        let state = State::from_parts(Arc::new(Value::from("replaced")), Arc::new(liquers_core::metadata::Metadata::new()));
         s.insert_state(&InsertionPoint::Instead(p), &state).unwrap();
 
         assert!(!s.node_exists(c1));
@@ -1141,10 +1138,7 @@ mod tests {
         let mut s = DirectAppState::new();
         let p = s.add_node(None, 0, ElementSource::None).unwrap();
 
-        let state = State {
-            data: Arc::new(Value::from("test value")),
-            metadata: Arc::new(liquers_core::metadata::Metadata::new()),
-        };
+        let state = State::from_parts(Arc::new(Value::from("test value")), Arc::new(liquers_core::metadata::Metadata::new()));
         let h = s
             .insert_state(&InsertionPoint::LastChild(p), &state)
             .unwrap();
@@ -1159,10 +1153,7 @@ mod tests {
         let h = s.add_node(None, 0, ElementSource::None).unwrap();
         s.set_element(h, Box::new(Placeholder::new())).unwrap();
 
-        let state = State {
-            data: Arc::new(Value::from("replaced")),
-            metadata: Arc::new(liquers_core::metadata::Metadata::new()),
-        };
+        let state = State::from_parts(Arc::new(Value::from("replaced")), Arc::new(liquers_core::metadata::Metadata::new()));
         let returned = s.insert_state(&InsertionPoint::Instead(h), &state).unwrap();
         assert_eq!(returned, h);
         let elem = s.get_element(h).unwrap().unwrap();

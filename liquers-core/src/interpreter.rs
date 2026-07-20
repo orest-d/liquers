@@ -139,7 +139,7 @@ pub fn apply_plan<E: Environment>(
                 .with_data((*res).clone())
                 .with_metadata(context.get_metadata().await?.into());
         }
-        Ok(state.data.clone())
+        state.value()
     }
     .boxed()
 }
@@ -211,7 +211,7 @@ pub fn do_step<E: Environment>(
                 context
                     .get_dependency_state(&query)
                     .await
-                    .map(|s| s.data.clone())
+                    .and_then(|s| s.value())
             }
             .boxed()
         }
@@ -233,7 +233,7 @@ pub fn do_step<E: Environment>(
             for (i, param) in parameters.0.iter().enumerate() {
                 if let Some(arg_query) = param.link() {
                     let arg_value = context.get_dependency_state(&arg_query).await?;
-                    arguments.set_value(i, arg_value.data.clone());
+                    arguments.set_value(i, arg_value.value()?);
                 }
             }
             let ce = envref.get_command_executor();
@@ -253,33 +253,33 @@ pub fn do_step<E: Environment>(
 
         Step::Filename(name) => async move {
             context.set_filename(&name.name).await?;
-            Ok(input.data.clone())
+            input.value()
         }
         .boxed(),
         Step::Info(m) => async move {
             context.info(&m)?;
-            Ok(input.data.clone())
+            input.value()
         }
         .boxed(),
         Step::Warning(m) => async move {
             context.warning(&m)?;
-            Ok(input.data.clone())
+            input.value()
         }
         .boxed(),
         Step::Error(m) => async move {
             context.error(&m)?;
-            Ok(input.data.clone())
+            input.value()
         }
         .boxed(),
         Step::SetCwd(key) => async move {
             context.set_cwd_key(Some(key));
-            Ok(input.data.clone())
+            input.value()
         }
         .boxed(),
         Step::Plan(plan) => async move { apply_plan(plan, input, context, envref).await }.boxed(),
         Step::GetAsset(key) => async move {
             let asset_state = context.get_dependency_state(&key.into()).await?;
-            Ok(asset_state.data.clone())
+            asset_state.value()
         }
         .boxed(),
         Step::GetAssetBinary(key) => async move {
@@ -841,10 +841,10 @@ mod tests {
         let a = envref.evaluate("-R-dir/folder").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 3);
             let names: std::collections::HashSet<String> = a
                 .iter()
@@ -890,10 +890,10 @@ mod tests {
         let a = envref.evaluate("-R-dir/folder").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
             let names: std::collections::HashSet<String> = a
                 .iter()
@@ -908,10 +908,10 @@ mod tests {
         let a = envref.evaluate("-R-dir").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
             let names: std::collections::HashSet<String> = a
                 .iter()
@@ -953,10 +953,10 @@ mod tests {
         let a = envref.evaluate("-R-dir").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &*s.data);
+        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
         //println!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
-        if let Value::AssetInfo(a) = &*s.data {
+        if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
             let names: std::collections::HashSet<String> = a
                 .iter()

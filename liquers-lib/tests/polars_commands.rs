@@ -20,10 +20,10 @@ fn create_csv_state(csv_text: &str) -> State<Value> {
     metadata.data_format = Some("csv".to_string());
     metadata.with_type_identifier("text".to_string());
 
-    State {
-        data: Arc::new(Value::from(csv_text.to_string())),
-        metadata: Arc::new(metadata.into()),
-    }
+    State::from_parts(
+        Arc::new(Value::from(csv_text.to_string())),
+        Arc::new(metadata.into()),
+    )
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -49,7 +49,7 @@ async fn test_shape() -> Result<(), Box<dyn std::error::Error>> {
 
     // Convert CSV to DataFrame first
     let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
-    state.data = Arc::new(Value::from_polars_dataframe((*df).clone()));
+    state = state.with_data(Value::from_polars_dataframe((*df).clone()));
 
     // Now test shape command - we need to call it through the command system
     // For now, let's just test the DataFrame directly

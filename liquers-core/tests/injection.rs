@@ -657,11 +657,17 @@ async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn
     ) -> Result<Value, Error> {
         // Nested evaluation - payload will NOT be available to child
         let nested_query = liquers_core::parse::parse_query("/-/child_cmd")?;
+        // WP-2 terminal-outcome contract: get() returns Ok(state) even for a failed child;
+        // the failure surfaces when a value is requested (value_state()). A failed child is
+        // therefore observed as Ok(error-state) -> value_state() Err -> "None".
         let nested_result = match context.evaluate(&nested_query).await {
             Ok(asset) => match asset.get().await {
-                Ok(state) => state
-                    .try_into_string()
-                    .unwrap_or_else(|_| "error".to_string()),
+                Ok(state) => match state.value_state() {
+                    Ok(value_state) => value_state
+                        .try_into_string()
+                        .unwrap_or_else(|_| "error".to_string()),
+                    Err(_) => "None".to_string(),
+                },
                 Err(_) => "None".to_string(),
             },
             Err(_) => "None".to_string(),

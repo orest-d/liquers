@@ -9,7 +9,7 @@ use std::sync::Arc;
 /// Input state should contain binary data (bytes).
 #[liquers_macro::command_version]
 pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
-    let bytes = state.data.try_into_bytes()?;
+    let bytes = state.value()?.try_into_bytes()?;
     let img = deserialize_image_from_bytes(&bytes, "auto")?;
 
     Ok(Value::from_image(Arc::new(img)))
@@ -19,7 +19,7 @@ pub fn from_bytes(state: &State<Value>) -> Result<Value, Error> {
 /// Input state should contain binary data (bytes).
 #[liquers_macro::command_version]
 pub fn from_format(state: &State<Value>, format_str: String) -> Result<Value, Error> {
-    let bytes = state.data.try_into_bytes()?;
+    let bytes = state.value()?.try_into_bytes()?;
 
     let normalized_format = normalize_format(&format_str)?;
     let _img_format = format_to_image_format(&normalized_format)?;

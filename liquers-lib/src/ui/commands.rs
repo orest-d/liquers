@@ -331,7 +331,7 @@ pub fn markdown(state: &State<Value>) -> Result<Value, Error> {
 pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     let query_string = if state.is_none() {
         String::new()
-    } else if let Ok(q) = state.data.try_into_query() {
+    } else if let Ok(q) = state.data_unchecked().try_into_query() {
         q.encode()
     } else {
         state.try_into_string()?

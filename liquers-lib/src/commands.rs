@@ -57,7 +57,10 @@ pub fn from_yaml<E: Environment<Value = Value>>(
     state: &State<E::Value>,
     context: Context<E>,
 ) -> Result<E::Value, Error> {
-    let x = &*(state.data);
+    // Guarded value access: a terminal Error/Cancelled input propagates instead of being
+    // silently coerced into a `none` output by the fall-through arm below.
+    let value = state.value()?;
+    let x = value.as_ref();
     match x {
         Value::Base(SimpleValue::Text { value }) => {
             context.info("Parsing yaml string");
