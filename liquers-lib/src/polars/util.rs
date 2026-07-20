@@ -16,13 +16,16 @@ use std::sync::Arc;
 pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
     state: &State<V>,
 ) -> Result<Arc<DataFrame>, Error> {
+    // Guarded value access: a terminal Error/Cancelled input propagates here rather than being
+    // probed as a (none-valued) DataFrame source.
+    let value = state.value()?;
     // Try direct conversion first
-    if let Ok(df) = state.data_unchecked().as_polars_dataframe() {
+    if let Ok(df) = value.as_polars_dataframe() {
         return Ok(df);
     }
 
     let mut format = state.metadata.get_data_format();
-    let source_bytes = if let Ok(text) = state.data_unchecked().try_into_string() {
+    let source_bytes = if let Ok(text) = value.try_into_string() {
         if format.is_empty() {
             format = "csv".to_string();
         }
@@ -34,7 +37,7 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
                     .to_string(),
             ));
         }
-        state.data_unchecked().try_into_bytes()?
+        value.try_into_bytes()?
     };
 
     let df = deserialize_dataframe_from_reader(Cursor::new(source_bytes), &format)?;
@@ -173,10 +176,39 @@ pub fn check_column_exists(df: &DataFrame, column: &str) -> Result<(), Error> {
 mod tests {
     use super::*;
 
+    use crate::value::Value;
+    use liquers_core::error::ErrorType;
+
     #[test]
     fn test_parse_date_yyyymmdd() {
         let date = parse_date("20240115").unwrap();
         assert_eq!(date.to_string(), "2024-01-15");
+    }
+
+    /// Guarded value access: a terminal Error input propagates its stored error instead of being
+    /// probed as a none-valued DataFrame source and failing with an unrelated "cannot infer
+    /// format" message (or worse, succeeding on a coerced value).
+    #[test]
+    fn test_try_to_polars_dataframe_propagates_error_state() {
+        let state: State<Value> =
+            State::from_error(Error::general_error("upstream boom".to_string()));
+        let err = try_to_polars_dataframe(&state).expect_err("error state must propagate");
+        assert!(
+            err.message.contains("upstream boom"),
+            "expected the upstream error, got: {}",
+            err.message
+        );
+    }
+
+    /// A cancelled input surfaces a typed cancellation error rather than a value.
+    #[test]
+    fn test_try_to_polars_dataframe_propagates_cancelled_state() {
+        let mut state: State<Value> = State::new();
+        state
+            .set_status(liquers_core::metadata::Status::Cancelled)
+            .unwrap();
+        let err = try_to_polars_dataframe(&state).expect_err("cancelled state must propagate");
+        assert_eq!(err.error_type, ErrorType::Cancelled);
     }
 
     #[test]

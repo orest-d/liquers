@@ -3034,12 +3034,18 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             } else {
                 self.get_query_asset(query).await?
             };
-            // Expired at SCHEDULING time: evict and recompute. This is the ONLY point where an
-            // expired dependency is refreshed — once the dependent is executing,
-            // `wait_for_dependency` uses the stale value instead (no mid-run recompute).
-            // Mirrors the expired-evict loops in `get`/`get_asset`; a freshly resolved asset
-            // starts in a pre-execution state, so this cannot spin.
-            if asset.status().await == Status::Expired {
+            // Stale-terminal at SCHEDULING time: evict and recompute. Expired, Error and
+            // Cancelled are all treated as a cache miss (a failure may be transient), mirroring
+            // the stale-terminal eviction in `get`/`get_asset` so a dependency request rebuilds
+            // exactly like a top-level one. This is the ONLY point where such a dependency is
+            // refreshed — once the dependent is executing, `wait_for_dependency` uses the stale
+            // value (Expired) or fails the parent (a *fresh* Error/Cancelled produced during this
+            // evaluation), with no mid-run recompute. A freshly resolved asset starts in a
+            // pre-execution state, so this cannot spin.
+            if matches!(
+                asset.status().await,
+                Status::Expired | Status::Error | Status::Cancelled
+            ) {
                 match query.key() {
                     Some(key) => {
                         self.remove_expired_from_maps(asset.id(), None, Some(&key))
@@ -5667,6 +5673,68 @@ mod tests {
         let fresh = manager.get_asset(&query).await.unwrap();
         assert_ne!(fresh.id(), stale.id());
         assert_ne!(fresh.status().await, Status::Expired);
+    }
+
+    /// A dependency resolved at scheduling time that is a stale terminal Error is evicted and
+    /// rebuilt — the same cache-miss policy as top-level `get`/`get_asset`, not left cached to
+    /// fail every dependent. (Regression: `get_dependency_asset` previously evicted only Expired.)
+    #[tokio::test]
+    async fn test_get_dependency_skips_stale_error_cached_asset() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let command = CommandKey::new_name("dep_error_cmd");
+        env.command_registry
+            .register_command(command, |_, _, _| Ok(Value::from("ok")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let query = parse_query("dep_error_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        stale.set_status(Status::Error).await.unwrap();
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), stale.clone())
+            .await;
+
+        let parent = manager.create_asset(parse_query("dep_error_parent").unwrap().into());
+        let fresh = manager
+            .get_dependency_asset(&parent, &query)
+            .await
+            .unwrap();
+        assert_ne!(fresh.id(), stale.id(), "stale Error dependency must be evicted");
+        assert_ne!(fresh.status().await, Status::Error);
+    }
+
+    /// Same policy for a stale Cancelled dependency.
+    #[tokio::test]
+    async fn test_get_dependency_skips_stale_cancelled_cached_asset() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let command = CommandKey::new_name("dep_cancelled_cmd");
+        env.command_registry
+            .register_command(command, |_, _, _| Ok(Value::from("ok")))
+            .expect("register_command failed");
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let query = parse_query("dep_cancelled_cmd").unwrap();
+        let stale = manager.create_asset(query.clone().into());
+        stale.set_status(Status::Cancelled).await.unwrap();
+        let _ = manager
+            .query_assets
+            .insert_async(query.clone(), stale.clone())
+            .await;
+
+        let parent = manager.create_asset(parse_query("dep_cancelled_parent").unwrap().into());
+        let fresh = manager
+            .get_dependency_asset(&parent, &query)
+            .await
+            .unwrap();
+        assert_ne!(
+            fresh.id(),
+            stale.id(),
+            "stale Cancelled dependency must be evicted"
+        );
+        assert_ne!(fresh.status().await, Status::Cancelled);
     }
 
     #[tokio::test]

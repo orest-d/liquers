@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 /// Extract Arc<DynamicImage> from state, ensuring it contains an image.
 pub fn try_to_image(state: &State<Value>) -> Result<Arc<DynamicImage>, Error> {
-    state.data_unchecked().as_image()
+    state.value()?.as_image()
 }
 
 /// Normalize format string to lowercase canonical name, handling common variations.
