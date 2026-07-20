@@ -609,6 +609,7 @@ impl<E: Environment> AssetData<E> {
             Status::Dependencies => None,
             Status::Processing => None,
             Status::Partial => None,
+            Status::Expired => None,
             Status::Error | Status::Cancelled => {
                 let metadata = self.metadata.clone();
                 Some(State::from_parts(
@@ -617,11 +618,7 @@ impl<E: Environment> AssetData<E> {
                 ))
             }
             Status::Storing => None,
-            Status::Ready
-            | Status::Expired
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
+            Status::Ready | Status::Source | Status::Override | Status::Volatile => {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
                     metadata.with_type_identifier(data.identifier().to_string());
@@ -633,6 +630,25 @@ impl<E: Environment> AssetData<E> {
                 }
             }
         }
+    }
+
+    /// Poll the current state, including explicitly recoverable expired states.
+    ///
+    /// This is intentionally separate from [`Self::poll_state`]: normal evaluation must treat
+    /// `Expired` as a cache miss, while user-directed recovery may inspect keyed expired data.
+    pub fn poll_state_also_expired(&self) -> Option<State<E::Value>> {
+        if self.status == Status::Expired {
+            if let Some(data) = &self.data {
+                let mut metadata = self.metadata.clone();
+                metadata.with_type_identifier(data.identifier().to_string());
+                metadata.with_type_name(data.type_name().to_string());
+
+                return Some(State::from_parts(data.clone(), Arc::new(metadata)));
+            }
+            return None;
+        }
+
+        self.poll_state()
     }
 
     /// Check if the asset has been cancelled
@@ -1983,6 +1999,12 @@ impl<E: Environment> AssetRef<E> {
     /// It requires to call the [Self::run] method, which is done by the [AssetManager].
     /// If the asset is not running, the get may hang indefinitely.
     pub async fn get(&self) -> Result<State<E::Value>, Error> {
+        if self.is_expired().await {
+            return Err(Error::general_error(
+                "Asset is expired; use get_also_expired for explicit recovery".to_string(),
+            ));
+        }
+
         if let Some(state) = self.poll_state().await {
             return Ok(state);
         }
@@ -2075,6 +2097,21 @@ impl<E: Environment> AssetRef<E> {
     pub async fn poll_state(&self) -> Option<State<E::Value>> {
         let lock = self.data.read().await;
         lock.poll_state()
+    }
+
+    /// Poll the current state, including explicitly recoverable expired states.
+    pub async fn poll_state_also_expired(&self) -> Option<State<E::Value>> {
+        let lock = self.data.read().await;
+        lock.poll_state_also_expired()
+    }
+
+    /// Get the state, including explicitly recoverable expired states.
+    pub async fn get_also_expired(&self) -> Result<State<E::Value>, Error> {
+        if let Some(state) = self.poll_state_also_expired().await {
+            Ok(state)
+        } else {
+            self.get().await
+        }
     }
 
     /// Non-blocking version of poll state
@@ -2260,6 +2297,8 @@ pub trait AssetManager<E: Environment>: Send + Sync {
     ) -> Result<AssetRef<E>, Error>;
     /// Get Asset for a key
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
+    /// Explicitly get a keyed asset even if its stored or in-memory status is Expired.
+    async fn get_also_expired(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     /// Get Recipe for a key if the recipe exists
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error>;
     /// Check if resource is volatile
@@ -2399,7 +2438,7 @@ pub trait AssetManager<E: Environment>: Send + Sync {
 struct TimedAsset<E: Environment> {
     expiration: chrono::DateTime<chrono::Utc>,
     asset_id: u64,
-    asset_ref: AssetRef<E>,
+    asset_ref: WeakAssetRef<E>,
 }
 
 impl<E: Environment> PartialEq for TimedAsset<E> {
@@ -2531,7 +2570,11 @@ impl<E: Environment> DefaultAssetManager<E> {
                                     };
                                     if should_update {
                                         active_deadline_by_id.insert(asset_id, dt);
-                                        heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
+                                        heap.push(Reverse(TimedAsset {
+                                            expiration: dt,
+                                            asset_id,
+                                            asset_ref: asset_ref.downgrade(),
+                                        }));
                                     }
                                 }
                             }
@@ -2561,8 +2604,10 @@ impl<E: Environment> DefaultAssetManager<E> {
                                 }
                                 active_deadline_by_id.remove(&timed.asset_id);
 
-                                let asset_ref = timed.asset_ref;
                                 let asset_id = timed.asset_id;
+                                let Some(asset_ref) = timed.asset_ref.upgrade() else {
+                                    continue;
+                                };
 
                                 // 1. Expire the asset and decide whether map-eviction is safe.
                                 //    In-flight states are preserved on expire failure.
@@ -2639,7 +2684,7 @@ impl<E: Environment> DefaultAssetManager<E> {
                                 heap.push(Reverse(TimedAsset {
                                     expiration: dt,
                                     asset_id,
-                                    asset_ref,
+                                    asset_ref: asset_ref.downgrade(),
                                 }));
                             }
                         }
@@ -2993,10 +3038,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 // re-evaluated on a fresh manager request (a failure may be transient). Dropping
                 // the entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since
                 // a stored Error/Cancelled is not fast-tracked).
-                if matches!(
-                    status,
-                    Status::Expired | Status::Error | Status::Cancelled
-                ) {
+                if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
                     let asset_id = assetref.id();
                     if let Some(entry) = self.query_assets.get_async(query).await {
                         if entry.get().id() == asset_id {
@@ -3284,10 +3326,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // re-evaluated on a fresh manager request (a failure may be transient). Dropping the
             // entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since a stored
             // Error/Cancelled is not fast-tracked).
-            if matches!(
-                status,
-                Status::Expired | Status::Error | Status::Cancelled
-            ) {
+            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
                 let asset_id = asset_ref.id();
                 if let Some(entry) = self.assets.get_async(key).await {
                     if entry.get().id() == asset_id {
@@ -3691,6 +3730,45 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
 
         Ok(())
+    }
+
+    /// Explicitly get a keyed asset even if it is Expired, without submitting evaluation.
+    async fn get_also_expired(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        if let Some(entry) = self.assets.get_async(key).await {
+            let asset = entry.get().clone();
+            drop(entry);
+            if asset.poll_state_also_expired().await.is_some() {
+                return Ok(asset);
+            }
+        }
+
+        let store = self.get_envref().get_async_store();
+        let (binary, metadata) = store.get(key).await?;
+        if metadata.status() != Status::Expired {
+            return self.get(key).await;
+        }
+
+        let type_identifier = metadata.type_identifier()?;
+        let data_format = metadata.get_data_format();
+        let value = if AssetData::<E>::is_binary_type_identifier(&type_identifier) {
+            E::Value::from_bytes(binary.clone())
+        } else {
+            E::Value::deserialize_from_bytes(&binary, &type_identifier, &data_format)?
+        };
+        let mut asset_data = AssetData::new_ext(
+            self.next_id(),
+            Recipe::from(key),
+            State::new(),
+            self.get_envref(),
+        );
+        asset_data.binary = Some(Arc::new(binary));
+        asset_data.data = Some(Arc::new(value));
+        asset_data.metadata = metadata;
+        asset_data.status = Status::Expired;
+        let asset = asset_data.to_ref();
+        let _ = self.assets.insert_async(key.clone(), asset.clone()).await;
+
+        Ok(asset)
     }
 
     /// Check if the resource asset exists.
@@ -4321,10 +4399,7 @@ mod tests {
         let bin = asset_data.poll_binary();
         assert!(bin.is_some());
         assert_eq!(bin.unwrap().0.as_ref(), b"Hello, world!");
-        assert_eq!(
-            state.unwrap().try_into_string().unwrap(),
-            "Hello, world!"
-        );
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -4440,10 +4515,7 @@ mod tests {
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
-        assert_eq!(
-            state.unwrap().try_into_string().unwrap(),
-            "Hello, world!"
-        );
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -4465,10 +4537,7 @@ mod tests {
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
-        assert_eq!(
-            state.unwrap().try_into_string().unwrap(),
-            "Hello, world!"
-        );
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -5128,8 +5197,10 @@ mod tests {
             Status::Expired,
             "an asset that used a stale dependency must be labeled Expired"
         );
-        // The produced value is still present (used, not discarded).
-        let state = asset.poll_state().await;
+        // The produced value is still present for explicit recovery, but normal poll treats
+        // Expired as unavailable.
+        assert!(asset.poll_state().await.is_none());
+        let state = asset.poll_state_also_expired().await;
         assert!(state.is_some(), "the produced value must be retained");
         assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
@@ -5180,9 +5251,18 @@ mod tests {
         queue.push_local_dependency(100, &d1).await; // dedup by id
         queue.push_local_dependency(100, &d3).await;
 
-        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(11));
-        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(12));
-        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(13));
+        assert_eq!(
+            queue.pop_local_dependency(100).await.map(|a| a.id()),
+            Some(11)
+        );
+        assert_eq!(
+            queue.pop_local_dependency(100).await.map(|a| a.id()),
+            Some(12)
+        );
+        assert_eq!(
+            queue.pop_local_dependency(100).await.map(|a| a.id()),
+            Some(13)
+        );
         assert!(queue.pop_local_dependency(100).await.is_none());
 
         queue.push_local_dependency(200, &d1).await;
@@ -5697,11 +5777,12 @@ mod tests {
             .await;
 
         let parent = manager.create_asset(parse_query("dep_error_parent").unwrap().into());
-        let fresh = manager
-            .get_dependency_asset(&parent, &query)
-            .await
-            .unwrap();
-        assert_ne!(fresh.id(), stale.id(), "stale Error dependency must be evicted");
+        let fresh = manager.get_dependency_asset(&parent, &query).await.unwrap();
+        assert_ne!(
+            fresh.id(),
+            stale.id(),
+            "stale Error dependency must be evicted"
+        );
         assert_ne!(fresh.status().await, Status::Error);
     }
 
@@ -5725,10 +5806,7 @@ mod tests {
             .await;
 
         let parent = manager.create_asset(parse_query("dep_cancelled_parent").unwrap().into());
-        let fresh = manager
-            .get_dependency_asset(&parent, &query)
-            .await
-            .unwrap();
+        let fresh = manager.get_dependency_asset(&parent, &query).await.unwrap();
         assert_ne!(
             fresh.id(),
             stale.id(),
@@ -5883,5 +5961,54 @@ mod tests {
         assert!(store.contains(&store_key).await.unwrap());
         let (data, _) = store.get(&store_key).await.unwrap();
         assert_eq!(data, b"Persist me");
+    }
+
+    #[tokio::test]
+    async fn test_expired_status_poll_state_none() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let key = parse_key("test/expired_poll_state.txt").unwrap();
+        let state = State::new().with_data(Value::from("stale"));
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new_ext(
+            99100,
+            key.into(),
+            state.clone(),
+            env.to_ref(),
+        );
+        asset_data.data = Some(Arc::new(Value::from("stale")));
+        asset_data.metadata = state.metadata.as_ref().clone();
+        asset_data.set_status(Status::Expired).unwrap();
+
+        assert!(asset_data.poll_state().is_none());
+        let expired_state = asset_data
+            .poll_state_also_expired()
+            .expect("explicit recovery path should expose expired data");
+        assert_eq!(expired_state.try_into_string().unwrap(), "stale");
+    }
+
+    #[tokio::test]
+    async fn test_untrack_releases_strong_ref() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("test/untrack_releases_strong_ref.txt").unwrap();
+        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id(),
+            key.into(),
+            envref.clone(),
+        )
+        .to_ref();
+        let weak = asset.downgrade();
+
+        manager.track_expiration(
+            &asset,
+            &ExpirationTime::At(chrono::Utc::now() + chrono::Duration::hours(1)),
+        );
+        manager.untrack_expiration(asset.id());
+        drop(asset);
+        tokio::task::yield_now().await;
+
+        assert!(weak.upgrade().is_none());
+        manager.shutdown();
     }
 }
