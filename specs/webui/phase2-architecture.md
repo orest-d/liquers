@@ -94,7 +94,8 @@ The existing `MenuAction` (`None | Quit | Query(String)` in `ui_spec_element.rs`
 the web backend's interaction needs are the *same concept*: "what a control does when
 triggered." Rather than a web-only `WebAction`, this design promotes it to a single
 reusable type in the shared UI layer, used by egui menus, the web backend, and any
-future backend, with an escape hatch for platform-specific actions.
+future backend. (Backend-specific actions are deliberately *not* modelled now; when a
+concrete need arises, a variant is added then — see "Future extension" below.)
 
 ```rust
 // liquers-lib/src/ui/action.rs  (new, shared — NOT web-specific)
@@ -107,11 +108,6 @@ future backend, with an escape hatch for platform-specific actions.
 /// (a delegated listener dispatches them), and for egui (a click handler runs them) —
 /// and it matches the framework's "events are queries" philosophy from
 /// `UI_INTERFACE_FSD.md`, where an interaction is a query to run, not imperative code.
-///
-/// `Platform` is the extension point for backend-specific behaviour that has no shared
-/// meaning (e.g. a browser-only "copy to clipboard"): the shared layer passes it
-/// through untouched and the owning backend decides what it means, so one backend's
-/// special actions never force a variant onto the others.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum UiAction {
@@ -133,14 +129,14 @@ pub enum UiAction {
     /// Enter without the renderer having to know the (future) typed value; on egui it
     /// maps to reading the field's buffer.
     SubmitInput { handle: UIHandle, input_id: String },
-    /// A backend-specific action opaque to the shared layer. `backend` names the
-    /// interpreter (e.g. "web"); `data` is its private payload. Unknown backends
-    /// treat it as `None`.
-    Platform { backend: String, data: serde_json::Value },
 }
 ```
 
-**No default match arm** anywhere: every dispatcher matches all six variants, so a new
+**Future extension:** if a backend later needs an action with no shared meaning (e.g. a
+browser-only "copy to clipboard"), a dedicated variant is added at that point. It is left
+out now to avoid an untyped `serde_json::Value` escape hatch before there is a concrete use.
+
+**No default match arm** anywhere: every dispatcher matches all five variants, so a new
 action kind is a compile error until handled by each backend. **`MenuAction` migration:**
 `MenuAction` is replaced by `UiAction` (or kept as a thin deprecated alias). Its custom
 YAML `Deserialize` (accepting `null` → `None`, `"quit"` → `Quit`, `{query: "..."}` →

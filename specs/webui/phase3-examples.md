@@ -203,8 +203,8 @@ for `ExtValue::UIElement`.
 - **Hostile content** never breaks markup: all text goes through `escape_html` (see Example 3).
 
 ### 4. Serialization
-- **`UiAction` round-trips** through serde_json (`SubmitQuery`, `Query`, `QueryOn`,
-  `SubmitInput`, `Platform`, `Quit`, `None`). Test: each variant JSON round-trips to itself.
+- **`UiAction` round-trips** through serde_json (`None`, `Quit`, `Query`, `QueryOn`,
+  `SubmitInput`). Test: each variant JSON round-trips to itself.
 - **`MenuAction` YAML back-compat** preserved on `UiAction`'s custom `Deserialize`: `null`→`None`,
   `"quit"`→`Quit`, `{query: "x"}`→`Query("x")`. Test: existing `ui_spec` YAML still parses.
 - **AppState ⇄ SSR parity.** Serialize a `DirectAppState`, deserialize, `render_app_ssr` →
