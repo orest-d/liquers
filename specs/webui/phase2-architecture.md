@@ -108,26 +108,23 @@ concrete need arises, a variant is added then — see "Future extension" below.)
 /// (a delegated listener dispatches them), and for egui (a click handler runs them) —
 /// and it matches the framework's "events are queries" philosophy from
 /// `UI_INTERFACE_FSD.md`, where an interaction is a query to run, not imperative code.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
+///
+/// Serde is hand-written (see "Serialization") so each variant has a compact **string**
+/// form and a bare query string deserializes straight to `Query`.
 pub enum UiAction {
     /// Do nothing. The default; also the target of a disabled/placeholder control.
     None,
     /// Request application shutdown (maps to `UIContext::request_quit`, or a
     /// backend-appropriate equivalent such as closing the browser tab's app root).
     Quit,
-    /// Submit `query` bound to the element that owns the control (its own handle, or
-    /// the active element if the control has none). Covers the common
-    /// "run this query here" case and matches `MenuAction::Query`.
+    /// Submit `query` bound to the element that owns the control (its own handle, or the
+    /// active element if the control has none). This is the workhorse variant and matches
+    /// `MenuAction::Query`. Targeting a *different* element is expressed **inside the
+    /// query** via `lui` navigation words — see "Why only `Query` (no `QueryOn`)".
     Query(String),
-    /// Submit `query` bound to an explicitly named element `handle`. Used when a
-    /// control targets a *different* element than the one it renders in (e.g. an
-    /// orthodox-commander button that refreshes the opposite pane).
-    QueryOn { handle: UIHandle, query: String },
-    /// Read the live text of the DOM/input control named `input_id` at trigger time
-    /// and submit it as a query for `handle`. This is how a text field submits on
-    /// Enter without the renderer having to know the (future) typed value; on egui it
-    /// maps to reading the field's buffer.
+    /// Read the live text of the input control named `input_id` at trigger time and submit
+    /// it as a query for `handle`. Needed because the typed value does not exist at render
+    /// time — only when the user hits Enter. See "How `SubmitInput` is used".
     SubmitInput { handle: UIHandle, input_id: String },
 }
 ```
@@ -136,13 +133,88 @@ pub enum UiAction {
 browser-only "copy to clipboard"), a dedicated variant is added at that point. It is left
 out now to avoid an untyped `serde_json::Value` escape hatch before there is a concrete use.
 
-**No default match arm** anywhere: every dispatcher matches all five variants, so a new
+**No default match arm** anywhere: every dispatcher matches all four variants, so a new
 action kind is a compile error until handled by each backend. **`MenuAction` migration:**
-`MenuAction` is replaced by `UiAction` (or kept as a thin deprecated alias). Its custom
-YAML `Deserialize` (accepting `null` → `None`, `"quit"` → `Quit`, `{query: "..."}` →
-`Query`) is preserved on `UiAction` so existing `ui_spec` YAML keeps working unchanged;
+`MenuAction` is replaced by `UiAction` (or kept as a thin deprecated alias);
 `ui_spec_element.rs`'s `handle_menu_action` becomes a shared `dispatch_action(&UiAction,
 &UIContext, own_handle)` used by both egui and web.
+
+#### Serialization (custom, string-first)
+
+`UiAction` implements `Serialize`/`Deserialize` by hand (like `MenuAction` today) so that
+each variant has a **compact string form**, and — the convenience the design calls for — a
+plain query string deserializes directly to `Query`. This keeps `data-lq-action` attributes
+and `ui_spec` YAML terse and human-writable.
+
+**String forms (what `Serialize` emits, and the primary `Deserialize` input):**
+
+| Variant | String form | Notes |
+|---------|-------------|-------|
+| `None` | `"none"` (also accepts `null`) | reserved keyword |
+| `Quit` | `"quit"` | reserved keyword |
+| `Query(q)` | the bare query, e.g. `"dashboard/q/ns-lui/add-child"` | **any string that is not a reserved keyword / `input:` prefix** |
+| `SubmitInput { handle, input_id }` | `"input:{handle}:{input_id}"`, e.g. `"input:5:qc-input-5"` | `input:` prefix, colon-separated |
+
+**Deserialize also accepts explicit map forms** (for clarity and `MenuAction` back-compat):
+`null` → `None`; `{query: "..."}` → `Query`; `{submit_input: {handle, input_id}}` →
+`SubmitInput`. Reserved forms win on ambiguity: a query that is literally `"quit"` / `"none"`
+or begins with `"input:"` must use the explicit `{query: "..."}` map form (documented edge
+case; such queries are vanishingly rare).
+
+**Examples.**
+
+```jsonc
+// JSON (as stored in a data-lq-action attribute, which holds one JSON value):
+"dashboard/q/ns-lui/add-child"      // → UiAction::Query("dashboard/q/ns-lui/add-child")
+"quit"                              // → UiAction::Quit
+"none"                              // → UiAction::None   (null also accepted)
+"input:5:qc-input-5"                // → UiAction::SubmitInput { handle: 5, input_id: "qc-input-5" }
+{ "query": "quit" }                 // → UiAction::Query("quit")  (explicit form for the edge case)
+```
+
+```yaml
+# ui_spec YAML (unchanged from MenuAction, plus the new bare-string convenience):
+action: quit                        # → Quit
+action:                             # (null/omitted) → None
+action: { query: "dashboard/q/ns-lui/add-child" }   # → Query(...)
+action: "text-hello/ns-lui/markdown/q/add-child"    # → Query(...)  (bare string now works)
+```
+
+```html
+<!-- In rendered markup, action_attr(&UiAction::Query("...")) produces: -->
+<button data-lq-action='"dashboard/q/ns-lui/add-child"'>Add Dashboard</button>
+```
+
+#### Why only `Query` (no `QueryOn`)
+
+An earlier draft had a `QueryOn { handle, query }` to target a different element. It is
+**removed as redundant**: `Query` binds the query to the owning element as the *current*
+element, and cross-element targeting is already expressible **inside the query** through the
+`lui` navigation words that `resolve_navigation` accepts —
+`current | parent | next | prev | first | last | root | <handle-number>`. So a control that
+must act on another element encodes that in its query rather than in the action, e.g. an
+orthodox-commander "view in the other pane" is `.../-/view/-/ns-lui/add-instead-next`
+(navigate to the `next` sibling), and an absolute target is just the handle number. This is
+exactly how the existing egui/`MenuAction` path works (only `Query`, bound to the owner), so
+the web backend gains nothing from a second variant.
+
+#### How `SubmitInput` is used
+
+`SubmitInput` exists for text-entry controls whose value is not known at render time — the
+canonical case is the **query console**. `QueryConsoleElement::render_web` emits an input with
+a stable id and an Enter/submit control carrying the action:
+
+```html
+<input id="qc-input-7" class="lq-query-input" value=""/>
+<!-- Enter (or a Go button) carries: -->
+<span data-lq-action='"input:7:qc-input-7"'>…</span>   <!-- SubmitInput { handle: 7, input_id: "qc-input-7" } -->
+```
+
+When the user presses Enter, the delegated listener reads the **live** value of
+`#qc-input-7` from the DOM and calls `UIContext::submit_query(handle = 7, that_value)` — i.e.
+the console evaluates whatever the user typed, bound to its own handle. This is the web analog
+of the egui console reading `self.query_text` on Enter (`query_console_element.rs`); a plain
+`Query` can't express it because the renderer doesn't yet know what the user will type.
 
 ### `MountHandle` — keeps a browser mount alive
 

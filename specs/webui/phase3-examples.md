@@ -203,10 +203,15 @@ for `ExtValue::UIElement`.
 - **Hostile content** never breaks markup: all text goes through `escape_html` (see Example 3).
 
 ### 4. Serialization
-- **`UiAction` round-trips** through serde_json (`None`, `Quit`, `Query`, `QueryOn`,
-  `SubmitInput`). Test: each variant JSON round-trips to itself.
+- **`UiAction` string-form round-trips** (custom serde) for all four variants: `None`⇄`"none"`,
+  `Quit`⇄`"quit"`, `Query(q)`⇄the bare query string, `SubmitInput{h,id}`⇄`"input:{h}:{id}"`.
+  Test: each variant serializes to its string form and deserializes back to itself.
+- **Bare query string → `Query`.** Test: `"dashboard/q/ns-lui/add-child"` deserializes to
+  `UiAction::Query(...)`; the edge case `{query: "quit"}` (explicit map) yields `Query("quit")`,
+  not `Quit`.
 - **`MenuAction` YAML back-compat** preserved on `UiAction`'s custom `Deserialize`: `null`→`None`,
-  `"quit"`→`Quit`, `{query: "x"}`→`Query("x")`. Test: existing `ui_spec` YAML still parses.
+  `"quit"`→`Quit`, `{query: "x"}`→`Query("x")`, and a bare `action: "..."` string→`Query`. Test:
+  existing `ui_spec` YAML still parses.
 - **AppState ⇄ SSR parity.** Serialize a `DirectAppState`, deserialize, `render_app_ssr` →
   identical HTML topology/ids (element `#[serde(skip)]` runtime values are absent by design;
   ids/titles/structure persist). Test: build tree, JSON round-trip, assert same element ids in HTML.
@@ -252,8 +257,9 @@ Conventions: `-> Result<(), Box<dyn std::error::Error>>` where `?` is used; type
 `error_html` return non-empty markup containing the salient text; `dataframe_to_html` includes a
 `<th>` header row, caps at `max_rows`, and escapes cell values.
 
-**`ui/action.rs`:** `UiAction` serde_json round-trip for every variant; `MenuAction`-form YAML
-(`null`/`"quit"`/`{query}`) deserializes to the right `UiAction`; a shared `dispatch_action`
+**`ui/action.rs`:** `UiAction` string-form serde round-trip for every variant (`"none"`,
+`"quit"`, bare query string, `"input:{h}:{id}"`); bare query string → `Query`; `MenuAction`-form
+YAML (`null`/`"quit"`/`{query}`/bare string) deserializes to the right `UiAction`; a shared `dispatch_action`
 sends the expected `AppMessage` on a test channel (mirrors existing `query_console` tests).
 
 **Per element `render_web` (in each element's test module):**
