@@ -141,6 +141,22 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
             crate::ui::web::html::escape_html(&self.title()),
         )
     }
+
+    /// Render/update this element in the live browser DOM (wasm only). The default builds the
+    /// DOM subtree from `render_web` via `set_inner_html`, keeping browser output identical to
+    /// SSR. Stateful elements may override to patch their existing DOM in place (e.g. to
+    /// preserve a text input's focus). Takes `&mut self` so the driver uses extract-render-replace.
+    #[cfg(all(feature = "webui", target_arch = "wasm32"))]
+    fn show_in_web(
+        &mut self,
+        _document: &web_sys::Document,
+        container: &web_sys::Element,
+        _ctx: &UIContext,
+        app_state: &mut dyn super::app_state::AppState,
+    ) -> Result<(), Error> {
+        container.set_inner_html(&self.render_web(app_state));
+        Ok(())
+    }
 }
 
 impl Clone for Box<dyn UIElement> {
