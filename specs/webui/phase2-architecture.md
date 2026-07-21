@@ -321,8 +321,10 @@ needs a wasm-runtime adaptation (see next section).
 
 ### The load-bearing issue: async runtime on wasm
 
-The core evaluation engine is built on tokio's runtime, which **does not run on
-`wasm32-unknown-unknown`** with stock tokio:
+The core evaluation engine is built on tokio's runtime. Stock tokio *does* target
+`wasm32-unknown-unknown` (current-thread `rt` + `time` + `sync` + `macros`), so the plan is
+to keep it — but this must be configured correctly and proven by test. The spawn/timer sites
+that must run in the browser:
 
 - `liquers-core/src/assets.rs` — **~20** `tokio::spawn` / `tokio::time::sleep` sites
   (in-flight evaluation, service-message pumps, expiration monitor).
@@ -337,17 +339,25 @@ strictly a **browser-mode** problem, and it is the primary gate on a working bro
 example.
 
 **Chosen resolution (Option A — keep tokio on wasm, verify by test).** tokio has partial
-`wasm32-unknown-unknown` support: the `sync`, `macros`, `rt`, and `time` features are
-intended to work there (the `net`/`fs`/`rt-multi-thread` features are not). The plan is to
-**keep the code calling `tokio::*` unchanged** and run it on wasm on a tokio
-**current-thread runtime**, entered so `tokio::spawn`/`tokio::time` have a context. The
-existing `spawn_ui_task` helper (which cfg-splits native `tokio::spawn` vs
+`wasm32-unknown-unknown` support and the plan is to **keep the code calling `tokio::*`
+unchanged**, running on a tokio **current-thread runtime** entered so `tokio::spawn` /
+`tokio::time` have a context. The `spawn_ui_task` helper (native `tokio::spawn` vs
 `wasm_bindgen_futures::spawn_local`) still applies at the UI layer; the core keeps raw
-`tokio::spawn`, driven by that current-thread runtime.
+`tokio::spawn`.
 
-Two concrete manifest consequences (verified against the current `Cargo.toml`):
-- `liquers-core` currently enables `tokio`'s **`fs`** feature, which does **not** compile
-  on wasm. The wasm target must drop `fs`:
+**tokio features actually needed on wasm (verified against the source, not just the
+manifest):**
+- `sync` — used (`tokio::sync::{Mutex, RwLock, mpsc}`, ~10 sites). Runtime-agnostic; wasm-fine.
+- `macros` — used (`tokio::select!` in `assets.rs`, 2 non-test sites; plus `#[tokio::test]`).
+- `rt` — needed for `tokio::spawn` and to enter a current-thread runtime.
+- `time` — used (`tokio::time::sleep`); the one whose wasm timer must be confirmed by test.
+- `fs` — used **only** by `AsyncFileStore` in `store.rs` (a native filesystem store, useless
+  in the browser). It is currently gated only by `#[cfg(feature = "async_store")]`, which also
+  provides `AsyncMemoryStore` (wanted on wasm). Fix: additionally gate `AsyncFileStore` (and
+  its `tokio::fs` block) with `#[cfg(not(target_arch = "wasm32"))]`, then drop `fs` on wasm.
+- `net`/`io`/`rt-multi-thread` — unused.
+
+So the manifest split is `sync + rt + macros + time` on wasm, `+ fs` on native:
 
   ```toml
   [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -355,9 +365,17 @@ Two concrete manifest consequences (verified against the current `Cargo.toml`):
   [target.'cfg(target_arch = "wasm32")'.dependencies]
   tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }  # no fs/net
   ```
-- The browser bootstrap needs a runtime to enter before spawning (a current-thread
-  `tokio::runtime::Runtime`, or driving the top-level future via `spawn_local` with the
-  runtime entered). `mount_web` owns this setup.
+
+- The browser bootstrap enters a current-thread `tokio::runtime::Runtime` before spawning
+  (or drives the top-level future via `spawn_local` with the runtime entered). `mount_web`
+  owns this.
+
+**JobQueue on wasm — trivial but sound.** `JobQueue<E>` is capacity-based (`running_count`,
+`capacity`, default 4) using `tokio::spawn` + `AtomicUsize` — no `spawn_blocking`, no
+`rt-multi-thread`. On the single-threaded wasm runtime there is no real parallelism, so the
+`AssetManager` is constructed with **capacity 1**: jobs are serialized (start-one, then the
+next), which is exactly what a single thread wants. The queue machinery itself is unchanged
+and works as-is; capacity 1 is just the natural degenerate case, not a special code path.
 
 **This must be proven, not assumed.** Whether stock tokio's `spawn`/`time` actually run
 under the browser event loop — including the `AssetManager`'s job queue and expiration
@@ -649,10 +667,17 @@ console add `show_in_web` and route its `tokio::spawn`/`tokio::time::sleep` thro
 
 **Modify `src/ui/shortcuts.rs`:** gate `Key::to_egui`.
 
-**wasm tokio features:** in `liquers-core` (and any crate enabling `tokio`'s `fs`),
-cfg-split the manifest so the `wasm32` target drops `fs`/`net` (keeps
-`sync`/`rt`/`macros`/`time`) — see "Browser Runtime". No `tokio_with_wasm` unless testing
-shows plain tokio is insufficient on wasm.
+**Modify `liquers-core/src/store.rs`:** gate `AsyncFileStore` (and its `tokio::fs` block)
+with `#[cfg(not(target_arch = "wasm32"))]` so `AsyncMemoryStore` (needed on wasm) stays but
+the native filesystem store is excluded there.
+
+**wasm tokio features:** cfg-split `liquers-core`'s manifest so the `wasm32` target drops
+`fs`/`net` (keeps `sync`/`rt`/`macros`/`time`) — see "Browser Runtime". No `tokio_with_wasm`
+unless testing shows plain tokio is insufficient on wasm.
+
+**Browser bootstrap detail:** `mount_web` constructs the `AssetManager` with **capacity 1**
+(single-threaded wasm → serialized jobs; the queue is otherwise unchanged) and enters a
+current-thread tokio runtime before spawning.
 
 ### Dependencies — `liquers-lib/Cargo.toml`
 
