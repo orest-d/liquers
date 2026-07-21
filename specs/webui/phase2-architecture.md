@@ -19,8 +19,9 @@ serialized, framework-agnostic **`UiAction`** (a unification of the existing
 delegated event listener that turns those into `UIContext` calls — so there are no
 per-widget closures. A prerequisite deliverable makes egui optional (a new `egui`
 Cargo feature). Finally — and this is the load-bearing risk — the core evaluation
-engine uses `tokio::spawn`/`tokio::time`, which do not run on wasm; browser mode
-therefore also requires a wasm async-runtime shim (see "Browser Runtime & Workflow").
+engine uses `tokio::spawn`/`tokio::time`; the plan (Option A) is to keep using tokio on
+wasm via its `wasm32` support on a current-thread runtime, and **prove it runs in the
+browser by test** (see "Browser Runtime & Workflow").
 
 ## Rendering Model — `render_web` (SSR) + `show_in_web` (DOM)
 
@@ -330,34 +331,46 @@ The core evaluation engine is built on tokio's runtime, which **does not run on
 - `liquers-lib/src/ui/element.rs:323`, `query_console_element.rs:149` — UI-layer spawns
   (+ a `tokio::time::sleep`).
 
-`tokio::spawn` needs a runtime context and `tokio::time` needs the timer driver; neither
-exists on wasm. The `spawn_ui_task` helper already cfg-splits native vs
-`wasm_bindgen_futures::spawn_local`, showing the intended pattern — but it was never
-applied in core. **SSR is unaffected** (it runs on a native server with a real tokio
-runtime); this is strictly a **browser-mode** problem, and it is the primary gate on a
-working browser example.
+`tokio::spawn` needs an active runtime context and `tokio::time` needs the timer driver.
+**SSR is unaffected** (it runs on a native server with a real tokio runtime); this is
+strictly a **browser-mode** problem, and it is the primary gate on a working browser
+example.
 
-**Recommended resolution (least invasive):** add a wasm-only drop-in shim —
-`tokio_with_wasm` (re-exports `tokio`'s `spawn`/`time`/`sync` APIs backed by
-`wasm-bindgen-futures` and browser timers) — wired via a cfg-gated dependency alias so
-core code keeps calling `tokio::*` unchanged:
+**Chosen resolution (Option A — keep tokio on wasm, verify by test).** tokio has partial
+`wasm32-unknown-unknown` support: the `sync`, `macros`, `rt`, and `time` features are
+intended to work there (the `net`/`fs`/`rt-multi-thread` features are not). The plan is to
+**keep the code calling `tokio::*` unchanged** and run it on wasm on a tokio
+**current-thread runtime**, entered so `tokio::spawn`/`tokio::time` have a context. The
+existing `spawn_ui_task` helper (which cfg-splits native `tokio::spawn` vs
+`wasm_bindgen_futures::spawn_local`) still applies at the UI layer; the core keeps raw
+`tokio::spawn`, driven by that current-thread runtime.
 
-```toml
-# in the crates that spawn (liquers-core, liquers-lib), conceptually:
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["rt", "sync", "macros", "time"] }
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { package = "tokio_with_wasm", version = "...", features = ["sync", "macros", "time"] }
-```
+Two concrete manifest consequences (verified against the current `Cargo.toml`):
+- `liquers-core` currently enables `tokio`'s **`fs`** feature, which does **not** compile
+  on wasm. The wasm target must drop `fs`:
 
-Alternatives considered: (B) route every core spawn through a `spawn_ui_task`-style
-abstraction — correct but a large, invasive change to `assets.rs`; (C) a reduced
-"immediate-only" browser mode using `evaluate_immediately` and disabling background
-monitors — smaller but still hits `AssetManager`'s internal spawns, so not obviously
-sufficient. **(A) is the recommended path; verifying `AssetManager` actually runs under
-the shim is the top Phase-3/4 risk and a gating success criterion.** The `webui` feature
-pulls the shim in on wasm; `tokio::time::sleep` in `schedule_volatile_refresh` is covered
-by the same shim (or swapped for `gloo-timers`).
+  ```toml
+  [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+  tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time", "fs"] }
+  [target.'cfg(target_arch = "wasm32")'.dependencies]
+  tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }  # no fs/net
+  ```
+- The browser bootstrap needs a runtime to enter before spawning (a current-thread
+  `tokio::runtime::Runtime`, or driving the top-level future via `spawn_local` with the
+  runtime entered). `mount_web` owns this setup.
+
+**This must be proven, not assumed.** Whether stock tokio's `spawn`/`time` actually run
+under the browser event loop — including the `AssetManager`'s job queue and expiration
+monitor — is the **top Phase-3/4 risk and a gating success criterion**: the Playwright
+example only passes if the async evaluation engine actually turns on wasm.
+
+**Fallbacks if plain tokio proves insufficient on wasm** (documented, not adopted now):
+(A′) swap in `tokio_with_wasm` — a drop-in that re-exports tokio's `spawn`/`time`/`sync`
+backed by `wasm-bindgen-futures`/browser timers — via the same cfg-gated dependency alias,
+zero code change; (B) isolate spawning/timing behind an `Environment`-provided `Spawn` seam
+(investigated: feasible, but a moderate refactor of ~23 core sites and threading a spawner
+into `AssetManager` construction). These are the contingency, kept on the shelf; Option A is
+the path.
 
 ### How the workflow runs in a browser (high level)
 
@@ -375,7 +388,7 @@ by the same shim (or swapped for `gloo-timers`).
    `AppRunner::run(&app_state)` (process messages, evaluate pending nodes, poll
    evaluations, deliver snapshots), then, when `needs_repaint()`, re-renders the affected
    element(s) via `render_element_dom`. All async work runs on the wasm executor (the
-   runtime shim), single-threaded.
+   current-thread tokio runtime), single-threaded.
 5. **Interact.** A click/keydown bubbles to the delegated listener, which finds the nearest
    `[data-lq-action]`, deserializes the `UiAction`, and calls the matching `UIContext`
    method (e.g. `submit_query`). That enqueues a query; the next `run()` tick evaluates it
@@ -606,7 +619,7 @@ From<SimpleUIPayload>`). No new bounds; `render_web`/`show_in_web` are concrete 
 | `render_app_ssr`, `mount_web` | Yes | Lock the async `AppState` mutex / drive the async `AppRunner`. |
 
 Rendering is synchronous; evaluation and state polling stay async and reuse `AppRunner`
-(under the wasm runtime shim in the browser).
+(on a current-thread tokio runtime in the browser).
 
 ## Integration Points
 
@@ -636,8 +649,10 @@ console add `show_in_web` and route its `tokio::spawn`/`tokio::time::sleep` thro
 
 **Modify `src/ui/shortcuts.rs`:** gate `Key::to_egui`.
 
-**Runtime shim (wasm):** cfg-gated `tokio_with_wasm` alias in the crates that spawn
-(`liquers-core`, `liquers-lib`) — see "Browser Runtime".
+**wasm tokio features:** in `liquers-core` (and any crate enabling `tokio`'s `fs`),
+cfg-split the manifest so the `wasm32` target drops `fs`/`net` (keeps
+`sync`/`rt`/`macros`/`time`) — see "Browser Runtime". No `tokio_with_wasm` unless testing
+shows plain tokio is insufficient on wasm.
 
 ### Dependencies — `liquers-lib/Cargo.toml`
 
@@ -665,18 +680,23 @@ web-sys = { version = "0.3", optional = true, features = [
   "Event", "EventTarget", "InputEvent", "KeyboardEvent", "DomTokenList",
 ] }
 
-# wasm async-runtime shim (keeps core `tokio::*` calls working on wasm)
+# wasm keeps stock tokio (Option A) but must drop the `fs`/`net` features there.
+# This split belongs in every crate that enables tokio `fs` — notably liquers-core.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time", "fs"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio_with_wasm = { version = "...", features = ["sync", "macros", "time"] }
+tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
 ```
 
 **Version rationale:** egui unchanged (only made optional). `eframe` verified unused in
 `liquers-lib/src/` (examples only), so gating it is safe. `wasm-bindgen 0.2` / `web-sys 0.3`
 / `wasm-bindgen-futures 0.4` are the standard trio; `wasm-bindgen-futures` is already
 referenced by `spawn_ui_task` but missing from the manifest. `pulldown-cmark` replaces
-`egui_commonmark` for web markdown. `tokio_with_wasm` is the runtime shim; its exact version
-is pinned in Phase 4 after verifying it covers the `AssetManager` spawn/timer usage. The
-same `[target.cfg(wasm32)]` shim is needed in `liquers-core`'s manifest.
+`egui_commonmark` for web markdown. **Runtime (Option A):** keep stock `tokio` on wasm with
+`sync`/`rt`/`macros`/`time` (no `fs`/`net`), driven by a current-thread runtime in
+`mount_web`; this must be validated by the browser example (top Phase-3/4 risk). If plain
+tokio proves insufficient on wasm, the contingency is `tokio_with_wasm` as a drop-in via the
+same cfg alias — decided in Phase 4 based on the test result, not adopted now.
 
 ## Relevant Commands
 
@@ -717,7 +737,7 @@ infallible (`-> String`). Fallible pieces — `show_in_web`, `render_element_dom
 - Shared state stays `Arc<tokio::sync::Mutex<dyn AppState>>`, via `AppRunner` (async) and
   `try_sync_lock` during the browser `render_element_dom` pass.
 - Browser is single-threaded: `try_sync_lock` never contends; `Send` bounds are vacuous; all
-  async runs on the wasm executor (runtime shim).
+  async runs on the current-thread tokio runtime entered by `mount_web`.
 - One delegated listener (owned by `MountHandle`) is the only long-lived JS callback — no
   per-frame closure churn.
 
@@ -729,11 +749,11 @@ infallible (`-> String`). Fallible pieces — `show_in_web`, `render_element_dom
 - `cargo check -p liquers-lib --no-default-features --features egui,image-support` — egui only.
 - `cargo check -p liquers-lib --features egui,webui` — both coexist.
 - `cargo build --target wasm32-unknown-unknown -p <example-web-crate>` (via `trunk build`) —
-  the real browser build, including the runtime shim.
+  the real browser build, including the wasm tokio config.
 
 ## References to liquers-patterns.md
 
-- [x] Crate dependency flow respected (changes in liquers-lib; wasm shim also in core manifest).
+- [x] Crate dependency flow respected (changes in liquers-lib; wasm tokio-feature split also in core manifest).
 - [x] No new top-level value enums; egui variants gated; no new ExtValue variants.
 - [x] Commands unchanged — reuse `register_command!`-based `lui`.
 - [x] UIElement pattern followed (gated methods + per-element overrides; object-safe).
