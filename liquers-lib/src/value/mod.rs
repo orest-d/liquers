@@ -21,9 +21,11 @@ pub enum ExtValue {
     PolarsDataFrame {
         value: Arc<polars::frame::DataFrame>,
     },
+    #[cfg(feature = "egui")]
     UiCommand {
         value: crate::egui::UiCommand,
     },
+    #[cfg(feature = "egui")]
     Widget {
         value: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>,
     },
@@ -48,10 +50,11 @@ impl ExtValueInterface for ExtValue {
     fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error> {
         match self {
             ExtValue::Image { value } => Ok(value.clone()),
-            ExtValue::PolarsDataFrame { .. }
-            | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. }
-            | ExtValue::UIElement { .. } => {
+            ExtValue::PolarsDataFrame { .. } | ExtValue::UIElement { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
+            }
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
             }
         }
@@ -64,10 +67,12 @@ impl ExtValueInterface for ExtValue {
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             ExtValue::PolarsDataFrame { value } => Ok(value.clone()),
-            ExtValue::Image { .. }
-            | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. }
-            | ExtValue::UIElement { .. } => Err(Error::conversion_error(
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "Polars dataframe",
+            )),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
                 "Polars dataframe",
             )),
@@ -79,10 +84,11 @@ impl ExtValueInterface for ExtValue {
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error> {
         match self {
             ExtValue::UIElement { value } => Ok(value.clone()),
-            ExtValue::Image { .. }
-            | ExtValue::PolarsDataFrame { .. }
-            | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. } => Err(Error::conversion_error(
+            ExtValue::Image { .. } | ExtValue::PolarsDataFrame { .. } => Err(
+                Error::conversion_error(self.identifier().as_ref(), "UIElement"),
+            ),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
                 "UIElement",
             )),
@@ -94,7 +100,9 @@ impl ValueExtension for ExtValue {
     fn identifier(&self) -> Cow<'static, str> {
         match self {
             ExtValue::PolarsDataFrame { .. } => "polars_dataframe".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "ui_command".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
@@ -104,7 +112,9 @@ impl ValueExtension for ExtValue {
     fn type_name(&self) -> Cow<'static, str> {
         match self {
             ExtValue::PolarsDataFrame { .. } => "polars_dataframe".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "ui_command".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
@@ -114,7 +124,9 @@ impl ValueExtension for ExtValue {
     fn default_extension(&self) -> Cow<'static, str> {
         match self {
             ExtValue::PolarsDataFrame { .. } => "csv".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "ui".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "png".into(),
             ExtValue::UIElement { .. } => "ui".into(),
@@ -124,7 +136,9 @@ impl ValueExtension for ExtValue {
     fn default_filename(&self) -> Cow<'static, str> {
         match self {
             ExtValue::PolarsDataFrame { .. } => "data.csv".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "data.ui".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "data.widget".into(),
             ExtValue::Image { .. } => "image.png".into(),
             ExtValue::UIElement { .. } => "element.ui".into(),
@@ -134,7 +148,9 @@ impl ValueExtension for ExtValue {
     fn default_media_type(&self) -> Cow<'static, str> {
         match self {
             ExtValue::PolarsDataFrame { .. } => "text/csv".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "application/octet-stream".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "application/octet-stream".into(),
             ExtValue::Image { .. } => "image/png".into(),
             ExtValue::UIElement { .. } => "application/octet-stream".into(),

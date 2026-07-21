@@ -195,6 +195,7 @@ impl QueryConsoleElement {
 
     /// Render the single-row toolbar.
     /// Layout: [<] [>] [query_field] [Data/Metadata] [Presets v] [status]
+    #[cfg(feature = "egui")]
     fn show_toolbar(&mut self, ui: &mut egui::Ui, ctx: &UIContext) {
         ui.horizontal(|ui| {
             // Back button
@@ -278,6 +279,7 @@ impl QueryConsoleElement {
     }
 
     /// Render the content area: either data view or metadata pane.
+    #[cfg(feature = "egui")]
     fn show_content(&mut self, ui: &mut egui::Ui, ctx: &UIContext, app_state: &mut dyn AppState) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.data_view && self.value.is_some() {
@@ -297,6 +299,7 @@ impl QueryConsoleElement {
     }
 
     /// Render the scrollable metadata pane.
+    #[cfg(feature = "egui")]
     fn show_metadata_pane(&self, ui: &mut egui::Ui) {
         // Show error if present
         if let Some(ref err) = self.error {
@@ -409,6 +412,7 @@ impl UIElement for QueryConsoleElement {
         self.metadata.clone()
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,

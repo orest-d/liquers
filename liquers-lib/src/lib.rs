@@ -1,4 +1,5 @@
 pub mod commands;
+#[cfg(feature = "egui")]
 pub mod egui;
 pub mod environment;
 pub mod image;

@@ -327,6 +327,7 @@ impl UISpecElement {
     }
 
     // Helper methods for menu rendering
+    #[cfg(feature = "egui")]
     fn render_menu_bar(&self, ui: &mut egui::Ui, menu_spec: &MenuBarSpec, ctx: &UIContext) {
         for item in &menu_spec.items {
             match item {
@@ -344,6 +345,7 @@ impl UISpecElement {
         }
     }
 
+    #[cfg(feature = "egui")]
     fn render_menu_items(&self, ui: &mut egui::Ui, items: &[MenuItem], ctx: &UIContext) {
         for item in items {
             match item {
@@ -365,6 +367,7 @@ impl UISpecElement {
         }
     }
 
+    #[cfg(feature = "egui")]
     fn handle_menu_action(&self, action: &MenuAction, ctx: &UIContext) {
         match action {
             MenuAction::Quit => {
@@ -379,6 +382,7 @@ impl UISpecElement {
         }
     }
 
+    #[cfg(feature = "egui")]
     fn check_shortcut(&self, ui: &egui::Ui, shortcut_str: &str) -> bool {
         use crate::ui::shortcuts::KeyboardShortcut;
 
@@ -449,6 +453,7 @@ impl UIElement for UISpecElement {
         UpdateResponse::Unchanged
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,

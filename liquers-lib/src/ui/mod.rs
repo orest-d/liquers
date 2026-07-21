@@ -29,6 +29,7 @@ pub use ui_context::UIContext;
 pub use widgets::QueryConsoleElement;
 pub use widgets::UISpecElement;
 
+#[cfg(feature = "egui")]
 pub use element::render_element;
 
 // ─── Cross-Platform Helpers ─────────────────────────────────────────────────

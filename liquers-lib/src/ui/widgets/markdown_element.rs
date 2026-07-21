@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+#[cfg(feature = "egui")]
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,7 @@ pub struct MarkdownElement {
     /// The markdown source text (persistent across save/load).
     markdown_text: String,
     /// egui_commonmark rendering cache (runtime-only, rebuilt on deserialization).
+    #[cfg(feature = "egui")]
     #[serde(skip)]
     cache: CommonMarkCache,
 }
@@ -35,6 +37,7 @@ impl Clone for MarkdownElement {
             handle: self.handle,
             title_text: self.title_text.clone(),
             markdown_text: self.markdown_text.clone(),
+            #[cfg(feature = "egui")]
             cache: CommonMarkCache::default(),
         }
     }
@@ -47,6 +50,7 @@ impl MarkdownElement {
             handle: None,
             title_text: title,
             markdown_text,
+            #[cfg(feature = "egui")]
             cache: CommonMarkCache::default(),
         }
     }
@@ -118,6 +122,7 @@ impl UIElement for MarkdownElement {
         None
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,

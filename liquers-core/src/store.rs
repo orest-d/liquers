@@ -809,14 +809,15 @@ impl AsyncStore for AsyncMemoryStore {
 }
 
 /// Async-native file store implementation.
-#[cfg(feature = "async_store")]
+/// Uses `tokio::fs`, unavailable on wasm — excluded from `wasm32` targets.
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 #[derive(Debug, Clone)]
 pub struct AsyncFileStore {
     pub path: PathBuf,
     pub prefix: Key,
 }
 
-#[cfg(feature = "async_store")]
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 impl AsyncFileStore {
     const METADATA: &'static str = ".__metadata__";
     const LOCK: &'static str = ".__lock__";
@@ -911,7 +912,7 @@ impl Drop for FileLockGuard {
     }
 }
 
-#[cfg(feature = "async_store")]
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 #[async_trait]
 impl AsyncStore for AsyncFileStore {
     fn store_name(&self) -> String {

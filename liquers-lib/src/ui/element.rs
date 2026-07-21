@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use egui::debug_text::print;
 use serde::{Deserialize, Serialize};
 
 use liquers_core::error::Error;
@@ -119,6 +118,7 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
     /// recursively render children using the extract-render-replace pattern.
     ///
     /// The `UIContext` provides a message channel for submitting async work.
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -507,6 +507,7 @@ impl UIElement for AssetViewElement {
         }
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -648,6 +649,7 @@ impl UIElement for StateViewElement {
         self.metadata.clone()
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -677,6 +679,7 @@ impl UIElement for StateViewElement {
 /// This allows container elements to recursively render children via the
 /// `app_state` parameter passed to `show_in_egui`. The lock blocks async tasks
 /// during rendering, which is acceptable for egui's synchronous render loop.
+#[cfg(feature = "egui")]
 pub fn render_element(ui: &mut egui::Ui, handle: UIHandle, ctx: &UIContext) {
     // 1. Acquire lock for the entire render cycle.
     let mut state = match super::try_sync_lock(ctx.app_state()) {

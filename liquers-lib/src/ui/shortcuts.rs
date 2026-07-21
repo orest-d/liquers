@@ -348,6 +348,7 @@ impl Key {
     }
 
     /// Convert to egui::Key
+    #[cfg(feature = "egui")]
     pub fn to_egui(&self) -> egui::Key {
         match self {
             Key::A => egui::Key::A,
@@ -432,6 +433,7 @@ impl Key {
     }
 
     /// Convert from egui::Key (returns None for unsupported keys)
+    #[cfg(feature = "egui")]
     pub fn from_egui(key: egui::Key) -> Option<Self> {
         match key {
             egui::Key::A => Some(Key::A),
@@ -575,6 +577,7 @@ impl Modifiers {
     }
 
     /// Convert to egui::Modifiers (WASM-safe)
+    #[cfg(feature = "egui")]
     pub fn to_egui(&self) -> egui::Modifiers {
         egui::Modifiers {
             alt: self.alt,
@@ -585,6 +588,7 @@ impl Modifiers {
     }
 
     /// Convert from egui::Modifiers
+    #[cfg(feature = "egui")]
     pub fn from_egui(m: egui::Modifiers) -> Self {
         Self {
             alt: m.alt,
@@ -632,11 +636,13 @@ impl KeyboardShortcut {
     }
 
     /// Convert to egui::KeyboardShortcut
+    #[cfg(feature = "egui")]
     pub fn to_egui(&self) -> egui::KeyboardShortcut {
         egui::KeyboardShortcut::new(self.modifiers.to_egui(), self.key.to_egui())
     }
 }
 
+#[cfg(feature = "egui")]
 impl From<egui::KeyboardShortcut> for KeyboardShortcut {
     fn from(shortcut: egui::KeyboardShortcut) -> Self {
         Self {
