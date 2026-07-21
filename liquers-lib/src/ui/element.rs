@@ -128,6 +128,19 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
         println!("Showing element: {} - UNDEFINED show_in_egui", self.title());
         ui.label(self.title())
     }
+
+    /// Produce this element's complete HTML subtree as a string (SSR source of truth,
+    /// shared by server-side rendering and the browser). Pure `&self`. The default renders
+    /// a titled block; container elements override and recurse via `app_state.get_element`.
+    #[cfg(feature = "webui")]
+    fn render_web(&self, _app_state: &dyn super::app_state::AppState) -> String {
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-{}\">{}</div>",
+            crate::ui::web::element_dom_id(self.handle()),
+            crate::ui::web::html::escape_html(self.type_name()),
+            crate::ui::web::html::escape_html(&self.title()),
+        )
+    }
 }
 
 impl Clone for Box<dyn UIElement> {
@@ -559,6 +572,44 @@ impl UIElement for AssetViewElement {
             }
         }
     }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn super::app_state::AppState) -> String {
+        use crate::ui::web::{element_dom_id, html, widgets};
+        let inner = match &self.view_mode {
+            AssetViewMode::Progress => {
+                if let Some(info) = self.progress_info() {
+                    format!(
+                        "{}{}",
+                        widgets::progress_html(&info.progress),
+                        widgets::status_html(info.status)
+                    )
+                } else {
+                    format!(
+                        "<div class=\"lq-spinner\">Evaluating: {}</div>",
+                        html::escape_html(&self.title_text)
+                    )
+                }
+            }
+            AssetViewMode::Value => match self.value() {
+                Some(value) => html::value_to_html(value.as_ref(), app_state),
+                None => "<div>No value available</div>".to_string(),
+            },
+            AssetViewMode::Metadata => match self.progress_info() {
+                Some(info) => widgets::asset_info_html(&info),
+                None => "<div>No metadata available</div>".to_string(),
+            },
+            AssetViewMode::Error => match self.error() {
+                Some(err) => widgets::error_html(&err),
+                None => "<div class=\"lq-error\">Unknown error</div>".to_string(),
+            },
+        };
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-AssetViewElement\">{}</div>",
+            element_dom_id(self.handle()),
+            inner
+        )
+    }
 }
 
 // ─── StateViewElement ──────────────────────────────────────────────────────
@@ -664,6 +715,20 @@ impl UIElement for StateViewElement {
         } else {
             ui.label("No value available (deserialized)")
         }
+    }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn super::app_state::AppState) -> String {
+        use crate::ui::web::{element_dom_id, html::value_to_html};
+        let inner = match &self.value {
+            Some(value) => value_to_html(value.as_ref(), app_state),
+            None => "<div>No value available (deserialized)</div>".to_string(),
+        };
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-StateViewElement\">{}</div>",
+            element_dom_id(self.handle()),
+            inner
+        )
     }
 }
 

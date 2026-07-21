@@ -426,6 +426,59 @@ impl UIElement for QueryConsoleElement {
         })
         .response
     }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn AppState) -> String {
+        use crate::ui::action::UiAction;
+        use crate::ui::web::html::{action_attr, escape_html, value_to_html};
+        use crate::ui::web::{element_dom_id, widgets};
+
+        let dom_id = element_dom_id(self.handle());
+        let hid = self.handle().map(|h| h.0).unwrap_or(0);
+        let input_id = format!("qc-input-{}", hid);
+
+        // Toolbar: query input + a Go control carrying Apply { query: "ns-lui/submit" }.
+        let go_attr = match self.handle() {
+            Some(h) => action_attr(&UiAction::Apply {
+                handle: h,
+                input_id: input_id.clone(),
+                query: "ns-lui/submit".to_string(),
+            }),
+            None => String::new(),
+        };
+        let toolbar = format!(
+            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"/><span class=\"lq-go\"{}>Go</span>{}</div>",
+            input_id,
+            escape_html(&self.query_text),
+            go_attr,
+            widgets::status_html(self.status)
+        );
+
+        // Content: data view (value) or metadata pane.
+        let content = if self.data_view {
+            match &self.value {
+                Some(v) => value_to_html(v.as_ref(), app_state),
+                None => String::new(),
+            }
+        } else {
+            match &self.metadata {
+                Some(m) => match m.get_asset_info() {
+                    Ok(info) => widgets::asset_info_html(&info),
+                    Err(_) => "<div>No metadata available</div>".to_string(),
+                },
+                None => "<div>No metadata available</div>".to_string(),
+            }
+        };
+        let error = match &self.error {
+            Some(e) => widgets::error_html(e),
+            None => String::new(),
+        };
+
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-QueryConsoleElement\">{}<div class=\"lq-qc-content\">{}{}</div></div>",
+            dom_id, toolbar, error, content
+        )
+    }
 }
 
 #[cfg(test)]

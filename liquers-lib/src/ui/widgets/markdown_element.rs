@@ -134,6 +134,19 @@ impl UIElement for MarkdownElement {
         });
         ui.allocate_response(output.content_size, egui::Sense::hover())
     }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, _app_state: &dyn AppState) -> String {
+        // pulldown-cmark converts markdown → HTML, escaping text content itself.
+        let parser = pulldown_cmark::Parser::new(&self.markdown_text);
+        let mut body = String::new();
+        pulldown_cmark::html::push_html(&mut body, parser);
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-MarkdownElement\">{}</div>",
+            crate::ui::web::element_dom_id(self.handle()),
+            body
+        )
+    }
 }
 
 #[cfg(test)]

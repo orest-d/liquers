@@ -1001,6 +1001,7 @@ mod tests {
         assert_eq!(errors[0].0, "Invalid+Foo");
     }
 
+    #[cfg(feature = "egui")]
     #[test]
     fn egui_conversion_round_trip() {
         let original = KeyboardShortcut::new(

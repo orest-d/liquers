@@ -550,6 +550,95 @@ impl UIElement for UISpecElement {
             }
         }
     }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn AppState) -> String {
+        use crate::ui::web::{element_dom_id, render_element_web};
+
+        let dom_id = element_dom_id(self.handle());
+
+        let mut menu_html = String::new();
+        if let Some(menu_spec) = &self.menu_spec {
+            menu_html.push_str("<div class=\"lq-menubar\">");
+            for item in &menu_spec.items {
+                menu_html.push_str(&render_top_level_item_web(item));
+            }
+            menu_html.push_str("</div>");
+        }
+
+        let layout_class = match &self.layout_spec {
+            LayoutSpec::Horizontal => "lq-layout-horizontal",
+            LayoutSpec::Vertical => "lq-layout-vertical",
+            LayoutSpec::Grid { .. } => "lq-layout-grid",
+            LayoutSpec::Tabs { .. } => "lq-layout-tabs",
+            LayoutSpec::Windows => "lq-layout-windows",
+        };
+
+        let child_handles = self
+            .handle()
+            .and_then(|h| app_state.children(h).ok())
+            .unwrap_or_default();
+        let mut children_html = String::new();
+        for ch in child_handles {
+            children_html.push_str(&render_element_web(ch, app_state));
+        }
+
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-UISpecElement\">{}<div class=\"lq-layout {}\">{}</div></div>",
+            dom_id, menu_html, layout_class, children_html
+        )
+    }
+}
+
+// ============================================================================
+// Web rendering helpers (menu bar → HTML with data-lq-action)
+// ============================================================================
+
+#[cfg(feature = "webui")]
+fn render_top_level_item_web(item: &TopLevelItem) -> String {
+    use crate::ui::web::html::{action_attr, escape_html};
+    match item {
+        TopLevelItem::Menu { label, items, .. } => {
+            let mut sub = String::new();
+            for mi in items {
+                sub.push_str(&render_menu_item_web(mi));
+            }
+            format!(
+                "<div class=\"lq-menu\"><span class=\"lq-menu-label\">{}</span><div class=\"lq-submenu\">{}</div></div>",
+                escape_html(label),
+                sub
+            )
+        }
+        TopLevelItem::Button { label, action, .. } => format!(
+            "<button class=\"lq-menu-button\"{}>{}</button>",
+            action_attr(action),
+            escape_html(label)
+        ),
+    }
+}
+
+#[cfg(feature = "webui")]
+fn render_menu_item_web(item: &MenuItem) -> String {
+    use crate::ui::web::html::{action_attr, escape_html};
+    match item {
+        MenuItem::Button { label, action, .. } => format!(
+            "<button class=\"lq-menu-button\"{}>{}</button>",
+            action_attr(action),
+            escape_html(label)
+        ),
+        MenuItem::Submenu { label, items, .. } => {
+            let mut sub = String::new();
+            for mi in items {
+                sub.push_str(&render_menu_item_web(mi));
+            }
+            format!(
+                "<div class=\"lq-submenu-item\"><span>{}</span><div class=\"lq-submenu\">{}</div></div>",
+                escape_html(label),
+                sub
+            )
+        }
+        MenuItem::Separator => "<hr class=\"lq-separator\"/>".to_string(),
+    }
 }
 
 // ============================================================================
