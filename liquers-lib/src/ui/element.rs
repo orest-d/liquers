@@ -320,7 +320,7 @@ impl AssetViewElement {
         let info_clone = info.clone();
         let error_clone = error.clone();
         let mut rx = asset_ref.subscribe_to_notifications().await;
-        tokio::spawn(async move {
+        crate::ui::spawn_ui_task(async move {
             loop {
                 match rx.changed().await {
                     Ok(()) => {

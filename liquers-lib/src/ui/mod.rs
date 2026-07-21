@@ -1,3 +1,4 @@
+pub mod action;
 pub mod app_state;
 pub mod commands;
 pub mod element;
@@ -10,6 +11,7 @@ pub mod shortcuts;
 pub mod ui_context;
 pub mod widgets;
 
+pub use action::{dispatch_action, UiAction};
 pub use app_state::{AppState, DirectAppState};
 pub use element::{
     AssetViewElement, AssetViewMode, ElementSource, Placeholder, StateViewElement, UIElement,

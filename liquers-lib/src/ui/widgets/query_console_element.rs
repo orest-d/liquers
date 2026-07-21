@@ -146,7 +146,7 @@ impl QueryConsoleElement {
 
         let query = self.query_text.clone();
         let ctx_clone = ctx.clone();
-        tokio::spawn(async move {
+        crate::ui::spawn_ui_task(async move {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             ctx_clone.send_message(AppMessage::RequestAssetUpdates { handle, query });
         });
@@ -831,6 +831,7 @@ mod tests {
             match msg {
                 AppMessage::RequestAssetUpdates { query, .. } => assert_eq!(query, "p2"),
                 AppMessage::SubmitQuery { .. }
+                | AppMessage::ApplyToInput { .. }
                 | AppMessage::Quit
                 | AppMessage::Serialize { .. }
                 | AppMessage::Deserialize { .. } => panic!("Expected RequestAssetUpdates"),

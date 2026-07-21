@@ -93,50 +93,9 @@ pub enum MenuItem {
     Separator,
 }
 
-/// Menu action (query submission, quit, or no-op)
-///
-/// YAML formats:
-/// - `action: quit` → `MenuAction::Quit`
-/// - `action: { query: "..." }` → `MenuAction::Query("...")`
-/// - `action: null` or omitted → `MenuAction::None`
-#[derive(Serialize, Clone, Debug, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum MenuAction {
-    #[default]
-    None,
-    Quit,
-    Query(String),
-}
-
-/// Helper for custom deserialization: accepts null, string ("quit"), or map ({query: "..."}).
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum MenuActionDe {
-    Null(()),
-    String(String),
-    Query { query: String },
-}
-
-impl<'de> Deserialize<'de> for MenuAction {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let de = MenuActionDe::deserialize(deserializer)?;
-        match de {
-            MenuActionDe::Null(()) => Ok(MenuAction::None),
-            MenuActionDe::String(s) => match s.as_str() {
-                "quit" => Ok(MenuAction::Quit),
-                "none" => Ok(MenuAction::None),
-                other => Err(serde::de::Error::custom(format!(
-                    "unknown menu action: '{}' (expected 'quit' or {{query: \"...\"}})",
-                    other
-                ))),
-            },
-            MenuActionDe::Query { query } => Ok(MenuAction::Query(query)),
-        }
-    }
-}
+/// Menu action: use the shared `UiAction` (was a local `MenuAction`).
+/// YAML forms are unchanged (`quit`, `{query: "..."}`, null) plus a bare query string.
+pub use crate::ui::action::UiAction as MenuAction;
 
 /// Layout specification (how to arrange children)
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -369,17 +328,7 @@ impl UISpecElement {
 
     #[cfg(feature = "egui")]
     fn handle_menu_action(&self, action: &MenuAction, ctx: &UIContext) {
-        match action {
-            MenuAction::Quit => {
-                std::process::exit(0);
-            }
-            MenuAction::Query(query) => {
-                if let Some(handle) = self.handle {
-                    ctx.submit_query(handle, query.clone());
-                }
-            }
-            MenuAction::None => {}
-        }
+        crate::ui::action::dispatch_action(action, ctx, self.handle);
     }
 
     #[cfg(feature = "egui")]

@@ -9,6 +9,7 @@ use crate::value::Value;
 
 use super::app_state::AppState;
 use super::handle::UIHandle;
+use super::message::AppMessage;
 use super::payload::UIPayload;
 use super::resolve::{resolve_navigation, resolve_position, InsertionPoint};
 use super::widgets::markdown_element::MarkdownElement;
@@ -342,6 +343,31 @@ pub fn query_console(state: &State<Value>) -> Result<Value, Error> {
     }))
 }
 
+/// Command: lui/submit
+/// Interpret the input state as a query string and submit it bound to the current handle.
+/// This is what makes `UiAction::Apply { query: "ns-lui/submit" }` behave like the old
+/// SubmitInput: the entered text becomes the query the console evaluates.
+#[liquers_macro::command_version]
+pub fn submit<E: Environment<Value = Value>>(
+    state: &State<Value>,
+    context: Context<E>,
+) -> Result<Value, Error>
+where
+    E::Payload: UIPayload,
+{
+    let query = state.try_into_string()?;
+    let payload = context
+        .get_payload_clone()
+        .ok_or_else(|| Error::general_error("No UI payload available".to_string()))?;
+    let handle = payload
+        .handle()
+        .ok_or_else(|| Error::general_error("No current element for submit".to_string()))?;
+    payload
+        .ui_context()
+        .send_message(AppMessage::RequestAssetUpdates { handle, query });
+    Ok(Value::none())
+}
+
 // ─── Registration ───────────────────────────────────────────────────────────
 
 /// Register lui namespace commands.
@@ -466,6 +492,14 @@ macro_rules! register_lui_commands {
             namespace: "lui"
             label: "Query Console"
             doc: "Create an interactive query console element"
+
+        version: auto
+        )?;
+        register_command!($cr,
+            fn submit(state, context) -> result
+            namespace: "lui"
+            label: "Submit"
+            doc: "Interpret the input state as a query string and submit it for the current element"
 
         version: auto
         )?;
