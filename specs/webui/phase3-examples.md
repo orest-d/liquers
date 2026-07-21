@@ -19,8 +19,9 @@ SSR/`render_web` example (no wasm, fully unit-testable), the wasm browser exampl
 | 1 | Example | SSR render of a `lui` tree | Render a built element tree to an HTML string; prove SSR + `render_web` work with no browser | native |
 | 2 | Example | `ui_spec_demo` webui (browser) | Menu click → `UiAction` → query → new element, live in the DOM; **the e2e success criterion** | wasm/browser |
 | 3 | Example | `value_to_html` / element states | Render each `Value` variant + element view-modes (progress/value/error), incl. HTML escaping | native |
-| 4 | Unit Tests | `ui::web` + `UiAction` suite | `escape_html`, `action_attr`, `value_to_html`, `widgets`, `dataframe_to_html`, per-element `render_web`, `UiAction`/`MenuAction` serde | native |
-| 5 | Integration + Corner | SSR e2e + build matrix + wasm runtime | `AppRunner`→`render_app_ssr` flow, SSR/DOM parity, feature-gate build matrix, tokio-on-wasm | native + wasm |
+| 4 | Example | `Apply` → `lui/submit` (query console) | Apply a query to a live input value; `apply_immediately` + the shared `submit` command; generalizes SubmitInput | native + wasm |
+| 5 | Unit Tests | `ui::web` + `UiAction` suite | `escape_html`, `action_attr`, `value_to_html`, `widgets`, `dataframe_to_html`, per-element `render_web`, `UiAction`/`MenuAction` serde, `lui/submit` | native |
+| 6 | Integration + Corner | SSR e2e + build matrix + wasm runtime | `AppRunner`→`render_app_ssr` flow, SSR/DOM parity, feature-gate build matrix, tokio-on-wasm | native + wasm |
 
 ## Example 1: SSR render of a `lui`-built tree
 
@@ -171,6 +172,54 @@ for `ExtValue::UIElement`.
 
 **Validation:** compiles native; asserts escaping (security-relevant) and per-variant markup.
 
+## Example 4: `Apply` — run a query over what the user typed
+
+**Scenario:** A query console: the user types a query and presses Enter; the entered text is
+applied to a query pipeline and evaluated, bound to the console element.
+
+**Context:** The general "apply a query to an input value" operation (`UiAction::Apply`), which
+subsumes the old SubmitInput. Demonstrates the reuse of `apply_immediately` + the new shared
+`lui/submit` command.
+
+**What the console renders (`render_web`):**
+```html
+<input id="qc-input-7" class="lq-query-input" value=""/>
+<span class="lq-go" data-lq-action='"apply:7:qc-input-7:ns-lui/submit"'>Go</span>
+```
+
+**Flow (browser):** Enter/Go → delegated listener reads `V = value("#qc-input-7")` → sends
+`AppMessage::ApplyToInput { handle: 7, input: V, query: "ns-lui/submit" }` → `AppRunner` builds
+`State(Value::from(V))` and calls `apply_immediately(Recipe::from("ns-lui/submit"), state, Some(payload(7)))`
+→ the `submit` command reads `V` as a query and submits it bound to handle 7 → `AppRunner`
+evaluates → snapshot delivered → console re-renders with the result.
+
+**Native test of the pieces (no browser needed):**
+```rust
+// The lui/submit command: state string is treated as a query and submitted for the current handle.
+#[tokio::test]
+async fn lui_submit_submits_input_as_query() -> Result<(), Box<dyn std::error::Error>> {
+    // register lui (incl. submit); build AppState with a console at a known handle;
+    // apply "ns-lui/submit" to State(Value::from("dashboard/ns-lui/ui_spec")) via the runner;
+    // assert an AppMessage submitting "dashboard/ns-lui/ui_spec" bound to that handle is produced.
+    Ok(())
+}
+
+// UiAction::Apply serde string form.
+#[test]
+fn apply_action_string_form() -> Result<(), Box<dyn std::error::Error>> {
+    let a = UiAction::Apply { handle: UIHandle(7), input_id: "qc-input-7".into(), query: "ns-lui/submit".into() };
+    // serializes to "apply:7:qc-input-7:ns-lui/submit" and deserializes back (splitn keeps the query intact)
+    Ok(())
+}
+```
+
+**Expected output:** typing `dashboard/ns-lui/ui_spec` and pressing Enter shows the dashboard in
+the console; a validation pipeline (`Apply { query: "ns-lui/validate/ns-lui/submit" }`) would run
+`validate` first — the flexibility a bespoke SubmitInput lacked.
+
+**Validation:** `Apply` serde round-trips (native unit test); `lui/submit` submits its input as a
+query (native integration test); the full browser path is exercised by the query-console e2e.
+
 ## Corner Cases
 
 ### 1. Memory
@@ -204,8 +253,9 @@ for `ExtValue::UIElement`.
 
 ### 4. Serialization
 - **`UiAction` string-form round-trips** (custom serde) for all four variants: `None`⇄`"none"`,
-  `Quit`⇄`"quit"`, `Query(q)`⇄the bare query string, `SubmitInput{h,id}`⇄`"input:{h}:{id}"`.
-  Test: each variant serializes to its string form and deserializes back to itself.
+  `Quit`⇄`"quit"`, `Query(q)`⇄the bare query string, `Apply{h,id,q}`⇄`"apply:{h}:{id}:{q}"`
+  (with `splitn(4, ':')` so `q` may contain `:`). Test: each variant serializes to its string
+  form and deserializes back to itself.
 - **Bare query string → `Query`.** Test: `"dashboard/q/ns-lui/add-child"` deserializes to
   `UiAction::Query(...)`; the edge case `{query: "quit"}` (explicit map) yields `Query("quit")`,
   not `Quit`.
@@ -224,6 +274,9 @@ for `ExtValue::UIElement`.
 - **`UiAction` dispatch → `submit_query` → new element.** The browser e2e (Example 2) is the
   cross-feature integration: delegated listener → `dispatch_action` → `UIContext::submit_query`
   → `AppRunner` evaluates → re-render.
+- **`Apply` → `apply_immediately` → `lui/submit` → evaluate** (Example 4 below). The query-console
+  flow: read the live input value, apply `ns-lui/submit` to it (input as state), the `submit`
+  command submits it bound to the console handle, `AppRunner` evaluates and delivers a snapshot.
 - **Feature-gate build matrix** (compile-level integration): egui-only, webui-only, both, wasm.
 - **tokio on wasm** (the gating risk): the browser example must actually evaluate a query
   (spawn a job, run it, deliver a snapshot) — verified by the Playwright click assertion.
@@ -258,8 +311,9 @@ Conventions: `-> Result<(), Box<dyn std::error::Error>>` where `?` is used; type
 `<th>` header row, caps at `max_rows`, and escapes cell values.
 
 **`ui/action.rs`:** `UiAction` string-form serde round-trip for every variant (`"none"`,
-`"quit"`, bare query string, `"input:{h}:{id}"`); bare query string → `Query`; `MenuAction`-form
-YAML (`null`/`"quit"`/`{query}`/bare string) deserializes to the right `UiAction`; a shared `dispatch_action`
+`"quit"`, bare query string, `"apply:{h}:{id}:{q}"` with `q` containing `:`); bare query string →
+`Query`; `MenuAction`-form YAML (`null`/`"quit"`/`{query}`/bare string) deserializes to the right
+`UiAction`; a shared `dispatch_action`
 sends the expected `AppMessage` on a test channel (mirrors existing `query_console` tests).
 
 **Per element `render_web` (in each element's test module):**
@@ -281,6 +335,10 @@ sends the expected `AppMessage` on a test channel (mirrors existing `query_conso
 - `ssr_dom_parity` — same tree rendered twice yields identical HTML (determinism / no hidden state).
 - `appstate_roundtrip_ssr` — serialize→deserialize `DirectAppState`, assert identical element ids
   in the rendered HTML.
+- `lui_submit_submits_input_as_query` (Example 4) — register `lui`, apply `ns-lui/submit` to a
+  `State(Value::from("<query>"))` via the runner's `ApplyToInput` path, assert a submission of
+  `<query>` bound to the acting handle is produced (mirrors the existing `query_console` channel
+  assertions).
 
 ### Browser e2e (`examples-web/ui_spec_demo`, Playwright)
 

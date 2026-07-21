@@ -122,10 +122,12 @@ pub enum UiAction {
     /// `MenuAction::Query`. Targeting a *different* element is expressed **inside the
     /// query** via `lui` navigation words — see "Why only `Query` (no `QueryOn`)".
     Query(String),
-    /// Read the live text of the input control named `input_id` at trigger time and submit
-    /// it as a query for `handle`. Needed because the typed value does not exist at render
-    /// time — only when the user hits Enter. See "How `SubmitInput` is used".
-    SubmitInput { handle: UIHandle, input_id: String },
+    /// Take the live value of the input control named `input_id` at trigger time, use it as
+    /// the *input state*, and apply `query` to it, binding the result to `handle`. This is
+    /// the general "run a query over what the user entered" operation; it subsumes the old
+    /// SubmitInput (which is just `Apply { query: "ns-lui/submit" }`). See "How `Apply` is
+    /// used" — it builds directly on `Environment`/`AssetManager::apply_immediately`.
+    Apply { handle: UIHandle, input_id: String, query: String },
 }
 ```
 
@@ -152,13 +154,13 @@ and `ui_spec` YAML terse and human-writable.
 |---------|-------------|-------|
 | `None` | `"none"` (also accepts `null`) | reserved keyword |
 | `Quit` | `"quit"` | reserved keyword |
-| `Query(q)` | the bare query, e.g. `"dashboard/q/ns-lui/add-child"` | **any string that is not a reserved keyword / `input:` prefix** |
-| `SubmitInput { handle, input_id }` | `"input:{handle}:{input_id}"`, e.g. `"input:5:qc-input-5"` | `input:` prefix, colon-separated |
+| `Query(q)` | the bare query, e.g. `"dashboard/q/ns-lui/add-child"` | **any string that is not a reserved keyword / `apply:` prefix** |
+| `Apply { handle, input_id, query }` | `"apply:{handle}:{input_id}:{query}"`, e.g. `"apply:5:qc-input-5:ns-lui/submit"` | `apply:` prefix; split into 4 with `splitn(4, ':')` so the query (last field) may itself contain `:` |
 
 **Deserialize also accepts explicit map forms** (for clarity and `MenuAction` back-compat):
-`null` → `None`; `{query: "..."}` → `Query`; `{submit_input: {handle, input_id}}` →
-`SubmitInput`. Reserved forms win on ambiguity: a query that is literally `"quit"` / `"none"`
-or begins with `"input:"` must use the explicit `{query: "..."}` map form (documented edge
+`null` → `None`; `{query: "..."}` → `Query`; `{apply: {handle, input_id, query}}` →
+`Apply`. Reserved forms win on ambiguity: a query that is literally `"quit"` / `"none"`
+or begins with `"apply:"` must use the explicit `{query: "..."}` map form (documented edge
 case; such queries are vanishingly rare).
 
 **Examples.**
@@ -168,7 +170,7 @@ case; such queries are vanishingly rare).
 "dashboard/q/ns-lui/add-child"      // → UiAction::Query("dashboard/q/ns-lui/add-child")
 "quit"                              // → UiAction::Quit
 "none"                              // → UiAction::None   (null also accepted)
-"input:5:qc-input-5"                // → UiAction::SubmitInput { handle: 5, input_id: "qc-input-5" }
+"apply:5:qc-input-5:ns-lui/submit"  // → UiAction::Apply { handle: 5, input_id: "qc-input-5", query: "ns-lui/submit" }
 { "query": "quit" }                 // → UiAction::Query("quit")  (explicit form for the edge case)
 ```
 
@@ -198,23 +200,47 @@ orthodox-commander "view in the other pane" is `.../-/view/-/ns-lui/add-instead-
 exactly how the existing egui/`MenuAction` path works (only `Query`, bound to the owner), so
 the web backend gains nothing from a second variant.
 
-#### How `SubmitInput` is used
+#### How `Apply` is used (and why it generalizes SubmitInput)
 
-`SubmitInput` exists for text-entry controls whose value is not known at render time — the
-canonical case is the **query console**. `QueryConsoleElement::render_web` emits an input with
-a stable id and an Enter/submit control carrying the action:
+`Apply` covers input controls whose value is not known at render time. Instead of a bespoke
+"submit this field" action, it expresses the general operation **"apply a query to the value
+the user entered"**, reusing the core `apply` machinery. This was verified against the source:
+- `AssetManager::apply_immediately(recipe, to: State, payload: Option<Payload>)` runs a recipe
+  over an input state with a payload — and `evaluate_immediately` is literally
+  `apply_immediately(query.into(), State::new(), Some(payload))`. So "evaluate" is just "apply
+  to an empty input state"; feeding the field value as the input state is the same call with a
+  non-empty state.
+- `Recipe: From<Query>` and `State::from_parts(Arc::new(Value::from(text)), …)` supply the two
+  arguments.
+
+**Flow (browser).** `QueryConsoleElement::render_web` emits an input with a stable id and an
+Enter/submit control carrying `Apply { handle, input_id, query: "ns-lui/submit" }`:
 
 ```html
 <input id="qc-input-7" class="lq-query-input" value=""/>
-<!-- Enter (or a Go button) carries: -->
-<span data-lq-action='"input:7:qc-input-7"'>…</span>   <!-- SubmitInput { handle: 7, input_id: "qc-input-7" } -->
+<span data-lq-action='"apply:7:qc-input-7:ns-lui/submit"'>…</span>
 ```
 
-When the user presses Enter, the delegated listener reads the **live** value of
-`#qc-input-7` from the DOM and calls `UIContext::submit_query(handle = 7, that_value)` — i.e.
-the console evaluates whatever the user typed, bound to its own handle. This is the web analog
-of the egui console reading `self.query_text` on Enter (`query_console_element.rs`); a plain
-`Query` can't express it because the renderer doesn't yet know what the user will type.
+On Enter the delegated listener reads the **live** value `V` of `#qc-input-7` and sends
+`AppMessage::ApplyToInput { handle: 7, input: V, query: "ns-lui/submit" }`. `AppRunner` builds
+the input state from `V` and calls `apply_immediately(Recipe::from("ns-lui/submit"), state(V),
+Some(payload(7)))` — the same path it already uses for `SubmitQuery`, just with a non-empty
+input state.
+
+**New shared `lui/submit` command.** `submit(state, context)` interprets its input `state` as a
+query string and submits it bound to the current handle (the standard submission path the egui
+console uses, i.e. `RequestAssetUpdates`). It is a *shared `lui` command* (framework-agnostic,
+like `add`/`activate`) — **not** a web-backend command — so the "backends add no commands" rule
+is preserved (`lui` is the shared UI layer). With it:
+- `Apply { …, query: "ns-lui/submit" }` reproduces the old SubmitInput exactly.
+- `Apply { …, query: "ns-lui/validate/ns-lui/submit" }` (or any pipeline) adds validation /
+  transformation of the entered value before submitting — the flexibility SubmitInput lacked.
+- Non-console forms become possible too: a form field feeding `Apply { …, query: "ns-lui/set_value" }`
+  processes the entered value through an arbitrary query.
+
+**egui interpretation.** `dispatch_action` on egui reads the buffer of the widget named
+`input_id` (the element's text buffer) and performs the same apply; the egui console can keep
+its existing direct-buffer submission or route through `Apply` for consistency.
 
 ### `MountHandle` — keeps a browser mount alive
 
@@ -731,6 +757,20 @@ console add `show_in_web` and route its `tokio::spawn`/`tokio::time::sleep` thro
 **Modify `src/ui/widgets/ui_spec_element.rs`:** replace `MenuAction` with the shared
 `UiAction` (keeping the YAML `Deserialize`); `handle_menu_action` → `dispatch_action`.
 
+**Modify `src/ui/message.rs`:** add `AppMessage::ApplyToInput { handle: UIHandle, input: String,
+query: String }` (the message a browser `Apply` dispatch sends). Every exhaustive match on
+`AppMessage` gains an arm (runner's `process_messages`; the `query_console` test that matches
+all variants) — no default arm.
+
+**Modify `src/ui/runner.rs`:** handle `ApplyToInput` by building an input `State` from `input`
+and calling `apply_immediately(Recipe::from(parse(query)), input_state, Some(payload(handle)))`,
+then delivering results to `handle` (same path as `SubmitQuery`, non-empty input state).
+
+**Add `src/ui/commands.rs` command `submit`** (shared `lui`): `fn submit(state, context)` reads
+the input `state` as a query string and submits it bound to the current handle (registered in
+`register_lui_commands!`). This is a shared UI-tree command like `add`/`activate`, not a
+web-backend command.
+
 **Modify `src/value/mod.rs`:** gate `ExtValue::UiCommand`/`Widget` + their match arms.
 
 **Modify `src/ui/shortcuts.rs`:** gate `Key::to_egui`.
@@ -793,13 +833,24 @@ same cfg alias — decided in Phase 4 based on the test result, not adopted now.
 
 ## Relevant Commands
 
-**None. Decided (user-confirmed).** `liquers_lib::ui` is the single shared UI layer; a
-backend contributes only conditionally-compiled rendering methods on `UIElement` plus render
-helpers — no new command namespace, no `lui` changes. Verified: the UI core is egui-free, and
-egui coupling in `ui/` is confined to `element.rs`, `shortcuts.rs`, and the 3 widget elements
-— exactly the files that gain `render_web`/`show_in_web`. The egui reference's own
-value-producing commands (`liquers_lib::egui`: `label`, `text_editor`, `show_asset_info`) are
-out of scope and gated out; `lui`-built trees render fully. `lui` is the primary namespace.
+**No web-backend commands; one new *shared* `lui` command (`submit`).** `liquers_lib::ui` is the
+single shared UI layer; a *backend* contributes only conditionally-compiled rendering methods on
+`UIElement` plus render helpers — no web command namespace. The one new command, `lui/submit`, is
+a **shared UI-tree command** (framework-agnostic, like `add`/`activate`), added to enable the
+generalized `UiAction::Apply`: it reads its input `state` as a query string and submits it bound
+to the current handle. It is used by egui and web alike, so the "backends add no commands" rule
+still holds (the command belongs to the shared `lui` layer, not to a backend).
+
+| Command | Namespace | Status | Purpose |
+|---------|-----------|--------|---------|
+| `submit` | `lui` (shared) | **new** | Interpret input `state` as a query string and submit it bound to the current handle. Enables `Apply { query: "ns-lui/submit" }`. |
+| `add`, `remove`, `activate`, navigation, `markdown`, `ui_spec`, `query_console` | `lui` (shared) | unchanged | Build/navigate the tree the web backend renders. |
+
+Verified: the UI core is egui-free, and egui coupling in `ui/` is confined to `element.rs`,
+`shortcuts.rs`, and the 3 widget elements — exactly the files that gain `render_web`/`show_in_web`.
+The egui reference's own value-producing commands (`liquers_lib::egui`: `label`, `text_editor`,
+`show_asset_info`) are out of scope and gated out; `lui`-built trees render fully. `lui` is the
+primary namespace.
 
 ## Web Endpoints
 
