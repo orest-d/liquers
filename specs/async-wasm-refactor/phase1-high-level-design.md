@@ -73,11 +73,17 @@ Reframe (user, 2026-07-22): the real abstraction is not "wasm support" but a **s
 | 1 — behavior | **(b) specialization** | native-testable, embedded-reusable, doesn't endanger the working native path |
 | 2 — `Send` | **(a) conditional compilation** | supertrait bounds can't be specialized; centralize in one target-gated alias, never a feature |
 
-**Gradations within (b) for behavior (the Phase 2 decision):**
+**Gradations within (b) for behavior:**
 
 - **b1 — parallel `ImmediateAssetManager`.** Max isolation; risks duplicating dependency-graph / expiration / retry logic.
-- **b2 (leaning) — one `DefaultAssetManager` with a pluggable `JobScheduler` seam** (`Threaded` = `tokio::spawn`; `Immediate` = inline, no queue). Confines all variability to the spawn primitive, no logic duplication, native-testable, still a first-class selectable mode.
-- **a-minimal — cfg-gate the spawn sites inside `DefaultAssetManager`.** Smallest diff, no `Environment` change, but not native-testable and re-invites cfg bit-rot. The option to beat; b2 beats it.
+- **b2 — one `DefaultAssetManager` with a pluggable `JobScheduler` seam** (`Threaded` = `tokio::spawn`; `Immediate` = inline, no queue). Confines all variability to the spawn primitive, no logic duplication, native-testable.
+- **a-minimal — cfg-gate the spawn sites inside `DefaultAssetManager`.** Smallest diff, no `Environment` change, but not native-testable and re-invites cfg bit-rot.
+
+**RESOLVED (user, 2026-07-22): b1 — `ImmediateAssetManager`.** Rationale: maximum isolation from the working threaded path, and — decisively — it can be validated against **the existing test suite**: most asset tests exercise the `AssetManager` trait surface (`get_asset` / `get` / `apply` / status transitions), so they can be parameterized to run against both managers, which directly mitigates the duplication risk. Phase 2 must therefore specify:
+1. which existing tests become manager-parametric (shared trait-level suite) and which are `DefaultAssetManager`-only (queue capacity, parking, cancellation-in-flight);
+2. what shared logic is extracted into free functions / `AssetRef` methods vs. reimplemented (dependency recording, version/retry, status bookkeeping);
+3. how `ImmediateAssetManager` handles expiration **without a background monitor task** (lazy check-on-access is the candidate) — in immediate mode there is no long-lived reactor to host a timer loop;
+4. the semantics of "immediate": `get_asset` evaluates inline before returning (no `Submitted`/parked states; dependencies evaluated recursively inline, still cycle-checked).
 
 **Prerequisite for any (b):** generalize `Environment::get_asset_manager` (today hardcoded to concrete `DefaultAssetManager`) to an associated type `type AssetManager: AssetManager<Self>` (zero-cost, matches the generic style) or `Arc<dyn AssetManager<Self>>` (simpler migration). This is the one breaking ripple — it touches `Environment` impls in `liquers-py` / `liquers-axum`.
 
@@ -128,7 +134,7 @@ Core changes in **`liquers-core`** (new `rt` module + trait-bound edits). Tier 2
 1. **Scope:** ~~Tier 1 only or Tier 1 + Tier 2?~~ **RESOLVED (user, 2026-07-22): Tier 1 first, then decide.** Phase 2 designs only the cfg-gated `rt` spawn/timer shim, keeping all `Send` bounds and avoiding downstream ripple. Tier 2 (conditional-`Send`) is deferred and re-evaluated after Tier 1 lands and the browser example runs.
 2. **Threading model:** commit to single-threaded wasm (enables dropping `Send`), or keep the door open for wasm threads / `wasm32-wasi` (would keep `Send`)? → Phase 2.
 3. **Shim vs. crate:** hand-rolled cfg shim (`wasm-bindgen-futures` + `gloo-timers`) vs. `tokio_with_wasm`? Prior session found the latter presupposes Tier 2. → Phase 2.
-4. **AssetManager pluggability:** generalize `Environment::get_asset_manager` to `Arc<dyn AssetManager<Self>>` now, or keep concrete `DefaultAssetManager` and cfg-gate its internal spawns? → Phase 2.
+4. **AssetManager pluggability:** ~~generalize or cfg-gate?~~ **RESOLVED: must generalize** — b1 requires `Environment` to select the manager. Phase 2 decides the mechanism: associated type `type AssetManager: AssetManager<Self>` (zero-cost, house style) vs `Arc<dyn AssetManager<Self>>` (simpler migration). Breaking ripple limited to `Environment` impls (`liquers-axum`, `liquers-py`, `SimpleEnvironment*`).
 5. **Native regression risk:** confirm `?Send`/`MaybeSend` leaves native builds byte-for-byte `Send` (no object-safety or inference regressions in `liquers-py`/`liquers-axum`). → Phase 2 + Phase 3 tests.
 
 ## References
