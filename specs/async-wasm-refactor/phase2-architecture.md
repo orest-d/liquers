@@ -10,7 +10,7 @@ Complete Tier-1 **and** Tier-2 solution, hybrid per the approved strategy: **spe
 
 **Conditional compilation is minimized and purposeful.** `EvalMode` (Axis 1) stays a runtime enum, testable on all targets. The `cfg` used is: (i) target-gating the threaded manager (`DefaultAssetManager`/`JobQueue`) out of wasm; (ii) the `maybe_send` aliases (attribute/type level); and (iii) method/arm-level `#[cfg(not(wasm32))]` on the Queued-path spawn/timer carriers so the wasm build drops the tokio runtime/timer/macros (see Tokio Dependency Reduction). (iii) is the one place a `cfg` touches a function body — a deliberate trade to shrink the wasm tokio surface to `["sync"]`, safe because those arms are provably dead on wasm.
 
-**Bonus outcome (user requirement 2):** because all tokio `spawn`/`time`/macro use is on the now-native-only Queued path, the wasm build needs **only `tokio::sync`** — the feature set drops `["sync","rt","macros","time"]` → `["sync"]`, a real reduction of the tokio dependency surface, with a documented path to removing tokio entirely later.
+**Bonus outcome (user requirement 2), scoped:** because all tokio `spawn`/`time`/macro use is on the now-native-only Queued path, the wasm build needs **only `tokio::sync`** — the feature set drops `["sync","rt","macros","time"]` → `["sync"]`. That reduction is the **only** tokio-related deliverable of this change. **Removing tokio entirely and making the core executor-agnostic are explicitly OUT OF SCOPE now** — documented as a separate future effort in the Tokio Dependency Reduction section, not planned here.
 
 ## Data Structures
 
@@ -363,7 +363,9 @@ Because every runtime/timer/macro use is on the Queued path — which b1 makes n
 
 **Net:** on wasm, tokio contributes only its standalone `sync` primitives (which need no runtime). This is a concrete dependency-surface reduction shipped by this change. *(Trade-off vs. the "no cfg in bodies" ideal: two of the three shared forks gain a cfg'd-out `Queued` arm. Justified — the arm is dead code on wasm and the payoff is dropping the tokio runtime/timer/macros entirely.)*
 
-### Full removal (future work — concrete path, not this change)
+### Full removal + executor-agnostic core — OUT OF SCOPE for this change
+
+**Explicitly out of scope now (both of these):** (1) removing tokio *entirely* from the wasm build, and (2) making `liquers-core` executor-agnostic. This change ships only the "easy win" above (wasm tokio → `["sync"]`); it keeps `tokio::sync` as the async substrate on **both** targets and does **not** abstract it behind a backend. Neither goal is a deliverable, an acceptance criterion, or a task in this refactor's Phase 3/4 — they are recorded here and in `specs/ISSUES.md` as a **separate future effort** only. The material below is the documented path for that future effort, not work planned here.
 
 Removing tokio **entirely** on wasm means replacing `tokio::sync` in the shared `AssetData`/`DependencyManager` with executor-agnostic primitives:
 
@@ -375,11 +377,11 @@ Removing tokio **entirely** on wasm means replacing `tokio::sync` in the shared 
 | `Notify` | `event-listener` |
 | `OnceCell` | `async-once-cell` |
 
-This is a **substantial refactor of `assets.rs`** (the whole asset runtime is built on `tokio::sync`) and touches the native path too, so it is deliberately out of scope here. But it is the endgame the user's embedded/single-threaded angle points at:
+This is a **substantial refactor of `assets.rs`** (the whole asset runtime is built on `tokio::sync`) and touches the native path too — hence out of scope here (see the boundary statement above). But it is the endgame the user's embedded/single-threaded angle points at:
 
-### "Replace tokio with another async framework" — reframed
+### "Replace tokio with another async framework" — reframed (also OUT OF SCOPE now)
 
-The inline core is **already executor-agnostic in its scheduling** (no `spawn`, `futures` macros). The only remaining framework coupling on wasm is `tokio::sync`. So the goal is not "swap tokio for framework X" but **"make the core executor-agnostic so the embedder chooses the executor"** — `async-lock`/`async-channel`/`event-listener` are framework-*neutral*, not a competing framework. Once `tokio::sync` is abstracted (future work above), `liquers-core`'s inline path runs unchanged under `futures::executor::block_on`, `wasm_bindgen_futures`, `embassy` (embedded, no-std-ish), `smol`, etc. The easy win in this change (`["sync"]` only, no runtime/timer/macros) is the first and largest step down that path; a follow-up feature (e.g. `sync-backend = "tokio" | "async-lock"`) could complete it. Recorded as a tracked follow-up in `specs/ISSUES.md` at Phase 4.
+The inline core is **already executor-agnostic in its scheduling** (no `spawn`, `futures` macros). The only remaining framework coupling on wasm is `tokio::sync`. So the eventual goal is not "swap tokio for framework X" but **"make the core executor-agnostic so the embedder chooses the executor"** — `async-lock`/`async-channel`/`event-listener` are framework-*neutral*, not a competing framework. Once `tokio::sync` is abstracted (the future effort above), `liquers-core`'s inline path would run unchanged under `futures::executor::block_on`, `wasm_bindgen_futures`, `embassy` (embedded, no-std-ish), `smol`, etc. **None of this is done in this change.** The easy win here (`["sync"]` only, no runtime/timer/macros) is the first and largest step down that path and the *only* tokio-related deliverable of this refactor; a follow-up feature (e.g. `sync-backend = "tokio" | "async-lock"`) would complete it later. Recorded as a tracked follow-up in `specs/ISSUES.md` at Phase 4.
 
 ## Relevant Commands
 
