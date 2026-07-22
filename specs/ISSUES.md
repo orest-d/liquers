@@ -47,3 +47,27 @@ rather than lossy notification content, so an overwritten `ErrorOccurred` cannot
 the unified metadata-preserving `fail_asset` routine, and deletion of the dead "meaningless"
 post-finalization `JobFinished` service send. Remaining for a future WP: authorization and the
 allowed message subset for genuinely external/multi-source producers.
+
+## webui: async evaluation engine does not run on wasm (browser)
+
+**Status:** Open — tracked follow-up from the `webui` feature (see `specs/webui/DESIGN.md`).
+
+The `webui` backend renders server-side (SSR) and **compiles** to
+`wasm32-unknown-unknown`, but the browser example does not yet **run**: the async
+evaluation engine calls `tokio::spawn` (in `liquers-core` `AssetManager::with_capacity`,
+`Context`, and `DefaultEnvironment::init_with_envref`), which panics on wasm because there
+is no tokio runtime there.
+
+- Stock `tokio` compiles to wasm (types resolve) but `tokio::spawn` panics at runtime.
+- `tokio_with_wasm` (the intended drop-in) does **not** compile here: core's
+  `#[async_trait] impl AssetManager` methods require `Send`, while `tokio_with_wasm`'s
+  primitives are `!Send` → `E0277` "future cannot be sent between threads".
+
+**To fix (either):**
+- (A) Make `liquers-core`'s async-trait hierarchy `Send`-conditional — `#[async_trait(?Send)]`
+  on wasm across `AssetManager` / `AsyncStore` / `AsyncRecipeProvider`, plus the `+ Send`
+  future bounds in `EnvRef::{evaluate,apply_recipe,...}` — then adopt `tokio_with_wasm`.
+- (B) Introduce an `Environment`-provided spawn/timer seam and route every core
+  `tokio::spawn` / `tokio::time` through it (native = tokio, wasm = `spawn_local` + browser timer).
+
+Either unblocks the `examples-web/ui_spec_demo` browser example and its Playwright e2e.
