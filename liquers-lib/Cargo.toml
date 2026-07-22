@@ -13,7 +13,7 @@ image-support = ["imageproc"]
 # egui reference backend (optional so a webui-only build compiles no egui)
 egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_extras", "dep:egui_commonmark"]
 # web backend (SSR strings on all targets; DOM on wasm)
-webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futures", "dep:pulldown-cmark", "dep:console_error_panic_hook"]
+webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futures", "dep:pulldown-cmark", "dep:console_error_panic_hook", "dep:gloo-timers"]
 # Polars DataFrame value type + command library. Optional because polars pulls
 # object_store -> hyper -> tokio-net -> mio, which do not build for wasm. reqwest/openssl
 # (native TLS, otherwise unused directly) ride along here since they only matter with polars.
@@ -53,6 +53,7 @@ wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }
 pulldown-cmark = { version = "0.12", optional = true, default-features = false, features = ["html"] }
 console_error_panic_hook = { version = "0.1", optional = true }
+gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 web-sys = { version = "0.3", optional = true, features = [
   "Document", "Window", "Element", "HtmlElement", "HtmlInputElement", "Node",
   "Event", "EventTarget", "InputEvent", "KeyboardEvent", "DomTokenList",

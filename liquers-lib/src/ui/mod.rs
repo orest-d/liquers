@@ -38,6 +38,8 @@ pub use element::render_element;
 
 #[cfg(feature = "webui")]
 pub use web::{element_dom_id, render_app_ssr, render_element_web};
+#[cfg(all(feature = "webui", target_arch = "wasm32"))]
+pub use web::{mount_web, MountHandle};
 
 // ─── Cross-Platform Helpers ─────────────────────────────────────────────────
 

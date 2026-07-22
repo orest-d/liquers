@@ -12,6 +12,8 @@ pub mod html;
 pub mod widgets;
 
 pub use app::render_app_ssr;
+#[cfg(all(feature = "webui", target_arch = "wasm32"))]
+pub use app::{mount_web, MountHandle};
 pub use html::{escape_html, value_to_html};
 
 use crate::ui::app_state::AppState;
