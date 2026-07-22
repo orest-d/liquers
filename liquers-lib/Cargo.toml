@@ -20,7 +20,6 @@ webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futu
 polars = ["dep:polars", "dep:reqwest", "dep:openssl"]
 
 [dependencies]
-tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
 liquers-core={path="../liquers-core"}
 liquers-macro={path="../liquers-macro"}
 serde = "1.0.181"
@@ -58,6 +57,8 @@ web-sys = { version = "0.3", optional = true, features = [
   "Document", "Window", "Element", "HtmlElement", "HtmlInputElement", "Node",
   "Event", "EventTarget", "InputEvent", "KeyboardEvent", "DomTokenList",
 ] }
+
+tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
 
 [dev-dependencies]
 liquers-store = { path = "../liquers-store" }
