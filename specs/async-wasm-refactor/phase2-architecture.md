@@ -8,7 +8,9 @@ Complete Tier-1 **and** Tier-2 solution, hybrid per the approved strategy: **spe
 
 **Why both axes are needed together.** Axis 1 alone makes core *run* on wasm for `Send`-satisfiable data, but the moment Axis 2 relaxes `E`'s `Send` bound, `tokio::spawn` in `DefaultAssetManager` no longer *compiles* on wasm (its signature requires `F: Send`, and `AssetRef<E>` is not `Send` when `E: MaybeSend`). So the two axes are co-dependent on wasm: Axis 2 forces the threaded manager out of the wasm build, and Axis 1 supplies the replacement. b1's clean type-level split is what makes this a single `#[cfg]` boundary rather than cfg scattered through a type.
 
-**No behavioral `cfg`.** `EvalMode` (Axis 1) is a runtime enum, testable on all targets. The only conditional compilation is (i) target-gating the threaded manager out of wasm and (ii) the `maybe_send` aliases — both are type/attribute-level, never `cfg` inside a function body.
+**Conditional compilation is minimized and purposeful.** `EvalMode` (Axis 1) stays a runtime enum, testable on all targets. The `cfg` used is: (i) target-gating the threaded manager (`DefaultAssetManager`/`JobQueue`) out of wasm; (ii) the `maybe_send` aliases (attribute/type level); and (iii) method/arm-level `#[cfg(not(wasm32))]` on the Queued-path spawn/timer carriers so the wasm build drops the tokio runtime/timer/macros (see Tokio Dependency Reduction). (iii) is the one place a `cfg` touches a function body — a deliberate trade to shrink the wasm tokio surface to `["sync"]`, safe because those arms are provably dead on wasm.
+
+**Bonus outcome (user requirement 2):** because all tokio `spawn`/`time`/macro use is on the now-native-only Queued path, the wasm build needs **only `tokio::sync`** — the feature set drops `["sync","rt","macros","time"]` → `["sync"]`, a real reduction of the tokio dependency surface, with a documented path to removing tokio entirely later.
 
 ## Data Structures
 
@@ -141,6 +143,8 @@ type SyncExecutorFn<E>  = dyn Fn(&State<<E as Environment>::Value>, CommandArgum
 ```
 
 `CommandRegistry`'s `executors`/`async_executors` fields use these aliases. The `where F: … + Send` bounds on `register_command`/`register_async_command` (commands.rs:474-477,499-501) become `F: … + MaybeSend + MaybeSync` (generic bounds — markers are legal here).
+
+**Forward-looking validation — `!Send` JavaScript closures as commands (user requirement 1).** This treatment is deliberately the enabler for a future browser command backend that registers JS closures (a `Closure<dyn FnMut>` / a Rust closure capturing `JsValue` is `!Send` and usually `!Sync`). The full type chain permits it on wasm: `register_async_command`'s bound is `MaybeSend + MaybeSync` (vacuous on wasm, so a `!Send` `F` is accepted); the stored `AsyncExecutorFn<E>` alias drops `+ Send + Sync` on wasm, so `Arc<Box<AsyncExecutorFn<E>>>` holds a `!Send` closure; `CommandExecutor::execute_async` returns `BoxFuture` (no `+ Send` on wasm), so a future that captures a JS handle is legal; and `CommandRegistry: CommandExecutor` requires only `MaybeSend + MaybeSync` (vacuous on wasm), so the registry — a field of the `Environment` — can hold `!Send` closures while the environment itself stays `MaybeSend`. **No part of the design forces a command closure or its future to be `Send` on wasm.** (The JS-command backend itself — wrapping a `Closure` as `dyn Fn(..) -> BoxFuture` via `Rc<RefCell<..>>` — is future work in `liquers-lib`/a wasm crate, not this refactor; this section only certifies the core does not preclude it.)
 
 ### Trait: `Environment` — generalized manager (Axis 1, context.rs:43)
 
@@ -288,7 +292,7 @@ Splicing a `liquers_core::…` path into caller-crate output is the existing pat
 - `store.rs`, `recipes.rs`: trait `cfg_attr` + `MaybeSend`/`MaybeSync` **on the traits AND every wasm-compiled impl**. Impls that compile on wasm and were missed by the first draft: `recipes.rs:381` (`impl AsyncRecipeProvider for TrivialRecipeProvider`), `recipes.rs:438` (`impl … for DefaultRecipeProvider`), and core's wasm-compiled `AsyncStore` impls (`NoAsyncStore` and the in-memory/wrapper stores at `store.rs:488,597,1788`). **Native-only impls keep plain `#[async_trait]` under their existing `#[cfg(not(wasm32))]` gate** — `AsyncFileStore` (`store.rs:916`), `DefaultAssetManager` (`assets.rs:2974`) — because on native the trait is plain `#[async_trait]` and the attributes still match. Rule: attribute parity is per-target; a mismatched pair is a hard `E0053`, but only on a `wasm32` build (see build-matrix note below).
 - `value.rs`: `ValueInterface` supertrait bound → markers.
 - `interpreter.rs`, `plan.rs`: `BoxFuture` returns; temp-asset via manager.
-- `Cargo.toml`: `async-trait` must be available on wasm (already pulled via default `async_store`); **no new deps** (no `wasm-bindgen-futures`/`gloo-timers` — the inline path has no spawns/timers).
+- `Cargo.toml`: `async-trait` must be available on wasm (already pulled via default `async_store`); **no new deps**. **wasm tokio features reduced `["sync","rt","macros","time"]` → `["sync"]`** (see Tokio Dependency Reduction below). `run_inline` uses `futures::join!`/`futures::select!` (already-present `futures` dep), not `tokio::{join,select}!`, so `"macros"` is not needed on wasm.
 
 ### Crate: liquers-macro
 - registration.rs: 3 future-type sites emit `liquers_core::maybe_send::BoxFuture`; drop generated `+ Send` on the async closure. Recompiles all `register_command!` users unchanged.
@@ -334,7 +338,48 @@ No new dependencies in any crate. `async-trait`'s `?Send` mode is a call-site at
 | Generic `where F: …+Send` | commands.rs 474-477,499-501 | `+ MaybeSend + MaybeSync` |
 | Macro `+ Send` | liquers-macro registration.rs 1118,1890,2358 | emit `BoxFuture` alias |
 | Threaded manager compile-out | `DefaultAssetManager`, `JobQueue`, expiration monitor (assets.rs) | `#[cfg(not(target_arch="wasm32"))]` |
+| Queued-path spawn/timer carriers | `run`/`run_with_future`/`run_immediately`/`new_temporary`; `Queued` arms of `MetadataSaver::save_immediately`, `AssetRef::cancel` | method/arm `#[cfg(not(wasm32))]` (wasm arm `unreachable!()`) → drops tokio `rt`/`time` on wasm |
 | Env manager selection | `DefaultEnvironment` (liquers-lib) | cfg-selected `type AssetManager` |
+| wasm tokio features | `liquers-core/Cargo.toml` `[target.'cfg(wasm32)'.dependencies]` | `["sync","rt","macros","time"]` → `["sync"]` |
+
+## Tokio Dependency Reduction (investigation — user requirement 2)
+
+This refactor is naturally also a **reduction of the tokio surface on wasm**. Audit of `liquers-core` tokio usage (non-test):
+
+| Category | Symbols (counts) | On wasm path? |
+|---|---|---|
+| Runtime/scheduler | `tokio::spawn` ×13, `tokio::task::{JoinHandle, JoinError, yield_now}` | **No** — all on the Queued/threaded path (JobQueue, monitor, `run_with_future`, `MetadataSaver` debounce, `RunClaim` repair, `new_temporary`) |
+| Timers | `tokio::time::{sleep ×5, timeout ×3, Duration}` | **No** — Queued path only (monitor, cancel timeout, metadata debounce) |
+| Macros | `tokio::select!` ×3, `tokio::join!` ×1 | **No** — replaced by `futures::select!`/`join!` on the inline path |
+| Sync primitives | `tokio::sync::{mpsc ×11, watch ×9, RwLock ×6, Notify ×4, Mutex, OnceCell}` (assets.rs, dependencies.rs) | **Yes** — the shared `AssetData`/`DependencyManager` infrastructure both managers reuse |
+
+### Easy win (in scope for this change): wasm tokio → `["sync"]` only
+
+Because every runtime/timer/macro use is on the Queued path — which b1 makes native-only — the wasm build needs **no tokio runtime, no timer driver, no tokio macros**. Requirements (all already implied by the b1 design, made explicit here):
+- `run`/`run_with_future`/`run_immediately`/`new_temporary` (the `tokio::spawn` carriers) are **method-level `#[cfg(not(target_arch = "wasm32"))]`**; the `*_inline` variants are the always-compiled counterparts.
+- The `EvalMode::Queued` arms in `MetadataSaver::save_immediately` and `AssetRef::cancel` (the `tokio::spawn`/`tokio::time` branches) are `#[cfg(not(target_arch = "wasm32"))]`, with the wasm arm `unreachable!()` (kept exhaustive, no `_ =>`). Safe because on wasm only `ImmediateAssetManager` exists and it constructs **only** `Inline` assets, so `Queued` is provably dead there.
+- `DefaultAssetManager`/`JobQueue`/expiration-monitor already `#[cfg(not(wasm32))]`.
+- `run_inline` uses `futures::{join, select}!`.
+
+**Net:** on wasm, tokio contributes only its standalone `sync` primitives (which need no runtime). This is a concrete dependency-surface reduction shipped by this change. *(Trade-off vs. the "no cfg in bodies" ideal: two of the three shared forks gain a cfg'd-out `Queued` arm. Justified — the arm is dead code on wasm and the payoff is dropping the tokio runtime/timer/macros entirely.)*
+
+### Full removal (future work — concrete path, not this change)
+
+Removing tokio **entirely** on wasm means replacing `tokio::sync` in the shared `AssetData`/`DependencyManager` with executor-agnostic primitives:
+
+| tokio::sync | executor-agnostic replacement |
+|---|---|
+| `Mutex`, `RwLock` | `async-lock` (or `futures::lock::Mutex`) |
+| `mpsc` | `async-channel` (or `futures::channel::mpsc`) |
+| `watch` | `async-watch`, or a small latest-value + `event-listener` wrapper |
+| `Notify` | `event-listener` |
+| `OnceCell` | `async-once-cell` |
+
+This is a **substantial refactor of `assets.rs`** (the whole asset runtime is built on `tokio::sync`) and touches the native path too, so it is deliberately out of scope here. But it is the endgame the user's embedded/single-threaded angle points at:
+
+### "Replace tokio with another async framework" — reframed
+
+The inline core is **already executor-agnostic in its scheduling** (no `spawn`, `futures` macros). The only remaining framework coupling on wasm is `tokio::sync`. So the goal is not "swap tokio for framework X" but **"make the core executor-agnostic so the embedder chooses the executor"** — `async-lock`/`async-channel`/`event-listener` are framework-*neutral*, not a competing framework. Once `tokio::sync` is abstracted (future work above), `liquers-core`'s inline path runs unchanged under `futures::executor::block_on`, `wasm_bindgen_futures`, `embassy` (embedded, no-std-ish), `smol`, etc. The easy win in this change (`["sync"]` only, no runtime/timer/macros) is the first and largest step down that path; a follow-up feature (e.g. `sync-backend = "tokio" | "async-lock"`) could complete it. Recorded as a tracked follow-up in `specs/ISSUES.md` at Phase 4.
 
 ## Relevant Commands
 
