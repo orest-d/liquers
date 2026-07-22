@@ -6,6 +6,7 @@
 //! attributes dispatched by a single delegated listener. See `specs/webui/`.
 
 pub mod app;
+#[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod html;
 pub mod widgets;

@@ -77,6 +77,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
 }
 
 // Specialized impl for DefaultEnvironment<Value> to add polars command registration
+#[cfg(feature = "polars")]
 impl DefaultEnvironment<crate::value::Value> {
     /// Register polars commands (only available for DefaultEnvironment<Value>)
     pub fn register_polars_commands(&mut self) -> Result<(), Error> {

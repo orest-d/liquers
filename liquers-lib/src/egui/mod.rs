@@ -12,6 +12,7 @@ use crate::{
 };
 
 pub mod commands;
+#[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod widgets;
 
@@ -79,6 +80,7 @@ impl UIValueExtension for Value {
             Self::Extended(ExtValue::Image { value }) => {
                 crate::egui::widgets::display_image(ui, value);
             }
+            #[cfg(feature = "polars")]
             Self::Extended(ExtValue::PolarsDataFrame { value }) => {
                 let mut sort_state: Option<(usize, bool)> = None;
                 crate::egui::dataframe::display_polars_dataframe(ui, &value, &mut sort_state);

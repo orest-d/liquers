@@ -83,6 +83,7 @@ fn simple_to_html(simple: &SimpleValue) -> String {
 fn ext_to_html(ext: &ExtValue, app_state: &dyn AppState) -> String {
     match ext {
         ExtValue::Image { value } => image_to_html(value),
+        #[cfg(feature = "polars")]
         ExtValue::PolarsDataFrame { value } => super::dataframe::dataframe_to_html(value, 100),
         ExtValue::UIElement { value } => value.render_web(app_state),
         #[cfg(feature = "egui")]
