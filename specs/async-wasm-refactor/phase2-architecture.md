@@ -171,19 +171,45 @@ pub trait Environment: Sized + MaybeSync + MaybeSend + 'static {
 The trait absorbs the methods that `AssetRef`/`Context`/interpreter currently reach on the **concrete** `DefaultAssetManager` (audit: assets.rs:513,853,1586,1904,1976; interpreter.rs:51,355; context.rs:603,730). Existing methods unchanged; added:
 
 ```rust
+// --- required primitives (each manager implements over its own map/fields) ---
 fn set_envref(&self, envref: EnvRef<E>);
 fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 fn eval_mode(&self) -> EvalMode;             // manager constant: DefaultAssetManager=Queued, Immediate=Inline
-async fn start(&self);                       // idempotent command-version load (replaces init spawn)
+fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>>;   // read the manager's key→asset map
+fn create_temporary_asset(&self) -> AssetRef<E>;               // manager stamps its own EvalMode via envref
+async fn start(&self);                       // idempotent command-version load (was load_command_versions)
 fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
-async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey);
-async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>);
+
+// --- SHARED default methods (written once on the trait; identical for both managers) ---
+async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
+    let expired = self.dependency_manager().expire(dep_key).await;
+    self.expire_dependencies_result(expired).await;
+}
+async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
+    for dk in &expired.keys {                       // keyed assets: look up via the required primitive
+        if let Ok(k) = Key::try_from(dk) {
+            if let Some(ar) = self.lookup_key_asset(&k) { let _ = ar.expire_without_cascade().await; }
+        }
+    }
+    for weak in &expired.assets {                   // untracked assets: no map access needed
+        if let Some(ar) = weak.upgrade() { let _ = ar.expire_without_cascade().await; }
+    }
+}
 async fn register_plan_dependencies(&self, dependent_key: &Key,
-                                    plan_deps: &[crate::dependencies::PlanDependency]) -> Result<(), Error>;
-fn create_temporary_asset(&self) -> AssetRef<E>;   // manager owns the EvalMode of temp assets
+                                    plan_deps: &[crate::dependencies::PlanDependency]) -> Result<(), Error> {
+    let dep_key = crate::metadata::DependencyKey::from(dependent_key);
+    for pd in plan_deps {
+        if let Some(ver) = self.dependency_manager().get_version(&pd.key).await {
+            if let Ok(expired) = self.dependency_manager().add_dependency(&dep_key, &pd.key, ver).await {
+                self.expire_dependencies_result(expired).await;
+            }
+        }
+    }
+    Ok(())
+}
 ```
 
-- `cascade_expire_dependents`/`expire_dependencies_result`/`register_plan_dependencies` have **identical bodies** for both managers (touch only `dependency_manager()` + maps); implemented per-manager in Tier 1 (maps private), shared-helper extraction deferred to Phase 4.
+- **Q1 resolved — shared helpers via default trait methods.** The three formerly-duplicated bodies are now **default methods on `AssetManager`**, expressed through the required primitives `dependency_manager()` and the new `lookup_key_asset()` — the single point that genuinely differs (`DefaultAssetManager` reads its `scc::HashMap`; `ImmediateAssetManager` reads its `std::sync::Mutex<HashMap>`). Zero duplication, no per-map-type helper needed; follows the CLAUDE.md guidance "add new methods with default implementations." (The original bodies only *expire* assets, never remove — so no `remove_expired_from_maps` primitive is needed here.)
 - Object-safe (no generic methods) — `Arc<dyn AssetManager<E>>` remains usable for tests even though the associated-type path is `dyn`-free.
 
 ### Trait: `AssetManager<E> for ImmediateAssetManager<E>` — semantics
@@ -292,6 +318,7 @@ Splicing a `liquers_core::…` path into caller-crate output is the existing pat
 - `commands.rs`: `CommandExecutor` `cfg_attr` + `MaybeSend`/`MaybeSync`; `SyncExecutorFn`/`AsyncExecutorFn` aliases; `register_*` `where` bounds → markers; `PayloadType` bound.
 - `store.rs`, `recipes.rs`: trait `cfg_attr` + `MaybeSend`/`MaybeSync` **on the traits AND every wasm-compiled impl**. Impls that compile on wasm and were missed by the first draft: `recipes.rs:381` (`impl AsyncRecipeProvider for TrivialRecipeProvider`), `recipes.rs:438` (`impl … for DefaultRecipeProvider`), and core's wasm-compiled `AsyncStore` impls (`NoAsyncStore` and the in-memory/wrapper stores at `store.rs:488,597,1788`). **Native-only impls keep plain `#[async_trait]` under their existing `#[cfg(not(wasm32))]` gate** — `AsyncFileStore` (`store.rs:916`), `DefaultAssetManager` (`assets.rs:2974`) — because on native the trait is plain `#[async_trait]` and the attributes still match. Rule: attribute parity is per-target; a mismatched pair is a hard `E0053`, but only on a `wasm32` build (see build-matrix note below).
 - `value.rs`: `ValueInterface` supertrait bound → markers.
+- **Q2 — obsolete sync `Store`/`BinCache`/`Cache`:** not relaxed to markers. They are `#[cfg(not(target_arch="wasm32"))]` (native-only). Because `SimpleEnvironment`/`SimpleEnvironmentWithPayload` embed a sync `store: Arc<dyn Store>` field (context.rs:492,614; `Cache` is already commented out) and are used only by core tests + `liquers-axum` builders (never the wasm acceptance path, which uses liquers-lib `DefaultEnvironment`), the **simplest cut is to gate those two env structs + impls `#[cfg(not(target_arch="wasm32"))]`** as well. Phase 4 confirms no wasm-compiled code constructs them (`liquers-lib/src/ui/commands.rs` builds `SimpleEnvironment` — Phase 4 verifies that path is native/egui-only or switches it to an async-only env); the fallback, if some wasm code needs it, is field-level cfg of just `store`/`with_store`/`with_cache`.
 - `interpreter.rs`, `plan.rs`: `BoxFuture` returns; temp-asset via manager.
 - `Cargo.toml`: `async-trait` must be available on wasm (already pulled via default `async_store`); **no new deps**. **wasm tokio features reduced `["sync","rt","macros","time"]` → `["sync"]`** (see Tokio Dependency Reduction below). `run_inline` uses `futures::join!`/`futures::select!` (already-present `futures` dep), not `tokio::{join,select}!`, so `"macros"` is not needed on wasm.
 
@@ -333,7 +360,8 @@ No new dependencies in any crate. `async-trait`'s `?Send` mode is a call-site at
 | Kind | Sites | Transformation |
 |---|---|---|
 | Trait `#[async_trait]` attr | `AssetManager`, `CommandExecutor`, `AsyncStore`, `AsyncRecipeProvider` traits + **all impls** (core + 4 downstream crates) | dual `cfg_attr(async_trait / async_trait(?Send))` |
-| Supertrait `Send+Sync` | those 4 + `Environment`, `ValueInterface`, `PayloadType`, `Store`(store.rs:16), `BinCache`(cache.rs:23) | `MaybeSend + MaybeSync` |
+| Supertrait `Send+Sync` | those 4 + `Environment`, `ValueInterface`, `PayloadType` | `MaybeSend + MaybeSync` |
+| Obsolete sync traits | `Store`(store.rs:16), `BinCache`(cache.rs:23), `Cache`, `NoStore`, and the `store`/`cache` fields+methods of `SimpleEnvironment*` | **`#[cfg(not(target_arch="wasm32"))]`** — NOT relaxed; removed from the wasm build (Q2) |
 | Explicit `Pin<Box<dyn Future+Send>>` | context.rs 66,111,120,137,572,700; interpreter.rs 122,155,350,385; plan.rs 1673,2005; commands.rs 449,498,516 | `BoxFuture<'x,T>` alias |
 | `dyn Fn + Send + Sync` stored | commands.rs 428-458 | `SyncExecutorFn`/`AsyncExecutorFn` cfg aliases |
 | Generic `where F: …+Send` | commands.rs 474-477,499-501 | `+ MaybeSend + MaybeSync` |
@@ -402,14 +430,17 @@ None affected in behavior. `ui_spec_demo` uses `dashboard` (local) + the `lui` n
 
 **Primary acceptance (user-specified):** `ui_spec_demo` builds to wasm, `trunk build` succeeds, and a **Playwright e2e** loads the page and drives the dashboard (the deferred `specs/webui` M4 test) — the click path exercises `mount_web → evaluate_immediately → inline eval → ui::web re-render` with no `tokio::spawn` panic and no `Send` error. **The harness is net-new** (no `playwright.config.*` / `.spec.ts` exists in the repo today — M4 deferred it), but its plan is already written in `specs/webui/phase4-implementation.md` (Step 15): new `liquers-lib/examples-web/ui_spec_demo/tests/webui.spec.ts` + `playwright.config.ts`, driven by `trunk serve` + `npx playwright test` against pre-installed headless Chromium. Phase 3 specifies the test scenarios; Phase 4 creates and runs the harness. This is the terminal success gate for the whole refactor.
 
-- **Manager-parametric suite:** existing trait-surface tests (`asset_failure_contract`, volatility, dependency-manager integration, `assets.rs` mod-tests over `get_asset`/`apply`/`apply_immediately`) run over both `SimpleEnvironment` (Default) and an immediate environment, via a small generic harness.
+- **Manager-parametric suite:** existing trait-surface tests (`asset_failure_contract`, volatility, dependency-manager integration, `assets.rs` mod-tests over `get_asset`/`apply`/`apply_immediately`) run over both `SimpleEnvironment` (→ `DefaultAssetManager`) and the **test-support `ImmediateEnvironment`** (→ `ImmediateAssetManager`), via a small generic harness — both native. This is the sole reason the minimal `ImmediateEnvironment` exists (Q3).
 - **Default-only:** queue capacity, parking/drain, in-flight cancellation, monitor-driven expiration.
 - **Immediate-only:** inline recursion, cycle detection under inline recursion, lazy expiration-on-access, and a **no-runtime proof** — the immediate path runs under `futures::executor::block_on` with no tokio runtime present (the native stand-in for browser-readiness).
 - **Axis-2 build matrix:** `cargo check -p liquers-core` (native), `--target wasm32-unknown-unknown -p liquers-core -p liquers-lib` (the wasm-relevant crates — this is what catches an `E0053` attribute-parity miss on `recipes.rs`/core stores), plus native `cargo check -p liquers-store -p liquers-axum -p liquers-py` and the existing egui/webui/polars feature combos, all green. `liquers-store`/`axum`/`py` are native-only, so their dual-`cfg_attr` sites are *not* exercised by the wasm target — a mismatch there is caught only by review, not CI; keep those edits minimal and uniform.
 
-## Open Questions (carried to Phase 3/4)
+## Open Questions — RESOLVED (user, 2026-07-22)
 
-1. Extract the three identical trait-method bodies (`cascade_expire_dependents` etc.) into a shared helper vs. duplicate per-manager — Phase 4 refactor call.
-2. Should `Store` (sync, store.rs:16) and `BinCache` (cache.rs:23) be relaxed too, or left `Send` (native-only paths)? Leaning relax-for-uniformity; confirm no wasm impl is forced.
-3. `ImmediateEnvironment` as a *named* env vs. relying solely on `DefaultEnvironment`'s cfg-selected manager — the latter satisfies the acceptance criterion with zero example changes; a named env is optional sugar for native embedded use. Phase 4.
-4. `load_command_versions` external callers — keep as deprecated alias vs. rename to `start()` (grep at Phase 4).
+1. **Shared helpers** ✅ — the three bodies are **default methods on `AssetManager`** over a `lookup_key_asset()` primitive (see Trait section). No duplication.
+2. **Sync `Store`/`BinCache`/`Cache` are obsolete** ✅ — **not** relaxed to markers; `#[cfg(not(target_arch="wasm32"))]` out of the wasm build (and with them, the `SimpleEnvironment*` structs that embed a sync `store` field — simplest cut, Phase 4 confirms the wasm path never constructs them).
+3. **Simpler code — no product `ImmediateEnvironment`** ✅ — the browser path is `DefaultEnvironment` with its target-cfg-selected `ImmediateAssetManager` (zero example changes; satisfies the acceptance criterion). A future **`BrowserEnvironment`** (browser-specific config: JS command backend, IndexedDB/`fetch` store) is the real browser env and is **out of scope** here. The one concession: a **minimal, `#[cfg(test)]`/test-support `ImmediateEnvironment`** (native) so the manager-parametric suite can exercise `ImmediateAssetManager` — its only real use, per the user. Not a public product surface.
+4. **`load_command_versions` → `start()`** ✅ — grep confirms **no external callers** (only the three internal `init_with_envref` sites; the one test triggers it via `to_ref()`, not directly). So rename to the trait method `start()` outright; **no deprecated alias needed**. `DefaultAssetManager::start()` carries the old body (called eagerly via the native init spawn); `ImmediateAssetManager::start()` is the same body, called lazily (`OnceCell`).
+
+### Remaining item needing user input (from your reply to Q4-context)
+You said "I need more details" — details now provided above (zero external callers ⇒ clean rename). **Unless you object, the plan is the outright rename to `start()`.** No other open questions remain for Phase 2.
