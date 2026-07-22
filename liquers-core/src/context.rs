@@ -47,13 +47,14 @@ pub trait Environment:
     type CommandExecutor: CommandExecutor<Self>;
     type SessionType: Session;
     type Payload: crate::commands::PayloadType;
+    type AssetManager: AssetManager<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
     fn get_command_executor(&self) -> &Self::CommandExecutor;
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore>;
 
-    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>>;
+    fn get_asset_manager(&self) -> Arc<Self::AssetManager>;
 
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>>;
 
@@ -94,7 +95,7 @@ impl<E: Environment> EnvRef<E> {
         self.0.get_command_executor()
     }
 
-    pub fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<E>>> {
+    pub fn get_asset_manager(&self) -> Arc<E::AssetManager> {
         self.0.get_asset_manager()
     }
 
@@ -488,7 +489,7 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<Box<DefaultAssetManager<Self>>>,
+    asset_store: Arc<DefaultAssetManager<Self>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
 }
 
@@ -506,7 +507,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: Arc::new(Box::new(crate::assets::DefaultAssetManager::new())),
+            asset_store: Arc::new(crate::assets::DefaultAssetManager::new()),
             recipe_provider: None,
         }
     }
@@ -536,6 +537,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
     type Payload = ();
+    type AssetManager = DefaultAssetManager<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -550,7 +552,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         self.async_store.clone()
     }
 
-    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>> {
+    fn get_asset_manager(&self) -> Arc<DefaultAssetManager<Self>> {
         self.asset_store.clone()
     }
     fn create_session(&self, user: User) -> Self::SessionType {
@@ -608,7 +610,7 @@ pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::P
     async_store: Arc<dyn crate::store::AsyncStore>,
     //cache: Arc<tokio::sync::RwLock<Box<dyn Cache<V>>>>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<Box<DefaultAssetManager<Self>>>,
+    asset_store: Arc<DefaultAssetManager<Self>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
     _payload: std::marker::PhantomData<P>,
 }
@@ -630,7 +632,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
             _payload: std::marker::PhantomData::<P>::default(),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
-            asset_store: Arc::new(Box::new(crate::assets::DefaultAssetManager::new())),
+            asset_store: Arc::new(crate::assets::DefaultAssetManager::new()),
             recipe_provider: None,
         }
     }
@@ -662,6 +664,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
     type Payload = P;
+    type AssetManager = DefaultAssetManager<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -676,7 +679,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         self.async_store.clone()
     }
 
-    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>> {
+    fn get_asset_manager(&self) -> Arc<DefaultAssetManager<Self>> {
         self.asset_store.clone()
     }
     fn create_session(&self, user: User) -> Self::SessionType {
