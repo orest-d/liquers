@@ -10,7 +10,7 @@
 |---|---|---|
 | M-A Axis-2 scaffolding | 1–3 | `cargo check -p liquers-core` (native) |
 | M-B Axis-1 managers | 4–9 | `cargo check/test -p liquers-core` (native) **and** `cargo check --target wasm32-unknown-unknown -p liquers-core` |
-| M-C downstream + env selection | 10–12 | native workspace check **and** `cargo check --target wasm32 -p liquers-lib` |
+| M-C downstream + env selection | 10–12b | native workspace check **and** `cargo check --target wasm32 -p liquers-lib` |
 | M-D tests | 13 | `cargo test -p liquers-core` (incl. parametric + immediate) |
 | M-E acceptance | 14–15 | full build matrix + `npx playwright test` |
 | M-F docs/follow-up | 16 | docs updated; ISSUES follow-up recorded |
@@ -61,7 +61,7 @@
 
 **Step 6 — `run_inline`/`run_immediately_inline`; cfg-out Queued-path spawn/timer carriers.**
 - **Files:** `assets.rs`.
-- **Change:** add `run_with_future_inline` (`futures::join!` + `futures::select!`), `run_inline`, `run_immediately_inline`; refactor `finish_run_with_result` to take `Result<(), Error>` (Queued caller maps `JoinError`). `#[cfg(not(wasm32))]` on `run`/`run_with_future`/`run_immediately`/`new_temporary` (the `tokio::spawn` carriers). `MetadataSaver::save_immediately` and `AssetRef::cancel`: the mode (from `eval_mode()` via envref) selects `Inline` (direct) vs `Queued` (spawn/timeout, `#[cfg(not(wasm32))]` body, wasm arm `unreachable!()`).
+- **Change:** add `run_with_future_inline` (`futures::join!` + `futures::select!`), `run_inline`, `run_immediately_inline`; refactor `finish_run_with_result` to take `Result<(), Error>` (Queued caller maps `JoinError`). **[opus A1]** `futures::select!` is not a token-for-token swap for `tokio::select!`: its operands must be `Unpin + FusedFuture`, so budget for `.fuse()` + `futures::pin_mut!` on `wait_to_finish()`/`evaluate_future` (or use the function-form `futures::future::select`, which needs no macro). `futures`' default `async-await` feature supplies the macros. `#[cfg(not(wasm32))]` on `run`/`run_with_future`/`run_immediately`/`new_temporary` (the `tokio::spawn` carriers). `MetadataSaver::save_immediately` and `AssetRef::cancel`: the mode (from `eval_mode()` via envref) selects `Inline` (direct) vs `Queued` (spawn/timeout, `#[cfg(not(wasm32))]` body, wasm arm `unreachable!()`).
 - **Validate:** part of M-B checkpoint (native + wasm).
 - **Agent:** sonnet · rust-best-practices · Knowledge: Phase 2 Sync-vs-Async (`join!`/`JobFinishing` invariant), Tokio Reduction.
 - **Rollback:** revert `assets.rs`; keep `run_with_future` as sole path.
@@ -73,9 +73,17 @@
 - **Agent:** sonnet · rust-best-practices · Knowledge: Phase 2 ImmediateAssetManager semantics; reuse `AssetRef`/`AssetData`/`DependencyManager` unchanged.
 - **Rollback:** delete `assets_immediate.rs` + re-export.
 
+**Step 6b — [opus B2] gate the `persist_with_status_tracking` background spawn.**
+- **Files:** `assets.rs` (`persist_with_status_tracking`, assets.rs:1139-1153; `AssetData` `save_in_background` field/default at 264/349).
+- **Change:** the background-persist `tokio::spawn` at assets.rs:1147 is on the **always-compiled inline path** (`evaluate_and_store`→`persist_with_status_tracking`, `save_in_background` defaults `true`) — it was missed by the Phase 2 carriers table. Fix: in inline mode persist **synchronously** via the existing `else` branch (assets.rs:1151, already `self.save_to_store().await`); gate the spawn branch `#[cfg(not(target_arch = "wasm32"))]`, and force `save_in_background = false` for `Inline`-mode assets (read `eval_mode()` at the `persist_with_status_tracking` call sites 1580/2141, or set the flag when the immediate manager creates the asset). Without this, wasm panics at runtime and fails the Step 9 `["sync"]` checkpoint (no `rt`).
+- **Validate:** part of M-B checkpoint (native + wasm).
+- **Agent:** sonnet · rust-best-practices · Knowledge: this finding + Phase 2 Tokio Reduction.
+- **Rollback:** ungate the spawn.
+
 **Step 8 — `DefaultAssetManager` native-only + conform to extended trait.**
 - **Files:** `assets.rs`.
 - **Change:** `#[cfg(not(target_arch = "wasm32"))]` on `DefaultAssetManager`, `JobQueue`, expiration monitor, `RunClaim`. Implement the new required trait methods (`eval_mode()==Queued`, `lookup_key_asset` over its `scc` map, `create_temporary_asset`, `start`→shared helper, `track_expiration` as today). Default methods inherited.
+- **[opus B1] `remove_expired_from_maps` must be lifted onto the `AssetManager` trait.** `run_expiration_monitor` (assets.rs:2499, a static fn with no `self`) reaches the manager only via `envref.get_asset_manager()` and calls `manager.remove_expired_from_maps(...)` at assets.rs:2608 — a site the Phase 2 audit missed. After Step 5 the return type is `Arc<E::AssetManager>`, so this is an `E0599` on the **native** M-B checkpoint unless the method is on the trait. Add `async fn remove_expired_from_maps(&self, asset_id: u64, query: Option<&Query>, key: Option<&Key>) -> bool` to the trait (`DefaultAssetManager` keeps its body at 2777; `ImmediateAssetManager` implements it over its `Mutex<HashMap>` maps — harmless, and it has no monitor). Add this to Step 4's trait-method list.
 - **Validate:** **M-B checkpoint** — `cargo test -p liquers-core` (native) + `cargo check --target wasm32-unknown-unknown -p liquers-core --no-default-features --features async_store`.
 - **Agent:** sonnet · rust-best-practices · Knowledge: Phase 2; existing DefaultAssetManager method bodies.
 - **Rollback:** remove cfg gates; revert trait-method wiring.
@@ -109,6 +117,14 @@
 - **Validate:** **M-C checkpoint** — native workspace `cargo check` + `cargo check --target wasm32 -p liquers-lib`. Commit.
 - **Agent:** haiku · rust-best-practices · Knowledge: Phase 2 interpreter section.
 - **Rollback:** revert.
+
+**Step 12b — [opus A2] audit the liquers-lib wasm render path for wasm-illegal time calls.**
+- **Files:** `liquers-lib/src/ui/widgets/query_console_element.rs:139` (`std::time::Instant::now()`, field at :68), and a grep sweep for `Instant::now`/`SystemTime::now` across the wasm-compiled `liquers-lib/src/ui` tree.
+- **Change:** `Instant::now()` **panics at runtime on `wasm32-unknown-unknown`** and is compiled (not cfg'd). Since the acceptance target is the demo *running*, replace/gate it on wasm (e.g. `web_sys::window().performance().now()` behind `#[cfg(target_arch="wasm32")]`, or feature-gate the timing entirely). Even if `ui_spec_demo`'s dashboard doesn't instantiate the query console today, this removes a latent E4 `pageerror` and future footgun.
+- **Validate:** `cargo check --target wasm32 -p liquers-lib`; confirmed green at E4 (no `pageerror`).
+- **Agent:** haiku · rust-best-practices · Knowledge: this finding; wasm has no `std::time::Instant`.
+- **Rollback:** revert the gate.
+- **Checkpoint M-C:** native workspace + `cargo check --target wasm32 -p liquers-lib`. Commit.
 
 ### M-D — tests
 
@@ -189,6 +205,10 @@
 - `specs/webui/DESIGN.md`: async-on-wasm follow-up resolved → link here.
 - `specs/async-wasm-refactor/DESIGN.md`: phases complete.
 - `CLAUDE.md`: brief async-on-wasm / manager-selection note if warranted.
+
+## Review outcome (4-reviewer + opus, applied)
+- **Sequencing reviewer:** all milestone checkpoints build-order sound; Steps 4–8 coupling correctly flagged as a single pass.
+- **Opus cross-phase reviewer:** two BLOCKING misses now folded in as explicit steps — **B1** (`remove_expired_from_maps` lifted onto the trait, Step 8) and **B2** (`persist_with_status_tracking` background spawn gated, Step 6b); plus **A2** (liquers-lib `Instant::now()` wasm audit, Step 12b) and **A1** (`futures::select!` fuse/pin, Step 6). A3/A4 are wording/effort calibrations (recorded in Phase 2).
 
 ## Open Questions
 None blocking. The single integration risk (a residual `!Send` in the `ui::web`→core seam surfacing only at E4 runtime) is documented in Rollback; it is localized and does not affect earlier milestones.

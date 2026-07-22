@@ -71,8 +71,10 @@ pub struct ImmediateAssetManager<E: Environment> {
     /// no lock-contention need; (2) scc's async API and its Send/Sync bounds on values
     /// are avoided, so the maps compile with a !Send `AssetRef<E>` on wasm; (3) the
     /// std Mutex guard is !Send and cannot cross an .await, which statically enforces
-    /// the "no lock across await" discipline that prevents re-entrant deadlock during
-    /// recursive inline dependency evaluation.
+    /// the "no lock across await" discipline ON NATIVE (futures must be Send there). On the
+    /// wasm target futures are !Send so a guard could cross an await — the discipline is
+    /// backstopped by ImmediateAssetManager also compiling on native (test-support
+    /// ImmediateEnvironment): any violation breaks the native build. (opus A3)
     assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
     query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
     dependency_manager: crate::dependencies::DependencyManager<E>,  // reused as-is (spawn/timer-free)
@@ -177,6 +179,7 @@ fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 fn eval_mode(&self) -> EvalMode;             // manager constant: DefaultAssetManager=Queued, Immediate=Inline
 fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>>;   // read the manager's key→asset map
 fn create_temporary_asset(&self) -> AssetRef<E>;               // manager stamps its own EvalMode via envref
+async fn remove_expired_from_maps(&self, asset_id: u64, query: Option<&Query>, key: Option<&Key>) -> bool;  // reached by the monitor via envref (opus B1)
 async fn start(&self);                       // idempotent startup; calls the shared load_command_versions() helper
 fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
 
@@ -373,7 +376,7 @@ No new dependencies in any crate. `async-trait`'s `?Send` mode is a call-site at
 | Generic `where F: …+Send` | commands.rs 474-477,499-501 | `+ MaybeSend + MaybeSync` |
 | Macro `+ Send` | liquers-macro registration.rs 1118,1890,2358 | emit `BoxFuture` alias |
 | Threaded manager compile-out | `DefaultAssetManager`, `JobQueue`, expiration monitor (assets.rs) | `#[cfg(not(target_arch="wasm32"))]` |
-| Queued-path spawn/timer carriers | `run`/`run_with_future`/`run_immediately`/`new_temporary`; `Queued` arms of `MetadataSaver::save_immediately`, `AssetRef::cancel` | method/arm `#[cfg(not(wasm32))]` (wasm arm `unreachable!()`) → drops tokio `rt`/`time` on wasm |
+| Queued-path spawn/timer carriers | `run`/`run_with_future`/`run_immediately`/`new_temporary`; `Queued` arms of `MetadataSaver::save_immediately`, `AssetRef::cancel`; **`persist_with_status_tracking` background spawn (assets.rs:1147 — inline path, opus B2)** | method/arm `#[cfg(not(wasm32))]` (wasm arm `unreachable!()` / synchronous persist) → drops tokio `rt`/`time` on wasm |
 | Env manager selection | `DefaultEnvironment` (liquers-lib) | cfg-selected `type AssetManager` |
 | wasm tokio features | `liquers-core/Cargo.toml` `[target.'cfg(wasm32)'.dependencies]` | `["sync","rt","macros","time"]` → `["sync"]` |
 
