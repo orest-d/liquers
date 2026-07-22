@@ -43,15 +43,27 @@ No `AsyncStore` trait changes. `get_also_expired` reads existing store bytes/met
 `liquers-lib`, `liquers-store`, `liquers-axum`, or `liquers-py` public surfaces are required for
 the recovery API itself; a caller audit will confirm.
 
-## Open Questions
+## Resolved Questions
 
-1. Does `get_also_expired()` need a distinct manager-trait method (`AssetManager::get_also_expired`)
-   or is it sufficient as an inherent method on `DefaultAssetManager`? (Affects trait object use.)
-2. Should promoting to `Override` immediately persist to the store, or only mark the in-memory
-   `AssetRef` and rely on the existing persistence path on next `set`?
+1. **Trait placement (resolved):** `get_also_expired()` is an `AssetManager<E>` trait method (not
+   `DefaultAssetManager`-only). `specs/async-wasm-refactor` is adding a second manager
+   implementation, so any new manager-facing capability must be a trait method with a sensible
+   default (mirroring `get_dependency_asset`/`wait_for_dependency` defaults already on the trait)
+   so both implementations stay compatible without duplicating logic.
+2. **Override persistence (resolved):** promotion to `Override` must yield a consistent state but
+   avoid double-serialization, reusing the existing `PersistenceStatus` already tracked per asset
+   (`assets.rs:134-143`, set via `record_persistence_result`/`persist_with_status_tracking`):
+   - `Persisted` — data bytes are already correct in the store; only the metadata's `status` field
+     needs rewriting to `Override`, no re-serialization of the value.
+   - `NonSerializable` — nothing is written to the store (matches today's silent skip); only the
+     in-memory `AssetRef` transitions via the existing `to_override()`.
+   - `NotPersisted` / `None` — treated as a retry opportunity: re-run the normal persist path
+     (serialize + store) with the now-`Override` status.
 
 ## References
 
 - `specs/FEATURES/EXPIRATION-SAFETY.md`, `specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`
 - `specs/expiration-mechanism/`, `specs/expiration-monitor-assetref/` (prior related designs)
+- `specs/async-wasm-refactor/` (in-progress second `AssetManager` implementation — trait-method
+  constraint above)
 - `plan20260707.md` WP-3
