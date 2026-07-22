@@ -5,11 +5,24 @@
 No new structs/enums, no new crate dependencies, no command/API surface. Three targeted changes
 in `liquers-core/src/assets.rs`: (1) the expiration monitor's heap entry holds a `WeakAssetRef<E>`
 instead of a strong ref, (2) `poll_state()` stops serving data for `Status::Expired`, paired with
-a new `*_also_expired` read family, (3) two new required methods on the `AssetManager<E>` trait —
-`get_also_expired` and `override_expired` — give keyed assets an explicit, non-evaluating recovery
-and promote-to-`Override` path. `rust-best-practices` skill is not installed in this environment;
-Rust-idiom checks below (explicit matches, minimal bounds, no new `unwrap`/`expect`) were applied
-manually against the existing code style in `assets.rs`.
+a new `poll_state_any_status`/`get_any_status` read family that deliberately bypasses that guard,
+(3) two new required methods on the `AssetManager<E>` trait — `get_any_status` and `to_override` —
+give keyed assets an explicit, non-evaluating recovery and promote-to-`Override` path.
+`rust-best-practices` skill is not installed in this environment; Rust-idiom checks below
+(explicit matches, minimal bounds, no new `unwrap`/`expect`) were applied manually against the
+existing code style in `assets.rs`.
+
+**Naming (revised from the initial `_also_expired` draft, per user feedback):**
+- The read method is named `get_any_status`/`poll_state_any_status`, following the existing
+  `_unchecked` convention already used in this file (`State::data_unchecked()`, and the wider Rust
+  convention `Vec::get_unchecked`) for "bypasses a normal guard" — here, the guard is "not
+  expired." `_any_status` was chosen over `_unchecked` because it is self-describing without the
+  unsafe-adjacent connotation `_unchecked` carries in Rust.
+- The promote method is named `to_override`, reusing the verb already established by
+  `AssetRef::to_override()` (`assets.rs:1833`). This also corrects a scoping error in the initial
+  draft: promoting to `Override` is **not** Expired-specific — a `Ready` asset can be pinned to
+  `Override` the same way, exactly as `AssetRef::to_override()` already does for every data-bearing
+  status. The manager-level method must therefore not be named after `Expired` at all.
 
 ## Data Structures
 
@@ -46,16 +59,16 @@ Not applicable.
 Two new **required** methods (no default body — see rationale below):
 
 ```rust
-/// Recovery-only read for a KEYED asset: returns its state even if `Status::Expired`,
-/// without submitting evaluation, without touching the dependency manager, and without
-/// registering the entry back into the manager's normal in-memory cache.
+/// Recovery-only read for a KEYED asset: returns its state regardless of status — including
+/// `Status::Expired` — without submitting evaluation, without touching the dependency manager,
+/// and without registering the entry back into the manager's normal in-memory cache.
 /// `Ok(None)` if the key has no data-bearing state (in memory or in the store).
-async fn get_also_expired(&self, key: &Key) -> Result<Option<State<E::Value>>, Error>;
+async fn get_any_status(&self, key: &Key) -> Result<Option<State<E::Value>>, Error>;
 
-/// Promote a KEYED asset's expired state to `Status::Override` in place, preserving the
-/// value without recomputation. Errors if there is no expired (or data-bearing) state for
-/// `key` to promote (in memory or in the store).
-async fn override_expired(&self, key: &Key) -> Result<(), Error>;
+/// Pin a KEYED asset's current value (whatever status it is in — `Ready`, `Expired`, etc.) as
+/// `Status::Override`, preserving the value without recomputation. Errors if there is no
+/// data-bearing state for `key` to promote (in memory or in the store).
+async fn to_override(&self, key: &Key) -> Result<(), Error>;
 ```
 
 **Bounds:** None beyond the trait's existing `Send + Sync`.
@@ -64,21 +77,21 @@ async fn override_expired(&self, key: &Key) -> Result<(), Error>;
 `remove`, `contains`) is required because it depends on the manager's internal storage shape;
 only pure orchestration helpers (`get_dependency_asset`, `drain_dependencies`,
 `wait_for_dependency`) get default bodies, because those are expressible purely in terms of other
-required methods. `get_also_expired`/`override_expired` are the same kind of storage-shape-
-dependent operation (which in-memory map exists, if any; how to read the store without going
-through the fast-track/evaluation path). A generic default composed from existing trait methods
-(`get_also_expired` via `set_state`) would necessarily re-serialize the value on every promotion —
-exactly the double-serialization the user asked to avoid — so no default is provided; each
-manager (today `DefaultAssetManager`, later the `async-wasm-refactor` manager) implements both
-against its own internals. This was confirmed with the user: `get_also_expired` must be a trait
-method precisely because a second manager implementation is coming and must expose the same
-capability.
+required methods. `get_any_status`/`to_override` are the same kind of storage-shape-dependent
+operation (which in-memory map exists, if any; how to read the store without going through the
+fast-track/evaluation path). A generic default composed from existing trait methods
+(`get_any_status` piped into `set_state`) would necessarily re-serialize the value on every
+promotion — exactly the double-serialization the user asked to avoid — so no default is provided;
+each manager (today `DefaultAssetManager`, later the `async-wasm-refactor` manager) implements
+both against its own internals. This was confirmed with the user: `get_any_status` must be a
+trait method precisely because a second manager implementation is coming and must expose the
+same capability.
 
 ### `DefaultAssetManager<E>` implementation (algorithm, bodies in Phase 4)
 
-**`get_also_expired(key)`:**
+**`get_any_status(key)`:**
 1. If `self.assets` has an in-memory entry for `key`, return
-   `asset_ref.get_also_expired().await` (new `AssetRef` method below) — covers `Expired` and every
+   `asset_ref.get_any_status().await` (new `AssetRef` method below) — covers `Expired` and every
    other data-bearing status.
 2. Else, read directly from the store (`store.get(key)`) bypassing `try_fast_track`'s status
    allow-list; if the stored `Metadata::status().has_data()` (existing helper,
@@ -88,10 +101,13 @@ capability.
    this path must have no side effects on normal evaluation (WP-3 item 4).
 3. Otherwise `Ok(None)`.
 
-**`override_expired(key)`:**
-1. If `self.assets` has an in-memory entry for `key` with `Status::Expired`:
-   - call the existing `AssetRef::to_override()` (`assets.rs:1833`, already handles
-     `Expired -> Override` while preserving the value) to flip in-memory state;
+**`to_override(key)`:** not Expired-specific — pins whatever current value exists (`Ready`,
+`Expired`, `Partial`, etc.) as `Override`, mirroring `AssetRef::to_override()`'s own status
+coverage:
+1. If `self.assets` has an in-memory entry for `key`:
+   - call the existing `AssetRef::to_override()` (`assets.rs:1833`, already handles every
+     data-bearing status — including plain `Ready`, not just `Expired` — while preserving the
+     value) to flip in-memory state;
    - branch on the existing `AssetRef::persistence_status()` (`PersistenceStatus`,
      `assets.rs:134`) recorded from the *original* evaluation:
      - `Persisted` — the store already holds the correct bytes; call
@@ -103,22 +119,24 @@ capability.
        `persistence_status` via the existing `record_persistence_result` path.
    - leave the (now `Override`) `AssetRef` in `self.assets` (or reinsert if a race with the
      monitor already evicted it) so a subsequent normal `get(key)` sees it immediately.
-2. Else (no in-memory entry — already evicted): load the persisted expired bytes+metadata from
-   the store exactly as `get_also_expired`'s store-fallback does; since deserialization succeeded,
-   the bytes are provably already persisted, so rewrite **only** the metadata `status` field to
-   `Override` via `store.set_metadata`. No in-memory `AssetRef` is created — the existing
-   fast-track allow-list already includes `Override` (`assets.rs:475`), so the next normal
-   `get(key)` loads it back into memory on its own.
+2. Else (no in-memory entry — e.g. already evicted after expiring): load the persisted state from
+   the store exactly as `get_any_status`'s store-fallback does (only `Ready`/`Source`/`Override`/
+   `Expired` are ever persisted, so this is the only status set reachable here); since
+   deserialization succeeded, the bytes are provably already persisted, so rewrite **only** the
+   metadata `status` field to `Override` via `store.set_metadata`. No in-memory `AssetRef` is
+   created — the existing fast-track allow-list already includes `Override` (`assets.rs:475`), so
+   the next normal `get(key)` loads it back into memory on its own.
 3. If neither exists, `Err(Error::key_not_found(key))`.
 
 This directly implements the user's Q2 answer: consistent end state, no double-serialization,
-`PersistenceStatus` drives the retry-vs-skip-vs-metadata-only branch.
+`PersistenceStatus` drives the retry-vs-skip-vs-metadata-only branch — now correctly generalized
+beyond `Expired` to any current value, per the user's correction above.
 
 ## New `AssetData`/`AssetRef` methods
 
 ```rust
 // AssetData (sync, assets.rs, next to poll_state at :596)
-pub fn poll_state_also_expired(&self) -> Option<State<E::Value>> {
+pub fn poll_state_any_status(&self) -> Option<State<E::Value>> {
     match self.status {
         Status::Expired => { /* same construction as today's Expired arm of poll_state */ }
         _ => self.poll_state(),
@@ -126,15 +144,15 @@ pub fn poll_state_also_expired(&self) -> Option<State<E::Value>> {
 }
 
 // AssetRef (async wrapper, assets.rs, next to poll_state at :2075)
-pub async fn poll_state_also_expired(&self) -> Option<State<E::Value>> {
-    self.data.read().await.poll_state_also_expired()
+pub async fn poll_state_any_status(&self) -> Option<State<E::Value>> {
+    self.data.read().await.poll_state_any_status()
 }
 
 /// Peek-only, no waiting: Expired (and any other data-bearing status) returns its value;
 /// non-terminal or data-less statuses return `None` immediately (unlike `get()`, this never
 /// blocks — recovery reads a snapshot, it does not await completion).
-pub async fn get_also_expired(&self) -> Option<State<E::Value>> {
-    self.poll_state_also_expired().await
+pub async fn get_any_status(&self) -> Option<State<E::Value>> {
+    self.poll_state_any_status().await
 }
 ```
 
@@ -155,10 +173,10 @@ documented error immediately — it does not need to wait for a new notification
 change to `get()` itself; this satisfies the acceptance for `test_assetref_get_does_not_serve_expired_state`
 ("returns a documented stale/expired error for detached refs").
 
-**Not gated to keyed assets:** `poll_state_also_expired`/`get_also_expired` on `AssetRef` are
-harmless for non-keyed refs too (pure in-memory peek, no store access, no promotion). The
-keyed-only restriction lives entirely in the *manager*-level API (`&Key`-typed by construction) and
-in `override_expired`'s in-store recovery — there is no query-based counterpart.
+**Not gated to keyed assets:** `poll_state_any_status`/`get_any_status` on `AssetRef` are harmless
+for non-keyed refs too (pure in-memory peek, no store access, no promotion). The keyed-only
+restriction lives entirely in the *manager*-level API (`&Key`-typed by construction) and in
+`to_override`'s in-store recovery — there is no query-based counterpart.
 
 ## Expiration Monitor Fire Logic (`assets.rs:2548-2621`, both `select!` arms)
 
@@ -186,9 +204,9 @@ No new generics. All changes reuse `E: Environment` already in scope throughout 
 
 | Function | Async? | Rationale |
 |---|---|---|
-| `AssetData::poll_state_also_expired` | No | Pure in-memory read under an already-held lock, mirrors `poll_state` |
-| `AssetRef::poll_state_also_expired` / `get_also_expired` | Yes | Acquires `RwLock::read()`, mirrors existing `poll_state`/`poll_binary` async wrappers |
-| `AssetManager::get_also_expired` / `override_expired` | Yes | Store I/O (`AsyncStore`) is async; matches every other manager trait method |
+| `AssetData::poll_state_any_status` | No | Pure in-memory read under an already-held lock, mirrors `poll_state` |
+| `AssetRef::poll_state_any_status` / `get_any_status` | Yes | Acquires `RwLock::read()`, mirrors existing `poll_state`/`poll_binary` async wrappers |
+| `AssetManager::get_any_status` / `to_override` | Yes | Store I/O (`AsyncStore`) is async; matches every other manager trait method |
 
 ## Function Signatures
 
@@ -200,7 +218,7 @@ signatures for this WP are listed there; there is no separate free-function modu
 ### Crate: `liquers-core` only
 
 **File:** `liquers-core/src/assets.rs` — all five changes above (monitor struct/logic, `poll_state`
-split, new `*_also_expired` methods, two new trait methods + `DefaultAssetManager` impl).
+split, new `*_any_status` methods, two new trait methods + `DefaultAssetManager` impl).
 
 **No changes** to `liquers-store`, `liquers-lib`, `liquers-axum`, `liquers-py`: confirmed by
 scanning for existing callers of `poll_state`, `get()`, and the `AssetManager` trait outside
@@ -225,15 +243,13 @@ None. This WP is entirely `AssetManager`/`AssetRef` internals; it introduces no
 recomputed instead of served stale," which is already how `~query` evaluation behaves.
 
 **Ask user:** confirm no command or namespace surface (e.g. an `override`/`recover` command
-wrapping `override_expired`) is wanted in this WP — the current plan treats that as a future,
-separate follow-up (would need an axum route + a `liquers-lib` command wrapping the new trait
-methods).
+wrapping `to_override`) is wanted in this WP — the current plan treats that as a future, separate
+follow-up (would need an axum route + a `liquers-lib` command wrapping the new trait methods).
 
 ## Web Endpoints
 
 **None in this WP** (matches the Phase 1-approved crate placement: `liquers-core` only). Exposing
-`get_also_expired`/`override_expired` over `liquers-axum` is a natural follow-up but out of scope
-here.
+`get_any_status`/`to_override` over `liquers-axum` is a natural follow-up but out of scope here.
 
 ## Error Handling
 
@@ -241,29 +257,29 @@ No new error types. Reuses existing constructors:
 
 | Scenario | Constructor |
 |---|---|
-| `override_expired` called for a key with no expired/data-bearing state | `Error::key_not_found(key)` |
-| Store read/deserialize failure in `get_also_expired`'s store-fallback | propagate via `?` (existing `Error` from `AsyncStore`/`deserialize_from_bytes`) |
-| Retry-persist failure inside `override_expired` | recorded via existing `record_persistence_result`, not raised as a hard error (matches current `persist_with_status_tracking` behavior — a failed background/foreground save does not fail the caller) |
+| `to_override` called for a key with no data-bearing state | `Error::key_not_found(key)` |
+| Store read/deserialize failure in `get_any_status`'s store-fallback | propagate via `?` (existing `Error` from `AsyncStore`/`deserialize_from_bytes`) |
+| Retry-persist failure inside `to_override` | recorded via existing `record_persistence_result`, not raised as a hard error (matches current `persist_with_status_tracking` behavior — a failed background/foreground save does not fail the caller) |
 
 ## Serialization Strategy
 
-Not applicable — no new serializable structs. `override_expired`'s whole point is to avoid an
-extra serialize/deserialize round trip when the store already holds correct bytes.
+Not applicable — no new serializable structs. `to_override`'s whole point is to avoid an extra
+serialize/deserialize round trip when the store already holds correct bytes.
 
 ## Concurrency Considerations
 
-No new shared state. `get_also_expired`/`override_expired` read/write through the same
-`scc::HashMap` (`self.assets`) and `AsyncStore` the rest of `DefaultAssetManager` already uses,
-under the same per-asset `RwLock<AssetData<E>>` (`AssetRef::data`) locking discipline as every
-other method in this file. The monitor's weak-ref change strictly *reduces* what it can observe
-concurrently (an upgraded ref behaves exactly as before; a failed upgrade is a no-op), so it
-introduces no new race window.
+No new shared state. `get_any_status`/`to_override` read/write through the same `scc::HashMap`
+(`self.assets`) and `AsyncStore` the rest of `DefaultAssetManager` already uses, under the same
+per-asset `RwLock<AssetData<E>>` (`AssetRef::data`) locking discipline as every other method in
+this file. The monitor's weak-ref change strictly *reduces* what it can observe concurrently (an
+upgraded ref behaves exactly as before; a failed upgrade is a no-op), so it introduces no new
+race window.
 
 ## Compilation Validation
 
 - [x] All type signatures specified above
-- [x] No new `unwrap()`/`expect()` — `override_expired`'s "nothing to promote" case returns
-  `Err`, not a panic
+- [x] No new `unwrap()`/`expect()` — `to_override`'s "nothing to promote" case returns `Err`, not
+  a panic
 - [x] `AssetManager` trait gains two required async methods — the only implementor today,
   `DefaultAssetManager`, is updated in the same PR, so the trait stays object-safe and fully
   implemented; `cargo check -p liquers-py` re-verified in Phase 4 per CLAUDE.md rule (public core
