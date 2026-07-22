@@ -177,7 +177,7 @@ fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
 fn eval_mode(&self) -> EvalMode;             // manager constant: DefaultAssetManager=Queued, Immediate=Inline
 fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>>;   // read the manager's key→asset map
 fn create_temporary_asset(&self) -> AssetRef<E>;               // manager stamps its own EvalMode via envref
-async fn start(&self);                       // idempotent command-version load (was load_command_versions)
+async fn start(&self);                       // idempotent startup; calls the shared load_command_versions() helper
 fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
 
 // --- SHARED default methods (written once on the trait; identical for both managers) ---
@@ -264,6 +264,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> { /* full trai
 ### Module `liquers_core::assets` (changes)
 ```rust
 pub enum EvalMode { Queued, Inline }         // manager constant, NOT an AssetData field
+// Shared helper (was DefaultAssetManager::load_command_versions, now a parameterized free fn);
+// both managers' start() call it.
+pub(crate) async fn load_command_versions<E: Environment>(
+    dm: &crate::dependencies::DependencyManager<E>,
+    cmr: &CommandMetadataRegistry,
+);
 impl<E: Environment + 'static> AssetRef<E> {
     pub(crate) async fn run_inline(&self) -> Result<(), Error>;              // no psm spawn (futures::join!)
     pub(crate) async fn run_immediately_inline(&self, payload: Option<E::Payload>) -> Result<(), Error>;
@@ -440,7 +446,6 @@ None affected in behavior. `ui_spec_demo` uses `dashboard` (local) + the `lui` n
 1. **Shared helpers** ✅ — the three bodies are **default methods on `AssetManager`** over a `lookup_key_asset()` primitive (see Trait section). No duplication.
 2. **Sync `Store`/`BinCache`/`Cache` are obsolete** ✅ — **not** relaxed to markers; `#[cfg(not(target_arch="wasm32"))]` out of the wasm build (and with them, the `SimpleEnvironment*` structs that embed a sync `store` field — simplest cut, Phase 4 confirms the wasm path never constructs them).
 3. **Simpler code — no product `ImmediateEnvironment`** ✅ — the browser path is `DefaultEnvironment` with its target-cfg-selected `ImmediateAssetManager` (zero example changes; satisfies the acceptance criterion). A future **`BrowserEnvironment`** (browser-specific config: JS command backend, IndexedDB/`fetch` store) is the real browser env and is **out of scope** here. The one concession: a **minimal, `#[cfg(test)]`/test-support `ImmediateEnvironment`** (native) so the manager-parametric suite can exercise `ImmediateAssetManager` — its only real use, per the user. Not a public product surface.
-4. **`load_command_versions` → `start()`** ✅ — grep confirms **no external callers** (only the three internal `init_with_envref` sites; the one test triggers it via `to_ref()`, not directly). So rename to the trait method `start()` outright; **no deprecated alias needed**. `DefaultAssetManager::start()` carries the old body (called eagerly via the native init spawn); `ImmediateAssetManager::start()` is the same body, called lazily (`OnceCell`).
+4. **Keep `load_command_versions` as a shared helper; `start()` calls it** ✅ (user) — extract the command-version registration into a shared free helper `load_command_versions<E>(dm: &DependencyManager<E>, cmr: &CommandMetadataRegistry)` (its current body, parameterized rather than reading `self`). The trait method `start()` is the idempotent startup entry point that calls it: `DefaultAssetManager::start()` calls the helper (eagerly, via the native init spawn); `ImmediateAssetManager::start()` guards with `OnceCell` then calls the same helper (lazily on first `get`). One implementation of the registration logic, reused by both managers. (Grep confirmed no external callers of `load_command_versions`, so turning it from a `DefaultAssetManager` method into a shared helper breaks nothing.)
 
-### Remaining item needing user input (from your reply to Q4-context)
-You said "I need more details" — details now provided above (zero external callers ⇒ clean rename). **Unless you object, the plan is the outright rename to `start()`.** No other open questions remain for Phase 2.
+No other open questions remain for Phase 2.
