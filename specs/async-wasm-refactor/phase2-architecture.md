@@ -1,294 +1,348 @@
-# Phase 2: Solution & Architecture — async-wasm-refactor (ImmediateAssetManager)
+# Phase 2: Solution & Architecture — async-wasm-refactor (complete: both blockers)
 
 ## Overview
 
-Introduce `ImmediateAssetManager<E>` — a parallel, spawn-free, timer-free implementation of the `AssetManager<E>` trait in which every evaluation happens **inline** (awaited to completion inside `get_asset`/`get`/`apply` before they return), with no `JobQueue`, no expiration-monitor task, and no per-asset background loops. To make the manager selectable, `Environment` gains an associated type `type AssetManager: AssetManager<Self>`; to make `AssetRef`'s shared evaluation machinery usable without `tokio::spawn`, `AssetData` gains an explicit runtime `EvalMode { Queued, Inline }` that drives the three shared-path forks (service-message loop, metadata persistence, cancel timeout) via exhaustive matches — a first-class runtime mode compiled and testable on **all** targets, never behind `cfg`.
+Complete Tier-1 **and** Tier-2 solution, hybrid per the approved strategy: **specialization (b1) for Axis 1 (runtime behavior)** and **target-gated conditional compilation for Axis 2 (the `Send` bound)**. Axis 1 adds `ImmediateAssetManager<E>` — a spawn-free, timer-free `AssetManager` whose evaluations run inline — and makes the manager selectable via `Environment::AssetManager`. Axis 2 adds a `maybe_send` module (`MaybeSend`/`MaybeSync` marker aliases + a cfg'd `BoxFuture` type alias) and switches the five core async traits to `#[async_trait(?Send)]` on `wasm32`, relaxing their supertrait bounds and every explicit `+ Send` future/closure bound in core and in the `register_command!` macro. On `wasm32` the threaded machinery (`DefaultAssetManager`, `JobQueue`) is `#[cfg(not(target_arch = "wasm32"))]` and simply absent; `ImmediateAssetManager` is the only manager compiled.
 
-Research grounding (Phase 1 + code audit): all `tokio::spawn`/`tokio::time` sites in `liquers-core` fall into two groups. **JobQueue-owned** (avoided entirely by this design): manager-constructor spawns (`assets.rs:2480,2484`), job-start spawn (`assets.rs:3985`), claim-repair spawn (`assets.rs:3820`), monitor timer (`assets.rs:2546`). **Shared-path** (handled by `EvalMode`): psm spawn in `run_with_future` (`assets.rs:1440`), psm spawn in `new_temporary` (`assets.rs:943`, called from `interpreter.rs:355`), `MetadataSaver` debounce spawn + `sleep` + `std::time::Instant` (`assets.rs:187,206` — `Instant::now()` **panics** on wasm32-unknown-unknown), cancel timeout (`assets.rs:1790`). Environment-init spawns (`context.rs:605,732`, `liquers-lib/src/environment.rs:150`) are avoided by lazy start in the immediate manager.
+**Acceptance criterion (from the user):** `liquers-lib/examples-web/ui_spec_demo` runs in a real browser and passes a Playwright e2e test (the deferred M4 goal in `specs/webui/DESIGN.md`). The design is organized so that this specific chain — `mount_web` → `DefaultEnvironment` (wasm) → `ImmediateAssetManager` → inline `evaluate`/`evaluate_immediately` → `ui::web` render — compiles and runs with no `tokio::spawn` and no `Send` violation.
 
-**No `cfg` is used for behavior anywhere in this design.** The only wasm-conditional compilation remains the existing `Cargo.toml` target-gated tokio features. The Tier-2 `MaybeSend` work stays deferred; nothing here blocks it.
+**Why both axes are needed together.** Axis 1 alone makes core *run* on wasm for `Send`-satisfiable data, but the moment Axis 2 relaxes `E`'s `Send` bound, `tokio::spawn` in `DefaultAssetManager` no longer *compiles* on wasm (its signature requires `F: Send`, and `AssetRef<E>` is not `Send` when `E: MaybeSend`). So the two axes are co-dependent on wasm: Axis 2 forces the threaded manager out of the wasm build, and Axis 1 supplies the replacement. b1's clean type-level split is what makes this a single `#[cfg]` boundary rather than cfg scattered through a type.
+
+**No behavioral `cfg`.** `EvalMode` (Axis 1) is a runtime enum, testable on all targets. The only conditional compilation is (i) target-gating the threaded manager out of wasm and (ii) the `maybe_send` aliases — both are type/attribute-level, never `cfg` inside a function body.
 
 ## Data Structures
 
-### New Structs
+### New module `liquers-core/src/maybe_send.rs` (Axis 2 foundation)
 
-#### `ImmediateAssetManager<E: Environment>` (new file `liquers-core/src/assets_immediate.rs`, re-exported from `assets`)
+```rust
+//! Target-conditional Send/Sync. On native these are Send/Sync; on wasm32 they are
+//! universally implemented, so `?Send` async traits and !Send data compile.
+//! MUST be target-gated, NEVER a cargo feature (feature unification would strip Send
+//! from the native multi-threaded build workspace-wide).
+
+use core::future::Future;
+use core::pin::Pin;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod imp {
+    pub trait MaybeSend: Send {}
+    impl<T: Send + ?Sized> MaybeSend for T {}
+    pub trait MaybeSync: Sync {}
+    impl<T: Sync + ?Sized> MaybeSync for T {}
+}
+#[cfg(target_arch = "wasm32")]
+mod imp {
+    pub trait MaybeSend {}
+    impl<T: ?Sized> MaybeSend for T {}
+    pub trait MaybeSync {}
+    impl<T: ?Sized> MaybeSync for T {}
+}
+pub use imp::{MaybeSend, MaybeSync};
+
+/// Boxed future used in return positions. `dyn` trait-object bounds cannot use the
+/// marker traits above (only auto-traits may follow the principal trait), so the whole
+/// type is aliased per target.
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+#[cfg(target_arch = "wasm32")]
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+/// Dual async_trait attribute is applied at each site as:
+///   #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+///   #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+/// (async_trait itself emits the correct `dyn Future (+ Send)` boxing per variant.)
+```
+
+**Two tools, applied where each is legal** (a correctness point that a naive "MaybeSend everywhere" gets wrong):
+- **Supertrait bounds and generic `where` bounds** → `MaybeSend` / `MaybeSync` marker traits (`trait Foo: MaybeSend`, `F: MaybeSend`). Legal because these are ordinary trait bounds.
+- **Trait-object additional bounds** (`dyn Fn(..) -> Pin<Box<dyn Future + Send>>`, stored closure/future types) → **cfg'd whole-type aliases** (`BoxFuture`, `AsyncExecutorFn`). `dyn Trait + MaybeSend` is illegal — only auto-traits may follow the principal trait.
+- **`#[async_trait]` method futures** → `#[cfg_attr(.., async_trait(?Send))]`; async_trait does the trait-object boxing itself.
+
+### New struct `ImmediateAssetManager<E: Environment>` (Axis 1; new file `liquers-core/src/assets_immediate.rs`)
 
 ```rust
 pub struct ImmediateAssetManager<E: Environment> {
-    /// Monotonic asset id source (same convention as DefaultAssetManager, starts at 1000)
-    id: std::sync::atomic::AtomicU64,
-    /// Back-reference to the environment; set once by set_envref
+    id: std::sync::atomic::AtomicU64,               // monotonic ids, starts at 1000
     envref: std::sync::OnceLock<EnvRef<E>>,
-    /// Key-addressed assets (same concurrent map as DefaultAssetManager; scc compiles on wasm)
-    assets: scc::HashMap<Key, AssetRef<E>>,
-    /// Query-addressed assets
-    query_assets: scc::HashMap<Query, AssetRef<E>>,
-    /// Reused as-is from dependencies.rs — it contains no spawns or timers
-    dependency_manager: crate::dependencies::DependencyManager<E>,
-    /// Lazy one-shot command-version loading (replaces the init-time tokio::spawn)
-    started: tokio::sync::OnceCell<()>,
-    /// Same retry policy as DefaultAssetManager
+    /// Registry maps. NOT scc — a plain map behind std::sync::Mutex, locked only for
+    /// brief SYNC get/insert (never held across .await). Rationale: (1) inline mode has
+    /// no lock-contention need; (2) scc's async API and its Send/Sync bounds on values
+    /// are avoided, so the maps compile with a !Send `AssetRef<E>` on wasm; (3) the
+    /// std Mutex guard is !Send and cannot cross an .await, which statically enforces
+    /// the "no lock across await" discipline that prevents re-entrant deadlock during
+    /// recursive inline dependency evaluation.
+    assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
+    query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
+    dependency_manager: crate::dependencies::DependencyManager<E>,  // reused as-is (spawn/timer-free)
+    started: tokio::sync::OnceCell<()>,             // lazy start(): command-version load
     max_dependency_retries: u32,
 }
 ```
 
-- **Ownership:** held as `Arc<ImmediateAssetManager<E>>` by the environment (no `Box` — the existing `Arc<Box<…>>` double indirection is dropped for both managers, see Integration Points).
-- **No `JoinHandle`s, no channels, no monitor** — nothing to shut down; no `Drop` impl needed.
-- **Serialization:** none (runtime object), same as `DefaultAssetManager`.
-- **Send/Sync:** satisfied naturally on all targets (Tier 1 keeps all `Send` bounds).
+- **Ownership:** `Arc<ImmediateAssetManager<E>>` (no `Box`; the `Arc<Box<…>>` wart is removed for both managers).
+- **No `JoinHandle`s, channels, monitor, or `Drop`.**
+- **`Send`/`Sync`:** native — all fields `Send + Sync`; wasm — the relaxed trait bounds accept the (possibly `!Send`) `AssetRef<E>`.
 
-### New Enums
-
-#### `EvalMode` (in `assets.rs`, on `AssetData`)
+### New enum `EvalMode` (Axis 1; on `AssetData`, in `assets.rs`)
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EvalMode {
-    /// Background evaluation via JobQueue; psm loop runs in a spawned task;
-    /// metadata persistence is debounced; cancel uses a 5s timeout. (Current behavior.)
-    Queued,
-    /// Inline evaluation in the caller's task; psm loop joined in the same task;
-    /// metadata persisted directly (no debounce task, no Instant); cancel completes directly.
-    Inline,
-}
+pub enum EvalMode { Queued, Inline }
 ```
 
-- Stored as a new field `eval_mode: EvalMode` on `AssetData<E>` (`assets.rs:229`), set at asset creation by whichever manager creates the asset. Default `Queued` in existing constructors so `DefaultAssetManager` behavior is byte-for-byte unchanged.
-- Every consumer **matches exhaustively** (no `_ =>` arm) per the project convention, so adding a mode later is a compile error.
-- Rationale vs. duplicating `AssetRef`: `AssetRef`/`AssetData` (~2000 lines of status/notification/persistence logic) is shared infrastructure both managers reuse; the b1 isolation boundary is the **manager**, and `EvalMode` confines the three unavoidable shared-path forks to explicit, natively-testable matches.
+- New field `eval_mode: EvalMode` on `AssetData<E>` (assets.rs:229), defaulting to `Queued` in existing constructors so `DefaultAssetManager` behavior is byte-for-byte unchanged. `ImmediateAssetManager` creates assets with `Inline`.
+- Every consumer matches exhaustively (no `_ =>`), so a future mode is a compile error.
+- Drives the three shared-path forks (service-message loop, metadata persistence, cancel) — see Sync vs Async.
 
 ### ExtValue Extensions
 
-None. No value-type changes.
+None.
 
 ## Trait Implementations
 
-### Trait: `AssetManager<E>` — extended (assets.rs:2248)
+### The five core async traits — Axis-2 attribute + bound change (uniform pattern)
 
-The trait grows the methods that `AssetRef`, `Context`, and the interpreter currently reach via the **concrete** `DefaultAssetManager` (audit: `assets.rs:513,853,1586,1904,1976`; `interpreter.rs:51,355`; `context.rs:603,730`). Existing method set is unchanged. New required/default methods:
+Applied to `Environment` (context.rs:43, not `#[async_trait]` itself but its supertrait bound), `AssetManager` (assets.rs:2248), `CommandExecutor` (commands.rs:407), `AsyncStore` (store.rs:267), `AsyncRecipeProvider` (recipes.rs:305), and their `impl` blocks:
 
 ```rust
-#[async_trait]
-pub trait AssetManager<E: Environment>: Send + Sync {
-    // ... existing methods unchanged (get_asset, apply, apply_immediately, get,
-    //     recipe_opt, is_volatile, get_dependency_asset, drain_dependencies,
-    //     wait_for_dependency, remove, remove_asset, set_binary, set_state,
-    //     get_asset_info, contains, keys, listdir*, makedir) ...
-
-    /// Set the environment back-reference. Called once from Environment::init_with_envref.
-    fn set_envref(&self, envref: EnvRef<E>);
-
-    /// Access the dependency manager (shared component; both impls own one).
-    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
-
-    /// One-time async startup work (command-version registration). Idempotent.
-    /// DefaultAssetManager: called eagerly via spawn from init_with_envref (as today).
-    /// ImmediateAssetManager: called lazily from get_asset/get/apply (OnceCell).
-    async fn start(&self);
-
-    /// Schedule expiration tracking for a Ready asset.
-    /// DefaultAssetManager: sends to the monitor task (current track_expiration).
-    /// ImmediateAssetManager: no-op — expiration is checked lazily on access.
-    fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
-
-    /// Cascade-expire all dependents of a changed dependency key.
-    async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey);
-
-    /// Apply an ExpiredDependents result: expire keyed and untracked assets.
-    async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>);
-
-    /// Register plan dependencies into the dependency manager.
-    async fn register_plan_dependencies(
-        &self,
-        dependent_key: &Key,
-        plan_deps: &[crate::dependencies::PlanDependency],
-    ) -> Result<(), Error>;
-
-    /// Create a temporary (non-addressable) asset with this manager's EvalMode.
-    /// Replaces the direct AssetRef::new_temporary call in interpreter.rs:355 —
-    /// the manager owns the eval-mode policy.
-    fn create_temporary_asset(&self) -> AssetRef<E>;
-}
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait AssetManager<E: Environment>: MaybeSend + MaybeSync { /* ... */ }
 ```
 
-Notes:
-- `cascade_expire_dependents`, `expire_dependencies_result`, `register_plan_dependencies` have **identical bodies** for both managers (they only touch `dependency_manager()` + the asset maps). They are implemented per-manager in Tier 1 (the maps are private fields); extracting a shared helper is a Phase-4 refactor option, not an architectural requirement.
-- `dependency_manager()` and several of these were `pub(crate)`; lifting them into the public trait widens the API surface. Accepted: they are the minimal surface `AssetRef`/interpreter actually need, and both managers must provide them.
-- Object safety is preserved (no generic methods added); the associated-type route below doesn't require `dyn`, but keeping the trait object-safe leaves `Arc<dyn AssetManager<E>>` usable for tests/tools.
+- Supertrait `Send + Sync` → `MaybeSend + MaybeSync` (via `use crate::maybe_send::{MaybeSend, MaybeSync}`).
+- `Environment: Sized + Sync + Send + 'static` → `Sized + MaybeSync + MaybeSend + 'static`.
+- **Data-carrying supertrait bounds** `ValueInterface: … + Send + Sync + 'static` (value.rs:45) and `PayloadType: Clone + Send + Sync + 'static` (commands.rs:343) → `… + MaybeSend + MaybeSync + 'static`. Relaxed for completeness (lets a wasm value/payload hold `Rc`/JS handles later); native builds keep full `Send + Sync`. `liquers_lib::value::Value` and `SimpleUIPayload` satisfy both variants (blanket impl on wasm; they are `Send` on native).
+- Every `impl` of these traits gets the same `cfg_attr` pair. Downstream impls (`liquers-store`, `liquers-lib`, `liquers-axum`, `liquers-py`) must add the pair — mechanical, enumerated in Integration Points.
 
-### Trait: `Environment` — generalized manager (context.rs:43)
+### Explicit boxed-future return types → `BoxFuture` alias (Axis 2)
+
+Replace every `Pin<Box<dyn Future<Output = …> + Send + 'x>>` return with `BoxFuture<'x, …>` (which is `+ Send` on native, bare on wasm). Sites (audited): context.rs:66,111,120,137,572,700 (`apply_recipe`, `evaluate`, `evaluate_immediately`); interpreter.rs:122,155,350,385; plan.rs:1673,2005; commands.rs:449,498,516. This preserves native semantics exactly and drops the bound on wasm.
+
+### Command registry stored types → cfg'd type aliases (Axis 2, commands.rs:427-458)
+
+The `dyn Fn(..) -> Pin<Box<dyn Future + Send>> + Send + Sync` map values cannot use markers (trait-object bounds). Introduce, in `commands.rs`:
 
 ```rust
-pub trait Environment: Sized + Sync + Send + 'static {
+#[cfg(not(target_arch = "wasm32"))]
+type SyncExecutorFn<E>  = dyn Fn(&State<<E as Environment>::Value>, CommandArguments<E>, Context<E>)
+                              -> Result<<E as Environment>::Value, Error> + Send + Sync + 'static;
+#[cfg(target_arch = "wasm32")]
+type SyncExecutorFn<E>  = dyn Fn(&State<<E as Environment>::Value>, CommandArguments<E>, Context<E>)
+                              -> Result<<E as Environment>::Value, Error> + 'static;
+// AsyncExecutorFn<E> analogous, returning BoxFuture<'static, Result<E::Value, Error>>.
+```
+
+`CommandRegistry`'s `executors`/`async_executors` fields use these aliases. The `where F: … + Send` bounds on `register_command`/`register_async_command` (commands.rs:474-477,499-501) become `F: … + MaybeSend + MaybeSync` (generic bounds — markers are legal here).
+
+### Trait: `Environment` — generalized manager (Axis 1, context.rs:43)
+
+```rust
+#[cfg_attr(…)] // note: Environment is not itself #[async_trait]; only the bound changes
+pub trait Environment: Sized + MaybeSync + MaybeSend + 'static {
     type Value: ValueInterface;
     type CommandExecutor: CommandExecutor<Self>;
     type SessionType: Session;
     type Payload: crate::commands::PayloadType;
-    /// NEW: the asset manager implementation this environment uses.
-    type AssetManager: AssetManager<Self>;
+    type AssetManager: AssetManager<Self>;                     // NEW
 
-    /// CHANGED: was `Arc<Box<DefaultAssetManager<Self>>>`.
-    fn get_asset_manager(&self) -> Arc<Self::AssetManager>;
-    // ... everything else unchanged ...
+    fn get_asset_manager(&self) -> Arc<Self::AssetManager>;    // was Arc<Box<DefaultAssetManager<Self>>>
+    fn apply_recipe(/*…*/) -> BoxFuture<'static, Result<Arc<Self::Value>, Error>>;  // BoxFuture alias
+    // … rest unchanged …
 }
 ```
 
-- Associated type (zero-cost, monomorphized) over `Arc<dyn …>`: matches the house style (`type Value`, `type CommandExecutor`), avoids dynamic dispatch on the hot asset path, and sidesteps `dyn`-compatibility risk entirely.
-- The `Arc<Box<…>>` wart is removed in the same change (pure win; `Arc<T>` suffices).
-- `EnvRef::get_asset_manager` mirror changes to `Arc<E::AssetManager>` (context.rs:97).
+- Associated type (zero-cost, house style) over `Arc<dyn …>`; avoids dynamic dispatch on the hot path and any `dyn`-safety risk.
+- `EnvRef::get_asset_manager` mirrors to `Arc<E::AssetManager>` (context.rs:97); `evaluate`/`evaluate_immediately` returns become `BoxFuture` (context.rs:120,137).
+
+### Trait: `AssetManager<E>` — extended surface (Axis 1)
+
+The trait absorbs the methods that `AssetRef`/`Context`/interpreter currently reach on the **concrete** `DefaultAssetManager` (audit: assets.rs:513,853,1586,1904,1976; interpreter.rs:51,355; context.rs:603,730). Existing methods unchanged; added:
+
+```rust
+fn set_envref(&self, envref: EnvRef<E>);
+fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
+async fn start(&self);                       // idempotent command-version load (replaces init spawn)
+fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
+async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey);
+async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>);
+async fn register_plan_dependencies(&self, dependent_key: &Key,
+                                    plan_deps: &[crate::dependencies::PlanDependency]) -> Result<(), Error>;
+fn create_temporary_asset(&self) -> AssetRef<E>;   // manager owns the EvalMode of temp assets
+```
+
+- `cascade_expire_dependents`/`expire_dependencies_result`/`register_plan_dependencies` have **identical bodies** for both managers (touch only `dependency_manager()` + maps); implemented per-manager in Tier 1 (maps private), shared-helper extraction deferred to Phase 4.
+- Object-safe (no generic methods) — `Arc<dyn AssetManager<E>>` remains usable for tests even though the associated-type path is `dyn`-free.
 
 ### Trait: `AssetManager<E> for ImmediateAssetManager<E>` — semantics
 
-- **`get_asset(query)`**: check `query_assets` for a cached asset → if `Ready` and **not lazily-expired** (see below), return it. Otherwise create an `AssetRef` with `EvalMode::Inline`, insert into the map, **await `run_inline()` to completion**, then return. The returned asset is always in a finished state (`Ready` or `Error`); callers' subsequent `.get().await` resolves immediately. This satisfies the existing trait contract (which never promised *when* evaluation happens).
-- **`get(key)`**: same pattern keyed by `Key` (recipe lookup / store load as in `DefaultAssetManager`, minus submission).
-- **`apply` / `apply_immediately`**: build the temporary/recipe asset with `EvalMode::Inline`, await `run_inline()` / `run_immediately_inline(payload)`, return.
-- **Recursive dependencies**: a command evaluating inline requests dependencies via `Context` → `get_dependency_asset` (trait default → `get_asset`) → recursive inline evaluation. The recursion is async-recursive → `get_asset`'s body is `Box::pin`ned. Cycle protection: the existing `Context` dependency cycle check applies unchanged (Phase 3 must include a cycle test in inline mode).
-- **`wait_for_dependency`** (trait default): dependency is already finished when it returns — the default implementation is correct as-is; no override needed. **`drain_dependencies`**: trait default no-op is correct (no local queues). **`get_dependency_asset`**: trait default (plain `get_asset`) is correct.
-- **Lazy expiration (replaces the monitor):** on each cache hit in `get_asset`/`get`, if the cached asset is `Ready`, compute `expiration_time()` from its metadata; if expired → `expire_without_cascade()` + `remove_expired_from_maps`-equivalent + re-evaluate inline. `track_expiration` is a **no-op**; correctness relies on check-on-access. Consequence (documented behavior difference): an expired asset is observed as expired only at next access, and cascade expiration triggered *by the clock* does not happen — cascades still run when a dependency is re-evaluated (via `cascade_expire_dependents` on version change, same as today).
-- **`start()`**: `self.started.get_or_init(|| load_command_versions_body)` — same registration loop as `DefaultAssetManager::load_command_versions` (assets.rs:2688), executed lazily on first use; no environment-init spawn required.
-- **Concurrency stance:** the manager is safe under concurrent native use (scc maps + inline awaits), but its *scheduling* is FIFO-per-caller: two concurrent callers evaluating the same query may both find no cached Ready asset. Mitigation: same-`AssetRef` reuse — second caller finds the (unfinished, `EvalMode::Inline`) asset in the map and awaits `asset.get()` instead of starting a second run. `run_inline` must therefore claim via the existing status transition (`try_claim_for_run`-equivalent check: only run if not already running/finished).
+- **`get_asset(query)`**: lock `query_assets` (brief, sync) → if present return it; else create `AssetRef` with `EvalMode::Inline`, insert, unlock; then `self.start().await` (once) and **`asset.run_inline().await`** to completion; return the (finished) asset. Concurrent second caller finds the inserted (possibly running) asset and awaits `asset.get()` instead of starting a second run (`run_inline` guards via the existing claim/status check).
+- **`get(key)`**: same, keyed; recipe/store resolution as `DefaultAssetManager` minus submission.
+- **`apply` / `apply_immediately`**: build temp/recipe asset `Inline`, `run_inline().await` / `run_immediately_inline(payload).await`, return.
+- **Recursive dependencies**: inline command → `Context` → `get_dependency_asset` (default → `get_asset`) → recursive inline eval; `get_asset`'s body is `Box::pin`ned for async recursion; existing `Context` cycle check applies unchanged. No map lock is held across these awaits (std Mutex guard is `!Send`/scope-local), so recursion cannot self-deadlock.
+- **`wait_for_dependency`** / **`drain_dependencies`** / **`get_dependency_asset`**: trait defaults are correct (dependency already finished; no local queues). No overrides.
+- **Lazy expiration (replaces the monitor task)**: on each cache hit, if `Ready`, compute `expiration_time()`; if expired → `expire_without_cascade()` + map removal + re-eval inline. `track_expiration` is a **no-op**. Documented behavior difference: expiry is observed at next access; clock-driven cascade does not fire, but dependency-version-change cascade still runs (`cascade_expire_dependents`).
+- **`start()`**: `self.started.get_or_init(async { /* load_command_versions body */ }).await` — no init-time spawn.
 
 ## Generic Parameters & Bounds
 
-- `ImmediateAssetManager<E: Environment>` — single parameter, same as `DefaultAssetManager<E>`. No extra bounds: `Send + Sync` for the trait come from field types (`scc::HashMap`, `OnceLock`, `OnceCell` are all `Send + Sync` given `E: Environment`).
-- `Environment::AssetManager: AssetManager<Self>` — F-bounded like the existing `CommandExecutor<Self>`; proven pattern in this codebase.
-- No new lifetimes; `dependency_manager()` returns `&DependencyManager<E>` tied to `&self` (same as today's `pub(crate)` accessor).
+- `ImmediateAssetManager<E: Environment>` / `DefaultAssetManager<E: Environment>` — single param; `MaybeSend + MaybeSync` for the trait come from field types.
+- `Environment::AssetManager: AssetManager<Self>` — F-bounded like the existing `CommandExecutor<Self>`.
+- **Minimal-bounds review:** no bound is added that a call site doesn't need. `MaybeSend`/`MaybeSync` on wasm are vacuous (blanket), so they never over-constrain; on native they are exactly today's `Send`/`Sync`.
+- No new lifetimes.
 
 ## Sync vs Async Decisions
 
-- **All manager methods stay async** (trait unchanged in this respect) — inline evaluation *awaits* command futures; async is mandatory, there is no blocking.
-- `set_envref`, `track_expiration`, `create_temporary_asset` are **sync** (match current concrete signatures; they only touch sync state / send on unbounded channels).
-- **`run_inline` replaces `tokio::spawn` with `futures::join!`** (single-task structured concurrency):
+- All manager trait methods stay async (inline mode still *awaits* command futures — async is mandatory, never blocking).
+- `set_envref`, `track_expiration`, `create_temporary_asset`, `dependency_manager` are sync (match current concrete signatures).
+- **`run_inline` replaces `tokio::spawn` with `futures::join!`** (executor-agnostic; works on wasm):
 
 ```rust
-/// AssetRef: single-task variant of run_with_future (assets.rs:1430).
-/// psm runs as a joined future, not a spawned task. JobFinishing terminates it.
+// AssetRef, single-task variant of run_with_future (assets.rs:1430)
 async fn run_with_future_inline<Fut>(&self, evaluate_future: Fut) -> Result<(), Error>
-where Fut: Future<Output = Result<(), Error>>;
+where Fut: core::future::Future<Output = Result<(), Error>>;
 pub(crate) async fn run_inline(&self) -> Result<(), Error>;
 pub(crate) async fn run_immediately_inline(&self, payload: Option<E::Payload>) -> Result<(), Error>;
 ```
 
-  Shape: `join!(process_service_messages(), async { let r = select!(wait_to_finish, evaluate); finalize_primary_progress(); send(JobFinishing); r })`, then `finish_run_with_result`. `join!` only completes when *both* futures finish, so this is sound **iff** the psm loop terminates on `JobFinishing` — which the existing code guarantees (see the comment at assets.rs:1413: the psm loop "has already terminated via the JobFinishing message sent in run_with_future"). Phase 4 must re-verify this invariant with a test that would hang on regression (bounded by the test harness timeout). `tokio::select!`/`futures::join!` are executor-agnostic (no reactor needed) — they work on wasm. `finish_run_with_result` currently takes `Result<Result<(),Error>, JoinError>` (assets.rs:1328); it is refactored to take `Result<(), Error>` for the psm outcome, with the `Queued` caller mapping `JoinError` → `Error` at the call site (small seam, Phase 4).
-- **`MetadataSaver`** (assets.rs:145): `MetadataSaver` itself has no view of the asset — the mode is **passed as a parameter**: `save_immediately(metadata, key, envref, eval_mode: EvalMode)`. Its only caller is `AssetData::save_metadata` (assets.rs:373), and `AssetData` owns the new `eval_mode` field, so the plumbing is one argument. `Queued` → current debounced spawn path; `Inline` → direct `store.set_metadata(...).await` (no spawn, no `sleep`, **no `std::time::Instant`** — removing the wasm panic hazard from the inline path).
-- **Cancel** (assets.rs:1790): the 5s `tokio::time::timeout` applies only in `Queued` mode; `Inline` matches to a direct await (in single-threaded inline execution, `cancel` cannot race a running evaluation — by the time a caller can invoke it, the run has completed).
-- Sync wrappers: none needed; Python bindings interact through the unchanged async trait surface.
+  Shape: `let (psm_res, run_res) = join!(process_service_messages(), async { let r = select!(wait_to_finish, evaluate); finalize_primary_progress(); send(JobFinishing); r }); finish_run_with_result(run_res, psm_res)`. `join!` completes only when **both** finish, sound **iff** the psm loop terminates on `JobFinishing` — which the existing code guarantees (assets.rs:1413 comment). `finish_run_with_result` (assets.rs:1328) is refactored to take `Result<(), Error>` for the psm outcome; the `Queued` caller maps `JoinError → Error` at its call site. Phase 4 adds a regression test that would hang (bounded by harness timeout) if the invariant breaks.
+- **`MetadataSaver`** (assets.rs:145): mode passed as a parameter — `save_immediately(metadata, key, envref, eval_mode)` — from its sole caller `AssetData::save_metadata` (assets.rs:373), which owns the field. `Queued` → current debounced spawn path; `Inline` → direct `store.set_metadata(..).await` (no spawn, no `sleep`, **no `std::time::Instant`**, which panics on wasm).
+- **Cancel** (assets.rs:1790): 5 s `tokio::time::timeout` in `Queued`; `Inline` → direct await (single-threaded inline eval cannot race a running evaluation).
+- No sync wrappers introduced; Python bindings use the unchanged async surface.
 
 ## Function Signatures
 
-### Module: `liquers_core::assets_immediate` (new)
+### Module `liquers_core::maybe_send` (new)
+`pub trait MaybeSend`, `pub trait MaybeSync`, `pub type BoxFuture<'a, T>` (as above).
 
+### Module `liquers_core::assets_immediate` (new)
 ```rust
-impl<E: Environment> ImmediateAssetManager<E> {
-    pub fn new() -> Self;                          // no spawns — safe in any context
-    // Default impl mirrors new()
-}
+impl<E: Environment> ImmediateAssetManager<E> { pub fn new() -> Self; }
 impl<E: Environment> Default for ImmediateAssetManager<E> { fn default() -> Self; }
-#[async_trait]
+#[cfg_attr(not(wasm32), async_trait)] #[cfg_attr(wasm32, async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> { /* full trait */ }
 ```
 
-### Module: `liquers_core::assets` (changes)
-
+### Module `liquers_core::assets` (changes)
 ```rust
-pub enum EvalMode { Queued, Inline }                         // new
-impl<E: Environment> AssetData<E> {
-    // existing constructors default to EvalMode::Queued;
-    pub(crate) fn with_eval_mode(self, mode: EvalMode) -> Self;   // builder-style setter
-}
+pub enum EvalMode { Queued, Inline }
+impl<E: Environment> AssetData<E> { pub(crate) fn with_eval_mode(self, m: EvalMode) -> Self; }
 impl<E: Environment + 'static> AssetRef<E> {
     pub(crate) async fn run_inline(&self) -> Result<(), Error>;
     pub(crate) async fn run_immediately_inline(&self, payload: Option<E::Payload>) -> Result<(), Error>;
-    pub fn new_temporary_with_mode(envref: EnvRef<E>, mode: EvalMode) -> Self;  // Inline: no psm spawn
+    pub fn new_temporary_with_mode(envref: EnvRef<E>, m: EvalMode) -> Self;   // Inline: no psm spawn
 }
-// DefaultAssetManager: existing inherent methods become trait-impl methods
-// (set_envref, dependency_manager, start [= load_command_versions], track_expiration,
-//  cascade_expire_dependents, expire_dependencies_result, register_plan_dependencies,
-//  create_temporary_asset). Bodies unchanged; `load_command_versions` retained as a
-//  deprecated alias delegating to start() if external callers exist.
+// DefaultAssetManager and JobQueue: entire type/impls gated
+#[cfg(not(target_arch = "wasm32"))] pub struct DefaultAssetManager<E: Environment> { /* … */ }
+// Inherent methods (set_envref, dependency_manager, load_command_versions→start,
+// track_expiration, cascade_*, register_plan_dependencies, create_temporary_asset)
+// move into the AssetManager impl; bodies unchanged.
 ```
 
-### Module: `liquers_core::context` (changes)
-
+### Module `liquers_core::context` (changes)
 ```rust
-pub trait Environment {                       // context.rs:43
-    type AssetManager: AssetManager<Self>;    // NEW
-    fn get_asset_manager(&self) -> Arc<Self::AssetManager>;   // CHANGED return type
+pub trait Environment: Sized + MaybeSync + MaybeSend + 'static {
+    type AssetManager: AssetManager<Self>;
+    fn get_asset_manager(&self) -> Arc<Self::AssetManager>;
+    fn apply_recipe(/*…*/) -> BoxFuture<'static, Result<Arc<Self::Value>, Error>>;
 }
 impl<E: Environment> EnvRef<E> {
-    pub fn get_asset_manager(&self) -> Arc<E::AssetManager>;  // CHANGED (context.rs:97)
+    pub fn get_asset_manager(&self) -> Arc<E::AssetManager>;
+    pub fn evaluate<Q: TryToQuery>(&self, q: Q) -> BoxFuture<'static, Result<AssetRef<E>, Error>>;
+    pub fn evaluate_immediately(/*…*/) -> BoxFuture<'static, Result<AssetRef<E>, Error>>;
 }
-// SimpleEnvironment / SimpleEnvironmentWithPayload: type AssetManager = DefaultAssetManager<Self>;
-// field becomes Arc<DefaultAssetManager<Self>> (Box removed).
-
-/// NEW: single-threaded environment preconfigured with ImmediateAssetManager.
-/// Mirrors SimpleEnvironmentWithPayload's configuration surface.
-pub struct ImmediateEnvironment<V: ValueInterface, P: PayloadType = ()> { /* same fields, ImmediateAssetManager */ }
-impl Environment for ImmediateEnvironment<V, P> {
-    type AssetManager = ImmediateAssetManager<Self>;
-    fn init_with_envref(&self, envref: EnvRef<Self>) {
-        self.get_asset_manager().set_envref(envref);   // NO spawn; start() is lazy
-    }
-    // rest mirrors SimpleEnvironmentWithPayload
-}
+// SimpleEnvironment / SimpleEnvironmentWithPayload:
+//   type AssetManager = DefaultAssetManager<Self>;  (native)
+//   field Arc<DefaultAssetManager<Self>> (Box removed)
 ```
 
-(If `PayloadType` has no existing `()` impl, `ImmediateEnvironment` takes both parameters explicitly like `SimpleEnvironmentWithPayload` — cosmetic, resolved in Phase 4.)
-
-### Module: `liquers_core::interpreter` (changes)
-
+### Module `liquers_core::interpreter` (changes)
 ```rust
-// interpreter.rs:355 — was: AssetRef::new_temporary(envref.clone())
-let assetref = envref.get_asset_manager().create_temporary_asset();
-// interpreter.rs:51 — unchanged call, now resolves via trait method
+// line 355: AssetRef::new_temporary(envref) -> envref.get_asset_manager().create_temporary_asset()
+// finalize_plan / apply_plan boxed-future returns -> BoxFuture alias (lines 122,155,350,385)
 ```
+
+### Crate `liquers-macro` (Axis 2, registration.rs:1118,1890,2358)
+The three generated `+ core::marker::Send` future boundaries are replaced by emitting the core alias:
+```rust
+// was: -> Pin<Box<dyn Future<Output = Result<V, Error>> + core::marker::Send + 'static>>
+// now: -> liquers_core::maybe_send::BoxFuture<'static, Result<V, Error>>
+```
+The macro-generated closures also drop the explicit `+ Send` where they feed `register_async_command` (whose bound is now `MaybeSend`). No DSL/user-facing change; `register_command!` call sites are untouched.
 
 ## Integration Points
 
 ### Crate: liquers-core
-- `assets.rs`: trait extension; `EvalMode` + exhaustive matches at the three forks (`run_with_future`→ split, `MetadataSaver::save_immediately`, `cancel`); `DefaultAssetManager` inherent → trait methods; `new_temporary_with_mode`.
-- `assets_immediate.rs` (new): `ImmediateAssetManager`.
-- `context.rs`: `Environment::AssetManager` associated type; `EnvRef` mirror; `SimpleEnvironment`/`SimpleEnvironmentWithPayload` conformance (one line + field type); new `ImmediateEnvironment`.
-- `interpreter.rs`: temp-asset creation via manager (line 355); `register_plan_dependencies` via trait (line 51 — call site unchanged).
-- `dependencies.rs`: **no changes** (audited: no spawns, no timers).
+- New `maybe_send.rs` (+ `mod maybe_send;` in `lib.rs`).
+- `assets.rs`: `EvalMode` + three exhaustive-match forks; `AssetManager` trait extension + dual `cfg_attr`; `#[cfg(not(wasm32))]` on `DefaultAssetManager`/`JobQueue`/expiration-monitor; `run_inline`/`run_immediately_inline`/`new_temporary_with_mode`.
+- `assets_immediate.rs`: `ImmediateAssetManager`.
+- `context.rs`: `Environment::AssetManager` + `MaybeSend`/`MaybeSync` bounds + `BoxFuture` returns; `EnvRef` mirror; `SimpleEnvironment*` conformance; existing `init_with_envref` keeps its native spawn (gated implicitly — those envs are used natively; a wasm-first env selects Immediate, below).
+- `commands.rs`: `CommandExecutor` `cfg_attr` + `MaybeSend`/`MaybeSync`; `SyncExecutorFn`/`AsyncExecutorFn` aliases; `register_*` `where` bounds → markers; `PayloadType` bound.
+- `store.rs`, `recipes.rs`: trait `cfg_attr` + `MaybeSend`/`MaybeSync`; `AsyncFileStore` already `#[cfg(not(wasm32))]`.
+- `value.rs`: `ValueInterface` supertrait bound → markers.
+- `interpreter.rs`, `plan.rs`: `BoxFuture` returns; temp-asset via manager.
+- `Cargo.toml`: `async-trait` must be available on wasm (already pulled via default `async_store`); **no new deps** (no `wasm-bindgen-futures`/`gloo-timers` — the inline path has no spawns/timers).
+
+### Crate: liquers-macro
+- registration.rs: 3 future-type sites emit `liquers_core::maybe_send::BoxFuture`; drop generated `+ Send` on the async closure. Recompiles all `register_command!` users unchanged.
 
 ### Crate: liquers-lib
-- `environment.rs:25,47,106,150`: add `type AssetManager = DefaultAssetManager<Self>;`, drop `Box` from the field/return, keep the init spawn. Mechanical.
+- `environment.rs`: `DefaultEnvironment` gains `type AssetManager` **selected by target**:
+  ```rust
+  #[cfg(not(target_arch = "wasm32"))] type AssetManager = DefaultAssetManager<Self>;
+  #[cfg(target_arch = "wasm32")]      type AssetManager = ImmediateAssetManager<Self>;
+  ```
+  field/constructor cfg-selected the same way; `init_with_envref` keeps the spawn on native, does `set_envref` only on wasm (Immediate `start()` is lazy). **This is what lets `ui_spec_demo` keep using `DefaultEnvironment` unchanged and transparently get the immediate manager in the browser.** Add the dual `async_trait` `cfg_attr` to its trait impls; `Box` removed.
+- `ui/*`: no API change; `spawn_ui_task` already target-splits (mod.rs:66-79). The runner's `evaluate`/`evaluate_immediately`/`get_asset_manager` calls now resolve inline on wasm.
 
 ### Crate: liquers-axum
-- `assets/handlers.rs`, `assets/websocket.rs`: call only trait methods on the result of `get_asset_manager()` — **no changes** beyond recompilation.
+- Env impls (native) add the dual `cfg_attr` (no-op on native, but required for uniformity if the crate is ever built for wasm — otherwise `not(wasm32)` branch keeps it exactly as today). Handlers/websocket call only trait methods → recompile only. `type AssetManager = DefaultAssetManager<Self>`.
 
 ### Crate: liquers-py
-- `context.rs:102`: same one-line conformance as liquers-lib (`type AssetManager = DefaultAssetManager<Self>;` + return type). Python-visible API unchanged (managers are not exposed to Python directly).
+- `context.rs:102`: `type AssetManager = DefaultAssetManager<Self>` + return type; dual `cfg_attr` on impls (native-only crate; the `not(wasm32)` branch is what compiles). Python API unchanged.
 
 ### Dependencies
-- **No new dependencies.** `futures` (already a core dep, `async_store` feature) provides `join!`. No `wasm-bindgen-futures`/`gloo-timers` needed for Tier 1 — the rt shim from Phase 1 is **not required** because the immediate path contains no spawns and no timers at all (a stronger result than shimming them).
+No new dependencies in any crate. `async-trait`'s `?Send` mode is a call-site attribute, not a feature.
+
+## The complete Axis-2 surface (checklist for Phase 4)
+
+| Kind | Sites | Transformation |
+|---|---|---|
+| Trait `#[async_trait]` attr | `AssetManager`, `CommandExecutor`, `AsyncStore`, `AsyncRecipeProvider` traits + **all impls** (core + 4 downstream crates) | dual `cfg_attr(async_trait / async_trait(?Send))` |
+| Supertrait `Send+Sync` | those 4 + `Environment`, `ValueInterface`, `PayloadType`, `Store`(store.rs:16), `BinCache`(cache.rs:23) | `MaybeSend + MaybeSync` |
+| Explicit `Pin<Box<dyn Future+Send>>` | context.rs 66,111,120,137,572,700; interpreter.rs 122,155,350,385; plan.rs 1673,2005; commands.rs 449,498,516 | `BoxFuture<'x,T>` alias |
+| `dyn Fn + Send + Sync` stored | commands.rs 428-458 | `SyncExecutorFn`/`AsyncExecutorFn` cfg aliases |
+| Generic `where F: …+Send` | commands.rs 474-477,499-501 | `+ MaybeSend + MaybeSync` |
+| Macro `+ Send` | liquers-macro registration.rs 1118,1890,2358 | emit `BoxFuture` alias |
+| Threaded manager compile-out | `DefaultAssetManager`, `JobQueue`, expiration monitor (assets.rs) | `#[cfg(not(target_arch="wasm32"))]` |
+| Env manager selection | `DefaultEnvironment` (liquers-lib) | cfg-selected `type AssetManager` |
 
 ## Relevant Commands
 
 ### New Commands
-None. This is core infrastructure; no command signatures are added or changed, and `register_command!` output is unaffected.
+None. Core infrastructure only; no command signatures added/changed; `register_command!` DSL and all call sites unchanged.
 
 ### Relevant Existing Namespaces
-None affected. All existing command namespaces (`lui`, `pl`, root) run unchanged on either manager — commands never see the manager type. (Flagged to the user at the Phase 2 gate for confirmation.)
+None affected in behavior. `ui_spec_demo` uses `dashboard` (local) + the `lui` namespace (`register_lui_commands!`); both compile under the relaxed bounds and run on the immediate manager. Flagged for user confirmation at the gate.
 
 ## Error Handling
 
-- All fallible paths return `liquers_core::error::Error` via typed constructors (`Error::general_error`, `Error::key_not_found`, …); no new error types; no `Error::new`.
-- `run_inline` propagates evaluation errors identically to `run` (`finish_run_with_result` unchanged semantics; asset ends in `Status::Error` with the error recorded in metadata).
-- `ImmediateAssetManager::get_asset` returns `Err` only for pre-evaluation failures (parse/recipe resolution), matching `DefaultAssetManager`; evaluation failures surface through the returned asset's status/`.get()`, preserving the existing failure contract (`liquers-core/tests/asset_failure_contract.rs` must pass parameterized over both managers).
-- The existing `set_envref` double-set `panic!` (assets.rs:2674) is retained on both impls for now (pre-existing behavior; changing it to `Result` would ripple through `Environment::init_with_envref` — noted as out of scope, tracked in ISSUES if desired).
-- No `unwrap()`/`expect()` outside tests.
+- All fallible paths use `liquers_core::error::Error` typed constructors; no new error types; no `Error::new`; no `unwrap`/`expect` outside tests.
+- `run_inline` propagates evaluation errors identically to `run` (asset ends `Status::Error`, error in metadata). `ImmediateAssetManager::get_asset` returns `Err` only for pre-eval failures (parse/recipe), matching `DefaultAssetManager`; the existing failure contract (`tests/asset_failure_contract.rs`) must pass parameterized over both managers.
+- Existing `set_envref` double-set `panic!` retained on both impls (pre-existing; converting to `Result` would ripple `init_with_envref` — out of scope, note in ISSUES).
 
-## Testing Strategy (preview for Phase 3)
+## Acceptance & Testing Strategy (preview for Phase 3/4)
 
-- **Manager-parametric suite:** existing trait-surface tests (`asset_failure_contract.rs`, volatility, dependency-manager integration, the `assets.rs` mod-tests exercising `get_asset`/`apply`/`apply_immediately`) parameterized over `SimpleEnvironment` (Default) and `ImmediateEnvironment` (Immediate) via a small generic harness.
-- **DefaultAssetManager-only:** queue capacity, parking/local-dependency drain, in-flight cancellation, monitor-driven expiration.
-- **Immediate-only:** inline recursion depth, cycle detection under inline recursion, lazy-expiration-on-access, no-spawn invariant (runs under a plain `futures::executor::block_on` with **no tokio runtime** — the strongest proof of browser-readiness on native CI).
+**Primary acceptance (user-specified):** `ui_spec_demo` builds to wasm, `trunk build` succeeds, and a **Playwright e2e** loads the page and drives the dashboard (the deferred `specs/webui` M4 test) — the click path exercises `mount_web → evaluate_immediately → inline eval → ui::web re-render` with no `tokio::spawn` panic and no `Send` error.
+
+- **Manager-parametric suite:** existing trait-surface tests (`asset_failure_contract`, volatility, dependency-manager integration, `assets.rs` mod-tests over `get_asset`/`apply`/`apply_immediately`) run over both `SimpleEnvironment` (Default) and an immediate environment, via a small generic harness.
+- **Default-only:** queue capacity, parking/drain, in-flight cancellation, monitor-driven expiration.
+- **Immediate-only:** inline recursion, cycle detection under inline recursion, lazy expiration-on-access, and a **no-runtime proof** — the immediate path runs under `futures::executor::block_on` with no tokio runtime present (the native stand-in for browser-readiness).
+- **Axis-2 build matrix:** `cargo check -p liquers-core` (native), `--target wasm32-unknown-unknown -p liquers-core` and `-p liquers-lib`, plus the existing egui/webui/polars feature combos, all green.
 
 ## Open Questions (carried to Phase 3/4)
 
-1. Shared helper extraction for the three identical trait-method bodies (`cascade_expire_dependents` etc.) — Phase 4 refactor decision.
-2. `load_command_versions` external callers: keep as deprecated alias or rename to `start()` outright (grep at Phase 4 time).
-3. `ImmediateEnvironment` payload-parameter ergonomics (default `()` vs explicit) — Phase 4 cosmetic.
+1. Extract the three identical trait-method bodies (`cascade_expire_dependents` etc.) into a shared helper vs. duplicate per-manager — Phase 4 refactor call.
+2. Should `Store` (sync, store.rs:16) and `BinCache` (cache.rs:23) be relaxed too, or left `Send` (native-only paths)? Leaning relax-for-uniformity; confirm no wasm impl is forced.
+3. `ImmediateEnvironment` as a *named* env vs. relying solely on `DefaultEnvironment`'s cfg-selected manager — the latter satisfies the acceptance criterion with zero example changes; a named env is optional sugar for native embedded use. Phase 4.
+4. `load_command_versions` external callers — keep as deprecated alias vs. rename to `start()` (grep at Phase 4).
