@@ -595,7 +595,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         self.get_asset_manager().set_envref(envref.clone());
         let am = self.get_asset_manager();
         tokio::spawn(async move {
-            am.load_command_versions().await;
+            am.start().await;
         });
     }
 }
@@ -720,7 +720,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         self.get_asset_manager().set_envref(envref.clone());
         let am = self.get_asset_manager();
         tokio::spawn(async move {
-            am.load_command_versions().await;
+            am.start().await;
         });
     }
 }

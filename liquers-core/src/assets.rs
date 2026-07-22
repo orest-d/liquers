@@ -2244,6 +2244,41 @@ impl<E: Environment> WeakAssetRef<E> {
     }
 }
 
+/// Evaluation mode of an asset manager (a MANAGER constant, not a per-asset property).
+/// `DefaultAssetManager` is always `Queued` (background JobQueue + spawns); an immediate
+/// manager is always `Inline` (evaluate in the caller's task, no spawn/timer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvalMode {
+    Queued,
+    Inline,
+}
+
+/// Shared helper: register command metadata/impl versions into the dependency manager.
+/// Extracted from the former `DefaultAssetManager::load_command_versions` so both managers'
+/// `start()` reuse one implementation. Idempotent.
+pub(crate) async fn load_command_versions<E: Environment>(
+    dm: &crate::dependencies::DependencyManager<E>,
+    cmr: &crate::command_metadata::CommandMetadataRegistry,
+) {
+    for cmd in &cmr.commands {
+        let ck = cmd.key();
+        if !cmd.metadata_version.is_unknown() {
+            dm.register_version(
+                &crate::metadata::DependencyKey::for_command_metadata(&ck),
+                cmd.metadata_version,
+            )
+            .await;
+        }
+        if !cmd.impl_version.is_unknown() {
+            dm.register_version(
+                &crate::metadata::DependencyKey::for_command_implementation(&ck),
+                cmd.impl_version,
+            )
+            .await;
+        }
+    }
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait AssetManager<E: Environment>:
@@ -2394,6 +2429,84 @@ pub trait AssetManager<E: Environment>:
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error>;
+
+    // --- lifecycle / manager-primitive methods (moved from the concrete manager) ---
+
+    /// Set the environment back-reference. Called once from `Environment::init_with_envref`.
+    fn set_envref(&self, envref: EnvRef<E>);
+
+    /// Access the runtime dependency manager.
+    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
+
+    /// This manager's evaluation mode (constant per implementation).
+    fn eval_mode(&self) -> EvalMode;
+
+    /// Look up a cached asset by key in this manager's key→asset map (sync, brief).
+    fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>>;
+
+    /// Create a temporary (non-addressable) asset owned by this manager.
+    fn create_temporary_asset(&self) -> AssetRef<E>;
+
+    /// Idempotent startup: register command versions (calls the shared
+    /// [`load_command_versions`] helper). Eager on `DefaultAssetManager`, lazy on immediate.
+    async fn start(&self);
+
+    /// Schedule expiration tracking for a Ready asset. Immediate managers no-op (lazy check).
+    fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
+
+    /// Remove an expired `AssetRef` from this manager's in-memory maps (used by the
+    /// expiration monitor, reached generically via `envref.get_asset_manager()`).
+    async fn remove_expired_from_maps(
+        &self,
+        asset_id: u64,
+        query: Option<&Query>,
+        key: Option<&Key>,
+    ) -> bool;
+
+    // --- shared default methods (identical for all managers; see Q1) ---
+
+    /// Cascade-expire all dependents of a changed dependency key.
+    async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
+        let expired = self.dependency_manager().expire(dep_key).await;
+        self.expire_dependencies_result(expired).await;
+    }
+
+    /// Apply an `ExpiredDependents` result: expire keyed and untracked assets.
+    async fn expire_dependencies_result(&self, expired: crate::dependencies::ExpiredDependents<E>) {
+        for dk in &expired.keys {
+            if let Ok(k) = Key::try_from(dk) {
+                if let Some(ar) = self.lookup_key_asset(&k) {
+                    let _ = ar.expire_without_cascade().await;
+                }
+            }
+        }
+        for weak_ref in &expired.assets {
+            if let Some(ar) = weak_ref.upgrade() {
+                let _ = ar.expire_without_cascade().await;
+            }
+        }
+    }
+
+    /// Register plan dependencies into the dependency manager.
+    async fn register_plan_dependencies(
+        &self,
+        dependent_key: &Key,
+        plan_deps: &[crate::dependencies::PlanDependency],
+    ) -> Result<(), Error> {
+        let dep_key = crate::metadata::DependencyKey::from(dependent_key);
+        for plan_dep in plan_deps {
+            if let Some(ver) = self.dependency_manager().get_version(&plan_dep.key).await {
+                if let Ok(expired) = self
+                    .dependency_manager()
+                    .add_dependency(&dep_key, &plan_dep.key, ver)
+                    .await
+                {
+                    self.expire_dependencies_result(expired).await;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Heap element for the expiration monitor priority queue.
@@ -2683,89 +2796,10 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self.dependency_manager
     }
 
-    /// Load command versions into the dependency manager.
-    ///
-    /// Iterates the `CommandMetadataRegistry` and registers `metadata_version`
-    /// and `impl_version` for every command. Idempotent — safe to call multiple times.
-    /// Called from `Environment::to_ref()` after the envref OnceLock is set.
-    pub async fn load_command_versions(&self) {
-        let envref = match self.envref.get() {
-            Some(e) => e,
-            None => return,
-        };
-        let cmr = envref.get_command_metadata_registry();
-        for cmd in &cmr.commands {
-            let ck = cmd.key();
-            if !cmd.metadata_version.is_unknown() {
-                self.dependency_manager
-                    .register_version(
-                        &crate::metadata::DependencyKey::for_command_metadata(&ck),
-                        cmd.metadata_version,
-                    )
-                    .await;
-            }
-            if !cmd.impl_version.is_unknown() {
-                self.dependency_manager
-                    .register_version(
-                        &crate::metadata::DependencyKey::for_command_implementation(&ck),
-                        cmd.impl_version,
-                    )
-                    .await;
-            }
-        }
-    }
-
-    /// Cascade-expire all dependents of a changed key.
-    ///
-    /// After DM expiration, expire the corresponding keyed and untracked assets.
-    pub(crate) async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey) {
-        let expired = self.dependency_manager.expire(dep_key).await;
-        self.expire_dependencies_result(expired).await;
-    }
-
-    pub(crate) async fn expire_dependencies_result(
-        &self,
-        expired: crate::dependencies::ExpiredDependents<E>,
-    ) {
-        // Expire keyed assets
-        for dk in &expired.keys {
-            if let Ok(k) = Key::try_from(dk) {
-                if let Some(entry) = self.assets.get_async(&k).await {
-                    let ar = entry.get().clone();
-                    drop(entry);
-                    let _ = ar.expire_without_cascade().await;
-                }
-            }
-        }
-        // Expire untracked assets (WeakAssetRef)
-        for weak_ref in &expired.assets {
-            if let Some(ar) = weak_ref.upgrade() {
-                let _ = ar.expire_without_cascade().await;
-            }
-        }
-    }
-
-    /// Register plan dependencies into the dependency manager.
-    pub(crate) async fn register_plan_dependencies(
-        &self,
-        dependent_key: &Key,
-        plan_deps: &[crate::dependencies::PlanDependency],
-    ) -> Result<(), Error> {
-        let dep_key = crate::metadata::DependencyKey::from(dependent_key);
-        for plan_dep in plan_deps {
-            if let Some(ver) = self.dependency_manager.get_version(&plan_dep.key).await {
-                // Ignore cycle/other errors here — planning/evaluation may race.
-                if let Ok(expired) = self
-                    .dependency_manager
-                    .add_dependency(&dep_key, &plan_dep.key, ver)
-                    .await
-                {
-                    self.expire_dependencies_result(expired).await;
-                }
-            }
-        }
-        Ok(())
-    }
+    // NOTE (async-wasm-refactor M-B): `load_command_versions` is now the shared free helper
+    // `crate::assets::load_command_versions(dm, cmr)`, called from `start()`. The
+    // `cascade_expire_dependents` / `expire_dependencies_result` / `register_plan_dependencies`
+    // methods are now shared default methods on the `AssetManager` trait (Q1). Removed here.
 
     /// Remove an expired `AssetRef` from the manager's in-memory maps.
     ///
@@ -3782,6 +3816,48 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let _sink = store.makedir(key).await?;
         let asset = self.get(key).await?;
         Ok(asset)
+    }
+
+    // --- manager-primitive methods (delegate to inherent bodies / provide new ones) ---
+
+    fn set_envref(&self, envref: EnvRef<E>) {
+        DefaultAssetManager::set_envref(self, envref);
+    }
+
+    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
+        DefaultAssetManager::dependency_manager(self)
+    }
+
+    fn eval_mode(&self) -> EvalMode {
+        EvalMode::Queued
+    }
+
+    fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
+        self.assets.read_sync(key, |_k, v| v.clone())
+    }
+
+    fn create_temporary_asset(&self) -> AssetRef<E> {
+        AssetRef::new_temporary(self.get_envref())
+    }
+
+    async fn start(&self) {
+        if let Some(envref) = self.envref.get() {
+            let cmr = envref.get_command_metadata_registry();
+            load_command_versions(&self.dependency_manager, cmr).await;
+        }
+    }
+
+    fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime) {
+        DefaultAssetManager::track_expiration(self, asset_ref, expiration_time);
+    }
+
+    async fn remove_expired_from_maps(
+        &self,
+        asset_id: u64,
+        query: Option<&Query>,
+        key: Option<&Key>,
+    ) -> bool {
+        DefaultAssetManager::remove_expired_from_maps(self, asset_id, query, key).await
     }
 }
 
