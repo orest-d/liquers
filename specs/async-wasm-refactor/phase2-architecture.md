@@ -92,16 +92,16 @@ pub struct ImmediateAssetManager<E: Environment> {
 - **No `JoinHandle`s, channels, monitor, or `Drop`.**
 - **`Send`/`Sync`:** native — all fields `Send + Sync`; wasm — the relaxed trait bounds accept the (possibly `!Send`) `AssetRef<E>`.
 
-### New enum `EvalMode` (Axis 1; on `AssetData`, in `assets.rs`)
+### New enum `EvalMode` (Axis 1; a **manager constant**, in `assets.rs`)
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalMode { Queued, Inline }
 ```
 
-- New field `eval_mode: EvalMode` on `AssetData<E>` (assets.rs:229), defaulting to `Queued` in existing constructors so `DefaultAssetManager` behavior is byte-for-byte unchanged. `ImmediateAssetManager` creates assets with `Inline`.
-- Every consumer matches exhaustively (no `_ =>`), so a future mode is a compile error.
-- Drives the three shared-path forks (service-message loop, metadata persistence, cancel) — see Sync vs Async.
+- **`EvalMode` is constant per manager, NOT per asset.** `DefaultAssetManager::eval_mode()` is always `Queued`; `ImmediateAssetManager::eval_mode()` is always `Inline`. Exposed as an `AssetManager` trait method `fn eval_mode(&self) -> EvalMode`, **not** stored on `AssetData` — a per-asset field would denormalize a value that never varies within a manager (an `Environment` has exactly one manager). *(An earlier draft put it on `AssetData`; removed after this review.)*
+- Consulted at exactly **two** shared `AssetData`/`AssetRef` lifecycle forks — metadata persistence and cancel — via `self.get_envref().get_asset_manager().eval_mode()`. It is **not** needed for run dispatch (the manager calls `run_inline()` vs `run()` directly) nor for the service-message loop (that follows from which run method executes).
+- Consumers match exhaustively (no `_ =>`); the `Queued` arm's spawn/timer body is additionally `#[cfg(not(target_arch = "wasm32"))]` with the wasm arm `unreachable!()`, so wasm needs no tokio runtime/timer. On wasm the value is statically `Inline` (only `ImmediateAssetManager` compiles), so the branch is trivially predictable.
 
 ### ExtValue Extensions
 
@@ -173,6 +173,7 @@ The trait absorbs the methods that `AssetRef`/`Context`/interpreter currently re
 ```rust
 fn set_envref(&self, envref: EnvRef<E>);
 fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E>;
+fn eval_mode(&self) -> EvalMode;             // manager constant: DefaultAssetManager=Queued, Immediate=Inline
 async fn start(&self);                       // idempotent command-version load (replaces init spawn)
 fn track_expiration(&self, asset_ref: &AssetRef<E>, expiration_time: &ExpirationTime);
 async fn cascade_expire_dependents(&self, dep_key: &crate::metadata::DependencyKey);
@@ -187,7 +188,7 @@ fn create_temporary_asset(&self) -> AssetRef<E>;   // manager owns the EvalMode 
 
 ### Trait: `AssetManager<E> for ImmediateAssetManager<E>` — semantics
 
-- **`get_asset(query)`**: lock `query_assets` (brief, sync) → if present return it; else create `AssetRef` with `EvalMode::Inline`, insert, unlock; then `self.start().await` (once) and **`asset.run_inline().await`** to completion; return the (finished) asset. Concurrent second caller finds the inserted (possibly running) asset and awaits `asset.get()` instead of starting a second run (`run_inline` guards via the existing claim/status check).
+- **`get_asset(query)`**: lock `query_assets` (brief, sync) → if present return it; else create an `AssetRef` (its mode is `Inline` implicitly — this manager's `eval_mode()` is `Inline`), insert, unlock; then `self.start().await` (once) and **`asset.run_inline().await`** to completion; return the (finished) asset. Concurrent second caller finds the inserted (possibly running) asset and awaits `asset.get()` instead of starting a second run (`run_inline` guards via the existing claim/status check).
 - **`get(key)`**: same, keyed; recipe/store resolution as `DefaultAssetManager` minus submission.
 - **`apply` / `apply_immediately`**: build temp/recipe asset `Inline`, `run_inline().await` / `run_immediately_inline(payload).await`, return.
 - **Recursive dependencies**: inline command → `Context` → `get_dependency_asset` (default → `get_asset`) → recursive inline eval; `get_asset`'s body is `Box::pin`ned for async recursion; existing `Context` cycle check applies unchanged. No map lock is held across these awaits (std Mutex guard is `!Send`/scope-local), so recursion cannot self-deadlock.
@@ -217,8 +218,8 @@ pub(crate) async fn run_immediately_inline(&self, payload: Option<E::Payload>) -
 ```
 
   Shape: `let (psm_res, run_res) = join!(process_service_messages(), async { let r = select!(wait_to_finish, evaluate); finalize_primary_progress(); send(JobFinishing); r }); finish_run_with_result(run_res, psm_res)`. `join!` completes only when **both** finish, sound **iff** the psm loop terminates on `JobFinishing` — which the existing code guarantees (assets.rs:1413 comment). `finish_run_with_result` (assets.rs:1328) is refactored to take `Result<(), Error>` for the psm outcome; the `Queued` caller maps `JoinError → Error` at its call site. Phase 4 adds a regression test that would hang (bounded by harness timeout) if the invariant breaks.
-- **`MetadataSaver`** (assets.rs:145): mode passed as a parameter — `save_immediately(metadata, key, envref, eval_mode)` — from its sole caller `AssetData::save_metadata` (assets.rs:373), which owns the field. `Queued` → current debounced spawn path; `Inline` → direct `store.set_metadata(..).await` (no spawn, no `sleep`, **no `std::time::Instant`**, which panics on wasm).
-- **Cancel** (assets.rs:1790): 5 s `tokio::time::timeout` in `Queued`; `Inline` → direct await (single-threaded inline eval cannot race a running evaluation).
+- **`MetadataSaver`** (assets.rs:145): the mode is **read from the manager**, not stored on the asset. Its sole caller `AssetData::save_metadata` (assets.rs:373) obtains it via `self.get_envref().get_asset_manager().eval_mode()` and passes it in (`save_immediately(metadata, key, envref, eval_mode)`). `Queued` → current debounced spawn path (`#[cfg(not(wasm32))]`); `Inline` → direct `store.set_metadata(..).await` (no spawn, no `sleep`, **no `std::time::Instant`**, which panics on wasm).
+- **Cancel** (assets.rs:1790): reads `eval_mode()` from the manager the same way. `Queued` → 5 s `tokio::time::timeout` (`#[cfg(not(wasm32))]`); `Inline` → direct await (single-threaded inline eval cannot race a running evaluation).
 - No sync wrappers introduced; Python bindings use the unchanged async surface.
 
 ## Function Signatures
@@ -236,12 +237,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> { /* full trai
 
 ### Module `liquers_core::assets` (changes)
 ```rust
-pub enum EvalMode { Queued, Inline }
-impl<E: Environment> AssetData<E> { pub(crate) fn with_eval_mode(self, m: EvalMode) -> Self; }
+pub enum EvalMode { Queued, Inline }         // manager constant, NOT an AssetData field
 impl<E: Environment + 'static> AssetRef<E> {
-    pub(crate) async fn run_inline(&self) -> Result<(), Error>;
+    pub(crate) async fn run_inline(&self) -> Result<(), Error>;              // no psm spawn (futures::join!)
     pub(crate) async fn run_immediately_inline(&self, payload: Option<E::Payload>) -> Result<(), Error>;
-    pub fn new_temporary_with_mode(envref: EnvRef<E>, m: EvalMode) -> Self;   // Inline: no psm spawn
+    // new_temporary(envref) UNCHANGED — a temp asset inherits its creating manager's mode via
+    // envref; the psm spawn inside it is #[cfg(not(wasm32))], and on wasm it is driven by run_inline.
 }
 // DefaultAssetManager and JobQueue: entire type/impls gated
 #[cfg(not(target_arch = "wasm32"))] pub struct DefaultAssetManager<E: Environment> { /* … */ }
@@ -285,7 +286,7 @@ Splicing a `liquers_core::…` path into caller-crate output is the existing pat
 
 ### Crate: liquers-core
 - New `maybe_send.rs` (+ `mod maybe_send;` in `lib.rs`).
-- `assets.rs`: `EvalMode` + three exhaustive-match forks; `AssetManager` trait extension + dual `cfg_attr`; `#[cfg(not(wasm32))]` on `DefaultAssetManager`/`JobQueue`/expiration-monitor; `run_inline`/`run_immediately_inline`/`new_temporary_with_mode`.
+- `assets.rs`: `EvalMode` enum + `AssetManager::eval_mode()`; the **two** manager-constant forks (metadata persistence, cancel) read it via `envref.get_asset_manager().eval_mode()`; `AssetManager` trait extension + dual `cfg_attr`; `#[cfg(not(wasm32))]` on `DefaultAssetManager`/`JobQueue`/expiration-monitor and on the Queued-path spawn/timer carriers; `run_inline`/`run_immediately_inline`.
 - `assets_immediate.rs`: `ImmediateAssetManager`.
 - `context.rs`: `Environment::AssetManager` + `MaybeSend`/`MaybeSync` bounds + `BoxFuture` returns; `EnvRef` mirror; `SimpleEnvironment*` conformance; existing `init_with_envref` keeps its native spawn (gated implicitly — those envs are used natively; a wasm-first env selects Immediate, below).
 - `commands.rs`: `CommandExecutor` `cfg_attr` + `MaybeSend`/`MaybeSync`; `SyncExecutorFn`/`AsyncExecutorFn` aliases; `register_*` `where` bounds → markers; `PayloadType` bound.
