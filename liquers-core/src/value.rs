@@ -42,7 +42,13 @@ pub enum Value {
 /// This is a central trait that defines the minimum set of operations
 /// that must be supported by the value type.
 pub trait ValueInterface:
-    core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static
+    core::fmt::Debug
+    + Clone
+    + Sized
+    + DefaultValueSerializer
+    + crate::maybe_send::MaybeSend
+    + crate::maybe_send::MaybeSync
+    + 'static
 {
     /// Try to get a Query out
     fn try_into_query(&self) -> Result<crate::query::Query, Error>;

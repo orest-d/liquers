@@ -1669,9 +1669,7 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
     plan: &'a Plan,
     stack: &'a mut Vec<Key>,
     cwd: Option<Key>,
-) -> std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Vec<PlanDependency>, Error>> + Send + 'a>,
-> {
+) -> crate::maybe_send::BoxFuture<'a, Result<Vec<PlanDependency>, Error>> {
     Box::pin(async move {
         let mut dependencies = HashSet::new();
         let mut current_cwd = cwd;
@@ -2002,7 +2000,7 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
 fn has_expirable_dependencies_impl<'a, E: Environment>(
     envref: EnvRef<E>,
     plan: &'a mut Plan,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>> {
+) -> crate::maybe_send::BoxFuture<'a, Result<(), Error>> {
     Box::pin(async move {
         let dependencies = if plan.dependencies.is_empty() {
             let mut stack = Vec::new();

@@ -2244,8 +2244,11 @@ impl<E: Environment> WeakAssetRef<E> {
     }
 }
 
-#[async_trait]
-pub trait AssetManager<E: Environment>: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait AssetManager<E: Environment>:
+    crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
+{
     /// Get Asset for a query
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
     /// Get Asset they represents applying the recipe to the given state
@@ -2971,7 +2974,8 @@ impl<E: Environment> Drop for DefaultAssetManager<E> {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// Returns an asset evaluating the query
     /// Asset is either cached of scheduled for execution.

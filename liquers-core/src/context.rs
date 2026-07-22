@@ -40,7 +40,9 @@ pub trait Session {
     fn get_user(&self) -> &User;
 }
 
-pub trait Environment: Sized + Sync + Send + 'static {
+pub trait Environment:
+    Sized + crate::maybe_send::MaybeSync + crate::maybe_send::MaybeSend + 'static
+{
     type Value: ValueInterface;
     type CommandExecutor: CommandExecutor<Self>;
     type SessionType: Session;
@@ -62,9 +64,7 @@ pub trait Environment: Sized + Sync + Send + 'static {
         input_state: State<Self::Value>,
         recipe: Recipe,
         context: Context<Self>,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
-    >;
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>>;
 
     fn init_with_envref(&self, envref: EnvRef<Self>);
 
@@ -107,18 +107,14 @@ impl<E: Environment> EnvRef<E> {
         input_state: State<E::Value>,
         recipe: Recipe,
         context: Context<E>,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>,
-    > {
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<E::Value>, Error>> {
         Box::pin(E::apply_recipe(self.clone(), input_state, recipe, context))
     }
 
     pub fn evaluate<Q: TryToQuery>(
         &self,
         query: Q,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<AssetRef<E>, Error>> + Send + 'static>,
-    > {
+    ) -> crate::maybe_send::BoxFuture<'static, Result<AssetRef<E>, Error>> {
         let envref = self.clone();
         let rquery = query.try_to_query();
 
@@ -133,9 +129,7 @@ impl<E: Environment> EnvRef<E> {
         &self,
         query: Q,
         payload: E::Payload,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<AssetRef<E>, Error>> + Send + 'static>,
-    > {
+    ) -> crate::maybe_send::BoxFuture<'static, Result<AssetRef<E>, Error>> {
         let envref = self.clone();
         let rquery = query.try_to_query();
 
@@ -568,9 +562,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
         input_state: State<Self::Value>,
         recipe: Recipe,
         context: Context<Self>,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
-    > {
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
         use crate::interpreter::{apply_plan, finalize_plan};
 
         async move {
@@ -696,9 +688,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
         input_state: State<Self::Value>,
         recipe: Recipe,
         context: Context<Self>,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
-    > {
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
         use crate::interpreter::{apply_plan, finalize_plan};
 
         async move {

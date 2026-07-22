@@ -263,8 +263,9 @@ pub trait Store: Send + Sync {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
-pub trait AsyncStore: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -485,7 +486,8 @@ impl Clone for NoAsyncStore {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for NoAsyncStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
@@ -594,7 +596,8 @@ impl AsyncMemoryStore {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for AsyncMemoryStore {
     fn store_name(&self) -> String {
         format!("{} Async memory store", self.key_prefix())
@@ -1785,7 +1788,8 @@ impl AsyncStoreRouter {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg(feature = "async_store")]
 impl AsyncStore for AsyncStoreRouter {
     fn store_name(&self) -> String {

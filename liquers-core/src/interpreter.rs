@@ -118,9 +118,7 @@ pub fn apply_plan<E: Environment>(
     input_state: State<E::Value>,
     context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<
-    Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>,
->
+) -> crate::maybe_send::BoxFuture<'static, Result<Arc<E::Value>, Error>>
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
@@ -149,13 +147,7 @@ pub fn do_step<E: Environment>(
     input: State<E::Value>,
     context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<
-    Box<
-        dyn core::future::Future<Output = Result<Arc<<E as Environment>::Value>, Error>>
-            + Send
-            + 'static,
-    >,
-> {
+) -> crate::maybe_send::BoxFuture<'static, Result<Arc<<E as Environment>::Value>, Error>> {
     match step {
         Step::GetResource(key) => async move {
             context.add_log_entry(
@@ -347,7 +339,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
     query: Q,
     cwd_key: Option<Key>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send>> {
+) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
     let rquery = query.try_to_query();
     async move {
         let query = rquery?;
@@ -382,7 +374,7 @@ pub fn evaluate_simple_template<E: Environment>(
     envref: EnvRef<E>,
     template: SimpleTemplate,
     cwd_key: Option<Key>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<String, Error>> + Send>> {
+) -> crate::maybe_send::BoxFuture<'static, Result<String, Error>> {
     let mut result = String::new();
     async move {
         for element in template.0.iter() {
