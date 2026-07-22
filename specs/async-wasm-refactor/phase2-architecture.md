@@ -74,6 +74,13 @@ pub struct ImmediateAssetManager<E: Environment> {
     assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
     query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
     dependency_manager: crate::dependencies::DependencyManager<E>,  // reused as-is (spawn/timer-free)
+    // NOTE: DependencyManager internally holds scc::HashMap<DependencyKey, Vec<WeakAssetRef<E>>>
+    // (dependencies.rs:130) — the same E-carrying-scc shape avoided above for this manager's own
+    // maps. That avoidance is a belt-and-suspenders simplification, not a hard requirement: scc's
+    // async methods carry no K/V: Send bound, and the current (fully Send-bound) core already
+    // compiles for wasm32 with scc. Phase 4 adds a compile-check that DependencyManager<E> builds
+    // under wasm32 with a genuinely !Send AssetRef<E>, to confirm scc's epoch-reclamation internals
+    // are fine with a !Send value type before relying on it.
     started: tokio::sync::OnceCell<()>,             // lazy start(): command-version load
     max_dependency_retries: u32,
 }
@@ -262,13 +269,13 @@ impl<E: Environment> EnvRef<E> {
 // finalize_plan / apply_plan boxed-future returns -> BoxFuture alias (lines 122,155,350,385)
 ```
 
-### Crate `liquers-macro` (Axis 2, registration.rs:1118,1890,2358)
-The three generated `+ core::marker::Send` future boundaries are replaced by emitting the core alias:
+### Crate `liquers-macro` (Axis 2)
+There is exactly **one** production codegen site: `registration.rs:1118` inside `wrapper_fn_signature()` (reused by its only caller `command_wrapper()`). It emits the core alias instead of the inline Send-bounded future:
 ```rust
 // was: -> Pin<Box<dyn Future<Output = Result<V, Error>> + core::marker::Send + 'static>>
 // now: -> liquers_core::maybe_send::BoxFuture<'static, Result<V, Error>>
 ```
-The macro-generated closures also drop the explicit `+ Send` where they feed `register_async_command` (whose bound is now `MaybeSend`). No DSL/user-facing change; `register_command!` call sites are untouched.
+Splicing a `liquers_core::…` path into caller-crate output is the existing pattern (registration.rs already emits `liquers_core::state::State`, `liquers_core::context::Environment`, …; resolved at the invocation site's prelude, so `liquers-macro` needs no dep on `liquers-core`). `registration.rs:1890,2358` are **`#[cfg(test)]` expected-token fixtures**, not codegen — they must be updated to match (else the macro's own unit tests fail loudly), but are not independent edits. No DSL/user-facing change; `register_command!` call sites untouched.
 
 ## Integration Points
 
@@ -278,7 +285,7 @@ The macro-generated closures also drop the explicit `+ Send` where they feed `re
 - `assets_immediate.rs`: `ImmediateAssetManager`.
 - `context.rs`: `Environment::AssetManager` + `MaybeSend`/`MaybeSync` bounds + `BoxFuture` returns; `EnvRef` mirror; `SimpleEnvironment*` conformance; existing `init_with_envref` keeps its native spawn (gated implicitly — those envs are used natively; a wasm-first env selects Immediate, below).
 - `commands.rs`: `CommandExecutor` `cfg_attr` + `MaybeSend`/`MaybeSync`; `SyncExecutorFn`/`AsyncExecutorFn` aliases; `register_*` `where` bounds → markers; `PayloadType` bound.
-- `store.rs`, `recipes.rs`: trait `cfg_attr` + `MaybeSend`/`MaybeSync`; `AsyncFileStore` already `#[cfg(not(wasm32))]`.
+- `store.rs`, `recipes.rs`: trait `cfg_attr` + `MaybeSend`/`MaybeSync` **on the traits AND every wasm-compiled impl**. Impls that compile on wasm and were missed by the first draft: `recipes.rs:381` (`impl AsyncRecipeProvider for TrivialRecipeProvider`), `recipes.rs:438` (`impl … for DefaultRecipeProvider`), and core's wasm-compiled `AsyncStore` impls (`NoAsyncStore` and the in-memory/wrapper stores at `store.rs:488,597,1788`). **Native-only impls keep plain `#[async_trait]` under their existing `#[cfg(not(wasm32))]` gate** — `AsyncFileStore` (`store.rs:916`), `DefaultAssetManager` (`assets.rs:2974`) — because on native the trait is plain `#[async_trait]` and the attributes still match. Rule: attribute parity is per-target; a mismatched pair is a hard `E0053`, but only on a `wasm32` build (see build-matrix note below).
 - `value.rs`: `ValueInterface` supertrait bound → markers.
 - `interpreter.rs`, `plan.rs`: `BoxFuture` returns; temp-asset via manager.
 - `Cargo.toml`: `async-trait` must be available on wasm (already pulled via default `async_store`); **no new deps** (no `wasm-bindgen-futures`/`gloo-timers` — the inline path has no spawns/timers).
@@ -292,17 +299,29 @@ The macro-generated closures also drop the explicit `+ Send` where they feed `re
   #[cfg(not(target_arch = "wasm32"))] type AssetManager = DefaultAssetManager<Self>;
   #[cfg(target_arch = "wasm32")]      type AssetManager = ImmediateAssetManager<Self>;
   ```
-  field/constructor cfg-selected the same way; `init_with_envref` keeps the spawn on native, does `set_envref` only on wasm (Immediate `start()` is lazy). **This is what lets `ui_spec_demo` keep using `DefaultEnvironment` unchanged and transparently get the immediate manager in the browser.** Add the dual `async_trait` `cfg_attr` to its trait impls; `Box` removed.
-- `ui/*`: no API change; `spawn_ui_task` already target-splits (mod.rs:66-79). The runner's `evaluate`/`evaluate_immediately`/`get_asset_manager` calls now resolve inline on wasm.
+  field/constructor cfg-selected the same way. **`init_with_envref` must be cfg-split explicitly** — today (environment.rs:148-154) it unconditionally `tokio::spawn`s `load_command_versions`, which panics at `env.to_ref()` on wasm:
+  ```rust
+  fn init_with_envref(&self, envref: EnvRef<Self>) {
+      self.get_asset_manager().set_envref(envref.clone());
+      #[cfg(not(target_arch = "wasm32"))]
+      { let am = self.get_asset_manager(); tokio::spawn(async move { am.load_command_versions().await; }); }
+      // wasm: no spawn — ImmediateAssetManager::start() runs lazily on first get_asset/get/apply.
+  }
+  ```
+  **This is what lets `ui_spec_demo` keep using `DefaultEnvironment` unchanged and transparently get the immediate manager in the browser.** Add the dual `async_trait` `cfg_attr` to its trait impls; `Box` removed.
+- `ui/*`: no API change; `spawn_ui_task` already target-splits (mod.rs:66-79). The runner's `evaluate`/`evaluate_immediately`/`get_asset_manager` calls now resolve inline on wasm. **`AppState` (app_state.rs:55) is a *sync* trait (`Send + Sync + Debug`, no `#[async_trait]`)** — no Axis-2 attribute change applies; its `Send + Sync` bound is satisfied by the demo's data-only element impls, so `Arc<tokio::sync::Mutex<dyn AppState>>` compiles on wasm as-is. (A future `!Send` UI element holding `web-sys` would need a separate liquers-lib relaxation — out of scope for the acceptance criterion.)
 
 ### Crate: liquers-axum
-- Env impls (native) add the dual `cfg_attr` (no-op on native, but required for uniformity if the crate is ever built for wasm — otherwise `not(wasm32)` branch keeps it exactly as today). Handlers/websocket call only trait methods → recompile only. `type AssetManager = DefaultAssetManager<Self>`.
+- **No `Environment` impl exists here** — `liquers-axum` only uses `Environment` as a generic bound (`E: Environment`) in handlers/builders and consumes `liquers-lib`'s `DefaultEnvironment`. There is no axum-side `type AssetManager` to set. Handlers/websocket call only trait methods → **recompile only, no source change**. Native-only crate; not part of the wasm build matrix.
 
 ### Crate: liquers-py
-- `context.rs:102`: `type AssetManager = DefaultAssetManager<Self>` + return type; dual `cfg_attr` on impls (native-only crate; the `not(wasm32)` branch is what compiles). Python API unchanged.
+- `context.rs:102` (`get_asset_manager`, currently `todo!()`): add `type AssetManager = DefaultAssetManager<Self>` + return type. Native-only crate (the `not(wasm32)` branch is what compiles); dual `cfg_attr` is uniformity-only there. Python API unchanged.
+
+### Crate: liquers-store (native-only)
+- `opendal_store.rs:283` (`impl AsyncStore for AsyncOpenDALStore`): dual `cfg_attr` for uniformity, but **OpenDAL is not wasm-viable and `liquers-store` is native-only — this site is untested by the wasm build matrix**. Because an attribute mismatch is an `E0053` that surfaces *only* on a `wasm32` target build, native-only crates carry the dual attribute purely for uniformity; their `not(wasm32)` branch is the one that ever compiles. Phase 4 treats these as low-risk uniformity edits, distinct from the verified core/lib wasm path.
 
 ### Dependencies
-No new dependencies in any crate. `async-trait`'s `?Send` mode is a call-site attribute, not a feature.
+No new dependencies in any crate. `async-trait`'s `?Send` mode is a call-site attribute, not a feature. **Note:** `async-trait` is already a *de facto mandatory* dep of `liquers-core` (`commands.rs:406` applies `#[async_trait]` unconditionally, so a `--no-default-features` build without `async_store` already fails to compile today) — this design does not change that, and does not make it optional.
 
 ## The complete Axis-2 surface (checklist for Phase 4)
 
@@ -333,12 +352,12 @@ None affected in behavior. `ui_spec_demo` uses `dashboard` (local) + the `lui` n
 
 ## Acceptance & Testing Strategy (preview for Phase 3/4)
 
-**Primary acceptance (user-specified):** `ui_spec_demo` builds to wasm, `trunk build` succeeds, and a **Playwright e2e** loads the page and drives the dashboard (the deferred `specs/webui` M4 test) — the click path exercises `mount_web → evaluate_immediately → inline eval → ui::web re-render` with no `tokio::spawn` panic and no `Send` error.
+**Primary acceptance (user-specified):** `ui_spec_demo` builds to wasm, `trunk build` succeeds, and a **Playwright e2e** loads the page and drives the dashboard (the deferred `specs/webui` M4 test) — the click path exercises `mount_web → evaluate_immediately → inline eval → ui::web re-render` with no `tokio::spawn` panic and no `Send` error. **The harness is net-new** (no `playwright.config.*` / `.spec.ts` exists in the repo today — M4 deferred it), but its plan is already written in `specs/webui/phase4-implementation.md` (Step 15): new `liquers-lib/examples-web/ui_spec_demo/tests/webui.spec.ts` + `playwright.config.ts`, driven by `trunk serve` + `npx playwright test` against pre-installed headless Chromium. Phase 3 specifies the test scenarios; Phase 4 creates and runs the harness. This is the terminal success gate for the whole refactor.
 
 - **Manager-parametric suite:** existing trait-surface tests (`asset_failure_contract`, volatility, dependency-manager integration, `assets.rs` mod-tests over `get_asset`/`apply`/`apply_immediately`) run over both `SimpleEnvironment` (Default) and an immediate environment, via a small generic harness.
 - **Default-only:** queue capacity, parking/drain, in-flight cancellation, monitor-driven expiration.
 - **Immediate-only:** inline recursion, cycle detection under inline recursion, lazy expiration-on-access, and a **no-runtime proof** — the immediate path runs under `futures::executor::block_on` with no tokio runtime present (the native stand-in for browser-readiness).
-- **Axis-2 build matrix:** `cargo check -p liquers-core` (native), `--target wasm32-unknown-unknown -p liquers-core` and `-p liquers-lib`, plus the existing egui/webui/polars feature combos, all green.
+- **Axis-2 build matrix:** `cargo check -p liquers-core` (native), `--target wasm32-unknown-unknown -p liquers-core -p liquers-lib` (the wasm-relevant crates — this is what catches an `E0053` attribute-parity miss on `recipes.rs`/core stores), plus native `cargo check -p liquers-store -p liquers-axum -p liquers-py` and the existing egui/webui/polars feature combos, all green. `liquers-store`/`axum`/`py` are native-only, so their dual-`cfg_attr` sites are *not* exercised by the wasm target — a mismatch there is caught only by review, not CI; keep those edits minimal and uniform.
 
 ## Open Questions (carried to Phase 3/4)
 
