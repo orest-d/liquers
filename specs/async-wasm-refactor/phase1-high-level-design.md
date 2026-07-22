@@ -52,6 +52,37 @@ Every core async abstraction is hard-bound to `Send`:
 
 **Recommendation:** land Tier 1 first (self-contained, immediately makes the browser example run), then decide whether Tier 2 is in scope based on whether browser-native stores are a goal.
 
+## Strategy Evaluation: (a) conditional compilation vs (b) specialized implementations
+
+Reframe (user, 2026-07-22): the real abstraction is not "wasm support" but a **single-threaded immediate execution mode** — no `JobQueue`, all evaluations immediate/inline, optionally non-`Send`. This mode is independently valuable for embedded/constrained targets and for deterministic tests. The strategy question is how to introduce it cleanly/simply/safely.
+
+**Decisive fact:** the refactor has two independent axes, and they do NOT answer (a)-vs-(b) the same way:
+
+- **Axis 1 — runtime behavior** (`JobQueue` + `tokio::spawn` + background monitor → no queue, inline evaluation).
+- **Axis 2 — the `Send` bound** (drop it so `Rc` / `web-sys` handles may cross `.await`).
+
+**A supertrait bound cannot be specialized away.** `trait AssetManager: Send` is a property of the trait, fixed at definition; no `impl` or monomorphized type can relax it. Therefore:
+
+- **Axis 2 (Send) is forced to strategy (a) — conditional compilation.** There is no (b). Keep it tiny and centralized: one `MaybeSend`/`MaybeSync` alias (`Send` on native, empty on wasm) applied at the ~5 trait-definition sites, plus `#[cfg_attr(target_arch="wasm32", async_trait(?Send))]`. It MUST be **target-gated (`cfg(wasm32)`), NOT a cargo feature** — Cargo feature unification would enable it workspace-wide and silently break the native multi-threaded build. Native remains fully `Send`.
+- **Axis 1 (behavior) is where (b) wins.** Cfg-riddling the ~5000-line `DefaultAssetManager` (conditional `job_queue`/`monitor_tx` fields, cfg'd spawn sites) yields a two-headed type whose wasm arm is only ever compiled on wasm — the exact bit-rot failure mode we are already in. A specialized implementation makes immediate mode a first-class type that compiles and is **testable on every target** (embedded benefits; native CI exercises it) and leaves the battle-tested `DefaultAssetManager` untouched — the safest change to the working path.
+
+**Conclusion — hybrid, not a global choice:**
+
+| Axis | Recommendation | Rationale |
+|---|---|---|
+| 1 — behavior | **(b) specialization** | native-testable, embedded-reusable, doesn't endanger the working native path |
+| 2 — `Send` | **(a) conditional compilation** | supertrait bounds can't be specialized; centralize in one target-gated alias, never a feature |
+
+**Gradations within (b) for behavior (the Phase 2 decision):**
+
+- **b1 — parallel `ImmediateAssetManager`.** Max isolation; risks duplicating dependency-graph / expiration / retry logic.
+- **b2 (leaning) — one `DefaultAssetManager` with a pluggable `JobScheduler` seam** (`Threaded` = `tokio::spawn`; `Immediate` = inline, no queue). Confines all variability to the spawn primitive, no logic duplication, native-testable, still a first-class selectable mode.
+- **a-minimal — cfg-gate the spawn sites inside `DefaultAssetManager`.** Smallest diff, no `Environment` change, but not native-testable and re-invites cfg bit-rot. The option to beat; b2 beats it.
+
+**Prerequisite for any (b):** generalize `Environment::get_asset_manager` (today hardcoded to concrete `DefaultAssetManager`) to an associated type `type AssetManager: AssetManager<Self>` (zero-cost, matches the generic style) or `Arc<dyn AssetManager<Self>>` (simpler migration). This is the one breaking ripple — it touches `Environment` impls in `liquers-py` / `liquers-axum`.
+
+**Ordering note:** for pure compute in the browser, Axis 2 may be unnecessary — `Send` is an auto-trait satisfiable on wasm for `Send`-only data; dropping it only buys `Rc`/JS-handle ergonomics. So Axis 1 (immediate mode) can land before Axis 2 (non-`Send`).
+
 ## Core Interactions
 
 ### Query System
