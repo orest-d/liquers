@@ -33,7 +33,7 @@ drafts invented several APIs that do not exist (`asset.state()`, `get_current_va
 | 13 | Unit | `test_expire_failure_preserves_processing_asset` | Status-aware eviction regression (gate-based) | Haiku 4 |
 | 14 | Integration | `test_to_override_metadata_only_when_persisted` | `PersistenceStatus::Persisted` branch, verified via call-counting store double (strengthened in review) | Haiku 5 + sonnet fixer |
 | 15 | Integration (deferred) | `test_to_override_retries_persist_when_not_persisted` | `PersistenceStatus::NotPersisted`/`None` retry branch | sonnet fixer (added in review — was missing) |
-| 16 | Integration (deferred) | `test_to_override_skips_store_write_when_nonserializable` | `PersistenceStatus::NonSerializable` branch | Haiku 5 |
+| 16 | Integration | `test_to_override_skips_store_write_when_nonserializable` | `PersistenceStatus::NonSerializable` branch (un-deferred by opus final review — no special `Value` type needed, an unrecognized key extension suffices) | Haiku 5 + opus fixer |
 | 17 | Integration | `test_get_any_status_has_no_side_effects_on_normal_get` | `get_any_status` never contaminates the normal cache path | Haiku 5 |
 
 All new-API tests (`get_any_status`, `to_override`) are marked `[red = compile]` — they reference
@@ -592,10 +592,14 @@ than presented as finished.
   only while still serving the recipe provider's `recipes.yaml` reads; the existing
   `FailingSetStore` in `assets.rs` fails ALL reads too, so it can't be reused as-is.
 - **Non-serializable values (skip branch):** `test_to_override_skips_store_write_when_nonserializable`
-  is **deferred** — neither the haiku draft nor this synthesis found a concrete, verified way to
-  construct a `Value` that fails `as_bytes()` without guessing at an unverified API; Phase 4 should
-  either add a minimal test-only non-serializable `Value` variant/wrapper or locate an existing one
-  before writing this test for real.
+  is **no longer deferred** — un-blocked by the opus final review, which found that
+  `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:791-833`) falls through to
+  `Err(ErrorType::SerializationError)` for ANY unrecognized `data_format` string (not just a
+  Value-variant/format mismatch), and `Metadata::get_data_format()` (`metadata.rs:1169-1177`)
+  derives the format from the key's file extension when unset. A keyed resource with an
+  unrecognized extension (e.g. `widget.nosuchformat`) therefore fails to serialize regardless of
+  its `Value` content — no test-only value type or `liquers-lib` dependency needed. Written out in
+  full in "Test Plan > Integration Tests" below.
 
 ### 5. Integration (cross-crate)
 - **With the Store system:** `get_any_status`'s store-fallback and `to_override`'s
@@ -869,19 +873,70 @@ async fn test_to_override_retries_persist_when_not_persisted() {
     //    succeeded.
 }
 
-/// DEFERRED — not written as a real assertion in Phase 3. Needs a concrete way to construct a
-/// `Value` whose `as_bytes()` fails with `ErrorType::SerializationError` (which is what drives
-/// `PersistenceStatus::NonSerializable`, per `assets.rs:1094`); neither this synthesis nor the
-/// haiku draft found a verified existing test-only type for this. Phase 4 should either locate an
-/// existing non-serializable value path in `liquers-lib` (e.g. an egui/UI value type) or add a
-/// minimal test-only wrapper, then write:
-/// `manager.get(&key)` (persistence_status becomes NonSerializable) -> `expire()` ->
-/// `to_override(&key)` -> assert `store.contains(&key).await? == false` (nothing was ever
-/// written) and the in-memory asset is `Status::Override`.
+/// UN-DEFERRED by the Phase 4 opus final review: no test-only `Value` type is needed.
+/// `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:791-833`) falls through to a
+/// catch-all `Err(ErrorType::SerializationError)` (`:828-831`) for ANY `data_format` string it
+/// doesn't recognize (`"json"`/`"txt"`/`"html"`/`"rs"`/`"py"`/`"css"`/`"js"`/`"bytes"`/`"b"`/
+/// `"bin"` are the only ones handled) — regardless of the `Value` variant. `Metadata::
+/// get_data_format()` (`metadata.rs:1169-1177`) falls back to the key's file extension when no
+/// explicit `data_format` is set. So a keyed resource whose key uses an unrecognized extension
+/// (e.g. `.nosuchformat`) fails to serialize on evaluation for ANY value, no special `Value`
+/// construction required.
+/// RED [compile]: uses `AssetManager::to_override`.
+/// GREEN: even the ORIGINAL evaluation's save fails (`NonSerializable`); `to_override` writes
+/// nothing to the store either (no `set`, no `set_metadata`), only flips the in-memory status.
 #[tokio::test]
-#[ignore = "needs a concrete non-serializable Value construction, see doc comment"]
-async fn test_to_override_skips_store_write_when_nonserializable() {
-    // Intentionally left as a placeholder — see comment above.
+async fn test_to_override_skips_store_write_when_nonserializable(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    fn widget() -> Result<Value, Error> {
+        Ok(Value::from_string("irrelevant".to_string()))
+    }
+
+    let mut env = CommandEnvironment::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn widget() -> result version: 1)?;
+
+    let recipe = Recipe::new(
+        "widget.nosuchformat".to_string(),
+        "Widget recipe".to_string(),
+        "Produces widget.nosuchformat".to_string(),
+    )?;
+    let mut recipe_list = RecipeList::new();
+    recipe_list.add_recipe(recipe);
+    let yaml_content = serde_yaml::to_string(&recipe_list)?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    let recipes_key = parse_key("recipes.yaml")?;
+    store
+        .set(&recipes_key, yaml_content.as_bytes(), &Metadata::new())
+        .await?;
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    let key = parse_key("widget.nosuchformat")?;
+    let manager = envref.get_asset_manager();
+
+    let asset = manager.get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "irrelevant");
+    assert_eq!(
+        asset.persistence_status().await,
+        PersistenceStatus::NonSerializable,
+        "the unrecognized data_format must fail as_bytes() on the very first save attempt"
+    );
+    assert!(
+        !manager.get_envref().get_async_store().contains(&key).await?,
+        "nothing should have been persisted for an unrecognized data_format"
+    );
+    asset.expire().await?;
+
+    manager.to_override(&key).await?;
+
+    assert_eq!(asset.status().await, Status::Override, "in-memory promotion still happens");
+    assert!(
+        !manager.get_envref().get_async_store().contains(&key).await?,
+        "to_override must not write anything to the store when the value was never serializable"
+    );
+    Ok(())
 }
 
 /// RED [compile]: uses `AssetManager::get_any_status`.

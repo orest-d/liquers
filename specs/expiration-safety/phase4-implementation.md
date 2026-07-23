@@ -325,6 +325,12 @@ imports/helpers already exist in this test module (it already has `use super::*;
 `command_metadata::CommandKey`, `AsyncMemoryStore`, etc. — confirm exact names in place rather than
 re-guessing import paths, since Phase 3 wrote these assuming module-local access it could not
 fully verify from outside `assets.rs`).
+**Opus final review fix required:** as drafted, `test_untrack_releases_strong_ref` never calls
+`schedule_expiration`, so the asset is never entered into the monitor's heap — `upgrade() -> None`
+after dropping would hold true even before the WP-3 weak-ref change, making the assertion pass for
+the wrong reason. Track the asset with a future deadline (e.g. `asset.schedule_expiration(&
+ExpirationTime::At(chrono::Utc::now() + chrono::Duration::hours(1))).await;`) before capturing the
+`WeakAssetRef` and dropping the strong ref, so the test actually exercises the monitor's heap entry.
 
 **Code changes:** As drafted in `specs/expiration-safety/phase3-examples.md` "Test Plan > Unit
 Tests", adjusted for whatever the module's actual existing imports turn out to be (a Read of the
@@ -364,26 +370,40 @@ git diff liquers-core/src/assets.rs
 **Action:** Add all Phase 3 integration-level tests: Example 1 (3 tests), Example 2 (4 tests,
 including the shared `keyed_counter_env()` helper), Example 3 (3 tests, one marked as a sketch
 needing gate-synchronization rework), and the "Integration Tests" section (`CountingStore` double,
-`test_to_override_metadata_only_when_persisted`, the deferred `#[ignore]`d
-`test_to_override_retries_persist_when_not_persisted` and
-`test_to_override_skips_store_write_when_nonserializable`, and
-`test_get_any_status_has_no_side_effects_on_normal_get`) — all as drafted in
-`specs/expiration-safety/phase3-examples.md`, verified compilable against the real APIs added in
-Steps 1-3.
+`test_to_override_metadata_only_when_persisted`, the still-deferred `#[ignore]`d
+`test_to_override_retries_persist_when_not_persisted`,
+`test_to_override_skips_store_write_when_nonserializable` (un-deferred by the Phase 4 opus final
+review — no test-only `Value` type needed, an unrecognized key extension makes `Value::as_bytes`
+fail for any value), and `test_get_any_status_has_no_side_effects_on_normal_get`) — all as drafted
+in `specs/expiration-safety/phase3-examples.md`, verified compilable against the real APIs added
+in Steps 1-3.
 
 **Code changes:** As drafted in Phase 3, appended to `expiration_integration.rs` with the shared
 `keyed_counter_env()` helper and `CountingStore` struct defined once near the top of the new
 additions (not duplicated per test).
 
+**Opus final review fix required:** add one additional test not in Phase 3's original draft —
+the store-fallback branches of `get_any_status` and `to_override` (no in-memory entry, load
+directly from the store) are otherwise unexercised, since
+`test_get_any_status_loads_persisted_expired_state` cannot deterministically force eviction of the
+in-memory entry, and `to_override`'s no-in-memory-entry branch has no test at all. Add
+`test_get_any_status_and_to_override_from_store_only` (or split into two tests): persist an
+expired keyed state through one `envref`/manager, then construct a **second**, independent
+`SimpleEnvironment`/`envref` pointed at the same underlying store bytes (no shared in-memory
+`AssetRef` at all — e.g. reuse the same `AsyncMemoryStore` instance across both environments if it
+supports that, otherwise persist via the first environment, drop it entirely, then build a fresh
+second environment over a store re-hydrated from the same bytes), and call `get_any_status`/
+`to_override` on the second manager. This deterministically exercises the store-only code path
+that the rest of Phase 3 could only reach probabilistically.
+
 **Validation:**
 ```bash
 cargo check -p liquers-core --test expiration_integration
 cargo test -p liquers-core --test expiration_integration
-# Expected: all non-#[ignore]'d tests pass. The two #[ignore]'d tests
-# (test_to_override_retries_persist_when_not_persisted,
-# test_to_override_skips_store_write_when_nonserializable) remain ignored — see their doc
-# comments for what unblocks them (a per-key-failing store double; a non-serializable Value
-# construction). test_dependency_expiring_during_parent_evaluation_is_allowed may need its gate
+# Expected: all non-#[ignore]'d tests pass. One #[ignore]'d test remains
+# (test_to_override_retries_persist_when_not_persisted) — see its doc comment for what unblocks
+# it (a store double that fails set() for the target key only, while still serving recipes.yaml
+# reads). test_dependency_expiring_during_parent_evaluation_is_allowed may need its gate
 # synchronization reworked per its own doc comment (fixed sleep -> precise signal) if it proves
 # flaky in CI.
 ```
@@ -505,9 +525,12 @@ behavior, not rewrites.
 cargo test -p liquers-core --test expiration_integration
 ```
 
-**Expected:** All 14 non-`#[ignore]`'d Phase 3 tests pass (17 total minus the 2 deferred plus the
-1 sketch counted as passing once its gate is finalized — see Step 5's validation note for exact
-caveats). Every pre-existing test in this file (the `test_timed_expiration`,
+**Expected:** 13 of the 14 Phase 3 integration-file tests pass (17 total minus 3 unit tests in
+`assets.rs` = 14 here; minus the 1 still-`#[ignore]`'d `NotPersisted`-retry test = 13 expected
+green), including the previously-deferred `test_to_override_skips_store_write_when_nonserializable`
+now that it's un-deferred. The remaining `test_dependency_expiring_during_parent_evaluation_is_allowed`
+sketch is counted among the 13 but may need its gate finalized first if it proves flaky — see
+Step 5's validation note. Every pre-existing test in this file (the `test_timed_expiration`,
 `test_dependent_expiration`, etc. tests already there) stays green.
 
 ### Manual Validation
@@ -624,15 +647,28 @@ After Phase 4 approval, the user chooses one of:
   compilability; 4/5 depend on 3; 6 depends on 4/5; 7 is independent) ✅
 - Testing plan covers unit + integration + manual, with exact test names, not just "run the suite" ✅
 - Rollback plan is a pure `git checkout` at every level (no destructive irreversible step exists) ✅
-- Two known gaps carried forward honestly rather than hidden: the `NotPersisted` retry-branch test
-  and the `NonSerializable` test remain `#[ignore]`d pending test-double work not resolved in this
-  design; the in-flight dependency-race test's gate timing is a sketch, not a finished mechanism.
-  **These are execution risks, not design risks** — the underlying `AssetManager`/`AssetRef` code
-  changes (Steps 1-3) do not depend on those two tests existing to be correct; they exist to prove
-  correctness, and their absence-for-now is a testing-coverage gap explicitly flagged for whoever
-  executes Step 5, not a silent one.
-- Confidence: **~90%**, not 95%+ — held back specifically by the two deferred tests and the one
-  sketch test above, which is why this plan flags them explicitly rather than presenting false
-  certainty. The multi-agent review below (especially the opus final reviewer) should weigh in on
-  whether 90% is acceptable to proceed or whether Step 5's deferred tests should be resolved as a
-  blocking prerequisite before "Execute now" is offered.
+- Known gaps carried forward honestly rather than hidden: the `NotPersisted` retry-branch test
+  remains `#[ignore]`d pending a store double not resolved in this design (fails `set()` for one
+  key only, while still serving `recipes.yaml` reads); the in-flight dependency-race test's gate
+  timing is a sketch, not a finished mechanism. (The `NonSerializable` test was un-deferred by the
+  opus final review below — see Step 5.) **These are execution risks, not design risks** — the
+  underlying `AssetManager`/`AssetRef` code changes (Steps 1-3) do not depend on this test existing
+  to be correct; it exists to prove correctness, and its absence-for-now is a testing-coverage gap
+  explicitly flagged for whoever executes Step 5, not a silent one.
+- **Opus final review additionally found** (both folded into Step 5's scope): (1) the store-fallback
+  branches of `get_any_status` and `to_override` (no in-memory entry, load from store directly) are
+  not exercised by any test as originally drafted — `test_get_any_status_loads_persisted_expired_state`
+  admits it can't deterministically force eviction, and `to_override`'s no-in-memory-entry branch had
+  no test at all; Step 5 should add a variant that opens a second, independent manager/envref over
+  the same persisted store bytes (no shared in-memory `AssetRef`) to force this path deterministically.
+  (2) `test_untrack_releases_strong_ref` (Step 4) as drafted never calls `schedule_expiration`, so the
+  asset is never entered into the monitor's heap at all — `upgrade() -> None` after dropping would
+  hold even before the WP-3 weak-ref change, making it a weak regression guard; Step 4's agent should
+  ensure the test actually tracks the asset (a future deadline) before dropping it, so the assertion
+  is meaningful.
+- Confidence: **90%**, confirmed by the opus final reviewer as accurate (not too high, not too low).
+  Held back specifically by: the one remaining deferred test, the one sketch test, and the two
+  additional test-coverage gaps opus found (store-fallback paths, the untrack test's tracking step).
+  None of these are architectural risks — the opus reviewer's explicit recommendation was **proceed
+  to "Execute now"**, folding these four coverage improvements into Step 5/Step 4 rather than
+  treating them as a blocking prerequisite.
