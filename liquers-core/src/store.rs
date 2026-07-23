@@ -10,7 +10,7 @@ use crate::error::Error;
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
 
-#[cfg(feature = "async_store")]
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 use tokio::time::{sleep, Duration};
 
 pub trait Store: Send + Sync {

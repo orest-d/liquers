@@ -13,10 +13,11 @@ use core::panic;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
+use crate::maybe_send::MaybeBoxed;
 
 use crate::{
-    assets::{AssetManager, AssetRef, AssetServiceMessage, DefaultAssetManager},
-    cache::Cache,
+    assets::{AssetManager, AssetRef, AssetServiceMessage},
+
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     dependencies::ScheduleNode,
@@ -26,9 +27,14 @@ use crate::{
     query::{Key, Query, TryToQuery},
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
-    store::{NoStore, Store},
     value::ValueInterface,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::assets::DefaultAssetManager;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::store::{NoStore, Store};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::cache::Cache;
 
 pub enum User {
     System,
@@ -123,7 +129,7 @@ impl<E: Environment> EnvRef<E> {
             let asset_manager = envref.get_asset_manager();
             asset_manager.get_asset(&rquery?).await
         }
-        .boxed()
+        .maybe_boxed()
     }
 
     pub fn evaluate_immediately<Q: TryToQuery>(
@@ -141,7 +147,7 @@ impl<E: Environment> EnvRef<E> {
                 .apply_immediately(query.into(), State::new(), Some(payload))
                 .await
         }
-        .boxed()
+        .maybe_boxed()
     }
 }
 
@@ -483,6 +489,7 @@ impl Session for SimpleSession {
 
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironment<V: ValueInterface> {
     store: Arc<dyn Store>,
     #[cfg(feature = "async_store")]
@@ -493,12 +500,14 @@ pub struct SimpleEnvironment<V: ValueInterface> {
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> Default for SimpleEnvironment<V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> SimpleEnvironment<V> {
     pub fn new() -> Self {
         SimpleEnvironment {
@@ -532,6 +541,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
@@ -582,7 +592,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 
             Ok(res)
         }
-        .boxed()
+        .maybe_boxed()
     }
 
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
@@ -604,6 +614,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 
 /// Simple environment with payload and configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
     store: Arc<dyn Store>,
     #[cfg(feature = "async_store")]
@@ -615,6 +626,7 @@ pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::P
     _payload: std::marker::PhantomData<P>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface, P: crate::commands::PayloadType> Default
     for SimpleEnvironmentWithPayload<V, P>
 {
@@ -623,6 +635,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Default
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPayload<V, P> {
     pub fn new() -> Self {
         SimpleEnvironmentWithPayload {
@@ -657,6 +670,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     for SimpleEnvironmentWithPayload<V, P>
 {
@@ -709,7 +723,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
 
             Ok(res)
         }
-        .boxed()
+        .maybe_boxed()
     }
 
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {

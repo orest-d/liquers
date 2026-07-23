@@ -76,6 +76,14 @@ use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
+
+// psm-task join error: a real `JoinError` on native (spawned task), but the inline path never
+// spawns, so on wasm there is no join error type — `Infallible` stands in (that `Err` arm is
+// unreachable there).
+#[cfg(not(target_arch = "wasm32"))]
+type PsmJoinError = tokio::task::JoinError;
+#[cfg(target_arch = "wasm32")]
+type PsmJoinError = std::convert::Infallible;
 use crate::metadata::{
     AssetInfo, DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version,
 };
@@ -150,7 +158,9 @@ pub struct MetadataSaver {
 #[derive(Default)]
 struct MetadataSaverState {
     pending: Option<Metadata>,
+    #[cfg(not(target_arch = "wasm32"))]
     last_save: Option<std::time::Instant>,
+    #[cfg(not(target_arch = "wasm32"))]
     in_flight: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -176,19 +186,32 @@ impl MetadataSaver {
         let mut lock = self.state.lock().await;
         lock.pending = Some(metadata);
 
-        if let Some(handle) = lock.in_flight.as_ref() {
-            if !handle.is_finished() {
-                return;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(handle) = lock.in_flight.as_ref() {
+                if !handle.is_finished() {
+                    return;
+                }
+                lock.in_flight = None;
             }
-            lock.in_flight = None;
+            let saver = self.clone();
+            lock.in_flight = Some(tokio::spawn(async move {
+                saver.save_task(key, envref).await;
+            }));
         }
-
-        let saver = self.clone();
-        lock.in_flight = Some(tokio::spawn(async move {
-            saver.save_task(key, envref).await;
-        }));
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Inline synchronous persist: no spawn, no debounce, no std::time::Instant
+            // (which panics on wasm32-unknown-unknown).
+            let payload = lock.pending.take();
+            drop(lock);
+            if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
+                let _ = envref.get_async_store().set_metadata(key, &metadata).await;
+            }
+        }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     async fn save_task<E: Environment>(self: Arc<Self>, key: Option<Key>, envref: EnvRef<E>) {
         loop {
             let maybe_payload = {
@@ -939,9 +962,13 @@ impl<E: Environment> AssetRef<E> {
     /// This spawns the event processing loop immediately.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
         let assetref = AssetData::new_temporary(envref).to_ref();
-        let assetref1 = assetref.clone();
-        let _handle = tokio::spawn(async move { assetref1.process_service_messages().await });
-
+        // Native/queued mode runs the service-message loop in a background task. On wasm
+        // (immediate mode) there is no runtime; the inline run path drives the psm loop itself.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let assetref1 = assetref.clone();
+            let _handle = tokio::spawn(async move { assetref1.process_service_messages().await });
+        }
         assetref
     }
 
@@ -1143,13 +1170,24 @@ impl<E: Environment> AssetRef<E> {
             return;
         }
 
-        let assetref = self.clone();
-        if save_in_background {
-            tokio::spawn(async move {
-                let result = assetref.save_to_store().await;
-                assetref.record_persistence_result(result).await;
-            });
-        } else {
+        // [opus B2] On wasm the inline path cannot spawn, so persist synchronously regardless
+        // of `save_in_background` (there is no tokio runtime / `rt` feature there).
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let assetref = self.clone();
+            if save_in_background {
+                tokio::spawn(async move {
+                    let result = assetref.save_to_store().await;
+                    assetref.record_persistence_result(result).await;
+                });
+            } else {
+                let result = self.save_to_store().await;
+                self.record_persistence_result(result).await;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = save_in_background;
             let result = self.save_to_store().await;
             self.record_persistence_result(result).await;
         }
@@ -1325,7 +1363,7 @@ impl<E: Environment> AssetRef<E> {
     async fn finish_run_with_result(
         &self,
         mut result: Result<(), Error>,
-        psm_result: Result<Result<(), Error>, tokio::task::JoinError>,
+        psm_result: Result<Result<(), Error>, PsmJoinError>,
     ) -> Result<(), Error> {
         match psm_result {
             Ok(Ok(())) => {}
@@ -1427,6 +1465,7 @@ impl<E: Environment> AssetRef<E> {
     /// Used by: `run`, `run_immediately` in this module.
     ///
     /// GENERATED
+    #[cfg(not(target_arch = "wasm32"))]
     async fn run_with_future<Fut>(&self, evaluate_future: Fut) -> Result<(), Error>
     where
         Fut: std::future::Future<Output = Result<(), Error>>,
@@ -1452,11 +1491,13 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Run the asset evaluation loop.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn run(&self) -> Result<(), Error> {
         self.run_with_future(self.evaluate_and_store()).await
     }
 
     /// Run the asset evaluation loop.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn run_immediately(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future(self.evaluate_immediately(payload))
             .await
@@ -1835,35 +1876,41 @@ impl<E: Environment> AssetRef<E> {
         let service_sender = self.service_sender().await;
         let _ = service_sender.send(AssetServiceMessage::Cancel);
 
-        // Wait for cancellation with timeout
-        let mut rx = self.subscribe_to_notifications().await;
-        let timeout = tokio::time::Duration::from_secs(5);
-
-        let result = tokio::time::timeout(timeout, async {
-            loop {
-                let notification = rx.borrow().clone();
-                match notification {
-                    AssetNotificationMessage::JobFinished => {
+        // Wait for cancellation. Native: a background task may still be processing, so bound
+        // the wait with a 5s timeout. Wasm/immediate: evaluation runs inline in the caller's
+        // task, so there is nothing running in the background to await — best-effort cancel is
+        // already complete, and `tokio::time` is unavailable anyway.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut rx = self.subscribe_to_notifications().await;
+            let timeout = tokio::time::Duration::from_secs(5);
+            let result = tokio::time::timeout(timeout, async {
+                loop {
+                    let notification = rx.borrow().clone();
+                    match notification {
+                        AssetNotificationMessage::JobFinished => {
+                            return Ok(());
+                        }
+                        AssetNotificationMessage::StatusChanged(Status::Cancelled) => {
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                    if rx.changed().await.is_err() {
                         return Ok(());
                     }
-                    AssetNotificationMessage::StatusChanged(Status::Cancelled) => {
-                        return Ok(());
-                    }
-                    _ => {}
                 }
-                if rx.changed().await.is_err() {
-                    // Channel closed
-                    return Ok(());
-                }
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Ok(()), // Timeout, but still return Ok
             }
-        })
-        .await;
-
-        // Return Ok even on timeout (best-effort cancellation)
-        match result {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Ok(()), // Timeout, but still return Ok
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(())
         }
     }
 
@@ -2916,26 +2963,31 @@ pub trait AssetManager<E: Environment>:
 /// Heap element for the expiration monitor priority queue.
 /// Ordered by expiration time (ascending, earliest first), ties broken by asset_id.
 /// Wrapped in `std::cmp::Reverse` for use in `BinaryHeap` (min-heap).
+#[cfg(not(target_arch = "wasm32"))]
 struct TimedAsset<E: Environment> {
     expiration: chrono::DateTime<chrono::Utc>,
     asset_id: u64,
     asset_ref: AssetRef<E>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> PartialEq for TimedAsset<E> {
     fn eq(&self, other: &Self) -> bool {
         self.expiration == other.expiration && self.asset_id == other.asset_id
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> Eq for TimedAsset<E> {}
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> PartialOrd for TimedAsset<E> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> Ord for TimedAsset<E> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.expiration
@@ -2945,6 +2997,7 @@ impl<E: Environment> Ord for TimedAsset<E> {
 }
 
 /// Message for expiration monitor task
+#[cfg(not(target_arch = "wasm32"))]
 enum ExpirationMonitorMessage<E: Environment> {
     /// Track an asset for expiration
     Track {
@@ -2957,6 +3010,7 @@ enum ExpirationMonitorMessage<E: Environment> {
     Shutdown,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct DefaultAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
     envref: std::sync::OnceLock<EnvRef<E>>,
@@ -2971,12 +3025,14 @@ pub struct DefaultAssetManager<E: Environment> {
     max_dependency_retries: u32,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> Default for DefaultAssetManager<E> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
     /// Constructs and initializes a default asset manager
     pub fn new() -> Self {
@@ -3405,6 +3461,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> Drop for DefaultAssetManager<E> {
     fn drop(&mut self) {
         // Send Shutdown to the monitor task. Unbounded send is synchronous, safe in Drop.
@@ -3412,8 +3469,8 @@ impl<E: Environment> Drop for DefaultAssetManager<E> {
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
 impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// Returns an asset evaluating the query
     /// Asset is either cached of scheduled for execution.
@@ -4295,6 +4352,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 /// - **cancellation liveness**: if the holder's future is dropped mid-run, `Drop` (while
 ///   armed) re-parks the asset as `Submitted` and re-submits it so another runner recovers
 ///   the otherwise-stranded `Processing` asset. `complete()` disarms once `run()` returns.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct RunClaim<E: Environment + 'static> {
     asset: AssetRef<E>,
     /// `Arc` so the Drop repair can reach the queue even after the borrow it came from.
@@ -4302,6 +4360,7 @@ pub(crate) struct RunClaim<E: Environment + 'static> {
     armed: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment + 'static> RunClaim<E> {
     /// Disarm the claim after `run()` returned (Ok or Err); the asset's own terminal or
     /// error status is authoritative from then on, so Drop must not repair.
@@ -4310,6 +4369,7 @@ impl<E: Environment + 'static> RunClaim<E> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment + 'static> Drop for RunClaim<E> {
     fn drop(&mut self) {
         if !self.armed {
@@ -4366,6 +4426,7 @@ impl<E: Environment + 'static> AssetRef<E> {
     /// whose runner is merely parked, breaking the execute-once guarantee. A runner dropped
     /// while parked in `Dependencies` is recovered by the `RunClaim` Drop repair, which
     /// re-parks it as `Submitted`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn try_claim_for_run(
         &self,
         queue: &Arc<JobQueue<E>>,
@@ -4397,6 +4458,7 @@ impl<E: Environment + 'static> AssetRef<E> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct JobQueue<E: Environment> {
     jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
     running_count: Arc<AtomicUsize>,
@@ -4409,6 +4471,7 @@ pub struct JobQueue<E: Environment> {
     local_deps: Arc<Mutex<HashMap<u64, VecDeque<AssetRef<E>>>>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment + 'static> JobQueue<E> {
     /// Create a new job queue with the specified capacity
     pub fn new(capacity: usize) -> Self {

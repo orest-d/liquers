@@ -52,6 +52,27 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 #[cfg(target_arch = "wasm32")]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
+/// Box a future into [`BoxFuture`] with the target-correct Send-ness. Replaces
+/// `FutureExt::boxed()` (which is always `Send`-boxed and thus wrong on wasm) at call sites
+/// whose return type is [`BoxFuture`].
+pub trait MaybeBoxed<'a>: Future + Sized + 'a {
+    fn maybe_boxed(self) -> BoxFuture<'a, Self::Output>;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<'a, F: Future + Send + 'a> MaybeBoxed<'a> for F {
+    fn maybe_boxed(self) -> BoxFuture<'a, Self::Output> {
+        Box::pin(self)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<'a, F: Future + 'a> MaybeBoxed<'a> for F {
+    fn maybe_boxed(self) -> BoxFuture<'a, Self::Output> {
+        Box::pin(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

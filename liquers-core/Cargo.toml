@@ -33,7 +33,7 @@ ansic = "0.1.7"
 tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time", "fs"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
+tokio = { version = "1.47.1", features = ["sync"] }
 
 [dev-dependencies]
 tokio = {version="1.47.1", features = ["full"]}
