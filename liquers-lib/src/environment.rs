@@ -1,17 +1,24 @@
 use std::sync::Arc;
 
-use futures::FutureExt;
 use liquers_core::{
-    assets::DefaultAssetManager,
     command_metadata::CommandMetadataRegistry,
     commands::{CommandRegistry, PayloadType},
     context::{Context, EnvRef, Environment, SimpleSession, User},
     error::Error,
+    maybe_send::MaybeBoxed,
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     store::{AsyncStore, NoAsyncStore},
     value::ValueInterface,
 };
+
+// The asset manager is selected by target: the threaded `DefaultAssetManager` natively, the
+// spawn-free `ImmediateAssetManager` on wasm (the browser has no tokio runtime). This is what
+// lets `ui_spec_demo` keep using `DefaultEnvironment` unchanged and run in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+use liquers_core::assets::DefaultAssetManager as SelectedAssetManager;
+#[cfg(target_arch = "wasm32")]
+use liquers_core::assets::ImmediateAssetManager as SelectedAssetManager;
 
 pub trait CommandRegistryAccess: Environment {
     fn get_mut_command_registry(&mut self) -> &mut CommandRegistry<Self>;
@@ -22,7 +29,7 @@ pub trait CommandRegistryAccess: Environment {
 pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> {
     async_store: Arc<dyn AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
-    asset_store: Arc<Box<DefaultAssetManager<Self>>>,
+    asset_store: Arc<SelectedAssetManager<Self>>,
     recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
     _payload: std::marker::PhantomData<P>,
 }
@@ -44,7 +51,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
         DefaultEnvironment {
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(NoAsyncStore),
-            asset_store: Arc::new(Box::new(DefaultAssetManager::new())),
+            asset_store: Arc::new(SelectedAssetManager::new()),
             recipe_provider: None,
             _payload: std::marker::PhantomData,
         }
@@ -90,6 +97,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
     type Payload = P;
+    type AssetManager = SelectedAssetManager<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -103,7 +111,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         self.async_store.clone()
     }
 
-    fn get_asset_manager(&self) -> Arc<Box<DefaultAssetManager<Self>>> {
+    fn get_asset_manager(&self) -> Arc<SelectedAssetManager<Self>> {
         self.asset_store.clone()
     }
     fn create_session(&self, user: User) -> Self::SessionType {
@@ -115,9 +123,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
         input_state: State<Self::Value>,
         recipe: Recipe,
         context: Context<Self>,
-    ) -> std::pin::Pin<
-        Box<dyn core::future::Future<Output = Result<Arc<Self::Value>, Error>> + Send + 'static>,
-    > {
+    ) -> liquers_core::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
         use liquers_core::interpreter::{apply_plan, finalize_plan};
 
         async move {
@@ -135,7 +141,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
 
             Ok(res)
         }
-        .boxed()
+        .maybe_boxed()
     }
 
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
@@ -147,9 +153,15 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         self.get_asset_manager().set_envref(envref.clone());
-        let am = self.get_asset_manager();
-        tokio::spawn(async move {
-            am.load_command_versions().await;
-        });
+        // Native: eagerly load command versions in a background task. Wasm/immediate: the
+        // manager's `start()` runs lazily on first use, so nothing is spawned here.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let am = self.get_asset_manager();
+            tokio::spawn(async move {
+                use liquers_core::assets::AssetManager;
+                am.start().await;
+            });
+        }
     }
 }

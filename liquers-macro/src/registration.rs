@@ -1110,13 +1110,9 @@ impl CommandSignature {
                     state: liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                     arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                     context: Context<CommandEnvironment>,
-                ) ->
-                core::pin::Pin<
-                  std::boxed::Box<
-                    dyn core::future::Future<
-                      Output = core::result::Result<<CommandEnvironment  as liquers_core::context::Environment>::Value, liquers_core::error::Error>
-                    > + core::marker::Send  + 'static
-                  >
+                ) -> liquers_core::maybe_send::BoxFuture<
+                    'static,
+                    core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value, liquers_core::error::Error>
                 >
             }
         } else {
@@ -1882,12 +1878,10 @@ mod tests {
                 state : liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                 arguments : liquers_core::commands::CommandArguments<CommandEnvironment>,
                 context : Context<CommandEnvironment>,
-            ) ->
-            core::pin::Pin<
-                std::boxed::Box<
-                    dyn core::future::Future<
-                        Output = core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value,
-                        liquers_core::error::Error> > + core::marker::Send + 'static > >
+            ) -> liquers_core::maybe_send::BoxFuture<
+                'static,
+                core::result::Result<<CommandEnvironment as liquers_core::context::Environment>::Value, liquers_core::error::Error>
+            >
         };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
@@ -2348,15 +2342,11 @@ mod tests {
                 state: liquers_core::state::State<<CommandEnvironment as liquers_core::context::Environment>::Value>,
                 arguments: liquers_core::commands::CommandArguments<CommandEnvironment>,
                 context: Context<CommandEnvironment>,
-            ) -> core::pin::Pin<
-                std::boxed::Box<
-                    dyn core::future::Future<
-                            Output = core::result::Result<
-                                <CommandEnvironment as liquers_core::context::Environment>::Value,
-                                liquers_core::error::Error
-                            >
-                        > + core::marker::Send
-                        + 'static
+            ) -> liquers_core::maybe_send::BoxFuture<
+                'static,
+                core::result::Result<
+                    <CommandEnvironment as liquers_core::context::Environment>::Value,
+                    liquers_core::error::Error
                 >
             > {
                 async move {
