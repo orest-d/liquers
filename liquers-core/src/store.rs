@@ -10,7 +10,7 @@ use crate::error::Error;
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
 
-#[cfg(feature = "async_store")]
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 use tokio::time::{sleep, Duration};
 
 pub trait Store: Send + Sync {
@@ -263,8 +263,9 @@ pub trait Store: Send + Sync {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
-pub trait AsyncStore: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync {
     /// Get store name
     fn store_name(&self) -> String {
         format!("{} Store", self.key_prefix())
@@ -485,7 +486,8 @@ impl Clone for NoAsyncStore {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for NoAsyncStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         Err(Error::key_not_found(key))
@@ -594,7 +596,8 @@ impl AsyncMemoryStore {
 }
 
 #[cfg(feature = "async_store")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl AsyncStore for AsyncMemoryStore {
     fn store_name(&self) -> String {
         format!("{} Async memory store", self.key_prefix())
@@ -809,14 +812,15 @@ impl AsyncStore for AsyncMemoryStore {
 }
 
 /// Async-native file store implementation.
-#[cfg(feature = "async_store")]
+/// Uses `tokio::fs`, unavailable on wasm — excluded from `wasm32` targets.
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 #[derive(Debug, Clone)]
 pub struct AsyncFileStore {
     pub path: PathBuf,
     pub prefix: Key,
 }
 
-#[cfg(feature = "async_store")]
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 impl AsyncFileStore {
     const METADATA: &'static str = ".__metadata__";
     const LOCK: &'static str = ".__lock__";
@@ -911,7 +915,7 @@ impl Drop for FileLockGuard {
     }
 }
 
-#[cfg(feature = "async_store")]
+#[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 #[async_trait]
 impl AsyncStore for AsyncFileStore {
     fn store_name(&self) -> String {
@@ -1784,7 +1788,8 @@ impl AsyncStoreRouter {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg(feature = "async_store")]
 impl AsyncStore for AsyncStoreRouter {
     fn store_name(&self) -> String {

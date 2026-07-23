@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use egui::debug_text::print;
 use serde::{Deserialize, Serialize};
 
 use liquers_core::error::Error;
@@ -119,6 +118,7 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
     /// recursively render children using the extract-render-replace pattern.
     ///
     /// The `UIContext` provides a message channel for submitting async work.
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -127,6 +127,35 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
     ) -> egui::Response {
         println!("Showing element: {} - UNDEFINED show_in_egui", self.title());
         ui.label(self.title())
+    }
+
+    /// Produce this element's complete HTML subtree as a string (SSR source of truth,
+    /// shared by server-side rendering and the browser). Pure `&self`. The default renders
+    /// a titled block; container elements override and recurse via `app_state.get_element`.
+    #[cfg(feature = "webui")]
+    fn render_web(&self, _app_state: &dyn super::app_state::AppState) -> String {
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-{}\">{}</div>",
+            crate::ui::web::element_dom_id(self.handle()),
+            crate::ui::web::html::escape_html(self.type_name()),
+            crate::ui::web::html::escape_html(&self.title()),
+        )
+    }
+
+    /// Render/update this element in the live browser DOM (wasm only). The default builds the
+    /// DOM subtree from `render_web` via `set_inner_html`, keeping browser output identical to
+    /// SSR. Stateful elements may override to patch their existing DOM in place (e.g. to
+    /// preserve a text input's focus). Takes `&mut self` so the driver uses extract-render-replace.
+    #[cfg(all(feature = "webui", target_arch = "wasm32"))]
+    fn show_in_web(
+        &mut self,
+        _document: &web_sys::Document,
+        container: &web_sys::Element,
+        _ctx: &UIContext,
+        app_state: &mut dyn super::app_state::AppState,
+    ) -> Result<(), Error> {
+        container.set_inner_html(&self.render_web(app_state));
+        Ok(())
     }
 }
 
@@ -320,7 +349,7 @@ impl AssetViewElement {
         let info_clone = info.clone();
         let error_clone = error.clone();
         let mut rx = asset_ref.subscribe_to_notifications().await;
-        tokio::spawn(async move {
+        crate::ui::spawn_ui_task(async move {
             loop {
                 match rx.changed().await {
                     Ok(()) => {
@@ -507,6 +536,7 @@ impl UIElement for AssetViewElement {
         }
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -557,6 +587,44 @@ impl UIElement for AssetViewElement {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn super::app_state::AppState) -> String {
+        use crate::ui::web::{element_dom_id, html, widgets};
+        let inner = match &self.view_mode {
+            AssetViewMode::Progress => {
+                if let Some(info) = self.progress_info() {
+                    format!(
+                        "{}{}",
+                        widgets::progress_html(&info.progress),
+                        widgets::status_html(info.status)
+                    )
+                } else {
+                    format!(
+                        "<div class=\"lq-spinner\">Evaluating: {}</div>",
+                        html::escape_html(&self.title_text)
+                    )
+                }
+            }
+            AssetViewMode::Value => match self.value() {
+                Some(value) => html::value_to_html(value.as_ref(), app_state),
+                None => "<div>No value available</div>".to_string(),
+            },
+            AssetViewMode::Metadata => match self.progress_info() {
+                Some(info) => widgets::asset_info_html(&info),
+                None => "<div>No metadata available</div>".to_string(),
+            },
+            AssetViewMode::Error => match self.error() {
+                Some(err) => widgets::error_html(&err),
+                None => "<div class=\"lq-error\">Unknown error</div>".to_string(),
+            },
+        };
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-AssetViewElement\">{}</div>",
+            element_dom_id(self.handle()),
+            inner
+        )
     }
 }
 
@@ -648,6 +716,7 @@ impl UIElement for StateViewElement {
         self.metadata.clone()
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -663,6 +732,20 @@ impl UIElement for StateViewElement {
             ui.label("No value available (deserialized)")
         }
     }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn super::app_state::AppState) -> String {
+        use crate::ui::web::{element_dom_id, html::value_to_html};
+        let inner = match &self.value {
+            Some(value) => value_to_html(value.as_ref(), app_state),
+            None => "<div>No value available (deserialized)</div>".to_string(),
+        };
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-StateViewElement\">{}</div>",
+            element_dom_id(self.handle()),
+            inner
+        )
+    }
 }
 
 // ─── Rendering Helper ───────────────────────────────────────────────────────
@@ -677,6 +760,7 @@ impl UIElement for StateViewElement {
 /// This allows container elements to recursively render children via the
 /// `app_state` parameter passed to `show_in_egui`. The lock blocks async tasks
 /// during rendering, which is acceptable for egui's synchronous render loop.
+#[cfg(feature = "egui")]
 pub fn render_element(ui: &mut egui::Ui, handle: UIHandle, ctx: &UIContext) {
     // 1. Acquire lock for the entire render cycle.
     let mut state = match super::try_sync_lock(ctx.app_state()) {

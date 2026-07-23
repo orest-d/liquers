@@ -92,6 +92,7 @@ impl RasterImage {
     }
 
     /// Render the image in egui at the given zoom factor.
+    #[cfg(feature = "egui")]
     pub fn show(&self, ui: &mut egui::Ui, id: egui::Id, zoom: f32) {
         // Convert to egui::ColorImage
         let mut rgba_u8: Vec<u8> = Vec::with_capacity(self.width * self.height * 4);

@@ -1,0 +1,12 @@
+{
+  "name": "ui_spec_demo_e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright e2e for the liquers webui ui_spec_demo (async-wasm-refactor acceptance).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

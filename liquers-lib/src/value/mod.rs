@@ -5,6 +5,7 @@ use liquers_core::error::Error;
 use std::{borrow::Cow, result::Result, sync::Arc};
 
 use crate::image::serde::{deserialize_image_from_bytes, serialize_image_to_bytes};
+#[cfg(feature = "polars")]
 use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
 use crate::value::extended::*;
 use crate::value::simple::*;
@@ -18,12 +19,15 @@ pub enum ExtValue {
     Image {
         value: Arc<image::DynamicImage>,
     },
+    #[cfg(feature = "polars")]
     PolarsDataFrame {
         value: Arc<polars::frame::DataFrame>,
     },
+    #[cfg(feature = "egui")]
     UiCommand {
         value: crate::egui::UiCommand,
     },
+    #[cfg(feature = "egui")]
     Widget {
         value: Arc<std::sync::Mutex<dyn crate::egui::widgets::WidgetValue>>,
     },
@@ -35,7 +39,9 @@ pub enum ExtValue {
 pub trait ExtValueInterface {
     fn from_image(image: Arc<image::DynamicImage>) -> Self;
     fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error>;
+    #[cfg(feature = "polars")]
     fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self;
+    #[cfg(feature = "polars")]
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error>;
     fn from_ui_element(element: Arc<dyn crate::ui::element::UIElement>) -> Self;
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error>;
@@ -48,26 +54,35 @@ impl ExtValueInterface for ExtValue {
     fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error> {
         match self {
             ExtValue::Image { value } => Ok(value.clone()),
-            ExtValue::PolarsDataFrame { .. }
-            | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. }
-            | ExtValue::UIElement { .. } => {
+            ExtValue::UIElement { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
+            }
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
             }
         }
     }
+    #[cfg(feature = "polars")]
     fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self {
         ExtValue::PolarsDataFrame {
             value: Arc::new(df),
         }
     }
+    #[cfg(feature = "polars")]
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             ExtValue::PolarsDataFrame { value } => Ok(value.clone()),
-            ExtValue::Image { .. }
-            | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. }
-            | ExtValue::UIElement { .. } => Err(Error::conversion_error(
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "Polars dataframe",
+            )),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
                 "Polars dataframe",
             )),
@@ -79,10 +94,15 @@ impl ExtValueInterface for ExtValue {
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error> {
         match self {
             ExtValue::UIElement { value } => Ok(value.clone()),
-            ExtValue::Image { .. }
-            | ExtValue::PolarsDataFrame { .. }
-            | ExtValue::UiCommand { .. }
-            | ExtValue::Widget { .. } => Err(Error::conversion_error(
+            ExtValue::Image { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "UIElement"))
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => {
+                Err(Error::conversion_error(self.identifier().as_ref(), "UIElement"))
+            }
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
                 "UIElement",
             )),
@@ -93,8 +113,11 @@ impl ExtValueInterface for ExtValue {
 impl ValueExtension for ExtValue {
     fn identifier(&self) -> Cow<'static, str> {
         match self {
+            #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => "polars_dataframe".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "ui_command".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
@@ -103,8 +126,11 @@ impl ValueExtension for ExtValue {
 
     fn type_name(&self) -> Cow<'static, str> {
         match self {
+            #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => "polars_dataframe".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "ui_command".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
@@ -113,8 +139,11 @@ impl ValueExtension for ExtValue {
 
     fn default_extension(&self) -> Cow<'static, str> {
         match self {
+            #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => "csv".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "ui".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "png".into(),
             ExtValue::UIElement { .. } => "ui".into(),
@@ -123,8 +152,11 @@ impl ValueExtension for ExtValue {
 
     fn default_filename(&self) -> Cow<'static, str> {
         match self {
+            #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => "data.csv".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "data.ui".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "data.widget".into(),
             ExtValue::Image { .. } => "image.png".into(),
             ExtValue::UIElement { .. } => "element.ui".into(),
@@ -133,8 +165,11 @@ impl ValueExtension for ExtValue {
 
     fn default_media_type(&self) -> Cow<'static, str> {
         match self {
+            #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => "text/csv".into(),
+            #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } => "application/octet-stream".into(),
+            #[cfg(feature = "egui")]
             ExtValue::Widget { .. } => "application/octet-stream".into(),
             ExtValue::Image { .. } => "image/png".into(),
             ExtValue::UIElement { .. } => "application/octet-stream".into(),
@@ -146,6 +181,7 @@ impl DefaultValueSerializer for ExtValue {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
         match self {
             ExtValue::Image { value } => serialize_image_to_bytes(value, format),
+            #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { value } => {
                 let mut bytes = Vec::new();
                 serialize_dataframe_to_writer(value, format, &mut bytes)?;
@@ -167,6 +203,7 @@ impl DefaultValueSerializer for ExtValue {
                 let img = deserialize_image_from_bytes(b, fmt)?;
                 Ok(ExtValue::from_image(Arc::new(img)))
             }
+            #[cfg(feature = "polars")]
             "polars_dataframe" => {
                 let df = deserialize_dataframe_from_reader(Cursor::new(b), fmt)?;
                 Ok(ExtValue::from_polars_dataframe(df))
@@ -206,9 +243,11 @@ impl ExtValueInterface for Value {
             Value::Base(_) => Err(Error::conversion_error(self.identifier().as_ref(), "Image")),
         }
     }
+    #[cfg(feature = "polars")]
     fn from_polars_dataframe(df: polars::frame::DataFrame) -> Self {
         Value::Extended(ExtValue::from_polars_dataframe(df))
     }
+    #[cfg(feature = "polars")]
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             Value::Extended(ext) => ext.as_polars_dataframe(),

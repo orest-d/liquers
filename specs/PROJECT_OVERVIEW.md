@@ -241,6 +241,12 @@ Environment (global, shared across all queries)
 ```
 - Typically one Environment per application (chosen at compile time via generic parameters)
 - Multiple environments possible for isolated subsystems or different realms with very different capabilities
+- **Asset manager is pluggable** via the `Environment::AssetManager` associated type: the threaded
+  `DefaultAssetManager` (JobQueue + background tasks) natively, or the spawn-free
+  `ImmediateAssetManager` (inline evaluation, no `tokio::spawn`/timers) for single-threaded targets.
+  `liquers-core` compiles to `wasm32-unknown-unknown` and runs in the browser via
+  `ImmediateAssetManager` + target-gated conditional-`Send` (`MaybeSend`/`MaybeSync` markers +
+  `#[async_trait(?Send)]` on wasm); see `specs/async-wasm-refactor/`.
 
 **Context** - Per-action execution context, created for each command in a pipeline:
 ```

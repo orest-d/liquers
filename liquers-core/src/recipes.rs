@@ -301,8 +301,11 @@ impl From<&Key> for Recipe {
     }
 }
 
-#[async_trait]
-pub trait AsyncRecipeProvider<E: Environment>: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait AsyncRecipeProvider<E: Environment>:
+    crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
+{
     /// Returns true if folder represented by key has recipes
     async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error>;
     /// Returns a list of assets that have recipes in the folder represented by key
@@ -378,7 +381,8 @@ async fn create_plan_with_init_metadata<E: Environment>( // TODO: missleading na
 
 pub struct TrivialRecipeProvider;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AsyncRecipeProvider<E> for TrivialRecipeProvider {
     async fn assets_with_recipes(
         &self,
@@ -434,7 +438,8 @@ impl DefaultRecipeProvider {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
     async fn assets_with_recipes(
         &self,
