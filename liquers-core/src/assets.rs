@@ -2349,9 +2349,19 @@ pub trait AssetManager<E: Environment>:
     /// Get Asset for a key
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     /// Get Recipe for a key if the recipe exists
-    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error>;
+    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
+        self.get_recipe_provider()
+            .recipe_opt(key, self.get_envref())
+            .await
+    }
     /// Check if resource is volatile
-    async fn is_volatile(&self, key: &Key) -> Result<bool, Error>;
+    async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
+        if let Some(recipe) = self.recipe_opt(key).await? {
+            Ok(recipe.is_volatile(self.get_envref()).await?)
+        } else {
+            Ok(false)
+        }
+    }
 
     /// Resolve the asset for `query` and schedule it as a dependency of `parent`: start it
     /// immediately if queue capacity allows, otherwise enqueue it on `parent`'s local
@@ -2395,7 +2405,21 @@ pub trait AssetManager<E: Environment>:
 
     /// Remove asset data from AssetManager and store.
     /// This does NOT trigger recalculation.
-    async fn remove(&self, key: &Key) -> Result<(), Error>;
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            asset_ref.cancel().await?;
+            self.untrack_expiration(asset_ref.id());
+            self.remove_key_asset(key).await;
+        }
+        self.dependency_manager()
+            .remove(&crate::metadata::DependencyKey::from(key))
+            .await;
+        let store = self.get_envref().get_async_store();
+        if store.contains(key).await? {
+            store.remove(key).await?;
+        }
+        Ok(())
+    }
 
     /// Remove asset for a query (resolves to key first)
     async fn remove_asset(&self, query: &Query) -> Result<(), Error> {
@@ -2417,33 +2441,312 @@ pub trait AssetManager<E: Environment>:
         &self,
         key: &Key,
         binary: &[u8],
-        metadata: MetadataRecord,
-    ) -> Result<(), Error>;
+        mut metadata: MetadataRecord,
+    ) -> Result<(), Error> {
+        fn validate_required_metadata_fields(
+            key: &Key,
+            metadata: &MetadataRecord,
+        ) -> Result<(), Error> {
+            if metadata.type_identifier.trim().is_empty() {
+                return Err(Error::general_error(
+                    "Metadata type_identifier must not be empty".to_string(),
+                )
+                .with_key(key));
+            }
+            if metadata.type_name.trim().is_empty() {
+                return Err(Error::general_error(
+                    "Metadata type_name must not be empty".to_string(),
+                )
+                .with_key(key));
+            }
+            Ok(())
+        }
+        fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
+            let effective_data_format = metadata.get_data_format();
+            if let Some(extension) = metadata.extension() {
+                if extension != effective_data_format {
+                    metadata.add_log_entry(LogEntry::warning(format!(
+                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
+                    )));
+                }
+            }
+            let expected_media_type =
+                crate::media_type::file_extension_to_media_type(&effective_data_format);
+            if !metadata.media_type.trim().is_empty() && metadata.media_type != expected_media_type
+            {
+                metadata.add_log_entry(LogEntry::warning(format!(
+                    "media_type '{}' differs from expected '{}' for data_format '{}'",
+                    metadata.media_type, expected_media_type, effective_data_format
+                )));
+            } else if metadata.media_type.trim().is_empty() {
+                metadata.media_type = expected_media_type.to_string();
+            }
+        }
+
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            asset_ref.cancel().await?;
+            self.untrack_expiration(asset_ref.id());
+            self.remove_key_asset(key).await;
+        }
+
+        let input_status = metadata.status;
+        let final_status = match input_status {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
+                if self.recipe_opt(key).await?.is_some() {
+                    Status::Override
+                } else {
+                    Status::Source
+                }
+            }
+        };
+        metadata.status = final_status;
+        validate_required_metadata_fields(key, &metadata)?;
+        add_soft_consistency_warnings(&mut metadata);
+
+        metadata.set_updated_now();
+        metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        if final_status != Status::Volatile && final_status != Status::Error {
+            let version = crate::metadata::Version::from_bytes(binary);
+            metadata.version = Some(version);
+        }
+
+        let store = self.get_envref().get_async_store();
+        if final_status == Status::Error {
+            store.set(key, &[], &metadata.clone().into()).await?;
+        } else {
+            store.set(key, binary, &metadata.clone().into()).await?;
+        }
+
+        if matches!(
+            final_status,
+            Status::Ready | Status::Source | Status::Override
+        ) {
+            if let Some(version) = metadata.version {
+                let expired = self
+                    .dependency_manager()
+                    .register_version(&dep_key, version)
+                    .await;
+                self.expire_dependencies_result(expired).await;
+            }
+        }
+        Ok(())
+    }
 
     /// Set State (data + metadata) for a key asset.
     /// - Sets deserialized data and metadata from State
     /// - Memory + Store: Creates new AssetRef with State AND serializes to store
     /// - Supports non-serializable data (store metadata only if serialization fails)
-    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error>;
+    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
+        fn validate_required_metadata_fields(key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            if metadata.type_identifier()?.trim().is_empty() {
+                return Err(Error::general_error(
+                    "Metadata type_identifier must not be empty".to_string(),
+                )
+                .with_key(key));
+            }
+            if metadata.type_name()?.trim().is_empty() {
+                return Err(Error::general_error(
+                    "Metadata type_name must not be empty".to_string(),
+                )
+                .with_key(key));
+            }
+            Ok(())
+        }
+        fn add_soft_consistency_warnings(metadata: &mut Metadata) -> Result<(), Error> {
+            let effective_data_format = metadata.get_data_format();
+            if let Some(extension) = metadata.extension() {
+                if extension != effective_data_format {
+                    metadata.add_log_entry(LogEntry::warning(format!(
+                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
+                    )))?;
+                }
+            }
+            let expected_media_type =
+                crate::media_type::file_extension_to_media_type(&effective_data_format);
+            let media_type = metadata.get_media_type();
+            if !media_type.trim().is_empty() && media_type != expected_media_type {
+                metadata.add_log_entry(LogEntry::warning(format!(
+                    "media_type '{}' differs from expected '{}' for data_format '{}'",
+                    media_type, expected_media_type, effective_data_format
+                )))?;
+            }
+            Ok(())
+        }
+
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            asset_ref.cancel().await?;
+            self.untrack_expiration(asset_ref.id());
+            self.remove_key_asset(key).await;
+        }
+
+        let input_status = state.metadata.status();
+        let final_status = match input_status {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
+                if self.recipe_opt(key).await?.is_some() {
+                    Status::Override
+                } else {
+                    Status::Source
+                }
+            }
+        };
+
+        let mut metadata = state.metadata.as_ref().clone();
+        metadata.set_status(final_status)?;
+        validate_required_metadata_fields(key, &metadata)?;
+        add_soft_consistency_warnings(&mut metadata)?;
+        metadata.set_updated_now()?;
+        metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        if final_status != Status::Volatile && final_status != Status::Error {
+            let version = match state.as_bytes() {
+                Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                Err(_) => crate::metadata::Version::from_time_now(),
+            };
+            metadata.set_version(Some(version))?;
+        }
+
+        let recipe: Recipe = key.into();
+        let mut asset_data =
+            AssetData::new_ext(self.next_id_for_asset(), recipe, State::new(), self.get_envref());
+        asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
+        asset_data.metadata = metadata.clone();
+        asset_data.status = final_status;
+        asset_data.binary = None;
+
+        let asset_ref = asset_data.to_ref();
+        self.insert_key_asset(key, asset_ref.clone()).await;
+
+        let store = self.get_envref().get_async_store();
+        if final_status == Status::Error {
+            store.set(key, &[], &metadata.clone().into()).await?;
+        } else {
+            match state.as_bytes() {
+                Ok(binary) => {
+                    store.set(key, &binary, &metadata.clone().into()).await?;
+                }
+                Err(_) => {
+                    store.set_metadata(key, &metadata.clone().into()).await?;
+                }
+            }
+        }
+
+        if matches!(
+            final_status,
+            Status::Ready | Status::Source | Status::Override
+        ) {
+            if let Some(version) = metadata.version() {
+                let expired = self
+                    .dependency_manager()
+                    .register_version(&dep_key, version)
+                    .await;
+                self.expire_dependencies_result(expired).await;
+            }
+            let expired = self.dependency_manager().track_asset(&asset_ref).await;
+            self.expire_dependencies_result(expired).await;
+        }
+        Ok(())
+    }
 
     /// Get asset info
-    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error>;
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
+        if self.lookup_key_asset(key).is_some() {
+            let assetref = self.get(key).await?;
+            assetref.get_asset_info().await
+        } else {
+            let store = self.get_envref().get_async_store();
+            if store.contains(key).await? {
+                store.get_asset_info(key).await
+            } else {
+                let rp = self.get_recipe_provider();
+                if rp.contains(key, self.get_envref()).await? {
+                    rp.get_asset_info(key, self.get_envref()).await
+                } else {
+                    Err(Error::general_error(format!(
+                        "Asset not found for key {} (get_asset_info)",
+                        key
+                    ))
+                    .with_key(key))
+                }
+            }
+        }
+    }
 
     /// Returns true if store contains the key.
-    async fn contains(&self, key: &Key) -> Result<bool, Error>;
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        let store = self.get_envref().get_async_store();
+        if store.contains(key).await? {
+            return Ok(true);
+        }
+        self.get_recipe_provider()
+            .contains(key, self.get_envref())
+            .await
+    }
 
     /// List or iterator of all keys
-    async fn keys(&self) -> Result<Vec<Key>, Error>;
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        self.listdir_keys_deep(&Key::new()).await
+    }
 
     /// Return names inside a directory specified by key.
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
-    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error>;
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let store = self.get_envref().get_async_store();
+        let mut names = self
+            .get_recipe_provider()
+            .assets_with_recipes(key, self.get_envref())
+            .await?
+            .into_iter()
+            .map(|resourcename| resourcename.name)
+            .collect::<BTreeSet<String>>();
+        store.listdir(key).await?.into_iter().for_each(|name| {
+            names.insert(name);
+        });
+        Ok(names.into_iter().collect())
+    }
 
     /// Return keys inside a directory specified by key.
     /// Only keys present directly in the directory are returned,
     /// subdirectories are not traversed.
-    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error>;
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        Ok(self
+            .listdir(key)
+            .await?
+            .into_iter()
+            .map(|name| key.join(name))
+            .collect::<Vec<Key>>())
+    }
 
     /// Return asset info of assets inside a directory specified by key.
     /// Only info of assets present directly in the directory are returned,
@@ -2475,10 +2778,39 @@ pub trait AssetManager<E: Environment>:
     /// Return keys inside a directory specified by key.
     /// Keys directly in the directory are returned,
     /// as well as in all the subdirectories.
-    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error>;
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let store = self.get_envref().get_async_store();
+        let mut keys = store
+            .listdir_keys_deep(key)
+            .await?
+            .into_iter()
+            .collect::<BTreeSet<Key>>();
+        let mut folders = vec![];
+        for k in keys.iter() {
+            if store.is_dir(k).await? {
+                folders.push(k.clone());
+            }
+        }
+        for subkey in folders {
+            if store.is_dir(&subkey).await? {
+                let recipes = self
+                    .get_recipe_provider()
+                    .assets_with_recipes(&subkey, self.get_envref())
+                    .await?;
+                for resourcename in recipes {
+                    keys.insert(subkey.join(resourcename.name));
+                }
+            }
+        }
+        Ok(keys.into_iter().collect())
+    }
 
     /// Make a directory
-    async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error>;
+    async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        let store = self.get_envref().get_async_store();
+        let _sink = store.makedir(key).await?;
+        self.get(key).await
+    }
 
     // --- lifecycle / manager-primitive methods (moved from the concrete manager) ---
 
@@ -2493,6 +2825,28 @@ pub trait AssetManager<E: Environment>:
 
     /// Look up a cached asset by key in this manager's key→asset map (sync, brief).
     fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>>;
+
+    /// Remove a cached asset by key from this manager's key→asset map.
+    async fn remove_key_asset(&self, key: &Key);
+
+    /// Insert an asset into this manager's key→asset map.
+    async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>);
+
+    /// Next monotonic asset id.
+    fn next_id_for_asset(&self) -> u64;
+
+    /// The environment reference (set via `set_envref`). Panics if not yet set.
+    fn get_envref(&self) -> EnvRef<E>;
+
+    /// Cancel any pending expiration tracking for the given asset id. Immediate managers no-op.
+    fn untrack_expiration(&self, asset_id: u64) {
+        let _ = asset_id;
+    }
+
+    /// The recipe provider (via the environment).
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
+        self.get_envref().get_recipe_provider()
+    }
 
     /// Create a temporary (non-addressable) asset owned by this manager.
     fn create_temporary_asset(&self) -> AssetRef<E>;
@@ -3884,6 +4238,26 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
     fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         self.assets.read_sync(key, |_k, v| v.clone())
+    }
+
+    async fn remove_key_asset(&self, key: &Key) {
+        let _ = self.assets.remove_async(key).await;
+    }
+
+    async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
+        let _ = self.assets.insert_async(key.clone(), asset).await;
+    }
+
+    fn next_id_for_asset(&self) -> u64 {
+        self.next_id()
+    }
+
+    fn get_envref(&self) -> EnvRef<E> {
+        DefaultAssetManager::get_envref(self)
+    }
+
+    fn untrack_expiration(&self, asset_id: u64) {
+        DefaultAssetManager::untrack_expiration(self, asset_id);
     }
 
     fn create_temporary_asset(&self) -> AssetRef<E> {
