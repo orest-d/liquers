@@ -1462,6 +1462,56 @@ impl<E: Environment> AssetRef<E> {
             .await
     }
 
+    /// Single-task (spawn-free) variant of [`run_with_future`] used by immediate-mode managers.
+    /// The service-message loop runs concurrently via `futures::join!` (not `tokio::spawn`), and
+    /// the evaluate/wait race uses `futures::select!` — both executor-agnostic, so this compiles
+    /// and runs on `wasm32` with no tokio runtime. Sound because the psm loop terminates on the
+    /// `JobFinishing` message sent below (see `finish_run_with_result` note).
+    pub(crate) async fn run_with_future_inline<Fut>(&self, evaluate_future: Fut) -> Result<(), Error>
+    where
+        Fut: core::future::Future<Output = Result<(), Error>>,
+    {
+        use futures::FutureExt;
+        self.resolve_volatility_before_evaluation().await;
+        if self.status().await.is_finished() {
+            return Ok(());
+        }
+        let eval_side = async {
+            let wait = self.wait_to_finish().fuse();
+            let ev = evaluate_future.fuse();
+            futures::pin_mut!(wait, ev);
+            let result = futures::select! {
+                res = wait => res,
+                res = ev => res,
+            };
+            self.finalize_primary_progress().await;
+            self.service_sender()
+                .await
+                .send(AssetServiceMessage::JobFinishing)
+                .ok();
+            result
+        };
+        let psm_side = self.process_service_messages();
+        let (result, psm_result) = futures::join!(eval_side, psm_side);
+        // Wrap the inline psm outcome as the JoinError-free `Ok(..)` variant so the shared
+        // `finish_run_with_result` is reused unchanged.
+        self.finish_run_with_result(result, Ok(psm_result)).await
+    }
+
+    /// Inline (no-spawn) counterpart of [`run`].
+    pub(crate) async fn run_inline(&self) -> Result<(), Error> {
+        self.run_with_future_inline(self.evaluate_and_store()).await
+    }
+
+    /// Inline (no-spawn) counterpart of [`run_immediately`].
+    pub(crate) async fn run_immediately_inline(
+        &self,
+        payload: Option<E::Payload>,
+    ) -> Result<(), Error> {
+        self.run_with_future_inline(self.evaluate_immediately(payload))
+            .await
+    }
+
     /// Fetch initial state and recipe of the asset
     /// Used by: `evaluate_immediately`, `evaluate_recipe` in this module.
     async fn initial_state_and_recipe(&self) -> (State<E::Value>, Recipe) {
