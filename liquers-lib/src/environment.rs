@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use liquers_core::{
+    assets::AssetManager,
     command_metadata::CommandMetadataRegistry,
     commands::{CommandRegistry, PayloadType},
     context::{Context, EnvRef, Environment, SimpleSession, User},
