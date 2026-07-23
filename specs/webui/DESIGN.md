@@ -28,14 +28,15 @@
     but panics; `tokio_with_wasm` does not compile because core's `#[async_trait] impl AssetManager`
     requires `Send`. See the follow-up below. Playwright e2e is therefore deferred.
 
-## Follow-up (tracked)
+## Follow-up — RESOLVED ✅ (async-wasm-refactor, 2026-07-23)
 
-**Make the async evaluation engine run on wasm.** Options: (A) make `liquers-core`'s async-trait
-hierarchy `Send`-conditional (`#[async_trait(?Send)]` on wasm across `AssetManager`/`AsyncStore`/recipe
-providers + the `+ Send` future bounds in `EnvRef`), then use `tokio_with_wasm`; or (B) route every core
-`tokio::spawn`/`tokio::time` through an `Environment`-provided spawn/timer seam. Both are substantial
-core changes; either unblocks the browser example + Playwright e2e. Documented in
-`phase2-architecture.md` → "Browser Runtime & Workflow".
+**Make the async evaluation engine run on wasm.** DONE. Implemented as the `async-wasm-refactor`
+feature (see `specs/async-wasm-refactor/`): a spawn-free `ImmediateAssetManager` (Axis 1 / b1)
+selected via a new `Environment::AssetManager` associated type, plus target-gated conditional
+compilation relaxing the core async traits to non-`Send` on wasm (`MaybeSend`/`MaybeSync` markers +
+`BoxFuture` alias + `#[async_trait(?Send)]`). `DefaultEnvironment` cfg-selects `ImmediateAssetManager`
+on wasm, so **this example runs unchanged in the browser**. wasm tokio reduced to `["sync"]`. The
+deferred M4 Playwright e2e (`tests/webui.spec.ts`) now **passes in headless Chromium** — 1 passed.
 
 ## Notes
 

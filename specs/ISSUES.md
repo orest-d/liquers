@@ -71,3 +71,19 @@ is no tokio runtime there.
   `tokio::spawn` / `tokio::time` through it (native = tokio, wasm = `spawn_local` + browser timer).
 
 Either unblocks the `examples-web/ui_spec_demo` browser example and its Playwright e2e.
+
+## async-wasm-refactor follow-ups (out of scope, tracked)
+
+The `async-wasm-refactor` (2026-07-23) made `liquers-core` run in the browser
+(`ImmediateAssetManager` + target-gated conditional-`Send`; wasm tokio → `["sync"]`;
+`ui_spec_demo` passes Playwright in headless Chromium). Deliberately **out of scope**, for a
+future effort:
+
+- **Full tokio removal / executor-agnostic core.** wasm still uses `tokio::sync` (channels/locks
+  in `AssetData`/`DependencyManager`). Replacing it with framework-neutral primitives
+  (`async-lock`/`async-channel`/`event-listener`/`async-once-cell`) would let the core run under any
+  executor (embassy/smol/futures-executor) — the embedded angle. See
+  `specs/async-wasm-refactor/phase2-architecture.md` → "Tokio Dependency Reduction".
+- **Tier 2 browser-native I/O.** The conditional-`Send` groundwork permits a future
+  `BrowserEnvironment` with an IndexedDB/`fetch` `AsyncStore` and a JS-closure command backend
+  (`!Send` closures — the core already does not preclude them). Not implemented.
