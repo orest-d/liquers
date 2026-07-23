@@ -4655,6 +4655,307 @@ impl<E: Environment + 'static> JobQueue<E> {
     }
 }
 
+/// Spawn-free, timer-free `AssetManager` (Axis 1 / b1). Every evaluation runs inline in the
+/// caller's task (no `JobQueue`, no expiration monitor, no background loops), so it runs under
+/// the browser's single-threaded event loop with no tokio runtime. Store-delegating methods are
+/// inherited from the `AssetManager` trait defaults; only the eval methods + primitives are here.
+pub struct ImmediateAssetManager<E: Environment> {
+    id: std::sync::atomic::AtomicU64,
+    envref: std::sync::OnceLock<EnvRef<E>>,
+    // Plain maps behind std Mutex: locked only for brief SYNC get/insert/remove, NEVER across an
+    // `.await` (the guard is `!Send`, which statically enforces this on native).
+    assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
+    query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
+    dependency_manager: crate::dependencies::DependencyManager<E>,
+    started: tokio::sync::OnceCell<()>,
+}
+
+impl<E: Environment> Default for ImmediateAssetManager<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<E: Environment> ImmediateAssetManager<E> {
+    pub fn new() -> Self {
+        ImmediateAssetManager {
+            id: std::sync::atomic::AtomicU64::new(1000),
+            envref: std::sync::OnceLock::new(),
+            assets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            dependency_manager: crate::dependencies::DependencyManager::new(),
+            started: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    fn next_id(&self) -> u64 {
+        self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn envref(&self) -> EnvRef<E> {
+        self.envref
+            .get()
+            .expect("Environment not set in ImmediateAssetManager")
+            .clone()
+    }
+
+    /// Ensure command versions are loaded exactly once (lazy startup — no init-time spawn).
+    async fn ensure_started(&self) {
+        self.started
+            .get_or_init(|| async {
+                if let Some(envref) = self.envref.get() {
+                    let cmr = envref.get_command_metadata_registry();
+                    load_command_versions(&self.dependency_manager, cmr).await;
+                }
+            })
+            .await;
+    }
+
+    async fn make_volatile(&self, recipe_src: Recipe) -> AssetRef<E> {
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), recipe_src, self.envref());
+        {
+            let mut data = asset_ref.data.write().await;
+            data.is_volatile = true;
+            if let Metadata::MetadataRecord(ref mut mr) = data.metadata {
+                mr.is_volatile = true;
+            }
+        }
+        asset_ref
+    }
+
+    async fn get_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        if query.is_volatile(self.envref()).await? {
+            return Ok(self.make_volatile(query.into()).await);
+        }
+        {
+            let map = self
+                .query_assets
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(existing) = map.get(query) {
+                return Ok(existing.clone());
+            }
+        }
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.envref());
+        let mut map = self
+            .query_assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = map.get(query) {
+            return Ok(existing.clone());
+        }
+        map.insert(query.clone(), asset_ref.clone());
+        Ok(asset_ref)
+    }
+
+    async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        if self.is_volatile(key).await? {
+            return Ok(self.make_volatile(key.into()).await);
+        }
+        {
+            let map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(existing) = map.get(key) {
+                return Ok(existing.clone());
+            }
+        }
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.envref());
+        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = map.get(key) {
+            return Ok(existing.clone());
+        }
+        map.insert(key.clone(), asset_ref.clone());
+        Ok(asset_ref)
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
+    async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+        if let Some(key) = query.key() {
+            return self.get(&key).await;
+        }
+        self.ensure_started().await;
+        loop {
+            let assetref = self.get_query_asset(query).await?;
+            let status = assetref.status().await;
+            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+                let asset_id = assetref.id();
+                let mut map = self
+                    .query_assets
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if let Some(existing) = map.get(query) {
+                    if existing.id() == asset_id {
+                        map.remove(query);
+                    }
+                }
+                drop(map);
+                continue;
+            }
+            if status.is_finished() {
+                // Lazy expiration-on-access (replaces the monitor task).
+                if status == Status::Ready && assetref.is_expired().await {
+                    let _ = assetref.expire_without_cascade().await;
+                    let mut map = self
+                        .query_assets
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    let asset_id = assetref.id();
+                    if let Some(existing) = map.get(query) {
+                        if existing.id() == asset_id {
+                            map.remove(query);
+                        }
+                    }
+                    drop(map);
+                    continue;
+                }
+                return Ok(assetref);
+            }
+            assetref.run_inline().await?;
+            return Ok(assetref);
+        }
+    }
+
+    async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
+        self.ensure_started().await;
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
+        asset_ref.run_inline().await?;
+        Ok(asset_ref)
+    }
+
+    async fn apply_immediately(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        self.ensure_started().await;
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
+        asset_ref.run_immediately_inline(payload).await?;
+        Ok(asset_ref)
+    }
+
+    async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
+        self.ensure_started().await;
+        loop {
+            let asset_ref = self.get_resource_asset(key).await?;
+            let status = asset_ref.status().await;
+            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+                let asset_id = asset_ref.id();
+                let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(existing) = map.get(key) {
+                    if existing.id() == asset_id {
+                        map.remove(key);
+                    }
+                }
+                drop(map);
+                continue;
+            }
+            if status.is_finished() {
+                if status == Status::Ready && asset_ref.is_expired().await {
+                    let _ = asset_ref.expire_without_cascade().await;
+                    let asset_id = asset_ref.id();
+                    let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(existing) = map.get(key) {
+                        if existing.id() == asset_id {
+                            map.remove(key);
+                        }
+                    }
+                    drop(map);
+                    continue;
+                }
+                return Ok(asset_ref);
+            }
+            asset_ref.run_inline().await?;
+            return Ok(asset_ref);
+        }
+    }
+
+    // --- primitives ---
+
+    fn set_envref(&self, envref: EnvRef<E>) {
+        if self.envref.set(envref).is_err() {
+            panic!("Environment already set in ImmediateAssetManager");
+        }
+    }
+
+    fn dependency_manager(&self) -> &crate::dependencies::DependencyManager<E> {
+        &self.dependency_manager
+    }
+
+    fn eval_mode(&self) -> EvalMode {
+        EvalMode::Inline
+    }
+
+    fn lookup_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
+        let map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(key).cloned()
+    }
+
+    async fn remove_key_asset(&self, key: &Key) {
+        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(key);
+    }
+
+    async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
+        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(key.clone(), asset);
+    }
+
+    fn next_id_for_asset(&self) -> u64 {
+        self.next_id()
+    }
+
+    fn get_envref(&self) -> EnvRef<E> {
+        self.envref()
+    }
+
+    fn create_temporary_asset(&self) -> AssetRef<E> {
+        AssetRef::new_temporary(self.envref())
+    }
+
+    async fn start(&self) {
+        self.ensure_started().await;
+    }
+
+    /// No monitor task in immediate mode — expiration is checked lazily on access.
+    fn track_expiration(&self, _asset_ref: &AssetRef<E>, _expiration_time: &ExpirationTime) {}
+
+    async fn remove_expired_from_maps(
+        &self,
+        asset_id: u64,
+        query: Option<&Query>,
+        key: Option<&Key>,
+    ) -> bool {
+        let mut removed = false;
+        if let Some(query) = query {
+            let mut map = self
+                .query_assets
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(existing) = map.get(query) {
+                if existing.id() == asset_id {
+                    map.remove(query);
+                    removed = true;
+                }
+            }
+        }
+        if !removed {
+            if let Some(key) = key {
+                let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(existing) = map.get(key) {
+                    if existing.id() == asset_id {
+                        map.remove(key);
+                        removed = true;
+                    }
+                }
+            }
+        }
+        removed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
