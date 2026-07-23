@@ -1150,10 +1150,10 @@ impl CommandSignature {
         if self.is_async {
             quote! {
                 #signature {
-                    async move {
+                    liquers_core::maybe_send::MaybeBoxed::maybe_boxed(async move {
                         #extract_parameters
                         #call
-                    }.boxed()
+                    })
                 }
             }
         } else {
@@ -2349,12 +2349,11 @@ mod tests {
                     liquers_core::error::Error
                 >
             > {
-                async move {
+                liquers_core::maybe_send::MaybeBoxed::maybe_boxed(async move {
                     let a__par: i32 = arguments.get(0usize, "a")?;
                     let res = test_fn(state, a__par).await;
                     res
-                }
-                .boxed()
+                })
             }
             let mut cm = registry.register_async_command(
                 liquers_core::command_metadata::CommandKey::new("", "", "test_fn"),
