@@ -612,6 +612,113 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
 }
 
+/// Environment backed by the spawn-free [`ImmediateAssetManager`] (inline evaluation).
+///
+/// Primary use: the manager-parametric test suite, so `ImmediateAssetManager` is exercised on
+/// native alongside `SimpleEnvironment` (→ `DefaultAssetManager`). Also usable for embedded /
+/// no-runtime contexts. Async-store only (no sync `Store`/`Cache`); `init_with_envref` does NOT
+/// spawn — `start()` runs lazily on first evaluation.
+pub struct ImmediateEnvironment<V: ValueInterface> {
+    #[cfg(feature = "async_store")]
+    async_store: Arc<dyn crate::store::AsyncStore>,
+    pub command_registry: CommandRegistry<Self>,
+    asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
+    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
+}
+
+impl<V: ValueInterface> Default for ImmediateEnvironment<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<V: ValueInterface> ImmediateEnvironment<V> {
+    pub fn new() -> Self {
+        ImmediateEnvironment {
+            command_registry: CommandRegistry::new(),
+            #[cfg(feature = "async_store")]
+            async_store: Arc::new(crate::store::NoAsyncStore),
+            asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
+            recipe_provider: None,
+        }
+    }
+    #[cfg(feature = "async_store")]
+    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
+        self.async_store = Arc::from(store);
+        self
+    }
+    pub fn with_recipe_provider(
+        &mut self,
+        provider: Box<dyn AsyncRecipeProvider<Self>>,
+    ) -> &mut Self {
+        self.recipe_provider = Some(Arc::from(provider));
+        self
+    }
+}
+
+impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
+    type Value = V;
+    type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = SimpleSession;
+    type Payload = ();
+    type AssetManager = crate::assets::ImmediateAssetManager<Self>;
+
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+        &self.command_registry.command_metadata_registry
+    }
+
+    fn get_command_executor(&self) -> &Self::CommandExecutor {
+        &self.command_registry
+    }
+
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
+        self.async_store.clone()
+    }
+
+    fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
+        self.asset_store.clone()
+    }
+
+    fn create_session(&self, user: User) -> Self::SessionType {
+        SimpleSession { user }
+    }
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
+        use crate::interpreter::{apply_plan, finalize_plan};
+        async move {
+            let recipe_expires = recipe.expires.clone();
+            let mut plan = {
+                let cmr = envref.0.get_command_metadata_registry();
+                recipe.to_plan(cmr)?
+            };
+            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            let combined_expires = plan.expires.clone() | recipe_expires;
+            context.set_expires(combined_expires).await?;
+            let res = apply_plan(plan, input_state, context, envref).await?;
+            Ok(res)
+        }
+        .maybe_boxed()
+    }
+
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
+        if let Some(provider) = &self.recipe_provider {
+            return provider.clone();
+        }
+        Arc::new(crate::recipes::TrivialRecipeProvider)
+    }
+
+    fn init_with_envref(&self, envref: EnvRef<Self>) {
+        // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
+        self.get_asset_manager().set_envref(envref);
+    }
+}
+
 /// Simple environment with payload and configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 #[cfg(not(target_arch = "wasm32"))]

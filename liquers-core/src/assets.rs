@@ -1170,12 +1170,14 @@ impl<E: Environment> AssetRef<E> {
             return;
         }
 
-        // [opus B2] On wasm the inline path cannot spawn, so persist synchronously regardless
-        // of `save_in_background` (there is no tokio runtime / `rt` feature there).
+        // [opus B2] On wasm the inline path cannot spawn (no tokio runtime / `rt`), so persist
+        // synchronously. Also on native: when the owning manager is in `Inline` mode, persist
+        // synchronously so immediate evaluation stays fully spawn-free (runnable with no runtime).
         #[cfg(not(target_arch = "wasm32"))]
         {
+            let inline = self.get_envref().await.get_asset_manager().eval_mode() == EvalMode::Inline;
             let assetref = self.clone();
-            if save_in_background {
+            if save_in_background && !inline {
                 tokio::spawn(async move {
                     let result = assetref.save_to_store().await;
                     assetref.record_persistence_result(result).await;
