@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
+use crate::maybe_send::MaybeBoxed;
 
 use crate::{
     assets::{AssetManager, AssetRef},
@@ -118,9 +119,7 @@ pub fn apply_plan<E: Environment>(
     input_state: State<E::Value>,
     context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<
-    Box<dyn core::future::Future<Output = Result<Arc<E::Value>, Error>> + Send + 'static>,
->
+) -> crate::maybe_send::BoxFuture<'static, Result<Arc<E::Value>, Error>>
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
@@ -141,7 +140,7 @@ pub fn apply_plan<E: Environment>(
         }
         state.value()
     }
-    .boxed()
+    .maybe_boxed()
 }
 
 pub fn do_step<E: Environment>(
@@ -149,13 +148,7 @@ pub fn do_step<E: Environment>(
     input: State<E::Value>,
     context: Context<E>,
     envref: EnvRef<E>,
-) -> std::pin::Pin<
-    Box<
-        dyn core::future::Future<Output = Result<Arc<<E as Environment>::Value>, Error>>
-            + Send
-            + 'static,
-    >,
-> {
+) -> crate::maybe_send::BoxFuture<'static, Result<Arc<<E as Environment>::Value>, Error>> {
     match step {
         Step::GetResource(key) => async move {
             context.add_log_entry(
@@ -167,7 +160,7 @@ pub fn do_step<E: Environment>(
                 <<E as Environment>::Value as ValueInterface>::from_bytes(data),
             ))
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::GetResourceMetadata(key) => async move {
             context.add_log_entry(
                 LogEntry::info("Getting resource metadata".to_string())
@@ -191,7 +184,7 @@ pub fn do_step<E: Environment>(
                 }
             }
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::GetResourceDirectory(key) => async move {
             println!("Getting resource directory for key {:?}", key);
             let store = envref.get_async_store();
@@ -202,7 +195,7 @@ pub fn do_step<E: Environment>(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
             ))
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::Evaluate(q) => {
             let query = q.clone();
             async move {
@@ -213,13 +206,13 @@ pub fn do_step<E: Environment>(
                     .await
                     .and_then(|s| s.value())
             }
-            .boxed()
+            .maybe_boxed()
         }
         Step::UseQueryValue(query) => async move {
             let value = E::Value::from_query(&query);
             Ok(Arc::new(value))
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::Action {
             realm,
             ns,
@@ -249,39 +242,39 @@ pub fn do_step<E: Environment>(
                 })
                 .map(|v| Arc::new(v))
         }
-        .boxed(),
+        .maybe_boxed(),
 
         Step::Filename(name) => async move {
             context.set_filename(&name.name).await?;
             input.value()
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::Info(m) => async move {
             context.info(&m)?;
             input.value()
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::Warning(m) => async move {
             context.warning(&m)?;
             input.value()
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::Error(m) => async move {
             context.error(&m)?;
             input.value()
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::SetCwd(key) => async move {
             context.set_cwd_key(Some(key));
             input.value()
         }
-        .boxed(),
-        Step::Plan(plan) => async move { apply_plan(plan, input, context, envref).await }.boxed(),
+        .maybe_boxed(),
+        Step::Plan(plan) => async move { apply_plan(plan, input, context, envref).await }.maybe_boxed(),
         Step::GetAsset(key) => async move {
             let asset_state = context.get_dependency_state(&key.into()).await?;
             asset_state.value()
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::GetAssetBinary(key) => async move {
             let asset = context.schedule_dependency_asset(&key.into()).await?;
             context.wait_for_dependency(&asset).await?;
@@ -290,7 +283,7 @@ pub fn do_step<E: Environment>(
                 <<E as Environment>::Value as ValueInterface>::from_bytes((*binary).clone()),
             ))
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::GetAssetMetadata(key) => async move {
             let asset = context.schedule_dependency_asset(&key.clone().into()).await?;
             let asset_state = context.wait_for_dependency(&asset).await?;
@@ -311,7 +304,7 @@ pub fn do_step<E: Environment>(
                 )),
             }
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::GetAssetRecipe(key) => async move {
             let envref1 = envref.clone();
             let asset_store = envref1.get_asset_manager();
@@ -324,7 +317,7 @@ pub fn do_step<E: Environment>(
                 Ok(Arc::new(none))
             }
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::GetAssetDirectory(key) => async move {
             let envref1 = envref.clone();
             let asset_manager = envref1.get_asset_manager();
@@ -333,12 +326,12 @@ pub fn do_step<E: Environment>(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
             ))
         }
-        .boxed(),
+        .maybe_boxed(),
         Step::UseKeyValue(key) => async move {
             let value = E::Value::from_key(&key);
             Ok(Arc::new(value))
         }
-        .boxed(),
+        .maybe_boxed(),
     }
 }
 
@@ -347,7 +340,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
     query: Q,
     cwd_key: Option<Key>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<State<E::Value>, Error>> + Send>> {
+) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
     let rquery = query.try_to_query();
     async move {
         let query = rquery?;
@@ -375,14 +368,14 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
             .with_data((*res).clone())
             .with_metadata(metadata.into()))
     }
-    .boxed()
+    .maybe_boxed()
 }
 
 pub fn evaluate_simple_template<E: Environment>(
     envref: EnvRef<E>,
     template: SimpleTemplate,
     cwd_key: Option<Key>,
-) -> std::pin::Pin<Box<dyn core::future::Future<Output = Result<String, Error>> + Send>> {
+) -> crate::maybe_send::BoxFuture<'static, Result<String, Error>> {
     let mut result = String::new();
     async move {
         for element in template.0.iter() {
@@ -403,7 +396,7 @@ pub fn evaluate_simple_template<E: Environment>(
         }
         Ok(result)
     }
-    .boxed()
+    .maybe_boxed()
 }
 
 pub(crate) trait IsVolatile<E: Environment> {

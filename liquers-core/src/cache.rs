@@ -147,25 +147,30 @@ impl BinCache for MemoryBinCache {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub trait Cache<V: ValueInterface>: BinCache {
     fn get(&self, query: &Query) -> Result<State<V>, Error>;
     fn set(&mut self, state: State<V>) -> Result<(), Error>;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct NoCache<V: ValueInterface>(PhantomData<V>);
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> Default for NoCache<V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> NoCache<V> {
     pub fn new() -> Self {
         NoCache(PhantomData)
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> BinCache for NoCache<V> {
     fn clear(&mut self) {}
     fn get_binary(&self, _query: &Query) -> Option<Vec<u8>> {
@@ -191,6 +196,7 @@ impl<V: ValueInterface> BinCache for NoCache<V> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> Cache<V> for NoCache<V> {
     fn get(&self, _query: &Query) -> Result<State<V>, Error> {
         Err(Error::cache_not_supported())
@@ -200,8 +206,10 @@ impl<V: ValueInterface> Cache<V> for NoCache<V> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct SerializingCache<V: ValueInterface, BC: BinCache>(BC, PhantomData<V>);
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface, BC: BinCache> BinCache for SerializingCache<V, BC> {
     fn clear(&mut self) {
         self.0.clear()
@@ -236,6 +244,7 @@ impl<V: ValueInterface, BC: BinCache> BinCache for SerializingCache<V, BC> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface, BC: BinCache> Cache<V> for SerializingCache<V, BC> {
     fn get(&self, query: &Query) -> Result<State<V>, Error> {
         let b = self

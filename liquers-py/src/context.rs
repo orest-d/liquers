@@ -84,6 +84,7 @@ impl liquers_core::context::Environment for Environment {
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = liquers_core::context::SimpleSession;
     type Payload = ();
+    type AssetManager = liquers_core::assets::DefaultAssetManager<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         &self.command_registry.command_metadata_registry
@@ -99,7 +100,7 @@ impl liquers_core::context::Environment for Environment {
         Arc::new(NoAsyncStore)
     }
 
-    fn get_asset_manager(&self) -> Arc<Box<liquers_core::assets::DefaultAssetManager<Self>>> {
+    fn get_asset_manager(&self) -> Arc<liquers_core::assets::DefaultAssetManager<Self>> {
         todo!()
     }
 

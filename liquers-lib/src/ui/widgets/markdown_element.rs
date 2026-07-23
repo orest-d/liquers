@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+#[cfg(feature = "egui")]
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,7 @@ pub struct MarkdownElement {
     /// The markdown source text (persistent across save/load).
     markdown_text: String,
     /// egui_commonmark rendering cache (runtime-only, rebuilt on deserialization).
+    #[cfg(feature = "egui")]
     #[serde(skip)]
     cache: CommonMarkCache,
 }
@@ -35,6 +37,7 @@ impl Clone for MarkdownElement {
             handle: self.handle,
             title_text: self.title_text.clone(),
             markdown_text: self.markdown_text.clone(),
+            #[cfg(feature = "egui")]
             cache: CommonMarkCache::default(),
         }
     }
@@ -47,6 +50,7 @@ impl MarkdownElement {
             handle: None,
             title_text: title,
             markdown_text,
+            #[cfg(feature = "egui")]
             cache: CommonMarkCache::default(),
         }
     }
@@ -118,6 +122,7 @@ impl UIElement for MarkdownElement {
         None
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -128,6 +133,19 @@ impl UIElement for MarkdownElement {
             CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown_text);
         });
         ui.allocate_response(output.content_size, egui::Sense::hover())
+    }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, _app_state: &dyn AppState) -> String {
+        // pulldown-cmark converts markdown → HTML, escaping text content itself.
+        let parser = pulldown_cmark::Parser::new(&self.markdown_text);
+        let mut body = String::new();
+        pulldown_cmark::html::push_html(&mut body, parser);
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-MarkdownElement\">{}</div>",
+            crate::ui::web::element_dom_id(self.handle()),
+            body
+        )
     }
 }
 

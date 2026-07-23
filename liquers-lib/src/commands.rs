@@ -336,7 +336,10 @@ pub fn register_all_commands_fn(
     mut env: DefaultEnvironment<Value>,
 ) -> Result<DefaultEnvironment<Value>, Error> {
     env = register_commands(env)?;
-    env = crate::egui::commands::register_commands(env)?;
+    #[cfg(feature = "egui")]
+    {
+        env = crate::egui::commands::register_commands(env)?;
+    }
     #[cfg(feature = "image-support")]
     {
         env = crate::image::commands::register_commands(env)?;

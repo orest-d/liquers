@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use liquers_core::assets::{AssetNotificationMessage, AssetRef};
+use liquers_core::assets::{AssetManager, AssetNotificationMessage, AssetRef};
 use liquers_core::context::{EnvRef, Environment};
 use liquers_core::error::Error;
-use liquers_core::metadata::Status;
+use liquers_core::metadata::{Metadata, Status};
+use liquers_core::parse::parse_query;
+use liquers_core::recipes::Recipe;
+use liquers_core::state::State;
 
 use crate::value::{ExtValueInterface, Value};
 
@@ -181,6 +184,68 @@ where
                     self.handle_request_asset_updates(handle, query, app_state)
                         .await;
                 }
+                AppMessage::ApplyToInput {
+                    handle,
+                    input,
+                    query,
+                } => {
+                    self.handle_apply_to_input(handle, input, query, app_state)
+                        .await;
+                }
+            }
+        }
+    }
+
+    /// Handle `ApplyToInput`: build an input state from `input`, apply `query` to it with a
+    /// UI payload bound to `handle`, and run it inline. Commands (e.g. `lui/submit`) perform
+    /// their own AppState side effects; on error an error element is set at `handle`.
+    async fn handle_apply_to_input(
+        &mut self,
+        handle: UIHandle,
+        input: String,
+        query: String,
+        app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+    ) {
+        let ui_context =
+            UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+        let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
+
+        let input_state =
+            State::from_parts(Arc::new(Value::from(input.as_str())), Arc::new(Metadata::new()));
+
+        let result = match parse_query(&query) {
+            Ok(q) => {
+                self.envref
+                    .get_asset_manager()
+                    .apply_immediately(Recipe::from(q), input_state, Some(payload))
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        match result {
+            Ok(asset_ref) => {
+                if let Some(s) = asset_ref.poll_state().await {
+                    if let Err(e) = s.error_result() {
+                        let mut app = app_state.lock().await;
+                        Self::set_element_and_init(
+                            &mut *app,
+                            handle,
+                            Box::new(AssetViewElement::new_error(e)),
+                            &ui_context,
+                        );
+                    }
+                    // On success, commands handled AppState themselves — do not overwrite.
+                }
+            }
+            Err(e) => {
+                let mut app = app_state.lock().await;
+                Self::set_element_and_init(
+                    &mut *app,
+                    handle,
+                    Box::new(AssetViewElement::new_error(e)),
+                    &ui_context,
+                );
             }
         }
     }

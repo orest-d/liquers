@@ -1,7 +1,9 @@
 pub mod commands;
+#[cfg(feature = "egui")]
 pub mod egui;
 pub mod environment;
 pub mod image;
+#[cfg(feature = "polars")]
 pub mod polars;
 pub mod ui;
 pub mod utils;

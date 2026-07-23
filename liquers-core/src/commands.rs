@@ -340,7 +340,10 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
 /// for your payload type to enable injection via the `injected` keyword.
 ///
 /// For newtypes that extract from payload, implement `ExtractFromPayload` and `InjectedFromContext`.
-pub trait PayloadType: Clone + Send + Sync + 'static {}
+pub trait PayloadType:
+    Clone + crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync + 'static
+{
+}
 
 /// Trait for types that can be extracted from a payload.
 /// Implement this for newtypes that extract specific fields from a payload.
@@ -403,8 +406,11 @@ impl<E: Environment<Payload = String>> InjectedFromContext<E> for String {
     }
 }
 
-#[async_trait]
-pub trait CommandExecutor<E: Environment>: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait CommandExecutor<E: Environment>:
+    crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
+{
     fn execute(
         &self,
         command_key: &CommandKey,
@@ -424,38 +430,46 @@ pub trait CommandExecutor<E: Environment>: Send + Sync {
     }
 }
 
+// Stored command-executor closure types. Trait-object additional bounds cannot use the
+// MaybeSend/MaybeSync markers (only auto-traits may follow the principal trait — E0225), so
+// the whole `dyn Fn ...` type is aliased per target: `+ Send + Sync` on native, bare on wasm.
+#[cfg(not(target_arch = "wasm32"))]
+type SyncExecutorFn<E> = dyn Fn(
+        &State<<E as Environment>::Value>,
+        CommandArguments<E>,
+        Context<E>,
+    ) -> Result<<E as Environment>::Value, Error>
+    + Send
+    + Sync
+    + 'static;
+#[cfg(target_arch = "wasm32")]
+type SyncExecutorFn<E> = dyn Fn(
+        &State<<E as Environment>::Value>,
+        CommandArguments<E>,
+        Context<E>,
+    ) -> Result<<E as Environment>::Value, Error>
+    + 'static;
+
+#[cfg(not(target_arch = "wasm32"))]
+type AsyncExecutorFn<E> = dyn Fn(
+        State<<E as Environment>::Value>,
+        CommandArguments<E>,
+        Context<E>,
+    ) -> crate::maybe_send::BoxFuture<'static, Result<<E as Environment>::Value, Error>>
+    + Send
+    + Sync
+    + 'static;
+#[cfg(target_arch = "wasm32")]
+type AsyncExecutorFn<E> = dyn Fn(
+        State<<E as Environment>::Value>,
+        CommandArguments<E>,
+        Context<E>,
+    ) -> crate::maybe_send::BoxFuture<'static, Result<<E as Environment>::Value, Error>>
+    + 'static;
+
 pub struct CommandRegistry<E: Environment> {
-    executors: HashMap<
-        CommandKey,
-        Arc<
-            Box<
-                dyn (Fn(&State<E::Value>, CommandArguments<E>, Context<E>) -> Result<E::Value, Error>)
-                    + Send
-                    + Sync
-                    + 'static,
-            >,
-        >,
-    >,
-    async_executors: HashMap<
-        CommandKey,
-        Arc<
-            Box<
-                dyn (Fn(
-                        State<E::Value>,
-                        CommandArguments<E>,
-                        Context<E>,
-                    ) -> std::pin::Pin<
-                        Box<
-                            dyn core::future::Future<Output = Result<E::Value, Error>>
-                                + Send
-                                + 'static,
-                        >,
-                    >) + Send
-                    + Sync
-                    + 'static,
-            >,
-        >,
-    >,
+    executors: HashMap<CommandKey, Arc<Box<SyncExecutorFn<E>>>>,
+    async_executors: HashMap<CommandKey, Arc<Box<AsyncExecutorFn<E>>>>,
     pub command_metadata_registry: CommandMetadataRegistry,
 }
 
@@ -472,8 +486,8 @@ impl<E: Environment> CommandRegistry<E> {
     where
         K: Into<CommandKey>,
         F: (Fn(&State<E::Value>, CommandArguments<E>, Context<E>) -> Result<E::Value, Error>)
-            + Sync
-            + Send
+            + crate::maybe_send::MaybeSync
+            + crate::maybe_send::MaybeSend
             + 'static,
     {
         let key = key.into();
@@ -494,10 +508,10 @@ impl<E: Environment> CommandRegistry<E> {
                 State<E::Value>,
                 CommandArguments<E>,
                 Context<E>,
-            ) -> std::pin::Pin<
-                Box<dyn core::future::Future<Output = Result<E::Value, Error>> + Send + 'static>,
-            >) + Sync
-            + Send
+            )
+                -> crate::maybe_send::BoxFuture<'static, Result<E::Value, Error>>)
+            + crate::maybe_send::MaybeSync
+            + crate::maybe_send::MaybeSend
             + 'static,
     {
         let key = key.into();
@@ -505,29 +519,14 @@ impl<E: Environment> CommandRegistry<E> {
         self.command_metadata_registry
             .add_command(&command_metadata);
 
-        let bf: Arc<
-            Box<
-                dyn (Fn(
-                        State<E::Value>,
-                        CommandArguments<E>,
-                        Context<E>,
-                    ) -> std::pin::Pin<
-                        Box<
-                            dyn core::future::Future<Output = Result<E::Value, Error>>
-                                + Send
-                                + 'static,
-                        >,
-                    >) + Send
-                    + Sync
-                    + 'static,
-            >,
-        > = Arc::new(Box::new(f));
+        let bf: Arc<Box<AsyncExecutorFn<E>>> = Arc::new(Box::new(f));
         self.async_executors.insert(key.clone(), bf.clone());
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
     fn execute(
         &self,

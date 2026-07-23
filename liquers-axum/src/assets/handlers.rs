@@ -39,7 +39,7 @@ pub async fn get_data_handler<E: Environment>(
     let asset_manager = env.get_asset_manager();
 
     // Get asset for query
-    let asset_ref = match (**asset_manager).get_asset(&query).await {
+    let asset_ref = match asset_manager.get_asset(&query).await {
         Ok(asset) => asset,
         Err(e) => {
             let error_detail = error_to_detail(&e);

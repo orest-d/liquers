@@ -199,7 +199,7 @@ async fn handle_subscribe<E: Environment>(
     let asset_manager = env.get_asset_manager();
 
     // Get or create asset
-    let asset_ref = match (**asset_manager).get_asset(&query).await {
+    let asset_ref = match asset_manager.get_asset(&query).await {
         Ok(ar) => ar,
         Err(e) => {
             let error_detail = error_to_detail(&e);

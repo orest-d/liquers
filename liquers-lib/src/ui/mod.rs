@@ -1,3 +1,4 @@
+pub mod action;
 pub mod app_state;
 pub mod commands;
 pub mod element;
@@ -8,8 +9,11 @@ pub mod resolve;
 pub mod runner;
 pub mod shortcuts;
 pub mod ui_context;
+#[cfg(feature = "webui")]
+pub mod web;
 pub mod widgets;
 
+pub use action::{dispatch_action, UiAction};
 pub use app_state::{AppState, DirectAppState};
 pub use element::{
     AssetViewElement, AssetViewMode, ElementSource, Placeholder, StateViewElement, UIElement,
@@ -29,7 +33,13 @@ pub use ui_context::UIContext;
 pub use widgets::QueryConsoleElement;
 pub use widgets::UISpecElement;
 
+#[cfg(feature = "egui")]
 pub use element::render_element;
+
+#[cfg(feature = "webui")]
+pub use web::{element_dom_id, render_app_ssr, render_element_web};
+#[cfg(all(feature = "webui", target_arch = "wasm32"))]
+pub use web::{mount_web, MountHandle};
 
 // ─── Cross-Platform Helpers ─────────────────────────────────────────────────
 

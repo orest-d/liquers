@@ -136,20 +136,31 @@ impl QueryConsoleElement {
             Some(h) => h,
             None => return,
         };
-        let now = std::time::Instant::now();
-        if let Some(last) = self.last_volatile_refresh_at {
-            if now.duration_since(last) < std::time::Duration::from_millis(400) {
-                return;
+        // Debounce is `std::time::Instant`-based, which panics on wasm32-unknown-unknown; the
+        // delayed refresh uses `tokio::time::sleep`, which needs a native time driver. Both are
+        // native-only niceties — on wasm the refresh is requested directly (no debounce/delay).
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = std::time::Instant::now();
+            if let Some(last) = self.last_volatile_refresh_at {
+                if now.duration_since(last) < std::time::Duration::from_millis(400) {
+                    return;
+                }
             }
-        }
-        self.last_volatile_refresh_at = Some(now);
+            self.last_volatile_refresh_at = Some(now);
 
-        let query = self.query_text.clone();
-        let ctx_clone = ctx.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            ctx_clone.send_message(AppMessage::RequestAssetUpdates { handle, query });
-        });
+            let query = self.query_text.clone();
+            let ctx_clone = ctx.clone();
+            crate::ui::spawn_ui_task(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                ctx_clone.send_message(AppMessage::RequestAssetUpdates { handle, query });
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let query = self.query_text.clone();
+            ctx.send_message(AppMessage::RequestAssetUpdates { handle, query });
+        }
     }
 
     /// Navigate history backward. Returns true if position changed.
@@ -195,6 +206,7 @@ impl QueryConsoleElement {
 
     /// Render the single-row toolbar.
     /// Layout: [<] [>] [query_field] [Data/Metadata] [Presets v] [status]
+    #[cfg(feature = "egui")]
     fn show_toolbar(&mut self, ui: &mut egui::Ui, ctx: &UIContext) {
         ui.horizontal(|ui| {
             // Back button
@@ -278,6 +290,7 @@ impl QueryConsoleElement {
     }
 
     /// Render the content area: either data view or metadata pane.
+    #[cfg(feature = "egui")]
     fn show_content(&mut self, ui: &mut egui::Ui, ctx: &UIContext, app_state: &mut dyn AppState) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.data_view && self.value.is_some() {
@@ -297,6 +310,7 @@ impl QueryConsoleElement {
     }
 
     /// Render the scrollable metadata pane.
+    #[cfg(feature = "egui")]
     fn show_metadata_pane(&self, ui: &mut egui::Ui) {
         // Show error if present
         if let Some(ref err) = self.error {
@@ -409,6 +423,7 @@ impl UIElement for QueryConsoleElement {
         self.metadata.clone()
     }
 
+    #[cfg(feature = "egui")]
     fn show_in_egui(
         &mut self,
         ui: &mut egui::Ui,
@@ -421,6 +436,59 @@ impl UIElement for QueryConsoleElement {
             self.show_content(ui, ctx, app_state);
         })
         .response
+    }
+
+    #[cfg(feature = "webui")]
+    fn render_web(&self, app_state: &dyn AppState) -> String {
+        use crate::ui::action::UiAction;
+        use crate::ui::web::html::{action_attr, escape_html, value_to_html};
+        use crate::ui::web::{element_dom_id, widgets};
+
+        let dom_id = element_dom_id(self.handle());
+        let hid = self.handle().map(|h| h.0).unwrap_or(0);
+        let input_id = format!("qc-input-{}", hid);
+
+        // Toolbar: query input + a Go control carrying Apply { query: "ns-lui/submit" }.
+        let go_attr = match self.handle() {
+            Some(h) => action_attr(&UiAction::Apply {
+                handle: h,
+                input_id: input_id.clone(),
+                query: "ns-lui/submit".to_string(),
+            }),
+            None => String::new(),
+        };
+        let toolbar = format!(
+            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"/><span class=\"lq-go\"{}>Go</span>{}</div>",
+            input_id,
+            escape_html(&self.query_text),
+            go_attr,
+            widgets::status_html(self.status)
+        );
+
+        // Content: data view (value) or metadata pane.
+        let content = if self.data_view {
+            match &self.value {
+                Some(v) => value_to_html(v.as_ref(), app_state),
+                None => String::new(),
+            }
+        } else {
+            match &self.metadata {
+                Some(m) => match m.get_asset_info() {
+                    Ok(info) => widgets::asset_info_html(&info),
+                    Err(_) => "<div>No metadata available</div>".to_string(),
+                },
+                None => "<div>No metadata available</div>".to_string(),
+            }
+        };
+        let error = match &self.error {
+            Some(e) => widgets::error_html(e),
+            None => String::new(),
+        };
+
+        format!(
+            "<div id=\"{}\" class=\"lq-element lq-QueryConsoleElement\">{}<div class=\"lq-qc-content\">{}{}</div></div>",
+            dom_id, toolbar, error, content
+        )
     }
 }
 
@@ -827,6 +895,7 @@ mod tests {
             match msg {
                 AppMessage::RequestAssetUpdates { query, .. } => assert_eq!(query, "p2"),
                 AppMessage::SubmitQuery { .. }
+                | AppMessage::ApplyToInput { .. }
                 | AppMessage::Quit
                 | AppMessage::Serialize { .. }
                 | AppMessage::Deserialize { .. } => panic!("Expected RequestAssetUpdates"),

@@ -39,6 +39,14 @@ pub enum AppMessage {
     /// change, including expiration transitions. Monitoring auto-stops when the
     /// element is removed from AppState.
     RequestAssetUpdates { handle: UIHandle, query: String },
+    /// Apply `query` to `input` (used as the input state), binding results to `handle`.
+    /// Sent when a `UiAction::Apply` fires: the backend reads the live input value and
+    /// forwards it here, where AppRunner runs `apply_immediately(query, state(input))`.
+    ApplyToInput {
+        handle: UIHandle,
+        input: String,
+        query: String,
+    },
     /// Request application quit.
     Quit,
     /// Save application state to disk.
