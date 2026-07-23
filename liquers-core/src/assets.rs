@@ -2063,7 +2063,40 @@ impl<E: Environment> AssetRef<E> {
                 lock.status
             ))),
         };
+        // WP-3: for a KEYED asset, persist the Expired status to the store too. Without this,
+        // a subsequent store-load (`try_fast_track`) after this in-memory entry is evicted would
+        // find the store's metadata still saying `Ready`/`Override` and serve the stale bytes
+        // right back, defeating "expired keyed assets are always a cache miss" for any access
+        // that happens after eviction. Collected while still holding the lock; the store write
+        // itself happens after dropping it.
+        let persist_info = if transitioned_to_expired {
+            lock.recipe
+                .key()
+                .ok()
+                .flatten()
+                .map(|key| (key, lock.metadata.clone(), lock.get_envref()))
+        } else {
+            None
+        };
         drop(lock);
+
+        if let Some((key, metadata, envref)) = persist_info {
+            let store = envref.get_async_store();
+            // Only rewrite metadata for a key the store already has. A value that was never
+            // persisted (e.g. `PersistenceStatus::NonSerializable`) has no store entry to
+            // invalidate, and `set_metadata` on a missing key would otherwise create a phantom
+            // entry with empty bytes — breaking "nothing is written to the store" for that case.
+            let already_persisted = store.contains(&key).await.unwrap_or(false);
+            if already_persisted {
+                if let Err(e) = store.set_metadata(&key, &metadata).await {
+                    eprintln!(
+                        "Asset {} mark_expired_status(): failed to persist Expired status to store: {}",
+                        self.id(),
+                        e
+                    );
+                }
+            }
+        }
 
         result.map(|_| transitioned_to_expired)
     }
@@ -6519,6 +6552,94 @@ mod tests {
         sleep(Duration::from_millis(450)).await;
         assert_eq!(asset.status().await, Status::Ready);
     }
+
+    /// WP-3 regression guard: the expiration monitor's heap entry (`TimedAsset`) holds a
+    /// `WeakAssetRef`, not a strong `AssetRef`, so a pending timer never keeps a dropped asset's
+    /// memory alive. `create_asset` deliberately does not register the asset in the manager's own
+    /// map (see its doc comment), so once the local `asset` binding and the tracked-until-later
+    /// heap entry are the only possible strong refs, dropping `asset` must let the captured
+    /// `WeakAssetRef` fail to upgrade shortly after (a short bounded retry loop, since the
+    /// monitor processes the `Track` message asynchronously relative to this test).
+    #[tokio::test]
+    async fn test_untrack_releases_strong_ref() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/untrack_releases_strong_ref.txt").unwrap();
+        let asset = manager.create_asset(key.into());
+        asset.set_value(Value::from("keep")).await.unwrap();
+
+        let weak = asset.downgrade();
+
+        // Track with a deadline far in the future: the monitor's heap holds this entry for the
+        // rest of the test, so if it held a STRONG ref (pre-WP-3 behavior), the asset would stay
+        // alive even after every external strong ref below is dropped.
+        let far_future = chrono::Utc::now() + chrono::Duration::hours(1);
+        manager.track_expiration(&asset, &ExpirationTime::At(far_future));
+        drop(asset);
+
+        for _ in 0..20 {
+            if weak.upgrade().is_none() {
+                return;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        panic!("WeakAssetRef::upgrade() should be None: the monitor must hold no strong reference");
+    }
+
+    /// WP-3 regression guard: earliest-deadline-wins retracking. Tracking a LATER deadline then
+    /// immediately retracking the SAME asset at an EARLIER deadline must fire at the earlier
+    /// time, not the later (superseded) one, and must not re-fire once the later deadline also
+    /// passes. Timing-control note: uses short real (wall-clock) deadlines rather than
+    /// `tokio::time::pause()`/`advance()` because the monitor compares against
+    /// `chrono::Utc::now()`, which paused tokio virtual time does not affect — this matches the
+    /// convention already used by the other monitor timing tests in this module.
+    #[tokio::test]
+    async fn test_retrack_earlier_deadline_fires_once() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/retrack_earlier_deadline.txt").unwrap();
+        let asset = manager.create_asset(key.into());
+        asset.set_value(Value::from("keep")).await.unwrap();
+
+        let later = chrono::Utc::now() + chrono::Duration::milliseconds(600);
+        let sooner = chrono::Utc::now() + chrono::Duration::milliseconds(100);
+        manager.track_expiration(&asset, &ExpirationTime::At(later));
+        manager.track_expiration(&asset, &ExpirationTime::At(sooner));
+
+        // Must not have fired yet (well before the earlier deadline).
+        sleep(Duration::from_millis(40)).await;
+        assert_eq!(
+            asset.status().await,
+            Status::Ready,
+            "must not fire before the earlier deadline"
+        );
+
+        // Must have fired at/near the earlier deadline, not waited for the later one.
+        sleep(Duration::from_millis(160)).await;
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "must fire at the earlier deadline, not the later superseded one"
+        );
+
+        // Confirm it does not re-fire / change status once the (superseded) later deadline
+        // also passes.
+        sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "must not re-fire at the superseded later deadline"
+        );
+    }
+
+    // NOTE: WP-3's planned `test_expire_failure_preserves_processing_asset` (status-aware
+    // eviction leaves an in-flight Processing asset in the manager's map after a failed
+    // expire()) is already covered by the pre-existing `test_failed_expire_inflight_status_is_
+    // not_evicted` test immediately below — no new test added here to avoid duplicating it.
 
     #[tokio::test]
     async fn test_failed_expire_nonrunning_status_evicts_keyed_asset() {
