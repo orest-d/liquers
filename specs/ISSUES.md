@@ -87,3 +87,65 @@ future effort:
 - **Tier 2 browser-native I/O.** The conditional-`Send` groundwork permits a future
   `BrowserEnvironment` with an IndexedDB/`fetch` `AsyncStore` and a JS-closure command backend
   (`!Send` closures — the core already does not preclude them). Not implemented.
+
+### Issue: WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT
+Status: Open
+Priority: P2 (Medium)
+Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/widgets/query_console_element.rs:461`
+
+#### Problem
+In the browser, Enter-key events originate on the `<input>`, and `dispatch_dom_event` looks only at
+the target's closest `[data-lq-action]` ancestor. The current markup puts `data-lq-action` on the
+sibling `<span>` (the "Go" button) instead of the input or one of its ancestors, so pressing Enter in
+the query console returns without sending `ApplyToInput` — only clicking "Go" works.
+
+#### Fix direction
+Put the action on the input (or a shared toolbar ancestor of both the input and the button), or
+special-case the input element on Enter in `dispatch_dom_event`.
+
+#### Verification
+Playwright: type a query, press Enter, assert the result renders (currently only a click works).
+
+### Issue: WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED
+Status: Open
+Priority: P2 (Medium)
+Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/commands.rs:367`
+
+#### Problem
+When the web QueryConsole's "Go" control emits `ApplyToInput`, `lui/submit` only forwards
+`RequestAssetUpdates`; it bypasses `QueryConsoleElement::submit_query`, so `query_text` and history are
+never updated with the live DOM input. After the result triggers a re-render, the input is rebuilt
+from the old `self.query_text`, and volatile/expired refresh paths also resubmit that stale query.
+
+#### Fix direction
+Update the console element's state (or carry the submitted query through the snapshot) before
+requesting asset updates, so `query_text`/history reflect the live input.
+
+#### Verification
+Type a new query, submit, trigger a re-render; assert the input retains the submitted query and a
+volatile refresh uses it (not the previous value).
+
+### Issue: WEBUI-REPAINT-AFTER-SYNC-MUTATION
+Status: Open
+Priority: P2 (Medium)
+Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/web/app.rs:165`
+
+#### Problem
+After the initial paint, the browser loop only re-renders while `AppRunner::needs_repaint()` reports
+active evaluations or monitoring. A web action that mutates `AppState` synchronously and leaves no
+pending asset (e.g. `lui/remove`, `activate`, or a `SubmitQuery` that resolves inline) is processed by
+`runner.run`, but `needs_repaint()` is false immediately afterward, so the DOM stays stale until some
+unrelated async asset update occurs.
+
+#### Fix direction
+Track whether messages/state changed during processing and force a repaint after processing them
+(independent of `needs_repaint()`).
+
+#### Note (async-wasm-refactor interaction)
+With `ImmediateAssetManager`, `SubmitQuery` now resolves **inline** (synchronously, no pending async
+asset), which makes this stale-DOM window more likely to be hit in the browser — so this is worth
+addressing alongside webui runtime work.
+
+#### Verification
+Perform a synchronous mutation (e.g. `lui/remove`) with no pending asset; assert the DOM updates
+without waiting for an unrelated async event.
