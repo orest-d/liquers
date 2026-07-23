@@ -18,7 +18,8 @@ persisted `Status::Expired`). Three gaps remain, and this WP closes them.
 
 ### Asset System
 - `AssetRef::poll_state()`/`get()` currently still return the stale value for `Status::Expired`
-  (`assets.rs:596-636`) when called directly on a held ref, bypassing the manager-level guard.
+  (`assets.rs:619-659` as of the post-`async-wasm-refactor` merge) when called directly on a held
+  ref, bypassing the manager-level guard.
   Needs to become a normal-path cache-miss, mirroring the `Error`/`Cancelled` treatment from WP-2.
 - New recovery-only pair: `AssetRef::poll_state_any_status()` / `get_any_status()` and
   `AssetManager::get_any_status(key)`, for **keyed** assets only — reads the current value
@@ -26,10 +27,10 @@ persisted `Status::Expired`). Three gaps remain, and this WP closes them.
   initial `_also_expired` draft — see "Naming" below.)
 - New user-facing flow: promote a keyed asset's current value (obtained via `get_any_status`) to
   `Status::Override` for the same key via `AssetManager::to_override(key)` — reusing the existing
-  `AssetRef::to_override()` transition (`assets.rs:1868-1878`, already handles `Ready`/`Expired`/
+  `AssetRef::to_override()` transition (`assets.rs:1932` onward, already handles `Ready`/`Expired`/
   etc. `-> Override` in-memory) plus persistence back to the store under that key. **Not**
   Expired-specific: pinning a still-`Ready` value works the same way.
-- `TimedAsset<E>` in the expiration monitor heap (`assets.rs:2399`) holds a strong `AssetRef<E>`;
+- `TimedAsset<E>` in the expiration monitor heap (`assets.rs:2969`) holds a strong `AssetRef<E>`;
   switch to `WeakAssetRef<E>` so the monitor holds no strong references (`upgrade() == None` skips
   silently), per WP-3 item 1.
 - Non-keyed expired assets: confirm/document they have no `get_any_status` path and are evicted
@@ -61,13 +62,17 @@ Questions" below).
 
 ## Resolved Questions
 
-1. **Trait placement (resolved):** `get_any_status()` is an `AssetManager<E>` trait method (not
-   `DefaultAssetManager`-only). `specs/async-wasm-refactor` is adding a second manager
-   implementation, so any new manager-facing capability must be a trait method so both
-   implementations stay compatible. Unlike `get_dependency_asset`/`wait_for_dependency` (which get
-   default bodies because they're expressible purely via other trait methods), `get_any_status`/
-   `to_override` are **required, with no default body** — see `phase2-architecture.md` for why a
-   generic default would force double-serialization, which the user asked to avoid.
+1. **Trait placement (resolved, updated after `async-wasm-refactor` landed on `main`):**
+   `get_any_status()`/`to_override()` are `AssetManager<E>` trait methods (not
+   `DefaultAssetManager`-only). `async-wasm-refactor` has since **landed** (it was "in progress"
+   when this was first written — see the "async-wasm-refactor sync" note below) and added a real
+   second implementor, `ImmediateAssetManager<E>`, plus new shared primitives
+   (`lookup_key_asset`/`get_envref`/`insert_key_asset`) that the refactor itself uses to hoist most
+   manager logic into **shared default trait methods**. Revised conclusion:
+   `get_any_status`/`to_override` are written as **one shared default method each**, using those
+   same primitives — not required-and-duplicated per manager as originally planned when no such
+   primitive existed. See `phase2-architecture.md` for the full rationale and the no-double-
+   serialization algorithm (unchanged).
 2. **Override persistence (resolved):** promotion to `Override` must yield a consistent state but
    avoid double-serialization, reusing the existing `PersistenceStatus` already tracked per asset
    (`assets.rs:134-143`, set via `record_persistence_result`/`persist_with_status_tracking`):
@@ -78,10 +83,25 @@ Questions" below).
    - `NotPersisted` / `None` — treated as a retry opportunity: re-run the normal persist path
      (serialize + store) with the now-`Override` status.
 
+## async-wasm-refactor sync note (added after Phase 4 approval, before execution)
+
+`async-wasm-refactor` merged into `main` while this branch was open (79 commits,
+`liquers-core/src/assets.rs` +1153/-279 lines). Re-audited the current code after merging main in:
+- `ImmediateAssetManager<E>` (wasm/browser manager) now exists and is the second `AssetManager<E>`
+  implementor anticipated above. It has **no monitor/timer at all** — expiration is checked lazily
+  on access (`AssetRef::is_expired()` inside `get`/`get_asset`), so WP-3's weak-ref monitor fix
+  (item 1) stays scoped entirely to `DefaultAssetManager`'s monitor (now
+  `#[cfg(not(target_arch = "wasm32"))]`-gated) — unaffected.
+- `poll_state()`'s `Status::Expired` bug is unchanged in substance (now at `assets.rs:619`, was
+  `:596` — pure line-number drift from unrelated code inserted above it).
+- The new `lookup_key_asset`/`get_envref`/`insert_key_asset` primitives change the trait-method
+  strategy for `get_any_status`/`to_override` from "required, duplicated per manager" to "one
+  shared default method" — see the revised Resolved Question 1 above and `phase2-architecture.md`.
+- All other line-number citations across Phase 2-4 were refreshed against the post-merge file.
+
 ## References
 
 - `specs/FEATURES/EXPIRATION-SAFETY.md`, `specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`
 - `specs/expiration-mechanism/`, `specs/expiration-monitor-assetref/` (prior related designs)
-- `specs/async-wasm-refactor/` (in-progress second `AssetManager` implementation — trait-method
-  constraint above)
+- `specs/async-wasm-refactor/` (landed on `main` during this design's Phase 4 — see sync note above)
 - `plan20260707.md` WP-3

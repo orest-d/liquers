@@ -169,7 +169,8 @@ async fn test_expired_status_poll_state_none() -> Result<(), Box<dyn std::error:
 and PASSES against current code today — it is a pure regression test of already-implemented
 manager-level behavior. Tests 2 and 3 compile today but FAIL until the WP-3 `poll_state` fix
 lands: `poll_state()` currently still groups `Status::Expired` with `Ready`/`Override`/`Volatile`
-and returns `Some(stale_data)` (`assets.rs:620-624`), so `test_assetref_get_does_not_serve_expired_state`'s
+and returns `Some(stale_data)` (`assets.rs:643-647` as of the post-`async-wasm-refactor` merge, was
+`:620-624`), so `test_assetref_get_does_not_serve_expired_state`'s
 `result.is_err()` assertion and `test_expired_status_poll_state_none`'s
 `asset.poll_state().await.is_none()` assertion both currently fail at runtime (confirmed by
 codebase-alignment review) — this is the intended red-before state; each test's own doc comment
@@ -593,7 +594,7 @@ than presented as finished.
   `FailingSetStore` in `assets.rs` fails ALL reads too, so it can't be reused as-is.
 - **Non-serializable values (skip branch):** `test_to_override_skips_store_write_when_nonserializable`
   is **no longer deferred** — un-blocked by the opus final review, which found that
-  `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:791-833`) falls through to
+  `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:797-839`) falls through to
   `Err(ErrorType::SerializationError)` for ANY unrecognized `data_format` string (not just a
   Value-variant/format mismatch), and `Metadata::get_data_format()` (`metadata.rs:1169-1177`)
   derives the format from the key's file extension when unset. A keyed resource with an
@@ -874,7 +875,7 @@ async fn test_to_override_retries_persist_when_not_persisted() {
 }
 
 /// UN-DEFERRED by the Phase 4 opus final review: no test-only `Value` type is needed.
-/// `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:791-833`) falls through to a
+/// `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:797-839`) falls through to a
 /// catch-all `Err(ErrorType::SerializationError)` (`:828-831`) for ANY `data_format` string it
 /// doesn't recognize (`"json"`/`"txt"`/`"html"`/`"rs"`/`"py"`/`"css"`/`"js"`/`"bytes"`/`"b"`/
 /// `"bin"` are the only ones handled) — regardless of the `Value` variant. `Metadata::
