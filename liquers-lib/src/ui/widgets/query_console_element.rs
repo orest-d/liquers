@@ -136,20 +136,31 @@ impl QueryConsoleElement {
             Some(h) => h,
             None => return,
         };
-        let now = std::time::Instant::now();
-        if let Some(last) = self.last_volatile_refresh_at {
-            if now.duration_since(last) < std::time::Duration::from_millis(400) {
-                return;
+        // Debounce is `std::time::Instant`-based, which panics on wasm32-unknown-unknown; the
+        // delayed refresh uses `tokio::time::sleep`, which needs a native time driver. Both are
+        // native-only niceties — on wasm the refresh is requested directly (no debounce/delay).
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = std::time::Instant::now();
+            if let Some(last) = self.last_volatile_refresh_at {
+                if now.duration_since(last) < std::time::Duration::from_millis(400) {
+                    return;
+                }
             }
-        }
-        self.last_volatile_refresh_at = Some(now);
+            self.last_volatile_refresh_at = Some(now);
 
-        let query = self.query_text.clone();
-        let ctx_clone = ctx.clone();
-        crate::ui::spawn_ui_task(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            ctx_clone.send_message(AppMessage::RequestAssetUpdates { handle, query });
-        });
+            let query = self.query_text.clone();
+            let ctx_clone = ctx.clone();
+            crate::ui::spawn_ui_task(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                ctx_clone.send_message(AppMessage::RequestAssetUpdates { handle, query });
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let query = self.query_text.clone();
+            ctx.send_message(AppMessage::RequestAssetUpdates { handle, query });
+        }
     }
 
     /// Navigate history backward. Returns true if position changed.
