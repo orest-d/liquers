@@ -310,6 +310,25 @@ pub struct AssetData<E: Environment> {
     _marker: std::marker::PhantomData<E>,
 }
 
+/// Deserialize a stored value from its binary representation, given its recorded type
+/// identifier and data format. Shared between `AssetData::try_fast_track` and
+/// `AssetManager::get_any_status`'s store-fallback path, so the binary/type-identifier handling
+/// (including the "bytes"-like identifiers that skip real deserialization) stays in one place.
+fn deserialize_stored_value<E: Environment>(
+    binary: &[u8],
+    type_identifier: &str,
+    data_format: &str,
+) -> Result<E::Value, Error> {
+    if matches!(
+        type_identifier.trim().to_ascii_lowercase().as_str(),
+        "bytes" | "binary" | "bin" | "b"
+    ) {
+        Ok(E::Value::from_bytes(binary.to_vec()))
+    } else {
+        E::Value::deserialize_from_bytes(binary, type_identifier, data_format)
+    }
+}
+
 impl<E: Environment> AssetData<E> {
     /// Constructs and initializes a new AssetData
     ///
@@ -455,16 +474,6 @@ impl<E: Environment> AssetData<E> {
         self.status = Status::None;
     }
 
-    /// Helper method to check whether the type should be treated as a binary value.
-    /// This is used when deserializing the value from binary data.
-    /// If true, deserialization is not necessary.
-    fn is_binary_type_identifier(type_identifier: &str) -> bool {
-        matches!(
-            type_identifier.trim().to_ascii_lowercase().as_str(),
-            "bytes" | "binary" | "bin" | "b"
-        )
-    }
-
     /// This tries to get an asset value by quickly evaluation strategies.
     /// For example, if the asset is a resource an attempt is made to deserialize it.
     /// These strategies are tried before the asset is queued for evaluation.
@@ -508,21 +517,17 @@ impl<E: Environment> AssetData<E> {
 
                 let type_identifier = metadata.type_identifier()?;
                 let data_format = metadata.get_data_format();
-                let value = if Self::is_binary_type_identifier(&type_identifier) {
-                    E::Value::from_bytes(binary.clone())
-                } else {
-                    match E::Value::deserialize_from_bytes(&binary, &type_identifier, &data_format)
-                    {
-                        Ok(value) => value,
-                        Err(e) => {
-                            eprintln!(
-                                "Asset {} fast-track failed to deserialize stored value (treated as corrupted): {}",
-                                self.id(),
-                                e
-                            );
-                            self.clear_fast_track_payload();
-                            return Ok(false);
-                        }
+                let value = match deserialize_stored_value::<E>(&binary, &type_identifier, &data_format)
+                {
+                    Ok(value) => value,
+                    Err(e) => {
+                        eprintln!(
+                            "Asset {} fast-track failed to deserialize stored value (treated as corrupted): {}",
+                            self.id(),
+                            e
+                        );
+                        self.clear_fast_track_payload();
+                        return Ok(false);
                     }
                 };
 
@@ -640,11 +645,10 @@ impl<E: Environment> AssetData<E> {
                 ))
             }
             Status::Storing => None,
-            Status::Ready
-            | Status::Expired
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
+            // Expired is a cache miss for normal reads — see `poll_state_any_status` for the
+            // explicit recovery read that still returns this data.
+            Status::Expired => None,
+            Status::Ready | Status::Source | Status::Override | Status::Volatile => {
                 if let Some(data) = &self.data {
                     let mut metadata = self.metadata.clone();
                     metadata.with_type_identifier(data.identifier().to_string());
@@ -655,6 +659,25 @@ impl<E: Environment> AssetData<E> {
                     None
                 }
             }
+        }
+    }
+
+    /// Like `poll_state()`, but also returns data for `Status::Expired` — the explicit
+    /// "I know it's expired, give it to me anyway" recovery read. Not gated to keyed assets;
+    /// the keyed-only restriction lives in the manager-level `AssetManager::get_any_status`.
+    pub fn poll_state_any_status(&self) -> Option<State<E::Value>> {
+        match self.status {
+            Status::Expired => {
+                if let Some(data) = &self.data {
+                    let mut metadata = self.metadata.clone();
+                    metadata.with_type_identifier(data.identifier().to_string());
+                    metadata.with_type_name(data.type_name().to_string());
+                    Some(State::from_parts(data.clone(), Arc::new(metadata)))
+                } else {
+                    None
+                }
+            }
+            _ => self.poll_state(),
         }
     }
 
@@ -2040,7 +2063,40 @@ impl<E: Environment> AssetRef<E> {
                 lock.status
             ))),
         };
+        // WP-3: for a KEYED asset, persist the Expired status to the store too. Without this,
+        // a subsequent store-load (`try_fast_track`) after this in-memory entry is evicted would
+        // find the store's metadata still saying `Ready`/`Override` and serve the stale bytes
+        // right back, defeating "expired keyed assets are always a cache miss" for any access
+        // that happens after eviction. Collected while still holding the lock; the store write
+        // itself happens after dropping it.
+        let persist_info = if transitioned_to_expired {
+            lock.recipe
+                .key()
+                .ok()
+                .flatten()
+                .map(|key| (key, lock.metadata.clone(), lock.get_envref()))
+        } else {
+            None
+        };
         drop(lock);
+
+        if let Some((key, metadata, envref)) = persist_info {
+            let store = envref.get_async_store();
+            // Only rewrite metadata for a key the store already has. A value that was never
+            // persisted (e.g. `PersistenceStatus::NonSerializable`) has no store entry to
+            // invalidate, and `set_metadata` on a missing key would otherwise create a phantom
+            // entry with empty bytes — breaking "nothing is written to the store" for that case.
+            let already_persisted = store.contains(&key).await.unwrap_or(false);
+            if already_persisted {
+                if let Err(e) = store.set_metadata(&key, &metadata).await {
+                    eprintln!(
+                        "Asset {} mark_expired_status(): failed to persist Expired status to store: {}",
+                        self.id(),
+                        e
+                    );
+                }
+            }
+        }
 
         result.map(|_| transitioned_to_expired)
     }
@@ -2174,6 +2230,20 @@ impl<E: Environment> AssetRef<E> {
     pub async fn poll_state(&self) -> Option<State<E::Value>> {
         let lock = self.data.read().await;
         lock.poll_state()
+    }
+
+    /// Like `poll_state()`, but also returns data for `Status::Expired` — the explicit recovery
+    /// read. See `AssetData::poll_state_any_status` for the underlying construction.
+    pub async fn poll_state_any_status(&self) -> Option<State<E::Value>> {
+        let lock = self.data.read().await;
+        lock.poll_state_any_status()
+    }
+
+    /// Peek-only, no waiting: unlike `get()`, never blocks on notifications — Expired (and any
+    /// other data-bearing status) returns its value immediately; non-terminal or data-less
+    /// statuses return `None` immediately.
+    pub async fn get_any_status(&self) -> Option<State<E::Value>> {
+        self.poll_state_any_status().await
     }
 
     /// Non-blocking version of poll state
@@ -2960,6 +3030,68 @@ pub trait AssetManager<E: Environment>:
         }
         Ok(())
     }
+
+    /// Recovery-only read for a KEYED asset: returns its state regardless of status — including
+    /// `Status::Expired` — without submitting evaluation, without touching the dependency
+    /// manager, and without registering the entry back into the manager's normal in-memory
+    /// cache. `Ok(None)` if the key has no data-bearing state (in memory or in the store).
+    async fn get_any_status(&self, key: &Key) -> Result<Option<State<E::Value>>, Error> {
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            return Ok(asset_ref.get_any_status().await);
+        }
+        let store = self.get_envref().get_async_store();
+        if !store.contains(key).await? {
+            return Ok(None);
+        }
+        let (binary, metadata) = store.get(key).await?;
+        if !metadata.status().has_data() {
+            return Ok(None);
+        }
+        let type_identifier = metadata.type_identifier()?;
+        let data_format = metadata.get_data_format();
+        let value = deserialize_stored_value::<E>(&binary, &type_identifier, &data_format)?;
+        Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
+    }
+
+    /// Pin a KEYED asset's current value (whatever status it is in — `Ready`, `Expired`, etc.) as
+    /// `Status::Override`, preserving the value without recomputation. Avoids double-
+    /// serialization: if the value is already correctly persisted, only the metadata's status
+    /// field is rewritten; if it was never serializable, nothing is written to the store; if the
+    /// original save failed or was never attempted, a fresh persist is retried. Errors
+    /// (`Error::key_not_found`) if there is no data-bearing state for `key` to promote.
+    async fn to_override(&self, key: &Key) -> Result<(), Error> {
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            asset_ref.to_override().await?;
+            match asset_ref.persistence_status().await {
+                PersistenceStatus::Persisted => {
+                    let metadata = asset_ref.get_metadata().await?;
+                    self.get_envref()
+                        .get_async_store()
+                        .set_metadata(key, &metadata)
+                        .await?;
+                }
+                PersistenceStatus::NonSerializable => {}
+                PersistenceStatus::NotPersisted | PersistenceStatus::None => {
+                    asset_ref.persist_with_status_tracking(false, false).await;
+                }
+            }
+            // Idempotent: ensures the now-Override entry is reachable even if a concurrent
+            // eviction (lazy expiry check, monitor) raced it out of the map in between.
+            self.insert_key_asset(key, asset_ref).await;
+            return Ok(());
+        }
+        let store = self.get_envref().get_async_store();
+        if !store.contains(key).await? {
+            return Err(Error::key_not_found(key));
+        }
+        let (_binary, mut metadata) = store.get(key).await?;
+        if !metadata.status().has_data() {
+            return Err(Error::key_not_found(key));
+        }
+        metadata.set_status(Status::Override)?;
+        store.set_metadata(key, &metadata).await?;
+        Ok(())
+    }
 }
 
 /// Heap element for the expiration monitor priority queue.
@@ -2969,7 +3101,7 @@ pub trait AssetManager<E: Environment>:
 struct TimedAsset<E: Environment> {
     expiration: chrono::DateTime<chrono::Utc>,
     asset_id: u64,
-    asset_ref: AssetRef<E>,
+    asset_ref: WeakAssetRef<E>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3109,7 +3241,11 @@ impl<E: Environment> DefaultAssetManager<E> {
                                     };
                                     if should_update {
                                         active_deadline_by_id.insert(asset_id, dt);
-                                        heap.push(Reverse(TimedAsset { expiration: dt, asset_id, asset_ref }));
+                                        heap.push(Reverse(TimedAsset {
+                                            expiration: dt,
+                                            asset_id,
+                                            asset_ref: asset_ref.downgrade(),
+                                        }));
                                     }
                                 }
                             }
@@ -3139,8 +3275,12 @@ impl<E: Environment> DefaultAssetManager<E> {
                                 }
                                 active_deadline_by_id.remove(&timed.asset_id);
 
-                                let asset_ref = timed.asset_ref;
                                 let asset_id = timed.asset_id;
+                                let Some(asset_ref) = timed.asset_ref.upgrade() else {
+                                    // Asset already dropped elsewhere (no strong refs remain) —
+                                    // nothing to expire or evict.
+                                    continue;
+                                };
 
                                 // 1. Expire the asset and decide whether map-eviction is safe.
                                 //    In-flight states are preserved on expire failure.
@@ -3217,7 +3357,7 @@ impl<E: Environment> DefaultAssetManager<E> {
                                 heap.push(Reverse(TimedAsset {
                                     expiration: dt,
                                     asset_id,
-                                    asset_ref,
+                                    asset_ref: asset_ref.downgrade(),
                                 }));
                             }
                         }
@@ -5998,8 +6138,15 @@ mod tests {
             Status::Expired,
             "an asset that used a stale dependency must be labeled Expired"
         );
-        // The produced value is still present (used, not discarded).
-        let state = asset.poll_state().await;
+        // Normal poll_state() now treats Expired as a cache miss (WP-3) — the value is not lost,
+        // just no longer served through the normal read path.
+        assert!(
+            asset.poll_state().await.is_none(),
+            "poll_state() must treat Expired as a cache miss"
+        );
+        // The produced value is still present (used, not discarded) — retrievable via the
+        // explicit recovery read.
+        let state = asset.poll_state_any_status().await;
         assert!(state.is_some(), "the produced value must be retained");
         assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
@@ -6405,6 +6552,94 @@ mod tests {
         sleep(Duration::from_millis(450)).await;
         assert_eq!(asset.status().await, Status::Ready);
     }
+
+    /// WP-3 regression guard: the expiration monitor's heap entry (`TimedAsset`) holds a
+    /// `WeakAssetRef`, not a strong `AssetRef`, so a pending timer never keeps a dropped asset's
+    /// memory alive. `create_asset` deliberately does not register the asset in the manager's own
+    /// map (see its doc comment), so once the local `asset` binding and the tracked-until-later
+    /// heap entry are the only possible strong refs, dropping `asset` must let the captured
+    /// `WeakAssetRef` fail to upgrade shortly after (a short bounded retry loop, since the
+    /// monitor processes the `Track` message asynchronously relative to this test).
+    #[tokio::test]
+    async fn test_untrack_releases_strong_ref() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/untrack_releases_strong_ref.txt").unwrap();
+        let asset = manager.create_asset(key.into());
+        asset.set_value(Value::from("keep")).await.unwrap();
+
+        let weak = asset.downgrade();
+
+        // Track with a deadline far in the future: the monitor's heap holds this entry for the
+        // rest of the test, so if it held a STRONG ref (pre-WP-3 behavior), the asset would stay
+        // alive even after every external strong ref below is dropped.
+        let far_future = chrono::Utc::now() + chrono::Duration::hours(1);
+        manager.track_expiration(&asset, &ExpirationTime::At(far_future));
+        drop(asset);
+
+        for _ in 0..20 {
+            if weak.upgrade().is_none() {
+                return;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        panic!("WeakAssetRef::upgrade() should be None: the monitor must hold no strong reference");
+    }
+
+    /// WP-3 regression guard: earliest-deadline-wins retracking. Tracking a LATER deadline then
+    /// immediately retracking the SAME asset at an EARLIER deadline must fire at the earlier
+    /// time, not the later (superseded) one, and must not re-fire once the later deadline also
+    /// passes. Timing-control note: uses short real (wall-clock) deadlines rather than
+    /// `tokio::time::pause()`/`advance()` because the monitor compares against
+    /// `chrono::Utc::now()`, which paused tokio virtual time does not affect — this matches the
+    /// convention already used by the other monitor timing tests in this module.
+    #[tokio::test]
+    async fn test_retrack_earlier_deadline_fires_once() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+
+        let key = parse_key("test/retrack_earlier_deadline.txt").unwrap();
+        let asset = manager.create_asset(key.into());
+        asset.set_value(Value::from("keep")).await.unwrap();
+
+        let later = chrono::Utc::now() + chrono::Duration::milliseconds(600);
+        let sooner = chrono::Utc::now() + chrono::Duration::milliseconds(100);
+        manager.track_expiration(&asset, &ExpirationTime::At(later));
+        manager.track_expiration(&asset, &ExpirationTime::At(sooner));
+
+        // Must not have fired yet (well before the earlier deadline).
+        sleep(Duration::from_millis(40)).await;
+        assert_eq!(
+            asset.status().await,
+            Status::Ready,
+            "must not fire before the earlier deadline"
+        );
+
+        // Must have fired at/near the earlier deadline, not waited for the later one.
+        sleep(Duration::from_millis(160)).await;
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "must fire at the earlier deadline, not the later superseded one"
+        );
+
+        // Confirm it does not re-fire / change status once the (superseded) later deadline
+        // also passes.
+        sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            asset.status().await,
+            Status::Expired,
+            "must not re-fire at the superseded later deadline"
+        );
+    }
+
+    // NOTE: WP-3's planned `test_expire_failure_preserves_processing_asset` (status-aware
+    // eviction leaves an in-flight Processing asset in the manager's map after a failed
+    // expire()) is already covered by the pre-existing `test_failed_expire_inflight_status_is_
+    // not_evicted` test immediately below — no new test added here to avoid duplicating it.
 
     #[tokio::test]
     async fn test_failed_expire_nonrunning_status_evicts_keyed_asset() {

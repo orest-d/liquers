@@ -1,7 +1,13 @@
 # Implementation Plan: EXPIRATION-SAFETY
 
-Status: Draft  
+Status: Closed (superseded)
 Related feature: `specs/FEATURES/EXPIRATION-SAFETY.md`
+
+This original 6-phase plan is superseded by the `liquers-designer` 4-phase design at
+`specs/expiration-safety/`. Its Phases 1–5 (duplicate-scheduling removal, monitor state
+normalization, order-robust status-aware eviction, replacement hygiene, read-path stale-expired
+guards) were already implemented before WP-3; WP-3 completed the remaining safety work. See
+`specs/FEATURES/EXPIRATION-SAFETY.md` (now Closed) for the final summary.
 
 ## Objective
 Implement expiration handling that is deterministic, order-robust, and safe under replacement/race conditions while preserving current asset lifecycle semantics.
