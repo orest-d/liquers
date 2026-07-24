@@ -1,6 +1,19 @@
 # EXPIRATION-SAFETY
 
-Status: Draft
+Status: Closed
+
+Implemented as WP-3 of `plan20260707.md` via the `liquers-designer` 4-phase design in
+`specs/expiration-safety/` (Phases 1–4). The original monitor-race and stale-scheduling work in
+this doc (earliest-deadline-wins tracking, status-aware eviction, replacement-safe untracking,
+read-path stale-expired guards) was already implemented before WP-3 began; WP-3 closed the
+remaining gaps: the expiration monitor now holds `WeakAssetRef` (no strong-ref retention),
+`AssetData::poll_state()` treats `Status::Expired` as a cache miss, a keyed asset can be recovered
+without recomputation via the shared-default `AssetManager::get_any_status`/`to_override` methods
+(inherited by both `DefaultAssetManager` and `ImmediateAssetManager`), and — a gap the design
+missed, caught during implementation — `AssetRef::expire()` now rewrites the *persisted* store
+metadata to `Expired`, so an evicted keyed asset can no longer fast-track stale bytes back in.
+Verified green: 326 core unit tests + 26/27 WP-3 integration tests (1 `#[ignore]`'d pending a
+store double) + both managers via `manager_parametric`.
 
 ## Summary
 `EXPIRATION-SAFETY` addresses timing and consistency issues in asset expiration handling.
