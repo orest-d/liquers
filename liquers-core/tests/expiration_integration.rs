@@ -925,14 +925,104 @@ async fn test_to_override_metadata_only_when_persisted() -> Result<(), Box<dyn s
     Ok(())
 }
 
-/// Deferred: needs a store double that fails `set()` for the target key only, while still
-/// serving `recipes.yaml` reads (the `FailingSetStore` pattern used elsewhere in this crate
-/// fails ALL reads too, so it can't be reused as-is). See
-/// specs/expiration-safety/phase4-implementation.md Step 5 for the exact shape once unblocked.
+/// A self-contained store double: serves a fixed `recipes.yaml` on `get` (so a recipe-backed
+/// resource still resolves) and fails every `set` (counting attempts). No inner store to wrap —
+/// it mocks the one read the recipe provider needs and rejects all writes, so a keyed asset's
+/// original persist fails, leaving it `PersistenceStatus::NotPersisted`. `set`'s error
+/// (`KeyWriteError`) is classified as `NotPersisted` (not `NonSerializable`), which is exactly the
+/// branch `to_override` must retry.
+#[derive(Clone)]
+struct RecipesOnlyFailingSetStore {
+    recipes_yaml: Arc<Vec<u8>>,
+    set_attempts: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl AsyncStore for RecipesOnlyFailingSetStore {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        if key.encode() == "recipes.yaml" {
+            Ok(((*self.recipes_yaml).clone(), Metadata::new()))
+        } else {
+            Err(Error::key_not_found(key))
+        }
+    }
+
+    async fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        self.set_attempts.fetch_add(1, Ordering::SeqCst);
+        Err(Error::key_write_error(
+            key,
+            "RecipesOnlyFailingSetStore",
+            "intentional set failure",
+        ))
+    }
+
+    async fn set_metadata(&self, _key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+/// `PersistenceStatus::NotPersisted` branch of `to_override`: when the original save failed
+/// (transient store error), promoting to `Override` must RETRY the persist — at least one more
+/// `set` attempt — and must not hard-fail even if that retry also fails; the in-memory promotion
+/// still succeeds.
 #[tokio::test]
-#[ignore = "needs a store double that fails set() for the target key only, see doc comment"]
-async fn test_to_override_retries_persist_when_not_persisted() {
-    // Intentionally left as a placeholder — see comment above.
+async fn test_to_override_retries_persist_when_not_persisted(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    fn wp3_retry() -> Result<Value, Error> {
+        Ok(Value::from_string("1".to_string()))
+    }
+
+    let mut env = CommandEnvironment::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn wp3_retry() -> result version: 1)?;
+
+    let recipe = Recipe::new(
+        "wp3_retry/wp3_retry.txt".to_string(),
+        "Retry recipe".to_string(),
+        "Produces wp3_retry.txt".to_string(),
+    )?;
+    let mut recipe_list = RecipeList::new();
+    recipe_list.add_recipe(recipe);
+    let yaml_content = serde_yaml::to_string(&recipe_list)?;
+
+    let store = RecipesOnlyFailingSetStore {
+        recipes_yaml: Arc::new(yaml_content.into_bytes()),
+        set_attempts: Arc::new(AtomicUsize::new(0)),
+    };
+    let set_attempts = store.set_attempts.clone();
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+    let key = parse_key("wp3_retry.txt")?;
+    let manager = envref.get_asset_manager();
+
+    let asset = manager.get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "1");
+    assert_eq!(
+        asset.persistence_status().await,
+        PersistenceStatus::NotPersisted,
+        "the failing store::set must leave the asset NotPersisted"
+    );
+    let attempts_after_eval = set_attempts.load(Ordering::SeqCst);
+    assert!(
+        attempts_after_eval >= 1,
+        "evaluation should have attempted at least one persist"
+    );
+
+    asset.expire().await?;
+    manager.to_override(&key).await?;
+
+    assert!(
+        set_attempts.load(Ordering::SeqCst) > attempts_after_eval,
+        "to_override must retry the persist for a NotPersisted asset"
+    );
+    assert_eq!(
+        asset.status().await,
+        Status::Override,
+        "in-memory promotion succeeds even though the retried persist also failed"
+    );
+    Ok(())
 }
 
 /// Un-deferred by the Phase 4 opus final review: `Value::as_bytes(data_format)` falls through to

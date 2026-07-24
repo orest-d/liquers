@@ -33,9 +33,10 @@ heavily (+1153/-279 lines). Re-audited all four phase documents against the merg
   including one fix for a gap the four-phase design missed: `AssetRef::expire()` now rewrites the
   *persisted* store metadata to `Expired`, not just the in-memory status (otherwise an evicted
   keyed asset could fast-track stale bytes back in).
-- Verification: `liquers-core` — 326 unit tests, 26/27 WP-3 integration tests (1 `#[ignore]`'d
-  pending a per-key-failing store double for the `NotPersisted` retry branch), 6 `manager_parametric`
-  (both `DefaultAssetManager` and `ImmediateAssetManager`). `cargo check -p liquers-py` clean.
+- Verification: `liquers-core` — 326 unit tests, **27/27 WP-3 integration tests (0 ignored)**,
+  6 `manager_parametric` (both `DefaultAssetManager` and `ImmediateAssetManager`). `cargo check -p
+  liquers-py` clean. (The `NotPersisted` retry-branch test was un-ignored with a self-contained
+  `RecipesOnlyFailingSetStore` mock — serves `recipes.yaml`, fails all `set`.)
   Full-workspace run initially hit an `ld` SIGBUS linking large egui UI targets at 99% disk; after
   freeing disk, the affected `liquers-lib` targets (`query_console_integration`,
   `ui_shortcuts_integration`) link and pass (6 + 7 tests) — the failure was environmental, not a
@@ -43,10 +44,10 @@ heavily (+1153/-279 lines). Re-audited all four phase documents against the merg
 - `specs/FEATURES/EXPIRATION-SAFETY.md` and its original implementation plan marked **Closed**
   (Phase 4 Step 7).
 
-**Remaining (non-blocking):** one `#[ignore]`'d test (`test_to_override_retries_persist_when_not_persisted`)
-awaiting a store double that fails `set()` for a single key while still serving `recipes.yaml`
-reads; and the deferred question of whether to expose `get_any_status`/`to_override` as a
-command/axum-route surface (currently a future follow-up, out of this WP's scope).
+**Remaining (non-blocking):** only the deferred question of whether to expose
+`get_any_status`/`to_override` as a command/axum-route surface (currently a future follow-up, out
+of this WP's scope). The previously-`#[ignore]`'d retry-branch test is now implemented and
+passing — no tests are skipped.
 
 ## Links
 

@@ -12,8 +12,8 @@ without recomputation via the shared-default `AssetManager::get_any_status`/`to_
 (inherited by both `DefaultAssetManager` and `ImmediateAssetManager`), and — a gap the design
 missed, caught during implementation — `AssetRef::expire()` now rewrites the *persisted* store
 metadata to `Expired`, so an evicted keyed asset can no longer fast-track stale bytes back in.
-Verified green: 326 core unit tests + 26/27 WP-3 integration tests (1 `#[ignore]`'d pending a
-store double) + both managers via `manager_parametric`.
+Verified green: 326 core unit tests + 27/27 WP-3 integration tests (0 ignored) + both managers via
+`manager_parametric`.
 
 ## Summary
 `EXPIRATION-SAFETY` addresses timing and consistency issues in asset expiration handling.

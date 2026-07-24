@@ -32,7 +32,7 @@ drafts invented several APIs that do not exist (`asset.state()`, `get_current_va
 | 12 | Unit | `test_retrack_earlier_deadline_fires_once` | Earliest-deadline-wins regression | Haiku 4 |
 | 13 | Unit | `test_expire_failure_preserves_processing_asset` | Status-aware eviction regression (gate-based) | Haiku 4 |
 | 14 | Integration | `test_to_override_metadata_only_when_persisted` | `PersistenceStatus::Persisted` branch, verified via call-counting store double (strengthened in review) | Haiku 5 + sonnet fixer |
-| 15 | Integration (deferred) | `test_to_override_retries_persist_when_not_persisted` | `PersistenceStatus::NotPersisted`/`None` retry branch | sonnet fixer (added in review — was missing) |
+| 15 | Integration | `test_to_override_retries_persist_when_not_persisted` | `PersistenceStatus::NotPersisted`/`None` retry branch — un-deferred using a self-contained `RecipesOnlyFailingSetStore` (serves `recipes.yaml` on `get`, fails all `set`) | sonnet fixer + implementation |
 | 16 | Integration | `test_to_override_skips_store_write_when_nonserializable` | `PersistenceStatus::NonSerializable` branch (un-deferred by opus final review — no special `Value` type needed, an unrecognized key extension suffices) | Haiku 5 + opus fixer |
 | 17 | Integration | `test_get_any_status_has_no_side_effects_on_normal_get` | `get_any_status` never contaminates the normal cache path | Haiku 5 |
 
@@ -587,11 +587,15 @@ than presented as finished.
   `status` field is rewritten. `test_to_override_metadata_only_when_persisted` verifies this with
   a call-counting store double (`set` count unchanged, `set_metadata` count +1), not just the end
   value, per Phase 2-conformity review feedback.
-- **Retry branch (NotPersisted/None):** `test_to_override_retries_persist_when_not_persisted` is
-  **deferred** (added during review to close a gap the Phase 2-conformity reviewer found — no test
-  existed for this branch at all) — needs a store double that fails `set()` for the target key
-  only while still serving the recipe provider's `recipes.yaml` reads; the existing
-  `FailingSetStore` in `assets.rs` fails ALL reads too, so it can't be reused as-is.
+- **Retry branch (NotPersisted/None):** `test_to_override_retries_persist_when_not_persisted` —
+  no longer deferred. Rather than wrapping a real store, it uses a **self-contained**
+  `RecipesOnlyFailingSetStore`: `get` returns a fixed `recipes.yaml` (the one read the recipe
+  provider needs) and every `set` fails (counting attempts). The failing `set`'s `KeyWriteError`
+  classifies as `NotPersisted`, so the keyed asset lands in exactly that branch; the test then
+  asserts `to_override` makes at least one further `set` attempt (the retry) and still promotes the
+  in-memory asset to `Override` despite the retry also failing. (This is simpler than the
+  wrap-and-fail-one-key approach originally sketched — the mock just answers the one `get` it needs
+  to, per the store's key.)
 - **Non-serializable values (skip branch):** `test_to_override_skips_store_write_when_nonserializable`
   is **no longer deferred** — un-blocked by the opus final review, which found that
   `Value::as_bytes(data_format)` (`liquers-core/src/value.rs:797-839`) falls through to
