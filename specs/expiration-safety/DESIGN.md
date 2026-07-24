@@ -44,10 +44,10 @@ heavily (+1153/-279 lines). Re-audited all four phase documents against the merg
 - `specs/FEATURES/EXPIRATION-SAFETY.md` and its original implementation plan marked **Closed**
   (Phase 4 Step 7).
 
-**Remaining (non-blocking):** only the deferred question of whether to expose
-`get_any_status`/`to_override` as a command/axum-route surface (currently a future follow-up, out
-of this WP's scope). The previously-`#[ignore]`'d retry-branch test is now implemented and
-passing — no tests are skipped.
+**Remaining (non-blocking):** exposing `get_any_status`/`to_override` on the web API is confirmed
+wanted and is now tracked as `EXPIRATION-RECOVERY-WEB-API` in `specs/ISSUES.md` (a follow-up in
+`liquers-axum`, out of this core WP's scope). The previously-`#[ignore]`'d retry-branch test is now
+implemented and passing — no tests are skipped.
 
 ## Links
 
