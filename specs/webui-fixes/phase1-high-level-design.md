@@ -162,11 +162,12 @@ Three capabilities are missing, all backend-neutral:
    so the element's own state stays true in any backend. (In immediate mode the widget does this
    itself while drawing; the same field ends up written either way.)
 2. **A declared interaction surface.** An element must be able to say which of its state is
-   user-editable: a stable field name, its current value, and what the field's default action is.
+   user-editable: a stable *name*, its current value, and what the field's default action is.
    A retained backend uses that declaration to emit stable ids, route values back, and know what
    Enter means *in that field*; an immediate-mode backend uses the same declaration as the thing it
    draws. Without it, ids like `qc-input-{handle}` are private conventions between one widget and
-   one driver.
+   one driver. What the name is *bound to* is a separate layer — see "Declared fields and
+   value-accessor" below.
 3. **Invalidation.** A backend must learn that the model changed, ideally *which part* changed.
    Immediate mode may ignore this (it redraws anyway) or use it to skip work; retained mode cannot
    function without it.
@@ -176,7 +177,7 @@ it), `AppState` stays the non-generic tree, `AssetManager` and the asset lifecyc
 `liquers-core` is untouched, and the egui backend keeps behaving exactly as it does today — it may
 adopt the declared-field path later, but it is not required to.
 
-## Decisions from the Phase 1 review
+## Decisions from the Phase 1 review — round 1
 
 1. **Clean design over point fixes.** The three capabilities above are the deliverable; W1–W3 are
    its acceptance criteria, not its scope.
@@ -248,6 +249,110 @@ Restoring focus/caret is well-defined precisely because of capability 2: the fie
 name and the model holds its value, so "focus field *f* of element *e*, caret at offset *n*" is
 expressible. No diff/patch is required for any of this — decision 6 holds.
 
+## Decisions from the Phase 1 review — round 2
+
+### `update()` is the inbound path; the open choice is the vocabulary
+
+Nothing is wrong with `update(&mut self, &UpdateMessage, &UIContext) -> UpdateResponse` as the
+inbound entry point: it takes `&mut self`, it gets a context it can send messages through, and it
+returns a repaint verdict. The earlier framing was misleading — the missing piece is not a method
+but a **shared vocabulary**: every existing variant means "the engine has news for you", and none
+means "the user did something to you".
+
+Three ways to add it:
+
+| Option | Cost | Consequence |
+|---|---|---|
+| `UpdateMessage::Custom(Box<dyn Any + Send>)` — exists today | none | Each backend invents its own payload type and every widget downcasts; interaction becomes backend-private, which is exactly the divergence decision 2 wants to avoid |
+| New typed variant(s) | breaks the exhaustive `match` in ~5 elements | One vocabulary every backend speaks; the compile errors are the project's intended "new variant, decide what it means" signal |
+| New trait methods with defaults | no breakage | A second mutation path alongside `update`, and nothing forces a widget to think about it |
+
+**Decision: typed variants for the shared vocabulary, `Custom` kept as the escape hatch** for
+genuinely backend-specific extras.
+
+### Event interest: declarative first, imperative subscription as an opt-in extension
+
+A subscription mechanism *is* needed, and for a concrete reason: the web driver installs delegated
+listeners at the root, so it must know which event *types* to listen for, and some events do not
+bubble (`focus`/`blur` need `focusin`/`focusout`; `scroll` does not bubble at all). Two flavours:
+
+- **(A) Declarative, carried by the rendered markup** — the element's own markup marks the nodes
+  that participate and names the fields, extending today's `data-lq-action` convention. The driver
+  listens for a fixed, extensible set of types and routes by attribute. Nothing to register,
+  nothing to re-register after a re-render, and it works for server-rendered HTML because the
+  markup *is* the declaration.
+- **(B) Imperative, per widget, at initialisation** — the widget registers interest against live
+  DOM nodes (JS/`addEventListener`) as suggested in review. This buys things attributes cannot
+  express: canvas interaction, drag-and-drop, third-party JS components, `scroll`. It costs a
+  lifecycle: the subscription is invisible to SSR and must be re-established every time the node is
+  replaced by a re-render.
+
+**Decision: (A) is the normal path; (B) is a documented, opt-in extension point** (a per-element
+mount/unmount hook in the web backend) that no part of W1–W3/W5 depends on. In backend-neutral
+terms the element declares interest as an abstract list — activate, field change, field submit,
+focus — and each backend maps it: web to delegated listeners plus attributes, egui to its inline
+input checks, ratatui to its key routing.
+
+### Field values reach the model on dispatch, with per-keystroke kept open
+
+**Decision (review answer 2):** on-dispatch is the primary behaviour — when an action fires, the
+live values of the declared fields travel with it. Per-keystroke syncing stays possible as a
+per-field opt-in (a "live" flag on the declaration that makes the backend also emit a value-only
+message as the user types), so it is a tweak rather than a redesign. The known cost of
+on-dispatch-only is named in the W2 flow: an asset-driven re-render during typing still discards a
+half-typed value, until the field opts into live syncing or the re-render restores it.
+
+### Two message shapes, one action model
+
+**Decision (review answer 3):** both shapes are needed and they are the same mechanism seen twice.
+
+- **Value only** — the user changed a field; the element receives it and may simply visualise it.
+  No action runs. (This is the "listen to field values" case.)
+- **Field values + action** — the action declares which fields it collects; the backend gathers
+  their live values and delivers them together with the action. Today's `ApplyToInput` is this
+  shape, hardcoded to one field.
+
+The analogy to keep honest is the HTML/JS one: a `UiAction` in an attribute plays the role of an
+event handler, and an action that declares its inputs plays the role of a submit handler that
+receives the form's values. Bundling values with the action also removes the ordering hazard — the
+value cannot arrive after the action that was supposed to use it.
+
+### Declared fields and `value-accessor`
+
+"Declared field" means: *this element has a piece of user-editable state called `query`; its
+current value is X; its default action is Y.* It is a **naming and routing** concept, needed
+because the DOM (and server-rendered markup) can only carry strings, and an incoming event must be
+resolvable to "element *e*, field *f*".
+
+`specs/value-accessor` is the complementary layer, and the review is right that they meet. Its
+motivation is literally two-way binding for widgets: an accessor is a cheap, clonable read/write
+handle to a value that may live in a widget, a store, an asset, or inside a query. So:
+
+- **Layer A (this feature, `liquers-lib::ui`)** — the *name* and its route: markup identity, event
+  delivery, default action.
+- **Layer B (`value-accessor`, `liquers-core`)** — what the name is *bound to*. Today the binding
+  is implicit and trivial: a plain struct field on the widget. Later a field can be bound to a
+  `ValueAccessor`, and the same text input edits a store value, a query parameter or an asset
+  without the widget knowing which.
+
+`value-accessor` is Phase-1 design only — there is no `liquers-core/src/accessor.rs` — so this
+feature must not depend on it, but must compose with it. Two shaping requirements follow, both
+cheap now:
+
+1. **Field values travel as `Value`, not `String`** (a text value in practice), so a future
+   accessor `set(Value)` slots in without changing the message vocabulary or the markup.
+2. **Writes that can be async must not need an async `update()`.** An accessor's get/set are async
+   while `update` is sync, so an accessor-backed write is dispatched as a message and performed by
+   the runner — which is exactly how elements already delegate async work. Nothing about Layer A
+   needs to change when Layer B arrives.
+
+### Focus feeds `active_handle`
+
+**Decision (review answer 5):** yes — a focus event inside an element's subtree sets
+`AppState::active_handle`, so "current element" means the same thing in both backends. The one
+hazard to respect in Phase 2: focus restored programmatically after a targeted re-render must not
+be mistaken for the user navigating.
+
 ## Core Interactions
 
 - **Query system:** unchanged; queries stay opaque strings carried by actions and messages.
@@ -268,21 +373,24 @@ so `liquers-py` and `liquers-axum` stay out of the blast radius.
 
 ## Open Questions
 
-1. **Mechanism for inbound interaction:** a new `UpdateMessage` variant (uniform with existing
-   element messaging, but breaks the exhaustive matches in every element) versus dedicated trait
-   methods with default implementations (no breakage, but a second mutation path). Phase 2 decides.
-2. **When is a field value synced to the model?** On every keystroke (model always true, but a
-   re-render mid-typing must restore the caret), only on dispatch/blur (simpler, but an
-   asset-driven re-render during typing still discards the edit — the sharper W2 flow above), or
-   both. This is the one question whose answer changes user-visible behaviour, so it deserves an
-   explicit decision.
-3. **Should an interaction carry field values *and* the action together?** Today's `ApplyToInput`
-   effectively does, which guarantees the value is applied before the action runs. Keeping that
-   bundling avoids an ordering hazard; separating them is more general.
-4. **Does the egui backend adopt declared fields now or later?** Not required for W1–W3; adopting
-   it later means the two backends keep two ways of writing the same field for a while.
-5. **Should DOM focus feed back into `AppState::active_handle`** (clicking into a panel makes it
-   active), or stay backend-local for now?
+Settled in review: the inbound path (`update` with typed variants), event interest (declarative,
+with an opt-in mount hook), sync timing (on dispatch, live opt-in kept open), message shapes
+(value-only and values+action), the field/accessor layering, and focus → `active_handle`.
+
+Remaining:
+
+1. **Where the field declaration lives on the trait.** A method returning declarations that both
+   backends consume, versus letting `render_web` emit the attributes and pairing it with a setter.
+   The first is the honest shared contract; the second is less code today. Phase 2 decides.
+2. **Does the egui backend adopt declared fields in this feature, or later?** Not required for
+   W1–W3; deferring means the two backends keep two ways of writing the same field for a while,
+   which decision 2 (round 1) tolerates only as a documented divergence.
+3. **Scope check on W5.** Browser accelerators need a `KeyboardEvent` → `Key`/`Modifiers`
+   conversion, a registry lookup at the root, and the precedence rules described above. It is the
+   right thing to do and it is real extra work — confirm it belongs in this feature rather than an
+   immediate follow-up.
+4. **How far does the mount/unmount hook (B) get specified now?** Naming it as an extension point
+   costs nothing; designing it properly is its own effort, and nothing in scope needs it.
 
 ## References
 
