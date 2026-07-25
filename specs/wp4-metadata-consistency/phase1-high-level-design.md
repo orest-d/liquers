@@ -89,8 +89,32 @@ shaky — is in the companion `type-information-model.md`. Summary:
 This clarifies WP-4's boundary: WP-4 delivers the **consistency + validation** layer (single
 normalization routine, `validate_for_storage`, serializer capability registry, kill the dead
 extension-based read helper, derive `media_type` from `data_format`). Redefining `identifier`
-semantics for portability and adding `canonicalize()` are **larger, breaking** changes recommended
-as a **follow-up WP** (see `type-information-model.md` proposals D6–D8; ties to WP-11).
+semantics for cross-*implementation* portability is a **larger, breaking** change recommended as a
+**follow-up WP** (see `type-information-model.md` proposal D6; ties to WP-11).
+
+## Normative rules (design owner) → the data-format registry
+
+The intended semantics are pinned by six rules (full text + code reconciliation in
+`type-information-model.md` §"Normative rules"):
+
+1. `(type_identifier, data_format)` is the ser/deser key.
+2. `data_format` is primary and **normalized** (lowercase + alias-folded, `JPG → jpeg`);
+   extension is only a fallback/default; storage under an arbitrary extension is legal;
+   deserialization always uses the metadata `data_format`.
+3. every extension maps to a normalized `data_format` (total).
+4. every `data_format` has a default `type_identifier` ⇒ any file is deserializable from its
+   extension (ultimately to `bytes`).
+5. roundtrip is **idempotent** from the second roundtrip on; `data_format`/`type_identifier` are
+   written to metadata on serialize and preserved thereafter.
+6. `media_type` is a function of `data_format`.
+
+Rules 2–4 and 6 are all lookups keyed by a normalized `data_format`, so WP-4's backbone becomes a
+**data-format registry** (serializer/value-provided, extensible per implementation):
+`normalize`, `extension_to_data_format`, `data_format_default_extension`,
+`data_format_default_type_identifier`, `data_format_media_type`, `serializer_supports`.
+`normalize_type_fields()` and `validate_for_storage()` both consult it; the six fields stop being
+derived independently. This resolves FINDINGS Key Gap 3 (ownership = serializer-provided) and the
+extension-vs-`data_format` conflict (rule 2: `data_format` wins).
 
 ## Open Questions
 
@@ -102,15 +126,21 @@ as a **follow-up WP** (see `type-information-model.md` proposals D6–D8; ties t
 2. **`deserialize_from_binary()` — delete or fix?** Confirmed unused; the live store-load path
    `deserialize_stored_value`/`try_fast_track` already uses `get_data_format()`
    (`assets.rs:317`). Prefer deletion over fixing dead code.
-3. **Format/type registry ownership:** static supported-format map in `liquers-core` vs. a
-   serializer-provided capability check (`supports(type_identifier, data_format)`). Recommend
-   serializer-provided. FINDINGS "Key Gaps" §3.
-4. **Extension-vs-`data_format` conflict policy:** canonicalize filename to match `data_format`,
-   or keep both and only warn? (FINDINGS candidate invariant 4.) Proposed precedence: explicit
-   `data_format` > explicit extension > value default; `media_type` derived from `data_format`.
-5. **Scope decision for the user:** does WP-4 stay purely consistency/validation (D1–D5), or does
-   it also absorb the `identifier`-portability redefinition (D6)? The latter needs a stored-metadata
-   migration story and is recommended as a separate WP.
+3. **Format/type registry ownership:** *resolved* by the normative rules → serializer/value-provided
+   data-format registry (see above), not a static core map. FINDINGS "Key Gaps" §3.
+4. **Extension-vs-`data_format` conflict policy:** *resolved* by rule 2 → `data_format` always wins;
+   extension is a fallback/default only, arbitrary storage extension is legal.
+5. **Scope decision for the user:** WP-4 = consistency + validation + the data-format registry +
+   idempotence tests (rules 1–6). The cross-*implementation* `identifier`-portability redefinition
+   (logical `"dataframe"` vs `"polars_dataframe"`, proposal D6) is recommended as a **separate WP**
+   (needs a stored-metadata migration story). Confirm this split.
+6. **Registry extensibility mechanism:** how does `liquers-lib` add rows (`csv:*`, `parquet`,
+   `jpeg`) to a core-defined registry — trait method returning entries, inventory/`linkme`-style
+   registration, or an `Environment`-held registry object? Decide in Phase 2.
+7. **Idempotence vs `sync_metadata_with_value`:** `from_value_and_metadata` overwrites stored
+   `type_identifier` with `value.identifier()` (`state.rs:52`); this is only R5-safe if
+   `identifier()` round-trips exactly. Phase 2 must decide whether stored metadata or the value is
+   authoritative on the deserialize path.
 
 ## References
 

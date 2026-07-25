@@ -217,6 +217,73 @@ DAG. This subsumes and generalizes WP-4's scattered setter fixes.
   canonicalization. These change public meaning of `identifier()`/`type_name()` and need their
   own red→green plan and a stored-metadata migration story.
 
+---
+
+## Normative rules (authoritative — from design owner)
+
+These are the target invariants WP-4 (and its follow-up) must realize. They resolve the earlier
+open questions.
+
+- **R1 — (type_identifier, data_format) is the ser/deser key.** Serialization is a function of the
+  value + `data_format`; deserialization is a function of `(type_identifier, data_format)`.
+- **R2 — data_format is primary; extension is a fallback and a default.** `data_format` determines
+  the *default* file extension, but data may be stored under an arbitrary extension. Deserialization
+  relies on the `data_format` recorded in metadata, never on the stored extension. `data_format` is
+  **normalized**: lowercased and alias-folded (e.g. `JPG → jpeg`, whose default extension is `jpg`).
+- **R3 — every extension maps to a (normalized) data_format.** `extension → data_format` is total.
+- **R4 — every data_format has a default type_identifier.** Therefore any file is deserializable
+  from its extension alone (extension → data_format → default type_identifier), and in the limit
+  every file is deserializable to `bytes`.
+- **R5 — roundtrip is idempotent.** `state → serialize → deserialize` need not return the *same*
+  state, but from the second roundtrip on it is stable: `deserialize = deserialize∘serialize∘
+  deserialize`. `data_format` and `type_identifier` are written into metadata during serialization
+  and preserved across every subsequent roundtrip.
+- **R6 — media_type is a function of data_format.** Concretely realized as a data_format (≈ default
+  extension) → media_type mapping.
+
+### The artifact these rules imply: a **data-format registry**
+
+R2–R4 and R6 are all lookups keyed by a normalized `data_format`. They call for one registry
+(populated per value-type implementation, i.e. serializer-provided, resolving FINDINGS Key Gap 3):
+
+```
+normalize(data_format)                -> data_format          (lowercase + alias fold; R2)
+extension_to_data_format(ext)         -> data_format          (total; R3)
+data_format_default_extension(df)     -> extension            (R2)
+data_format_default_type_identifier(df) -> type_identifier    (R4)
+data_format_media_type(df)            -> media_type           (R6)
+serializer_supports(type_id, df)      -> bool                 (validation; D5)
+```
+
+Core ships the primitive/json/txt/bytes rows; `liquers-lib` extends it with `csv:*`, `parquet`,
+`jpeg`, … Every derivation in §4–§6 (currently ad-hoc extension string handling) routes through it.
+
+### Reconciliation: rules vs. current code
+
+| Rule | Today | Gap → WP-4 action |
+|------|-------|-------------------|
+| R1 | `deserialize_from_bytes(b, type_id, data_format)` already takes both (`value.rs:789`) | Honored; keep. Ensure the serialize path *records* both in metadata (R5). |
+| R2 normalize | **No normalization** — `get_data_format()` returns the raw stored/extension string (`metadata.rs:1169`); `JPG` stays `JPG` | Add `normalize()`; apply in `get_data_format` and `validate_for_storage`. |
+| R2 df→ext | `default_extension()` is value-derived; `default_data_format()` collapses *to* extension (`value.rs:209`) — inverted | Registry `data_format_default_extension`; stop deriving df from ext by default. |
+| R3 ext→df | Extension is used *as* df verbatim; `jpg` never folds to `jpeg` | Registry `extension_to_data_format` (total). |
+| R4 df→default type_id | **Missing** — deserialize needs a caller-supplied `type_identifier`; unknown `""` only special-cased in the txt arm (`value.rs:855`) | Registry `data_format_default_type_identifier`; use it when metadata lacks a type_id; bytes as ultimate fallback (partly present via `deserialize_stored_value`, `assets.rs:322`). |
+| R5 idempotence | Not stated/tested; deserialize already yields native variants (deterministic) so idempotence likely holds, but is unproven and `sync_metadata_with_value` **overwrites** stored `type_identifier` with `value.identifier()` on `from_value_and_metadata` (`state.rs:52`) — safe only if `identifier()` round-trips exactly | Pin R5 with roundtrip tests; document that `identifier()` must be a stable pure function of the value; ensure serialize writes `(type_id, data_format)` into metadata. |
+| R6 media←df | `get_media_type()` derives from **extension** (`metadata.rs:1155`), parallel to df | Registry `data_format_media_type`; derive media_type from df in normalization (D4). |
+
+### Effect on scope decisions
+- **OQ3 (registry ownership): resolved** → serializer/value-provided registry (above).
+- **OQ4 (extension vs data_format conflict): resolved** by R2 → `data_format` always wins;
+  extension is only a fallback/default, arbitrary storage extension is legal.
+- **OQ5 (D6 portability): still a follow-up.** R1/R5 make single-system idempotence a WP-4
+  invariant, which the registry + roundtrip tests deliver. Cross-*implementation* portability
+  (logical `"dataframe"` vs `"polars_dataframe"`) is the multi-system generalization and remains
+  a separate WP; R4's "default type_identifier per data_format" is the seam where it would later
+  plug in.
+
+### Registry proposal folds into the WP-4 set
+The registry (D1–D6 above generalized) becomes WP-4's backbone: `normalize_type_fields` and
+`validate_for_storage` both consult it, and the six fields stop being independently derived.
+
 ## References
 - `liquers-core/src/value.rs` (`ValueInterface`, `DefaultValueSerializer`, `Value` impls)
 - `liquers-core/src/metadata.rs` (`MetadataRecord` fields, getters/setters)
