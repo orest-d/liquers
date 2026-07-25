@@ -107,6 +107,12 @@ The intended semantics are pinned by six rules (full text + code reconciliation 
 5. roundtrip is **idempotent** from the second roundtrip on; `data_format`/`type_identifier` are
    written to metadata on serialize and preserved thereafter.
 6. `media_type` is a function of `data_format`.
+7. `type_identifier` is **canonical (most specific)**: each value maps to exactly one identifier
+   (a `Value::Text` is always `text`, never `generic`), so deserialization is a left inverse up to
+   canonicalization and R5's fixed point holds. `generic` is reserved for values with no
+   more-specific identifier. Example: `"xxx"` stored as `(generic, json)` and as `(text, txt)` both
+   deserialize to `Value::Text`, whose canonical id is `text` — so only `text` is a stable
+   roundtrip; `generic` for a string would break R5.
 
 Rules 2–4 and 6 are all lookups keyed by a normalized `data_format`, so WP-4's backbone becomes a
 **data-format registry** (serializer/value-provided, extensible per implementation):
@@ -137,10 +143,11 @@ extension-vs-`data_format` conflict (rule 2: `data_format` wins).
 6. **Registry extensibility mechanism:** how does `liquers-lib` add rows (`csv:*`, `parquet`,
    `jpeg`) to a core-defined registry — trait method returning entries, inventory/`linkme`-style
    registration, or an `Environment`-held registry object? Decide in Phase 2.
-7. **Idempotence vs `sync_metadata_with_value`:** `from_value_and_metadata` overwrites stored
-   `type_identifier` with `value.identifier()` (`state.rs:52`); this is only R5-safe if
-   `identifier()` round-trips exactly. Phase 2 must decide whether stored metadata or the value is
-   authoritative on the deserialize path.
+7. **Idempotence vs `sync_metadata_with_value`:** *resolved* by R7 — `identifier(deserialized value)`
+   equals the stored `type_identifier` by construction (canonical), so `from_value_and_metadata`
+   overwriting it (`state.rs:52`) is a safe no-op; a disagreement is an inconsistency that
+   `validate_for_storage` normalizes-to-canonical (+warn) or rejects (strict). Latent bug to fix +
+   test: the txt codec's `(generic, txt) → Value::Text` path (`value.rs:857`) is non-canonical.
 
 ## References
 

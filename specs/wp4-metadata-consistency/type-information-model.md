@@ -240,6 +240,37 @@ open questions.
   and preserved across every subsequent roundtrip.
 - **R6 — media_type is a function of data_format.** Concretely realized as a data_format (≈ default
   extension) → media_type mapping.
+- **R7 — type_identifier is canonical (most specific).** `identifier()` is a total, deterministic
+  function assigning each value its *most specific* valid identifier. When several identifiers could
+  represent a value, the most specific one is canonical and must be used. This is what makes R5
+  well-defined (see below).
+
+### Why R7 is required by R5 — the idempotence fixed point
+
+The string `"xxx"` is representable two ways:
+
+| Encoding | `type_identifier` | `data_format` | bytes | deserializes to |
+|----------|-------------------|---------------|-------|-----------------|
+| A | `generic` | `json` | `"xxx"` (JSON string) | `Value::Text("xxx")` |
+| B | `text` | `txt` | `xxx` (raw) | `Value::Text("xxx")` |
+
+Both are individually valid, but a *value* must not be free to pick either, or R5 breaks: store it as
+(A), deserialize → `Value::Text`, whose `identifier()` is `text`; re-serialize and the recorded
+`type_identifier` flips `generic → text`, so the metadata is not preserved across roundtrips.
+
+Formally, writing `deser(ser(v, df), tid, df) = v'`, R5+R7 demand a **fixed point**:
+`identifier(v') == tid` and `deser(ser(v', df), tid, df) == v'`. Deserialization is therefore a left
+inverse *up to canonicalization*: it yields the canonical representative, whose `identifier()` equals
+the stored `type_identifier`. So a `Value::Text` is **always** `text`, never `generic`; `generic` is
+reserved for values with no more-specific identifier (a bare bool/number/array/object round-tripping
+through JSON). This is the `type_identifier`-level statement of the "prefer most rust-native variant"
+rule (concept 1): canonical variant ⇒ canonical identifier.
+
+**Consequence for OQ7 (resolved).** On the deserialize path, `identifier(deserialized_value)` and the
+stored `type_identifier` must be *equal by construction*, so `sync_metadata_with_value` overwriting
+the stored id with `value.identifier()` (`state.rs:52`) is a safe no-op **iff** R7 holds. A provided
+`type_identifier` that disagrees with the value's canonical identifier is an inconsistency:
+`validate_for_storage` normalizes it to the canonical id (+warn) or rejects (strict).
 
 ### The artifact these rules imply: a **data-format registry**
 
@@ -269,6 +300,7 @@ Core ships the primitive/json/txt/bytes rows; `liquers-lib` extends it with `csv
 | R4 df→default type_id | **Missing** — deserialize needs a caller-supplied `type_identifier`; unknown `""` only special-cased in the txt arm (`value.rs:855`) | Registry `data_format_default_type_identifier`; use it when metadata lacks a type_id; bytes as ultimate fallback (partly present via `deserialize_stored_value`, `assets.rs:322`). |
 | R5 idempotence | Not stated/tested; deserialize already yields native variants (deterministic) so idempotence likely holds, but is unproven and `sync_metadata_with_value` **overwrites** stored `type_identifier` with `value.identifier()` on `from_value_and_metadata` (`state.rs:52`) — safe only if `identifier()` round-trips exactly | Pin R5 with roundtrip tests; document that `identifier()` must be a stable pure function of the value; ensure serialize writes `(type_id, data_format)` into metadata. |
 | R6 media←df | `get_media_type()` derives from **extension** (`metadata.rs:1155`), parallel to df | Registry `data_format_media_type`; derive media_type from df in normalization (D4). |
+| R7 canonical id | `Value::Text → "text"` already canonical ✓ (`value.rs:368`); but the txt codec maps `type_identifier="generic" → Value::Text` (`value.rs:857`), a **non-canonical encoding** whose re-serialization would record `text ≠ generic` | Add a canonical-identifier invariant + roundtrip test (`"xxx"` under both encodings converges to `text`); `validate_for_storage` normalizes a supplied id to `identifier(value)`; treat `(generic, txt)→Text` as normalize-to-`text` on read. |
 
 ### Effect on scope decisions
 - **OQ3 (registry ownership): resolved** → serializer/value-provided registry (above).
