@@ -30,6 +30,39 @@ test('dashboard renders and reacts to a menu action', async ({ page }) => {
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
+// Stage 2 of specs/webui-fixes/: an insert must add one node, not regenerate the parent's subtree.
+// A tag set on a live node from the page survives only if that node is never replaced — which is
+// the mechanism that protects focus, caret, scroll and any node-local state in siblings.
+test('adding a panel preserves existing nodes', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e}`));
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(`console.error: ${m.text()}`);
+  });
+
+  await page.goto('/');
+  const menu = page.locator('.lq-menubar');
+  await expect(menu).toContainText('Add Dashboard', { timeout: 20_000 });
+
+  const elements = page.locator('[id^="ui-element-"]');
+  const initial = await elements.count();
+
+  await menu.getByText('Add Dashboard').click();
+  await expect(elements).toHaveCount(initial + 1, { timeout: 20_000 });
+
+  // Tag the panel that exists now. Nothing in the model knows about this attribute, so it can
+  // only survive by the node itself surviving.
+  const panel = elements.nth(initial);
+  await panel.evaluate((el) => el.setAttribute('data-probe', 'kept'));
+
+  await menu.getByText('Add Dashboard').click();
+  await expect(elements).toHaveCount(initial + 2, { timeout: 20_000 });
+
+  await expect(page.locator('[data-probe="kept"]')).toHaveCount(1);
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
 // W3 (specs/webui-fixes/): an action that resolves fully inline leaves nothing in flight, so a
 // renderer that repaints on "is async work pending?" never learns about it. `Remove Last Panel`
 // is exactly that case; `Add Dashboard` is not, because it leaves a pending node behind.

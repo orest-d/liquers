@@ -56,6 +56,8 @@ gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 web-sys = { version = "0.3", optional = true, features = [
   "Document", "Window", "Element", "HtmlElement", "HtmlInputElement", "Node",
   "Event", "EventTarget", "InputEvent", "KeyboardEvent", "DomTokenList",
+  # HtmlCollection: Element::children(), used to insert a child node at a given index.
+  "HtmlCollection",
 ] }
 
 tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }

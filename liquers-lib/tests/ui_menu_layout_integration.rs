@@ -370,6 +370,11 @@ async fn menu_and_layout_render_to_html() {
 
     assert!(html.contains("lq-UISpecElement"), "html: {html}");
     assert!(html.contains("lq-layout-grid"), "grid layout class missing: {html}");
+    assert!(
+        html.contains(&format!("data-lq-children=\"{}\"", root.0)),
+        "the layout wrapper must declare itself as the child container, carrying its own \
+         handle so the lookup cannot match a descendant's container: {html}"
+    );
     assert!(html.contains("lq-menubar"), "menu bar missing: {html}");
     assert!(html.contains("Add Panel"), "menu item missing: {html}");
     assert!(

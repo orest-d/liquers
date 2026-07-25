@@ -163,19 +163,123 @@ mod browser {
     /// Each change re-reads the current model rather than trusting the record, which is what makes
     /// a stale entry harmless — an element inserted and removed within the same batch is simply
     /// skipped.
-    fn apply_change(change: &UIChange, state: &dyn AppState) -> bool {
+    fn apply_change(root: &web_sys::Element, change: &UIChange, state: &dyn AppState) -> bool {
         let doc = match web_sys::window().and_then(|w| w.document()) {
             Some(d) => d,
             None => return false,
         };
         match change {
-            // Stage 1: a structural change re-renders the parent (or the whole tree for a root).
-            // Stage 2 replaces this with a real DOM insert/remove.
-            UIChange::Inserted { parent, .. } | UIChange::Removed { parent, .. } => match parent {
-                Some(p) => replace_element_markup(&doc, *p, state),
-                None => false,
-            },
+            UIChange::Inserted {
+                parent,
+                handle,
+                index,
+            } => insert_element_node(root, &doc, *parent, *handle, *index, state),
+            UIChange::Removed { parent, handle } => {
+                remove_element_node(&doc, *parent, *handle, state)
+            }
             UIChange::Replaced { handle } => replace_element_markup(&doc, *handle, state),
+        }
+    }
+
+    /// The node an element's children are rendered into: the mount root for a root element, else
+    /// the node the parent marked with `data-lq-children="{parent}"`. `None` means the parent did
+    /// not declare one, so its markup may depend on its child set and only a re-render is safe.
+    fn children_container(
+        root: &web_sys::Element,
+        doc: &web_sys::Document,
+        parent: Option<UIHandle>,
+    ) -> Option<web_sys::Element> {
+        match parent {
+            None => Some(root.clone()),
+            Some(p) => doc
+                .query_selector(&format!("[data-lq-children=\"{}\"]", p.0))
+                .ok()
+                .flatten(),
+        }
+    }
+
+    /// Insert one rendered element node, without disturbing its siblings.
+    fn insert_element_node(
+        root: &web_sys::Element,
+        doc: &web_sys::Document,
+        parent: Option<UIHandle>,
+        handle: UIHandle,
+        index: usize,
+        state: &dyn AppState,
+    ) -> bool {
+        if !state.node_exists(handle) {
+            return true; // inserted and removed again before the renderer looked
+        }
+        let container = match children_container(root, doc, parent) {
+            Some(c) => c,
+            // The parent's markup depends on its child set (or it has never been rendered):
+            // re-render it instead.
+            None => return fall_back_to_parent(doc, parent, state),
+        };
+
+        let markup = super::super::render_element_web(handle, state);
+        let holder = match doc.create_element("div") {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        holder.set_inner_html(&markup);
+        let node = match holder.first_element_child() {
+            Some(n) => n,
+            // `render_element_web` always produces exactly one element; an empty result would mean
+            // the renderer changed shape, and only a full render can be trusted then.
+            None => return false,
+        };
+
+        let children = container.children();
+        let result = match children.item(index as u32) {
+            Some(before) => container.insert_before(&node, Some(&before)),
+            // Index past the end (or an empty container): append.
+            None => container.append_child(&node),
+        };
+        result.is_ok()
+    }
+
+    /// Remove one element's node. Siblings and the parent's own markup are untouched, which is
+    /// what the parent asserted by declaring a child container.
+    fn remove_element_node(
+        doc: &web_sys::Document,
+        parent: Option<UIHandle>,
+        handle: UIHandle,
+        state: &dyn AppState,
+    ) -> bool {
+        let dom_id = super::super::element_dom_id(Some(handle));
+        match doc.get_element_by_id(&dom_id) {
+            Some(node) => {
+                // Only a declared container guarantees the parent's markup is child-independent.
+                if parent.is_some()
+                    && doc
+                        .query_selector(&format!(
+                            "[data-lq-children=\"{}\"]",
+                            parent.map(|p| p.0).unwrap_or_default()
+                        ))
+                        .ok()
+                        .flatten()
+                        .is_none()
+                {
+                    return fall_back_to_parent(doc, parent, state);
+                }
+                node.remove();
+                true
+            }
+            // Already absent — nothing to do.
+            None => true,
+        }
+    }
+
+    /// Re-render the parent element; `None` (a root) can only be handled by a whole-tree render.
+    fn fall_back_to_parent(
+        doc: &web_sys::Document,
+        parent: Option<UIHandle>,
+        state: &dyn AppState,
+    ) -> bool {
+        match parent {
+            Some(p) => replace_element_markup(doc, p, state),
+            None => false,
         }
     }
 
@@ -220,7 +324,7 @@ mod browser {
                 // A change that cannot be applied in place abandons the incremental path: a
                 // half-updated page is worse than a redundant full render.
                 for change in changes {
-                    if !apply_change(change, &*state) {
+                    if !apply_change(root, change, &*state) {
                         render_all_roots(root, &*state);
                         break;
                     }
