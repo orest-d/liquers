@@ -1,5 +1,10 @@
 //! Browser (wasm) port of the native `ui_spec_demo`: a menu-driven dashboard rendered by
 //! the webui backend. Build & serve with `trunk serve`.
+//!
+//! The two menu entries exercise the two shapes of action. *Add Dashboard* evaluates a query that
+//! leaves a pending node, so async work is in flight for a moment. *Remove Last Panel* resolves
+//! fully inline and leaves nothing pending — the case that used to leave the page stale until
+//! something unrelated happened (`specs/webui-fixes/`, W3).
 
 use std::sync::Arc;
 
@@ -28,11 +33,32 @@ menu:
     label: Add Dashboard
     action:
       query: "dashboard/q/ns-lui/add-child"
+  - !button
+    label: Remove Last Panel
+    action:
+      query: "ns-lui/remove-last"
+  - !button
+    label: Add Panel Group
+    action:
+      query: "group/ns-lui/ui_spec/add-child"
+layout: vertical
+"#;
+
+/// A nested spec: adding it inserts a container *and*, through its own `init` query, a child —
+/// both within one message drain, so the renderer sees an ancestor and its descendant in the same
+/// batch of recorded changes.
+const GROUP_YAML: &str = r#"
+init:
+- "dashboard/q/ns-lui/add-child"
 layout: vertical
 "#;
 
 fn dashboard(_state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from(DASHBOARD_YAML))
+}
+
+fn group(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(GROUP_YAML))
 }
 
 /// Build the environment, register commands, and the initial AppState. Returns `Error`
@@ -51,6 +77,7 @@ fn build_app() -> Result<
     let envref = {
         let cr = env.get_mut_command_registry();
         register_command!(cr, fn dashboard(state) -> result)?;
+        register_command!(cr, fn group(state) -> result)?;
         liquers_lib::register_lui_commands!(cr)?;
         env.to_ref()
     };

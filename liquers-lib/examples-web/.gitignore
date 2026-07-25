@@ -1,0 +1,7 @@
+# Build and test outputs for the browser examples. `dist/` is per-example (trunk output);
+# `target/` and `node_modules/` are shared at this workspace level.
+dist/
+/node_modules
+/target
+test-results/
+playwright-report/

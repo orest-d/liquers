@@ -11,8 +11,8 @@ use liquers_core::state::State;
 
 use crate::value::{ExtValueInterface, Value};
 
-use super::app_state::AppState;
-use super::element::{AssetViewElement, ElementSource, UpdateMessage};
+use super::app_state::{AppState, UIChange};
+use super::element::{AssetViewElement, ElementSource, UpdateMessage, UpdateResponse};
 use super::handle::UIHandle;
 use super::message::{AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot};
 use super::payload::{SimpleUIPayload, UIPayload};
@@ -22,6 +22,14 @@ use super::ui_context::UIContext;
 struct MonitoredAsset<E: Environment> {
     asset_ref: AssetRef<E>,
     notification_rx: tokio::sync::watch::Receiver<AssetNotificationMessage>,
+}
+
+/// Result of pushing a snapshot at an element.
+enum DeliveryOutcome {
+    /// The element no longer exists — the caller stops monitoring it.
+    Missing,
+    /// Delivered; carries the element's own repaint verdict.
+    Delivered(UpdateResponse),
 }
 
 /// Centralized message processing and non-blocking evaluation runner.
@@ -116,7 +124,6 @@ where
     /// On error, we set an `AssetViewElement::new_error`.
     async fn process_messages(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         while let Ok(msg) = self.message_rx.try_recv() {
-            println!("AppRunner received message: {:?}", msg);
             match msg {
                 AppMessage::SubmitQuery { handle, query } => {
                     let ui_context =
@@ -399,20 +406,22 @@ where
                 let snapshot = Self::build_snapshot(&asset_ref).await;
 
                 // 4. Deliver snapshot to element
-                let delivered =
-                    Self::deliver_snapshot(handle, snapshot, app_state, &self.sender).await;
+                let outcome = Self::deliver_snapshot(handle, snapshot, app_state, &self.sender).await;
 
-                // 5. Store in monitoring map (replaces existing if any)
-                if delivered {
-                    self.monitoring.insert(
-                        handle,
-                        MonitoredAsset {
-                            asset_ref,
-                            notification_rx,
-                        },
-                    );
+                // 5. Store in monitoring map (replaces existing if any).
+                //    If the element doesn't exist, don't start monitoring.
+                match outcome {
+                    DeliveryOutcome::Delivered(_) => {
+                        self.monitoring.insert(
+                            handle,
+                            MonitoredAsset {
+                                asset_ref,
+                                notification_rx,
+                            },
+                        );
+                    }
+                    DeliveryOutcome::Missing => {}
                 }
-                // If element doesn't exist, don't start monitoring
             }
             Err(e) => {
                 // Build error snapshot and deliver
@@ -443,11 +452,12 @@ where
                 let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
 
                 // Deliver to element
-                let delivered =
+                let outcome =
                     Self::deliver_snapshot(*handle, snapshot.clone(), app_state, &self.sender)
                         .await;
-                if !delivered {
-                    to_remove.push(*handle);
+                match outcome {
+                    DeliveryOutcome::Delivered(_) => {}
+                    DeliveryOutcome::Missing => to_remove.push(*handle),
                 }
             } else {
                 // Even without notification changes, check if element still exists
@@ -496,35 +506,44 @@ where
     }
 
     /// Deliver an AssetSnapshot to an element via update().
-    /// Uses the extract-update-replace pattern to avoid holding the AppState lock
-    /// while calling update() (which requires a UIContext that references AppState).
-    /// Returns false if element no longer exists (caller should remove from monitoring).
+    ///
+    /// Uses the extract-update-replace pattern to avoid holding the AppState lock while calling
+    /// update() (which requires a UIContext that references AppState). The element's
+    /// `UpdateResponse` is carried back to the caller, which turns `NeedsRepaint` into a
+    /// `UIChange::Replaced` record — `put_element` deliberately records nothing, because it is
+    /// also the render path.
     async fn deliver_snapshot(
         handle: UIHandle,
         snapshot: AssetSnapshot,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
         sender: &AppMessageSender,
-    ) -> bool {
+    ) -> DeliveryOutcome {
         // Extract element from AppState (take_element errors if not found)
         let mut element = {
             let mut state = app_state.lock().await;
             match state.take_element(handle) {
                 Ok(elem) => elem,
-                Err(_) => return false,
+                Err(_) => return DeliveryOutcome::Missing,
             }
         }; // Lock released
 
         // Create UIContext and call update (lock not held)
         let ctx = UIContext::new(app_state.clone(), sender.clone()).with_handle(Some(handle));
-        let _response = element.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+        let response = element.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
 
-        // Put element back
+        // Put element back, and record the element's own repaint verdict.
         {
             let mut state = app_state.lock().await;
             let _ = state.put_element(handle, element);
+            match response {
+                UpdateResponse::NeedsRepaint => {
+                    state.record_change(UIChange::Replaced { handle });
+                }
+                UpdateResponse::Unchanged => {}
+            }
         }
 
-        true
+        DeliveryOutcome::Delivered(response)
     }
 
     /// Check the status of a specific element.

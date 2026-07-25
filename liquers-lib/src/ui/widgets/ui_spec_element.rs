@@ -583,9 +583,20 @@ impl UIElement for UISpecElement {
             children_html.push_str(&render_element_web(ch, app_state));
         }
 
+        // `data-lq-children` marks the node children are rendered into, and asserts that this
+        // element's own markup does not depend on which children exist — so a backend may insert
+        // or remove one child node instead of re-rendering the whole subtree. The value carries
+        // the owning handle so the lookup cannot match a descendant's container. A widget whose
+        // markup *does* depend on its child set (a tab bar, a grid with row breaks, a counter)
+        // must not emit this attribute; the backend then falls back to re-rendering the parent.
+        let children_marker = match self.handle() {
+            Some(h) => format!(" data-lq-children=\"{}\"", h.0),
+            None => String::new(),
+        };
+
         format!(
-            "<div id=\"{}\" class=\"lq-element lq-UISpecElement\">{}<div class=\"lq-layout {}\">{}</div></div>",
-            dom_id, menu_html, layout_class, children_html
+            "<div id=\"{}\" class=\"lq-element lq-UISpecElement\">{}<div class=\"lq-layout {}\"{}>{}</div></div>",
+            dom_id, menu_html, layout_class, children_marker, children_html
         )
     }
 }

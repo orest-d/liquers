@@ -48,29 +48,62 @@ the unified metadata-preserving `fail_asset` routine, and deletion of the dead "
 post-finalization `JobFinished` service send. Remaining for a future WP: authorization and the
 allowed message subset for genuinely external/multi-source producers.
 
+### Issue: EXPIRATION-RECOVERY-WEB-API
+Status: Open
+Priority: P2 (Medium)
+Source: WP-3 `expiration-safety` (see `specs/expiration-safety/`) — deferred follow-up.
+
+#### Problem
+WP-3 added two keyed-asset recovery operations as shared default methods on the `AssetManager<E>`
+trait (`liquers-core/src/assets.rs`), inherited by both `DefaultAssetManager` and
+`ImmediateAssetManager`:
+
+- `get_any_status(key) -> Result<Option<State>, Error>` — read a keyed asset's current value
+  regardless of status, **including `Status::Expired`**, without triggering evaluation (for
+  inspection / download / audit of an expensive expired result).
+- `to_override(key) -> Result<(), Error>` — pin a keyed asset's current value as
+  `Status::Override`, preserving it without recomputation (`PersistenceStatus`-aware: no
+  double-serialization).
+
+These are only reachable in-process today. There is **no web API surface**, so a browser/HTTP
+client cannot inspect an expired keyed asset or promote it to `Override` — exactly the
+user-directed recovery flows the feature exists to enable. This support should be added to the web
+API.
+
+#### Fix direction
+Expose both operations through `liquers-axum` (the assets router, `liquers-axum/src/assets/`):
+1. A **recovery read** endpoint that resolves via `AssetManager::get_any_status` instead of the
+   normal `get` (which treats `Expired` as a cache miss) — returning the expired/any-status state
+   (data + metadata), with a clear indication in the response/metadata that the value is expired.
+   It must NOT trigger evaluation and must not be the default `get` path.
+2. A **promote-to-override** endpoint (mutating; POST/PUT) calling `AssetManager::to_override(key)`
+   for a keyed asset, returning the resulting `Override` status.
+3. Keep these on the keyed (`&Key`) surface only — there is no query-based counterpart (mirrors the
+   core API, which is keyed-only by signature).
+4. Consider whether the WebSocket asset stream should surface `Status::Expired` distinctly (ties
+   into the WP-2 outcome contract already used there).
+
+#### Verification
+`tower::ServiceExt::oneshot` handler tests in `liquers-axum`: evaluate a keyed resource, expire it,
+then (a) the recovery-read route returns the stale value with expired metadata while the normal
+`get` route treats it as a cache miss / recomputes, and (b) the promote route flips the asset to
+`Override` so a subsequent normal `get` serves it without recomputation.
+
 ## webui: async evaluation engine does not run on wasm (browser)
 
-**Status:** Open — tracked follow-up from the `webui` feature (see `specs/webui/DESIGN.md`).
+**Status: Resolved** by `async-wasm-refactor` (2026-07-23) — see
+`specs/async-wasm-refactor/DESIGN.md`.
 
-The `webui` backend renders server-side (SSR) and **compiles** to
-`wasm32-unknown-unknown`, but the browser example does not yet **run**: the async
-evaluation engine calls `tokio::spawn` (in `liquers-core` `AssetManager::with_capacity`,
-`Context`, and `DefaultEnvironment::init_with_envref`), which panics on wasm because there
-is no tokio runtime there.
+The engine called `tokio::spawn` on paths reachable from the browser, which panics on wasm because
+there is no tokio runtime there. Resolved by option (A) plus an inline asset manager: conditional
+`Send` across the async-trait hierarchy, `ImmediateAssetManager` evaluating inline with no spawn,
+and wasm tokio reduced to `["sync"]`.
 
-- Stock `tokio` compiles to wasm (types resolve) but `tokio::spawn` panics at runtime.
-- `tokio_with_wasm` (the intended drop-in) does **not** compile here: core's
-  `#[async_trait] impl AssetManager` methods require `Send`, while `tokio_with_wasm`'s
-  primitives are `!Send` → `E0277` "future cannot be sent between threads".
+**Evidence (re-verified 2026-07-25 against current `HEAD`):** `trunk build` produces the wasm
+bundle and the Playwright suite for `examples-web/ui_spec_demo` passes in headless Chromium with
+zero `pageerror` — the engine parses, evaluates and renders inside the browser.
 
-**To fix (either):**
-- (A) Make `liquers-core`'s async-trait hierarchy `Send`-conditional — `#[async_trait(?Send)]`
-  on wasm across `AssetManager` / `AsyncStore` / `AsyncRecipeProvider`, plus the `+ Send`
-  future bounds in `EnvRef::{evaluate,apply_recipe,...}` — then adopt `tokio_with_wasm`.
-- (B) Introduce an `Environment`-provided spawn/timer seam and route every core
-  `tokio::spawn` / `tokio::time` through it (native = tokio, wasm = `spawn_local` + browser timer).
-
-Either unblocks the `examples-web/ui_spec_demo` browser example and its Playwright e2e.
+Remaining work from that effort is tracked below under *async-wasm-refactor follow-ups*.
 
 ## async-wasm-refactor follow-ups (out of scope, tracked)
 
@@ -88,8 +121,13 @@ future effort:
   `BrowserEnvironment` with an IndexedDB/`fetch` `AsyncStore` and a JS-closure command backend
   (`!Send` closures — the core already does not preclude them). Not implemented.
 
+> **Note.** The two issues below are the *interaction* half of the browser backend — user input
+> reaching a widget — and are designed together in `specs/ui-events/`, along with a third finding
+> (menu accelerators are egui-only, so `Ctrl+N` from a `UISpec` menu silently does nothing in the
+> browser). `specs/webui-fixes/` covered the rendering half and is complete.
+
 ### Issue: WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT
-Status: Open
+Status: Open — design in `specs/ui-events/` (W1)
 Priority: P2 (Medium)
 Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/widgets/query_console_element.rs:461`
 
@@ -107,7 +145,7 @@ special-case the input element on Enter in `dispatch_dom_event`.
 Playwright: type a query, press Enter, assert the result renders (currently only a click works).
 
 ### Issue: WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED
-Status: Open
+Status: Open — design in `specs/ui-events/` (W2)
 Priority: P2 (Medium)
 Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/commands.rs:367`
 
@@ -126,147 +164,49 @@ Type a new query, submit, trigger a re-render; assert the input retains the subm
 volatile refresh uses it (not the previous value).
 
 ### Issue: WEBUI-REPAINT-AFTER-SYNC-MUTATION
-Status: Open
+Status: **Resolved** by `webui-fixes` (2026-07-25) — see `specs/webui-fixes/`
 Priority: P2 (Medium)
 Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/web/app.rs:165`
 
 #### Problem
-After the initial paint, the browser loop only re-renders while `AppRunner::needs_repaint()` reports
-active evaluations or monitoring. A web action that mutates `AppState` synchronously and leaves no
-pending asset (e.g. `lui/remove`, `activate`, or a `SubmitQuery` that resolves inline) is processed by
-`runner.run`, but `needs_repaint()` is false immediately afterward, so the DOM stays stale until some
-unrelated async asset update occurs.
+After the initial paint, the browser loop only re-rendered while `AppRunner::needs_repaint()`
+reported active evaluations or monitoring — a proxy for "async work may land later", not a statement
+about state. A web action that mutates `AppState` and leaves no pending asset was processed by
+`runner.run`, but `needs_repaint()` was false immediately afterward, so the DOM stayed stale until
+some unrelated async asset update occurred.
 
-#### Concrete reproduction
-In `liquers-lib/examples-web/ui_spec_demo`, click **Add Dashboard**. The button dispatches
-`dashboard/q/ns-lui/add-child` against the enclosing dashboard handle. `AppRunner` receives the
-`SubmitQuery`, evaluates it inline, and `lui/add-child` successfully inserts a `StateViewElement`
-containing `DASHBOARD_YAML` beneath the dashboard in `AppState`. Because the inline evaluation has
-already completed, neither the evaluating nor monitoring collections are populated, so
-`needs_repaint()` returns false and `mount_web` does not rebuild the DOM. The inserted YAML is
-therefore present in application state but remains invisible in the browser.
+**Worse than recorded.** Measured against the pre-fix build, the demo's *Add Dashboard* action
+produced no DOM change at all: with `ImmediateAssetManager` the evaluation completes inside the same
+`run()` that starts it, so nothing is ever in flight when the loop asks. The existing Playwright
+test passed only because its assertion (`#app` contains "Dashboard") was already satisfied by the
+"Add Dashboard" menu label. This affected every menu action in the browser, not just
+inline-resolving ones.
 
-The action serialization, delegated click handler, query registration, and `add-child` insertion are
-all working; the defect is specifically the missing DOM invalidation after the synchronous state
-mutation.
+#### Resolution
+Invalidation became a property of the model. `AppState`'s mutating methods record a `UIChange`
+(`Inserted` / `Removed` / `Replaced`) into an `Invalidation` (`None` / `Changes` / `All`), and the
+renderer takes it and applies it:
 
-#### Fix direction
-Track whether messages/state changed during processing and force a repaint after processing them
-(independent of `needs_repaint()`).
+- `Replaced` re-renders that element's markup in place (stable `ui-element-{handle}` ids).
+- `Inserted` / `Removed` perform the corresponding DOM operation when the parent declares a child
+  container (`data-lq-children="{handle}"`), so siblings keep their DOM identity — and with it
+  scroll position, selection and node-local state. Otherwise they degrade to re-rendering the
+  parent.
+- Anything unattributable (a deserialized state, a change log past `MAX_CHANGES`, an
+  implementation that does not track) escalates to a whole-tree render. Focus and caret are
+  captured and restored around replacements.
 
-Prefer a one-shot dirty/repaint signal from `AppRunner::run` over unconditionally rebuilding the DOM
-on every 16 ms timer tick.
-
-#### Note (async-wasm-refactor interaction)
-With `ImmediateAssetManager`, `SubmitQuery` now resolves **inline** (synchronously, no pending async
-asset), which makes this stale-DOM window more likely to be hit in the browser — so this is worth
-addressing alongside webui runtime work.
-
-#### Verification
-1. Playwright: open `examples-web/ui_spec_demo`, click **Add Dashboard**, and assert that
-   `DASHBOARD_YAML` appears without waiting for an unrelated async event.
-2. Perform another synchronous mutation (e.g. `lui/remove`) with no pending asset and assert that
-   the DOM updates.
-
-If the demo is changed to expect a nested interactive dashboard rather than the literal YAML text,
-use `dashboard/ns-lui/ui_spec/q/add-child`; that conversion is separate from this repaint defect.
-
-### Issue: WEBUI-WASM-SIZE-IMAGE-CODEC-FEATURE-GATING
-Status: Open
-Priority: P2 (Medium)
-Source: `ui_spec_demo_web` Wasm size investigation (2026-07-25)
-
-#### Problem
-The `ui_spec_demo_web` module is much larger than expected for a small UI demo. The current Trunk
-debug output is 24.26 MB raw (4.02 MB gzip / 2.41 MB Brotli). A Cargo release build reduces this to
-8.30 MB raw (2.08 MB gzip / 1.29 MB Brotli), showing that debug metadata and lack of release
-optimization are significant, but the optimized executable code is still large.
-
-Approximate symbol-level attribution of the 5.33 MB release code section:
-
-| Contributor | Code size | Share |
-|---|---:|---:|
-| AVIF / rav1e image codec | 1.88 MB | 35.3% |
-| Liquers core evaluation engine | 1.22 MB | 22.9% |
-| Liquers UI and value implementation | 0.73 MB | 13.7% |
-| Other image codecs | 0.58 MB | 10.9% |
-| Rust standard library and other dependencies | 0.51 MB | 9.6% |
-| Serde / YAML / JSON | 0.18 MB | 3.4% |
-| Markdown | 0.16 MB | 3.0% |
-| Browser bindings and async runtime | 0.04 MB | 0.8% |
-
-Image handling therefore contributes approximately 46% of the release code, with AVIF/rav1e alone
-responsible for approximately 35%.
-
-Although `ui_spec_demo_web` uses `liquers-lib` with `default-features = false` and only the `webui`
-feature, `image`, `resvg`, `usvg`, and `tiny-skia` are unconditional dependencies. `ExtValue::Image`
-and its general serialization/deserialization paths are also unconditional. The `image` crate's
-default codec set makes AVIF/rav1e, TIFF, EXR, WebP, GIF, JPEG, PNG, and other codec code reachable
-from the generic image value and web rendering paths.
-
-The build configuration adds avoidable overhead as well: the demo is normally built in debug mode,
-`index.html` explicitly sets `data-wasm-opt="0"`, and no size-oriented release profile is defined.
-These build issues amplify the result but do not explain the large optimized code section.
-
-#### Proposed feature model
-Split image functionality into two optional tiers:
-
-1. **Partial image support without AVIF**
-   - Keep the existing `image-support` feature name, or introduce a clearly named
-     `image-support-basic` feature.
-   - Depend on `image` with `default-features = false`.
-   - Enable only the codecs required by the supported baseline, initially PNG and, if required,
-     JPEG/GIF/WebP.
-   - Gate `ExtValue::Image`, image serialization, image web rendering, raster commands, and related
-     dependencies consistently behind this feature.
-   - Do not enable AVIF, `ravif`, `rav1e`, or `av-scenechange`.
-
-2. **Full image support with AVIF**
-   - Introduce `image-support-full` or `image-support-avif`.
-   - Make it depend on partial image support and additionally enable the `image` AVIF feature.
-   - Preserve the current broad codec behavior for native/full installations that require it.
-
-The default feature set may continue to select full image support for compatibility, but
-`webui` alone must not implicitly enable either image tier. Consumers should be able to choose:
-
-```toml
-# Web UI with no image values or codecs
-liquers-lib = { default-features = false, features = ["webui"] }
-
-# Web UI with baseline image support but no AVIF/rav1e
-liquers-lib = { default-features = false, features = ["webui", "image-support"] }
-
-# Full image support including AVIF
-liquers-lib = { default-features = false, features = ["webui", "image-support-full"] }
-```
-
-If web image rendering needs PNG encoding whenever image values are enabled, PNG should belong to
-the partial tier; the full multi-codec serializer should not be required merely to render a PNG data
-URL.
-
-#### Additional size reductions
-1. Build production artifacts with `trunk build --release`.
-2. Enable `wasm-opt` instead of `data-wasm-opt="0"`.
-3. Strip function-name/debug sections from production Wasm.
-4. Add a size-oriented release profile (`opt-level = "z"`, LTO, one codegen unit, and stripped
-   symbols).
-5. Consider separate optional features for Markdown and QueryConsole widgets, and allow examples to
-   register only the LUI commands they use.
-
-#### Compatibility considerations
-1. Feature-gate all `ExtValue::Image` match arms explicitly so no-image builds remain exhaustive.
-2. Check public APIs that currently expose `image::DynamicImage`; they may need matching feature
-   gates.
-3. Ensure native default builds retain their current image behavior unless a deliberate breaking
-   change is approved.
-4. Avoid making SVG support depend accidentally on the AVIF/full raster tier.
-5. Update serialization errors so disabled codecs report that the relevant feature is unavailable.
+`needs_repaint()` remains, but only to decide whether to keep polling. The five egui example apps
+consume the same signal, so they get the fix too. No `liquers-core`, macro, `liquers-py` or
+`liquers-axum` changes.
 
 #### Verification
-1. Build `ui_spec_demo_web` in release mode with `webui` only and confirm that `image`, `ravif`,
-   `rav1e`, and `av-scenechange` are absent from the dependency/symbol graph.
-2. Build with partial image support and verify PNG web rendering and configured baseline codecs.
-3. Confirm that partial support contains no AVIF/rav1e symbols.
-4. Build with full image support and round-trip AVIF plus all currently supported formats.
-5. Record raw, gzip, and Brotli Wasm sizes for all three configurations and enforce an agreed size
-   budget in CI.
+- Unit: 17 tests in `liquers-lib/src/ui/app_state.rs` — one per recording site, the absorbing state
+  machine, the `MAX_CHANGES` escalation, the serialization contract, and a deliberately
+  non-tracking `AppState` proving the conservative default degrades to a full render, never to
+  stale.
+- Integration: `liquers-lib/tests/ui_invalidation.rs` — 6 tests including both runner delivery
+  paths (`NeedsRepaint` records, `Unchanged` does not).
+- Browser: `examples-web/ui_spec_demo/tests/webui.spec.ts` — a *Remove Last Panel* entry
+  (`ns-lui/remove-last`) that resolves fully inline, plus a node-identity case. Both were checked
+  in the failing direction as well: each fails against the behaviour it replaces.
