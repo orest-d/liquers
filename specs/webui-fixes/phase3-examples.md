@@ -1,280 +1,335 @@
 # Phase 3: Examples & Use-cases - webui-fixes
 
+*Scope: W3 (rendering follows the model) + W4 (close a stale record). The earlier version of this
+file covered the old, wider scope and is in git history (commit `89875c7`).*
+
 ## Example Type
 
-**Choice:** Runnable prototypes. Each example is either an existing runnable example
-(`liquers-lib/examples-web/ui_spec_demo`) or a test that lands in the repository — no
-throwaway conceptual code, because all three fixes are behavioural and only observable at runtime.
+**Runnable prototypes.** Every example below is either the existing browser example
+(`liquers-lib/examples-web/ui_spec_demo`, verified working against current `HEAD`) or a test that
+lands in the repository. Nothing here is illustrative-only: W3 is a behavioural defect, so a
+conceptual example could not demonstrate it.
 
 ## Overview Table
 
-| # | Type | Name | What it demonstrates / checks | Issue |
+| # | Type | Name | What it demonstrates / checks | Stage |
 |---|------|------|-------------------------------|-------|
-| E1 | Example (browser) | Query console in `ui_spec_demo` | Type a query, press **Enter**, result renders | W1 |
-| E2 | Example (browser) | Same console, second query | Input keeps the *submitted* query after re-render; volatile refresh re-uses it | W2 |
-| E3 | Example (browser) | Menu action with no pending asset | DOM updates immediately after a synchronous mutation | W3 |
-| U1 | Unit (native) | `render_web_puts_action_on_input` | The `<input>` carries `data-lq-action` with the same `Apply` as "Go" | W1 |
-| U2 | Unit (native) | `snapshot_query_updates_query_text` | A snapshot with a new query sets `query_text` | W2 |
-| U3 | Unit (native) | `snapshot_query_pushes_history_once` | Adopting a query appends to history; a repeat snapshot does not duplicate | W2 |
-| U4 | Unit (native) | `expired_snapshot_refreshes_adopted_query` | After adopting, the expiry re-request uses the new query, not the stale one | W2 |
-| U5 | Unit (native) | `volatile_refresh_uses_adopted_query` | Same for the volatile refresh path | W2 |
-| U6 | Unit (native) | `snapshot_without_query_keeps_query_text` | Empty `snapshot.query` is a no-op (back-compat for hand-built snapshots) | W2 |
-| I1 | Integration (native) | `runner_stamps_query_into_snapshot` | `AppRunner` puts the monitored query into every snapshot it delivers | W2 |
-| I2 | Integration (native) | `submit_command_updates_console_state` | `ApplyToInput` → `lui/submit` → console shows the typed query | W1+W2 |
-| I3 | Integration (native) | `repaint_requested_after_sync_mutation` | `take_repaint_request()` is true after a message-only `run`, false after being taken | W3 |
-| I4 | Integration (native) | `repaint_request_false_on_idle_run` | An idle `run` does not request a repaint (no busy re-render) | W3 |
-| E2E | Playwright | `webui.spec.ts` — 3 new cases | E1/E2/E3 in headless Chromium | W1–W3 |
+| E1 | Example (browser) | *Remove Last Panel* menu entry | An action that resolves fully inline updates the DOM in the same tick — the W3 defect | 1 |
+| E2 | Example (browser) | Repeated *Add Dashboard* | Each add inserts one node; existing panels keep their DOM identity | 2 |
+| E3 | Example (native) | Restored `AppState` paints | A deserialized state renders in full without any mutation happening first | 1 |
+| U1 | Unit | `add_node_records_inserted` | `Inserted { parent, handle, index }` with the resolved index | 1 |
+| U2 | Unit | `add_root_records_inserted_with_no_parent` | A root add records `parent: None`, not `All` | 1 |
+| U3 | Unit | `insert_node_records_inserted` | The explicit-handle variant records the same way | 1 |
+| U4 | Unit | `set_element_records_replaced` | Installing an element marks it out of date | 1 |
+| U5 | Unit | `set_source_records_replaced` | A pending node's placeholder is renderable state | 1 |
+| U6 | Unit | `remove_records_removed_with_parent` | `Removed { parent, handle }`; one record for the subtree | 1 |
+| U7 | Unit | `remove_root_records_parent_none` | Root removal is expressible without `All` | 1 |
+| U8 | Unit | `set_active_handle_records_both` | Old and new active elements are both re-rendered | 1 |
+| U9 | Unit | `get_element_mut_records_replaced` | The `&mut` escape hatch cannot bypass recording | 1 |
+| U10 | Unit | `take_and_put_element_record_nothing` | The render path stays silent (else egui repaints every frame) | 1 |
+| U11 | Unit | `take_invalidation_clears` | Second take returns `None` | 1 |
+| U12 | Unit | `set_all_absorbs_further_changes` | `Changes → All`, and a later record is ignored | 1 |
+| U13 | Unit | `change_log_overflow_escalates_to_all` | `MAX_CHANGES + 1` records collapse to `All` | 1 |
+| U14 | Unit | `new_state_starts_all` | A fresh state paints without a "first frame" flag | 1 |
+| U15 | Unit | `deserialize_starts_all` | A restored state is fully out of date | 1 |
+| U16 | Unit | `serialize_omits_invalidation` | The persisted format is unchanged | 1 |
+| U17 | Unit | `default_trait_methods_report_all` | A non-tracking `AppState` degrades to a full re-render, never to stale | 1 |
+| I1 | Integration | `sync_mutation_records_change` | `hello/ns-lui/add-child` leaves a recorded change after `run` — the W3 root cause | 1 |
+| I2 | Integration | `remove_command_records_removed` | `ns-lui/remove-last` records `Removed` with the right parent | 1 |
+| I3 | Integration | `idle_run_records_nothing` | An idle `run` records nothing (no busy re-render) | 1 |
+| I4 | Integration | `snapshot_delivery_records_replaced` | A `NeedsRepaint` response becomes a `Replaced` record | 1 |
+| I5 | Integration | `unchanged_snapshot_records_nothing` | An `Unchanged` response records nothing | 1 |
+| I6 | Integration | `pending_evaluation_records_changes` | Auto-evaluation of a pending node records its element installs | 1 |
+| E2E | Playwright | `inline action updates the DOM` | E1 in headless Chromium | 1 |
+| E2E | Playwright | `adding a panel preserves existing nodes` | E2: a marker set on an existing panel's node survives the next add | 2 |
+| E2E | Playwright | (existing) `dashboard renders and reacts` | Regression: the demo keeps working | 1 |
 
-## Example 1: Enter submits in the browser query console (W1)
+"Stage" refers to Phase 2's implementation staging: **1** = change recording + consuming the
+invalidation (closes W3, no DOM surgery); **2** = structural DOM insert/remove with the
+`data-lq-children` opt-in.
 
-**Scenario:** The demo page gains a query console. The user types `hello` into the input and
-presses Enter.
+## Example 1: an action that resolves inline updates the page (W3, stage 1)
 
-**Context:** Today only clicking "Go" works — the fix's whole point.
+**Scenario.** The demo's menu gains a second entry, *Remove Last Panel*, whose action is the query
+`ns-lui/remove-last`. The user adds two panels, then clicks *Remove Last Panel*.
 
-**Code (added to `liquers-lib/examples-web/ui_spec_demo/src/lib.rs`):**
+**Today.** The command runs, the node is gone from `AppState`, and the panel stays on screen —
+because nothing is left in flight, so `needs_repaint()` is false and the loop skips the render. It
+disappears later, when some unrelated activity happens to make that question true.
 
-```rust
-const DASHBOARD_YAML: &str = r#"
-menu:
-  items:
-  - !button
-    label: Add Dashboard
-    action:
-      query: "dashboard/q/ns-lui/add-child"
-  - !button
-    label: Add Console
-    action:
-      query: "hello/q/ns-lui/query_console/add-child"
-layout: vertical
-"#;
+**After.** `remove` records `Removed { parent: root, handle: panel }`; the loop takes the
+invalidation on the next tick and applies it. The panel disappears within one 16 ms tick, with no
+other interaction.
 
-/// Trivial command so the console has something to evaluate. `hello/q/...` passes it to the
-/// console as a *query value*, so the console opens with `hello` in its input.
-fn hello(_state: &State<Value>) -> Result<Value, Error> {
-    Ok(Value::from("Hello from the browser!"))
-}
-```
+**Query validation.** `ns-lui/remove-last` was verified against the current build before writing
+this: starting from a two-child root it left one child and no error element, so a query with no
+leading input command evaluates correctly and resolves inline. This is what makes it a genuine W3
+trigger — unlike the existing *Add Dashboard* action, which leaves a pending node in flight and
+therefore repaints by accident today.
 
-**Expected output:** clicking *Add Console* renders
+**Expected output.** Two panels, then one; the browser console stays clean.
 
-```html
-<div class="lq-qc-toolbar">
-  <input id="qc-input-2" class="lq-query-input" value="hello"
-         data-lq-action='"apply:2:qc-input-2:ns-lui/submit"'/>
-  <span class="lq-go" data-lq-action='"apply:2:qc-input-2:ns-lui/submit"'>Go</span>
-  …
-</div>
-```
+## Example 2: adding a panel leaves its siblings alone (stage 2)
 
-Pressing Enter in that input dispatches `Apply` → `AppMessage::ApplyToInput` → `lui/submit`, and
-the console content becomes `Hello from the browser!`.
+**Scenario.** The user clicks *Add Dashboard* four times.
 
-## Example 2: The console keeps the query the user submitted (W2)
+**Stage 1 behaviour.** Each add records `Inserted`, which the renderer maps to "re-render the
+parent" — correct, but every existing panel's DOM node is destroyed and recreated on each add.
 
-**Scenario:** With the console showing `hello`, the user selects the input, types
-`hello/ns-lui/markdown`, and presses Enter.
+**Stage 2 behaviour.** The `UISpecElement` layout wrapper carries `data-lq-children="{handle}"`, so
+the renderer inserts exactly one new node into that container and touches nothing else. Existing
+panels keep their DOM identity, and a session of N adds costs N renders rather than N².
 
-**Context:** Today the result renders but the input snaps back to `hello`, and any volatile or
-expiry-driven refresh silently re-evaluates the *old* query.
+**How it is checked without a query console.** The e2e test tags an existing panel's node from the
+page (`el.dataset.probe = "1"`), clicks *Add Dashboard* again, and asserts the tag survived. A
+destroyed-and-recreated node loses it. This is the mechanism that protects focus, caret and scroll,
+tested by proxy — see *Testing gap* below.
 
-**Flow after the fix:**
+## Example 3: a restored `AppState` paints (stage 1)
 
-1. `ApplyToInput { handle, input: "hello/ns-lui/markdown", query: "ns-lui/submit" }`
-2. `lui/submit` sends `RequestAssetUpdates { handle, query: "hello/ns-lui/markdown" }`
-3. `AppRunner` evaluates, stores `MonitoredAsset { query }`, and stamps the query into the snapshot
-4. `QueryConsoleElement::update` calls `adopt_query` → `query_text` + history updated
-5. Re-render emits `value="hello/ns-lui/markdown"`, and the expiry/volatile paths re-request
-   that query
+**Scenario.** An application serializes `AppState` to JSON, restarts, deserializes, and attaches a
+renderer. No mutation happens afterwards.
 
-**Expected output:** the input keeps the submitted text; `history == ["hello/ns-lui/markdown"]`.
+**Why it would break naively.** Change records describe *mutations*; a restored state has had none,
+so a purely change-based renderer would draw nothing at all.
 
-## Example 3: Synchronous mutation repaints (W3)
-
-**Scenario:** A menu action that only mutates `AppState` (e.g. a `lui/remove` or an `activate`
-entry) with no asset left pending.
-
-**Context:** With `ImmediateAssetManager` the whole evaluation resolves inline, so after
-`runner.run` returns, `needs_repaint()` is already `false` and the DOM keeps showing the removed
-element until some unrelated async update arrives.
-
-**Code (browser loop, `liquers-lib/src/ui/web/app.rs`):**
-
-```rust
-loop {
-    let _ = runner.run(&loop_state).await;
-    let changed = runner.take_repaint_request();      // must be called unconditionally
-    if first || changed || runner.needs_repaint() {
-        render_roots_into(&loop_root, &loop_state);
-        first = false;
-    }
-    gloo_timers::future::TimeoutFuture::new(16).await;
-}
-```
-
-**Expected output:** the removed element disappears within one 16 ms tick.
+**After.** `Deserialize` sets `Invalidation::All`, so the first `take_invalidation` returns `All`
+and the whole tree renders. The same mechanism covers a freshly-built state (`new()` starts at
+`All`), which is why the browser loop's `first`-frame flag disappears.
 
 ## Corner Cases
 
 ### 1. Memory
 
-- `AssetSnapshot::query` adds one `String` per snapshot; snapshots are already cloned per delivery,
-  so the extra cost is one short allocation per notification. `MonitoredAsset` holds one more
-  `String` per monitored handle — bounded by the number of live console elements.
-- `history` grows unboundedly if a program submits queries in a loop. Pre-existing (`submit_query`
-  already pushes on every submit); `adopt_query` must not make it worse — hence the
-  "don't push a duplicate of the last entry" rule (U3).
+- The change log is bounded by `MAX_CHANGES` (64): past that, `Invalidation` escalates to `All`,
+  which is both cheaper to apply and constant-size. The realistic trigger is the `AppState` lock
+  being held across several browser ticks while a burst of mutations lands.
+- `UIChange` is three small `Copy`-ish fields; a bounded `Vec` of them is negligible next to the
+  markup it avoids regenerating.
+- No new per-element allocation: elements and nodes are untouched.
 
 ### 2. Concurrency
 
-- Two `RequestAssetUpdates` for the same handle in quick succession: the second replaces the
-  monitoring entry, so the console adopts the second query — the last submit wins, which matches
-  what the user sees. No lock is held across `update()`, so no deadlock is introduced.
-- wasm is single-threaded; `dirty` is `&mut self` state on the single runner. On native, `AppRunner`
-  is owned by one event loop — same guarantee.
-- A repaint flag lost to a `take_repaint_request()` call in a *different* place would cause a stale
-  frame, so exactly one consumer per loop is required (documented on the method).
+- A change is recorded under the same `&mut self` borrow — in practice the same mutex guard — as the
+  mutation that caused it, so a renderer cannot observe a change without its record.
+- Exactly one renderer per application may call `take_invalidation`; two consumers would each see
+  part of the history. Documented on the method, and asserted by U11 only for the single-consumer
+  case (the multi-consumer misuse is a documentation matter, not something to encode in a test).
+- If the browser loop cannot take the lock, it skips the frame; records accumulate **in order** and
+  are applied next tick. Nothing is lost — strictly better than today, where a skipped frame could
+  drop the repaint entirely.
+- egui apps hold the lock across rendering and take the invalidation inside the same guard.
 
 ### 3. Errors
 
-- Evaluation failure: the error snapshot is stamped with the failing query, so the console shows
-  the query the user typed together with the error, and the "Go"/Enter retry uses the same text.
-- Malformed `data-lq-action` JSON: `dispatch_dom_event` returns silently (unchanged behaviour).
-- Enter pressed in an input whose element is gone (handle removed mid-flight): `ApplyToInput` runs,
-  `deliver_snapshot` reports `Missing`, monitoring stops — no panic.
-- Empty input + Enter: `lui/submit` gets an empty query; `parse_query("")` yields the empty query,
-  which is the pre-existing behaviour of clicking "Go" with an empty box.
+- **Stale record** (insert then remove in one batch): applying re-reads the model, so the insert
+  finds no element and skips. No log normalisation needed.
+- **Missing container** (`data-lq-children` absent because the widget's markup depends on its child
+  set): falls back to `Replaced { parent }` — the documented degradation, and stage 1's behaviour.
+- **Missing DOM node** for a `Replaced` handle (never rendered): escalate to the whole-tree render.
+- **Index past the container's children**: append rather than fail.
+- **Failed DOM operation**: return false, and the caller does the whole-tree render. Nothing returns
+  `Err` mid-batch, because a half-updated page is worse than a redundant full render.
+- W3's own failure mode — a stale page — is *not* silent after this change: any recorded mutation
+  reaches the renderer, and anything unattributable escalates to `All`.
 
 ### 4. Serialization
 
-- `AssetSnapshot` is not serialized (`Clone, Debug` only) — no schema evolution concern.
-- `QueryConsoleElement` typetag round-trip is unchanged in shape; after the fix, a serialized
-  console restores the *last submitted* query, which is the intent of the persistent fields.
-- Runtime-only fields (`value`, `metadata`, `error`, `next_presets`, `ui_element`) remain `#[serde(skip)]`.
+- `Invalidation`/`UIChange` are transient and absent from `DirectAppStateSnapshot`, so the persisted
+  JSON is byte-identical to today's (U16 asserts the key is absent).
+- Deserialize starts at `All` (U15), which is what makes Example 3 work.
+- No schema evolution concern: nothing about the saved format changes, so old files load unchanged.
 
 ### 5. Integration
 
-- `lui/submit` keeps its registration and signature → `register_lui_commands!` unchanged →
-  `liquers-py` and `liquers-axum` unaffected.
-- SSR (`render_app_ssr`) output changes only by one extra attribute on the console input; the
-  existing `webui_ssr.rs` assertions still hold.
-- egui backend: `QueryConsoleElement::submit_query` sets `query_text` *before* sending, so
-  `adopt_query` sees an unchanged query and does nothing — no double history entry (U3).
+- **SSR** (`render_app_ssr`) renders everything on demand and never consults invalidation — the
+  existing `webui_ssr.rs` assertions must keep passing unchanged, with one addition: the
+  `data-lq-children` marker appears in stage 2's output.
+- **egui** keeps working and gets W3's fix for free: the five example apps repaint when the
+  invalidation is not `None` instead of only when async work is pending.
+- **Commands** (`lui` and any application-defined ones) are untouched; they inherit recording from
+  the `AppState` methods they must already use.
+- **Feature matrix**: `Invalidation`/`UIChange` are backend-neutral (no cfg), so default,
+  `--no-default-features --features webui`, `webui,image-support` and the wasm target all need to
+  build.
+- **`liquers-py` / `liquers-axum`**: no reachable change (no command signatures, no core types).
 
 ## Test Plan
 
 ### Unit tests
 
-**File:** `liquers-lib/src/ui/widgets/query_console_element.rs` (`mod tests`)
+**File:** `liquers-lib/src/ui/app_state.rs` (existing `#[cfg(test)] mod tests`)
 
-| Test | Checks |
-|---|---|
-| `render_web_puts_action_on_input` (U1) | `render_web` output contains `data-lq-action` inside the `<input …>` tag and the `Apply` payload matches the Go control (`#[cfg(feature = "webui")]`) |
-| `snapshot_query_updates_query_text` (U2) | snapshot with `query: "new-q"` → `query_text == "new-q"` |
-| `snapshot_query_pushes_history_once` (U3) | history == `["new-q"]` after two identical snapshots |
-| `expired_snapshot_refreshes_adopted_query` (U4) | `Status::Expired` snapshot with a new query sends `RequestAssetUpdates { query: "new-q" }` |
-| `volatile_refresh_uses_adopted_query` (U5) | `Status::Volatile` snapshot with a new query → delayed refresh carries `"new-q"` |
-| `snapshot_without_query_keeps_query_text` (U6) | `query: String::new()` leaves `query_text`/history untouched |
+U1–U16 above. Shape, following the file's existing conventions:
 
-All 6 existing `AssetSnapshot` literals in this module gain `query: "q".to_string()` so current
-expectations (which assume the console's own query) keep holding.
+```rust
+#[test]
+fn add_node_records_inserted() -> Result<(), Box<dyn std::error::Error>> {
+    let mut s = DirectAppState::new();
+    let root = s.add_node(None, 0, ElementSource::None)?;
+    let _ = s.take_invalidation();                  // discard the initial All
 
-**File:** `liquers-lib/src/ui/widgets/markdown_element.rs` — 2 literals updated (`query: String::new()`),
-no behavioural change (markdown ignores the query).
+    let child = s.add_node(Some(root), 0, ElementSource::None)?;
+
+    match s.take_invalidation() {
+        Invalidation::Changes(v) => assert_eq!(
+            v,
+            vec![UIChange::Inserted { parent: Some(root), handle: child, index: 0 }]
+        ),
+        Invalidation::None | Invalidation::All => panic!("expected a recorded insert"),
+    }
+    Ok(())
+}
+```
+
+Note the two conventions this leans on: every test discards the initial `All` before exercising the
+behaviour under test, and every `match` on `Invalidation` enumerates all three variants (no `_`
+arm), so a future variant is a compile error here too.
+
+U17 needs a minimal `AppState` implementor that overrides none of the three methods. `AppState` has
+many required methods, so this is real boilerplate — worth it, because it is the test that pins the
+"conservative default" property that the whole trait-extension approach rests on:
+
+```rust
+#[test]
+fn default_trait_methods_report_all() {
+    let mut s = NonTrackingAppState::default();   // test-only, overrides nothing
+    s.invalidate_all();                            // default no-op
+    assert!(matches!(s.take_invalidation(), Invalidation::All));
+}
+```
 
 ### Integration tests
 
-**File:** `liquers-lib/tests/query_console_integration.rs` (extend)
+**File:** `liquers-lib/tests/ui_invalidation.rs` (new)
+
+Harness identical to `tests/ui_runner.rs` (`DefaultEnvironment<Value, SimpleUIPayload>`,
+`register_command!(cr, fn hello(state) -> result)`, `register_lui_commands!`, `DirectAppState`,
+`AppRunner`), so the file adds no new setup concepts.
 
 | Test | Flow |
 |---|---|
-| `runner_stamps_query_into_snapshot` (I1) | register `hello`; `RequestAssetUpdates { handle, "hello" }`; run; assert the console's `query_text` is `"hello"` |
-| `submit_command_updates_console_state` (I2) | console at `"hello"`; send `ApplyToInput { handle, input: "hello/ns-lui/markdown", query: "ns-lui/submit" }`; run; assert `query_text == "hello/ns-lui/markdown"` and the rendered `value="…markdown"` |
+| I1 `sync_mutation_records_change` | submit `hello/ns-lui/add-child`; run; assert the invalidation contains an `Inserted` under the root |
+| I2 `remove_command_records_removed` | add two children, drain, submit `ns-lui/remove-last`; run; assert `Removed { parent: root, .. }` |
+| I3 `idle_run_records_nothing` | drain, `run` with no messages; assert `Invalidation::None` |
+| I4 `snapshot_delivery_records_replaced` | console element at a handle; `RequestAssetUpdates { handle, "hello" }`; run; assert `Replaced { handle }` |
+| I5 `unchanged_snapshot_records_nothing` | an element whose `update` returns `Unchanged`; deliver a snapshot; assert nothing recorded by the delivery |
+| I6 `pending_evaluation_records_changes` | pending node with `ElementSource::Query("hello")`; run to completion; assert the progress and result installs were recorded |
 
-**File:** `liquers-lib/tests/ui_runner.rs` (extend)
-
-| Test | Flow |
-|---|---|
-| `repaint_requested_after_sync_mutation` (I3) | submit a query that only mutates `AppState`; after `run`, `take_repaint_request()` is `true`, and `false` on the immediately following call |
-| `repaint_request_false_on_idle_run` (I4) | `run` with no messages and no evaluations → `take_repaint_request()` is `false` |
+All queries used (`hello`, `hello/ns-lui/add-child`, `ns-lui/remove-last`) contain no spaces or
+newlines, use no `-R/` resource part (so no store is required), and refer only to commands
+registered by the test or by `register_lui_commands!`. `ns-lui/remove-last` was executed against
+the current build to confirm it evaluates and resolves inline.
 
 ### End-to-end (Playwright)
 
 **File:** `liquers-lib/examples-web/ui_spec_demo/tests/webui.spec.ts` (extend)
 
-1. `enter key submits in the query console` — click *Add Console*, fill the input, `press('Enter')`,
-   expect the result text; assert zero `pageerror`.
-2. `console keeps the submitted query` — submit a second query, expect the input's `value` to equal
-   the submitted query after the re-render.
-3. `synchronous menu action repaints` — trigger an action with no pending asset and expect the DOM
-   to settle without any further interaction.
+1. *(stage 1)* **`inline action updates the DOM`** — add two panels, click *Remove Last Panel*,
+   expect the panel count to drop with no further interaction, and assert zero `pageerror`.
+2. *(stage 2)* **`adding a panel preserves existing nodes`** — tag an existing panel node from the
+   page, click *Add Dashboard*, expect the tag to survive and the panel count to increase.
+3. *(existing)* **`dashboard renders and reacts to a menu action`** — kept as the regression guard;
+   it passes today and must keep passing.
+
+The demo needs one addition for (1): the *Remove Last Panel* menu entry in `DASHBOARD_YAML`.
+
+### Testing gap (stated deliberately)
+
+Focus and caret preservation is **not** directly e2e-tested in this feature, because the demo has
+no focusable input — the query console belongs to `specs/ui-events/`. What is tested here is the
+mechanism that protects it: node identity across an insert (E2E 2). The caret-restore path around a
+whole-tree fallback render gets its own e2e test when the console lands in the browser demo. This is
+a deliberate scope boundary, not an oversight.
 
 ### Manual validation
 
 ```bash
-# native unit + integration
-cargo test -p liquers-lib --lib ui::widgets::query_console_element
-cargo test -p liquers-lib --test query_console_integration --test ui_runner
-
-# webui feature build (no egui/polars) + SSR tests
+# native
+cargo test -p liquers-lib --lib ui::app_state
+cargo test -p liquers-lib --test ui_invalidation --test ui_runner --test query_console_integration
 cargo test -p liquers-lib --no-default-features --features webui,image-support --test webui_ssr
-
-# wasm build
-rustup target add wasm32-unknown-unknown
 cargo check -p liquers-lib --no-default-features --features webui --target wasm32-unknown-unknown
+cargo test --workspace
 
-# browser e2e
-cd liquers-lib/examples-web/ui_spec_demo && npm ci && npx playwright install chromium && npx playwright test
+# browser
+cd liquers-lib/examples-web/ui_spec_demo && trunk serve      # http://127.0.0.1:8080
+npx playwright test
 ```
+
+Manual browser check: add three panels, remove the last — it disappears immediately; add another —
+the remaining panels do not flicker (stage 2 makes this observable in devtools as unchanged nodes).
+
+For W4 there is nothing to run: verification is that `specs/ISSUES.md` records the wasm issue as
+resolved by `async-wasm-refactor`, and that the existing Playwright suite still passes — which it
+does today.
 
 ## Auto-Invoke: liquers-unittest Skill Output
 
-Applying the project's unit-test conventions (`#[cfg(test)] mod tests` in-file, `#[tokio::test]`
-for async, memory stores for fixtures, no `unwrap()` outside tests) the generated skeletons are:
+Applying the project's test conventions (in-file `#[cfg(test)] mod tests`, `#[tokio::test]` for
+async, `-> Result<(), Box<dyn std::error::Error>>` where `?` is used, no `unwrap()`/`expect()`
+outside tests, explicit match arms, `type CommandEnvironment` alias before any `register_command!`):
 
 ```rust
-// liquers-lib/src/ui/widgets/query_console_element.rs
-#[test]
-fn snapshot_query_updates_query_text() {
-    let mut c = QueryConsoleElement::new("C".to_string(), "old-q".to_string());
-    c.set_handle(UIHandle(1));
-    let (ctx, _rx) = create_test_context();
-    let snapshot = AssetSnapshot {
-        query: "new-q".to_string(),
-        value: Some(Arc::new(Value::from("v"))),
-        metadata: Metadata::new(),
-        error: None,
-        status: Status::Ready,
-    };
-    c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
-    assert_eq!(c.query_text, "new-q");
-    assert_eq!(c.history, vec!["new-q".to_string()]);
+// liquers-lib/tests/ui_invalidation.rs — integration skeleton
+type CommandEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;
+
+fn hello(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from("Hello from test!"))
 }
-```
 
-```rust
-// liquers-lib/tests/ui_runner.rs
+fn register(env: &mut DefaultEnvironment<Value, SimpleUIPayload>) -> Result<(), Error> {
+    let cr = env.get_mut_command_registry();
+    register_command!(cr, fn hello(state) -> result)?;
+    liquers_lib::register_lui_commands!(cr)?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn repaint_requested_after_sync_mutation() {
-    let env = setup_env();
-    let envref = env.to_ref();
-    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> =
-        Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
-    let (msg_tx, msg_rx) = app_message_channel();
-    let ui_context = UIContext::new(app_state.clone(), msg_tx.clone());
-    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+async fn sync_mutation_records_change() {
+    let (app_state, ui_context, mut runner) = harness();   // as in tests/ui_runner.rs
+    let root = { /* add a root node */ };
+    { let mut s = app_state.lock().await; let _ = s.take_invalidation(); }
 
-    ui_context.submit_root_query("hello/ns-lui/add-child");
+    ui_context.submit_query(root, "hello/ns-lui/add-child");
     runner.run(&app_state).await.expect("runner.run");
 
-    assert!(runner.take_repaint_request(), "a processed message must request a repaint");
-    runner.run(&app_state).await.expect("runner.run");
-    assert!(!runner.take_repaint_request(), "an idle run must not request a repaint");
+    let mut s = app_state.lock().await;
+    match s.take_invalidation() {
+        Invalidation::Changes(v) => assert!(
+            v.iter().any(|c| matches!(c, UIChange::Inserted { parent: Some(p), .. } if *p == root)),
+            "expected an Inserted under the root, got {v:?}"
+        ),
+        Invalidation::None => panic!("a completed mutation must be recorded — this is W3"),
+        Invalidation::All => {} // acceptable escalation, but not expected here
+    }
 }
 ```
 
-**Query validation:** every query used above (`hello`, `ns-lui/submit`,
-`dashboard/q/ns-lui/add-child`, `hello/q/ns-lui/query_console/add-child`,
-`hello/ns-lui/add-child`, `hello/ns-lui/markdown`) contains no spaces or newlines, uses no `-R/`
-resource part (so no store is required), and refers only to commands registered by
-`register_lui_commands!` or by the test/example itself.
+Coverage assessment: the recording sites (U1–U10) and the state machine (U11–U13) are covered
+exhaustively; the runner's two paths (`NeedsRepaint` / `Unchanged`) are covered by I4/I5; the
+serialization contract by U15/U16; the conservative default — the property the trait-extension
+approach depends on — by U17. The DOM application logic is covered only end-to-end, because it is
+wasm-only code; its decision table (container present/absent, node present/absent, stale handle)
+is therefore worth keeping small and reviewable.
+
+## Review findings (inline)
+
+**Phase 1 conformity** — the examples exercise exactly the Phase 1 decisions: per-element
+invalidation (E2), global fallback (E3), no diff/patch (nothing compares trees), egui unaffected
+(corner case 5). The focus/caret decision is honoured by design and, as stated above, only
+proxy-tested here.
+
+**Phase 2 conformity** — every recording site in Phase 2's table has a unit test; the
+`take_element`/`put_element` silence rule is pinned by U10; the `get_element_mut` hole by U9; the
+`MAX_CHANGES` escalation by U13; the container opt-in by the stage-2 e2e test.
+
+**Codebase + query validation** — all queries are space-free, resource-free, and use registered
+commands; `ns-lui/remove-last` was executed against the current build rather than assumed; the
+integration harness mirrors `tests/ui_runner.rs`; the new test file name `ui_invalidation.rs`
+follows the existing `ui_*.rs` convention.
+
+**Open risk** — I5 (`unchanged_snapshot_records_nothing`) needs an element whose `update` returns
+`Unchanged` for an `AssetUpdate`. `QueryConsoleElement` always returns `NeedsRepaint` for that
+message, so the test needs a small purpose-built element in the test file, as `tests/ui_runner.rs`
+already does with `TestWidget`.
