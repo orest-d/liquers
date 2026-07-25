@@ -2,7 +2,7 @@
 
 **Created:** 2026-07-25
 
-**Status:** Design complete — awaiting approval to implement
+**Status:** Phase 1 (re-derived) — awaiting approval
 
 ## Scope
 
@@ -17,11 +17,17 @@ The open `webui` issues from `specs/ISSUES.md`:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design
-- [x] Phase 2: Solution & Architecture
-- [x] Phase 3: Examples & Testing
-- [x] Phase 4: Implementation Plan
+- [ ] Phase 1: High-Level Design — rewritten around demonstrating flows + the common denominator;
+      awaiting approval
+- [ ] Phase 2: Solution & Architecture — *draft only* (superseded, see note)
+- [ ] Phase 3: Examples & Testing — *draft only* (superseded, see note)
+- [ ] Phase 4: Implementation Plan — *draft only* (superseded, see note)
 - [ ] Implementation Complete
+
+> **Note on the drafts.** Phases 2–4 were produced in a single ungated pass before Phase 1 was
+> reviewed, so they encode one particular answer to Phase 1's open questions: three narrow point
+> fixes rather than a general interaction contract. They are kept as reference input and will be
+> re-derived once Phase 1 is approved.
 
 ## Notes
 
