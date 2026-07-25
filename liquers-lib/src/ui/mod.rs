@@ -14,7 +14,7 @@ pub mod web;
 pub mod widgets;
 
 pub use action::{dispatch_action, UiAction};
-pub use app_state::{AppState, DirectAppState};
+pub use app_state::{AppState, DirectAppState, Invalidation, UIChange};
 pub use element::{
     AssetViewElement, AssetViewMode, ElementSource, Placeholder, StateViewElement, UIElement,
     UpdateMessage, UpdateResponse,

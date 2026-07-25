@@ -3,7 +3,10 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 /// Type-safe handle for UI elements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// Ordered by id, which is allocation order — used to keep invalidation bookkeeping and its tests
+/// deterministic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct UIHandle(pub u64);
 
 impl From<u64> for UIHandle {

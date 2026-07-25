@@ -46,6 +46,91 @@ impl NodeData {
     }
 }
 
+// ─── Invalidation ───────────────────────────────────────────────────────────
+
+/// Maximum number of individual changes kept before `Invalidation` escalates to `All`.
+///
+/// The realistic trigger is the `AppState` lock being held across several render ticks while a
+/// burst of mutations lands. Past this point a full re-render is both cheaper to apply and
+/// constant-size, so the log is bounded rather than unbounded.
+const MAX_CHANGES: usize = 64;
+
+/// One recorded mutation of the UI tree.
+///
+/// Backend-neutral: a retained-mode backend (web) maps these to DOM operations, while an
+/// immediate-mode backend (egui) ignores the detail and simply repaints. Records are produced by
+/// `AppState`'s own mutating methods — see the mutation contract on [`AppState`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UIChange {
+    /// `handle` was added under `parent` (`None` = a root) at child index `index`.
+    Inserted {
+        parent: Option<UIHandle>,
+        handle: UIHandle,
+        index: usize,
+    },
+    /// `handle`, with its subtree, was removed from `parent` (`None` = a root).
+    Removed {
+        parent: Option<UIHandle>,
+        handle: UIHandle,
+    },
+    /// `handle`'s own rendered markup is out of date; its position in the tree did not change.
+    Replaced { handle: UIHandle },
+}
+
+/// What has changed in the model since a renderer last looked.
+///
+/// Three states, matching the three things a renderer can do: nothing, apply these changes, or
+/// re-render everything. Accumulation is an absorbing state machine — once `All` is reached,
+/// further changes are redundant and ignored.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Invalidation {
+    /// Nothing changed — the rendered output is still current.
+    #[default]
+    None,
+    /// Apply these changes, in order. Never empty: the empty case is `None`.
+    Changes(Vec<UIChange>),
+    /// Re-render everything. Used when a change cannot be attributed to individual elements: the
+    /// state was deserialized, nothing has been rendered yet, the change log overflowed, or the
+    /// `AppState` implementation does not track changes at all.
+    All,
+}
+
+impl Invalidation {
+    /// Append one change. `None` becomes `Changes`; `Changes` grows, escalating to `All` past
+    /// [`MAX_CHANGES`]; `All` absorbs (the change is already covered).
+    pub fn record(&mut self, change: UIChange) {
+        match self {
+            Invalidation::None => *self = Invalidation::Changes(vec![change]),
+            Invalidation::Changes(changes) => {
+                if changes.len() >= MAX_CHANGES {
+                    *self = Invalidation::All;
+                } else {
+                    changes.push(change);
+                }
+            }
+            Invalidation::All => {}
+        }
+    }
+
+    /// Escalate to `All` from any state.
+    pub fn set_all(&mut self) {
+        *self = Invalidation::All;
+    }
+
+    /// True only for `Invalidation::None`.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Invalidation::None => true,
+            Invalidation::Changes(_) | Invalidation::All => false,
+        }
+    }
+
+    /// Return the accumulated value and reset to `None`.
+    pub fn take(&mut self) -> Invalidation {
+        std::mem::take(self)
+    }
+}
+
 // ─── AppState Trait ─────────────────────────────────────────────────────────
 
 /// Trait for the UI application state. Manages a tree of UI elements.
@@ -1175,5 +1260,73 @@ mod tests {
     fn test_set_source_not_found() {
         let mut s = DirectAppState::new();
         assert!(s.set_source(UIHandle(99), ElementSource::None).is_err());
+    }
+
+    // ── Invalidation state machine ────────────────────────────────────────
+
+    #[test]
+    fn invalidation_default_is_none() {
+        let inv = Invalidation::default();
+        assert_eq!(inv, Invalidation::None);
+        assert!(inv.is_empty());
+    }
+
+    #[test]
+    fn invalidation_records_in_order() {
+        let mut inv = Invalidation::default();
+        inv.record(UIChange::Replaced { handle: UIHandle(1) });
+        inv.record(UIChange::Replaced { handle: UIHandle(2) });
+
+        match inv {
+            Invalidation::Changes(changes) => assert_eq!(
+                changes,
+                vec![
+                    UIChange::Replaced { handle: UIHandle(1) },
+                    UIChange::Replaced { handle: UIHandle(2) },
+                ]
+            ),
+            Invalidation::None | Invalidation::All => panic!("expected recorded changes"),
+        }
+    }
+
+    #[test]
+    fn invalidation_take_clears() {
+        let mut inv = Invalidation::default();
+        inv.record(UIChange::Replaced { handle: UIHandle(1) });
+
+        let taken = inv.take();
+        assert!(!taken.is_empty());
+        assert_eq!(inv, Invalidation::None);
+        assert_eq!(inv.take(), Invalidation::None);
+    }
+
+    #[test]
+    fn invalidation_set_all_absorbs_further_changes() {
+        let mut inv = Invalidation::default();
+        inv.record(UIChange::Replaced { handle: UIHandle(1) });
+        inv.set_all();
+        // A change recorded after All is already covered by it.
+        inv.record(UIChange::Replaced { handle: UIHandle(2) });
+        assert_eq!(inv, Invalidation::All);
+        assert!(!inv.is_empty());
+    }
+
+    #[test]
+    fn invalidation_overflow_escalates_to_all() {
+        let mut inv = Invalidation::default();
+        for i in 0..MAX_CHANGES {
+            inv.record(UIChange::Replaced {
+                handle: UIHandle(i as u64),
+            });
+        }
+        match &inv {
+            Invalidation::Changes(changes) => assert_eq!(changes.len(), MAX_CHANGES),
+            Invalidation::None | Invalidation::All => panic!("should still be tracking changes"),
+        }
+
+        inv.record(UIChange::Replaced {
+            handle: UIHandle(MAX_CHANGES as u64),
+        });
+        assert_eq!(inv, Invalidation::All, "past MAX_CHANGES it must escalate");
     }
 }
