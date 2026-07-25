@@ -17,7 +17,7 @@ component — `trunk serve` only serves static files.
 
 | Example | What it shows | Run |
 |---------|---------------|-----|
-| [`ui_spec_demo`](./ui_spec_demo) | A YAML-defined (`UISpec`) menu-driven dashboard. Clicking *Add Dashboard* submits `dashboard/q/ns-lui/add-child`, which evaluates in the browser and appends a child element to the UI tree. Exercises `mount_web` → delegated DOM listener → `UiAction` → `AppRunner` → inline evaluation → re-render. | `cd ui_spec_demo && trunk serve` → <http://127.0.0.1:8080> |
+| [`ui_spec_demo`](./ui_spec_demo) | A YAML-defined (`UISpec`) menu-driven dashboard. *Add Dashboard* submits `dashboard/q/ns-lui/add-child`, which evaluates in the browser and appends a panel; *Remove Last Panel* submits `ns-lui/remove-last`, which resolves fully inline. Exercises `mount_web` → delegated DOM listener → `UiAction` → `AppRunner` → inline evaluation → invalidation → DOM update. | `cd ui_spec_demo && trunk serve` → <http://127.0.0.1:8080> |
 
 `ui_spec_demo` also carries the Playwright end-to-end suite
 (`ui_spec_demo/tests/webui.spec.ts`) that is the acceptance test for running the engine in a real

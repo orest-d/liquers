@@ -2,7 +2,7 @@
 
 **Created:** 2026-07-25
 
-**Status:** Phase 1 (narrowed to rendering/invalidation) — awaiting approval
+**Status:** Implementation complete (2026-07-25) — W3 resolved, W4 record closed
 
 ## Scope
 
@@ -25,16 +25,18 @@ vocabulary, which nothing here does:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design — narrowed to W3 + W4; awaiting approval
-- [ ] Phase 2: Solution & Architecture — *draft only* (superseded, see note)
-- [ ] Phase 3: Examples & Testing — *draft only* (superseded, see note)
-- [ ] Phase 4: Implementation Plan — *draft only* (superseded, see note)
-- [ ] Implementation Complete
+- [x] Phase 1: High-Level Design — narrowed to W3 + W4
+- [x] Phase 2: Solution & Architecture — recorded `UIChange`s, container opt-in, mutation contract
+- [x] Phase 3: Examples & Testing
+- [x] Phase 4: Implementation Plan — 11 steps, staged
+- [x] Implementation Complete — all 11 steps executed, native suite and 3 browser cases green
 
-> **Note on the drafts.** Phases 2–4 were produced in a single ungated pass before Phase 1 was
-> reviewed. They cover the old, wider scope and encode the point-fix answer that review rejected —
-> including a global dirty flag where the decision is now per-handle invalidation. Reference only;
-> they will be re-derived for the narrowed scope once Phase 1 is approved.
+## Outcome
+
+Stage 1 (steps 1–7) made rendering follow recorded model changes; stage 2 (steps 8–10) turned
+inserts and removals into real DOM operations behind the `data-lq-children` opt-in. Both stages
+were checked in the failing direction — each new browser case fails against the behaviour it
+replaces — which is how the pre-fix measurement below was found.
 
 ## Notes
 
