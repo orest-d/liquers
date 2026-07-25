@@ -131,22 +131,43 @@ mutation):
 |---|---|---|
 | `add_node(parent, position, …)` | `Inserted { parent, handle, index }` | `parent: None` means a root; the index is the resolved insertion position |
 | `insert_node(handle, parent, position, …)` | `Inserted { … }` | same |
-| `set_element(h, _)` | `Replaced { handle: h }` | the element's markup changed |
+| `set_element(h, _)` | `Replaced { handle: h }` | installing a new or changed element |
 | `set_source(h, _)` | `Replaced { handle: h }` | a pending node renders a placeholder |
 | `remove(h)` | `Removed { parent, handle: h }` | one record for the subtree root; descendants go with it |
 | `set_active_handle(old, new)` | `Replaced` for each of `old`, `new` | active state is renderable |
-| `take_element` / `put_element` | **nothing** | see below |
+| `get_element_mut(h)` | `Replaced { handle: h }` (eager) | `&mut` means "I intend to mutate"; read-only callers have `get_element` |
+| `take_element` / `put_element` | **nothing** | the render path — see below |
 
-**`take_element`/`put_element` deliberately record nothing.** They are the extract-render-replace
-pair the *egui renderer itself* uses on every frame; recording there would mark the whole tree
-changed every frame and turn "repaint when something changed" back into "repaint always". The rule
-that replaces it:
+### The mutation contract
 
-> Structural changes record themselves. A change to an element's *content* is reported by whoever
-> made it — from `update`, via the returned `UpdateResponse::NeedsRepaint`.
+`AppState` may only be mutated through its own methods, and every command — `lui` or not — is
+responsible for mutating through them. That invariant is what makes change recording complete, and
+it is mostly structural already: commands receive `Arc<Mutex<dyn AppState>>` from the payload, so a
+trait object is the only thing they can reach; `DirectAppState`'s fields are private; and
+`get_element` hands out `&dyn UIElement`, which cannot mutate.
 
-`AppRunner::deliver_snapshot` already computes that response and currently discards it; it becomes
-the source of `Replaced` records for element-content changes.
+Two clauses need stating because they are not enforced by the type system:
+
+1. **`take_element`/`put_element` deliberately record nothing.** They are the
+   extract-render-replace pair the *egui renderer itself* uses on every frame; recording there
+   would mark the whole tree changed every frame and turn "repaint when something changed" back
+   into "repaint always". So `put_element` means *"returning the element I borrowed for
+   rendering, unchanged"* — and a caller that **did** change it must use `set_element` instead,
+   which records. The two methods have identical bodies today; this gives them distinct meaning
+   for the first time, and the doc comments must say so.
+
+2. **A change to an element's own content is reported by whoever made it.** From `update`, that is
+   the returned `UpdateResponse::NeedsRepaint` — `AppRunner::deliver_snapshot` already computes it
+   and currently discards it, and it becomes the source of `Replaced` records. From anywhere else
+   (a command that mutates a widget directly), the mutator calls
+   `record_change(UIChange::Replaced { handle })`, which is available on the same `&mut dyn AppState`
+   it is already holding.
+
+`get_element_mut` is the one hole the contract cannot close by convention: it hands out
+`&mut Box<dyn UIElement>` and the caller may or may not mutate it. Recording `Replaced` eagerly
+there is the conservative reading of `&mut` and costs nothing — the method currently has **zero
+callers in the workspace**. (Removing it instead would also be defensible for the same reason; that
+is a call for review, and eager recording is the choice unless told otherwise.)
 
 ### The container opt-in
 
@@ -290,7 +311,7 @@ operation.
 | File | Change |
 |---|---|
 | `liquers-lib/src/ui/handle.rs` | `PartialOrd, Ord` derives on `UIHandle` |
-| `liquers-lib/src/ui/app_state.rs` | `UIChange`, `Invalidation`; three trait methods with defaults; `DirectAppState` field + recording in the mutating methods; serde handling |
+| `liquers-lib/src/ui/app_state.rs` | `UIChange`, `Invalidation`; three trait methods with defaults; `DirectAppState` field + recording in the mutating methods; doc comments stating the `set_element` vs `put_element` contract; serde handling |
 | `liquers-lib/src/ui/runner.rs` | `DeliveryOutcome`; record `Replaced` when an element reports `NeedsRepaint`; drop the stray `println!` in `process_messages` |
 | `liquers-lib/src/ui/web/app.rs` | `apply_invalidation`, `apply_change`, `children_container`, focus capture/restore; the loop consumes `take_invalidation()` instead of `needs_repaint()` |
 | `liquers-lib/src/ui/widgets/ui_spec_element.rs` | emit `data-lq-children="{handle}"` on the layout wrapper in `render_web` |
@@ -322,14 +343,19 @@ Each is independently revertable; stopping after step 1 leaves a correct, coarse
 
 ### Relevant existing namespaces
 
-- **`lui`** — the mutation producers: `add` (via `insert_state` → `add_node`/`set_element`),
-  `remove`, `activate` (`set_active_handle`), and navigation commands that do not mutate. They gain
-  change recording for free by going through `AppState`; no signature changes.
+- **`lui`** — the mutation producers in this workspace: `add` (via `insert_state` →
+  `add_node`/`set_element`), `remove`, `activate` (`set_active_handle`), and navigation commands
+  that do not mutate. They gain change recording for free by going through `AppState`; no signature
+  changes.
 - **`egui` / `pl` / image namespaces** — unaffected.
 
-> **Question for review (unanswered):** is `lui` the complete set of namespaces that mutate
-> `AppState`, or is there an application-level command elsewhere that mutates the tree directly and
-> would need the same treatment?
+**Resolved in review:** `lui` is *not* assumed to be the complete set. Any application may define
+non-standard commands that mutate the UI tree, and the rule that covers them is the mutation
+contract above — `AppState` is only mutated through its own methods, and such a command is
+responsible for doing that correctly. Because recording lives *inside* those methods, an unknown
+command gets it for free; the only obligations it inherits are the two clauses that convention
+rather than the compiler enforces (use `set_element` rather than `put_element` when the element
+changed; record `Replaced` when mutating an element's content outside `update`).
 
 ## Web Endpoints
 
@@ -423,6 +449,20 @@ here for the record.
   container opt-in is declared in markup by the widget that renders the children.
 - Recording is not diffing: no tree comparison, no reconciliation heuristics — so Phase 1's
   "no diff/patch" decision is intact.
+
+**Review round 3 (the mutation contract) — folded in**
+
+- The completeness of change recording rests on one invariant: `AppState` is mutated only through
+  its own methods. It is largely structural — commands see `dyn AppState` through the payload,
+  `DirectAppState`'s fields are private, `get_element` is immutable — so an unknown, non-`lui`
+  command inherits recording automatically as long as it obeys it.
+- Audit of the escape hatches found one real hole: `get_element_mut` hands out
+  `&mut Box<dyn UIElement>` with no signal about whether the caller mutated. It has **zero callers
+  in the workspace**, so eager `Replaced` recording (the conservative reading of `&mut`) costs
+  nothing; removing the method is the alternative.
+- `set_element` and `put_element` have identical bodies today, so nothing distinguishes "installing
+  a changed element" from "returning one borrowed for rendering". Recording splits them, which is
+  why the doc comments must state the distinction rather than leaving it implicit.
 
 **Phase 1 conformity**
 
