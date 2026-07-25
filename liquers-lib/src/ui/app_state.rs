@@ -137,6 +137,21 @@ impl Invalidation {
 ///
 /// All methods are synchronous — AppState holds in-memory data only.
 /// When used from async contexts, wrap in `Arc<std::sync::Mutex<dyn AppState>>`.
+///
+/// # Mutation contract
+///
+/// `AppState` must only be mutated through its own methods — including by application-defined
+/// commands, which reach it as a trait object and are responsible for doing so correctly. That
+/// invariant is what makes change recording complete: the mutating methods record a [`UIChange`],
+/// and a renderer applies the accumulated [`Invalidation`].
+///
+/// Two clauses the compiler cannot enforce:
+///
+/// 1. [`AppState::put_element`] returns an element borrowed for rendering **unchanged** and records
+///    nothing; use [`AppState::set_element`] when the element actually changed.
+/// 2. A change to an element's *content* is reported by whoever made it — from `update` via the
+///    returned `UpdateResponse::NeedsRepaint`, and from anywhere else via
+///    [`AppState::record_change`].
 pub trait AppState: Send + Sync + std::fmt::Debug {
     // ── Node Creation ────────────────────────────────────────────────────
 
@@ -166,19 +181,33 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
     fn get_element(&self, handle: UIHandle) -> Result<Option<&dyn UIElement>, Error>;
 
     /// Get a mutable reference to the element at this handle.
+    ///
+    /// Records `UIChange::Replaced` eagerly: `&mut` means "I intend to mutate", and there is no
+    /// way to learn afterwards whether the caller did. Callers that only read should use
+    /// [`AppState::get_element`].
     fn get_element_mut(
         &mut self,
         handle: UIHandle,
     ) -> Result<Option<&mut Box<dyn UIElement>>, Error>;
 
-    /// Set the element for a node. Does NOT call init() — the caller
-    /// (typically AppRunner) is responsible for calling init() with a UIContext.
+    /// Install a new or changed element on a node, recording `UIChange::Replaced`.
+    ///
+    /// Does NOT call init() — the caller (typically AppRunner) is responsible for calling init()
+    /// with a UIContext. Use this, not [`AppState::put_element`], whenever the element differs
+    /// from what was there before.
     fn set_element(&mut self, handle: UIHandle, element: Box<dyn UIElement>) -> Result<(), Error>;
 
     /// Temporarily remove the element from a node (for extract-render-replace).
+    ///
+    /// Records nothing: this is the borrow half of the render path.
     fn take_element(&mut self, handle: UIHandle) -> Result<Box<dyn UIElement>, Error>;
 
-    /// Put back an element that was taken with take_element.
+    /// Return an element borrowed with [`AppState::take_element`], **unchanged**.
+    ///
+    /// Records nothing, because immediate-mode rendering borrows and returns every element on
+    /// every frame; recording here would mark the whole tree changed continuously. A caller that
+    /// *did* change the element must use [`AppState::set_element`] instead, or record
+    /// `UIChange::Replaced` itself.
     fn put_element(&mut self, handle: UIHandle, element: Box<dyn UIElement>) -> Result<(), Error>;
 
     // ── Node Data Access ─────────────────────────────────────────────────
@@ -388,6 +417,36 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
 
     /// Total number of nodes.
     fn node_count(&self) -> usize;
+
+    // ── Invalidation ─────────────────────────────────────────────────────
+
+    /// Record one structural change for the renderer.
+    ///
+    /// Called by this trait's own mutating methods; also available to a command that mutates an
+    /// element's content directly, which must report `UIChange::Replaced` itself.
+    ///
+    /// Default: escalates to [`AppState::invalidate_all`] — correct, just coarser.
+    fn record_change(&mut self, change: UIChange) {
+        let _ = change;
+        self.invalidate_all();
+    }
+
+    /// Record that the whole tree must be re-rendered.
+    ///
+    /// Default: no-op, paired with the [`AppState::take_invalidation`] default below.
+    fn invalidate_all(&mut self) {}
+
+    /// Take and clear the pending invalidation.
+    ///
+    /// **Exactly one renderer per application may call this** — two consumers would each see only
+    /// part of the history.
+    ///
+    /// Default: `Invalidation::All`. An implementation that does not track changes thereby tells
+    /// every renderer to re-render everything, which is the behaviour before invalidation existed:
+    /// coarse, but never stale.
+    fn take_invalidation(&mut self) -> Invalidation {
+        Invalidation::All
+    }
 }
 
 // ─── DirectAppState ─────────────────────────────────────────────────────────
@@ -400,6 +459,9 @@ pub struct DirectAppState {
     nodes: HashMap<UIHandle, NodeData>,
     next_id: AtomicU64,
     active_handle: Option<UIHandle>,
+    /// Transient render bookkeeping — never serialized. Starts at `All` so a renderer attaching to
+    /// a fresh or restored state always paints once, with no "first frame" special case.
+    invalidation: Invalidation,
 }
 
 impl DirectAppState {
@@ -408,6 +470,7 @@ impl DirectAppState {
             nodes: HashMap::new(),
             next_id: AtomicU64::new(1),
             active_handle: None,
+            invalidation: Invalidation::All,
         }
     }
 
@@ -462,13 +525,23 @@ impl AppState for DirectAppState {
         self.nodes.insert(handle, node);
 
         // Link to parent
+        let mut index = position;
         if let Some(parent_handle) = parent {
             if let Some(parent_node) = self.nodes.get_mut(&parent_handle) {
                 let insert_pos = position.min(parent_node.children.len());
                 parent_node.children.insert(insert_pos, handle);
+                index = insert_pos;
             }
+        } else {
+            // Roots are rendered in ascending handle order, which is insertion order.
+            index = self.roots().iter().position(|h| *h == handle).unwrap_or(0);
         }
 
+        self.record_change(UIChange::Inserted {
+            parent,
+            handle,
+            index,
+        });
         Ok(handle)
     }
 
@@ -506,13 +579,22 @@ impl AppState for DirectAppState {
         self.nodes.insert(handle, node);
 
         // Link to parent
+        let mut index = position;
         if let Some(parent_handle) = parent {
             if let Some(parent_node) = self.nodes.get_mut(&parent_handle) {
                 let insert_pos = position.min(parent_node.children.len());
                 parent_node.children.insert(insert_pos, handle);
+                index = insert_pos;
             }
+        } else {
+            index = self.roots().iter().position(|h| *h == handle).unwrap_or(0);
         }
 
+        self.record_change(UIChange::Inserted {
+            parent,
+            handle,
+            index,
+        });
         Ok(())
     }
 
@@ -528,6 +610,11 @@ impl AppState for DirectAppState {
         &mut self,
         handle: UIHandle,
     ) -> Result<Option<&mut Box<dyn UIElement>>, Error> {
+        // Record before handing out `&mut`: there is no way to learn afterwards whether the
+        // caller mutated, so `&mut` is taken at its word.
+        if self.nodes.contains_key(&handle) {
+            self.record_change(UIChange::Replaced { handle });
+        }
         let node = self
             .nodes
             .get_mut(&handle)
@@ -541,6 +628,7 @@ impl AppState for DirectAppState {
             .get_mut(&handle)
             .ok_or_else(|| Error::general_error(format!("Node not found: {:?}", handle)))?;
         node.element = Some(element);
+        self.record_change(UIChange::Replaced { handle });
         Ok(())
     }
 
@@ -577,6 +665,8 @@ impl AppState for DirectAppState {
             .get_mut(&handle)
             .ok_or_else(|| Error::general_error(format!("Node not found: {:?}", handle)))?;
         node.source = source;
+        // A pending node renders a placeholder, so its source is renderable state.
+        self.record_change(UIChange::Replaced { handle });
         Ok(())
     }
 
@@ -612,6 +702,8 @@ impl AppState for DirectAppState {
             self.active_handle = None;
         }
 
+        // One record for the subtree root; its descendants go with it.
+        self.record_change(UIChange::Removed { parent, handle });
         Ok(())
     }
 
@@ -666,7 +758,17 @@ impl AppState for DirectAppState {
     }
 
     fn set_active_handle(&mut self, handle: Option<UIHandle>) {
+        let previous = self.active_handle;
+        if previous == handle {
+            return;
+        }
         self.active_handle = handle;
+        // Active state is renderable, so both the old and the new element are out of date.
+        for changed in [previous, handle].into_iter().flatten() {
+            if self.nodes.contains_key(&changed) {
+                self.record_change(UIChange::Replaced { handle: changed });
+            }
+        }
     }
 
     fn pending_nodes(&self) -> Vec<UIHandle> {
@@ -682,6 +784,18 @@ impl AppState for DirectAppState {
 
     fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    fn record_change(&mut self, change: UIChange) {
+        self.invalidation.record(change);
+    }
+
+    fn invalidate_all(&mut self) {
+        self.invalidation.set_all();
+    }
+
+    fn take_invalidation(&mut self) -> Invalidation {
+        self.invalidation.take()
     }
 }
 
@@ -719,6 +833,9 @@ impl<'de> Deserialize<'de> for DirectAppState {
             nodes: snapshot.nodes,
             next_id: AtomicU64::new(snapshot.next_id),
             active_handle: snapshot.active_handle,
+            // A restored state has never been rendered by the attached renderer, and there are no
+            // change records describing how it got here — so everything is out of date.
+            invalidation: Invalidation::All,
         })
     }
 }
@@ -1260,6 +1377,395 @@ mod tests {
     fn test_set_source_not_found() {
         let mut s = DirectAppState::new();
         assert!(s.set_source(UIHandle(99), ElementSource::None).is_err());
+    }
+
+    // ── Invalidation: recording sites ─────────────────────────────────────
+
+    /// Drain the initial `All` so a test can assert on what the operation under test recorded.
+    fn drained() -> DirectAppState {
+        let mut s = DirectAppState::new();
+        let _ = s.take_invalidation();
+        s
+    }
+
+    /// The recorded changes, or a panic naming what was found instead.
+    fn changes(s: &mut DirectAppState) -> Vec<UIChange> {
+        match s.take_invalidation() {
+            Invalidation::Changes(v) => v,
+            Invalidation::None => panic!("expected recorded changes, got None"),
+            Invalidation::All => panic!("expected recorded changes, got All"),
+        }
+    }
+
+    #[test]
+    fn add_node_records_inserted() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        let child = s.add_node(Some(root), 0, ElementSource::None)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Inserted {
+                parent: Some(root),
+                handle: child,
+                index: 0
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn add_node_records_resolved_index() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+        let _first = s.add_node(Some(root), 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        // Position beyond the end is clamped when linking; the record must carry the real index.
+        let last = s.add_node(Some(root), 99, ElementSource::None)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Inserted {
+                parent: Some(root),
+                handle: last,
+                index: 1
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn add_root_records_inserted_with_no_parent() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Inserted {
+                parent: None,
+                handle: root,
+                index: 0
+            }],
+            "a root add is expressible as an insert, not an escalation to All"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn insert_node_records_inserted() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        s.insert_node(UIHandle(42), Some(root), 0, ElementSource::None)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Inserted {
+                parent: Some(root),
+                handle: UIHandle(42),
+                index: 0
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn set_element_records_replaced() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let h = s.add_node(None, 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        s.set_element(h, Box::new(Placeholder::new()))?;
+
+        assert_eq!(changes(&mut s), vec![UIChange::Replaced { handle: h }]);
+        Ok(())
+    }
+
+    #[test]
+    fn set_source_records_replaced() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let h = s.add_node(None, 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        s.set_source(h, ElementSource::Query("hello".into()))?;
+
+        assert_eq!(changes(&mut s), vec![UIChange::Replaced { handle: h }]);
+        Ok(())
+    }
+
+    #[test]
+    fn remove_records_removed_with_parent() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+        let child = s.add_node(Some(root), 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        s.remove(child)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Removed {
+                parent: Some(root),
+                handle: child
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn remove_records_one_change_for_a_subtree() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+        let child = s.add_node(Some(root), 0, ElementSource::None)?;
+        let _grandchild = s.add_node(Some(child), 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        s.remove(child)?;
+
+        assert_eq!(
+            changes(&mut s).len(),
+            1,
+            "descendants go with the subtree root; they need no records of their own"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn remove_root_records_parent_none() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let root = s.add_node(None, 0, ElementSource::None)?;
+        let _ = s.take_invalidation();
+
+        s.remove(root)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Removed {
+                parent: None,
+                handle: root
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn set_active_handle_records_both() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let a = s.add_node(None, 0, ElementSource::None)?;
+        let b = s.add_node(None, 1, ElementSource::None)?;
+        s.set_active_handle(Some(a));
+        let _ = s.take_invalidation();
+
+        s.set_active_handle(Some(b));
+
+        assert_eq!(
+            changes(&mut s),
+            vec![
+                UIChange::Replaced { handle: a },
+                UIChange::Replaced { handle: b },
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn set_active_handle_to_same_records_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let a = s.add_node(None, 0, ElementSource::None)?;
+        s.set_active_handle(Some(a));
+        let _ = s.take_invalidation();
+
+        s.set_active_handle(Some(a));
+
+        assert_eq!(s.take_invalidation(), Invalidation::None);
+        Ok(())
+    }
+
+    #[test]
+    fn get_element_mut_records_replaced() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let h = s.add_node(None, 0, ElementSource::None)?;
+        s.set_element(h, Box::new(Placeholder::new()))?;
+        let _ = s.take_invalidation();
+
+        let _elem = s.get_element_mut(h)?;
+
+        assert_eq!(
+            changes(&mut s),
+            vec![UIChange::Replaced { handle: h }],
+            "&mut access must not be able to bypass recording"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn take_and_put_element_record_nothing() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = drained();
+        let h = s.add_node(None, 0, ElementSource::None)?;
+        s.set_element(h, Box::new(Placeholder::new()))?;
+        let _ = s.take_invalidation();
+
+        // The extract-render-replace pair an immediate-mode backend runs every frame.
+        let elem = s.take_element(h)?;
+        s.put_element(h, elem)?;
+
+        assert_eq!(
+            s.take_invalidation(),
+            Invalidation::None,
+            "recording here would mark the tree changed on every rendered frame"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn new_state_starts_all() {
+        let mut s = DirectAppState::new();
+        assert_eq!(
+            s.take_invalidation(),
+            Invalidation::All,
+            "a renderer attaching to a fresh state must paint once"
+        );
+    }
+
+    // ── Invalidation: serialization ───────────────────────────────────────
+
+    #[test]
+    fn serialize_omits_invalidation() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = DirectAppState::new();
+        let h = s.add_node(None, 0, ElementSource::None)?;
+        s.set_element(h, Box::new(Placeholder::new()))?;
+
+        let json = serde_json::to_string(&s)?;
+
+        assert!(
+            !json.contains("invalidation"),
+            "the persisted format must be unchanged: {json}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_starts_all() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = DirectAppState::new();
+        let h = s.add_node(None, 0, ElementSource::None)?;
+        s.set_element(h, Box::new(Placeholder::new()))?;
+        let json = serde_json::to_string(&s)?;
+
+        let mut restored: DirectAppState = serde_json::from_str(&json)?;
+
+        assert_eq!(
+            restored.take_invalidation(),
+            Invalidation::All,
+            "a restored state has no change records, so it must ask for a full render"
+        );
+        Ok(())
+    }
+
+    // ── Invalidation: the conservative trait defaults ─────────────────────
+
+    /// An `AppState` that overrides none of the invalidation methods. Exists to pin the property
+    /// the whole trait-extension approach rests on: not tracking degrades to a full re-render,
+    /// never to a stale one.
+    #[derive(Debug, Default)]
+    struct NonTrackingAppState {
+        inner: DirectAppState,
+    }
+
+    impl AppState for NonTrackingAppState {
+        fn add_node(
+            &mut self,
+            parent: Option<UIHandle>,
+            position: usize,
+            source: ElementSource,
+        ) -> Result<UIHandle, Error> {
+            self.inner.add_node(parent, position, source)
+        }
+        fn insert_node(
+            &mut self,
+            handle: UIHandle,
+            parent: Option<UIHandle>,
+            position: usize,
+            source: ElementSource,
+        ) -> Result<(), Error> {
+            self.inner.insert_node(handle, parent, position, source)
+        }
+        fn get_element(&self, handle: UIHandle) -> Result<Option<&dyn UIElement>, Error> {
+            self.inner.get_element(handle)
+        }
+        fn get_element_mut(
+            &mut self,
+            handle: UIHandle,
+        ) -> Result<Option<&mut Box<dyn UIElement>>, Error> {
+            self.inner.get_element_mut(handle)
+        }
+        fn set_element(
+            &mut self,
+            handle: UIHandle,
+            element: Box<dyn UIElement>,
+        ) -> Result<(), Error> {
+            self.inner.set_element(handle, element)
+        }
+        fn take_element(&mut self, handle: UIHandle) -> Result<Box<dyn UIElement>, Error> {
+            self.inner.take_element(handle)
+        }
+        fn put_element(
+            &mut self,
+            handle: UIHandle,
+            element: Box<dyn UIElement>,
+        ) -> Result<(), Error> {
+            self.inner.put_element(handle, element)
+        }
+        fn get_source(&self, handle: UIHandle) -> Result<&ElementSource, Error> {
+            self.inner.get_source(handle)
+        }
+        fn set_source(&mut self, handle: UIHandle, source: ElementSource) -> Result<(), Error> {
+            self.inner.set_source(handle, source)
+        }
+        fn remove(&mut self, handle: UIHandle) -> Result<(), Error> {
+            self.inner.remove(handle)
+        }
+        fn roots(&self) -> Vec<UIHandle> {
+            self.inner.roots()
+        }
+        fn parent(&self, handle: UIHandle) -> Result<Option<UIHandle>, Error> {
+            self.inner.parent(handle)
+        }
+        fn children(&self, handle: UIHandle) -> Result<Vec<UIHandle>, Error> {
+            self.inner.children(handle)
+        }
+        fn sibling(&self, handle: UIHandle, offset: i32) -> Result<Option<UIHandle>, Error> {
+            self.inner.sibling(handle, offset)
+        }
+        fn active_handle(&self) -> Option<UIHandle> {
+            self.inner.active_handle()
+        }
+        fn set_active_handle(&mut self, handle: Option<UIHandle>) {
+            self.inner.set_active_handle(handle)
+        }
+        fn pending_nodes(&self) -> Vec<UIHandle> {
+            self.inner.pending_nodes()
+        }
+        fn node_count(&self) -> usize {
+            self.inner.node_count()
+        }
+    }
+
+    #[test]
+    fn default_trait_methods_report_all() -> Result<(), Box<dyn std::error::Error>> {
+        let mut s = NonTrackingAppState::default();
+        s.add_node(None, 0, ElementSource::None)?;
+        s.invalidate_all(); // default: no-op
+
+        assert_eq!(
+            s.take_invalidation(),
+            Invalidation::All,
+            "an implementation that tracks nothing must ask for a full render, never report None"
+        );
+        Ok(())
     }
 
     // ── Invalidation state machine ────────────────────────────────────────
