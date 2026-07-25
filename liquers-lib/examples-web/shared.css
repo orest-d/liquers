@@ -1,0 +1,91 @@
+/* Shared styling for the browser examples. The webui backend emits stable `lq-*` class names and
+   `ui-element-{handle}` ids, so one stylesheet covers every example. */
+body {
+  font-family: system-ui, sans-serif;
+  margin: 1rem;
+  color: #1a1a1a;
+}
+
+.lq-blurb {
+  color: #555;
+  margin-top: -0.5rem;
+}
+
+.lq-menubar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #ccc;
+}
+
+.lq-menu-button {
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+
+.lq-menu {
+  position: relative;
+}
+
+.lq-menu-label {
+  cursor: default;
+  padding: 0.25rem 0.5rem;
+  font-weight: 600;
+}
+
+.lq-submenu {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.lq-layout-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lq-layout-horizontal,
+.lq-layout-grid,
+.lq-layout-tabs,
+.lq-layout-windows {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.lq-element {
+  border: 1px solid #e0e0e0;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.lq-qc-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.lq-query-input {
+  flex: 1;
+  padding: 0.25rem;
+  font-family: ui-monospace, monospace;
+}
+
+.lq-go {
+  cursor: pointer;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  background: #f5f5f5;
+}
+
+.lq-error {
+  color: #b00020;
+}
+
+.lq-pending {
+  color: #888;
+  font-style: italic;
+}
