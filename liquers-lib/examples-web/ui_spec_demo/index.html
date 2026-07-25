@@ -5,17 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Liquers webui — UISpec demo</title>
     <link data-trunk rel="rust" data-wasm-opt="0" />
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 1rem; }
-      .lq-menubar { display: flex; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid #ccc; }
-      .lq-menu-button { cursor: pointer; padding: .25rem .5rem; }
-      .lq-layout-vertical { display: flex; flex-direction: column; gap: .5rem; }
-      .lq-layout-horizontal { display: flex; flex-direction: row; gap: .5rem; }
-      .lq-element { border: 1px solid #e0e0e0; padding: .5rem; border-radius: 4px; }
-    </style>
+    <link data-trunk rel="css" href="../shared.css" />
   </head>
   <body>
     <h2>Liquers webui — UISpec demo</h2>
+    <p class="lq-blurb">A menu-driven dashboard: add panels, remove the last one, or add a nested group.</p>
     <div id="app"></div>
   </body>
 </html>

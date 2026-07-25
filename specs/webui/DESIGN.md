@@ -38,6 +38,20 @@ compilation relaxing the core async traits to non-`Send` on wasm (`MaybeSend`/`M
 on wasm, so **this example runs unchanged in the browser**. wasm tokio reduced to `["sync"]`. The
 deferred M4 Playwright e2e (`tests/webui.spec.ts`) now **passes in headless Chromium** — 1 passed.
 
+## Follow-up: rendering follows the model (`specs/webui-fixes/`, 2026-07-25)
+
+The browser loop originally re-rendered when `AppRunner::needs_repaint()` reported async work in
+flight. With the inline asset manager that is almost never true at the moment it is asked, so menu
+actions produced no DOM update at all — the M4 e2e passed only because its text assertion was
+satisfied by a menu label before any click. `AppState` now records what changed (`UIChange` →
+`Invalidation`) and the renderer applies it, performing real DOM inserts and removals for widgets
+that declare a `data-lq-children` container. See `specs/webui-fixes/` and ISSUES
+(WEBUI-REPAINT-AFTER-SYNC-MUTATION, resolved).
+
+The *interaction* half — Enter not submitting in the query console, the submitted query not
+reaching the element, and menu accelerators being egui-only — is designed separately in
+`specs/ui-events/`.
+
 ## Notes
 
 - Design docs (Phases 1–4) reflect the approved design; the "Option A (keep tokio, verify by test)"

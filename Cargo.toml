@@ -1,3 +1,16 @@
 [workspace]
 resolver = "2"
 members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib"]
+
+# Debug info dominates the size of `target/` and is the difference between a test run that fits in
+# a constrained environment and one that does not: measured on `cargo test -p liquers-lib --lib
+# --tests`, full debug info costs 22.6 GB and 288 s, these settings cost 4.2 GB and 183 s.
+# A failing assertion still reports its own file:line (that comes from #[track_caller], not from
+# debug info); what is lost is line numbers in RUST_BACKTRACE frames and full debugger support.
+# When stepping through a debugger, override locally with `RUSTFLAGS="-Cdebuginfo=2"`.
+# See CLAUDE.md → "Building and testing".
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = 0

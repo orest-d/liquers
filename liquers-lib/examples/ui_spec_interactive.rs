@@ -15,8 +15,7 @@ use liquers_lib::ui::widgets::ui_spec_element::{
     LayoutSpec, MenuAction, MenuBarSpec, MenuItem, TopLevelItem, UISpec, UISpecElement,
 };
 use liquers_lib::ui::{
-    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
-    ElementSource, UIContext, UIElement,
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState, ElementSource, Invalidation, UIContext, UIElement,
 };
 use liquers_lib::value::Value;
 use liquers_macro::register_command;
@@ -140,8 +139,13 @@ impl eframe::App for InteractiveSpecApp {
             ._runtime
             .block_on(async { self.app_runner.run(&app_state).await });
 
-        // Keep repainting while there are in-flight evaluations
-        if self.app_runner.needs_repaint() {
+        // Repaint when the model changed (taken unconditionally so the record always clears)
+        // or while async work is still in flight.
+        let model_changed = {
+            let mut state = app_state.blocking_lock();
+            !matches!(state.take_invalidation(), Invalidation::None)
+        };
+        if model_changed || self.app_runner.needs_repaint() {
             ctx.request_repaint();
         }
 

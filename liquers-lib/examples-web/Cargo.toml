@@ -1,0 +1,24 @@
+# Workspace for the browser (wasm) examples.
+#
+# Deliberately *not* a member of the repository's root workspace: the root pulls in
+# dev-dependencies and crates that do not build for wasm32. Grouping the examples into one
+# workspace of their own gives them a single shared `target/` and one `Cargo.lock`, which matters
+# in constrained environments — seven standalone crates would each carry their own copy of every
+# dependency's artifacts.
+[workspace]
+resolver = "2"
+members = [
+    "ui_spec_demo",
+    "ui_hello",
+    "ui_spec_simple",
+    "ui_spec_interactive",
+    "ui_payload_app",
+    "ui_button_app",
+    "ui_query_console_app",
+]
+
+# Same reasoning as the root workspace (see CLAUDE.md → "Building and testing"): debug info
+# dominates artifact size, and these builds are additive to whatever the main workspace already
+# occupies. Trunk builds through the dev profile.
+[profile.dev]
+debug = "line-tables-only"

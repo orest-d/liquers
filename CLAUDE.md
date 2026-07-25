@@ -94,6 +94,76 @@ mod tests {
 - Memory stores for testing: `MemoryStore::new(&Key::new())`, wrapped via `AsyncStoreWrapper`
 - See `liquers-core/tests/async_hellow_world.rs` for full flow: Environment with memory store, RecipeProvider, command registration, query evaluation
 
+## Building and testing
+
+Rust debug builds of this workspace are large — large enough that a full build does not fit in a
+cloud dev environment (Claude Code on the web caps sessions at **30 GB of disk**, and `df` reports
+the allowance, not the machine). The settings below are already applied; this section records what
+they are worth so nobody removes them by accident.
+
+### Default test command
+
+```bash
+cargo test -p liquers-lib --lib --tests     # the normal loop: unit + integration, no examples
+```
+
+`liquers-lib` is where most work lands and it transitively builds `liquers-core`, `liquers-macro`
+and `liquers-store`. Run the browser tests **separately, after `cargo clean`** — they build a
+different target and their own crate:
+
+```bash
+cargo clean
+cd liquers-lib/examples-web/ui_spec_demo && trunk build && npx playwright test
+```
+
+Avoid `cargo test --workspace` in a constrained environment: it also builds the examples and every
+crate's test binaries at once, which is what exhausts the allowance.
+
+### Applied measures, in order of effect
+
+Measured on a cold `cargo test -p liquers-lib --lib --tests` (`cargo clean` before each,
+`CARGO_INCREMENTAL=0`, all 14 suites passing in every configuration):
+
+| Configuration | `target/` | Wall time |
+|---|---|---|
+| Full debug info + vendored OpenSSL (former default) | 22.5 GB | 6m17s |
+| …system OpenSSL | 22.1 GB | 4m48s |
+| **…+ thin debug info (current settings)** | **4.2 GB** | **3m03s** |
+| …but `[profile.test]` inheriting line tables | 9.4 GB | 3m30s |
+| …`--release` instead | 2.5 GB | 12m05s |
+
+1. **Thin debug info** — `[profile.dev] debug = "line-tables-only"` and `[profile.test] debug = 0`
+   in the workspace `Cargo.toml`. **81% smaller and 36% faster**, and it costs less than it sounds:
+   a failing assertion still reports its own `file:line`, because that comes from `#[track_caller]`
+   rather than debug info. What is lost is line numbers in `RUST_BACKTRACE` frames and full
+   debugger support — recover either temporarily with `RUSTFLAGS="-Cdebuginfo=2" cargo test …`.
+2. **System OpenSSL** — `liquers-lib`'s `openssl` dependency no longer uses `features =
+   ["vendored"]`, so it links the system library instead of compiling OpenSSL from source. Small on
+   disk, but ~90 s off every cold build. Requires OpenSSL development headers (`libssl-dev`);
+   re-add `vendored` if you build where they are absent.
+3. **`CARGO_INCREMENTAL=0`** for one-shot/CI-style runs. Incremental caches reached ~2 GB here and
+   buy nothing when the build is not repeated.
+
+### Not recommended
+
+- **`--release` for the routine test loop.** Smallest on disk, but 4× slower to build, and it
+  changes what the tests exercise: `debug_assertions` and integer-overflow checks are off, so
+  `debug_assert!` never runs. Use it deliberately (a performance check), not as the default.
+- **Raising the ceiling.** There is no setting for it; cloud sessions are fixed at ~16 GB RAM and
+  30 GB disk. For genuinely bigger workloads the documented route is Remote Control (Claude Code
+  against your own hardware).
+
+The table's figures are **clean-build** sizes. Changing a profile setting does not invalidate
+artifacts built under the previous one, so a `target/` that has seen several configurations grows
+well past them — run `cargo clean` after editing a profile if the size matters.
+
+### When a build fails with "No space left on device"
+
+Deletes still succeed while writes fail, so recovery is local: `cargo clean` (or delete
+`target/debug/incremental` and `target/debug/examples` first, which is usually enough). Check with
+`df -h /` — "Avail" near zero with a low "Used" means the allowance is spent, not that the machine
+is broken.
+
 ## Constraints
 
 ### Do NOT

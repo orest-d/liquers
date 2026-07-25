@@ -3,10 +3,6 @@ name = "ui_spec_demo_web"
 version = "0.1.0"
 edition = "2021"
 
-# Standalone crate (its own workspace root) so it does not inherit the parent
-# workspace's members or dev-dependencies.
-[workspace]
-
 [lib]
 crate-type = ["cdylib"]
 
