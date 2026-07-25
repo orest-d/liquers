@@ -15,26 +15,43 @@ back to a whole-tree render when a change cannot be attributed to a handle.
 
 ## Data Structures
 
-### New struct: `Invalidation`
+### New enum: `Invalidation`
 
 ```rust
 // liquers-lib/src/ui/app_state.rs
 
-/// What has changed in the model since a renderer last looked.
-///
-/// `all` means "cannot be attributed to individual elements" (the root set changed, the state was
-/// deserialized); a renderer must then re-render everything. Otherwise `handles` lists the
-/// elements whose rendered form is out of date.
+/// What has changed in the model since a renderer last looked. Exactly three states, matching the
+/// three things a renderer can do.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Invalidation {
-    all: bool,
-    handles: BTreeSet<UIHandle>,
+pub enum Invalidation {
+    /// Nothing changed — the rendered output is still current.
+    #[default]
+    None,
+    /// These elements' rendered form is out of date; everything else is current.
+    /// Never empty: the empty case is `None`.
+    Elements(BTreeSet<UIHandle>),
+    /// The whole tree must be re-rendered. Used when a change cannot be attributed to individual
+    /// elements — the root set changed, the state was deserialized, or the `AppState`
+    /// implementation does not track changes at all.
+    All,
 }
 ```
 
-Rationale for a struct rather than an enum: `all` and `handles` are not mutually exclusive while
-being accumulated, and a struct avoids an exhaustive `match` at every consumer for a value that has
-no meaningful variants beyond "empty / some / everything".
+Accumulation is an **absorbing state machine**, which is what makes the three states unambiguous:
+
+| Current | `insert(h)` | `set_all()` |
+|---|---|---|
+| `None` | `Elements({h})` | `All` |
+| `Elements(s)` | `Elements(s ∪ {h})` | `All` |
+| `All` | `All` (ignored — already covered) | `All` |
+
+`take()` returns the value and resets to `None`.
+
+*(An earlier draft made this a struct with an `all: bool` **and** a handle set. That was wrong:
+once `all` is set the handle set carries no information, so the struct had a redundant state with
+no defined meaning. The enum has one representation per situation, and the project's
+no-default-match-arm rule then forces every consumer to handle all three — which are exactly the
+renderer's three code paths: do nothing, re-render those subtrees, re-render everything.)*
 
 `BTreeSet` (not `HashSet`) for deterministic iteration — tests assert on it, and the
 descendant-filter step below reads better in ascending handle order. This requires `UIHandle` to be
@@ -58,10 +75,10 @@ One new field:
 invalidation: Invalidation,
 ```
 
-`DirectAppState::new()` starts with `all = true`, so a renderer that attaches to a
+`DirectAppState::new()` starts at `Invalidation::All`, so a renderer that attaches to a
 freshly-built state always paints once without a special "first frame" flag.
 
-### No new enums, no `ExtValue` variants, no new value types.
+### No `ExtValue` variants, no new value types.
 
 ## Trait Implementations
 
@@ -80,10 +97,10 @@ fn invalidate(&mut self, handle: UIHandle) {
 fn invalidate_all(&mut self) {}
 
 /// Take and clear the pending invalidation. Exactly one renderer per application may call this.
-/// Default: `Invalidation::all()` — an implementation that does not track changes tells every
+/// Default: `Invalidation::All` — an implementation that does not track changes tells every
 /// renderer to re-render everything, which is what the web backend does today. Never stale.
 fn take_invalidation(&mut self) -> Invalidation {
-    Invalidation::all()
+    Invalidation::All
 }
 ```
 
@@ -139,19 +156,21 @@ No I/O is introduced, so nothing new becomes async.
 ```rust
 // liquers-lib/src/ui/app_state.rs
 impl Invalidation {
-    pub fn all() -> Self;
-    pub fn is_empty(&self) -> bool;
-    pub fn is_all(&self) -> bool;
-    pub fn handles(&self) -> impl Iterator<Item = UIHandle> + '_;
+    /// Add one element. `None` → `Elements({h})`; `Elements` grows; `All` absorbs (no-op).
     pub fn insert(&mut self, handle: UIHandle);
+    /// Escalate to `All` from any state.
     pub fn set_all(&mut self);
+    /// True only for `Invalidation::None`.
+    pub fn is_empty(&self) -> bool;
+    /// Return the value and reset to `None`.
+    pub fn take(&mut self) -> Invalidation;
 }
 
 pub trait AppState {
     // … existing …
     fn invalidate(&mut self, handle: UIHandle);          // default: invalidate_all()
     fn invalidate_all(&mut self);                        // default: no-op
-    fn take_invalidation(&mut self) -> Invalidation;     // default: Invalidation::all()
+    fn take_invalidation(&mut self) -> Invalidation;     // default: Invalidation::All
 }
 
 // liquers-lib/src/ui/runner.rs — invalidate on a NeedsRepaint response
@@ -179,21 +198,25 @@ struct FocusSnapshot { element_id: String, selection: Option<(u32, u32)> }
 fn capture_focus(doc: &web_sys::Document) -> Option<FocusSnapshot>;
 fn restore_focus(doc: &web_sys::Document, snapshot: &FocusSnapshot);
 
-/// Apply an invalidation to the DOM. Whole-tree render when `is_all()`, otherwise targeted
-/// re-render of each handle that has no invalidated ancestor.
+/// Apply an invalidation to the DOM: nothing, a targeted re-render of each element that has no
+/// invalidated ancestor, or a whole-tree render.
 fn apply_invalidation(root: &web_sys::Element, inv: &Invalidation, state: &dyn AppState);
 ```
 
 ### The targeted-render algorithm
 
-1. If `inv.is_all()` → capture focus, re-render all roots into `root`, restore focus. Done.
-2. Otherwise, for each handle in ascending order:
+Matched exhaustively over the three variants:
+
+1. `Invalidation::None` → nothing to do.
+2. `Invalidation::All` → capture focus, re-render all roots into `root`, restore focus.
+3. `Invalidation::Elements(handles)` → for each handle in ascending order:
    - skip it if it no longer exists in `AppState` (its parent was invalidated by the removal);
    - skip it if any ancestor (walking `AppState::parent`) is also in the set — the ancestor's
      re-render already includes it;
    - look up `#ui-element-{n}`; if missing, escalate to the whole-tree path and stop;
    - replace that node's markup with `render_element_web(handle, state)`.
-3. Capture focus before the first replacement and restore it after the last.
+
+   Focus is captured before the first replacement and restored after the last.
 
 No diff, no patch: the tree plus stable ids give the granularity, exactly as Phase 1 decided.
 
@@ -251,7 +274,7 @@ No new error paths, and no new `ErrorType`.
 - `Invalidation` is **not** serialized. `DirectAppState`'s custom `Serialize` builds
   `DirectAppStateSnapshot` explicitly, so the field is simply absent — no `#[serde(skip)]` needed
   and no format change.
-- `Deserialize` sets `invalidation = Invalidation::all()`: a restored state has never been rendered
+- `Deserialize` sets `invalidation = Invalidation::All`: a restored state has never been rendered
   by the attached renderer, so everything is out of date. This is what makes "load a saved
   application state" paint correctly.
 
@@ -295,13 +318,19 @@ here for the record.
 
 - *Resolved before writing:* `BTreeSet` requires `Ord` (derive added); trait extension uses defaults
   per the "extend, don't mutate" rule; the defaults are conservative (`take_invalidation` →
-  `Invalidation::all()`) so a non-tracking implementor cannot go stale; no `unwrap`/`expect` in the
+  `Invalidation::All`) so a non-tracking implementor cannot go stale; no `unwrap`/`expect` in the
   DOM paths; `DeliveryOutcome` matched exhaustively; nothing crosses the crate dependency flow.
+- *Raised in review, fixed:* `Invalidation` was first modelled as a struct with an `all: bool`
+  beside a handle set, which admits a state (`all = true` with a non-empty set) whose meaning is
+  undefined — the set is dead information once `all` is set. Replaced by a three-variant enum with
+  absorbing accumulation, so every value has exactly one representation and consumers must match
+  all three cases.
 - *Advisory:* putting render bookkeeping in `AppState` is a widening of the model's job. Justified —
   the alternative (tracking in `AppRunner`) cannot see mutations made by commands that hold the
   `AppState` lock directly, which is exactly the W3 case. Recorded so it is a deliberate choice.
-- *Advisory:* `Invalidation::handles()` returning `impl Iterator` keeps the container private, so
-  swapping `BTreeSet` for something else later is not a breaking change.
+- *Advisory:* `Elements(BTreeSet<UIHandle>)` exposes its container in the public API, so swapping it
+  later is a breaking change. Acceptable — the set is the meaning here, and `BTreeSet` is the part
+  that makes iteration deterministic for tests and for the ancestor filter.
 
 **Phase 1 conformity**
 
