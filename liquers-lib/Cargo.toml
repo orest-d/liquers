@@ -45,7 +45,11 @@ egui_extras = { version = "0.33.3", optional = true }
 chrono = { version = "0.4.41", features = ["alloc"] }
 typetag = "0.2"
 egui_commonmark = { version = "0.22.0", optional = true }
-openssl = { version = "0.10", features = ["vendored"], optional = true }
+# Links the system OpenSSL rather than compiling a vendored copy: measurably faster cold builds
+# (377 s → 288 s for the liquers-lib test suite) and one less large build artifact. Needs OpenSSL
+# development headers present (`libssl-dev`); re-add `features = ["vendored"]` if you build
+# somewhere they are not.
+openssl = { version = "0.10", optional = true }
 # webui family — optional, enabled by the `webui` feature
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
