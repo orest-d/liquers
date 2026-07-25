@@ -42,10 +42,16 @@ skipped and the DOM keeps showing state that no longer exists. It corrects itsel
 *other* activity happens to make that question true again.
 
 This is not exotic. In the browser the engine evaluates inline (`ImmediateAssetManager`), so even
-query-driven mutations typically finish before the loop asks. What saves `ui_spec_demo` today is an
-accident of its one menu action: `dashboard/q/ns-lui/add-child` creates a *pending* node, so an
-evaluation is in flight for a tick and the re-render happens. An action that resolves fully inline —
-`lui/remove`, `activate`, or any future menu entry that only touches the tree — would not repaint.
+query-driven mutations typically finish before the loop asks.
+
+**Corrected during implementation.** This document originally claimed `ui_spec_demo` was saved by an
+accident of its one menu action — that `dashboard/q/ns-lui/add-child` leaves a pending node in
+flight long enough to trigger a repaint. That is wrong: measured against the pre-fix build, clicking
+*Add Dashboard* produced **no DOM change at all**, because the inline asset manager finishes the
+evaluation inside the same `run()` call that started it. The demo's existing Playwright test passed
+only because its assertion (`#app` contains "Dashboard") is satisfied by the *menu label* "Add
+Dashboard" before any click. So W3 affected the demo's only action, not merely hypothetical
+inline-resolving ones.
 
 ### W4 — for the record
 

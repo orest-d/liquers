@@ -63,9 +63,13 @@ other interaction.
 
 **Query validation.** `ns-lui/remove-last` was verified against the current build before writing
 this: starting from a two-child root it left one child and no error element, so a query with no
-leading input command evaluates correctly and resolves inline. This is what makes it a genuine W3
-trigger — unlike the existing *Add Dashboard* action, which leaves a pending node in flight and
-therefore repaints by accident today.
+leading input command evaluates correctly and resolves inline.
+
+**Correction from implementation.** *Add Dashboard* was described here as repainting "by accident"
+because it leaves a pending node in flight. Measurement against the pre-fix build disproved that:
+clicking it produced no DOM change either, since the inline asset manager completes the evaluation
+within the same `run()`. Both e2e cases therefore count `[id^="ui-element-"]` nodes instead of
+matching text — the pre-existing text assertion was satisfied by the menu label before any click.
 
 **Expected output.** Two panels, then one; the browser console stays clean.
 

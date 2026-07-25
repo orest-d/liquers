@@ -1,5 +1,10 @@
 //! Browser (wasm) port of the native `ui_spec_demo`: a menu-driven dashboard rendered by
 //! the webui backend. Build & serve with `trunk serve`.
+//!
+//! The two menu entries exercise the two shapes of action. *Add Dashboard* evaluates a query that
+//! leaves a pending node, so async work is in flight for a moment. *Remove Last Panel* resolves
+//! fully inline and leaves nothing pending — the case that used to leave the page stale until
+//! something unrelated happened (`specs/webui-fixes/`, W3).
 
 use std::sync::Arc;
 
@@ -28,6 +33,10 @@ menu:
     label: Add Dashboard
     action:
       query: "dashboard/q/ns-lui/add-child"
+  - !button
+    label: Remove Last Panel
+    action:
+      query: "ns-lui/remove-last"
 layout: vertical
 "#;
 

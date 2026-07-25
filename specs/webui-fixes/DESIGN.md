@@ -41,9 +41,13 @@ vocabulary, which nothing here does:
 - `liquers-core` untouched; everything lives in `liquers-lib/src/ui` (`runner.rs`, `app_state.rs`,
   `web/app.rs`) plus tests and `examples-web/`. No command signatures change, so
   `register_lui_commands!`, `liquers-py` and `liquers-axum` are unaffected.
-- `examples-web/ui_spec_demo` repaints today only because its one menu action creates a *pending*
-  node, leaving an evaluation in flight for a tick. An action resolving fully inline would not
-  repaint — this feature is what makes the demo work by construction rather than by luck.
+- **Measured during implementation:** `examples-web/ui_spec_demo` did not repaint at all after a
+  menu click on the pre-fix build — clicking *Add Dashboard* left the DOM unchanged, because the
+  inline asset manager finishes the evaluation inside the same `run()` that started it. The demo's
+  Playwright test passed only because `#app` contains the menu label "Add Dashboard", which already
+  satisfies a `toContainText('Dashboard')` assertion before any click. Earlier phases assumed the
+  demo worked "by accident"; it did not work. Both e2e cases now count elements rather than match
+  text.
 - Snapshot delivery already computes a per-element `UpdateResponse::NeedsRepaint` that the runner
   discards: a ready-made invalidation source.
 - W4 needs no code — `async-wasm-refactor` (2026-07-23) shipped `ImmediateAssetManager`, reduced
