@@ -37,11 +37,28 @@ menu:
     label: Remove Last Panel
     action:
       query: "ns-lui/remove-last"
+  - !button
+    label: Add Panel Group
+    action:
+      query: "group/ns-lui/ui_spec/add-child"
+layout: vertical
+"#;
+
+/// A nested spec: adding it inserts a container *and*, through its own `init` query, a child —
+/// both within one message drain, so the renderer sees an ancestor and its descendant in the same
+/// batch of recorded changes.
+const GROUP_YAML: &str = r#"
+init:
+- "dashboard/q/ns-lui/add-child"
 layout: vertical
 "#;
 
 fn dashboard(_state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from(DASHBOARD_YAML))
+}
+
+fn group(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(GROUP_YAML))
 }
 
 /// Build the environment, register commands, and the initial AppState. Returns `Error`
@@ -60,6 +77,7 @@ fn build_app() -> Result<
     let envref = {
         let cr = env.get_mut_command_registry();
         register_command!(cr, fn dashboard(state) -> result)?;
+        register_command!(cr, fn group(state) -> result)?;
         liquers_lib::register_lui_commands!(cr)?;
         env.to_ref()
     };

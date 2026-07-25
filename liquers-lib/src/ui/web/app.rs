@@ -210,6 +210,15 @@ mod browser {
         if !state.node_exists(handle) {
             return true; // inserted and removed again before the renderer looked
         }
+        let dom_id = super::super::element_dom_id(Some(handle));
+        if doc.get_element_by_id(&dom_id).is_some() {
+            // Already materialized. One batch can insert an ancestor and its descendant — a
+            // command adds a container, whose `init` then adds a child, all before the next tick.
+            // Rendering the ancestor draws its whole subtree from the *final* model, so the
+            // descendant is already in the DOM by the time its own record is applied; inserting
+            // again would duplicate the id and leave a ghost node that a later removal misses.
+            return true;
+        }
         let container = match children_container(root, doc, parent) {
             Some(c) => c,
             // The parent's markup depends on its child set (or it has never been rendered):
