@@ -137,9 +137,25 @@ pending asset (e.g. `lui/remove`, `activate`, or a `SubmitQuery` that resolves i
 `runner.run`, but `needs_repaint()` is false immediately afterward, so the DOM stays stale until some
 unrelated async asset update occurs.
 
+#### Concrete reproduction
+In `liquers-lib/examples-web/ui_spec_demo`, click **Add Dashboard**. The button dispatches
+`dashboard/q/ns-lui/add-child` against the enclosing dashboard handle. `AppRunner` receives the
+`SubmitQuery`, evaluates it inline, and `lui/add-child` successfully inserts a `StateViewElement`
+containing `DASHBOARD_YAML` beneath the dashboard in `AppState`. Because the inline evaluation has
+already completed, neither the evaluating nor monitoring collections are populated, so
+`needs_repaint()` returns false and `mount_web` does not rebuild the DOM. The inserted YAML is
+therefore present in application state but remains invisible in the browser.
+
+The action serialization, delegated click handler, query registration, and `add-child` insertion are
+all working; the defect is specifically the missing DOM invalidation after the synchronous state
+mutation.
+
 #### Fix direction
 Track whether messages/state changed during processing and force a repaint after processing them
 (independent of `needs_repaint()`).
+
+Prefer a one-shot dirty/repaint signal from `AppRunner::run` over unconditionally rebuilding the DOM
+on every 16 ms timer tick.
 
 #### Note (async-wasm-refactor interaction)
 With `ImmediateAssetManager`, `SubmitQuery` now resolves **inline** (synchronously, no pending async
@@ -147,5 +163,110 @@ asset), which makes this stale-DOM window more likely to be hit in the browser â
 addressing alongside webui runtime work.
 
 #### Verification
-Perform a synchronous mutation (e.g. `lui/remove`) with no pending asset; assert the DOM updates
-without waiting for an unrelated async event.
+1. Playwright: open `examples-web/ui_spec_demo`, click **Add Dashboard**, and assert that
+   `DASHBOARD_YAML` appears without waiting for an unrelated async event.
+2. Perform another synchronous mutation (e.g. `lui/remove`) with no pending asset and assert that
+   the DOM updates.
+
+If the demo is changed to expect a nested interactive dashboard rather than the literal YAML text,
+use `dashboard/ns-lui/ui_spec/q/add-child`; that conversion is separate from this repaint defect.
+
+### Issue: WEBUI-WASM-SIZE-IMAGE-CODEC-FEATURE-GATING
+Status: Open
+Priority: P2 (Medium)
+Source: `ui_spec_demo_web` Wasm size investigation (2026-07-25)
+
+#### Problem
+The `ui_spec_demo_web` module is much larger than expected for a small UI demo. The current Trunk
+debug output is 24.26 MB raw (4.02 MB gzip / 2.41 MB Brotli). A Cargo release build reduces this to
+8.30 MB raw (2.08 MB gzip / 1.29 MB Brotli), showing that debug metadata and lack of release
+optimization are significant, but the optimized executable code is still large.
+
+Approximate symbol-level attribution of the 5.33 MB release code section:
+
+| Contributor | Code size | Share |
+|---|---:|---:|
+| AVIF / rav1e image codec | 1.88 MB | 35.3% |
+| Liquers core evaluation engine | 1.22 MB | 22.9% |
+| Liquers UI and value implementation | 0.73 MB | 13.7% |
+| Other image codecs | 0.58 MB | 10.9% |
+| Rust standard library and other dependencies | 0.51 MB | 9.6% |
+| Serde / YAML / JSON | 0.18 MB | 3.4% |
+| Markdown | 0.16 MB | 3.0% |
+| Browser bindings and async runtime | 0.04 MB | 0.8% |
+
+Image handling therefore contributes approximately 46% of the release code, with AVIF/rav1e alone
+responsible for approximately 35%.
+
+Although `ui_spec_demo_web` uses `liquers-lib` with `default-features = false` and only the `webui`
+feature, `image`, `resvg`, `usvg`, and `tiny-skia` are unconditional dependencies. `ExtValue::Image`
+and its general serialization/deserialization paths are also unconditional. The `image` crate's
+default codec set makes AVIF/rav1e, TIFF, EXR, WebP, GIF, JPEG, PNG, and other codec code reachable
+from the generic image value and web rendering paths.
+
+The build configuration adds avoidable overhead as well: the demo is normally built in debug mode,
+`index.html` explicitly sets `data-wasm-opt="0"`, and no size-oriented release profile is defined.
+These build issues amplify the result but do not explain the large optimized code section.
+
+#### Proposed feature model
+Split image functionality into two optional tiers:
+
+1. **Partial image support without AVIF**
+   - Keep the existing `image-support` feature name, or introduce a clearly named
+     `image-support-basic` feature.
+   - Depend on `image` with `default-features = false`.
+   - Enable only the codecs required by the supported baseline, initially PNG and, if required,
+     JPEG/GIF/WebP.
+   - Gate `ExtValue::Image`, image serialization, image web rendering, raster commands, and related
+     dependencies consistently behind this feature.
+   - Do not enable AVIF, `ravif`, `rav1e`, or `av-scenechange`.
+
+2. **Full image support with AVIF**
+   - Introduce `image-support-full` or `image-support-avif`.
+   - Make it depend on partial image support and additionally enable the `image` AVIF feature.
+   - Preserve the current broad codec behavior for native/full installations that require it.
+
+The default feature set may continue to select full image support for compatibility, but
+`webui` alone must not implicitly enable either image tier. Consumers should be able to choose:
+
+```toml
+# Web UI with no image values or codecs
+liquers-lib = { default-features = false, features = ["webui"] }
+
+# Web UI with baseline image support but no AVIF/rav1e
+liquers-lib = { default-features = false, features = ["webui", "image-support"] }
+
+# Full image support including AVIF
+liquers-lib = { default-features = false, features = ["webui", "image-support-full"] }
+```
+
+If web image rendering needs PNG encoding whenever image values are enabled, PNG should belong to
+the partial tier; the full multi-codec serializer should not be required merely to render a PNG data
+URL.
+
+#### Additional size reductions
+1. Build production artifacts with `trunk build --release`.
+2. Enable `wasm-opt` instead of `data-wasm-opt="0"`.
+3. Strip function-name/debug sections from production Wasm.
+4. Add a size-oriented release profile (`opt-level = "z"`, LTO, one codegen unit, and stripped
+   symbols).
+5. Consider separate optional features for Markdown and QueryConsole widgets, and allow examples to
+   register only the LUI commands they use.
+
+#### Compatibility considerations
+1. Feature-gate all `ExtValue::Image` match arms explicitly so no-image builds remain exhaustive.
+2. Check public APIs that currently expose `image::DynamicImage`; they may need matching feature
+   gates.
+3. Ensure native default builds retain their current image behavior unless a deliberate breaking
+   change is approved.
+4. Avoid making SVG support depend accidentally on the AVIF/full raster tier.
+5. Update serialization errors so disabled codecs report that the relevant feature is unavailable.
+
+#### Verification
+1. Build `ui_spec_demo_web` in release mode with `webui` only and confirm that `image`, `ravif`,
+   `rav1e`, and `av-scenechange` are absent from the dependency/symbol graph.
+2. Build with partial image support and verify PNG web rendering and configured baseline codecs.
+3. Confirm that partial support contains no AVIF/rav1e symbols.
+4. Build with full image support and round-trip AVIF plus all currently supported formats.
+5. Record raw, gzip, and Brotli Wasm sizes for all three configurations and enforce an agreed size
+   budget in CI.
