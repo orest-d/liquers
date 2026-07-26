@@ -2,6 +2,152 @@
 
 ## Open
 
+### Issue: QUEUED-MANAGER-STARTUP-READINESS
+Status: Open
+Priority: P1 (Medium-High)
+
+#### Problem
+
+Initialization of a queued asset manager has no observable completion boundary.
+
+`Environment::to_ref` calls the synchronous
+`Environment::init_with_envref` hook and then returns `EnvRef`. In the built-in
+native queued environments, `init_with_envref`:
+
+1. Installs the environment back-reference with `AssetManager::set_envref`.
+2. Spawns `AssetManager::start` as a detached Tokio task.
+3. Returns without waiting for `start` to finish.
+
+`DefaultAssetManager::start` loads command metadata and implementation versions
+into the dependency manager. A caller can begin evaluation as soon as `to_ref`
+returns, while that loading task may still be in progress. There is no readiness
+future, state query, or error result through which application code can determine
+that startup has completed.
+
+This is separate from construction of `DefaultAssetManager`: its job-queue and
+expiration-monitor tasks are already spawned by the manager constructor. The
+unobservable startup phase discussed here is the environment-dependent
+initialization performed by `AssetManager::start`.
+
+The race is especially relevant to dependency-version registration and cache
+validation. The current API does not establish whether evaluation is allowed to
+observe a partially initialized dependency manager.
+
+#### Expected behavior
+
+Environment initialization should provide one documented guarantee:
+
+1. `Environment::to_ref` does not expose an environment until required manager
+   startup has completed; or
+2. Every evaluation entry point awaits an idempotent manager-startup barrier before
+   reading startup-dependent state.
+
+Startup failures should be returned to the caller rather than being confined to a
+detached task. Multiple concurrent first evaluations must share one startup
+operation.
+
+`ImmediateAssetManager` already uses lazy, idempotent startup through its internal
+`ensure_started` path. The queued and inline managers should expose equivalent
+readiness semantics even if their execution models remain different.
+
+#### Fix direction
+
+Consider one of:
+
+1. Make environment initialization asynchronous and fallible.
+2. Add a fallible `ensure_started` operation to the `AssetManager` contract and
+   invoke it from all public evaluation entry points.
+3. Return an initialization handle from `Environment::to_ref` that must be awaited
+   before evaluation.
+
+Avoid relying on task scheduling order between the detached `start` task and the
+first evaluation.
+
+#### Verification
+
+Add tests covering:
+
+1. Evaluation immediately after `Environment::to_ref`.
+2. A command whose metadata and implementation versions must be registered during
+   startup.
+3. Multiple concurrent first evaluations sharing one startup operation.
+4. Startup failure propagation.
+5. Equivalent readiness guarantees for `DefaultAssetManager` and
+   `ImmediateAssetManager`.
+6. Native queued execution and the Wasm-compatible inline path.
+
+### Issue: PAYLOAD-NESTED-EVALUATION-INHERITANCE
+Status: Open
+Priority: P0 (High)
+
+#### Problem
+
+The payload documentation promises that nested evaluations inherit the parent
+evaluation's payload. The implementation does not provide that behavior.
+
+`EnvRef::evaluate_immediately` supplies a payload to the context of the ad-hoc
+asset it creates. That payload remains available to the actions within that asset
+evaluation. However, when a command starts a nested asset through
+`Context::evaluate` or `Context::get_dependency_state`, dependency scheduling goes
+through the asset manager without forwarding the parent context's payload. The
+child context therefore has no payload.
+
+This behavior is explicitly verified by
+`test_payload_not_inherited_in_nested_evaluation` in
+`liquers-core/tests/injection.rs`: a child command requiring an injected payload
+fails when invoked through `Context::evaluate`.
+
+The current implementation conflicts with at least:
+
+- `specs/PAYLOAD_GUIDE.md`, which states that subqueries inherit the parent's
+  payload.
+- `specs/PROJECT_OVERVIEW.md`, which describes payload as inherited by subqueries.
+
+This mismatch can cause developers and coding agents to generate nested commands
+that depend on payload injection and then fail only at runtime.
+
+#### Required decision
+
+Define one authoritative payload boundary:
+
+1. **Implement inheritance:** nested evaluations receive the parent payload, with
+   explicit rules for cloning, caching, persistence, dependency identity, and
+   security-sensitive request or session data.
+2. **Keep payload asset-local:** nested evaluations do not inherit payloads, and
+   all reference and guide documentation must say so. APIs that require forwarding
+   should use a separate explicit operation.
+
+Payload forwarding must not be added implicitly without deciding how
+payload-dependent execution interacts with reusable or shared assets.
+
+#### Expected behavior
+
+Until the design decision is implemented, the API reference is authoritative:
+
+1. `EnvRef::evaluate_immediately` installs a payload only on the asset evaluation
+   it creates.
+2. Actions in that evaluation receive clones of the payload.
+3. `Context::evaluate`, `Context::get_dependency_state`, and `Context::apply` do
+   not forward the payload.
+4. Missing payloads continue to produce the normal `InjectedFromContext` error in
+   child commands that require them.
+
+#### Verification
+
+Maintain or add tests covering:
+
+1. Payload availability across multiple actions in one immediate evaluation.
+2. Direct payload and extracted-newtype injection.
+3. A nested `Context::evaluate` call.
+4. A nested `Context::get_dependency_state` call.
+5. `Context::apply`.
+6. Both queued and inline asset managers.
+7. The chosen caching and asset-sharing behavior if inheritance is implemented.
+
+When resolved, update `specs/PAYLOAD_GUIDE.md`,
+`specs/PROJECT_OVERVIEW.md`, the `liquers_core::context` Rustdoc, and the existing
+non-inheritance test together.
+
 ### Issue: ASSET-EXPIRED-CACHED-BINARY-READ
 Status: Open
 Priority: P0 (High)
