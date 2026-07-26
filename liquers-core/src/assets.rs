@@ -1,67 +1,179 @@
-//! # Assets
+//! Runtime assets, evaluation scheduling, and keyed asset operations.
 //!
-//! Asset can be seen as the outer-most (3rd layer) of value encapsulation in Liquers:
-//! - 1st layer: Value - represents the actual data and its type - basically an enum
-//! - 2nd layer: State - represents a value with its metadata (status, type, logs, etc.)
-//! - 3rd layer: Asset - represents a state that may be ready, it is being queued or produced or can be produced on demand.
+//! # Core model
 //!
-//! Asset provides access to the data, its metadata and binary representation and progress updates.
-//! Asset data are stored in an [AssetData] structure, which is accessed via [AssetRef].
-//! [AssetRef] is clonable and can be shared between multiple tasks.
-//! [AssetRef] is basically arc [tokio::sync::RwLock] on [AssetData].
+//! Liquers uses three layers:
 //!
-//! ## Asset Communication
-//! AssetData communicates via two channels:
-//! - **service channel** (mpsc) that can trigger asset changes (monitor progress and cancelation)
-//! - **notification channel** (watch) that notifies about asset changes (status and progress updates, new data, errors)
+//! 1. [`ValueInterface`] represents typed data.
+//! 2. [`State`] combines a value with [`Metadata`].
+//! 3. An asset represents a state that may already exist, be scheduled, be under
+//!    evaluation, or be recoverable from a [`Recipe`].
 //!
-//! Service channel should be considered internal. It communicates via [AssetServiceMessage].
-//! Service channel must be reliable and not drop messages. Context and JobQueue uses the service channel to send messages to the asset.
-//! Context typically uses it for sending log messages and progress updates. JobQueue uses it to notify about job status changes and cancelation.
+//! [`AssetData`] is the mutable runtime record. [`AssetRef`] is a cloneable strong
+//! handle backed by `Arc<RwLock<AssetData<E>>>`; its clones identify the same
+//! runtime asset and share status, data, metadata, and notifications. A
+//! [`WeakAssetRef`] does not keep the asset alive.
 //!
-//! Notification channel communicates notifications towards clients.
-//! Notification channel communicates via [AssetNotificationMessage].
-//! Since AssetData is maintaining a consistent authoritative state, it is not a problem if client will miss a notification.
-//! Client can always query the current state of the asset.
+//! Most applications should obtain an `AssetRef` from
+//! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) or an [`AssetManager`].
+//! Direct `AssetData` access is primarily framework infrastructure.
 //!
-//! ## AssetData structure
-//! AssetData holds a [Recipe] data structure describing the task to construct the value.
-//! Initial value may also be provided to represent "apply" operation, e.g. where a query is applied to an existing value.
-//! The resulting data are hold in 3 optional fields:
-//! - metadata: [Metadata] - Always [crate::metadata::MetadataRecord] for new assets, but it can be legacy if binary data is available.
-//! - data: `Arc<V>` where V is the value type
-//! - binary: `Arc<Vec<u8>>` representing the serialized value
+//! # Evaluation entry points
 //!
-//! ## Asset lifecycle
-//! Asset typically goes through these stages:
-//! 1) **initial** - a state the asset is in after creation. Only the recipe is known, none of the data, binary or metadata is available.
-//! 2) **prepare** - check is binary data is available. In such a case value is deserialized.
-//! 3) **run** - start recipe execution and the loop processing the service messages.
-//! 4) **finished** - cancelled, error or success. Cancelled or error can be restarted.
+//! The configured manager determines whether ordinary evaluation is queued or
+//! inline:
 //!
-//! ## Fast track
-//! When an asset is created, it tries to obtain the value as quickly as possible before queuing the asset for execution.
-//! This is called the "fast track" and it is used to avoid unnecessary queuing of assets that are already in the store and thus ready to be used.
+//! | Entry point | Initial state | Payload | `DefaultAssetManager` | `ImmediateAssetManager` |
+//! |---|---|---|---|---|
+//! | [`AssetManager::get_asset`] / [`AssetManager::get`] | Empty | No | Fast-track or schedule, then return the handle | Fast-track or evaluate inline before returning |
+//! | [`AssetManager::apply`] | Supplied | No | Schedule, then return the handle | Evaluate inline before returning |
+//! | [`AssetManager::apply_immediately`] | Supplied | Optional | Evaluate before returning, bypassing the job queue | Evaluate inline before returning |
 //!
-//! ## Volatility and Expiration
-//! Assets may have an expiration time set e.g. via command metadata. Once an asset is expired, its value still can be read
-//! but it is considered as not valid any longer. To get a valid value, a asset should be requested again from the asset manager.
-//! An example of an asset with expiration could be data read from a resource renewed e.g. daily by a batch job.
-//! All calculations dependent on such data should also expire daily.
+//! [`EnvRef::evaluate`](crate::context::EnvRef::evaluate) delegates to
+//! [`AssetManager::get_asset`]. Therefore it returns a scheduled handle with
+//! `DefaultAssetManager`, but a completed handle with [`ImmediateAssetManager`].
+//! [`EnvRef::evaluate_immediately`](crate::context::EnvRef::evaluate_immediately)
+//! uses an empty state and delegates to [`AssetManager::apply_immediately`].
 //!
-//! Assets may be labeled as volatile - typically if they are a result of a volatile recipe or query.
-//! Volatile assets can be considered as assets with very short expiration time.
-//! A volatile asset value is valid once produced and can be used as a dependency of other volatile assets,
-//! but it is also considered immediately expired.
-//! An example of a volatile asset could be e.g. a reading from a sensor.
+//! `apply_immediately` is also the only entry point above that accepts an execution
+//! payload. Its immediate evaluation path does not persist the produced value.
 //!
-//! ## Setting, deleting and overrides
-//! Assets are an extension to a store, thus they also resource assets (i.e. assets with a recipe)
-//! may set or delete its value.
-//! The behaviour depends on whether the asset is a resource asset with a recipe.
-//! Assets without a recipe behave just like a store, the metadata status indicates that the set value is a "Source".
-//! Assets with a recipe can always be re-generated, so even when deleted, they can be requested and re-evaluated again.
-//! If an asset with a recipe is set a user-provided value, it is indicated with a status "Override".
+//! # Typical lifecycle
+//!
+//! An evaluated asset typically moves through these phases:
+//!
+//! ```text
+//! None or Recipe -> Submitted -> Processing -> Ready
+//!                                  |
+//!                                  +-> Dependencies -> Processing
+//!                                  +-> Error or Cancelled
+//! ```
+//!
+//! `Submitted` is specific to queued execution and may be skipped by an inline
+//! manager. `Dependencies` means evaluation is waiting for another asset. A
+//! successful volatile evaluation finishes as `Volatile` instead of `Ready`.
+//! A `Ready` or `Override` asset may later become `Expired`.
+//!
+//! `Source`, `Override`, and `Directory` are terminal states created through
+//! store, override, or directory operations rather than the usual evaluation
+//! sequence. `Partial` is reserved for future support for publishing intermediate
+//! results; that functionality is not completely implemented.
+//!
+//! # Volatility
+//!
+//! Volatility is similar to an extremely short expiration: a volatile result is
+//! not retained for reuse, and another manager request evaluates it again. The
+//! important difference is that a freshly produced volatile state is valid and
+//! available to the dependent evaluation that requested it. Its terminal status
+//! is `Volatile`, not `Expired`.
+//!
+//! Volatility is contagious. A query, command, recipe, immediate-expiration policy,
+//! or volatile dependency can make an evaluation volatile. An asset that depends
+//! on volatile input also produces a volatile result, so the result is not reused
+//! as a stable cached asset.
+//!
+//! # Identity, reuse, and fast-track loading
+//!
+//! A pure key query is resolved through the key-asset map. Other queries use the
+//! query-asset map. Non-volatile entries may be reused by later manager requests.
+//! Volatile requests create a new asset instead of using those maps. Assets created
+//! by `apply` or `apply_immediately` are ad hoc and are not inserted into either
+//! map.
+//!
+//! Before evaluating a keyed resource with no supplied initial state, a manager
+//! attempts a fast-track load from the store. Stored `Ready`, `Source`, and
+//! `Override` values are accepted if deserialization succeeds and recorded
+//! dependency versions are not stale. Other statuses, corrupt data, or stale
+//! dependencies cause normal evaluation instead. Non-key queries and apply
+//! operations are not fast-tracked.
+//!
+//! # Status and reads
+//!
+//! [`Status`] describes lifecycle state. Typical queued
+//! evaluation passes through `None`, `Submitted`, and `Processing`; it may use
+//! `Dependencies` while awaiting another asset and ends in `Ready`, `Volatile`,
+//! `Error`, or `Cancelled`. `Source`, `Override`, `Directory`, and `Expired` are
+//! also terminal according to [`Status::is_finished`](crate::metadata::Status::is_finished).
+//! The status type classifies states; `AssetData::set_status` does not enforce a
+//! transition graph.
+//!
+//! Read methods have deliberately different contracts:
+//!
+//! | Method | Waits | Expired value | Lock behavior |
+//! |---|---:|---:|---|
+//! | [`AssetRef::get`] | Yes | Returns an error if expiry is observed while waiting | Async read lock |
+//! | [`AssetRef::poll_state`] | No | Hidden | Async read lock |
+//! | [`AssetRef::poll_state_any_status`] / [`AssetRef::get_any_status`] | No | Returned when retained | Async read lock |
+//! | [`AssetRef::try_poll_state`] | No | Hidden | Returns `None` if the lock is unavailable |
+//! | [`AssetRef::get_binary`] | May wait and serialize | A cached binary may be returned | Async locks |
+//! | [`AssetRef::poll_binary`] | No | A cached binary may be returned | Async read lock |
+//!
+//! `poll_state` returns an actual value for `Ready`, `Source`, `Override`, and
+//! `Volatile`. It returns a no-value state carrying metadata for `Directory`,
+//! `Error`, and `Cancelled`; it returns `None` for the other statuses, including
+//! `Partial` and `Expired`. Intermediate reads for `Partial` are not yet supported.
+//! Consequently, a finalized evaluation failure observed through an existing
+//! `AssetRef::get` can be represented by `Ok(State)` whose metadata contains the
+//! error, rather than by `Err`.
+//!
+//! # Notifications
+//!
+//! [`AssetNotificationMessage`] is delivered through a Tokio [`watch`] channel. A
+//! watch receiver retains only the latest
+//! notification; intermediate notifications may be coalesced or overwritten.
+//! Notifications are wake-up hints, not an event log. After waking, read
+//! [`AssetRef::status`], [`AssetRef::get_metadata`], or one of the polling methods
+//! for authoritative state. Subscribe before checking state when implementing a
+//! wait loop, and check state again before awaiting `changed()` to avoid a lost
+//! wake-up race.
+//!
+//! [`AssetServiceMessage`] uses an internal unbounded MPSC channel for reliable
+//! control, logs, and progress updates. Although its type is public, application
+//! code should not use it as a general asset mutation API.
+//!
+//! # Persistence
+//!
+//! Normal evaluation uses `evaluate_and_store`: after producing a value it updates
+//! the asset, attempts persistence when the recipe supplies a key or `store_to`
+//! key, and records a [`PersistenceStatus`]. With the queued manager, persistence
+//! is normally started in the background, so a ready value can be observable
+//! before the store write finishes. Immediate-manager evaluation persists
+//! synchronously because it does not spawn background work. A serialization failure
+//! is recorded as `NonSerializable`; other persistence failures are
+//! `NotPersisted`. Persistence failure does not replace a successfully calculated
+//! in-memory value with an evaluation error.
+//!
+//! [`AssetManager::set_binary`] writes directly to the store and removes an
+//! existing in-memory entry. [`AssetManager::set_state`] creates an in-memory
+//! entry and writes the value or, for non-serializable data, its metadata. External
+//! data becomes `Source` when no recipe exists and `Override` when a recipe exists,
+//! except that caller-supplied `Expired` and `Error` statuses are preserved.
+//!
+//! # Expiration, recovery, and removal
+//!
+//! Normal manager requests treat cached `Expired`, `Error`, and `Cancelled`
+//! entries as misses and create a fresh asset. An existing expired handle does not
+//! silently recompute; request the key or query from the manager again.
+//!
+//! `DefaultAssetManager` tracks finite expiration deadlines in a background
+//! monitor. [`ImmediateAssetManager`] has no monitor and checks ready assets lazily
+//! when they are requested. [`AssetManager::get_any_status`] is a keyed,
+//! no-evaluation recovery read that can return retained expired data.
+//! [`AssetManager::to_override`] promotes retained keyed data to `Override`.
+//! [`AssetManager::remove`] removes the in-memory key entry, dependency record, and
+//! stored value, but does not remove its recipe; a later request can therefore
+//! evaluate a recipe-backed asset again.
+//!
+//! [`AssetRef::cancel`] is best-effort. It acts only on submitted, dependency,
+//! processing, or partial assets. On native targets it waits at most five seconds
+//! for a cancellation or finish notification and returns `Ok(())` on timeout.
+//!
+//! # Manager implementations
+//!
+//! `DefaultAssetManager` and `JobQueue` are available only on non-Wasm targets
+//! and require a Tokio runtime when constructed because they spawn background
+//! tasks. [`ImmediateAssetManager`] is spawn-free and timer-free, runs evaluation
+//! in the caller's task, and is the manager used for browser-compatible execution.
 //!
 
 use std::{
@@ -99,7 +211,12 @@ use crate::{
     value::DefaultValueSerializer,
 };
 
-/// Message for internal service communication (reliable, for control)
+/// A reliable message sent to an asset's internal service loop.
+///
+/// The service channel is an unbounded MPSC channel used by the scheduler and
+/// [`Context`] for lifecycle control, logs, and progress. Application consumers
+/// should normally observe [`AssetNotificationMessage`] and read authoritative
+/// state through [`AssetRef`] instead of sending these messages.
 #[derive(Debug, Clone)]
 pub enum AssetServiceMessage {
     /// Job has been submitted to the queue
@@ -114,15 +231,19 @@ pub enum AssetServiceMessage {
     UpdateSecondaryProgress(ProgressEntry),
     /// Job is requested to be cancelled
     Cancel,
-    /// Error occured, job will finish
+    /// An error occurred; the job will finish.
     ErrorOccurred(Error),
-    /// Job is about to finish - only some houskeeping remains
+    /// The job is about to finish; only housekeeping remains.
     JobFinishing,
     /// Job is finished, no further action will be taken
     JobFinished,
 }
 
-/// Message for notifications to clients (best-effort, for updates)
+/// A best-effort notification that an asset may have changed.
+///
+/// Notifications use a [`tokio::sync::watch`] channel, so receivers see the latest
+/// value and may miss intermediate messages. Treat a notification as a reason to
+/// inspect [`AssetRef`] state, not as an auditable event stream.
 #[derive(Debug, Clone)]
 pub enum AssetNotificationMessage {
     Initial,
@@ -139,6 +260,10 @@ pub enum AssetNotificationMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Outcome of the most recent value-persistence path for an asset.
+///
+/// This is separate from [`Status`]: evaluation can succeed and expose a value
+/// while persistence is `NonSerializable` or `NotPersisted`.
 pub enum PersistenceStatus {
     /// No persistence attempt has been made yet.
     None,
@@ -150,6 +275,10 @@ pub enum PersistenceStatus {
     NotPersisted,
 }
 
+/// Internal-style coalescing helper for persisting asset metadata updates.
+///
+/// On native targets it limits background writes to the configured interval. On
+/// Wasm it writes the latest pending metadata inline because no timer task is used.
 pub struct MetadataSaver {
     state: Mutex<MetadataSaverState>,
     interval: std::time::Duration,
@@ -249,8 +378,15 @@ impl MetadataSaver {
     }
 }
 
+/// Mutable runtime record behind an [`AssetRef`].
+///
+/// This stores the recipe, optional input and output representations, metadata,
+/// lifecycle status, persistence state, and communication channels. Applications
+/// normally use [`AssetRef`] or [`AssetManager`] rather than construct or mutate
+/// this type directly.
 pub struct AssetData<E: Environment> {
     id: u64,
+    /// Recipe associated with this runtime asset.
     pub recipe: Recipe,
 
     envref: EnvRef<E>,
@@ -752,22 +888,31 @@ impl<E: Environment> AssetData<E> {
         }
     }
 
-    /// Get the unique id of the asset
+    /// Returns the runtime-unique asset id assigned by its manager.
     fn id(&self) -> u64 {
         self.id
     }
 }
 
-/// Asset reference is a mean to get the state and status updates of an asset
-/// It is created and returned by an asset manager.
+/// Cloneable strong handle to one runtime asset.
+///
+/// Clones share the same [`AssetData`], unique [`Self::id`], and notification
+/// channel. Managers return this handle before or after evaluation depending on
+/// their [`EvalMode`]. Use [`Self::get`] to wait for state, polling methods for a
+/// snapshot, and [`Self::subscribe_to_notifications`] for change wake-ups.
 pub struct AssetRef<E: Environment> {
     id: u64,
+    /// Shared low-level asset record.
+    ///
+    /// Direct locking is available for framework integration, but mutation can
+    /// bypass lifecycle notifications and persistence bookkeeping.
     pub data: Arc<RwLock<AssetData<E>>>,
 }
 
-/// Weak asset reference keeps the same asset id and a weak pointer to asset data.
+/// Weak handle that preserves an asset id without keeping its data alive.
 pub struct WeakAssetRef<E: Environment> {
     id: u64,
+    /// Weak pointer to the shared asset record.
     pub data: Weak<RwLock<AssetData<E>>>,
 }
 
@@ -995,7 +1140,7 @@ impl<E: Environment> AssetRef<E> {
         assetref
     }
 
-    /// Get the unique id of the asset
+    /// Returns the runtime-unique asset id assigned by its manager.
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -1015,16 +1160,15 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Get a reference to the environment
+    /// Returns the environment associated with this asset.
     pub async fn get_envref(&self) -> EnvRef<E> {
         let lock = self.data.read().await;
         lock.get_envref()
     }
 
-    /// Create a context object for this asset.
-    /// Context is used during the asset creation to provide access to asset itself and environment services
-    /// to the interpreter and command(s).
-    /// Used by: `evaluate_immediately`, `evaluate_recipe`
+    /// Creates the execution context used by the interpreter and commands.
+    ///
+    /// The context refers back to this asset and exposes its environment services.
     pub async fn create_context(&self) -> Context<E> {
         let is_volatile = {
             let lock = self.data.read().await;
@@ -1100,25 +1244,25 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Get a string representation describing the asset
+    /// Returns a human-readable description of this runtime asset.
     pub async fn asset_reference(&self) -> String {
         let lock = self.data.read().await;
         lock.asset_reference()
     }
 
-    /// Get asset info structure for the asset
+    /// Returns the asset information derived from metadata and its recipe.
     pub async fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let lock = self.data.read().await;
         lock.get_asset_info()
     }
 
-    /// Get asset info structure for the asset
+    /// Returns a snapshot of the asset metadata.
     pub async fn get_metadata(&self) -> Result<Metadata, Error> {
         let lock = self.data.read().await;
         Ok(lock.metadata.clone())
     }
 
-    /// Returns asset persistance status
+    /// Returns the latest value-persistence outcome.
     pub async fn persistence_status(&self) -> PersistenceStatus {
         let lock = self.data.read().await;
         lock.persistence_status
@@ -1585,8 +1729,12 @@ impl<E: Environment> AssetRef<E> {
         (lock.initial_state.clone(), lock.recipe.clone())
     }
 
-    /// Evaluates a recipe and updates the asset with the produced value.
-    /// Used by: `evaluate_and_store`.
+    /// Evaluates the asset's recipe and returns the resulting state.
+    ///
+    /// This resolves a key recipe through the recipe provider when necessary and
+    /// records observed dependencies. It does not by itself install the returned
+    /// value as this asset's final data or persist it; those steps are performed by
+    /// [`Self::evaluate_and_store`].
     pub async fn evaluate_recipe(&self) -> Result<State<E::Value>, Error> {
         self.resolve_volatility_before_evaluation().await;
         let (input_state, recipe) = {
@@ -1660,8 +1808,10 @@ impl<E: Environment> AssetRef<E> {
         Ok(State::from_parts(res, Arc::new(metadata)))
     }
 
-    /// Evaluate and store the result (in store)
-    /// Used by: `run`
+    /// Evaluates the recipe, installs the result, and attempts persistence.
+    ///
+    /// The asset is made `Ready` or `Volatile` before persistence begins. The
+    /// persistence outcome is recorded separately in [`PersistenceStatus`].
     pub async fn evaluate_and_store(&self) -> Result<(), Error> {
         self.resolve_volatility_before_evaluation().await;
         let res = self.evaluate_recipe().await;
@@ -1722,8 +1872,11 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Evaluates a recipe immediately. Allows to specify a payload.
-    /// Used by: `run_immediately` in this module.
+    /// Evaluates the recipe with an optional payload and installs the value.
+    ///
+    /// This is the computation used by [`AssetManager::apply_immediately`]. It does
+    /// not persist the result. Lifecycle finalization is performed by the
+    /// surrounding immediate-run harness.
     ///
     /// Arguments:
     /// - `payload`: Optional execution payload injected into evaluation context.
@@ -1848,7 +2001,10 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Subscribe to asset notifications.
+    /// Subscribes to best-effort asset-change notifications.
+    ///
+    /// This is a watch receiver: it retains the latest message rather than every
+    /// message. Re-read authoritative asset state after each change.
     pub async fn subscribe_to_notifications(&self) -> watch::Receiver<AssetNotificationMessage> {
         let lock = self.data.read().await;
         lock.notification_tx.subscribe()
@@ -1860,13 +2016,14 @@ impl<E: Environment> AssetRef<E> {
         lock.service_sender()
     }
 
-    /// Cancel the asset processing.
-    /// This method:
-    /// 1. Checks if asset is being evaluated (Submitted, Dependencies, or Processing) - otherwise returns Ok
-    /// 2. Sets cancelled = true on AssetData to prevent orphan writes
-    /// 3. Sends Cancel message to the service channel
-    /// 4. Waits (with timeout) for status to change to Cancelled or JobFinished on notification channel
-    /// 5. Returns Ok even if timeout occurs (best-effort)
+    /// Requests cancellation of an in-flight asset.
+    ///
+    /// Only `Submitted`, `Dependencies`, `Processing`, and `Partial` are
+    /// cancellable; other statuses return `Ok(())` without change. Cancellation
+    /// sets a flag that prevents later store writes and sends an internal control
+    /// message. On native targets this waits for a cancellation or finish
+    /// notification for at most five seconds and still returns `Ok(())` on timeout.
+    /// On Wasm it returns after setting the flag and sending the message.
     pub async fn cancel(&self) -> Result<(), Error> {
         let status = self.status().await;
 
@@ -1939,13 +2096,17 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Check if the asset has been cancelled
+    /// Returns whether cancellation has been requested for this asset.
     pub async fn is_cancelled(&self) -> bool {
         let lock = self.data.read().await;
         lock.is_cancelled()
     }
 
-    /// Convert asset status to Override, preventing re-evaluation.
+    /// Converts this runtime asset to `Override`, preventing recipe re-evaluation.
+    ///
+    /// For keyed recovery, prefer [`AssetManager::to_override`], which also
+    /// coordinates manager reachability and persistence.
+    ///
     /// Behavior depends on current status:
     /// - Directory, Source: No change (ignored)
     /// - None, Recipe, Submitted, Dependencies, Processing, Error, Cancelled:
@@ -2008,9 +2169,10 @@ impl<E: Environment> AssetRef<E> {
         Ok(())
     }
 
-    /// Expire the asset: transitions Ready or Override to Expired status.
-    /// Source cannot be expired (no recipe to recover).
-    /// Expired is idempotent (returns Ok if already expired).
+    /// Expires a `Ready` or `Override` asset and cascades to its dependents.
+    ///
+    /// `Expired` is idempotent. A `Source` cannot expire because it has no recipe
+    /// from which to recover. Other statuses return an error.
     pub async fn expire(&self) -> Result<(), Error> {
         let key_opt = {
             let lock = self.data.read().await;
@@ -2105,18 +2267,18 @@ impl<E: Environment> AssetRef<E> {
         self.mark_expired_status().await.map(|_| ())
     }
 
-    /// Get the expiration time of this asset
+    /// Returns the resolved expiration time.
     pub async fn expiration_time(&self) -> ExpirationTime {
         self.data.read().await.expiration_time.clone()
     }
 
-    /// Set the expiration time of this asset
+    /// Sets the resolved expiration time without scheduling a monitor entry.
     pub async fn set_expiration_time(&self, et: ExpirationTime) {
         let mut lock = self.data.write().await;
         lock.expiration_time = et;
     }
 
-    /// Check if this asset is expired
+    /// Returns whether the current status is `Expired`.
     pub async fn is_expired(&self) -> bool {
         self.data.read().await.status == Status::Expired
     }
@@ -2133,10 +2295,12 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Get the final state of the asset.
-    /// This waits for the asset to be evaluated if necessary.
-    /// It requires the internal `run` method to be called, which is done by the [AssetManager].
-    /// If the asset is not running, the get may hang indefinitely.
+    /// Waits for and returns a state exposed by the asset.
+    ///
+    /// Evaluation must already have been started by an [`AssetManager`]; otherwise
+    /// this can wait indefinitely. Error and cancelled terminal states are exposed
+    /// as no-value states with diagnostic metadata. If the asset expires while
+    /// waiting, this returns an error.
     pub async fn get(&self) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.poll_state().await {
             return Ok(state);
@@ -2194,8 +2358,11 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Returns a binary representation of the asset (i.e. serialized asset value)
-    /// Metadata is also returned to preserve the atomicity of the operation
+    /// Returns a serialized representation and its matching metadata.
+    ///
+    /// A cached binary is returned immediately. Otherwise this waits through
+    /// [`Self::get`] and serializes the value. The binary and metadata are returned
+    /// together to preserve their association.
     pub async fn get_binary(&self) -> Result<(Arc<Vec<u8>>, Arc<Metadata>), Error> {
         if let Some(b) = self.poll_binary().await {
             return Ok(b);
@@ -2212,7 +2379,7 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// get status
+    /// Returns the current authoritative status.
     pub async fn status(&self) -> Status {
         let lock = self.data.read().await;
         lock.status
@@ -2224,31 +2391,32 @@ impl<E: Environment> AssetRef<E> {
         lock.set_status(status)
     }
 
-    /// Poll the state
-    /// Returns the state if it is available not waiting for the asset to finish the evaluation
-    /// Returns none if the state is not available
+    /// Returns the currently exposed state without waiting.
+    ///
+    /// Expired data is intentionally hidden; use
+    /// [`Self::poll_state_any_status`] for explicit recovery.
     pub async fn poll_state(&self) -> Option<State<E::Value>> {
         let lock = self.data.read().await;
         lock.poll_state()
     }
 
-    /// Like `poll_state()`, but also returns data for `Status::Expired` — the explicit recovery
-    /// read. See `AssetData::poll_state_any_status` for the underlying construction.
+    /// Polls state while also allowing retained `Expired` data.
     pub async fn poll_state_any_status(&self) -> Option<State<E::Value>> {
         let lock = self.data.read().await;
         lock.poll_state_any_status()
     }
 
-    /// Peek-only, no waiting: unlike `get()`, never blocks on notifications — Expired (and any
-    /// other data-bearing status) returns its value immediately; non-terminal or data-less
-    /// statuses return `None` immediately.
+    /// Returns any currently exposed state without waiting for notifications.
+    ///
+    /// This is an alias for [`Self::poll_state_any_status`].
     pub async fn get_any_status(&self) -> Option<State<E::Value>> {
         self.poll_state_any_status().await
     }
 
-    /// Non-blocking version of poll state
-    /// Returns the state if it is available not waiting for the asset to finish the evaluation
-    /// Returns none if the state is not available or if the lock cannot be acquired immediately (e.g. because the asset is being evaluated and the write lock is held).
+    /// Attempts to poll state without waiting for the asset lock.
+    ///
+    /// Returns `None` if state is unavailable or the read lock cannot be acquired
+    /// immediately. Expired data remains hidden.
     pub fn try_poll_state(&self) -> Option<State<E::Value>> {
         if let Ok(lock) = self.data.try_read() {
             lock.poll_state()
@@ -2257,14 +2425,13 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Poll the binary representation of the asset (serialized value)
+    /// Returns cached binary data and its metadata without waiting.
     pub async fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         let lock = self.data.read().await;
         lock.poll_binary()
     }
 
-    /// Poll the binary representation of the asset (serialized value)
-    /// Returns None if the binary value is not available or if the lock can't be acquired
+    /// Attempts to poll cached binary data without waiting for the asset lock.
     pub fn try_poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         if let Ok(lock) = self.data.try_read() {
             lock.poll_binary()
@@ -2413,12 +2580,12 @@ impl<E: Environment> WeakAssetRef<E> {
     }
 }
 
-/// Evaluation mode of an asset manager (a MANAGER constant, not a per-asset property).
-/// `DefaultAssetManager` is always `Queued` (background JobQueue + spawns); an immediate
-/// manager is always `Inline` (evaluate in the caller's task, no spawn/timer).
+/// Evaluation mode of a manager, not of an individual asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalMode {
+    /// Ordinary get/apply operations schedule work on a background `JobQueue`.
     Queued,
+    /// Ordinary get/apply operations run in the caller's task before returning.
     Inline,
 }
 
@@ -2448,32 +2615,56 @@ pub(crate) async fn load_command_versions<E: Environment>(
     }
 }
 
+/// Asset evaluation, keyed mutation, recovery, directory, and lifecycle service.
+///
+/// An [`Environment`] selects one implementation through its `AssetManager`
+/// associated type. `DefaultAssetManager` provides queued native execution;
+/// [`ImmediateAssetManager`] provides inline execution. Call [`Self::start`] after
+/// the environment back-reference has been installed; environment initialization
+/// normally performs that lifecycle step.
+///
+/// Methods such as [`Self::set_binary`], [`Self::set_state`], [`Self::remove`],
+/// [`Self::get_any_status`], and [`Self::to_override`] operate only on keyed
+/// assets. Query evaluation is available through [`Self::get_asset`].
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait AssetManager<E: Environment>:
     crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
 {
-    /// Get Asset for a query
+    /// Resolves a query to an asset.
+    ///
+    /// A pure key query delegates to [`Self::get`]. The return-time guarantee
+    /// depends on [`Self::eval_mode`]: queued managers may return a scheduled
+    /// handle, while inline managers return after evaluation.
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error>;
-    /// Get Asset they represents applying the recipe to the given state
+    /// Applies a recipe to a supplied initial state.
+    ///
+    /// The operation is ad hoc and does not insert the asset into a key/query
+    /// cache. Queued managers schedule it; inline managers evaluate before return.
     async fn apply(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error>;
-    /// Get Asset they represents applying the recipe to the given state, evaluate immediately
-    /// This in an ad-hoc evaluation that allows to specify a payload
+    /// Applies a recipe to a supplied state and evaluates it before returning.
+    ///
+    /// This ad-hoc path accepts an optional execution payload, bypasses the queued
+    /// manager's job queue, and does not persist the produced result.
     async fn apply_immediately(
         &self,
         recipe: Recipe,
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error>;
-    /// Get Asset for a key
+    /// Resolves a keyed asset.
+    ///
+    /// Managers may reuse a non-volatile cached entry or fast-track a stored value.
+    /// Cached `Expired`, `Error`, and `Cancelled` entries are treated as misses.
+    /// Return timing depends on [`Self::eval_mode`].
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
-    /// Get Recipe for a key if the recipe exists
+    /// Returns the recipe for a key, if one exists.
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
         self.get_recipe_provider()
             .recipe_opt(key, self.get_envref())
             .await
     }
-    /// Check if resource is volatile
+    /// Returns whether the keyed resource's recipe is volatile.
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
         if let Some(recipe) = self.recipe_opt(key).await? {
             Ok(recipe.is_volatile(self.get_envref()).await?)
@@ -3144,6 +3335,13 @@ enum ExpirationMonitorMessage<E: Environment> {
     Shutdown,
 }
 
+/// Native queued asset manager with in-memory reuse, a bounded-concurrency job
+/// queue, dependency tracking, store fast-track loading, and an expiration monitor.
+///
+/// Construction spawns the job-queue and expiration-monitor tasks and therefore
+/// requires an active Tokio runtime. [`Self::new`] uses a job capacity of four;
+/// [`Self::with_capacity`] selects another maximum. Call [`Self::shutdown`] for an
+/// orderly stop when the environment's lifecycle does not simply drop the manager.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct DefaultAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
@@ -4484,7 +4682,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 }
 
-/// The job queue structure
+/// Native bounded-concurrency queue used by [`DefaultAssetManager`].
+///
+/// Most applications interact with it indirectly through [`AssetManager`].
+/// [`Self::submit`] either starts an asset immediately when capacity is available
+/// or leaves it in `Submitted` status for the worker loop.
 /// Proof that the holder is the unique runner of an asset, obtained by an atomic status
 /// transition (not-yet-running → `Processing`) under one `AssetData` write lock.
 ///
@@ -4860,10 +5062,12 @@ impl<E: Environment + 'static> JobQueue<E> {
     }
 }
 
-/// Spawn-free, timer-free `AssetManager` (Axis 1 / b1). Every evaluation runs inline in the
-/// caller's task (no `JobQueue`, no expiration monitor, no background loops), so it runs under
-/// the browser's single-threaded event loop with no tokio runtime. Store-delegating methods are
-/// inherited from the `AssetManager` trait defaults; only the eval methods + primitives are here.
+/// Spawn-free, timer-free asset manager.
+///
+/// Every evaluation runs in the caller's task. There is no `JobQueue`,
+/// expiration monitor, or background manager loop. Expiration is checked lazily
+/// when an asset is requested. This implementation supports browser execution and
+/// can also be used for deterministic inline evaluation on native targets.
 pub struct ImmediateAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
     envref: std::sync::OnceLock<EnvRef<E>>,
@@ -4882,6 +5086,10 @@ impl<E: Environment> Default for ImmediateAssetManager<E> {
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
+    /// Creates an uninitialized inline manager.
+    ///
+    /// Its environment back-reference is installed during environment
+    /// initialization before evaluation methods can be used.
     pub fn new() -> Self {
         ImmediateAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),

@@ -1,6 +1,6 @@
 # API Documentation Analysis
 
-Status: DOC-01 and DOC-02 complete  
+Status: DOC-01 through DOC-03 complete
 Last reviewed: 2026-07-26
 
 This folder tracks the analysis and improvement of the Liquers API documentation.
@@ -162,7 +162,7 @@ The API consists of the following major concepts:
 |---:|---|---|---|---|
 | 1 | Architecture and API-reference navigation | Poor | Very high | Complete |
 | 2 | Query language, keys, and actions | Good | Very high | Complete |
-| 3 | Assets and execution lifecycle | Medium | Very high | Not started |
+| 3 | Assets and execution lifecycle | Good | Very high | Complete |
 | 4 | Environment, context, and end-to-end evaluation | Poor | Very high | Not started |
 | 5 | Commands and registration | Medium-good | Very high | Not started |
 | 6 | Values, state, metadata, and serialization | Poor | High | Not started |
@@ -240,6 +240,10 @@ or confuse logical keys with filesystem paths.
 - Compile-tested Rust construction and parsing examples
 
 ### 3. Assets and execution lifecycle
+
+The completed [DOC-03 analysis](doc-03-assets-execution-lifecycle.md) records the
+verified public contract, implementation/specification conflicts, and remaining
+prioritized gaps.
 
 Assets have the largest amount of existing conceptual documentation:
 
@@ -615,7 +619,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 |---|---|---:|---|---|---|
 | DOC-01 | Architecture and API-reference navigation | P0 | [Detailed analysis](doc-01-architecture-reference.md) | Complete | Core rustdoc clean; links checked |
 | DOC-02 | Query language, keys, and actions | P0 | [Detailed analysis](doc-02-query-language-reference.md) | Complete | Focused parser test, doctests, and rustdoc pass |
-| DOC-03 | Assets and execution lifecycle | P0 | Baseline complete | Not started | Not started |
+| DOC-03 | Assets and execution lifecycle | P0 | [Detailed analysis](doc-03-assets-execution-lifecycle.md) | Complete | 401 tests and 2 doctests pass; rustdoc clean; links checked |
 | DOC-04 | Environment and context | P0 | Baseline complete | Not started | Not started |
 | DOC-05 | Commands and registration | P0 | Baseline complete | Not started | Not started |
 | DOC-06 | Values, state, metadata, serialization | P1 | Baseline complete | Not started | Not started |

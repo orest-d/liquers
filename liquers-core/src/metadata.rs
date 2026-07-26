@@ -292,7 +292,9 @@ pub enum Status {
     Dependencies,
     /// Asset is currently being processed.
     Processing,
-    /// Asset is still processing but it published partial results.
+    /// Reserved for future support for publishing intermediate results.
+    ///
+    /// Partial-result production and retrieval are not completely implemented.
     Partial,
     /// Asset finished with an error.
     Error,
