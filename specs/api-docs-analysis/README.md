@@ -1,6 +1,6 @@
 # API Documentation Analysis
 
-Status: DOC-01 through DOC-03 complete
+Status: DOC-01 through DOC-04 complete
 Last reviewed: 2026-07-26
 
 This folder tracks the analysis and improvement of the Liquers API documentation.
@@ -163,7 +163,7 @@ The API consists of the following major concepts:
 | 1 | Architecture and API-reference navigation | Poor | Very high | Complete |
 | 2 | Query language, keys, and actions | Good | Very high | Complete |
 | 3 | Assets and execution lifecycle | Good | Very high | Complete |
-| 4 | Environment, context, and end-to-end evaluation | Poor | Very high | Not started |
+| 4 | Environment, context, and end-to-end evaluation | Good | Very high | Complete |
 | 5 | Commands and registration | Medium-good | Very high | Not started |
 | 6 | Values, state, metadata, and serialization | Poor | High | Not started |
 | 7 | Stores and persistence | Medium | High | Not started |
@@ -280,6 +280,10 @@ concisely:
 - Separate public API and implementation-internals sections
 
 ### 4. Environment, context, and end-to-end evaluation
+
+The completed [DOC-04 analysis](doc-04-environment-context-evaluation.md) records
+the verified initialization, environment binding, context sharing, dependency,
+payload, and platform contracts, together with remaining prioritized gaps.
 
 The architecture overview explains the hierarchy, but the corresponding public API
 has little method-level guidance. `Environment`, its associated types, and most of
@@ -620,7 +624,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 | DOC-01 | Architecture and API-reference navigation | P0 | [Detailed analysis](doc-01-architecture-reference.md) | Complete | Core rustdoc clean; links checked |
 | DOC-02 | Query language, keys, and actions | P0 | [Detailed analysis](doc-02-query-language-reference.md) | Complete | Focused parser test, doctests, and rustdoc pass |
 | DOC-03 | Assets and execution lifecycle | P0 | [Detailed analysis](doc-03-assets-execution-lifecycle.md) | Complete | 401 tests and 2 doctests pass; rustdoc clean; links checked |
-| DOC-04 | Environment and context | P0 | Baseline complete | Not started | Not started |
+| DOC-04 | Environment and context | P0 | [Detailed analysis](doc-04-environment-context-evaluation.md) | Complete | 401 tests and 2 doctests pass; rustdoc and Wasm check pass; links checked |
 | DOC-05 | Commands and registration | P0 | Baseline complete | Not started | Not started |
 | DOC-06 | Values, state, metadata, serialization | P1 | Baseline complete | Not started | Not started |
 | DOC-07 | Stores and persistence | P1 | Baseline complete | Not started | Not started |

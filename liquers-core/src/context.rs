@@ -1,23 +1,98 @@
-//! This defines Environment and Context.
+//! Runtime environments, shared environment references, and command contexts.
 //!
-//! * [Environment] is a global object that holds configuration and services like command executor, asset store, etc.
-//! * [Session] connects multiple actions of a single user.
-//! * [User] represents an individual user interacting with the system.
-//! * [Context] is a per-action object that holds e.g. the environment reference, metadata, current working directory.
+//! # Roles
 //!
-//! This builds a natural hierarchy. The most specific structure is the [Context],
-//! which provides access to thhe [Session] and [Environment].
-//! [`Context`] is the public command-facing interface to this execution context.
+//! [`Environment`] is a collection of global shared services and configurations.
+//! It binds the concrete value, command executor, payload, asset
+//! manager, recipe provider, store, and session types used by one Liquers runtime.
+//! It is usually configured while owned and then consumed by
+//! [`Environment::to_ref`].
+//!
+//! [`EnvRef`] is the cloneable, shared application handle to that environment.
+//! Application code evaluates queries through [`EnvRef::evaluate`] or
+//! [`EnvRef::evaluate_immediately`] and obtains an
+//! [`AssetRef`].
+//!
+//! [`Context`] is the command-facing context for one asset evaluation.
+//! Note that each action (application of a command) defines a separate asset,
+//! thus context is not necessarily shared across actions in the same evaluation.
+//! The interpreter clones it across the actions in that evaluation. Its clones share
+//! the current asset, working-directory cell, service channel, and pending
+//! dependency records. The payload value and volatility flag are cloned by value.
+//!
+//! Payload is a mechanism for injecting custom data into the evaluation context.
+//! It may be e.g. graphics context, user preferences, or other variable application state.
+//!
+//! [`Session`] and [`User`] are currently minimal identity abstractions.
+//! `Environment::create_session` constructs a session, but `Context` does not
+//! currently contain or expose a session or user.
+//! This is by design: Assets are shared for all the users. Asset evaluation should not depend on the user.
+//! Only the access rights will (in the future) depend on the user.
+//!
+//! # Initialization
+//!
+//! Prefer [`Environment::to_ref`] over [`EnvRef::new`]. `to_ref` consumes the
+//! configured environment, creates the shared reference, and invokes
+//! [`Environment::init_with_envref`] so the asset manager receives its environment
+//! back-reference. `EnvRef::new` only wraps the value in an `Arc`; evaluation can
+//! panic if manager initialization is skipped.
+//!
+//! Native [`SimpleEnvironment`] and [`SimpleEnvironmentWithPayload`] use
+//! `DefaultAssetManager`, whose construction and initialization spawn Tokio tasks
+//! and therefore require an active Tokio runtime. [`ImmediateEnvironment`] uses
+//! `ImmediateAssetManager`, does not spawn, and starts lazily on first evaluation.
+//!
+//! # Evaluation flow
+//!
+//! ```text
+//! Environment::to_ref
+//!     -> EnvRef::evaluate or evaluate_immediately
+//!     -> AssetManager
+//!     -> AssetRef creates Context
+//!     -> Environment::apply_recipe
+//!     -> plan/interpreter/CommandExecutor
+//!     -> AssetRef containing the resulting State
+//! ```
+//!
+//! `evaluate` uses the environment's normal manager mode: queued managers may
+//! return before evaluation finishes, while inline managers finish before return.
+//! `evaluate_immediately` always evaluates before returning, supplies a payload,
+//! and uses an empty input state. Assets with payload or arguments are not uniquely identifiable by a query,
+//! so they are not cached by the asset manager. Hence they can't be reused and requested again.
+//! This is the reason why assets with payload or arguments must be evaluated immediately.
+//!
+//!
+//! # Context, dependencies, and payload
+//!
+//! Context is an entry point for commands to interact with the environment services and asset mechanism.
+//! Commands use `Context` to report logs and progress, inspect metadata, change
+//! the working key or filename, and evaluate dependencies. [`Context::evaluate`]
+//! records the nested query as a dependency and returns its asset handle;
+//! [`Context::get_dependency_state`] schedules and waits for its state.
+//! [`Context::apply`] is an ad-hoc application and does not record a dependency.
+//! For apply operation, it may be difficult to safely define dependencies, nevertheless, use of apply bypasses
+//! the dependency tracking mechanism and should be used with caution.
+//!
+//! A payload is optional on `Context` even though its type is fixed by
+//! [`Environment::Payload`]. [`EnvRef::evaluate_immediately`] installs one.
+//! It remains available to actions in that evaluation, including injected command
+//! parameters. Nested asset evaluation through [`Context::evaluate`] or
+//! [`Context::get_dependency_state`] does **not** currently inherit it.
 
 use core::panic;
 use std::sync::{Arc, Mutex};
 
-use futures::FutureExt;
 use crate::maybe_send::MaybeBoxed;
+use futures::FutureExt;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::assets::DefaultAssetManager;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::cache::Cache;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::store::{NoStore, Store};
 use crate::{
     assets::{AssetManager, AssetRef, AssetServiceMessage},
-
     command_metadata::CommandMetadataRegistry,
     commands::{CommandExecutor, CommandRegistry},
     dependencies::ScheduleNode,
@@ -29,43 +104,83 @@ use crate::{
     state::State,
     value::ValueInterface,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use crate::assets::DefaultAssetManager;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::store::{NoStore, Store};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::cache::Cache;
 
+/// Identity associated with a [`Session`].
+///
+/// Sessions are not attached to [`Context`] or enforced by evaluation.
 pub enum User {
+    /// Internal or automated system identity.
     System,
+    /// Unauthenticated identity.
     Anonymous,
+    /// Named identity without an authorization model.
     Named(String),
 }
 
+/// Minimal user-session abstraction.
+///
+/// The environment can create sessions, but the current evaluation and context
+/// APIs do not carry them.
 pub trait Session {
+    /// Returns the user represented by this session.
     fn get_user(&self) -> &User;
 }
 
+/// Defines the concrete runtime services and types used during evaluation.
+///
+/// This trait is a static integration boundary, not a trait-object interface.
+/// Implementations must keep the returned service objects associated with the same
+/// environment instance. See [`Self::apply_recipe`] and
+/// [`Self::init_with_envref`] for the two lifecycle hooks.
 pub trait Environment:
     Sized + crate::maybe_send::MaybeSync + crate::maybe_send::MaybeSend + 'static
 {
+    /// Value representation carried by [`State`].
     type Value: ValueInterface;
+    /// Executor used by interpreter action steps.
     type CommandExecutor: CommandExecutor<Self>;
+    /// Session representation created by [`Self::create_session`].
     type SessionType: Session;
+    /// Per-evaluation payload type.
+    ///
+    /// A context stores this as `Option<Payload>`; selecting a type does not make a
+    /// payload present on every evaluation.
     type Payload: crate::commands::PayloadType;
+    /// Asset manager implementation and its queued or inline execution model.
     type AssetManager: AssetManager<Self>;
 
+    /// Returns the registry used for planning and command metadata lookup.
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
+    /// Returns the command executor used by the interpreter.
     fn get_command_executor(&self) -> &Self::CommandExecutor;
+    /// Returns the asynchronous persistence store.
     #[cfg(feature = "async_store")]
     fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore>;
 
+    /// Returns the shared asset manager.
     fn get_asset_manager(&self) -> Arc<Self::AssetManager>;
 
+    /// Returns the recipe provider used to resolve keyed assets.
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>>;
 
+    /// Creates a session for a user.
+    ///
+    /// The resulting session is not currently connected to query evaluation.
     fn create_session(&self, user: User) -> Self::SessionType;
 
+    /// Applies a recipe to an input state inside an asset context.
+    ///
+    /// This is the environment's interpreter hook. It allows the environment to
+    /// customize the planner and/or interpreter's behavior.
+    /// Among other things, this would be useful to implement multi-realm evaluation.
+    /// Realm-specifics can thus be implemented using the Environment and this hook.
+    ///
+    /// The built-in implementations
+    /// build and finalize a plan, combine recipe and plan expiration, update the
+    /// context expiration, and call
+    /// [`apply_plan`](crate::interpreter::apply_plan). A custom implementation is
+    /// responsible for equivalent metadata, dependency, expiration, and command
+    /// execution semantics when those facilities are desired.
     fn apply_recipe(
         envref: EnvRef<Self>,
         input_state: State<Self::Value>,
@@ -73,8 +188,13 @@ pub trait Environment:
         context: Context<Self>,
     ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>>;
 
+    /// Installs the environment back-reference and starts manager services.
+    ///
+    /// Called once by [`Self::to_ref`]. Implementations normally call
+    /// [`AssetManager::set_envref`] and arrange for [`AssetManager::start`].
     fn init_with_envref(&self, envref: EnvRef<Self>);
 
+    /// Consumes, shares, and initializes this environment.
     fn to_ref(self) -> EnvRef<Self> {
         let envref = EnvRef::new(self);
         envref.0.init_with_envref(envref.clone());
@@ -82,33 +202,49 @@ pub trait Environment:
     }
 }
 
-// TODO: Define Session and User; Session connects multiple actions of a single user.
-// TODO: Session could be "SystemSession" for automated tasks or recipes.
+/// Cloneable shared reference to an initialized [`Environment`].
+///
+/// The inner `Arc` is public for direct access to environment-specific services.
+/// Construct application references with [`Environment::to_ref`] so initialization
+/// is not skipped.
 pub struct EnvRef<E: Environment>(pub Arc<E>);
 
 impl<E: Environment> EnvRef<E> {
+    /// Wraps an environment without invoking [`Environment::init_with_envref`].
+    ///
+    /// Prefer [`Environment::to_ref`] for an environment that will evaluate
+    /// queries. This constructor is a low-level building block used by `to_ref`.
     pub fn new(env: E) -> Self {
         EnvRef(Arc::new(env))
     }
+    /// Returns the configured asynchronous store.
     #[cfg(feature = "async_store")]
     pub fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
         self.0.get_async_store()
     }
+    /// Returns the command metadata registry.
     pub fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         self.0.get_command_metadata_registry()
     }
+    /// Returns the command executor.
     pub fn get_command_executor(&self) -> &E::CommandExecutor {
         self.0.get_command_executor()
     }
 
+    /// Returns the shared asset manager.
     pub fn get_asset_manager(&self) -> Arc<E::AssetManager> {
         self.0.get_asset_manager()
     }
 
+    /// Returns the configured recipe provider.
     pub fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
         self.0.get_recipe_provider()
     }
 
+    /// Delegates recipe application to [`Environment::apply_recipe`].
+    ///
+    /// This is framework infrastructure used by assets; ordinary callers normally
+    /// use [`Self::evaluate`] or [`Self::evaluate_immediately`].
     pub fn apply_recipe(
         &self,
         input_state: State<E::Value>,
@@ -118,6 +254,12 @@ impl<E: Environment> EnvRef<E> {
         Box::pin(E::apply_recipe(self.clone(), input_state, recipe, context))
     }
 
+    /// Resolves a query through the environment's asset manager.
+    ///
+    /// The returned future waits for parsing and manager submission, not
+    /// necessarily for the asset value. With a queued manager, call
+    /// [`AssetRef::get`](crate::assets::AssetRef::get) to wait for state. With an
+    /// inline manager, evaluation completes before this method returns.
     pub fn evaluate<Q: TryToQuery>(
         &self,
         query: Q,
@@ -132,6 +274,10 @@ impl<E: Environment> EnvRef<E> {
         .maybe_boxed()
     }
 
+    /// Evaluates a query immediately with an empty input state and a payload.
+    ///
+    /// This delegates to [`AssetManager::apply_immediately`], so it completes the
+    /// evaluation before returning and does not persist the produced value.
     pub fn evaluate_immediately<Q: TryToQuery>(
         &self,
         query: Q,
@@ -157,12 +303,20 @@ impl<E: Environment> Clone for EnvRef<E> {
     }
 }
 
-// TODO: There should be an asset reference
+/// Command-facing context for one asset evaluation.
+///
+/// The interpreter clones a context across plan steps. Clones share asset-bound
+/// mutation and dependency state, while the payload itself is cloned. Normal
+/// contexts are created by [`AssetRef::create_context`](crate::assets::AssetRef::create_context).
 pub struct Context<E: Environment> {
     assetref: AssetRef<E>,
     envref: EnvRef<E>,
     cwd_key: Arc<Mutex<Option<Key>>>, // TODO: CWD should be owned by the context or maybe it should be in the Metadata
     service_tx: tokio::sync::mpsc::UnboundedSender<AssetServiceMessage>,
+    /// Optional evaluation payload.
+    ///
+    /// Prefer [`Self::get_payload_clone`] for read access. Direct replacement
+    /// affects only that context clone.
     pub payload: Option<E::Payload>,
 
     /// If true, this context is evaluating a volatile asset.
@@ -175,6 +329,10 @@ pub struct Context<E: Environment> {
 }
 
 impl<E: Environment> Context<E> {
+    /// Creates a context bound to an asset.
+    ///
+    /// The environment, service sender, and volatility flag are derived or supplied
+    /// by asset execution. Application code rarely constructs a context directly.
     pub async fn new(assetref: AssetRef<E>, is_volatile: bool) -> Self {
         let service_tx = assetref.service_sender().await;
         let envref = assetref.get_envref().await;
@@ -189,10 +347,12 @@ impl<E: Environment> Context<E> {
         }
     }
 
+    /// Installs a payload on this context clone.
     pub fn set_payload(&mut self, payload: E::Payload) {
         self.payload = Some(payload);
     }
 
+    /// Returns a clone of the optional payload.
     pub fn get_payload_clone(&self) -> Option<E::Payload> {
         self.payload.clone()
     }
@@ -249,9 +409,7 @@ impl<E: Environment> Context<E> {
         }
 
         // Capture the AssetRef exactly once (volatile-safe) and schedule it.
-        let asset = manager
-            .get_dependency_asset(&self.assetref, query)
-            .await?;
+        let asset = manager.get_dependency_asset(&self.assetref, query).await?;
 
         // Record the runtime dependency (path-independent capture) as evaluate did.
         if current_key_opt.is_some() {
@@ -277,34 +435,48 @@ impl<E: Environment> Context<E> {
         manager.wait_for_dependency(&self.assetref, asset).await
     }
 
-    /// Drain the current asset's local dependency queue
-    /// (= `AssetManager::drain_dependencies(current asset)`).
+    /// Drains the current asset's scheduled local dependency queue.
+    ///
+    /// This delegates to [`AssetManager::drain_dependencies`] and is primarily an
+    /// interpreter/dependency-scheduler operation.
     pub async fn evaluate_local_queue(&self) -> Result<(), Error> {
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
         manager.drain_dependencies(&self.assetref).await
     }
 
-    /// Convenience: schedule a dependency and wait for its state.
+    /// Schedules a dependency, records it, and waits for its state.
+    ///
+    /// The nested evaluation does not inherit this context's payload.
     pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
         let asset = self.schedule_dependency_asset(query).await?;
         self.wait_for_dependency(&asset).await
     }
 
-    /// Backwards-compatible: schedule the dependency, eagerly drain the local queue (so a
-    /// handle-unaware caller may still `.get().await` the returned AssetRef safely), and
-    /// return the captured AssetRef. Public signature unchanged.
+    /// Schedules and records a dependency, then returns its asset handle.
+    ///
+    /// The local dependency queue is drained before return so callers can safely
+    /// wait through [`AssetRef::get`](crate::assets::AssetRef::get). The nested
+    /// asset receives no copy of this context's payload.
     pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         let asset = self.schedule_dependency_asset(query).await?;
         self.evaluate_local_queue().await?;
         Ok(asset)
     }
 
+    /// Applies a query to a supplied state as an ad-hoc asset.
+    ///
+    /// This delegates to [`AssetManager::apply`]. It does not record the result as
+    /// a dependency and does not pass this context's payload.
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         envref.get_asset_manager().apply(query.into(), to).await
     }
 
+    /// Returns the current asset's structured metadata record.
+    ///
+    /// Legacy JSON metadata cannot be represented as `MetadataRecord` and returns
+    /// an error.
     pub async fn get_metadata(&self) -> Result<MetadataRecord, Error> {
         let metadata = {
             let lock = self.assetref.data.read().await;
@@ -320,20 +492,23 @@ impl<E: Environment> Context<E> {
             )))
         }
     }
+    /// Sends a primary-progress update to the current asset.
     pub fn progress(&self, progress: ProgressEntry) -> Result<(), Error> {
         self.service_tx
             .send(AssetServiceMessage::UpdatePrimaryProgress(progress))
             .map_err(|e| Error::general_error(format!("Failed to send progress message: {}", e)))
     }
 
-    /// Returns true if this context is evaluating a volatile asset
+    /// Returns whether this context is evaluating a volatile asset.
     pub fn is_volatile(&self) -> bool {
         self.is_volatile
     }
 
-    /// Create child context for nested evaluation, inheriting volatility
-    /// NOTE: Context does NOT implement Clone trait (AssetRef prevents it).
-    /// This method manually constructs a new Context with cloned Arc references.
+    /// Clones this context and adds a volatility requirement.
+    ///
+    /// Volatility is contagious: the returned context is volatile if either the
+    /// existing context or the argument is volatile. This does not create a
+    /// separate child asset.
     pub fn with_volatile(&self, volatile: bool) -> Self {
         Context {
             assetref: self.assetref.clone(),
@@ -346,6 +521,7 @@ impl<E: Environment> Context<E> {
         }
     }
 
+    /// Sends a secondary-progress update to the current asset.
     pub fn secondary_progress(&self, progress: ProgressEntry) -> Result<(), Error> {
         self.service_tx
             .send(AssetServiceMessage::UpdateSecondaryProgress(progress))
@@ -353,6 +529,7 @@ impl<E: Environment> Context<E> {
                 Error::general_error(format!("Failed to send secondary progress message: {}", e))
             })
     }
+    /// Sets the filename in the current asset's metadata.
     pub async fn set_filename(&self, filename: &str) -> Result<(), Error> {
         self.assetref
             .data
@@ -362,27 +539,37 @@ impl<E: Environment> Context<E> {
             .set_filename(filename)
             .map(|_| ())
     }
+    /// Sends a structured log entry to the current asset.
     pub fn add_log_entry(&self, entry: LogEntry) -> Result<(), Error> {
         self.service_tx
             .send(AssetServiceMessage::LogMessage(entry))
             .map_err(|e| Error::general_error(format!("Failed to send log message: {}", e)))
     }
+    /// Logs a debug message and writes it to stderr.
     pub fn debug(&self, message: &str) -> Result<(), Error> {
         eprintln!("DEBUG:   {}", message);
         self.add_log_entry(LogEntry::debug(message.to_string()))
     }
+    /// Logs an informational message and writes it to stderr.
     pub fn info(&self, message: &str) -> Result<(), Error> {
         eprintln!("INFO:    {}", message);
         self.add_log_entry(LogEntry::info(message.to_string()))
     }
+    /// Logs a warning and writes it to stderr.
     pub fn warning(&self, message: &str) -> Result<(), Error> {
         eprintln!("WARNING: {}", message);
         self.add_log_entry(LogEntry::warning(message.to_string()))
     }
+    /// Logs an error-level message and writes it to stderr.
+    ///
+    /// This does not fail the asset; use [`Self::set_error`] for that operation.
     pub fn error(&self, message: &str) -> Result<(), Error> {
         eprintln!("ERROR:   {}", message);
         self.add_log_entry(LogEntry::error(message.to_string()))
     }
+    /// Clones the context.
+    ///
+    /// This is equivalent to [`Clone::clone`] despite being async.
     pub async fn clone_context(&self) -> Self {
         Context {
             assetref: self.assetref.clone(),
@@ -394,30 +581,39 @@ impl<E: Environment> Context<E> {
             pending_dependencies: self.pending_dependencies.clone(),
         }
     }
+    /// Returns the current working key used for relative query resolution.
     pub fn get_cwd_key(&self) -> Option<Key> {
         self.cwd_key.lock().unwrap().clone()
     }
 
+    /// Replaces the current working key shared by all context clones.
     pub fn set_cwd_key(&self, key: Option<Key>) {
         let mut guard = self.cwd_key.lock().unwrap();
         *guard = key;
     }
 
+    /// Returns the current asset handle.
     pub fn get_asset_ref(&self) -> AssetRef<E> {
         self.assetref.clone()
     }
 
+    /// Returns the shared environment reference.
     pub fn get_envref(&self) -> EnvRef<E> {
         self.envref.clone()
     }
 
-    /// Get the pending dependencies collected during evaluation.
+    /// Takes and clears the dependencies collected during evaluation.
+    ///
+    /// This is an interpreter/asset finalization primitive. Calling it early
+    /// removes records that would otherwise be written to result metadata.
     pub async fn take_pending_dependencies(&self) -> Vec<DependencyRecord> {
         std::mem::take(&mut *self.pending_dependencies.lock().await)
     }
 
-    /// Upsert a dependency into the pending list.
-    /// If a record with the same key already exists, its version is replaced.
+    /// Adds or updates a dependency awaiting metadata finalization.
+    ///
+    /// A known version is not replaced by the `Version(0)` unknown sentinel.
+    /// This is normally called by dependency scheduling and the interpreter.
     pub async fn add_dependency(&self, record: DependencyRecord) {
         let mut deps = self.pending_dependencies.lock().await;
         if let Some(existing) = deps.iter_mut().find(|d| d.key == record.key) {
@@ -446,7 +642,10 @@ impl<E: Environment> Context<E> {
         self.assetref.set_state(state).await
     }
 
-    // FIXME: Should not be public (only pub(crate)) - but needs to be used now in every environment in apply_recipe
+    /// Applies an expiration policy to the current asset metadata and deadline.
+    ///
+    /// This is a framework hook used by `Environment::apply_recipe`
+    /// implementations after plan finalization.
     pub async fn set_expires(&self, expires: Expires) -> Result<(), Error> {
         let expiration_time = {
             let mut lock = self.assetref.data.write().await;
@@ -457,6 +656,9 @@ impl<E: Environment> Context<E> {
         Ok(())
     }
 
+    /// Fails the current asset with an error.
+    ///
+    /// Unlike [`Self::error`], this changes the asset's terminal state.
     pub async fn set_error(&self, error: Error) -> Result<(), Error> {
         self.assetref.set_error(error).await
     }
@@ -475,10 +677,10 @@ impl<E: Environment> Clone for Context<E> {
         }
     }
 }
-// TODO: There should be a reference to input_state_query
-// TODO: There should be a reference to query including the current action
 
+/// Minimal session containing only a [`User`].
 pub struct SimpleSession {
+    /// User represented by this session.
     pub user: User,
 }
 impl Session for SimpleSession {
@@ -487,8 +689,15 @@ impl Session for SimpleSession {
     }
 }
 
-/// Simple environment with configurable store and cache
-/// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
+/// Native environment with unit payload and queued asset evaluation.
+///
+/// This uses [`CommandRegistry`] for execution and metadata,
+/// `DefaultAssetManager` for queued evaluation, and an optional asynchronous store
+/// and recipe provider. Construction requires an active Tokio runtime because the
+/// manager spawns its queue and expiration-monitor tasks.
+///
+/// If no recipe provider is configured, this environment returns
+/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 #[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironment<V: ValueInterface> {
     store: Arc<dyn Store>,
@@ -509,6 +718,9 @@ impl<V: ValueInterface> Default for SimpleEnvironment<V> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> SimpleEnvironment<V> {
+    /// Creates a native queued environment with no asynchronous persistence.
+    ///
+    /// The environment still needs [`Environment::to_ref`] before evaluation.
     pub fn new() -> Self {
         SimpleEnvironment {
             store: Arc::new(NoStore),
@@ -520,10 +732,16 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
             recipe_provider: None,
         }
     }
+    /// Sets the legacy synchronous store field.
+    ///
+    /// Current asset evaluation uses [`Self::with_async_store`]; this synchronous
+    /// store is not exposed through [`Environment`] and is not used by the asset
+    /// manager.
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::from(store);
         self
     }
+    /// Sets the keyed recipe provider.
     pub fn with_recipe_provider(
         &mut self,
         provider: Box<dyn AsyncRecipeProvider<Self>>,
@@ -531,11 +749,15 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
         self.recipe_provider = Some(Arc::from(provider));
         self
     }
+    /// Sets the asynchronous store used by assets.
     #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
     }
+    /// Unsupported legacy cache setter.
+    ///
+    /// This method always panics.
     pub fn with_cache(&mut self, _cache: Box<dyn Cache<V>>) -> &mut Self {
         panic!("SimpleEnvironment does not support cache for now");
     }
@@ -612,12 +834,15 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
 }
 
-/// Environment backed by the spawn-free [`crate::assets::ImmediateAssetManager`] (inline evaluation).
+/// Spawn-free environment with unit payload and inline asset evaluation.
 ///
-/// Primary use: the manager-parametric test suite, so `ImmediateAssetManager` is exercised on
-/// native alongside `SimpleEnvironment` (→ `DefaultAssetManager`). Also usable for embedded /
-/// no-runtime contexts. Async-store only (no sync `Store`/`Cache`); `init_with_envref` does NOT
-/// spawn — `start()` runs lazily on first evaluation.
+/// This uses [`crate::assets::ImmediateAssetManager`], has no job queue or
+/// expiration-monitor task, and starts lazily on first evaluation. It can be
+/// constructed without a Tokio runtime and is suitable for Wasm and deterministic
+/// inline execution. It supports only the asynchronous store API.
+///
+/// If no recipe provider is configured, this environment returns
+/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 pub struct ImmediateEnvironment<V: ValueInterface> {
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
@@ -633,6 +858,7 @@ impl<V: ValueInterface> Default for ImmediateEnvironment<V> {
 }
 
 impl<V: ValueInterface> ImmediateEnvironment<V> {
+    /// Creates an inline environment with no asynchronous persistence.
     pub fn new() -> Self {
         ImmediateEnvironment {
             command_registry: CommandRegistry::new(),
@@ -642,11 +868,13 @@ impl<V: ValueInterface> ImmediateEnvironment<V> {
             recipe_provider: None,
         }
     }
+    /// Sets the asynchronous store used by assets.
     #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
     }
+    /// Sets the keyed recipe provider.
     pub fn with_recipe_provider(
         &mut self,
         provider: Box<dyn AsyncRecipeProvider<Self>>,
@@ -719,8 +947,11 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
     }
 }
 
-/// Simple environment with payload and configurable store and cache
-/// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
+/// Native environment with a custom payload and queued asset evaluation.
+///
+/// This is the payload-bearing counterpart to [`SimpleEnvironment`]. Construction
+/// requires an active Tokio runtime. A recipe provider must be configured before a
+/// keyed recipe lookup; otherwise [`Environment::get_recipe_provider`] panics.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
     store: Arc<dyn Store>,
@@ -744,6 +975,9 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Default
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPayload<V, P> {
+    /// Creates a native queued environment with no asynchronous persistence.
+    ///
+    /// The environment still needs [`Environment::to_ref`] before evaluation.
     pub fn new() -> Self {
         SimpleEnvironmentWithPayload {
             store: Arc::new(NoStore),
@@ -756,10 +990,16 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
             recipe_provider: None,
         }
     }
+    /// Sets the legacy synchronous store field.
+    ///
+    /// Current asset evaluation uses [`Self::with_async_store`]; this synchronous
+    /// store is not exposed through [`Environment`] and is not used by the asset
+    /// manager.
     pub fn with_store(&mut self, store: Box<dyn Store>) -> &mut Self {
         self.store = Arc::from(store);
         self
     }
+    /// Sets the keyed recipe provider.
     pub fn with_recipe_provider(
         &mut self,
         provider: Box<dyn AsyncRecipeProvider<Self>>,
@@ -767,11 +1007,15 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
         self.recipe_provider = Some(Arc::from(provider));
         self
     }
+    /// Sets the asynchronous store used by assets.
     #[cfg(feature = "async_store")]
     pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
         self.async_store = Arc::from(store);
         self
     }
+    /// Unsupported legacy cache setter.
+    ///
+    /// This method always panics.
     pub fn with_cache(&mut self, _cache: Box<dyn Cache<V>>) -> &mut Self {
         panic!("SimpleEnvironment does not support cache for now");
     }
