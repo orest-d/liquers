@@ -2,6 +2,59 @@
 
 ## Open
 
+### Issue: QUERY-ACTION-PARAMETER-LINK-PARSER
+Status: Open
+Priority: P0 (High)
+
+#### Problem
+
+The query language defines `~X~<query>~E` as the textual representation of an
+action-parameter link: the text between `~X~` and `~E` is an embedded Liquers query
+and the parsed value must be `ActionParameter::Link`.
+
+`liquers-core::query` already represents and encodes this form:
+
+- `ActionParameter::Link(Query, Position)` is part of the public semantic model.
+- `ActionParameter::encode()` emits `~X~<query>~E`.
+- Plan construction accepts `ActionParameter::Link` and resolves it as a linked
+  query parameter.
+
+However, `liquers_core::parse` has no corresponding parser production. Consequently,
+valid link syntax such as `action-~X~hello~E` is rejected, and an encoded
+`ActionParameter::Link` cannot round-trip through `parse_query`.
+
+This omission is a parser bug. Action-parameter links and the
+`~X~<query>~E` syntax are supported language features, not reserved or
+programmatic-only features.
+
+#### Expected behavior
+
+1. The action-parameter parser recognizes `~X~<query>~E`.
+2. `<query>` is parsed using the authoritative Liquers query grammar.
+3. The result is `ActionParameter::Link(parsed_query, position)`.
+4. Encoding and reparsing an action containing `ActionParameter::Link` preserves
+   the link and embedded query semantics.
+5. Link parameters work at every action-parameter position, including between
+   string parameters.
+6. Malformed or unterminated link syntax returns `ErrorType::ParseError` with a
+   useful source position.
+
+#### Verification
+
+Add parser and round-trip tests covering:
+
+1. A single link: `action-~X~hello~E`
+2. A link between strings: `action-before-~X~hello~E-after`
+3. An embedded multi-segment query
+4. An embedded query containing encoded parameter entities
+5. Malformed and missing `~E` delimiters
+6. Source positions for the link and embedded query
+
+The existing encoder tests in `liquers-core/src/query.rs` establish the intended
+serialized form. The current rejection test in `liquers-core/src/parse.rs` records
+the bug and should be replaced by successful parsing and round-trip assertions when
+the parser is fixed.
+
 ### Issue: ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS
 Status: Partially Resolved (WP-2)
 Priority: High

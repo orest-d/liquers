@@ -7,7 +7,7 @@
 //!
 //! This builds a natural hierarchy. The most specific structure is the [Context],
 //! which provides access to thhe [Session] and [Environment].
-//! [ActionContext] is a public interface to the Context.
+//! [`Context`] is the public command-facing interface to this execution context.
 
 use core::panic;
 use std::sync::{Arc, Mutex};
@@ -612,7 +612,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
     }
 }
 
-/// Environment backed by the spawn-free [`ImmediateAssetManager`] (inline evaluation).
+/// Environment backed by the spawn-free [`crate::assets::ImmediateAssetManager`] (inline evaluation).
 ///
 /// Primary use: the manager-parametric test suite, so `ImmediateAssetManager` is exercised on
 /// native alongside `SimpleEnvironment` (→ `DefaultAssetManager`). Also usable for embedded /

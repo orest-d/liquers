@@ -1,3 +1,168 @@
+//! Authoritative parser for Liquers keys, queries, and simple query templates.
+//!
+//! This module defines the textual syntax accepted by [`parse_key`],
+//! [`parse_query`], and [`parse_simple_template`]. The data model and operations on
+//! parsed values are defined in [`crate::query`].
+//!
+//! # Lexical elements
+//!
+//! The parser uses the following lexical forms. `ALPHA` and `ALNUM` in this
+//! reference mean the ASCII character classes tested by the parser.
+//!
+//! ```text
+//! identifier      = (ALPHA | "_"), { ALNUM | "_" }
+//! resource-name   = (ALNUM | "_" | ".")+,
+//!                   { ALNUM | "_" | "." | "-" }
+//! filename        = { ALNUM | "_" }, ".",
+//!                   (ALNUM | "_" | "." | "-")+
+//! header-value    = { ALNUM | "_" | "." }
+//! ```
+//!
+//! An action name is an `identifier`. A resource name cannot begin with `-`.
+//! Resource names `.` and `..` are accepted and have relative-key semantics in
+//! [`crate::query::Key::to_absolute`].
+//!
+//! A terminal transform component containing a dot and matching `filename` is
+//! parsed as a filename, not an action. For example, `result.json` is a
+//! filename-only transform query.
+//!
+//! # String action parameters
+//!
+//! An action is an identifier followed by zero or more `-parameter` components:
+//!
+//! ```text
+//! action = identifier, { "-", string-parameter }
+//! ```
+//!
+//! Unescaped parameter text accepts ASCII alphanumeric characters, `_`, `+`, and
+//! `.`. The following entities decode inside string parameters:
+//!
+//! | Encoded | Decoded |
+//! |---|---|
+//! | `~~` | `~` |
+//! | `~_` | `-` |
+//! | `~I` | `/` |
+//! | `~/` | `/` |
+//! | `~.` | space |
+//! | `~` followed by one or more digits | `-` followed by those digits |
+//! | `~H` | `https://` |
+//! | `~h` | `http://` |
+//! | `~f` | `file://` |
+//! | `~P` | `://` |
+//!
+//! [`crate::query::encode_token`] emits the general escapes for `~`, space, `/`,
+//! and `-`. It does not emit the protocol abbreviations, although the parser
+//! accepts them.
+//!
+//! Empty parameters are accepted: `action-` contains one empty string parameter.
+//!
+//! ## Known link-parser bug
+//!
+//! [`crate::query::ActionParameter::Link`] is part of the query data model and its
+//! encoder emits `~X~<query>~E`. The current parser has no production for that
+//! form. Consequently, an encoded `Link` parameter does **not** currently
+//! round-trip through [`parse_query`]. The `~X~<query>~E` syntax is an intended,
+//! supported language feature; its omission from this parser is tracked as
+//! `QUERY-ACTION-PARAMETER-LINK-PARSER` in `specs/ISSUES.md`.
+//!
+//! # Segment headers
+//!
+//! A query contains resource and transform segments.
+//!
+//! Resource headers have the form:
+//!
+//! ```text
+//! resource-header =
+//!     "-", { "-" }, "R", { ALNUM | "_" }, { "-", header-value }
+//! ```
+//!
+//! Examples are `-R`, `-R-meta`, and `-R-meta-extra`. The text after `R` is the
+//! header name; subsequent `-` components are header parameters.
+//!
+//! Transform headers have either a short or named form and always end in `/` in
+//! the parsed text:
+//!
+//! ```text
+//! short-transform-header = "-", { "-" }, "/"
+//! named-transform-header = "-", { "-" },
+//!                          lower-alpha, { ALNUM | "_" },
+//!                          { "-", header-value }, "/"
+//! ```
+//!
+//! Examples are `-/`, `-backend/`, and `-backend-option/`.
+//!
+//! The number of leading `-` characters minus one is stored in
+//! [`crate::query::SegmentHeader::level`]. `level` is reserved for a future
+//! feature and is currently unused by query interpretation.
+//!
+//! Header values are not action parameters: they do not use the entity decoding
+//! table and may be empty.
+//!
+//! # Query forms and parse precedence
+//!
+//! A query may start with `/`. The parser records this in
+//! [`crate::query::Query::absolute`].
+//!
+//! The parser recognizes these forms in order:
+//!
+//! 1. **Resource/transform shorthand**: a non-empty headerless resource path
+//!    followed by `/` and an explicit transform header, for example
+//!    `data/input.csv/-/to_text`. Encoding the result makes the resource header
+//!    explicit: `-R/data/input.csv/-/to_text`.
+//! 2. **Headerless transform query**: actions and an optional terminal filename,
+//!    for example `load/process/result.json`.
+//! 3. **General segmented query**: an explicit resource or transform segment,
+//!    followed by zero or more explicitly headed segments.
+//! 4. **Empty query**: `""` or `"/"`.
+//!
+//! A pure textual resource query must use an explicit resource header:
+//! `-R/path/to/resource`. In contrast, [`parse_key`] accepts the headerless key
+//! `path/to/resource`.
+//!
+//! Within a transform segment, `/` separates actions. A slash immediately followed
+//! by `-` starts the next explicitly headed segment rather than another action.
+//!
+//! # Simple templates
+//!
+//! [`parse_simple_template`] recognizes:
+//!
+//! | Syntax | Element |
+//! |---|---|
+//! | ordinary text | [`SimpleTemplateElement::Text`] |
+//! | `$$` | a literal `$` text element |
+//! | `$<query>$` | [`SimpleTemplateElement::ExpandQuery`] |
+//!
+//! The embedded text is parsed with the same query parser described above.
+//!
+//! # Positions and errors
+//!
+//! Parsed syntax nodes carry a [`crate::query::Position`]. Offsets are zero-based;
+//! lines and columns reported by the parser are one-based. An unknown position uses
+//! zero for all fields.
+//!
+//! The three public parse functions require complete input consumption. Remaining
+//! input is returned as a Liquers [`crate::error::Error`] with the position at
+//! which parsing stopped.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::parse::{parse_key, parse_query, parse_simple_template};
+//! use liquers_core::query::QuerySegment;
+//!
+//! let key = parse_key("data/input.csv")?;
+//! assert_eq!(key.encode(), "data/input.csv");
+//!
+//! let query = parse_query("data/input.csv/-/to_text/result.txt")?;
+//! assert_eq!(query.encode(), "-R/data/input.csv/-/to_text/result.txt");
+//! assert!(matches!(query.segments[0], QuerySegment::Resource(_)));
+//! assert!(matches!(query.segments[1], QuerySegment::Transform(_)));
+//!
+//! let template = parse_simple_template("Result: $load/to_text$")?;
+//! assert_eq!(template.encode(), "Result: $load/to_text$");
+//! # Ok::<(), liquers_core::error::Error>(())
+//! ```
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -491,12 +656,19 @@ fn query_parser(text: Span) -> IResult<Span, Query> {
     .parse(text)
 }
 
+/// An element produced by [`parse_simple_template`].
 #[derive(Debug, PartialEq, Clone)]
 pub enum SimpleTemplateElement {
+    /// Literal template text.
     Text(String),
+    /// A query delimited by `$` characters in the source template.
     ExpandQuery(Query),
 }
 
+/// Parsed representation of a simple query template.
+///
+/// Use [`parse_simple_template`] to construct a template from text. Iteration
+/// consumes the template and yields its [`SimpleTemplateElement`] values.
 #[derive(Debug, PartialEq, Clone)]
 pub struct SimpleTemplate(pub Vec<SimpleTemplateElement>);
 
@@ -510,6 +682,12 @@ impl IntoIterator for SimpleTemplate {
 }
 
 impl SimpleTemplate {
+    /// Encode the template using `$query$` for query expansion and literal text
+    /// for text elements.
+    ///
+    /// A programmatically constructed text element containing `$` is emitted
+    /// without escaping, so `encode` is not a general round-trip guarantee for
+    /// arbitrary manually constructed templates.
     pub fn encode(&self) -> String {
         self.0
             .iter()
@@ -565,6 +743,13 @@ fn parse_action_path(text: Span) -> IResult<Span, Vec<ActionRequest>> {
 }
 */
 
+/// Parse a complete Liquers query.
+///
+/// See the [module-level syntax reference](self) for accepted query forms,
+/// escaping, headers, and parse precedence.
+///
+/// Returns [`ErrorType::ParseError`] if the parser fails or does not consume the
+/// complete input.
 pub fn parse_query(query: &str) -> Result<Query, Error> {
     let (remainder, path) = query_parser(Span::new(query)).map_err(|e| {
         let message = format!("{}", e);
@@ -582,6 +767,13 @@ pub fn parse_query(query: &str) -> Result<Query, Error> {
     }
 }
 
+/// Parse a complete headerless resource key.
+///
+/// The empty string produces [`Key::new`]. A leading `/` is not accepted. Key
+/// elements are separated by `/`; see the module-level `resource-name` grammar.
+///
+/// Returns [`ErrorType::ParseError`] if the parser fails or does not consume the
+/// complete input.
 pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
     let (remainder, path) = resource_path(Span::new(key.as_ref())).map_err(|e| {
         let em = format!("{}", e);
@@ -599,6 +791,10 @@ pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
     }
 }
 
+/// Parse a complete simple query template.
+///
+/// `$$` represents a literal dollar sign and `$query$` represents a query
+/// expansion. The embedded query uses [`parse_query`]'s grammar.
 pub fn parse_simple_template<S: AsRef<str>>(template_text: S) -> Result<SimpleTemplate, Error> {
     let (remainder, template) =
         simple_template(Span::new(template_text.as_ref())).map_err(|e| {
@@ -1096,6 +1292,35 @@ mod tests {
         } else {
             assert!(false);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn documented_query_language_contract() -> Result<(), Error> {
+        let shorthand = parse_query("data/input.csv/-/load-x~_y")?;
+        assert_eq!(shorthand.encode(), "-R/data/input.csv/-/load-x~_y");
+        assert!(shorthand.segments[0].is_resource_query_segment());
+        assert_eq!(
+            shorthand.segments[1].action().unwrap().parameters[0].string_value(),
+            Some("x-y".to_owned())
+        );
+
+        let absolute = parse_query("/--R-meta-extra/data/input.csv")?;
+        assert!(absolute.absolute);
+        let resource = absolute.resource_query().unwrap();
+        let header = resource.header.unwrap();
+        assert_eq!(header.level, 1);
+        assert_eq!(header.parameters[0].value, "meta");
+        assert_eq!(header.parameters[1].value, "extra");
+
+        let empty_parameter = parse_query("action-")?.action().unwrap();
+        assert_eq!(
+            empty_parameter.parameters[0].string_value(),
+            Some(String::new())
+        );
+
+        // Link encoding exists in query.rs, but parse.rs has no link production.
+        assert!(parse_query("action-~X~hello~E").is_err());
         Ok(())
     }
 }

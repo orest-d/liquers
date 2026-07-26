@@ -1,3 +1,92 @@
+//! Semantic data model for Liquers queries and resource keys.
+//!
+//! [`crate::parse`] is the authoritative [query syntax reference][crate::parse].
+//! In particular, its *Segment headers* and *Query forms and parse precedence*
+//! sections define how the semantic elements below are written. This module
+//! defines what those parsed elements mean, how they are encoded, how relative
+//! resource names are resolved, and how query values are compared. Rendering and
+//! styled-query facilities in this file are presentation APIs; they do not define
+//! the language.
+//!
+//! # Data model
+//!
+//! A [`Query`] is an ordered sequence of [`QuerySegment`] values:
+//!
+//! - [`ResourceQuerySegment`] references a resource by [`Key`], with an optional
+//!   resource [`SegmentHeader`] selecting how it is retrieved. The resource is
+//!   typically a keyed asset and can be thought of as a file: it has a logical
+//!   path and may have data plus metadata. A key is nevertheless a Liquers logical
+//!   identifier, not an operating-system path.
+//! - [`TransformQuerySegment`] describes an ordered sequence of action requests
+//!   applied to its input. Its input is typically the resource or transformation
+//!   result produced by the preceding segment; a transform-only query instead
+//!   starts without a preceding resource. A transform segment may also specify a
+//!   terminal output filename and an optional header.
+//! - [`ActionRequest`] contains a command name and ordered [`ActionParameter`]
+//!   values.
+//!
+//! A common query therefore has this semantic flow:
+//!
+//! ```text
+//! resource reference -> action -> action -> optional output filename
+//! ```
+//!
+//! This describes meaning, not syntax. See [`crate::parse`] for the exact textual
+//! forms and their parse precedence.
+//!
+//! [`Position`] values preserve source locations for diagnostics. They are ignored
+//! when resource names, parameters, actions, and headers are compared or hashed.
+//! [`QuerySource`] is provenance metadata: [`Query`] equality and hashing ignore it,
+//! and [`Query::encode`] does not include it. The [`Query::absolute`] flag is part
+//! of equality and hashing and is rendered as a leading `/`.
+//!
+//! Constructors in this module do not validate parser grammar. Use
+//! [`crate::parse::parse_query`] or [`crate::parse::parse_key`] when untrusted text
+//! must be validated.
+//!
+//! # Headers
+//!
+//! [`SegmentHeader::resource`] distinguishes resource headers from transform
+//! headers. A transform header's `name` is used as the command realm when the
+//! entire query is a single transform segment. Resource-header behavior is selected
+//! primarily by its first parameter during plan construction; see
+//! [`crate::plan::PlanBuilder`].
+//!
+//! [`SegmentHeader::level`] records additional leading hyphens. It is a reserved
+//! feature and is currently not interpreted. Header parameters are distinct from
+//! action parameters and are not entity-decoded.
+//!
+//! # Encoding and canonical form
+//!
+//! [`Query::encode`] emits an explicit header for every resource segment, even if
+//! the input used resource/transform shorthand. Encoding preserves ordinary
+//! transform filenames. [`Query::canonical`] additionally supplies missing headers
+//! and normalizes the basename of a terminal transform filename to `data` while
+//! preserving its extension.
+//!
+//! String action parameters are escaped by [`encode_token`]. Link parameters can
+//! be constructed with [`ActionParameter::Link`] and encode as `~X~<query>~E`.
+//! This is intended supported syntax, but the current parser has no production for
+//! it, so links do not yet round-trip through [`crate::parse::parse_query`]. The
+//! omission is tracked as `QUERY-ACTION-PARAMETER-LINK-PARSER`.
+//!
+//! # Relative resource names
+//!
+//! [`Key::to_absolute`] interprets `.` and `..` relative to a supplied current
+//! working-directory key. [`Query::to_absolute`] applies that operation to every
+//! resource segment. It does not change or consult [`Query::absolute`].
+//!
+//! # Interpreter instructions
+//!
+//! The planner gives three action names structural meaning:
+//!
+//! - `ns` selects command namespaces. The last `ns` action in the last transform
+//!   segment is used for lookup.
+//! - A terminal `q` asks the planner to use the preceding query as a query value.
+//! - `v` marks the plan volatile and does not create a command-execution step.
+//!
+//! These are semantic rules of plan construction, not additional parser grammar.
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -309,9 +398,16 @@ impl QueryRenderStyle for DarkAnsiQueryRenderStyle {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+/// A source location attached to a parsed query element.
+///
+/// Parser-produced offsets are zero-based, while line and column values are
+/// one-based. [`Position::unknown`] uses zero for every field.
 pub struct Position {
+    /// Zero-based byte offset in the parsed input.
     pub offset: usize,
+    /// One-based line, or zero when unknown.
     pub line: u32,
+    /// One-based column, or zero when unknown.
     pub column: usize,
 }
 
@@ -368,6 +464,11 @@ impl Display for Position {
     }
 }
 
+/// Encode a string value for use as an action parameter token.
+///
+/// This escapes `~`, spaces, `/`, and `-`. A minus sign followed by a decimal
+/// digit uses the compact `~<digit>` form. See [`crate::parse`] for the full
+/// table of accepted entities.
 pub fn encode_token<S: AsRef<str>>(text: S) -> String {
     let text = text.as_ref();
     let mut res = String::new();
@@ -397,8 +498,14 @@ pub fn encode_token<S: AsRef<str>>(text: S) -> String {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+/// A value supplied after an action name.
 pub enum ActionParameter {
+    /// A decoded string value and its source position.
     String(String, Position),
+    /// A programmatically constructed nested query and its source position.
+    ///
+    /// Encoding is implemented, but a known parser bug currently prevents parsing
+    /// the encoded form; see the module-level link-parser note.
     Link(Query, Position),
 }
 
@@ -533,8 +640,13 @@ impl Hash for ActionParameter {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+/// One component of a logical resource [`Key`].
+///
+/// Equality, ordering, and hashing use only [`Self::name`], not the position.
 pub struct ResourceName {
+    /// Component text.
     pub name: String,
+    /// Source position or [`Position::unknown`].
     pub position: Position,
 }
 
@@ -626,9 +738,15 @@ impl Display for ResourceName {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+/// A command name and its ordered parameters within a transform segment.
+///
+/// Equality and hashing ignore [`Self::position`].
 pub struct ActionRequest {
+    /// Command name.
     pub name: String,
+    /// Ordered decoded parameter values.
     pub parameters: Vec<ActionParameter>,
+    /// Source position of the command name.
     pub position: Position,
 }
 
@@ -731,8 +849,11 @@ impl IndexMut<usize> for ActionRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+/// An undecoded parameter belonging to a segment header.
 pub struct HeaderParameter {
+    /// Parameter text as accepted by the header grammar.
     pub value: String,
+    /// Source position.
     pub position: Position,
 }
 
@@ -787,16 +908,25 @@ impl Hash for HeaderParameter {
     }
 }
 
-/// Header of a query segment - both resource and transformation query.
-/// Header may contain name (string), level (integer) and parameters (list of strings).
-/// The header parameters may influence how the query is interpreted.
-/// The interpretation of the header parameters depends on the context object.
+/// Header of a resource or transform query segment.
+///
+/// Resource headers have [`Self::resource`] set. For transform headers, `name`
+/// identifies the realm in the single-transform-segment case. Resource-header
+/// interpretation is performed by [`crate::plan::PlanBuilder`].
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct SegmentHeader {
+    /// Header name, excluding the `R` resource marker.
     pub name: String,
+    /// Number of extra leading hyphens.
+    ///
+    /// Reserved for a future feature; currently stored and encoded but not
+    /// interpreted.
     pub level: usize,
+    /// Ordered header parameters. These are not action parameters.
     pub parameters: Vec<HeaderParameter>,
+    /// Whether this is a resource header.
     pub resource: bool,
+    /// Source position of the header.
     pub position: Position,
 }
 
@@ -913,11 +1043,23 @@ impl Hash for SegmentHeader {
     }
 }
 
-/// Query segment representing a transformation, i.e. a sequence of actions applied to a state.
+/// An ordered sequence of actions applied to an input.
+///
+/// The input is normally the resource or transformation result produced by the
+/// preceding query segment. In a transform-only query there is no preceding
+/// resource, so the sequence starts without resource input. Actions are evaluated
+/// in [`Self::query`] order. [`Self::filename`] is an optional terminal output
+/// filename rather than another action.
+///
+/// See the [`crate::parse`] *String action parameters*, *Segment headers*, and
+/// *Query forms and parse precedence* sections for the accepted textual syntax.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct TransformQuerySegment {
+    /// Explicit header, or `None` for a headerless first transform segment.
     pub header: Option<SegmentHeader>,
+    /// Actions applied in order.
     pub query: Vec<ActionRequest>,
+    /// Optional terminal output filename.
     pub filename: Option<ResourceName>,
 }
 
@@ -1005,7 +1147,7 @@ impl TransformQuerySegment {
         self.query.len() == 1 && self.filename.is_none()
     }
 
-    /// Return the ActionRequest if the query is an action request (see [is_action_request]).
+    /// Return the ActionRequest if the query is an action request (see [`Self::is_action_request`]).
     pub fn action(&self) -> Option<ActionRequest> {
         if self.is_action_request() {
             Some(self.query[0].clone())
@@ -1213,6 +1355,10 @@ impl IndexMut<usize> for TransformQuerySegment {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// A logical resource path represented as ordered resource names.
+///
+/// A key is not an operating-system path. Parse textual keys with
+/// [`crate::parse::parse_key`].
 pub struct Key(pub Vec<ResourceName>);
 impl Key {
     /// Create a new empty key
@@ -1463,10 +1609,20 @@ impl Display for Key {
     }
 }
 
-/// Query segment representing a resource, i.e. path to a file in a store.
+/// A reference to a resource by logical key, with an optional resource header.
+///
+/// The resource is typically a keyed asset and can be thought of as a file with a
+/// logical path, data, and metadata. A [`Key`] is not an operating-system path,
+/// however, and the resource header can request other views such as metadata,
+/// binary data, or a directory.
+///
+/// See the [`crate::parse`] *Segment headers* and *Query forms and parse
+/// precedence* sections for the accepted textual syntax.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ResourceQuerySegment {
+    /// Explicit resource header, or `None` when constructed from shorthand.
     pub header: Option<SegmentHeader>,
+    /// Logical resource key.
     pub key: Key,
 }
 
@@ -1644,9 +1800,14 @@ impl IndexMut<usize> for ResourceQuerySegment {
     }
 }
 
+/// One resource or transformation segment of a [`Query`].
+///
+/// See [`crate::parse`] for the syntax that distinguishes the two variants.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum QuerySegment {
+    /// Select or inspect a logical resource.
     Resource(ResourceQuerySegment),
+    /// Apply an ordered sequence of actions.
     Transform(TransformQuerySegment),
 }
 
@@ -1865,7 +2026,9 @@ impl Hash for QuerySegment {
     }
 }
 
-/// Query source - characterizes the place (string) where the query was read from.
+/// Provenance describing where a query was read from.
+///
+/// This value is not encoded and is ignored by [`Query`] equality and hashing.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum QuerySource {
     /// Query was read from a result of another query
@@ -1893,12 +2056,26 @@ impl Display for QuerySource {
     }
 }
 
-/// Query is a sequence of query segments.
-/// Typically this will be a resource and and/or a transformation applied to a resource.
+/// An ordered sequence of resource and transformation query segments.
+///
+/// A resource segment references a resource, usually a keyed asset. A transform
+/// segment represents actions applied to its input, normally the result established
+/// by preceding segments, or no resource input when no segment precedes it.
+///
+/// Accepted text and parse precedence are defined by
+/// [`crate::parse::parse_query`] and the [`crate::parse`] module reference.
+/// Equality and hashing include `segments` and `absolute`, but ignore `source` and
+/// all nested source positions.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Query {
+    /// Segments in evaluation order.
     pub segments: Vec<QuerySegment>,
+    /// Whether the textual form had a leading `/`.
+    ///
+    /// This is stored and encoded; it is independent of relative `.` and `..`
+    /// resolution by [`Self::to_absolute`].
     pub absolute: bool,
+    /// Non-semantic provenance metadata.
     pub source: QuerySource,
 }
 
@@ -2336,7 +2513,12 @@ impl QueryRenderer for Query {
     }
 }
 
+/// Conversion used by evaluation APIs that accept either query text or a query.
+///
+/// String implementations call [`crate::parse::parse_query`]; query
+/// implementations return the value or a clone without reparsing.
 pub trait TryToQuery: std::fmt::Debug + Display + Clone {
+    /// Convert to a validated or already constructed [`Query`].
     fn try_to_query(self) -> Result<Query, Error>;
 }
 

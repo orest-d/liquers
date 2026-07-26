@@ -795,7 +795,7 @@ pub struct CommandMetadata {
     pub is_async: bool,
 
     /// Definition of the command, see [CommandDefinition].
-    /// Commands are normally registered and defined in the environment via a [crate::commands2::CommandExecutor].
+    /// Commands are normally registered and defined in the environment via a [crate::commands::CommandExecutor].
     /// They can however also be defined as aliases to other commands.
     pub definition: CommandDefinition,
 

@@ -2135,7 +2135,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Get the final state of the asset.
     /// This waits for the asset to be evaluated if necessary.
-    /// It requires to call the [Self::run] method, which is done by the [AssetManager].
+    /// It requires the internal `run` method to be called, which is done by the [AssetManager].
     /// If the asset is not running, the get may hang indefinitely.
     pub async fn get(&self) -> Result<State<E::Value>, Error> {
         if let Some(state) = self.poll_state().await {
@@ -2971,7 +2971,7 @@ pub trait AssetManager<E: Environment>:
     fn create_temporary_asset(&self) -> AssetRef<E>;
 
     /// Idempotent startup: register command versions (calls the shared
-    /// [`load_command_versions`] helper). Eager on `DefaultAssetManager`, lazy on immediate.
+    /// internal `load_command_versions` helper). Eager on `DefaultAssetManager`, lazy on immediate.
     async fn start(&self);
 
     /// Schedule expiration tracking for a Ready asset. Immediate managers no-op (lazy check).
@@ -4637,7 +4637,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     ///
     /// Public semantics unchanged: start immediately if capacity allows, otherwise park
     /// the asset globally as `Submitted` for the worker loop. Reimplemented over
-    /// [`try_to_start_immediately`](Self::try_to_start_immediately).
+    /// internal `try_to_start_immediately` method.
     pub async fn submit(self: &Arc<Self>, asset: AssetRef<E>) -> Result<(), Error> {
         if !self.try_to_start_immediately(&asset).await? {
             // No capacity — park globally as Submitted so the worker runs it later.

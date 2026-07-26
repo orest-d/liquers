@@ -6,7 +6,7 @@
 //! ## Glossary
 //!
 //! **[Key](crate::query::Key)** - an indentifier of a resource. In the simplest case [key](crate::query::Key) is a path to a file.
-//! Key consist of names separated by '/'. More generally, key identifies a resource in a store (see [store](crate::store)),
+//! A key consists of names separated by `/`. More generally, a key identifies a resource in a [store],
 //! which is an abstraction of a file-system capable of storing metadata.
 //! Key can only point to a resource in a store, not to any physical file in the file-system,
 //! which provides a layer of safety, preventing access to arbitrary files.
@@ -27,26 +27,26 @@
 //! **[Metadata](crate::metadata::Metadata)** - Describes anything useful associated with a given value:
 //! e.g. how it was created, title, description, log. Metadata also provides [status](crate::metadata::Status)
 //! whether the value has been successfully produced or if there was an errot.
-//! See [metadata](crate::metadata).
+//! See [metadata].
 //!
 //! **[State](crate::state::State)** - *2nd layer of value encapsulation*: basically a tuple of a value and metadata.
 //! This is what is passed along the pipeline.
-//! See [state](crate::state).
+//! See [state].
 //!
-//! **[Asset](crate::assets2)** - *3rd layer of value encapsulation*: represent a *[State](crate::state::State)* in making. It may be a recipe being executed or a ready value.
+//! **[Asset](crate::assets)** - *3rd layer of value encapsulation*: represent a *[State](crate::state::State)* in making. It may be a recipe being executed or a ready value.
 //! A requests to execute a query or fetch a resource results in a asset reference
 //! that serves as a handle. In a simples case, asset reference can be used to fetch a result.
 //! It can also be used to receive notifications of asset events and to poll asset state.
 //! Asset resource (asset identified by a key) is typically shared and asset guarantees that
-//! proper sharing via a read-write lock. Assets are accessed via a [AssetManager](crate::assets2::AssetManager).
+//! proper sharing via a read-write lock. Assets are accessed via an [AssetManager](crate::assets::AssetManager).
 //! AssetManager can be considered as a key-value store and cache for states and eventually their
 //! binary representation.
 //!
-//! **Resource** - is a state identified by a key. It is typically stored in a store (see [store](crate::store)).
+//! **Resource** - is a state identified by a key. It is typically stored in a [store].
 //! There is no special object representing a resource, but in the documentation it is often refered
 //! to resources as an value, state or asset identified by a key.
 //!
-//! **[Recipe](crate::recipes2::Recipe)** - A high level procedure ('recipe') how to create certain state. Recipes are typically defined in recipe files
+//! **[Recipe](crate::recipes::Recipe)** - A high level procedure ('recipe') how to create certain state. Recipes are typically defined in recipe files
 //! organized in folders. Recipe in its simple form is a query. (see [query])
 //! Besides a query, recipe allows to document the resource, providing a title and description.
 //! Recipes may reside in a hierarchycal filesystem-like structure maintained by an asset manager.
@@ -58,26 +58,26 @@
 //! **[Store](crate::store::AsyncStore)** - is a storage abstraction able to store binary data and metadata indexed by keys ([Key](crate::query::Key)).
 //! It can be considered as a safe abstraction over a file system with some extra features.
 //!  
-//! **[Asset manager](crate::assets2::AssetManager)** - is a repository of assets.
+//! **[Asset manager](crate::assets::AssetManager)** - is a repository of assets.
 //! It can be seen as an extension built on top of a store. Like store, asset manager can access physical files,
 //! but besides that, asset manager can contain assets created on demand (represented by recipes).
 //! Asset manager takes care of execution of the assets in a job queue and tracks the progress.
 //! Asset manager also provides caching of the assets and creation/execution of ad-hoc assets (e.g. user queries and 'apply' operations).
 //!  
-//! **[Environment](crate::context2::Environment)** - a global environment representing a collection of services needed to evaluate queries and recipes,
+//! **[Environment](crate::context::Environment)** - a global environment representing a collection of services needed to evaluate queries and recipes,
 //! e.g. store, asset manager, command metadata registry, etc.
 //! Environment is common for all users
 //!
-//! **[Session](crate::context2::Session)** - user session: environment (common for all users), user data, session data.
+//! **[Session](crate::context::Session)** - user session: environment (common for all users), user data, session data.
 //!
-//! **[Context](crate::context2::Context)** - a context of creation of a resulting value. Context has a reference to
+//! **[Context](crate::context::Context)** - a context of creation of a resulting value. Context has a reference to
 //! environment and a reference to the asset being created.
 //! Context provides services to the command, e.g. log, progress messages and metadata.
 //! Context is the mean of communicating to the asset (and thus all clients having an asset reference)
 //! during the creation of the asset. The communication is performed using channels, thus the context
 //! acts as an interface from blocking commands to an asynchronous environment of assets.
 //!
-//! **[Command](crate::commands2)** - is a step in the transformation pipeline. It is basically a function that takes
+//! **[Command](crate::commands)** - is a step in the transformation pipeline. It is basically a function that takes
 //! a state as an argument and returns another state (or error). It can also take additional parameters.
 //! When executed, it has an access to a context. An command with all the parameters is called and **action**.
 //! Command is described by command metadata (see [CommandMetadata](crate::command_metadata::CommandMetadata))
@@ -87,7 +87,7 @@
 //! En executable code of the command is registered in a [CommandExecutor](crate::commands::CommandExecutor).
 //! Before a command can be used, it must be registered in the command executor and command metadata registry.
 //! In the registries commands are identified by by a [command key](crate::command_metadata::CommandKey).
-//! This can be done by a macro (see [liquers_macro]).
+//! This can be done by the `register_command!` macro from the `liquers-macro` crate.
 //! Commands can be synchronous or asynchronous.
 //!
 //! **Command namespace** - a group of commands. It serves a similar purpose as a module.
