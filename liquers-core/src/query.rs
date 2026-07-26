@@ -1,9 +1,17 @@
 //! Semantic data model for Liquers queries and resource keys.
+//! Query is a central concept of Liquers, it is what gave it its name.
+//! A single query can refer to resources and apply transformations to them.
+//! Query can be considered a very simple scripting language, or, better to say,
+//! a domain-specific language (DSL) for creating pipelines, querying and transforming resources.
 //!
-//! [`crate::parse`] is the authoritative [query syntax reference][crate::parse].
-//! In particular, its *Segment headers* and *Query forms and parse precedence*
-//! sections define how the semantic elements below are written. This module
-//! defines what those parsed elements mean, how they are encoded, how relative
+//! [`crate::parse`] is the parser of the query and it contains the authoritative [query syntax reference][crate::parse].
+//! This module is the AST (Abstract Syntax Tree) of the query.
+//! The Query object is typically turned into a [`crate::plan::Plan`] which can be considered as a sequence of instruction
+//! (analogous to a bytecode), that can be executed by the [`crate::interpreter`] module.
+//! These details are normally hidden from the user and the query may be simply evaluated using [crate::context::EnvRef::evaluate].
+//!
+//! However, queries can be constructed, manipulated, encoded and inspected using the types in this module.
+//! This module defines what the parsed elements mean, how they are encoded, how relative
 //! resource names are resolved, and how query values are compared. Rendering and
 //! styled-query facilities in this file are presentation APIs; they do not define
 //! the language.
@@ -14,31 +22,41 @@
 //!
 //! - [`ResourceQuerySegment`] references a resource by [`Key`], with an optional
 //!   resource [`SegmentHeader`] selecting how it is retrieved. The resource is
-//!   typically a keyed asset and can be thought of as a file: it has a logical
-//!   path and may have data plus metadata. A key is nevertheless a Liquers logical
-//!   identifier, not an operating-system path.
+//!   typically an asset and can be thought of as a file: it has a logical
+//!   path ([`Key`] and has data accompanied by metadata. Be aware that though a key may be a filesystem path,
+//!   a key is nevertheless a Liquers logical identifier, not an operating-system path.'
+//!   Note that not all filesystem paths are valid keys: see the [`Key`]
+//!   documentation and the syntax description in [`crate::parse`] for details.
+//!
 //! - [`TransformQuerySegment`] describes an ordered sequence of action requests
 //!   applied to its input. Its input is typically the resource or transformation
 //!   result produced by the preceding segment; a transform-only query instead
 //!   starts without a preceding resource. A transform segment may also specify a
 //!   terminal output filename and an optional header.
 //! - [`ActionRequest`] contains a command name and ordered [`ActionParameter`]
-//!   values.
+//!   values. It represents an "action", that can be applied on an input state.
+//!   Action request is effectively a function call on the input state, or more precisely,
+//!   it is a closure with all arguments specified by the action request extept
+//!   the first one that takes the input state as an argument.
+//!   Transformation query segment is simply a sequence of action requests.
 //!
-//! A common query therefore has this semantic flow:
+//! A common query therefore has (typically) this semantic flow:
 //!
 //! ```text
 //! resource reference -> action -> action -> optional output filename
 //! ```
 //!
-//! This describes meaning, not syntax. See [`crate::parse`] for the exact textual
-//! forms and their parse precedence.
+//! More complex queries are possible. Query segments offer an option to specify "level", "realm" and arguments in the segment header.
+//! - Level (not implemented yet) may allow nested queries in the future.
+//! - Realm (partly implemented) can be used to separate different environments,e.g. which part of a query should run in the client or server.
+//! - Arguments can be used to pass data to the query segment. There are already multiple arguments interpreted by the [`crate::plan::PlanBuilder`].
 //!
-//! [`Position`] values preserve source locations for diagnostics. They are ignored
+//! Query AST elements contain additional diagnostic information:
+//! - [`Position`] values preserve source locations for diagnostics. They are ignored
 //! when resource names, parameters, actions, and headers are compared or hashed.
-//! [`QuerySource`] is provenance metadata: [`Query`] equality and hashing ignore it,
-//! and [`Query::encode`] does not include it. The [`Query::absolute`] flag is part
-//! of equality and hashing and is rendered as a leading `/`.
+//! - [`QuerySource`] is provenance metadata: [`Query`] equality and hashing ignore it,
+//! and [`Query::encode`] does not include it.
+//! - The [`Query::absolute`] flag is part of equality and hashing and is rendered as a leading `/`. It currently does not have any semantic meaning.
 //!
 //! Constructors in this module do not validate parser grammar. Use
 //! [`crate::parse::parse_query`] or [`crate::parse::parse_key`] when untrusted text
@@ -75,6 +93,10 @@
 //! [`Key::to_absolute`] interprets `.` and `..` relative to a supplied current
 //! working-directory key. [`Query::to_absolute`] applies that operation to every
 //! resource segment. It does not change or consult [`Query::absolute`].
+//! The [`Query::to_absolute`] operation can only be meaningfully applied,
+//! when a CWD (current working directory) is known. This is typically the case
+//! when a query is part of a recipe [`crate::recipes::Recipe`] located in a certain directory.
+//! Be aware that in many contexts the CWD is not defined, e.g. when query is passed via web API.
 //!
 //! # Interpreter instructions
 //!
@@ -500,7 +522,7 @@ pub fn encode_token<S: AsRef<str>>(text: S) -> String {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// A value supplied after an action name.
 pub enum ActionParameter {
-    /// A decoded string value and its source position.
+    /// A decoded string parameter value and its source position.
     String(String, Position),
     /// A programmatically constructed nested query and its source position.
     ///
@@ -917,12 +939,13 @@ impl Hash for HeaderParameter {
 pub struct SegmentHeader {
     /// Header name, excluding the `R` resource marker.
     pub name: String,
-    /// Number of extra leading hyphens.
+    /// Level (Number of extra leading hyphens.)
     ///
     /// Reserved for a future feature; currently stored and encoded but not
     /// interpreted.
     pub level: usize,
     /// Ordered header parameters. These are not action parameters.
+    /// Interpretation of header parameters is performed by [`crate::plan::PlanBuilder`].
     pub parameters: Vec<HeaderParameter>,
     /// Whether this is a resource header.
     pub resource: bool,
@@ -1045,11 +1068,14 @@ impl Hash for SegmentHeader {
 
 /// An ordered sequence of actions applied to an input.
 ///
-/// The input is normally the resource or transformation result produced by the
-/// preceding query segment. In a transform-only query there is no preceding
+/// The input is a state [`crate::state::State`] (normally the resource or transformation result produced by the
+/// preceding query segment). In a transform-only query there is no preceding
 /// resource, so the sequence starts without resource input. Actions are evaluated
 /// in [`Self::query`] order. [`Self::filename`] is an optional terminal output
-/// filename rather than another action.
+/// filename rather than another action. It determines the output filename for the
+/// terminal action, typically a recipe. Unless sepcified otherwise, the output
+/// filename extension determines the output format.
+/// Only the last segment's [`Self::filename`] is used as the terminal output filename.
 ///
 /// See the [`crate::parse`] *String action parameters*, *Segment headers*, and
 /// *Query forms and parse precedence* sections for the accepted textual syntax.
@@ -1220,13 +1246,14 @@ impl TransformQuerySegment {
 
     /// Removes ambiguity from the transform query, create a standard form.
     /// The standard form is equivalent in the meaning to the original query.
-    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// If a query is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
     /// Note that this is done automatically if possible.
-    /// There are two potentia changes:
+    /// There are two potential changes:
     ///
     /// - If there is no header, a header is created (without arguments or name)
     /// - If the filename is exists, the extension is kept (since it determines the potential format),
     /// but the first part of the filename is changed to "data", e.g. image.png is changed to data.png.
+    // TODO: the canonical filename may be a problem - the metadata contains a filename, so assets with different filenames are not equivalent event if the asset value is the same
     pub fn canonical(self) -> Self {
         if self.header.is_none() {
             Self {
@@ -1356,9 +1383,9 @@ impl IndexMut<usize> for TransformQuerySegment {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// A logical resource path represented as ordered resource names.
+/// Parse textual keys with[`crate::parse::parse_key`].
 ///
-/// A key is not an operating-system path. Parse textual keys with
-/// [`crate::parse::parse_key`].
+/// Note: A key is (in general) not an operating-system path, but a key in the key-value store [`crate::store::AsyncStore`]
 pub struct Key(pub Vec<ResourceName>);
 impl Key {
     /// Create a new empty key
@@ -1609,12 +1636,12 @@ impl Display for Key {
     }
 }
 
-/// A reference to a resource by logical key, with an optional resource header.
+/// A reference to a resource by logical key, with an optional resource header.'
+/// Resource header parameters may determine how exactly is the resource accessed:
+/// It can be read and parsed into a value, or read as a binary blob, it can serve the data, the metadata - or just the key itself.
 ///
 /// The resource is typically a keyed asset and can be thought of as a file with a
-/// logical path, data, and metadata. A [`Key`] is not an operating-system path,
-/// however, and the resource header can request other views such as metadata,
-/// binary data, or a directory.
+/// logical path.
 ///
 /// See the [`crate::parse`] *Segment headers* and *Query forms and parse
 /// precedence* sections for the accepted textual syntax.
@@ -2056,7 +2083,8 @@ impl Display for QuerySource {
     }
 }
 
-/// An ordered sequence of resource and transformation query segments.
+/// Main query struct. Root node of the query AST.
+/// Query is an ordered sequence of resource and transformation query segments.
 ///
 /// A resource segment references a resource, usually a keyed asset. A transform
 /// segment represents actions applied to its input, normally the result established
