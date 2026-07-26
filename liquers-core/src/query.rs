@@ -1,20 +1,23 @@
 //! Semantic data model for Liquers queries and resource keys.
-//! Query is a central concept of Liquers, it is what gave it its name.
-//! A single query can refer to resources and apply transformations to them.
-//! Query can be considered a very simple scripting language, or, better to say,
-//! a domain-specific language (DSL) for creating pipelines, querying and transforming resources.
+//! The query is a central concept in Liquers and gave the project its name.
+//! A single query can refer to resources and apply transformations to them. A query
+//! can be considered a very simple scripting language or, more precisely, a
+//! domain-specific language (DSL) for creating pipelines that query and transform
+//! resources.
 //!
-//! [`crate::parse`] is the parser of the query and it contains the authoritative [query syntax reference][crate::parse].
-//! This module is the AST (Abstract Syntax Tree) of the query.
-//! The Query object is typically turned into a [`crate::plan::Plan`] which can be considered as a sequence of instruction
-//! (analogous to a bytecode), that can be executed by the [`crate::interpreter`] module.
-//! These details are normally hidden from the user and the query may be simply evaluated using [crate::context::EnvRef::evaluate].
+//! [`crate::parse`] parses queries and contains the authoritative
+//! [query syntax reference][crate::parse]. This module defines the query's abstract
+//! syntax tree (AST). A [`Query`] is typically turned into a
+//! [`crate::plan::Plan`], which can be considered a sequence of instructions
+//! analogous to bytecode and can be executed by the [`crate::interpreter`] module.
+//! These details are normally hidden from the user; a query can be evaluated
+//! directly with [`crate::context::EnvRef::evaluate`].
 //!
-//! However, queries can be constructed, manipulated, encoded and inspected using the types in this module.
-//! This module defines what the parsed elements mean, how they are encoded, how relative
-//! resource names are resolved, and how query values are compared. Rendering and
-//! styled-query facilities in this file are presentation APIs; they do not define
-//! the language.
+//! Queries can also be constructed, manipulated, encoded, and inspected using the
+//! types in this module. This module defines what parsed elements mean, how they
+//! are encoded, how relative resource names are resolved, and how query values are
+//! compared. Rendering and styled-query facilities in this file are presentation
+//! APIs; they do not define the language.
 //!
 //! # Data model
 //!
@@ -22,11 +25,11 @@
 //!
 //! - [`ResourceQuerySegment`] references a resource by [`Key`], with an optional
 //!   resource [`SegmentHeader`] selecting how it is retrieved. The resource is
-//!   typically an asset and can be thought of as a file: it has a logical
-//!   path ([`Key`] and has data accompanied by metadata. Be aware that though a key may be a filesystem path,
-//!   a key is nevertheless a Liquers logical identifier, not an operating-system path.'
-//!   Note that not all filesystem paths are valid keys: see the [`Key`]
-//!   documentation and the syntax description in [`crate::parse`] for details.
+//!   typically an asset and can be thought of as a file: it has a logical path
+//!   ([`Key`]) and data accompanied by metadata. Although a key may correspond to
+//!   a filesystem path, it is a Liquers logical identifier rather than an
+//!   operating-system path. Not all filesystem paths are valid keys; see [`Key`]
+//!   and the syntax description in [`crate::parse`] for details.
 //!
 //! - [`TransformQuerySegment`] describes an ordered sequence of action requests
 //!   applied to its input. Its input is typically the resource or transformation
@@ -34,11 +37,11 @@
 //!   starts without a preceding resource. A transform segment may also specify a
 //!   terminal output filename and an optional header.
 //! - [`ActionRequest`] contains a command name and ordered [`ActionParameter`]
-//!   values. It represents an "action", that can be applied on an input state.
-//!   Action request is effectively a function call on the input state, or more precisely,
-//!   it is a closure with all arguments specified by the action request extept
-//!   the first one that takes the input state as an argument.
-//!   Transformation query segment is simply a sequence of action requests.
+//!   values. It represents an action that can be applied to an input state. An
+//!   action request is effectively a function call on the input state or, more
+//!   precisely, a closure in which the action request specifies every argument
+//!   except the first argument, which receives the input state. A transformation query
+//!   segment is a sequence of action requests.
 //!
 //! A common query therefore has (typically) this semantic flow:
 //!
@@ -46,17 +49,23 @@
 //! resource reference -> action -> action -> optional output filename
 //! ```
 //!
-//! More complex queries are possible. Query segments offer an option to specify "level", "realm" and arguments in the segment header.
+//! More complex queries are possible. A segment header can specify a level, realm,
+//! and arguments:
+//!
 //! - Level (not implemented yet) may allow nested queries in the future.
-//! - Realm (partly implemented) can be used to separate different environments,e.g. which part of a query should run in the client or server.
-//! - Arguments can be used to pass data to the query segment. There are already multiple arguments interpreted by the [`crate::plan::PlanBuilder`].
+//! - Realm (partly implemented, supported by the command registry) can separate environments; for example, it can
+//!   specify which part of a query should run on the client or server.
+//! - Arguments can pass data to the query segment. [`crate::plan::PlanBuilder`]
+//!   already interprets several arguments.
 //!
 //! Query AST elements contain additional diagnostic information:
+//!
 //! - [`Position`] values preserve source locations for diagnostics. They are ignored
-//! when resource names, parameters, actions, and headers are compared or hashed.
+//!   when resource names, parameters, actions, and headers are compared or hashed.
 //! - [`QuerySource`] is provenance metadata: [`Query`] equality and hashing ignore it,
-//! and [`Query::encode`] does not include it.
-//! - The [`Query::absolute`] flag is part of equality and hashing and is rendered as a leading `/`. It currently does not have any semantic meaning.
+//!   and [`Query::encode`] does not include it.
+//! - The [`Query::absolute`] flag is part of equality and hashing and is rendered
+//!   as a leading `/`. It currently has no semantic meaning.
 //!
 //! Constructors in this module do not validate parser grammar. Use
 //! [`crate::parse::parse_query`] or [`crate::parse::parse_key`] when untrusted text
@@ -93,10 +102,10 @@
 //! [`Key::to_absolute`] interprets `.` and `..` relative to a supplied current
 //! working-directory key. [`Query::to_absolute`] applies that operation to every
 //! resource segment. It does not change or consult [`Query::absolute`].
-//! The [`Query::to_absolute`] operation can only be meaningfully applied,
-//! when a CWD (current working directory) is known. This is typically the case
-//! when a query is part of a recipe [`crate::recipes::Recipe`] located in a certain directory.
-//! Be aware that in many contexts the CWD is not defined, e.g. when query is passed via web API.
+//! [`Query::to_absolute`] can only be meaningfully applied when a current working
+//! directory (CWD) is known. This is typically the case when a query is part of a
+//! [`crate::recipes::Recipe`] located in a particular directory. In many contexts,
+//! the CWD is undefined; for example, when a query is passed through the web API.
 //!
 //! # Interpreter instructions
 //!
@@ -459,7 +468,7 @@ impl Position {
             self
         }
     }
-    /// Returns true if two positions are equal but not unknown
+    /// Returns `true` if the two positions are equal and not unknown.
     pub fn highlight(&self, position: &Position) -> bool {
         if self.is_unknown() {
             return false;
@@ -694,38 +703,38 @@ impl Eq for ResourceName {}
 
 #[allow(dead_code)]
 impl ResourceName {
-    /// Create a new resource name (without a position)
+    /// Creates a resource name with an unknown position.
     pub fn new(name: String) -> Self {
         Self {
             name,
             position: Position::unknown(),
         }
     }
-    /// Equip the resource name with a position
+    /// Assigns a source position to the resource name.
     pub fn with_position(self, position: Position) -> Self {
         Self { position, ..self }
     }
 
-    /// Clear the position of the resource name
+    /// Clears the resource name's source position.
     pub fn clean_position(&mut self) {
         self.position = Position::unknown();
     }
 
-    /// Is a resource representing the current working directory (i.e. ".")
+    /// Returns `true` if the resource represents the current working directory (`.`).
     pub fn is_cwd(&self) -> bool {
         self.name == "."
     }
 
-    /// Is a resource representing the parent directory (i.e. "..")
+    /// Returns `true` if the resource represents the parent directory (`..`).
     pub fn is_parent(&self) -> bool {
         self.name == ".."
     }
 
-    /// Encode resource name as a string
+    /// Encodes the resource name as a string.
     pub fn encode(&self) -> &str {
         &self.name
     }
-    /// Return file extension if present, None otherwise.
+    /// Returns the file extension, if present.
     pub fn extension(&self) -> Option<String> {
         if self.name.contains('.') {
             self.name.split(".").last().map(|s| s.to_owned())
@@ -939,7 +948,7 @@ impl Hash for HeaderParameter {
 pub struct SegmentHeader {
     /// Header name, excluding the `R` resource marker.
     pub name: String,
-    /// Level (Number of extra leading hyphens.)
+    /// Level (the number of extra leading hyphens).
     ///
     /// Reserved for a future feature; currently stored and encoded but not
     /// interpreted.
@@ -955,9 +964,11 @@ pub struct SegmentHeader {
 
 #[allow(dead_code)]
 impl SegmentHeader {
-    /// Returns true if the header does not contain any data,
-    /// I.e. trivial header has no name, level is 0 and no parameters.
-    /// Trivial header can be both for resource and query, it does not depend on the resource flags.
+    /// Returns `true` if the header contains no data.
+    ///
+    /// A trivial header has no name, has level zero, and has no parameters. A
+    /// resource or transform header can be trivial; triviality does not depend on
+    /// the resource flag.
     pub fn is_trivial(&self) -> bool {
         self.name.is_empty() && self.level == 0 && self.parameters.is_empty()
     }
@@ -1068,13 +1079,14 @@ impl Hash for SegmentHeader {
 
 /// An ordered sequence of actions applied to an input.
 ///
-/// The input is a state [`crate::state::State`] (normally the resource or transformation result produced by the
-/// preceding query segment). In a transform-only query there is no preceding
-/// resource, so the sequence starts without resource input. Actions are evaluated
-/// in [`Self::query`] order. [`Self::filename`] is an optional terminal output
-/// filename rather than another action. It determines the output filename for the
-/// terminal action, typically a recipe. Unless sepcified otherwise, the output
-/// filename extension determines the output format.
+/// The input is a [`crate::state::State`], normally the resource or transformation
+/// result produced by the preceding query segment. In a transform-only query there
+/// is no preceding resource, so the sequence starts without resource input. Actions
+/// are evaluated in [`Self::query`] order. [`Self::filename`] is an optional
+/// terminal output filename rather than another action. It determines the output
+/// filename for the terminal action. Typically filename specifies a file resulting from a recipe.
+/// Unless specified otherwise, the output filename extension determines the output format, even if the file is not saved.
+/// It is therefore useful to explicitly specify the output filename with the extension e.g. in a web API request.
 /// Only the last segment's [`Self::filename`] is used as the terminal output filename.
 ///
 /// See the [`crate::parse`] *String action parameters*, *Segment headers*, and
@@ -1099,7 +1111,7 @@ impl TransformQuerySegment {
         }
     }
 
-    /// Return name of the transform query segment
+    /// Returns the name of the transform query segment.
     pub fn name(&self) -> String {
         if let Some(header) = &self.header {
             header.name.clone()
@@ -1156,24 +1168,26 @@ impl TransformQuerySegment {
         }
     }
 
-    /// Returns true if the query is empty (no actions and no filename; header has no impact)
+    /// Returns `true` if the segment has no actions and no filename.
+    ///
+    /// The header does not affect whether the segment is empty.
     pub fn is_empty(&self) -> bool {
         self.query.is_empty() && self.filename.is_none()
     }
 
-    /// Returns true if the query is a filename
-    /// i.e. filename is defined and there are no actions.
+    /// Returns `true` if the segment contains a filename and no actions.
     pub fn is_filename(&self) -> bool {
         self.query.is_empty() && self.filename.is_some()
     }
 
-    /// Returs true if the query is a simple action request,
-    /// i.e. exactly one action request and no filename.
+    /// Returns `true` if the segment contains exactly one action and no filename.
     pub fn is_action_request(&self) -> bool {
         self.query.len() == 1 && self.filename.is_none()
     }
 
-    /// Return the ActionRequest if the query is an action request (see [`Self::is_action_request`]).
+    /// Returns the action if this segment is an action request.
+    ///
+    /// See [`Self::is_action_request`].
     pub fn action(&self) -> Option<ActionRequest> {
         if self.is_action_request() {
             Some(self.query[0].clone())
@@ -1181,7 +1195,7 @@ impl TransformQuerySegment {
             None
         }
     }
-    ///Returns true if the query is a "ns" action request.
+    /// Returns `true` if the segment is an `ns` action request.
     pub fn is_ns(&self) -> bool {
         self.action().is_some_and(|x| x.is_ns())
     }
@@ -1191,7 +1205,7 @@ impl TransformQuerySegment {
     pub fn last_ns(&self) -> Option<Vec<ActionParameter>> {
         self.query.iter().rev().find_map(|x| x.ns())
     }
-    ///Returns true if the last action in the query is a "q" instruction.
+    /// Returns `true` if the final action is a `q` instruction.
     pub fn is_q(&self) -> bool {
         self.query.last().is_some_and(|x| x.is_q())
     }
@@ -1244,15 +1258,17 @@ impl TransformQuerySegment {
         }
     }
 
-    /// Removes ambiguity from the transform query, create a standard form.
-    /// The standard form is equivalent in the meaning to the original query.
-    /// If a query is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Removes ambiguity from the transform query by creating a standard form.
+    /// The standard form has the same meaning as the original query.
+    /// If a query is used as a key (for example, for assets), use the canonical
+    /// form to prevent duplicates.
     /// Note that this is done automatically if possible.
     /// There are two potential changes:
     ///
-    /// - If there is no header, a header is created (without arguments or name)
-    /// - If the filename is exists, the extension is kept (since it determines the potential format),
-    /// but the first part of the filename is changed to "data", e.g. image.png is changed to data.png.
+    /// - If there is no header, an unnamed header without arguments is created.
+    /// - If a filename exists, its extension is retained because it determines the
+    ///   potential format, but its basename is changed to `data`. For example,
+    ///   `image.png` becomes `data.png`.
     // TODO: the canonical filename may be a problem - the metadata contains a filename, so assets with different filenames are not equivalent event if the asset value is the same
     pub fn canonical(self) -> Self {
         if self.header.is_none() {
@@ -1270,7 +1286,7 @@ impl TransformQuerySegment {
         }
     }
 
-    /// Length of query - i.e. number of actions in the query
+    /// Returns the number of actions in the segment.
     fn len(&self) -> usize {
         self.query.len()
     }
@@ -1383,12 +1399,12 @@ impl IndexMut<usize> for TransformQuerySegment {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// A logical resource path represented as ordered resource names.
-/// Parse textual keys with[`crate::parse::parse_key`].
 ///
-/// Note: A key is (in general) not an operating-system path, but a key in the key-value store [`crate::store::AsyncStore`]
+/// Parse textual keys with [`crate::parse::parse_key`]. In general, a key is not
+/// an operating-system path; it is a key in an [`crate::store::AsyncStore`].
 pub struct Key(pub Vec<ResourceName>);
 impl Key {
-    /// Create a new empty key
+    /// Creates an empty key.
     pub fn new() -> Self {
         Self(vec![])
     }
@@ -1400,33 +1416,34 @@ impl Key {
         }
     }
 
-    /// Check if the key is empty
+    /// Returns `true` if the key is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Return iterator over the key elements
+    /// Returns an iterator over the key elements.
     pub fn iter(&self) -> std::slice::Iter<'_, ResourceName> {
         self.0.iter()
     }
 
-    /// Return the last element of the key if present, None otherwise.
-    /// This is typically interpreted as a filename in a Store object.
+    /// Returns the final key element, if present.
+    ///
+    /// A store typically interprets this element as a filename.
     pub fn filename(&self) -> Option<&ResourceName> {
         self.0.last()
     }
 
-    /// Filename extension if present, None otherwise.
+    /// Returns the filename extension, if present.
     pub fn extension(&self) -> Option<String> {
         self.filename().and_then(|x| x.extension())
     }
 
-    /// Return the length of the key (number of elements)
+    /// Returns the number of elements in the key.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Return the key as a string.
+    /// Encodes the key as a string.
     pub fn encode(&self) -> String {
         self.0.iter().map(|x| x.encode()).join("/")
     }
@@ -1438,7 +1455,7 @@ impl Key {
     }
     */
 
-    /// Check if the key has a given key prefix.
+    /// Returns `true` if the key has the specified key prefix.
     pub fn has_key_prefix(&self, key_prefix: &Key) -> bool {
         if self.len() < key_prefix.len() {
             return false;
@@ -1451,8 +1468,9 @@ impl Key {
         true
     }
 
-    /// Return a new key with a prefix of exactly n elements.
-    /// If the key has less than n elements, return None.
+    /// Returns a new key containing exactly the first `n` elements.
+    ///
+    /// Returns `None` if the key has fewer than `n` elements.
     pub fn prefix_of_size(&self, n: usize) -> Option<Self> {
         let mut key = Vec::new();
         if self.len() < n {
@@ -1464,14 +1482,14 @@ impl Key {
         Some(Key(key))
     }
 
-    /// Append a name as a new element at the end of the key
+    /// Appends a name as a new final key element.
     pub fn join<S: AsRef<str>>(&self, name: S) -> Self {
         let mut key = self.clone();
         key.0.push(ResourceName::new(name.as_ref().to_owned()));
         key
     }
 
-    /// Return a parent key - i.e. a key without the last element.
+    /// Returns the parent key, which omits the final element.
     pub fn parent(&self) -> Self {
         let mut key = Vec::new();
         if self.is_empty() {
@@ -1483,10 +1501,10 @@ impl Key {
         Key(key)
     }
 
-    /// Convert a key to an absolute key - i.e. interpret "." and ".." elements.
-    /// The cwd_key is a "current working directory" key - i.e. a key to which "." and ".." elements are relative to.
-    /// Note that the cwd_key should be absolute, i.e. it should not contain any "." or ".." elements.
-    /// This is not checked by the function.
+    /// Resolves `.` and `..` elements relative to a current working-directory key.
+    ///
+    /// `cwd_key` should be absolute, meaning that it should not contain `.` or
+    /// `..`. This function does not check that condition.
     pub fn to_absolute(&self, cwd_key: &Key) -> Self {
         let mut result = Vec::new();
         let mut use_cwd = true;
@@ -1636,9 +1654,11 @@ impl Display for Key {
     }
 }
 
-/// A reference to a resource by logical key, with an optional resource header.'
-/// Resource header parameters may determine how exactly is the resource accessed:
-/// It can be read and parsed into a value, or read as a binary blob, it can serve the data, the metadata - or just the key itself.
+/// A reference to a resource by logical key, with an optional resource header.
+///
+/// Resource-header parameters may determine how the resource is accessed. It can
+/// be read and parsed into a value or read as a binary blob, and the query can
+/// return its data, metadata, or key.
 ///
 /// The resource is typically a keyed asset and can be thought of as a file with a
 /// logical path.
@@ -1655,7 +1675,7 @@ pub struct ResourceQuerySegment {
 
 #[allow(dead_code)]
 impl ResourceQuerySegment {
-    /// Create a new empty resource query segment
+    /// Creates an empty resource query segment.
     pub fn new() -> ResourceQuerySegment {
         ResourceQuerySegment {
             header: None,
@@ -1663,7 +1683,7 @@ impl ResourceQuerySegment {
         }
     }
 
-    /// Return name of the resource query segment
+    /// Returns the name of the resource query segment.
     pub fn name(&self) -> String {
         if let Some(header) = &self.header {
             header.name.clone()
@@ -1672,7 +1692,7 @@ impl ResourceQuerySegment {
         }
     }
 
-    /// Return resource query position
+    /// Returns the resource query's source position.
     pub fn position(&self) -> Position {
         if let Some(header) = &self.header {
             header.position.to_owned()
@@ -1731,11 +1751,11 @@ impl ResourceQuerySegment {
         self.key.is_empty()
     }
 
-    /// Convert a resource query to an absolute resource query - i.e. interpret "." and ".." elements.
-    /// The cwd_key is a "current working directory" key - i.e. a key to which "." and ".." elements are relative to.
-    /// This happens regardless the resource name or other header parameters.
-    /// Note that the cwd_key should be absolute, i.e. it should not contain any "." or ".." elements.
-    /// This is not checked by the function.
+    /// Resolves `.` and `..` elements relative to a current working-directory key.
+    ///
+    /// This happens regardless of the resource name or other header parameters.
+    /// `cwd_key` should be absolute, meaning that it should not contain `.` or
+    /// `..`. This function does not check that condition.
     pub fn to_absolute(&self, cwd_key: &Key) -> Self {
         Self {
             header: self.header.clone(),
@@ -1743,12 +1763,14 @@ impl ResourceQuerySegment {
         }
     }
 
-    /// Removes ambiguity from the resource query, create a standard form.
-    /// The standard form is equivalent in the meaning to the original query.
-    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Removes ambiguity from the resource query by creating a standard form.
+    /// The standard form has the same meaning as the original query.
+    /// If a query is used as a key (for example, for assets), use the canonical
+    /// form to prevent duplicates.
     /// Note that this is done automatically if possible.
-    /// If there is no header, a header is created (without arguments)
-    /// It might be useful to call to_absolute before turning the query to caninical.
+    /// If there is no header, a header without arguments is created.
+    /// It may be useful to call [`Self::to_absolute`] before canonicalizing the
+    /// query.
     pub fn canonical(self) -> Self {
         if self.header.is_none() {
             Self {
@@ -1839,16 +1861,16 @@ pub enum QuerySegment {
 }
 
 impl QuerySegment {
-    /// Create a new empty transform query segment
+    /// Creates an empty transform query segment.
     pub fn empty_transform_query_segment() -> Self {
         QuerySegment::Transform(TransformQuerySegment::new())
     }
-    /// Create a new empty resource query segment
+    /// Creates an empty resource query segment.
     pub fn empty_resource_query_segment() -> Self {
         QuerySegment::Resource(ResourceQuerySegment::new())
     }
 
-    /// Return position of the query segment
+    /// Returns the query segment's source position.
     pub fn position(&self) -> Position {
         match self {
             QuerySegment::Resource(rqs) => rqs.position(),
@@ -1856,7 +1878,7 @@ impl QuerySegment {
         }
     }
 
-    /// Return name of the query segment
+    /// Returns the query segment's name.
     pub fn name(&self) -> String {
         match self {
             QuerySegment::Resource(rqs) => rqs.name(),
@@ -1864,7 +1886,7 @@ impl QuerySegment {
         }
     }
 
-    /// Encode query segment as a string
+    /// Encodes the query segment as a string.
     pub fn encode(&self) -> String {
         match self {
             QuerySegment::Resource(rqs) => rqs.encode(),
@@ -1872,7 +1894,7 @@ impl QuerySegment {
         }
     }
 
-    /// Encode query segment as a string, resource always with a header
+    /// Encodes the query segment, always including a resource header.
     pub fn encode_with_header(&self) -> String {
         match self {
             QuerySegment::Resource(rqs) => rqs.encode_with_header(),
@@ -1880,8 +1902,10 @@ impl QuerySegment {
         }
     }
 
-    /// Convert a query segment to an absolute query segment - i.e. interpret "." and ".." elements.
-    /// See ResourceQuerySegment::to_absolute for details.
+    /// Resolves `.` and `..` elements in a resource segment.
+    ///
+    /// See [`ResourceQuerySegment::to_absolute`] for details. Transform segments
+    /// are returned unchanged.
     pub fn to_absolute(&self, cwd_key: &Key) -> Self {
         match self {
             QuerySegment::Resource(rqs) => QuerySegment::Resource(rqs.to_absolute(cwd_key)),
@@ -1889,7 +1913,7 @@ impl QuerySegment {
         }
     }
 
-    /// Return filename if present, None otherwise.
+    /// Returns the filename, if present.
     pub fn filename(&self) -> Option<ResourceName> {
         match self {
             QuerySegment::Resource(rqs) => rqs.filename().clone(),
@@ -1897,7 +1921,7 @@ impl QuerySegment {
         }
     }
 
-    /// Return length of query segment - i.e. number of actions or resource names in the query segment
+    /// Returns the number of actions or resource names in the segment.
     pub fn len(&self) -> usize {
         match self {
             QuerySegment::Resource(rqs) => rqs.len(),
@@ -1905,7 +1929,7 @@ impl QuerySegment {
         }
     }
 
-    /// Return true if the query segment is empty, i.e. has no actions or resource names.
+    /// Returns `true` if the segment has no actions or resource names.
     pub fn is_empty(&self) -> bool {
         match self {
             QuerySegment::Resource(rqs) => rqs.is_empty(),
@@ -1913,43 +1937,44 @@ impl QuerySegment {
         }
     }
 
-    /// Return true if the query segment is a namespace definition.
-    /// See TransformQuerySegment::is_ns for details.
+    /// Returns `true` if the segment is a namespace definition.
+    ///
+    /// See [`TransformQuerySegment::is_ns`] for details.
     pub fn is_ns(&self) -> bool {
         match self {
             QuerySegment::Resource(_) => false,
             QuerySegment::Transform(tqs) => tqs.is_ns(),
         }
     }
-    ///Return namespaces if the query segment is ns.
+    /// Returns the namespaces if the segment is an `ns` action.
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
         match self {
             QuerySegment::Resource(_) => None,
             QuerySegment::Transform(tqs) => tqs.ns(),
         }
     }
-    ///Get the last ns in the segment (if any)
+    /// Returns the final `ns` action's parameters, if present.
     pub fn last_ns(&self) -> Option<Vec<ActionParameter>> {
         match self {
             QuerySegment::Resource(_) => None,
             QuerySegment::Transform(tqs) => tqs.last_ns(),
         }
     }
-    ///Check if the segment is a namespace
+    /// Returns `true` if the segment is a filename.
     pub fn is_filename(&self) -> bool {
         match self {
             QuerySegment::Resource(rqs) => rqs.is_filename(),
             QuerySegment::Transform(tqs) => tqs.is_filename(),
         }
     }
-    /// True if the segment is the resource query segment
+    /// Returns `true` for a resource query segment.
     pub fn is_resource_query_segment(&self) -> bool {
         match self {
             QuerySegment::Resource(_) => true,
             QuerySegment::Transform(_) => false,
         }
     }
-    /// True if the segment is a transform query segment
+    /// Returns `true` for a transform query segment.
     pub fn is_transform_query_segment(&self) -> bool {
         match self {
             QuerySegment::Resource(_) => false,
@@ -1989,9 +2014,10 @@ impl QuerySegment {
         }
     }
 
-    /// Removes ambiguity from the query segment, create a standard form.
-    /// The standard form is equivalent in the meaning to the original query.
-    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
+    /// Removes ambiguity from the query segment by creating a standard form.
+    /// The standard form has the same meaning as the original query.
+    /// If a query is used as a key (for example, for assets), use the canonical
+    /// form to prevent duplicates.
     /// Note that this is done automatically if possible.
     pub fn canonical(self) -> Self {
         match self {
@@ -2083,8 +2109,9 @@ impl Display for QuerySource {
     }
 }
 
-/// Main query struct. Root node of the query AST.
-/// Query is an ordered sequence of resource and transformation query segments.
+/// Root node of the query AST.
+///
+/// A query is an ordered sequence of resource and transformation query segments.
 ///
 /// A resource segment references a resource, usually a keyed asset. A transform
 /// segment represents actions applied to its input, normally the result established
@@ -2109,7 +2136,7 @@ pub struct Query {
 
 #[allow(dead_code)]
 impl Query {
-    /// Create a new empty query
+    /// Creates an empty query.
     pub fn new() -> Query {
         Query {
             segments: vec![],
@@ -2118,7 +2145,7 @@ impl Query {
         }
     }
 
-    /// Return position of the query
+    /// Returns the query's source position.
     pub fn position(&self) -> Position {
         if self.segments.is_empty() {
             Position::unknown()
@@ -2127,7 +2154,7 @@ impl Query {
         }
     }
 
-    /// Return filename if present, None otherwise.
+    /// Returns the filename, if present.
     pub fn filename(&self) -> Option<ResourceName> {
         match self.segments.last() {
             None => None,
@@ -2136,19 +2163,19 @@ impl Query {
         }
     }
 
-    /// Return file extension if present, None otherwise.
+    /// Returns the file extension, if present.
     pub fn extension(&self) -> Option<String> {
         self.filename().and_then(|x| x.extension())
     }
-    /// Returns true if the query is empty, i.e. has no segments and thus is equivalent to an empty string.
+    /// Returns `true` if the query has no segments and is equivalent to an empty string.
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
-    /// Returns true if the query is a namespace definition.
+    /// Returns `true` if the query is a namespace definition.
     pub fn is_ns(&self) -> bool {
         self.transform_query().is_some_and(|x| x.is_ns())
     }
-    /// Returns the namespace definition if path is a namespace action.
+    /// Returns the namespace definition if the query is a namespace action.
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
         self.transform_query().and_then(|x| x.ns())
     }
@@ -2163,7 +2190,7 @@ impl Query {
         }
     }
 
-    /// Returns true if the last action in the query is a "q" instruction.
+    /// Returns `true` if the query's final action is a `q` instruction.
     pub fn is_q(&self) -> bool {
         // Check the last segment
         if let Some(QuerySegment::Transform(tqs)) = self.segments.last() {
@@ -2173,13 +2200,14 @@ impl Query {
         }
     }
 
-    /// Returns the last transform query name if available
+    /// Returns the final transform query name, if available.
     pub fn last_transform_query_name(&self) -> Option<String> {
         self.transform_query().map(|x| x.name())
     }
 
-    /// Convert a query to an absolute query - i.e. interpret "." and ".." elements.
-    /// See ResourceQuerySegment::to_absolute for details.
+    /// Resolves `.` and `..` elements in every resource segment.
+    ///
+    /// See [`ResourceQuerySegment::to_absolute`] for details.
     pub fn to_absolute(&self, cwd_key: &Key) -> Self {
         Self {
             segments: self
@@ -2192,7 +2220,10 @@ impl Query {
         }
     }
 
-    /// Returns true if the query is a pure transformation query - i.e. a sequence of actions.
+    /// Returns `true` if the query is a pure transformation query; that is, a
+    /// sequence of actions.
+    ///
+    /// Returns true even if the transform query is empty (has no action requests).
     pub fn is_transform_query(&self) -> bool {
         self.segments.len() == 1
             && match &self.segments[0] {
@@ -2201,7 +2232,7 @@ impl Query {
             }
     }
 
-    /// Returns TransformQuerySegment if the query is a pure transformation query, None otherwise.
+    /// Returns the transform segment if this is a pure transformation query.
     pub fn transform_query(&self) -> Option<TransformQuerySegment> {
         if self.segments.len() == 1 {
             match &self.segments[0] {
@@ -2213,7 +2244,7 @@ impl Query {
         }
     }
 
-    /// Returns true if the query is a pure resource query
+    /// Returns `true` if the query is a pure resource query.
     pub fn is_resource_query(&self) -> bool {
         self.segments.len() == 1
             && match &self.segments[0] {
@@ -2222,7 +2253,7 @@ impl Query {
             }
     }
 
-    /// Returns ResourceQuerySegment if the query is a pure resource query, None otherwise.
+    /// Returns the resource segment if this is a pure resource query.
     pub fn resource_query(&self) -> Option<ResourceQuerySegment> {
         if self.segments.len() == 1 {
             match &self.segments[0] {
@@ -2234,18 +2265,18 @@ impl Query {
         }
     }
 
-    /// Returns true if the query is a single action request.
+    /// Returns `true` if the query is a single action request.
     pub fn is_action_request(&self) -> bool {
         self.transform_query()
             .is_some_and(|x| x.is_action_request())
     }
 
-    /// Returns ActionRequest if the query is a single action request, None otherwise.
+    /// Returns the action if the query is a single action request.
     pub fn action(&self) -> Option<ActionRequest> {
         self.transform_query().and_then(|x| x.action())
     }
 
-    /// Returns true if the query is a simple key.
+    /// Returns `true` if the query is a simple key.
     /// This requires that the resource query segment is present and has no header or a trivial header,
     /// i.e. no name and parameters.
     pub fn is_key(&self) -> bool {
@@ -2256,7 +2287,7 @@ impl Query {
         }
     }
 
-    /// Returns the key if the query is a simple key (with no header or trivial header), None otherwise.
+    /// Returns the key if the query has no header or has a trivial header.
     pub fn key(&self) -> Option<Key> {
         if self.is_key() {
             self.header_key()
@@ -2265,7 +2296,7 @@ impl Query {
         }
     }
 
-    /// Returns the key if the query is a resource query (disregarding the header), None otherwise.
+    /// Returns the key if this is a resource query, disregarding its header.
     pub fn header_key(&self) -> Option<Key> {
         if let Some(rq) = self.resource_query() {
             Some(rq.key.clone())
@@ -2281,9 +2312,10 @@ impl Query {
         seg
     }
 
-    /// Return tuple of (predecessor, remainder).
-    /// Remainder is a last element (action or filename) or None if not available.
-    /// Predecessor is a query without the remainder (or None).
+    /// Returns `(predecessor, remainder)`.
+    ///
+    /// The remainder is the final action or filename, if available. The predecessor
+    /// is the query without that remainder, if available.
     pub fn predecessor(&self) -> (Option<Query>, Option<QuerySegment>) {
         match &self.segments.last() {
             None => (None, None),
@@ -2328,7 +2360,7 @@ impl Query {
         }
     }
 
-    /// Return all predecessors of the query as a vector.
+    /// Returns all predecessors of the query.
     pub fn all_predecessors(&self) -> Vec<(Option<Query>, Option<QuerySegment>)> {
         let mut result = vec![];
         let mut qp = Some(self);
@@ -2412,7 +2444,7 @@ impl Query {
         result
     }
 
-    /// Query without the filename.
+    /// Returns the query without its filename.
     pub fn without_filename(self) -> Query {
         if self.filename().is_none() {
             self
@@ -2427,7 +2459,7 @@ impl Query {
         }
     }
 
-    /// Make a shortened version of the at most n characters of a query for printout purposes
+    /// Returns a shortened representation containing at most `n` query characters.
     pub fn short(&self, n: usize) -> String {
         if let (_, Some(r)) = self.predecessor() {
             r.encode()
@@ -2441,7 +2473,7 @@ impl Query {
         }
     }
 
-    /// Encode the query to string
+    /// Encodes the query as a string.
     pub fn encode(&self) -> String {
         if self.segments.is_empty() {
             if self.absolute {
@@ -2462,11 +2494,11 @@ impl Query {
         }
     }
 
-    /// Removes ambiguity from the query, create a standard form.
-    /// The standard form is equivalent in the meaning to the original query.
-    /// If a quary is used as a key (e.g. for assets), the canonical form should be used to prevent duplicates.
-    /// Query absolute flag is copied (though usually not impactful), source is copied (and not impactful)
-    /// Effectively only the segments are transformed.
+    /// Removes ambiguity from the query by creating a standard form.
+    /// The standard form has the same meaning as the original query.
+    /// If a query is used as a key (for example, for assets), use the canonical
+    /// form to prevent duplicates. The absolute flag and source are copied;
+    /// effectively, only the segments are transformed.
     pub fn canonical(self) -> Self {
         Self {
             segments: self
