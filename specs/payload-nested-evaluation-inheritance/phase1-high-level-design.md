@@ -377,19 +377,70 @@ invariant becomes structural instead of relying on author discipline.
 this design it is uncached regardless. Still two concepts to document. Does **not** remove the
 immediate-path routing work, because volatile does not currently imply immediate.
 
+#### Reassessment: keep payload inside the asset manager
+
+The framing of Option A above understated it. It assumed payload-requiring assets leave the asset
+manager for the ad-hoc `apply_immediately` path. They need not: **a volatile asset can stay a
+first-class manager asset and simply be evaluated inline with a payload.** `get_volatile_query_asset`
+and `get_volatile_resource_asset` already build fresh, unshared, keyed-or-query assets inside the
+manager (`assets.rs:3715-3788`); nothing about them requires the ad-hoc path.
+
+This is a materially better routing model, and it retires two problems:
+
+- **Keyed assets can require payload.** Under the earlier framing, a recipe using a payload-requiring
+  command became non-cacheable and ineligible as a dependency (D5's flagged interaction). As a
+  volatile keyed asset it just works — and recipes are the user-authored, named artifacts, so being
+  unable to use payload in one was a real limitation.
+- **D1 largely collapses into existing volatile semantics.** Volatile assets are excluded from
+  dependency-manager *tracking* (`assets.rs:1849-1856`) but are not barred from being waited on as
+  dependencies. "Never a *tracked* dependency" is already what volatile means, so D1 needs no
+  separate machinery.
+
+**On the queue.** Substantially correct, with two caveats. Default capacity is 4
+(`DefaultAssetManager::new`, `assets.rs:3342`), and the queue is not purely a concurrency cap — it is
+also part of the deadlock-avoidance machinery: `wait_for_dependency` "direct-claims the child if
+still runnable (no queue slot consumed), or subscribes — guaranteeing progress for pure-key
+delegation chains" (`assets.rs:1768`). That existing claim-based inline path is the precedent for
+running work outside a queue slot, and is the primitive to reuse. The proposed mitigation of
+temporarily shrinking capacity while a volatile runs is implementable but subtle: with capacity 4, a
+few concurrent volatile evaluations drive effective capacity toward zero and could starve queued
+non-volatile work. Reusing the direct-claim mechanism is preferable to inventing capacity borrowing.
+
+**On payload provenance — the decisive objection, and sharper than "thread affinity".** `UIContext`
+is `Arc<Mutex<dyn AppState>>` + sender + handle, all `Send + Sync`; it *can* cross threads. The real
+blocker is that the payload is **request-scoped and handle-bound**: `runner.rs` mints a fresh payload
+per message inside `process_messages`, carrying `.with_handle(handle)` — the specific UI element that
+asked (`runner.rs:129-133`). A background re-evaluation of the same key has no meaningful handle, so
+the payload is not merely unavailable on that thread — it is **not reconstructible at all**, because
+it encodes "who asked, in what UI context", which does not exist outside the request.
+
+This generalizes into the argument against fusion. Volatile assets are already requested today from
+payload-less entry points: the expiration monitor, dependency invalidation, `EnvRef::evaluate` (which
+takes no payload parameter), and HTTP handlers in `liquers-axum`. If `volatile` alone means "may
+require payload", every one of those paths can meet an asset needing a payload it cannot produce —
+and because nothing is declared, **you cannot tell statically which volatile assets those are.** That
+is precisely the early error D5 exists to provide, lost.
+
+#### Option C′ — keep the routing insight, keep the declaration (recommended)
+
+Adopt the improved routing (payload-requiring assets remain manager assets, marked volatile,
+evaluated inline with the payload forwarded, losing only the queue slot) **and** keep
+`payload: required` declared separately, with `is_volatile |= requires_payload`.
+
+*Pros:* every benefit of the reassessment — keyed assets can require payload, D1 collapses into
+volatile's existing semantics, no separate not-caching plumbing. Plus D5's early error survives, so a
+payload-requiring asset reached from the expiration monitor, `EnvRef::evaluate`, or an HTTP handler
+fails at plan time with a clear message instead of deep inside a command.
+
+*Cons:* two concepts still to document; declaration remains manual (the D2 residual hazard).
+
 #### Recommendation
 
-**Option C.** It captures the real overlap — both mean "never reuse this result" — without asserting
-the false equivalence that would come with Option A. The genuine simplification available here is
-*implementation* reuse (payload assets inherit volatile's existing not-cached/not-shared/not-tracked
-handling), not *concept* reduction. Option A's saving is smaller than it appears, since routing must
-be built either way, and it costs the early error that motivated D5 plus a behavior change to
-unrelated volatile commands.
-
-If Option C is adopted, D1's "payload-evaluated assets are never a dependency" should be re-checked
-against volatile's current dependency behavior: volatile assets are excluded from DM *tracking* but
-are not otherwise barred from being dependencies, so D1 may still need an explicit rule rather than
-falling out of volatility.
+**Option C′.** The routing reframing is right and should be adopted. The fusion of *declarations* is
+what should be rejected: it is the declaration — not the volatility — that lets a payload-less entry
+point be checked. Fusing costs exactly the guarantee the payload-provenance problem makes most
+valuable, and the provenance problem is not hypothetical: it is the current UI design, where the
+payload is bound to the requesting element's handle.
 
 ### D4. No scoped payload — too niche; recorded as a verified-compatible future axis
 
