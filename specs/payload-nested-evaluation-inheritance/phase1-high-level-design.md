@@ -88,8 +88,8 @@ cache-hit predicate is dissolved rather than answered — see the Chosen Decisio
    semantically equivalent to `apply_immediately`, which argues for `apply` inheriting too.
 2. Should a *keyed* asset whose recipe requires payload — thereby becoming non-cacheable and
    ineligible as a dependency — produce a plan-time warning, an error, or be silently accepted (D5)?
-6. What happens when a plan requires a payload but the parent context has none (e.g. background
-   evaluation)? Presumably the existing `InjectedFromContext` error, but at which point is it raised?
+3. **Awaiting your decision:** should payload requirement be fused with `volatile`? See D6 for
+   options and a recommendation.
 
 ## Design Review: Payload Purpose and Metadata Declaration
 
@@ -310,6 +310,86 @@ accepted failure mode, consistent with rule 3 (declaration is the author's respo
 **Interaction to flag for Phase 2.** A *keyed* asset whose recipe requires a payload becomes
 non-cacheable and cannot be a dependency (D1), even though keyed assets are normally stored and
 shared. Whether that should be a plan-time warning, an error, or silently accepted needs a decision.
+### D6. Under discussion: fusing payload requirement with `volatile`
+
+**A factual correction first — `volatile` does not mean "evaluated immediately" today.** A volatile
+query gets a *fresh, unshared* asset: `get_volatile_query_asset` constructs a new `AssetRef` and,
+unlike `get_nonvolatile_query_asset`, never inserts it into the `query_assets` map
+(`assets.rs:3774-3788`). It is also excluded from dependency-manager tracking
+(`if !lock_is_volatile { dm.track_asset(...) }`, `assets.rs:1849-1856`). But it is still **scheduled
+through the normal manager path** — queued under `DefaultAssetManager`, not routed to the ad-hoc
+immediate path. It is also still persisted; `persist_with_status_tracking` is gated on
+`save_in_background`/`cancelled`, not on volatility (`assets.rs:1333-1356`).
+
+So there are two readings of the premise, and they differ:
+
+- *"Volatile results are never reused"* — **true today**, and it is exactly the property a
+  payload-evaluated asset needs.
+- *"Volatile assets take the immediate code path"* — **false today**. Fusing would not remove the
+  routing work, only the not-caching work.
+
+**What the two concepts actually share.** Both imply "do not cache, do not share, do not track for
+invalidation". Where they differ is direction: **`volatile` is a property of the output** (freshness/
+reusability); **payload requirement is a property of the input** (something the evaluation needs to
+run at all). They correlate but are not equivalent — a command can require a payload and be perfectly
+deterministic given it (payload = a DB connection; same query, same rows), and a command can be
+volatile without any payload (reads a clock, an external file, a random source).
+
+One further precedent worth noting: `Context::is_volatile` **already propagates to nested
+evaluations** (`context.rs:322-324`), which is the very inheritance mechanism payload lacks.
+
+#### Option A — Full fusion: drop `PayloadRequirement`, route on `volatile` alone
+
+*Pros:* smallest possible diff — no new metadata, no plan field, no macro statement, no annotation
+migration. Reuses a flag that already exists, already propagates to nested contexts, and already
+means "not cached, not shared, not tracked".
+
+*Cons:* (1) **Behavior change for existing volatile commands** — every volatile command that never
+touches payload would be re-routed to the immediate path, losing queued/parallel scheduling; a
+performance regression on an unrelated feature. (2) **Loses the early error (D5)** — `volatile` says
+nothing about *needing* a payload, so a missing payload cannot be detected at plan time; back to
+runtime discovery, which was the whole point of D5. (3) **Contradicts rule 3** — volatile-labeling
+was explicitly advisory and unenforced; fusion makes it mandatory for payload commands.
+(4) Conflates an input requirement with an output property, so neither can be reasoned about alone.
+
+#### Option B — No fusion: keep `PayloadRequirement` and `volatile` fully independent (current design)
+
+*Pros:* clean separation of input need from output freshness; D5's early error works; zero behavior
+change for existing volatile commands; `volatile` stays advisory per rule 3.
+
+*Cons:* two flags whose *effects* overlap substantially, which authors must learn to distinguish;
+requires building "don't cache / don't share" plumbing for payload assets that duplicates what
+volatile already does.
+
+#### Option C — One-way implication: payload-required **implies** volatile (recommended)
+
+Keep `payload: required` as the declared input need, and derive `is_volatile |= requires_payload`
+during plan building. Not a fusion — an implication in one direction only.
+
+*Pros:* keeps D5's early error and the correct semantic distinction; **reuses the existing
+non-caching machinery** rather than duplicating it (a payload asset is volatile, so it already gets
+fresh-per-request, unshared, untracked treatment for free); no behavior change for existing volatile
+commands, since the implication does not run backwards; the "payload result must not be reused"
+invariant becomes structural instead of relying on author discipline.
+
+*Cons:* makes volatility non-advisory *for payload commands specifically*, a mild narrowing of rule 3
+— though arguably correct, since a payload-evaluated result genuinely must not be reused, and under
+this design it is uncached regardless. Still two concepts to document. Does **not** remove the
+immediate-path routing work, because volatile does not currently imply immediate.
+
+#### Recommendation
+
+**Option C.** It captures the real overlap — both mean "never reuse this result" — without asserting
+the false equivalence that would come with Option A. The genuine simplification available here is
+*implementation* reuse (payload assets inherit volatile's existing not-cached/not-shared/not-tracked
+handling), not *concept* reduction. Option A's saving is smaller than it appears, since routing must
+be built either way, and it costs the early error that motivated D5 plus a behavior change to
+unrelated volatile commands.
+
+If Option C is adopted, D1's "payload-evaluated assets are never a dependency" should be re-checked
+against volatile's current dependency behavior: volatile assets are excluded from DM *tracking* but
+are not otherwise barred from being dependencies, so D1 may still need an explicit rule rather than
+falling out of volatility.
 
 ### D4. No scoped payload — too niche; recorded as a verified-compatible future axis
 
