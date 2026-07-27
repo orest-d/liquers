@@ -498,6 +498,59 @@ the forbidden cell, re-splitting the two axes. That is now the third simplificat
 deferring `Optional`, alongside the vacuous cache probe and the single-branch routing: they are one
 package and would unwind together.
 
+### D8. Audit of every `volatile` site and whether a payload counterpart is needed
+
+Mention counts: `plan.rs` 124, `assets.rs` 69, `metadata.rs` 45, `interpreter.rs` 31, `context.rs` 15,
+`recipes.rs` 10, `expiration.rs` 10, `registration.rs` 8, `command_metadata.rs` 6, plus UI and
+`liquers-py`. The counterpart is needed across the **derivation pipeline** and mostly *not* at the
+runtime asset layer.
+
+#### Counterpart required (the derivation pipeline)
+
+| Site | What it does | Counterpart |
+|---|---|---|
+| `command_metadata.rs:776-781` `CommandMetadata.volatile: bool` | author declaration | **Yes** — `payload_required` field |
+| `registration.rs:774` `"volatile" =>` statement parse | DSL keyword | **Yes** — `payload:` parse |
+| `registration.rs:1043,1225-1226,1646,1663,1687` | builder field + `cm.volatile = true` codegen | **Yes** — parallel plumbing; also sets `cm.volatile` per D7 |
+| `plan.rs:1366` `Plan.is_volatile` (serialized, no `serde(default)`) | plan-level result | **Yes** — `Plan.payload_required`; same serialization care |
+| `plan.rs:924-925` `mark_volatile` + `Step::Info` reason | records *why* | **Yes** — the explanatory-diagnostic pattern is worth copying |
+| `plan.rs:930-937` `is_action_volatile` reads `metadata.volatile` | local detection | **Yes** — direct analogue |
+| `plan.rs:975-995` `check_parameter_for_volatile_links` | recurses into link-parameter sub-plans | **Yes** — a link to a payload-requiring query makes the plan payload-requiring |
+| `plan.rs:1599,1607` plan splitting copies `is_volatile` to both halves | **correctness-critical** | **Yes** — splitting must carry payload requirement or it is silently lost |
+| `plan.rs:1938,1976,2062`, `interpreter.rs:40-45,74` `has_volatile_dependencies` | async transitive pass | **Yes** — this is D5's transitive half |
+| `interpreter.rs:403-505` `IsVolatile` async trait for `Plan`/`Recipe`/`Query`/`Step`/`ParameterValue` | the transitive propagation vehicle | **Yes** — sibling trait, or generalize to return the derived class |
+| `interpreter.rs:85-86` pre-pass leaves volatile queries for on-demand scheduling | avoids orphaning fresh evaluations | **Yes** — payload-requiring queries must also be left to `do_step`, since the payload is only available at execution time |
+| `recipes.rs:349` `asset_info.is_volatile = plan.is_volatile` | plan → asset info | **Yes**, if `AssetInfo` carries it |
+| `liquers-py/src/command_metadata.rs:362` `fn volatile()` | introspection getter | **Yes** — cheap parity |
+
+#### No counterpart needed
+
+| Site | Why not |
+|---|---|
+| `metadata.rs:318` **`Status::Volatile`** | Lifecycle, not classification: "value produced, single-use, terminal" (`:369` — "Like Expired, volatile is terminal"). Payload requirement is a *pre-evaluation* property of the plan; there is no lifecycle moment an asset passes through. Confirms D7's conclusion — with the nuance that `Status::Volatile` does exist, so the absence of a payload variant needs this explicit justification. |
+| `expiration.rs:193-197` `Expires::is_volatile` | Expiration implying volatility is orthogonal to payload. |
+| `assets.rs` `AssetData.is_volatile`, `get_volatile_query_asset` / `get_volatile_resource_asset`, DM-tracking exclusion, `AssetManager::is_volatile(key)` | Because `payload ⟹ volatile` (C′), the asset layer already behaves correctly via the volatile flag. What the asset layer needs is **not a flag** but *plumbing the payload value through* the evaluation entry points — a signature change, not a parallel field. |
+| `interpreter.rs:349` `Context::new(assetref, plan.is_volatile)` | `Context` already carries `payload: Option<E::Payload>`. Presence of the value *is* the state; a separate requirement flag would be redundant. |
+| `recipes.rs:38-41` `Recipe.volatile` (author override) | Payload requirement should be **derived** from commands, not overridable by a recipe author. Flagged as a deliberate asymmetry — revisit only if mislabeled/dynamic commands need an escape hatch. |
+
+#### Undecided / low priority
+
+- `metadata.rs:816-820` `MetadataRecord.is_volatile` (**serialized**) and its helpers
+  (`:1246-1264`, `:2085-2101`, `:2210-2243`). Recording "this result required a payload" on the
+  produced asset is useful for introspection, but it is derived and the operational consequence is
+  already conveyed by `is_volatile`. Adding it is a serialized-format change — recommend **deferring**
+  unless Phase 2 finds a consumer.
+- `liquers-lib` UI display of volatility (`query_console_element.rs`, `egui/widgets.rs`) — cosmetic
+  parity, last.
+
+#### The shape of the asymmetry
+
+The analogy holds tightly for **derivation** (declare → detect locally → propagate transitively →
+record on the plan → survive plan splitting) and breaks at **runtime**, where `payload ⟹ volatile`
+means no parallel flag is needed, only payload plumbing. One consumer has no volatile analogue at
+all: `payload_required` must additionally **raise D5's early error** at payload-less entry points,
+whereas `volatile` never fails a plan — it only changes caching.
+
 ### D4. No scoped payload — too niche; recorded as a verified-compatible future axis
 
 **Decided: not pursued.** This section is retained as design verification (the current design must
