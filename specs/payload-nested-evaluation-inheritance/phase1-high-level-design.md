@@ -26,10 +26,10 @@ The authoritative boundary:
    varies with payload should be labeled `volatile`. The framework does not police this.
 
 **Efficiency requirement.** Choosing between the manager path and the immediate path must not require
-speculatively evaluating both. The plan must therefore declare whether it needs a payload to run:
-`requires_payload` is computed at plan-build time (exactly like the existing two-phase
-`Plan::is_volatile` detection, `plan.rs:1363-1366`) and drives the switch. Payload-free plans keep
-today's cached, shared, queued behavior with zero overhead.
+speculatively evaluating both. The plan must therefore declare whether it needs a payload to run: a
+`PayloadRequirement` (D3) is computed at plan-build time from command metadata — exactly like the
+existing two-phase `Plan::is_volatile` detection (`plan.rs:1363-1366`) — and drives the switch.
+Payload-free plans keep today's cached, shared, queued behavior with zero overhead.
 
 ## Core Interactions
 
@@ -56,18 +56,18 @@ Not touched. `liquers-axum` benefits indirectly (request-scoped payload reaches 
 
 ## Crate Placement
 
-**liquers-core**: `src/plan.rs` (`requires_payload`), `src/command_metadata.rs` (payload-injection
-flag), `src/context.rs` (nested-evaluation switch), `src/assets.rs` (payload-bearing dependency path).
-`liquers-macro` for the `payload` keyword and the unknown-trailing-ident fix (D2), plus migration of
-existing `injected` payload sites in `liquers-lib/src/ui/commands.rs`. Docs to update:
+**liquers-core**: `src/plan.rs` (plan-level payload requirement), `src/command_metadata.rs`
+(`PayloadRequirement` enum on command metadata), `src/context.rs` (nested-evaluation switch),
+`src/assets.rs` (payload-bearing evaluation path). `liquers-macro` for the command-level metadata
+statement (D2). `liquers-lib/src/ui/commands.rs` for annotating existing payload-using commands.
+Docs to update:
 `specs/PAYLOAD_GUIDE.md`, `specs/PROJECT_OVERVIEW.md`, `liquers_core::context` rustdoc, and the
 existing non-inheritance test (which becomes an inheritance test).
 
 ## Open Questions
 
-Resolved and moved to **Resolved Decisions** below: payload-derived vs environment-derived
-injection (D2), dependency semantics of the payload branch (D1), parent volatility (D1/D3), and
-the `optional` tie-break (D3).
+Resolved in **Resolved Decisions** below: dependency semantics and cycle detection (D1), how payload
+requirement is declared (D2), the state representation and `optional` (D3), and scoped payload (D4).
 
 1. "Cache wins" needs an exact predicate: is it "asset exists and is in a usable (non-`Expired`,
    non-`Error`) status", and is it checked without scheduling? Interaction with the
@@ -75,10 +75,8 @@ the `optional` tie-break (D3).
 2. Does `Context::apply` (ad hoc, no dependency recorded) also inherit payload, or does it keep its
    current non-forwarding behavior? D1 makes the payload branch semantically equivalent to
    `apply_immediately`, which argues for `apply` inheriting too — but this needs an explicit call.
-3. What guard replaces graph-based cycle detection on the payload branch (D1) — recursion-depth
-   limit or an active-query set on `Context`?
-4. Does the `payload` keyword (D2) need `payload optional` grammar, or does required-vs-optional
-   stay exclusively on the command-level statement?
+3. What is the exact spelling of the command-level metadata statement (D2) — `payload: required`,
+   or a bare `payload_required:` bool-style key mapping onto the `PayloadRequirement` enum?
 6. What happens when a plan requires a payload but the parent context has none (e.g. background
    evaluation)? Presumably the existing `InjectedFromContext` error, but at which point is it raised?
 
@@ -136,6 +134,10 @@ metadata nothing to infer from. Argument-derived inference alone is therefore **
 an explicit metadata attribute alongside the existing `volatile:` / `label:` keys, e.g.
 `payload: required | optional | none`, defaulting to the argument-inferred value.
 
+> **Superseded by D1–D4 below.** The review's analysis stands, but the resolutions are: no argument
+> keyword (D2 — the command-level statement is the sole mechanism), and `Optional` deferred behind an
+> extensible enum (D3). Refinement 3's table is retained as the rationale for reserving `Optional`.
+
 **Refinement 3 — `optional` needs an explicit tie-break, or it is not worth a third state.** Note
 that under cache-first, even `required` does not guarantee a payload: a cached asset always wins.
 The three states only govern what happens on a **cache miss**:
@@ -166,79 +168,106 @@ Concretely, the payload branch skips everything `schedule_dependency_asset` does
 (`context.rs:369-425`): `register_scheduled_dependency`, `get_dependency_asset`,
 `add_dependent_asset`, and `add_dependency`.
 
-Two consequences must be handled in Phase 2:
+**This preserves an invariant the codebase already holds.** `register_scheduled_dependency` is
+already documented as "Only keyed assets are graph nodes; an expression is expanded onto its
+attribution set (the keyed assets that depend on it)" (`dependencies.rs:412-414`). Payload-evaluated
+assets are ad hoc — neither keyed nor query-identifiable — so excluding them from the graph is
+consistent with the existing model rather than a new exception. Only keyed, non-payload assets are
+dependencies and graph nodes.
 
-- **Cycle detection is lost on this branch.** Cycle checking currently lives in
-  `register_scheduled_dependency`. A payload-evaluated chain (A→B→A) has no graph edge to
-  detect. A separate guard is required — a recursion-depth limit or an active-query set carried
-  on `Context`.
+**Cycle detection stays at plan level, where it already exists.** `find_dependencies` walks recipe
+chains with a visited `stack` and returns "Circular dependency detected" (`plan.rs:1687-1694`),
+independently of the runtime graph. This is the right layer and is unaffected by the payload branch.
+
+Remaining consequences for Phase 2:
+
+- **Runtime recursion of ad-hoc queries is a pre-existing gap, slightly widened.** A command body
+  calling `context.evaluate("/-/b")` where `b`'s body calls `context.evaluate("/-/a")` builds
+  queries at runtime that plan analysis never sees. Today, when the parent is ad hoc,
+  `schedule_dependency_asset` computes `dependent_opt = None` and registers nothing, so no cycle
+  check runs either (`context.rs:391-397`). Payload-evaluated children are *always* ad hoc, so the
+  branch widens this existing hole rather than creating it. A recursion-depth limit on `Context`
+  remains a cheap belt-and-braces guard — worth considering in Phase 2, not required by this design.
 - **A parent's recorded dependencies become incomplete.** A keyed, cacheable asset that performs
   payload-evaluated nested calls has untracked inputs. Per rule 3 this is the author's
   responsibility (mark `volatile`) and is *not* enforced — but it should be **visible**: plan
   building can emit a `Step::Warning` into `init_steps`, which already exists for exactly this
   kind of non-blocking diagnostic (`plan.rs:1356-1359`).
 
-### D2. `register_command!` gains a `payload` keyword — as a complement, not a replacement
+### D2. No `payload` argument keyword — declaration is command-level only
 
-Recommended: **yes**, with two guards. The keyword slots into the existing optional trailing-ident
-position (`registration.rs:1531-1536`), so `fn cmd(state, ui: UiCtx payload)` parses beside
-`injected` with a contained macro change.
+**Decided: not now.** `register_command!` keeps `injected` as its only argument-level modifier.
+Payload requirement is declared **exclusively** by a command-level metadata statement, alongside
+the existing `volatile:` / `label:` keys (`registration.rs:773-777`).
 
-**Pros**
+This is the simpler design, and it is not merely a deferral — it is arguably better:
 
-1. Distinguishes payload-derived from environment-derived injection at the declaration site —
-   the exact gap that makes `ArgumentInfo::injected` insufficient — letting metadata set a
-   `from_payload` flag and making plan-level `requires_payload` derivable.
-2. Zero added ceremony: the author writes `payload` where they would have written `injected`.
-3. Self-documenting signatures; today the two kinds are indistinguishable when reading code.
-4. Enables a precise error ("command `x` requires payload via argument `ui`") instead of a
-   generic `InjectedFromContext` failure.
+- **One mechanism, uniformly applied.** An argument keyword could never have covered
+  `context`-accessing commands (`fn cmd(state, context)` calling `get_payload_clone()` declares no
+  argument), so a command-level statement was needed regardless. Having only the statement removes
+  the second, partially-overlapping mechanism.
+- **No divergence risk.** With two mechanisms, an argument marked `payload` on a command whose
+  statement says otherwise would produce contradictory metadata. That class of bug cannot arise.
+- **No `injected`/`payload` confusion**, and no need for a compile-time `ExtractFromPayload` bound
+  assertion to keep declaration and implementation honest.
 
-**Cons**
+**Residual hazard to document (unchanged by this choice).** Declaration is fully manual: a command
+that reads payload but omits the statement defaults to "does not use payload", works normally at
+top level via `evaluate_immediately`, and silently loses payload only in nested position. Every
+existing payload-using command — `liquers-lib/src/ui/commands.rs`, `tests/injection.rs`, and the
+PAYLOAD_GUIDE examples — must be audited and annotated in Phase 2. The plan-time `Step::Warning`
+from D1 is the main mitigation.
 
-1. **It does not close the `context`-accessing hole.** `fn cmd(state, context)` calling
-   `get_payload_clone()` still declares nothing. The command-level
-   `payload: required|optional|none` statement is still required. The keyword is complementary.
-2. **Two spellings for adjacent concepts** (`injected` vs `payload`) — payload injection *is* a
-   special case of context injection. Needs clear documentation to avoid author confusion.
-3. **Declaration can diverge from implementation**: nothing stops `payload` on a type that never
-   reads payload, or `injected` on one that does, yielding wrong metadata and mis-routed
-   evaluation. *Mitigation:* codegen a bound assertion against `ExtractFromPayload`/`PayloadType`
-   so a mismatch is a compile error. This turns the weakest con into an enforced invariant and
-   should be treated as part of the feature, not optional.
-4. **A bare keyword cannot express three states**; required-vs-optional still comes from the
-   command-level statement, or needs `payload optional` grammar.
-5. **Silent migration hazard (largest risk).** Existing payload commands written with `injected`
-   — all of `liquers-lib/src/ui/commands.rs`, `tests/injection.rs`, and every PAYLOAD_GUIDE
-   example — would keep compiling but produce `requires_payload = false`, routing them to the
-   manager path and silently losing payload in nested position. Phase 2 must include an audit and
-   migration of these sites; the call sites are few enough that this is tractable.
+**Unrelated fix worth taking separately:** the argument parser consumes an unknown trailing ident
+and silently treats it as not-injected (`flag == "injected"` → `false`, `registration.rs:1531-1536`),
+so a typo like `injcted` is a silent no-op. This is a latent bug independent of payload work.
 
-**Additional fix to fold in:** the current parser consumes an unknown trailing ident and silently
-treats it as not-injected (`flag == "injected"` → `false`). Adding a second recognized keyword is
-the right moment to reject unknown idents, so `payloadx` becomes a compile error rather than a
-silent no-op.
+### D3. Two states now, represented as an enum extensible to three
 
-### D3. Three-state semantics confirmed
+**Decided: `Optional` is not implemented now**, but the representation must be an **enum, not a
+bool**, so it can gain a third state without a breaking representation change:
+
+```rust
+/// Whether a command needs an evaluation payload.
+/// `Optional` (runs without a payload, but receives one when available)
+/// is reserved for a future extension; see specs/ISSUES.md.
+pub enum PayloadRequirement {
+    /// Does not use payload. Default.
+    None,
+    /// Refuses to run without a payload.
+    Required,
+    // Optional, // future — see D3 note
+}
+```
 
 | State | No payload available | Payload available, cache hit | Payload available, cache miss |
 |---|---|---|---|
-| `none` | manager path, cached | use cached asset | manager path, cached |
-| `optional` | runs, manager path, cached | use cached asset | immediate path with payload, uncached, not a dependency |
-| `required` | **refuses to run** | use cached asset | immediate path with payload, uncached, not a dependency |
+| `None` | manager path, cached | use cached asset | manager path, cached |
+| `Required` | **refuses to run** | use cached asset | immediate path with payload, uncached, not a dependency |
 
-`required` refuses to run without a payload; `optional` runs without one. Because
-`requires_payload` is known at plan-build time, a `required` command reached with no payload can
-fail fast at planning rather than deep inside execution.
+Because the requirement is known at plan-build time, a `Required` command reached with no payload
+fails fast at planning rather than deep inside execution.
+
+Adding `Optional` later is a deliberately breaking change for exhaustive matches — which is exactly
+what the project's "no default match arm" convention wants, since every match site is forced to
+decide how to treat it. Phase 2 must therefore avoid `_ =>` arms on this enum.
+
+**Why `Optional` is worth reserving.** It is the state for a command that benefits from a payload
+but does not need one: cacheable when no payload exists, payload-fed when one does. Its cost is the
+tie-break it forces on the cache-miss branch (fidelity vs. cacheability) and the order-dependence
+noted below, which is why it is not worth paying for until a concrete use case appears.
 
 **Consequence that must be documented:** under cache-first, a cache hit means the command does not
-run at all, so *even a `required` command's payload is bypassed on a hit*. For `optional` commands
-this makes payload delivery **order-dependent** — whichever caller arrives first determines whether
-a cached entry exists. This is not a correctness bug given rule 1, but it means: **any command whose
-cacheable output genuinely varies with payload must be marked `volatile`.** That is precisely rule 3,
-and cache-first makes it effectively mandatory rather than advisory.
+run at all, so *even a `Required` command's payload is bypassed on a hit*. This is not a correctness
+bug given rule 1, but it means: **any command whose cacheable output genuinely varies with payload
+must be marked `volatile`.** That is precisely rule 3, and cache-first makes it effectively mandatory
+rather than advisory. (With `Optional` this would additionally become order-dependent — whichever
+caller arrives first decides whether a cached entry exists — a further reason to defer it.)
 
-### D4. Scoped (unconstrained) payload — future axis, verified compatible, not built
+### D4. No scoped payload — too niche; recorded as a verified-compatible future axis
+
+**Decided: not pursued.** This section is retained as design verification (the current design must
+not foreclose it) and as a record of why it was rejected, not as planned work.
 
 A second payload type with no `Clone + Send + Sync + 'static` bound, passed as `&mut` and requiring
 same-thread inline execution.
@@ -264,9 +293,9 @@ Mobility is **already a real axis in this codebase**: `PayloadType: Clone + Mayb
   "immediate, same-thread, non-escaping".
 - **D1 (never a dependency)** — survives and becomes non-negotiable: a scoped result cannot outlive
   the frame, so it can never be stored or shared.
-- Three-state metadata — survives, but with two payload types the key may need to name which one.
-  The chosen small-enum representation leaves room; a hardcoded single bool would not. This is an
-  argument for the enum over `requires_payload: bool`.
+- `PayloadRequirement` — survives, but with two payload types the enum may need to name which one.
+  The enum chosen in D3 leaves room; a hardcoded `requires_payload: bool` would not. This is a
+  second, independent argument for D3's enum representation.
 - `AssetManager::apply_immediately(recipe, to, payload: Option<E::Payload>)` takes an owned payload
   (`assets.rs:2649-2654`) and could not carry a scoped one — a separate entry point would be needed.
 
