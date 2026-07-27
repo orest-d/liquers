@@ -442,6 +442,62 @@ point be checked. Fusing costs exactly the guarantee the payload-provenance prob
 valuable, and the provenance problem is not hypothetical: it is the current UI design, where the
 payload is bound to the requesting element's handle.
 
+### D7. Three states, not four — but collapse only the derived layer
+
+Correct: with `payload ⟹ volatile` (C′), the 2×2 grid has an unreachable cell.
+
+| | no payload | requires payload |
+|---|---|---|
+| **non-volatile** | Cacheable | *unreachable by construction* |
+| **volatile** | Volatile | PayloadRequired |
+
+Two independent booleans can represent a state the design forbids. A three-valued enum makes it
+unrepresentable — idiomatic, and it pairs with the project's "no default match arm" rule so every
+consumer is forced to handle all three. **But the collapse belongs in one layer, not both.**
+
+**Declaration layer (command metadata / `register_command!`) — keep two orthogonal keys.**
+
+- They state genuinely different things. An author marking a command volatile because it reads a
+  clock should not have to reason about payload; merging makes the DSL worse, not better.
+- `volatile` is load-bearing far beyond this feature: `MetadataRecord.is_volatile` and
+  `Plan.is_volatile` are **serialized** (`plan.rs:1363-1366` explicitly notes no `serde(default)`),
+  and `is_volatile` is read across `assets.rs`, `query.rs`, and `recipes.rs`. Replacing the bool with
+  an enum is a serialization-format change with a large blast radius, against a feature that does not
+  need it.
+- Every existing `volatile: true` registration would have to be rewritten.
+
+**Derived layer (plan / asset) — one enum.** This is where the illegal state would otherwise
+materialize, where aggregation happens (combining steps is a join over the three states, exactly like
+today's volatility detection), and where the routing decision is made. Applying the implication
+during derivation means the forbidden cell never exists at runtime.
+
+So: **declare with two keys, derive into one enum.**
+
+**Naming.** Prefer `PayloadRequired` over `PayloadDependent`. "Dependent" reads as *the output depends
+on the payload*, which is the dependence axis that `volatile` already covers; the state actually means
+*the evaluation needs a payload to run at all*. The enum itself is about reuse/scheduling class —
+`EvaluationClass` or `Reusability` rather than `Status`.
+
+**`Status` is the wrong home.** `metadata.rs:282` defines `Status` as the asset **lifecycle**
+(`None`, `Recipe`, `Submitted`, `Dependencies`, `Processing`, `Error`, `Storing`, `Ready`, …). A
+classification of *how an asset may be reused* is a different kind of fact from *where it is in
+evaluation*; adding a variant there would conflate the two and break every lifecycle match.
+
+**Registration adjustment — yes, and with a substantial shortcut.** Registration gains
+`payload: required` (D2/D3); `volatile:` is untouched. Recommended: have `payload: required` also set
+`cm.volatile = true` at registration time. The entire existing volatility machinery then propagates
+the volatile consequence **for free** — `is_action_volatile` reads `metadata.volatile`
+(`plan.rs:930-937`), `check_parameter_for_volatile_links` already recurses into link-parameter
+sub-plans (`plan.rs:975-995`), `mark_volatile` records an explanatory `Step::Info`, and
+`Query::is_volatile` / `Recipe::is_volatile` cover the recipe path. Only the separate
+payload-requirement propagation needed for D5's early error has to be built new.
+
+**Contingency (same one as elsewhere).** This collapse holds only while `Optional` is deferred.
+`Optional` is by definition *payload-using but cacheable* — it breaks the implication and re-opens
+the forbidden cell, re-splitting the two axes. That is now the third simplification riding on
+deferring `Optional`, alongside the vacuous cache probe and the single-branch routing: they are one
+package and would unwind together.
+
 ### D4. No scoped payload — too niche; recorded as a verified-compatible future axis
 
 **Decided: not pursued.** This section is retained as design verification (the current design must
