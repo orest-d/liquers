@@ -67,7 +67,9 @@ existing non-inheritance test (which becomes an inheritance test).
 1. How is a payload-derived injected argument distinguished from an environment-injected one in
    `ArgumentInfo` — a new field, or inferred from the type implementing `PayloadType`/`ExtractFromPayload`?
    Type-based inference is not available at metadata level, so this likely needs an explicit flag set
-   at registration.
+   at registration. **See Design Review below**: argument-level inference alone is unsound because
+   `context`-accessing commands declare no payload argument; an explicit
+   `payload: required|optional|none` metadata key is needed.
 2. "Cache wins" needs an exact predicate: is it "asset exists and is in a usable (non-`Expired`,
    non-`Error`) status", and is it checked without scheduling? Interaction with the
    ASSET-EXPIRED-CACHED-BINARY-READ issue should be checked.
@@ -79,6 +81,76 @@ existing non-inheritance test (which becomes an inheritance test).
    current non-forwarding behavior?
 6. What happens when a plan requires a payload but the parent context has none (e.g. background
    evaluation)? Presumably the existing `InjectedFromContext` error, but at which point is it raised?
+
+## Design Review: Payload Purpose and Metadata Declaration
+
+### What payload is for, and the `&mut egui::Ui` limit
+
+Payload's purpose is to carry **complex, non-serializable, process-local resources** — graphics
+contexts, DB connections, hardware handles — that cannot be expressed in a query. The current
+constraint is `PayloadType: Clone + MaybeSend + MaybeSync + 'static` (`commands.rs:343-346`), which
+on native resolves to `Clone + Send + Sync + 'static`.
+
+`&mut egui::Ui` cannot pass through payload, and **`Send` is not the binding reason**. Three
+constraints fail independently, two of them fatally:
+
+1. **`'static`** — `&mut egui::Ui<'_>` is a borrow whose lifetime is tied to the frame closure.
+   No relaxation of `Send`/`Sync` fixes this. Fatal.
+2. **`Clone`** — payload is cloned into each action's context; a unique `&mut` borrow is not `Clone`.
+   Fatal.
+3. **`Send`/`Sync`** — only binding on native, and moot given 1 and 2.
+
+So this is not a bug to fix by loosening bounds; an immediate-mode frame borrow is structurally
+incompatible with a cloneable `'static` payload. **The codebase already solves this correctly**:
+`UIContext` (`ui/ui_context.rs`) carries only `Arc<Mutex<dyn AppState>>` + `AppMessageSender` +
+`UIHandle` — all `Clone + Send + Sync + 'static` — and commands act by **mutating the retained
+element tree and sending messages**, while `&mut egui::Ui` is passed as a *direct parameter* down
+the render path (`Element::show_in_egui(&mut self, ui: &mut egui::Ui, ctx: &UIContext, ...)`,
+`ui/element.rs:122-127`). Payload carries the *durable handle*; the frame borrow stays on the stack.
+
+Worth noting for future UI work: `egui::Context` (unlike `Ui`) **is** `Clone + Send + Sync + 'static`
+and *could* legitimately live in a payload — it grants repaint requests, fonts, textures, and input
+state, just not positional immediate-mode drawing.
+
+### Verdict on the metadata conclusion
+
+**The conclusion is correct and necessary** — with three refinements.
+
+**Why it is necessary.** The cache-first switch must choose the manager path or the immediate path
+*before* evaluating, so "does this plan need a payload" has to be statically derivable. Command
+metadata is the only serializable, pre-execution source, and `Plan::is_volatile` is the exact
+precedent. Further, `ArgumentInfo::injected` is a **single bool conflating payload injection with
+environment-service injection** (`command_metadata.rs:387-391`); without separating them, every
+env-injected argument would force the payload path — badly over-conservative.
+
+**Refinement 1 — the axis is *availability*, not *dependence*.** Two questions could plausibly live
+in metadata: (a) can this run without a payload? (b) does its result depend on the payload? Only (a)
+belongs here. Question (b) is already answered by the existing `volatile` flag, and per the chosen
+rule 3 it is deliberately the author's responsibility, not enforced. Keeping metadata to (a) avoids
+duplicating `volatile`.
+
+**Refinement 2 — `context`-accessing commands are invisible to metadata (the real hole).**
+PAYLOAD_GUIDE Pattern 3 (`fn cmd(state, context)` calling `get_payload_clone()`) declares no
+argument at all — `register_command!(cr, fn get_context_data(state, context) -> result)` gives
+metadata nothing to infer from. Argument-derived inference alone is therefore **unsound**. This needs
+an explicit metadata attribute alongside the existing `volatile:` / `label:` keys, e.g.
+`payload: required | optional | none`, defaulting to the argument-inferred value.
+
+**Refinement 3 — `optional` needs an explicit tie-break, or it is not worth a third state.** Note
+that under cache-first, even `required` does not guarantee a payload: a cached asset always wins.
+The three states only govern what happens on a **cache miss**:
+
+| State | Cache hit | Cache miss |
+|---|---|---|
+| `none` | use asset | manager path (cached, shared) |
+| `required` | use asset | immediate path with inherited payload |
+| `optional` | use asset | **ambiguous — must be decided** |
+
+For `optional`, going immediate is more faithful to inheritance; going through the manager preserves
+sharing and caching. Proposed rule: **treat `optional` as `required` when the parent context actually
+has a payload, and as `none` when it does not** — never fails, maximizes fidelity, and costs
+cacheability only in the case where a payload genuinely exists to inherit. If this rule is rejected,
+`optional` collapses into one of the other two and a plain `requires_payload: bool` suffices.
 
 ## References
 
