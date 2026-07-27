@@ -16,14 +16,25 @@ cache-first rule, so the documentation becomes true.
 
 The authoritative boundary:
 
-1. **Cache wins.** If nested evaluation can resolve the query to an existing asset through the asset
-   manager, that asset is used and the parent payload has **no effect**. Shared assets are never
-   re-evaluated per payload, so cached results never become payload-dependent.
-2. **Otherwise evaluate with payload.** If no asset is available, evaluation proceeds with the parent's
-   payload inherited — which requires the *immediate* (ad-hoc, uncached, non-persisted) path, since
-   that is the only path carrying a payload today.
+1. **Payload-free queries always go to the asset manager.** A query requiring neither a payload nor
+   input-state arguments is always requested from the asset manager, and is therefore cached,
+   shared, and eligible to be a dependency — exactly today's behavior.
+2. **Payload-requiring queries are evaluated immediately with the inherited payload**, on the ad-hoc,
+   uncached, non-persisted path — the only path that carries a payload.
 3. **Safety is the command author's responsibility, not enforced.** A command whose result genuinely
    varies with payload should be labeled `volatile`. The framework does not police this.
+
+**The switch is on `PayloadRequirement` alone — no cache probe is needed.** The original framing was
+"cache wins, otherwise evaluate with payload". With `Optional` deferred (D3), the cache-hit branch
+for a payload-requiring query is provably unreachable: such a query is either evaluated with a
+payload (immediate path → never stored, per D1) or without one (an error, per D5). It can therefore
+never be in the cache, so the probe is vacuous. "Cache wins" survives as a *derived property* of
+payload-free queries rather than as a mechanism.
+
+This equivalence depends on `Optional` being absent. If `Optional` is ever added, a payload-free
+evaluation of an optional query *can* populate the cache, the cache-hit branch becomes reachable,
+and the exact predicate (which asset statuses count as a hit, probed without scheduling) must be
+decided then.
 
 **Efficiency requirement.** Choosing between the manager path and the immediate path must not require
 speculatively evaluating both. The plan must therefore declare whether it needs a payload to run: a
@@ -67,16 +78,16 @@ existing non-inheritance test (which becomes an inheritance test).
 ## Open Questions
 
 Resolved in **Resolved Decisions** below: dependency semantics and cycle detection (D1), how payload
-requirement is declared (D2), the state representation and `optional` (D3), and scoped payload (D4).
+requirement is declared (D2), the state representation, `optional` and the `payload: required`
+spelling (D3), scoped payload (D4), and recursive plan analysis with early error (D5). The
+cache-hit predicate is dissolved rather than answered — see the Chosen Decision section: with
+`Optional` absent, no cache probe is needed at all.
 
-1. "Cache wins" needs an exact predicate: is it "asset exists and is in a usable (non-`Expired`,
-   non-`Error`) status", and is it checked without scheduling? Interaction with the
-   ASSET-EXPIRED-CACHED-BINARY-READ issue should be checked.
-2. Does `Context::apply` (ad hoc, no dependency recorded) also inherit payload, or does it keep its
-   current non-forwarding behavior? D1 makes the payload branch semantically equivalent to
-   `apply_immediately`, which argues for `apply` inheriting too — but this needs an explicit call.
-3. What is the exact spelling of the command-level metadata statement (D2) — `payload: required`,
-   or a bare `payload_required:` bool-style key mapping onto the `PayloadRequirement` enum?
+1. **Deferred to Phase 2:** does `Context::apply` (ad hoc, no dependency recorded) also inherit
+   payload, or does it keep its current non-forwarding behavior? D1 makes the payload branch
+   semantically equivalent to `apply_immediately`, which argues for `apply` inheriting too.
+2. Should a *keyed* asset whose recipe requires payload — thereby becoming non-cacheable and
+   ineligible as a dependency — produce a plan-time warning, an error, or be silently accepted (D5)?
 6. What happens when a plan requires a payload but the parent context has none (e.g. background
    evaluation)? Presumably the existing `InjectedFromContext` error, but at which point is it raised?
 
@@ -245,8 +256,13 @@ pub enum PayloadRequirement {
 | `None` | manager path, cached | use cached asset | manager path, cached |
 | `Required` | **refuses to run** | use cached asset | immediate path with payload, uncached, not a dependency |
 
+**Declaration spelling** (resolving the D2 open question): a command-level metadata statement
+`payload: required`, parsed beside `volatile: true` (`registration.rs:773-777`). Note that
+`volatile` parses a `syn::LitBool` whereas `payload` takes a bare ident naming the enum variant —
+a small parser addition, and the form that extends naturally to `payload: optional` later.
+
 Because the requirement is known at plan-build time, a `Required` command reached with no payload
-fails fast at planning rather than deep inside execution.
+fails fast at planning rather than deep inside execution (D5).
 
 Adding `Optional` later is a deliberately breaking change for exhaustive matches — which is exactly
 what the project's "no default match arm" convention wants, since every match site is forced to
@@ -263,6 +279,37 @@ bug given rule 1, but it means: **any command whose cacheable output genuinely v
 must be marked `volatile`.** That is precisely rule 3, and cache-first makes it effectively mandatory
 rather than advisory. (With `Optional` this would additionally become order-dependent — whichever
 caller arrives first decides whether a cached entry exists — a further reason to defer it.)
+
+### D5. Payload requirement is derived recursively at plan level; a missing payload is an error
+
+Evaluating a payload-requiring plan without a payload is an **error**, raised as early as possible.
+
+**Recursive analysis.** A plan's payload requirement is not just its own commands': a query whose
+*non-dynamic* dependency requires a payload is itself payload-requiring, transitively. This mirrors
+the existing recursive dependency traversal — `find_dependencies` already walks recipe chains with a
+visited `stack`, resolving each key's recipe and recursively building the nested plan
+(`plan.rs:1667-1730`). Payload-requirement propagation is the same traversal and should ride along
+with it rather than duplicating the walk.
+
+**Architectural note for Phase 2 — this needs two places, not one:**
+
+- **Local requirement** (this plan's own commands) is derivable from command metadata in the
+  synchronous `PlanBuilder::build()` (`plan.rs:1004`), exactly like `Plan::is_volatile`.
+- **Transitive requirement** (through recipes of non-dynamic dependencies) requires resolving
+  recipes, which is async and needs an `EnvRef` — so it cannot live in sync `build()`. It belongs
+  with `find_dependencies`, which already has that signature.
+
+`Plan::is_volatile` is a precedent for the local half only; the transitive half has no existing
+counterpart and is the genuinely new work.
+
+**Accepted limitation.** Commands with *dynamic* dependencies — queries constructed at runtime and
+passed to `context.evaluate` — are invisible to plan analysis. A mislabeled command of this kind will
+not be caught early; it simply fails when it discovers it needs a payload and has none. This is the
+accepted failure mode, consistent with rule 3 (declaration is the author's responsibility).
+
+**Interaction to flag for Phase 2.** A *keyed* asset whose recipe requires a payload becomes
+non-cacheable and cannot be a dependency (D1), even though keyed assets are normally stored and
+shared. Whether that should be a plan-time warning, an error, or silently accepted needs a decision.
 
 ### D4. No scoped payload — too niche; recorded as a verified-compatible future axis
 
