@@ -39,6 +39,8 @@ Terms defined here are written in *italics* when used in their precise, normativ
 - *UI backend*: the renderer and event-loop implementation used to display Liquers UI elements, such as egui or a browser UI.
 - *Web handler*: a framework-compatible function that maps an HTTP request to a Liquers operation and maps its result to an HTTP response.
 - *Embedding host*: the outer process or application that owns Liquers and one or more *language runtimes*.
+- *Hard dependency*: a prerequisite feature without which the dependent feature cannot be implemented or meaningfully tested. If a feature is selected, each of its *hard dependencies* must also be selected; a *hard dependency* may not be `NA`.
+- *Soft dependency*: a prerequisite feature that the dependent feature interacts with when both are selected, but that it can be implemented without. A *soft dependency* may be `NA`; the design must then state how the dependent feature behaves in its absence.
 
 Unless qualified, “value” is informal. Designs should use *language value*, *value type*, or *State* when the distinction matters.
 
@@ -60,6 +62,8 @@ Use these implementation states:
 - `PARTIAL`: some required cases work
 - `COMPLETE`: all selected requirements implemented
 - `CONFORMANT`: complete and all required feature tests pass
+
+Dependencies constrain these states. A feature may not be claimed `COMPLETE` or `CONFORMANT` before every *hard dependency* has reached at least `COMPLETE`. A *soft dependency* imposes no such ordering, but when it is `NA` — or merely not yet implemented — the dependent feature's design must say what it does instead, and that statement is part of the feature's documented limitations. Selecting a feature whose *hard dependency* is `NA` is a design error, not a limitation to be recorded.
 
 A status claim should link to design sections, implementation, and test evidence. Recommended matrix:
 
@@ -95,11 +99,18 @@ The tests listed below are the default conformance inventory. An *integration* d
 | `ASYNCCMD` | Async language commands | Optional | `COMMAND`, `ASYNCQ`, `RUNTIME` |
 | `STORE` | Language-defined async store | Optional | `OBJECT`, `ENVIRON`, `ERROR`, `RUNTIME` |
 | `RECIPE` | Language-defined recipe provider | Optional | `OBJECT`, `ENVIRON`, `EVAL`, `ERROR`, `RUNTIME` |
-| `UIUSE` | Use an existing Liquers UI | Optional | `EVAL`, `ASYNCQ`, `VALUE`, `ERROR` |
+| `UIUSE` | Use an existing Liquers UI | Optional | `EVAL`, `VALUE`, `ERROR`, `ASYNCQ` (soft) |
 | `UIDEF` | Define UI elements or a UI backend in the language | Optional | `UIUSE`, `COMMAND`, `RUNTIME` |
 | `POLYGLOT` | Multiple-language interoperability | Optional | `ENVIRON`, `VALUE`, `COMMAND`, `ERROR`, `RUNTIME` |
-| `WEBSERV` | Start and extend `liquers-axum` | Optional | `ENVIRON`, `ASYNCQ`, `COMMAND`, `ERROR` |
-| `WEBAPI` | Integrate Liquers handlers into a language web framework | Optional | `ENVIRON`, `ASYNCQ`, `VALUE`, `ERROR` |
+| `WEBSERV` | Start and extend `liquers-axum` | Optional | `ENVIRON`, `ERROR`, `ASYNCQ` (soft), `COMMAND` (soft) |
+| `WEBAPI` | Integrate Liquers handlers into a language web framework | Optional | `ENVIRON`, `VALUE`, `ERROR`, `ASYNCQ` (soft) |
+
+Dependencies are *hard* unless marked `(soft)`. The soft cases are those where Liquers, not the *integrated language*, can supply the asynchrony or the callable:
+
+- `UIUSE` → `ASYNCQ`: a *UI backend* may deliver asset status, progress, and events through callbacks scheduled onto the *language runtime*, so a *language* with no async model can still drive a UI. Without `ASYNCQ`, the design must state how progress and cancellation are delivered.
+- `WEBSERV` → `ASYNCQ`: the Axum server owns a Rust async runtime, so starting and shutting it down does not require language-visible awaitables. Without `ASYNCQ`, the design must state how foreground/background start, readiness, and shutdown are expressed.
+- `WEBSERV` → `COMMAND`: needed only to attach *language*-implemented handlers or middleware. Serving the standard Rust routes requires no *language command*.
+- `WEBAPI` → `ASYNCQ`: an ASGI-style adapter awaits Liquers directly, but a WSGI-style synchronous adapter needs only a controlled runtime bridge. Without `ASYNCQ`, the design must state which adapters are supported and how blocking is bounded.
 
 Recommended minimum profiles:
 
@@ -107,6 +118,8 @@ Recommended minimum profiles:
 - **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `UIUSE`, `UIDEF`, and web features are selected as needed
 - **Starlark baseline**: baseline with a deliberately restricted `VALUE`; `ASYNCQ` and `ASYNCCMD` may initially be `NA`
 - **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, and selected UI/web features
+
+**Out of scope: cache.** There is deliberately no cache feature. The `liquers_core::cache` module (`BinCache`, `Cache`) is legacy and scheduled for removal — assets provide caching, as noted in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md). An *integration* should not expose it, and an existing wrapper such as `liquers-py/src/cache.rs` should be dropped rather than modernized. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
 
 ## 5. Feature Guidance
 
