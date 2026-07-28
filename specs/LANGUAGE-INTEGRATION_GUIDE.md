@@ -104,6 +104,8 @@ The tests listed below are the default conformance inventory. An *integration* d
 | `POLYGLOT` | Multiple-language interoperability | Optional | `ENVIRON`, `VALUE`, `COMMAND`, `ERROR`, `RUNTIME` |
 | `WEBSERV` | Start and extend `liquers-axum` | Optional | `ENVIRON`, `ERROR`, `ASYNCQ` (soft), `COMMAND` (soft) |
 | `WEBAPI` | Integrate Liquers handlers into a language web framework | Optional | `ENVIRON`, `VALUE`, `ERROR`, `ASYNCQ` (soft) |
+| `STUBS` | Static type declarations and editor support | Optional | `OBJECT`, `ASYNCQ` (soft) |
+| `PACKAGE` | Build, packaging, and distribution | Optional | `ENVIRON`, `RUNTIME`, `STUBS` (soft) |
 
 Dependencies are *hard* unless marked `(soft)`. The soft cases are those where Liquers, not the *integrated language*, can supply the asynchrony or the callable:
 
@@ -111,6 +113,8 @@ Dependencies are *hard* unless marked `(soft)`. The soft cases are those where L
 - `WEBSERV` → `ASYNCQ`: the Axum server owns a Rust async runtime, so starting and shutting it down does not require language-visible awaitables. Without `ASYNCQ`, the design must state how foreground/background start, readiness, and shutdown are expressed.
 - `WEBSERV` → `COMMAND`: needed only to attach *language*-implemented handlers or middleware. Serving the standard Rust routes requires no *language command*.
 - `WEBAPI` → `ASYNCQ`: an ASGI-style adapter awaits Liquers directly, but a WSGI-style synchronous adapter needs only a controlled runtime bridge. Without `ASYNCQ`, the design must state which adapters are supported and how blocking is bounded.
+- `STUBS` → `ASYNCQ`: entry points need awaitable declarations only where `ASYNCQ` is selected.
+- `PACKAGE` → `STUBS`: declarations must ship inside the artifact when `STUBS` is selected; packaging is otherwise independent of them.
 
 Recommended minimum profiles:
 
@@ -118,6 +122,8 @@ Recommended minimum profiles:
 - **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `UIUSE`, `UIDEF`, and web features are selected as needed
 - **Starlark baseline**: baseline with a deliberately restricted `VALUE`; `ASYNCQ` and `ASYNCCMD` may initially be `NA`
 - **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, and selected UI/web features
+
+`STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
 **Out of scope: cache.** There is deliberately no cache feature. The `liquers_core::cache` module (`BinCache`, `Cache`) is legacy and scheduled for removal — assets provide caching, as noted in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md). An *integration* should not expose it, and an existing wrapper such as `liquers-py/src/cache.rs` should be dropped rather than modernized. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
 
@@ -454,6 +460,45 @@ def test_COMMAND02_transform_receives_state_and_parameter():
 
 **Meaningful tests:** `WEBAPI01` framework-neutral query handler success; `WEBAPI02` Liquers error maps to the specified HTTP response; `WEBAPI03` media type and metadata headers/body survive; `WEBAPI04` FastAPI/ASGI-style async adapter; `WEBAPI05` Flask/WSGI-style sync adapter does not create a runtime per request; `WEBAPI06` disconnect cancellation propagates; `WEBAPI07` large/streaming response follows memory limits; `WEBAPI08` authentication/session context reaches evaluation; `WEBAPI09` route behavior matches `liquers-axum`.
 
+### STUBS — Static type declarations and editor support
+
+**Contract.** Publish a machine-checkable declaration of the *integration*'s public surface in the *integrated language*'s own type system, covering every *wrapper*, function, and error type exposed by the selected features. Declarations are generated from or verified against the implementation, never maintained by hand alone.
+
+**Objects/API to map or implement:**
+
+- Declaration files for every exposed module, such as `.pyi` plus `py.typed` for Python or `.d.ts` for TypeScript consumers of a Wasm build
+- Declared types for every `OBJECT` *wrapper*, and for the *value type* and `State` *wrappers* from `VALUE`
+- Declared signatures for `EVAL` entry points, including awaitable variants where `ASYNCQ` is selected
+- The `COMMAND` declaration/decorator surface, typed so it does not erase the declared callable's own signature
+- Exception/error type declarations from `ERROR`
+- A generation or verification step wired into the build, and the marker/metadata that makes declarations visible to type checkers
+
+**The design must answer:** Does the *integrated language* have a static type system or a conventional stub format at all? Are declarations emitted by the binding tool, generated from Rust, or written by hand and checked? `wasm-bindgen` emits `.d.ts`; PyO3 emits no `.pyi`. How are generic Rust types, overloads, and *opaque language values* declared? How is a command decorator typed so the user's signature survives? Which conversions are expressed as unions and which degrade to `Any`/`unknown`? How do declarations stay in sync — a CI check, a generation step, or review? What is declared for features that are `NA`?
+
+**Issues and patterns.** Hand-written declarations drift silently, and a stale declaration is worse than none because the checker actively endorses wrong code; make the build fail instead. Declaring the surface as `Any`/`unknown` satisfies the checker while giving users nothing. A decorator that returns an untyped callable erases the signature of every command a user declares; use the *integrated language*'s typed-decorator pattern. Tool-generated declarations such as `wasm-bindgen`'s `.d.ts` are review targets, not authored files. Python declarations are ignored entirely unless `py.typed` ships in the distribution, which ties this feature to `PACKAGE`. Declarations for *opaque language values* should be honest about what is not statically known rather than overstating structure.
+
+**Meaningful tests:** `STUBS01` declarations exist for every exposed module; `STUBS02` the type checker accepts a representative usage sample; `STUBS03` declared names match the runtime surface, with none missing or extra; `STUBS04` the command declaration preserves the declared callable's signature; `STUBS05` `ASYNCQ` entry points are declared awaitable; `STUBS06` the type checker rejects a deliberately incorrect usage; `STUBS07` declarations and their marker metadata are present in the distributed artifact.
+
+### PACKAGE — Build, packaging, and distribution
+
+**Contract.** Define how the *integration* is built, versioned, and distributed as an installable artifact in the *integrated language*'s ecosystem, including which Cargo features are enabled, which platforms are supported, and how the artifact's version relates to the Liquers core version.
+
+**Objects/API to map or implement:**
+
+- Build configuration and Cargo feature selection for the integration crate
+- The distributable artifact: wheel/sdist, npm package, Wasm bundle, or shared library
+- Version and compatibility metadata relating the artifact to the Liquers core version
+- Supported target/platform matrix and toolchain or system-library requirements
+- Release pipeline and reproducible build entry point
+- Installation and quick-start path for a new user
+- Declaration files from `STUBS`, where selected
+
+**The design must answer:** Which build tool is used — `maturin`, `wasm-pack`, `trunk`, `cargo`, or the language's own packager? Which Cargo features are enabled by default, and which are exposed as installable extras? Which targets, platforms, and ABIs are published, and which remain source-only? Is the artifact version locked to, ranged against, or independent of the Liquers core version? Are native dependencies vendored or taken from the system? How is a Wasm artifact delivered — ES module, bundler-specific, or inline? What exactly does a new user run to install the *integration* and evaluate a first query?
+
+**Issues and patterns.** Cargo feature selection is part of the public contract, not a build detail: a feature that changes the *value type* changes what `VALUE` promises, so the default set belongs in the design. Prefer locking the core version, since `OBJECT` and `VALUE` *wrappers* track Rust types that are not yet stable across releases. Vendoring native dependencies trades build time for portability — this repository takes the opposite choice for `openssl`, documented in `CLAUDE.md`, which makes system development headers a stated build requirement rather than an accident. A Wasm artifact that assumes a bundler silently excludes plain `<script type="module">` users; state which delivery forms are supported. A quick-start that a new user can run end to end is the cheapest test that packaging actually works.
+
+**Meaningful tests:** `PACKAGE01` a clean build produces the artifact for every claimed platform; `PACKAGE02` installing the artifact into a clean environment loads the module successfully; `PACKAGE03` the documented quick-start evaluates a query end to end from the installed artifact; `PACKAGE04` declared version/compatibility metadata matches the linked core; `PACKAGE05` the default Cargo feature set produces the documented *value type*; `PACKAGE06` each optional extra installs and activates its feature; `PACKAGE07` the artifact carries declarations, license, and required metadata.
+
 ## 6. Language-Specific Guidance
 
 ### Browser JavaScript
@@ -469,6 +514,10 @@ Treat sandboxing and determinism as product requirements. Prefer copied Liquers 
 Modernize `liquers-py` rather than treating its current behavior as normative. Prefer owned `Py<T>` handles across async/thread boundaries, short explicit interpreter-lock scopes, permissive `VALUE` conversion with an *opaque language value* fallback, and explicit typed exceptions. Pickle may be an opt-in codec, never an implicit trusted interchange format. Organize pytest suites using the IDs in this guide.
 
 ## 7. Design and Review Checklist
+
+This guide does not define the shape or location of a design document. An *integration* is a substantial feature, so its design follows the standard Liquers design workflow (the `liquers-designer` skill), which creates `specs/<integration-name>/` and the phase documents within it. `specs/async-wasm-refactor/` is an existing example of that layout.
+
+The checklist below is therefore not a document outline but the *integration*-specific content that must appear somewhere in those phase documents. It maps naturally onto them: scope and selection (items 1 and 9) belong in the high-level design; the architecture items (2 through 7) in the architecture phase; the test items (8 and 10) in the examples and test-plan phase; and milestone sequencing in the implementation plan.
 
 Every language-specific design should contain:
 
