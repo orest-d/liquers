@@ -225,29 +225,46 @@ through `schedule_dependency_asset`, so inheritance arrives via the one switch.
    - Perform cycle-check and edge registration **as today** (see refinement below).
    - `manager.get_dependency_asset_with_payload(&self.assetref, query, self.payload.clone()).await`
 
-### Refinement of Phase 1 D1 — register the edge, skip the tracking
+### D1, as clarified: a payload asset may *have* dependencies but may not *be* one
 
-Phase 1 D1 said payload-evaluated assets are "never a dependency". Implemented literally, that means
-skipping `register_scheduled_dependency` — which is **also where cycle detection lives**
-(`context.rs:404-408`, `dependencies.rs:415-445`), reintroducing the gap D1 itself flagged.
+The governing constraint is **dependency-key identity**: a payload is not part of the dependency key,
+so an asset evaluated with one cannot be named by its key or query. That makes the rule directional:
 
-**Recommendation: keep the edge registration, and let volatility do the rest.** Volatile assets today
-*are* registered as scheduled dependencies (classification at `context.rs:391-397` is by keyed/
-expression, not by volatility) and are excluded from dependency-manager *tracking* at completion by
-the existing `if !lock_is_volatile { dm.track_asset(...) }` guard (`assets.rs:1849-1856`). Since
-`payload ⟹ volatile`, a payload-evaluated asset automatically gets that exclusion.
+- A payload-evaluated asset **may have dependencies mapped** — it records what it depends on, and
+  those dependencies are ordinary registered assets.
+- A payload-evaluated asset **may not be a registered dependency** — nothing may hold an edge *to*
+  it, because two evaluations with different payloads would share one key.
+- **Cycle checking still applies.**
 
-This yields D1's intent (a payload result is never reused or invalidation-tracked) **and** preserves
-runtime cycle detection, with less new code. `add_dependency` / `add_dependent_asset` likewise follow
-volatile's existing behavior rather than being special-cased.
+Mapped onto the four registration actions in `schedule_dependency_asset` (`context.rs:369-425`):
 
-### `Context::apply` — resolving the deferred question
+| # | Action | When the *scheduled dependency* requires payload |
+|---|---|---|
+| 1 | `register_scheduled_dependency(dependent, dependency, version)` — graph edge + cycle check | **Skip the edge**; cycle check still required (see open question) |
+| 2 | `get_dependency_asset…` — resolve and schedule | Always — this is the payload-forwarding call |
+| 3 | `add_dependent_asset(query_dep_key, parent_weak)` — invalidation back-ref keyed by the dependency | **Skip** — it names the payload asset as a key |
+| 4 | `self.add_dependency(DependencyRecord)` — the parent's own metadata record | **Keep** — "dependencies mapped" |
 
-Proposed: `apply` switches on the same requirement, calling `apply_immediately` with the inherited
-payload when `Required`, and the existing `apply` otherwise. This makes `apply` consistent with
-`evaluate` and matches D1's observation that the payload branch is semantically `apply_immediately`.
-**Flagged for confirmation** — it is the one place where an existing API changes from queued to
-inline.
+Note this supersedes the earlier recommendation in this document to keep edge registration wholesale;
+that would have registered an edge *to* a payload asset, which the key-identity constraint forbids.
+
+### `Context::apply` — decided: inherits
+
+`apply` switches on the same requirement, calling `apply_immediately` with the inherited payload when
+`Required`, and the existing `apply` otherwise. Consistent with `evaluate`, and matches the
+observation that the payload branch is semantically `apply_immediately`. This is the one place an
+existing API changes from queued to inline.
+
+### Gap found: keyed payload recipes are unreachable from the top level
+
+`AssetRef::evaluate_recipe` (`assets.rs:1738-1776`) special-cases a pure-key recipe: it calls
+`manager.get(&key)` and, when that returns a *different* asset, **delegates** to it through
+`record_dependency_on_asset` + `wait_for_dependency`. `AssetManager::get(&Key)` takes no payload.
+
+So `EnvRef::evaluate_immediately("/some/key", payload)` on a **keyed** query silently drops the
+payload at the delegation hop. The keyed-recipe benefit that motivated Phase 1 D6 is therefore not
+delivered by the routing switch alone — the delegation path needs its own treatment. See open
+question 3.
 
 ### `liquers-core/src/plan.rs` — local detection
 
@@ -406,12 +423,58 @@ already depend on it.
 **Check:** `cargo test -p liquers-lib --lib --tests` (per CLAUDE.md), plus
 `cargo check -p liquers-core --target wasm32-unknown-unknown` for the inline path.
 
-## Open Decisions for Approval
+## Decided
 
-1. **`Context::apply` inherits payload** (Phase 1 open question, deferred to here). Proposed: yes,
-   switching to `apply_immediately` when required. The only place an existing API changes queued →
-   inline.
-2. **D1 refinement — register the dependency edge, rely on volatile for non-tracking.** Preserves
-   cycle detection; diverges from D1 read literally. Recommended above.
-3. **`Plan::payload_required` gets `#[serde(default)]`** although `is_volatile` deliberately does
-   not. Required for backward compatibility with stored plans.
+- **`Context::apply` inherits payload** — via `apply_immediately` when required.
+- **Dependency registration** — a payload asset may have dependencies and is cycle-checked, but is
+  never a registered dependency (see the D1 clarification above).
+- **`Plan::payload_required` gets `#[serde(default)]`** although `is_volatile` deliberately does not.
+  Backward compatibility with stored plans outweighs matching `is_volatile`'s strictness; no
+  reasonable alternative.
+
+## Open Questions
+
+### 1. Where does cycle detection for payload chains live?
+
+Skipping the graph edge (action #1 above) removes the site where `would_create_cycle` runs
+(`dependencies.rs:415-445`). Since neither end of a payload→payload chain is a graph node, the graph
+can never see such a cycle regardless.
+
+| Option | Catches | Cost |
+|---|---|---|
+| **A. Path guard on `Context`** *(recommended)* | payload→payload cycles, the only kind the graph structurally cannot see | An active-query set carried on `Context`, mirroring `find_dependencies`' visited `stack` (`plan.rs:1688`). Small, self-contained |
+| **B. Path guard + check-only graph call** | additionally, cycles routed through registered keyed assets | Requires splitting `register_scheduled_dependency` into check and register halves |
+| **C. Plan-level + depth limit** | static chains (already covered by `find_dependencies`) | No new graph work, but a real dynamic cycle only surfaces as a depth-limit error, undiagnosed |
+
+Recommendation **A**: it covers exactly the case the graph cannot, and the existing plan-level
+detection already handles static recipe chains.
+
+### 2. When the *parent* is payload-evaluated, is it registered as a dependent node?
+
+The clarified rule names the dependency direction. The dependent direction has the same
+key-identity problem: a payload-evaluated parent classified as `ScheduleNode::Keyed`/`Expression`
+(`context.rs:391-397`) is named by a key that does not include its payload.
+
+| Option | Rationale |
+|---|---|
+| **A. Symmetric — not a node in either direction** *(recommended)* | Same key-identity argument. An edge *from* a misidentified node is attributed to every payload instance sharing that key. Metadata dependency records (action #4) still kept |
+| **B. Dependent side only** | Retains more graph edges for cycle detection — but under option 1A the path guard covers that, so the retained edges buy little |
+
+### 3. How do keyed payload recipes become reachable? (see gap above)
+
+| Option | Effect |
+|---|---|
+| **A. Payload-aware delegation** *(recommended)* | Forward payload through the `evaluate_recipe` delegation hop, plus `AssetManager::get_with_payload(key, payload)` and an `EnvRef` entry. Delivers D6's keyed-recipe benefit fully |
+| **B. Bypass delegation only** | `evaluate_immediately` detects a pure-key query whose plan requires payload and evaluates in place. Smaller, but `manager.get` stays payload-blind, so nested keyed requests still drop it |
+| **C. Document as unreachable** | Keyed payload recipes usable only as nested dependencies. No new API; D6's benefit half-delivered |
+
+This is the largest remaining scope question — **A** grows Phase 2 beyond what is currently written,
+**C** shrinks the feature.
+
+### 4. Where is the missing-payload error raised?
+
+| Option | Behavior |
+|---|---|
+| **A. Both plan and entry points** *(recommended)* | Plan records the requirement; each entry point checks whether a payload is in hand. Uniform coverage; entry points are the only places that know |
+| **B. Entry points only** | Simpler, one site per path; top-level payload-less evaluation diagnosed slightly later |
+| **C. Plan finalization only** | Earliest, but plan building cannot know whether the caller holds a payload — it can only reject known-unsatisfiable cases |
