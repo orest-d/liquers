@@ -433,7 +433,7 @@ checklist for all `ui/commands.rs` sites.
 | liquers-core | `plan.rs` | `Plan` field, `PlanBuilder` field + 3 methods, `build()`, **plan splitting** |
 | liquers-core | `interpreter.rs` | `RequiresPayload` trait + 6 impls; pre-pass must leave payload-requiring queries to `do_step` (`interpreter.rs:85-86`) |
 | liquers-core | `assets.rs` | 1 `AssetManager` default method; `DefaultAssetManager` override (queued) + `ImmediateAssetManager` override (new — it inherits the default today) |
-| liquers-core | `context.rs` | routing switch in `schedule_dependency_asset`; active-query cycle guard; `apply`; module rustdoc at `:76-80` |
+| liquers-core | `context.rs` | routing switch in `schedule_dependency_asset`; active-query cycle guard; `apply`; `ImmediateEnvironmentWithPayload`; module rustdoc at `:76-80` |
 | liquers-macro | `registration.rs` | `payload:` statement parse + codegen |
 | liquers-lib | `ui/commands.rs` | annotate payload-using commands |
 | liquers-py | `command_metadata.rs` | getter parity |
@@ -453,6 +453,20 @@ already depend on it.
 
 **Check:** `cargo test -p liquers-lib --lib --tests` (per CLAUDE.md), plus
 `cargo check -p liquers-core --target wasm32-unknown-unknown` for the inline path.
+
+## Addition discovered in Phase 3: `ImmediateEnvironmentWithPayload<V, P>`
+
+There is currently **no environment pairing a payload with the inline asset manager**:
+`SimpleEnvironmentWithPayload` (`context.rs:956`) uses `DefaultAssetManager`, and
+`ImmediateEnvironment` (`context.rs:846`) has `Payload = ()`. `liquers-lib::DefaultEnvironment<V, P>`
+does not help — its `SelectedAssetManager` is cfg-selected at compile time
+(`environment.rs:20-22`), so a native build cannot choose the inline manager.
+
+Since Phase 1 requires verification on **both** managers, `liquers-core` gains
+`ImmediateEnvironmentWithPayload<V, P>`, mirroring `SimpleEnvironmentWithPayload` with
+`type AssetManager = ImmediateAssetManager<Self>` and no spawning in `init_with_envref`. Mechanical,
+and useful beyond this feature — it is the only way to exercise the wasm-compatible payload path
+natively.
 
 ## Decided
 
