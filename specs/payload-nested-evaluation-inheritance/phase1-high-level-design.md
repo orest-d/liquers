@@ -387,6 +387,11 @@ manager (`assets.rs:3715-3788`); nothing about them requires the ad-hoc path.
 
 This is a materially better routing model, and it retires two problems:
 
+> **SUPERSEDED in Phase 2:** the first bullet below is withdrawn. Keyed recipes **cannot** require a
+> payload — keys are global while payloads are per-evaluation, and a global payload is not designed.
+> A keyed recipe whose plan requires payload is an error. The routing insight in this section stands;
+> only the keyed-asset claim is retracted. See `phase2-architecture.md`.
+
 - **Keyed assets can require payload.** Under the earlier framing, a recipe using a payload-requiring
   command became non-cacheable and ineligible as a dependency (D5's flagged interaction). As a
   volatile keyed asset it just works — and recipes are the user-authored, named artifacts, so being

@@ -133,8 +133,11 @@ pub(crate) trait RequiresPayload<E: Environment> {
 **`Step` match — the arms that differ from `IsVolatile`:**
 
 - `Step::Action { .. }` → `cmd.payload_required.join(parameters.requires_payload(env).await?)`
-- `Step::GetAsset` / `GetAssetBinary` / `GetAssetMetadata` / `GetAssetRecipe(key)` → new
-  `AssetManager::payload_required(&Key)` (below)
+- `Step::GetAsset` / `GetAssetBinary` / `GetAssetMetadata` / `GetAssetRecipe(key)` → **`None`
+  unconditionally.** Keys are a payload boundary (see below); a keyed asset is evaluated
+  independently through the manager and never inherits a payload. This is where the traversal most
+  sharply differs from `IsVolatile`, which *does* consult the manager for keyed steps
+  (`interpreter.rs:477-482`)
 - `Step::Evaluate(query)` / `Step::Plan(plan)` → delegate
 - `Step::GetAssetDirectory` / `GetResourceDirectory` → `None` (they return `Ok(true)` for volatility,
   but a directory listing needs no payload)
@@ -142,6 +145,9 @@ pub(crate) trait RequiresPayload<E: Environment> {
   "ADD SUPPORT FOR RESOURCE VOLATILITY CHECK!" TODO (`interpreter.rs:487,492`) — do not extend that
   gap, just return `None`
 - `UseQueryValue`, `Filename`, `Info`, `Warning`, `Error`, `SetCwd`, `UseKeyValue` → `None`
+
+Because no arm consults the asset manager, this traversal is **cheaper than `IsVolatile`** — its only
+async work is `make_plan` in the `Query` impl.
 
 **Efficiency note:** this is a second async traversal alongside `IsVolatile`. Both short-circuit at
 `Plan` (cached field), so the cost is the recipe-resolution path. If profiling later shows it
@@ -151,20 +157,12 @@ mirroring keeps the change reviewable.
 
 ### Extended trait: `AssetManager<E>` (`assets.rs:2630-2714`)
 
-Two **new methods with default implementations** — no existing signature changes, so no implementor
-breaks (rust-best-practices: extend, don't mutate).
+**One** new method with a default implementation — no existing signature changes, so no implementor
+breaks (rust-best-practices: extend, don't mutate). A second proposed method,
+`payload_required(&Key)`, was dropped: keys are a payload boundary, so keyed steps never need to be
+asked.
 
 ```rust
-/// Whether the keyed resource's recipe requires a payload.
-/// Default mirrors `is_volatile`'s shape (`assets.rs:2667-2674`).
-async fn payload_required(&self, key: &Key) -> Result<PayloadRequirement, Error> {
-    if let Some(recipe) = self.recipe_opt(key).await? {
-        Ok(recipe.requires_payload(self.get_envref()).await?)
-    } else {
-        Ok(PayloadRequirement::None)
-    }
-}
-
 /// Resolve `query` as a dependency of `parent`, forwarding `payload` to the
 /// evaluation when the dependency requires one.
 ///
@@ -192,9 +190,27 @@ The asymmetry matters because the `ImmediateAssetManager` path is the wasm-compa
 `apply_immediately` already shows the exact shape needed — `run_immediately_inline(payload)` at
 `assets.rs:5248` versus `run_inline()` in `apply` at `:5237`.
 
-Both managers already route volatile queries to the fresh-unshared constructors
-(`get_volatile_query_asset` / `get_volatile_resource_asset`), so no change is needed there: because
-`payload ⟹ volatile`, a payload-requiring query is already resolved to a fresh asset.
+Both managers already route volatile queries to the fresh-unshared constructors, so no change is
+needed there: because `payload ⟹ volatile`, a payload-requiring query is already resolved to a fresh
+asset. Note that only `get_volatile_query_asset` is in play — `get_volatile_resource_asset` is the
+keyed path, which payload never reaches.
+
+### Preserving immediacy when a payload-evaluated asset depends on a payload-free one
+
+The common shape is a payload-evaluated parent P depending on a payload-free child C. C is requested
+from the asset manager normally — correct for caching and sharing, but it would seem to cost P's
+immediacy by routing C through the job queue.
+
+**Existing machinery already avoids this**, and no new work is needed:
+
+- `Context::get_dependency_state` → `wait_for_dependency`, which "direct-claims the child if still
+  runnable (**no queue slot consumed**), or subscribes" (`assets.rs:1768`).
+- `Context::evaluate` → `evaluate_local_queue` → `AssetManager::drain_dependencies`, which claims and
+  "inline-run[s] each still-runnable entry sequentially inside the caller's future"
+  (`assets.rs:2692-2698`).
+
+Both paths run a runnable dependency inline in the caller's future rather than waiting on a queue
+slot. P therefore keeps its immediacy while C remains a normal cached, shared, registered asset.
 
 ## Function Signatures
 
@@ -255,16 +271,26 @@ that would have registered an edge *to* a payload asset, which the key-identity 
 observation that the payload branch is semantically `apply_immediately`. This is the one place an
 existing API changes from queued to inline.
 
-### Gap found: keyed payload recipes are unreachable from the top level
+### Decided: keyed recipes cannot require a payload — keys are a payload boundary
 
-`AssetRef::evaluate_recipe` (`assets.rs:1738-1776`) special-cases a pure-key recipe: it calls
-`manager.get(&key)` and, when that returns a *different* asset, **delegates** to it through
-`record_dependency_on_asset` + `wait_for_dependency`. `AssetManager::get(&Key)` takes no payload.
+**Keys are global; a payload is per-evaluation.** A keyed recipe that required a payload would need a
+*global* payload, which is not a thing this design provides. This is an accepted limitation, and it
+supersedes the suggestion in Phase 1 D6 that keyed assets could carry payloads.
 
-So `EnvRef::evaluate_immediately("/some/key", payload)` on a **keyed** query silently drops the
-payload at the delegation hop. The keyed-recipe benefit that motivated Phase 1 D6 is therefore not
-delivered by the routing switch alone — the delegation path needs its own treatment. See open
-question 3.
+Consequences — all simplifying:
+
+1. **`Step::GetAsset` / `GetAssetBinary` / `GetAssetMetadata` / `GetAssetRecipe` are a boundary.**
+   They return `PayloadRequirement::None` unconditionally: a keyed asset is evaluated independently
+   through the manager, payload-free. Payload requirement never propagates *through* a key.
+2. **`AssetManager::payload_required(&Key)` is no longer needed** and is dropped from this design —
+   one of the two proposed `AssetManager` additions disappears.
+3. **A keyed recipe whose plan comes out `Required` is an error.** This answers the Phase 1 open
+   question about keyed payload recipes (warning / error / silently accepted): it is an **error**,
+   raised where the plan for a key is built.
+4. **The `evaluate_recipe` delegation hop is correct as-is** (`assets.rs:1738-1776`). Its dropping of
+   the payload for pure-key recipes is not a gap but the intended boundary. No change needed there.
+5. **Payload-evaluated assets are therefore never keyed** — always ad-hoc or expression assets. This
+   is what makes the dependent-side question below resolve itself.
 
 ### `liquers-core/src/plan.rs` — local detection
 
@@ -341,10 +367,15 @@ async and needs an `EnvRef`, so it lives in the `RequiresPayload` traversal besi
 
 No new error types. `ErrorType::General` via the existing typed constructor.
 
+Raised at **both** plan level and entry points: plan building records and can reject the requirement,
+and each entry point additionally checks, since only it knows whether a payload is actually in hand.
+
 | Scenario | Constructor | When |
 |---|---|---|
+| Keyed recipe whose plan requires payload | `Error::general_error(...)` | plan build for the key — invalid by construction, independent of any caller |
 | Plan requires payload, context has none | `Error::general_error(...)` | `schedule_dependency_asset`, before scheduling |
-| Same, at top level via `EnvRef::evaluate` | `Error::general_error(...)` | plan finalization |
+| Same, at top level via `EnvRef::evaluate` | `Error::general_error(...)` | manager entry point |
+| Payload→payload cycle | `Error::dependency_cycle(...)` | `Context` active-query set, on re-entry |
 | Mislabeled command with dynamic dependency | existing `InjectedFromContext` error | at command execution — the accepted D5 limitation |
 
 Message must name the query and state the cause, e.g.
@@ -401,8 +432,8 @@ checklist for all `ui/commands.rs` sites.
 | liquers-core | `command_metadata.rs` | `PayloadRequirement` enum + `CommandMetadata` field |
 | liquers-core | `plan.rs` | `Plan` field, `PlanBuilder` field + 3 methods, `build()`, **plan splitting** |
 | liquers-core | `interpreter.rs` | `RequiresPayload` trait + 6 impls; pre-pass must leave payload-requiring queries to `do_step` (`interpreter.rs:85-86`) |
-| liquers-core | `assets.rs` | 2 `AssetManager` default methods; `DefaultAssetManager` override (queued) + `ImmediateAssetManager` override (new — it inherits the default today) |
-| liquers-core | `context.rs` | routing switch in `schedule_dependency_asset`; `apply`; module rustdoc at `:76-80` |
+| liquers-core | `assets.rs` | 1 `AssetManager` default method; `DefaultAssetManager` override (queued) + `ImmediateAssetManager` override (new — it inherits the default today) |
+| liquers-core | `context.rs` | routing switch in `schedule_dependency_asset`; active-query cycle guard; `apply`; module rustdoc at `:76-80` |
 | liquers-macro | `registration.rs` | `payload:` statement parse + codegen |
 | liquers-lib | `ui/commands.rs` | annotate payload-using commands |
 | liquers-py | `command_metadata.rs` | getter parity |
@@ -428,53 +459,43 @@ already depend on it.
 - **`Context::apply` inherits payload** — via `apply_immediately` when required.
 - **Dependency registration** — a payload asset may have dependencies and is cycle-checked, but is
   never a registered dependency (see the D1 clarification above).
+- **Cycle detection** — an active-query path guard on `Context`.
+- **Keyed recipes cannot require a payload.** Keys are global, payloads are per-evaluation; a global
+  payload is not designed. Accepted limitation, enforced as an error at plan build for the key.
 - **`Plan::payload_required` gets `#[serde(default)]`** although `is_volatile` deliberately does not.
-  Backward compatibility with stored plans outweighs matching `is_volatile`'s strictness; no
-  reasonable alternative.
+  Backward compatibility with stored plans outweighs matching `is_volatile`'s strictness.
+- **Missing-payload errors are raised at both plan level and entry points.**
 
-## Open Questions
+No open questions remain for Phase 2.
 
-### 1. Where does cycle detection for payload chains live?
+### Cycle detection: a path guard on `Context`
 
-Skipping the graph edge (action #1 above) removes the site where `would_create_cycle` runs
-(`dependencies.rs:415-445`). Since neither end of a payload→payload chain is a graph node, the graph
-can never see such a cycle regardless.
+Skipping the graph edge removes the site where `would_create_cycle` runs
+(`dependencies.rs:415-445`), and since neither end of a payload→payload chain is a graph node, the
+graph could never see such a cycle regardless.
 
-| Option | Catches | Cost |
-|---|---|---|
-| **A. Path guard on `Context`** *(recommended)* | payload→payload cycles, the only kind the graph structurally cannot see | An active-query set carried on `Context`, mirroring `find_dependencies`' visited `stack` (`plan.rs:1688`). Small, self-contained |
-| **B. Path guard + check-only graph call** | additionally, cycles routed through registered keyed assets | Requires splitting `register_scheduled_dependency` into check and register halves |
-| **C. Plan-level + depth limit** | static chains (already covered by `find_dependencies`) | No new graph work, but a real dynamic cycle only surfaces as a depth-limit error, undiagnosed |
+`Context` carries an **active-query set**, mirroring the visited `stack` in `find_dependencies`
+(`plan.rs:1688`): entering a payload-evaluated nested query pushes its query onto the set and fails
+if already present. This covers exactly the case the graph structurally cannot, while the existing
+plan-level detection continues to handle static recipe chains.
 
-Recommendation **A**: it covers exactly the case the graph cannot, and the existing plan-level
-detection already handles static recipe chains.
+The set is shared across context clones (like `pending_dependencies`, `context.rs:328`) so it tracks
+the evaluation path rather than a single action.
 
-### 2. When the *parent* is payload-evaluated, is it registered as a dependent node?
+### Dependent-side registration: resolved by the keyed-recipe boundary
 
-The clarified rule names the dependency direction. The dependent direction has the same
-key-identity problem: a payload-evaluated parent classified as `ScheduleNode::Keyed`/`Expression`
-(`context.rs:391-397`) is named by a key that does not include its payload.
+An earlier draft asked whether a payload-evaluated *parent* should be registered as a dependent node.
+The keyed-recipe decision settles it, with no special case needed:
 
-| Option | Rationale |
-|---|---|
-| **A. Symmetric — not a node in either direction** *(recommended)* | Same key-identity argument. An edge *from* a misidentified node is attributed to every payload instance sharing that key. Metadata dependency records (action #4) still kept |
-| **B. Dependent side only** | Retains more graph edges for cycle detection — but under option 1A the path guard covers that, so the retained edges buy little |
+1. A payload-evaluated asset is **never keyed** (keyed recipes cannot require payload), so
+   `current_key_opt` is always `None` and the classification at `context.rs:391-397` always yields
+   `ScheduleNode::Expression` or `None` — never `Keyed`.
+2. `ScheduleNode::Expression` is **already not a graph node**: "Only keyed assets are graph nodes; an
+   expression is expanded onto its attribution set (the keyed assets that depend on it)"
+   (`dependencies.rs:412-414`).
+3. That attribution set is **provably empty** for a payload-requiring expression: a keyed asset
+   depending on it would inherit the payload requirement and would therefore be a keyed recipe
+   requiring payload — which is now an error.
 
-### 3. How do keyed payload recipes become reachable? (see gap above)
-
-| Option | Effect |
-|---|---|
-| **A. Payload-aware delegation** *(recommended)* | Forward payload through the `evaluate_recipe` delegation hop, plus `AssetManager::get_with_payload(key, payload)` and an `EnvRef` entry. Delivers D6's keyed-recipe benefit fully |
-| **B. Bypass delegation only** | `evaluate_immediately` detects a pure-key query whose plan requires payload and evaluates in place. Smaller, but `manager.get` stays payload-blind, so nested keyed requests still drop it |
-| **C. Document as unreachable** | Keyed payload recipes usable only as nested dependencies. No new API; D6's benefit half-delivered |
-
-This is the largest remaining scope question — **A** grows Phase 2 beyond what is currently written,
-**C** shrinks the feature.
-
-### 4. Where is the missing-payload error raised?
-
-| Option | Behavior |
-|---|---|
-| **A. Both plan and entry points** *(recommended)* | Plan records the requirement; each entry point checks whether a payload is in hand. Uniform coverage; entry points are the only places that know |
-| **B. Entry points only** | Simpler, one site per path; top-level payload-less evaluation diagnosed slightly later |
-| **C. Plan finalization only** | Earliest, but plan building cannot know whether the caller holds a payload — it can only reject known-unsatisfiable cases |
+So the existing code already does the right thing on the dependent side. Only the dependency-side
+actions (#1 edge, #3 back-ref) need to be skipped.
