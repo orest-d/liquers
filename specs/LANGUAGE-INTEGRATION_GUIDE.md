@@ -39,6 +39,8 @@ Terms defined here are written in *italics* when used in their precise, normativ
 - *UI backend*: the renderer and event-loop implementation used to display Liquers UI elements, such as egui or a browser UI.
 - *Web handler*: a framework-compatible function that maps an HTTP request to a Liquers operation and maps its result to an HTTP response.
 - *Embedding host*: the outer process or application that owns Liquers and one or more *language runtimes*.
+- *Hard dependency*: a prerequisite feature without which the dependent feature cannot be implemented or meaningfully tested. If a feature is selected, each of its *hard dependencies* must also be selected; a *hard dependency* may not be `NA`.
+- *Soft dependency*: a prerequisite feature that the dependent feature interacts with when both are selected, but that it can be implemented without. A *soft dependency* may be `NA`; the design must then state how the dependent feature behaves in its absence.
 
 Unless qualified, “value” is informal. Designs should use *language value*, *value type*, or *State* when the distinction matters.
 
@@ -61,6 +63,8 @@ Use these implementation states:
 - `COMPLETE`: all selected requirements implemented
 - `CONFORMANT`: complete and all required feature tests pass
 
+Dependencies constrain these states. A feature may not be claimed `COMPLETE` or `CONFORMANT` before every *hard dependency* has reached at least `COMPLETE`. A *soft dependency* imposes no such ordering, but when it is `NA` — or merely not yet implemented — the dependent feature's design must say what it does instead, and that statement is part of the feature's documented limitations. Selecting a feature whose *hard dependency* is `NA` is a design error, not a limitation to be recorded.
+
 A status claim should link to design sections, implementation, and test evidence. Recommended matrix:
 
 | Feature | Selected level | Status | Limitations | Test evidence |
@@ -78,7 +82,7 @@ def test_COMMAND03_exception_crosses_command_boundary(): ...
 
 Rust may use `fn value01_primitive_roundtrip()`, and browser tests may use `test("ASYNCQ02 promise rejects with structured error", ...)`. File or module names should also include the feature ID when practical, for example `test_VALUE_value_bridge.py`. Do not reuse a logical test ID for a different contract.
 
-The tests listed below are the default conformance inventory. An *integration* design must mark each one required or `NA` with a reason; `CONFORMANT` means all applicable tests pass.
+The tests listed below are the default conformance inventory. An *integration* design must mark each one required or `NA` with a reason; `CONFORMANT` means all applicable tests pass. [Appendix A](#appendix-a-reference-test-implementations) gives a reference implementation of every one of them as Python pseudocode, fixing the contract each test must establish.
 
 ## 4. Feature Overview
 
@@ -95,11 +99,25 @@ The tests listed below are the default conformance inventory. An *integration* d
 | `ASYNCCMD` | Async language commands | Optional | `COMMAND`, `ASYNCQ`, `RUNTIME` |
 | `STORE` | Language-defined async store | Optional | `OBJECT`, `ENVIRON`, `ERROR`, `RUNTIME` |
 | `RECIPE` | Language-defined recipe provider | Optional | `OBJECT`, `ENVIRON`, `EVAL`, `ERROR`, `RUNTIME` |
-| `UIUSE` | Use an existing Liquers UI | Optional | `EVAL`, `ASYNCQ`, `VALUE`, `ERROR` |
+| `MODULE` | Load language modules from the store | Optional | `ENVIRON`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft), `STORE` (soft) |
+| `UIUSE` | Use an existing Liquers UI | Optional | `EVAL`, `VALUE`, `ERROR`, `ASYNCQ` (soft) |
 | `UIDEF` | Define UI elements or a UI backend in the language | Optional | `UIUSE`, `COMMAND`, `RUNTIME` |
 | `POLYGLOT` | Multiple-language interoperability | Optional | `ENVIRON`, `VALUE`, `COMMAND`, `ERROR`, `RUNTIME` |
-| `WEBSERV` | Start and extend `liquers-axum` | Optional | `ENVIRON`, `ASYNCQ`, `COMMAND`, `ERROR` |
-| `WEBAPI` | Integrate Liquers handlers into a language web framework | Optional | `ENVIRON`, `ASYNCQ`, `VALUE`, `ERROR` |
+| `WEBSERV` | Start and extend `liquers-axum` | Optional | `ENVIRON`, `ERROR`, `ASYNCQ` (soft), `COMMAND` (soft) |
+| `WEBAPI` | Integrate Liquers handlers into a language web framework | Optional | `ENVIRON`, `VALUE`, `ERROR`, `ASYNCQ` (soft) |
+| `STUBS` | Static type declarations and editor support | Optional | `OBJECT`, `ASYNCQ` (soft) |
+| `PACKAGE` | Build, packaging, and distribution | Optional | `ENVIRON`, `RUNTIME`, `STUBS` (soft) |
+
+Dependencies are *hard* unless marked `(soft)`. The soft cases are those where Liquers, not the *integrated language*, can supply the asynchrony or the callable:
+
+- `UIUSE` → `ASYNCQ`: a *UI backend* may deliver asset status, progress, and events through callbacks scheduled onto the *language runtime*, so a *language* with no async model can still drive a UI. Without `ASYNCQ`, the design must state how progress and cancellation are delivered.
+- `WEBSERV` → `ASYNCQ`: the Axum server owns a Rust async runtime, so starting and shutting it down does not require language-visible awaitables. Without `ASYNCQ`, the design must state how foreground/background start, readiness, and shutdown are expressed.
+- `WEBSERV` → `COMMAND`: needed only to attach *language*-implemented handlers or middleware. Serving the standard Rust routes requires no *language command*.
+- `WEBAPI` → `ASYNCQ`: an ASGI-style adapter awaits Liquers directly, but a WSGI-style synchronous adapter needs only a controlled runtime bridge. Without `ASYNCQ`, the design must state which adapters are supported and how blocking is bounded.
+- `MODULE` → `ASYNCQ`: module bytes may be prefetched from the store before entering the *language runtime*, so a synchronous import hook is workable without language-visible awaitables. Without `ASYNCQ`, the design must state how store reads are performed during resolution.
+- `MODULE` → `STORE`: modules are read through the environment's store, which need not be a *language*-defined one. `STORE` matters only when a *language*-defined store is also expected to serve modules.
+- `STUBS` → `ASYNCQ`: entry points need awaitable declarations only where `ASYNCQ` is selected.
+- `PACKAGE` → `STUBS`: declarations must ship inside the artifact when `STUBS` is selected; packaging is otherwise independent of them.
 
 Recommended minimum profiles:
 
@@ -107,6 +125,10 @@ Recommended minimum profiles:
 - **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `UIUSE`, `UIDEF`, and web features are selected as needed
 - **Starlark baseline**: baseline with a deliberately restricted `VALUE`; `ASYNCQ` and `ASYNCCMD` may initially be `NA`
 - **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, and selected UI/web features
+
+`STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
+
+**Out of scope: cache.** There is deliberately no cache feature. The `liquers_core::cache` module (`BinCache`, `Cache`) is legacy and scheduled for removal — assets provide caching, as noted in [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md). An *integration* should not expose it, and an existing wrapper such as `liquers-py/src/cache.rs` should be dropped rather than modernized. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
 
 ## 5. Feature Guidance
 
@@ -197,7 +219,7 @@ Callable values should normally be registered in a callable registry owned by `C
 ```python
 def test_VALUE05_unknown_object_uses_opaque_value():
     obj = object()
-    assert from_liquers(to_liquers(obj)) is obj  # if identity retention is promised
+    assert lq.from_value(lq.to_value(obj)) is obj  # if identity retention is promised
 ```
 
 ### ENVIRON — Environment setup and lifecycle
@@ -270,11 +292,11 @@ Starlark may use a host function such as `command(name="repeat", fn=repeat, ...)
 **Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration; `COMMAND06` duplicate/unregister policy; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE`; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`.
 
 ```python
-def test_COMMAND02_transform_receives_state_and_parameter():
-    @liquers.command
+def test_COMMAND02_transform_receives_state_and_parameter(env):
+    @env.command
     def repeat(state: str, count: int = 2) -> str:
         return state * count
-    assert liquers.evaluate("hello/repeat-3") == "hellohellohello"
+    assert env.evaluate("hello/repeat-3") == "hellohellohello"
 ```
 
 ### ASYNCQ — Async query execution
@@ -347,6 +369,30 @@ def test_COMMAND02_transform_receives_state_and_parameter():
 **Issues and patterns.** Implement `recipe_opt` without translating “not found” into an execution error. Keep `contains`, `recipe`, and listing mutually consistent. Provider callbacks receive an environment; apply the `RUNTIME` reentrancy rules. Prefer immutable recipe snapshots across the boundary.
 
 **Meaningful tests:** `RECIPE01` found and missing recipe; `RECIPE02` list/contains consistency; `RECIPE03` recipe produces a valid plan; `RECIPE04` provider error maps through `ERROR`; `RECIPE05` volatility/expiration metadata survives; `RECIPE06` end-to-end keyed evaluation; `RECIPE07` nested environment use follows policy.
+
+### MODULE — Load language modules from the store
+
+**Contract.** Where the *integrated language* supports module loading, allow modules to be resolved and loaded from designated locations in the Liquers store, in addition to or instead of the host filesystem. Define the search path, the precedence against native and standard-library modules, the trust boundary, and the caching and invalidation policy. Where an executing command or script has a current working directory, that *cwd* participates in resolution, in the way `PYTHONPATH` and `sys.path` participate in a Python import.
+
+**Objects/API to map or implement:**
+
+- A store-backed module loader or resolution hook for the *integrated language*, such as a `sys.meta_path`/`sys.path_hooks` finder in Python, a `load()` resolver in Starlark, or a module resolver for a Wasm/JavaScript host
+- Module search-path configuration: an ordered list of store `Key` prefixes, configured on the environment
+- `Context::get_cwd_key` and `Recipe::cwd`/`Recipe::get_cwd` as the source of the relative resolution base
+- `Key::to_absolute`, `Key::parent`, and `Key::filename` for mapping a module name to a store key
+- A module cache with an explicit invalidation and reload policy, keyed by store key and version
+- Dependency registration, so loaded module keys participate in the tracking in `liquers-core/src/dependencies.rs` and in asset expiration
+- A trust policy controlling which store prefixes may supply executable code
+
+**The design must answer:** Does the *integrated language* have a module system, and is its resolution hook public and stable? Which store prefixes form the search path, and who configures them — environment, session, or query? What is the precedence between store modules, host filesystem modules, and the standard library? Is *cwd* taken from `Context::get_cwd_key`, from the `Recipe`, or supplied explicitly, and what happens when it is absent? Are relative imports resolved against *cwd* only, or may they escape upward out of it? How does a module name map to a store key, including packages and submodules? The store is asynchronous while most import systems are synchronous — how is that bridged, and where can it deadlock? When a module's bytes change in the store, is it reloaded, and are dependent assets expired? Which store locations are trusted to supply executable code, and how is that enforced? What happens on a name collision with a native module?
+
+**Issues and patterns.** Loading code from a store is arbitrary code execution, and a store may be remote, shared, or writable by users who are not trusted to run code inside the host process. Treat the module search path as a security boundary: default it to empty and require explicit opt-in per prefix, rather than exposing the whole store. Never let a store module shadow the standard library — resolve native modules first unless the design deliberately states otherwise and accepts the consequence.
+
+The synchronous/asynchronous mismatch is the central technical problem. Python's import system is synchronous while the Liquers store is `AsyncStore`, so a store-backed finder invoked from inside an async worker can deadlock in exactly the way `ASYNCQ` describes. Prefetching module bytes before entering the *language runtime* is usually safer than bridging an async store into a synchronous import hook.
+
+Module caches are a staleness hazard: `sys.modules` will happily retain a module whose store key has since changed. State whether reload is automatic, explicit, or never, and register loaded module keys as dependencies so that editing a module expires the assets whose commands it defined — otherwise a code change silently produces stale results. `Recipe::cwd` is already set automatically when recipes are loaded from a folder (`liquers-core/src/recipes.rs`), which makes it the natural default base for relative resolution; note that ownership of the `Context` `cwd_key` is still marked as an open question in `liquers-core/src/context.rs`, so a design should not assume that surface is stable. A sandboxed *integrated language* such as Starlark should map this feature onto its own `load()` resolver rather than exposing a general filesystem-like path.
+
+**Meaningful tests:** `MODULE01` module loads from a configured store prefix; `MODULE02` module outside the search path is not loaded; `MODULE03` relative import resolves against *cwd*; `MODULE04` absent *cwd* follows the documented policy; `MODULE05` package/submodule resolution; `MODULE06` native and standard-library modules take the documented precedence; `MODULE07` changed module bytes follow the reload policy; `MODULE08` a loaded module key is registered as a dependency and expires dependent assets; `MODULE09` an untrusted prefix is refused with a typed `ERROR`; `MODULE10` store failure maps through `ERROR`; `MODULE11` import from inside a running command does not deadlock; `MODULE12` a command registered by a store module is executable end to end.
 
 ### UIUSE — Use an existing Liquers UI
 
@@ -441,6 +487,45 @@ def test_COMMAND02_transform_receives_state_and_parameter():
 
 **Meaningful tests:** `WEBAPI01` framework-neutral query handler success; `WEBAPI02` Liquers error maps to the specified HTTP response; `WEBAPI03` media type and metadata headers/body survive; `WEBAPI04` FastAPI/ASGI-style async adapter; `WEBAPI05` Flask/WSGI-style sync adapter does not create a runtime per request; `WEBAPI06` disconnect cancellation propagates; `WEBAPI07` large/streaming response follows memory limits; `WEBAPI08` authentication/session context reaches evaluation; `WEBAPI09` route behavior matches `liquers-axum`.
 
+### STUBS — Static type declarations and editor support
+
+**Contract.** Publish a machine-checkable declaration of the *integration*'s public surface in the *integrated language*'s own type system, covering every *wrapper*, function, and error type exposed by the selected features. Declarations are generated from or verified against the implementation, never maintained by hand alone.
+
+**Objects/API to map or implement:**
+
+- Declaration files for every exposed module, such as `.pyi` plus `py.typed` for Python or `.d.ts` for TypeScript consumers of a Wasm build
+- Declared types for every `OBJECT` *wrapper*, and for the *value type* and `State` *wrappers* from `VALUE`
+- Declared signatures for `EVAL` entry points, including awaitable variants where `ASYNCQ` is selected
+- The `COMMAND` declaration/decorator surface, typed so it does not erase the declared callable's own signature
+- Exception/error type declarations from `ERROR`
+- A generation or verification step wired into the build, and the marker/metadata that makes declarations visible to type checkers
+
+**The design must answer:** Does the *integrated language* have a static type system or a conventional stub format at all? Are declarations emitted by the binding tool, generated from Rust, or written by hand and checked? `wasm-bindgen` emits `.d.ts`; PyO3 emits no `.pyi`. How are generic Rust types, overloads, and *opaque language values* declared? How is a command decorator typed so the user's signature survives? Which conversions are expressed as unions and which degrade to `Any`/`unknown`? How do declarations stay in sync — a CI check, a generation step, or review? What is declared for features that are `NA`?
+
+**Issues and patterns.** Hand-written declarations drift silently, and a stale declaration is worse than none because the checker actively endorses wrong code; make the build fail instead. Declaring the surface as `Any`/`unknown` satisfies the checker while giving users nothing. A decorator that returns an untyped callable erases the signature of every command a user declares; use the *integrated language*'s typed-decorator pattern. Tool-generated declarations such as `wasm-bindgen`'s `.d.ts` are review targets, not authored files. Python declarations are ignored entirely unless `py.typed` ships in the distribution, which ties this feature to `PACKAGE`. Declarations for *opaque language values* should be honest about what is not statically known rather than overstating structure.
+
+**Meaningful tests:** `STUBS01` declarations exist for every exposed module; `STUBS02` the type checker accepts a representative usage sample; `STUBS03` declared names match the runtime surface, with none missing or extra; `STUBS04` the command declaration preserves the declared callable's signature; `STUBS05` `ASYNCQ` entry points are declared awaitable; `STUBS06` the type checker rejects a deliberately incorrect usage; `STUBS07` declarations and their marker metadata are present in the distributed artifact.
+
+### PACKAGE — Build, packaging, and distribution
+
+**Contract.** Define how the *integration* is built, versioned, and distributed as an installable artifact in the *integrated language*'s ecosystem, including which Cargo features are enabled, which platforms are supported, and how the artifact's version relates to the Liquers core version.
+
+**Objects/API to map or implement:**
+
+- Build configuration and Cargo feature selection for the integration crate
+- The distributable artifact: wheel/sdist, npm package, Wasm bundle, or shared library
+- Version and compatibility metadata relating the artifact to the Liquers core version
+- Supported target/platform matrix and toolchain or system-library requirements
+- Release pipeline and reproducible build entry point
+- Installation and quick-start path for a new user
+- Declaration files from `STUBS`, where selected
+
+**The design must answer:** Which build tool is used — `maturin`, `wasm-pack`, `trunk`, `cargo`, or the language's own packager? Which Cargo features are enabled by default, and which are exposed as installable extras? Which targets, platforms, and ABIs are published, and which remain source-only? Is the artifact version locked to, ranged against, or independent of the Liquers core version? Are native dependencies vendored or taken from the system? How is a Wasm artifact delivered — ES module, bundler-specific, or inline? What exactly does a new user run to install the *integration* and evaluate a first query?
+
+**Issues and patterns.** Cargo feature selection is part of the public contract, not a build detail: a feature that changes the *value type* changes what `VALUE` promises, so the default set belongs in the design. Prefer locking the core version, since `OBJECT` and `VALUE` *wrappers* track Rust types that are not yet stable across releases. Vendoring native dependencies trades build time for portability — this repository takes the opposite choice for `openssl`, documented in `CLAUDE.md`, which makes system development headers a stated build requirement rather than an accident. A Wasm artifact that assumes a bundler silently excludes plain `<script type="module">` users; state which delivery forms are supported. A quick-start that a new user can run end to end is the cheapest test that packaging actually works.
+
+**Meaningful tests:** `PACKAGE01` a clean build produces the artifact for every claimed platform; `PACKAGE02` installing the artifact into a clean environment loads the module successfully; `PACKAGE03` the documented quick-start evaluates a query end to end from the installed artifact; `PACKAGE04` declared version/compatibility metadata matches the linked core; `PACKAGE05` the default Cargo feature set produces the documented *value type*; `PACKAGE06` each optional extra installs and activates its feature; `PACKAGE07` the artifact carries declarations, license, and required metadata.
+
 ## 6. Language-Specific Guidance
 
 ### Browser JavaScript
@@ -456,6 +541,10 @@ Treat sandboxing and determinism as product requirements. Prefer copied Liquers 
 Modernize `liquers-py` rather than treating its current behavior as normative. Prefer owned `Py<T>` handles across async/thread boundaries, short explicit interpreter-lock scopes, permissive `VALUE` conversion with an *opaque language value* fallback, and explicit typed exceptions. Pickle may be an opt-in codec, never an implicit trusted interchange format. Organize pytest suites using the IDs in this guide.
 
 ## 7. Design and Review Checklist
+
+This guide does not define the shape or location of a design document. An *integration* is a substantial feature, so its design follows the standard Liquers design workflow (the `liquers-designer` skill), which creates `specs/<integration-name>/` and the phase documents within it. `specs/async-wasm-refactor/` is an existing example of that layout.
+
+The checklist below is therefore not a document outline but the *integration*-specific content that must appear somewhere in those phase documents. It maps naturally onto them: scope and selection (items 1 and 9) belong in the high-level design; the architecture items (2 through 7) in the architecture phase; the test items (8 and 10) in the examples and test-plan phase; and milestone sequencing in the implementation plan.
 
 Every language-specific design should contain:
 
@@ -480,3 +569,965 @@ Every language-specific design should contain:
 - [`wasm-bindgen`: JavaScript Promises and Rust Futures](https://rustwasm.github.io/docs/wasm-bindgen/reference/js-promises-and-rust-futures.html)
 - [`starlark-rust` value model](https://docs.rs/starlark/latest/starlark/values/index.html)
 - [`starlark-rust` evaluator overview](https://docs.rs/starlark/latest/starlark/)
+
+## Appendix A. Reference Test Implementations
+
+This appendix gives a reference implementation of every prescribed test from §5, written as Python pseudocode.
+
+**It is pseudocode, not a runnable suite.** Its purpose is to fix *what each test must establish*, not the API used to establish it. The names below — `lq.evaluate`, `env.command`, `lq.ErrorType` — are placeholders for whichever surface the *integration* actually defines; a JavaScript or Starlark *integration* substitutes its own and keeps the logical IDs. Where a test cannot be expressed without a decision the design has not yet made, the pseudocode marks the decision point in a comment rather than inventing an answer.
+
+Python is used throughout because it reads as pseudocode for the widest audience, not because these tests belong to `liquers-py`.
+
+### Conventions and harness
+
+```python
+# One test module per feature, named for the feature (§3):
+#   test_VALUE_value_bridge.py, test_COMMAND_registration.py, test_MODULE_store_imports.py
+# The logical ID leads the test-specific part of the name.
+import pytest
+import liquers as lq
+
+def na(reason):
+    """A feature marked NA still needs its tests present and skipped with the
+    reason recorded in the design (§3: absence is not an NA decision)."""
+    return pytest.mark.skip(reason=f"NA: {reason}")
+
+@pytest.fixture
+def env():
+    """Isolated environment per test — see ENVIRON05."""
+    e = lq.Environment()
+    yield e
+    e.shutdown()
+
+@pytest.fixture
+def store(env):
+    return env.store
+```
+
+### OBJECT
+
+```python
+def test_OBJECT01_query_parse_encode_roundtrip():
+    for text in ["hello/greet", "data/q/query_to_string/output.txt", "a/b-1-2/c"]:
+        assert lq.parse_query(text).encode() == text
+
+def test_OBJECT02_key_equality_and_hash():
+    a, b = lq.parse_key("dir/file.txt"), lq.parse_key("dir/file.txt")
+    assert a == b and hash(a) == hash(b)
+    assert a != lq.parse_key("dir/other.txt")
+    assert len({a, b}) == 1                      # usable as a dict/set key
+
+def test_OBJECT03_command_metadata_roundtrip(env):
+    md = env.commands.metadata("greet")
+    assert lq.CommandMetadata.from_dict(md.to_dict()) == md
+
+def test_OBJECT04_invalid_parse_produces_error():
+    with pytest.raises(lq.Error) as e:
+        lq.parse_query("///bad///")
+    assert e.value.error_type == lq.ErrorType.ParseError
+    assert e.value.position is not None          # diagnostics survive (see ERROR)
+
+def test_OBJECT05_wrapper_valid_for_documented_lifetime(env):
+    q = lq.parse_query("hello/greet")
+    del env                                      # an owned handle must outlive the env
+    assert q.encode() == "hello/greet"
+
+@pytest.mark.parametrize("variant", list(lq.ErrorType))
+def test_OBJECT06_every_enum_variant_roundtrips(variant):
+    # repeat for each enum the design selects: ArgumentType, DependencyRelation, ...
+    assert lq.ErrorType(str(variant)) is variant
+
+def test_OBJECT07_unknown_enum_variant_follows_policy():
+    # The design states one policy; assert that one. Reject is the safe default.
+    with pytest.raises(lq.Error):
+        lq.ErrorType("VariantFromAFutureRelease")
+
+def test_OBJECT08_wrappers_follow_naming_and_ownership_conventions():
+    # Largely a review criterion (§3) — mechanise only what is enumerable.
+    for name in lq.public_surface():
+        assert not name.startswith("_")
+```
+
+### ERROR
+
+```python
+@pytest.mark.parametrize("et", list(lq.ErrorType))
+def test_ERROR01_every_error_type_maps(et):
+    exc = lq.exception_for(et)
+    assert issubclass(exc, lq.Error)             # or: one structured type carrying `et`
+
+def test_ERROR02_fields_survive_rust_language_rust():
+    e = lq.Error(lq.ErrorType.ParseError, "boom",
+                 position=lq.Position(line=1, column=3),
+                 query=lq.parse_query("a/b"), key=lq.parse_key("d/f"))
+    r = lq.Error._from_rust(e._to_rust())
+    assert (r.message, r.position, r.query, r.key) == (e.message, e.position, e.query, e.key)
+
+def test_ERROR03_language_exception_includes_class_and_stack(env):
+    @env.command
+    def boom(state): raise ValueError("inner")
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("x/boom")
+    assert e.value.error_type == lq.ErrorType.ExecutionError   # documented fallback
+    assert "ValueError" in e.value.cause and "inner" in e.value.cause
+
+def test_ERROR04_non_error_throw_has_safe_fallback(env):
+    @env.command
+    def odd(state): raise BaseException("not an Exception subclass")
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("x/odd")
+    assert e.value.error_type == lq.ErrorType.ExecutionError
+
+def test_ERROR05_no_panic_crosses_the_boundary(env):
+    # A Rust panic must surface as an Error, never abort the process.
+    with pytest.raises(lq.Error):
+        env._provoke_panic_for_test()
+```
+
+### RUNTIME
+
+```python
+def test_RUNTIME01_native_adapter_satisfies_thread_bounds(env):
+    # Native builds require Send + Sync; compiling the adapter is the real assertion.
+    # Exercise it from a non-main thread to prove the bound is honoured at runtime.
+    import threading
+    out = []
+    threading.Thread(target=lambda: out.append(env.evaluate("hello/greet"))).start_and_join()
+    assert out == ["Hello, hello!"]
+
+@pytest.mark.wasm
+def test_RUNTIME02_wasm_accepts_non_send_callback(env):
+    # On wasm32 a non-Send closure must be accepted (MaybeSend model).
+    env.register_command("cb", lambda state: state, non_send=True)
+    assert env.evaluate("x/cb") is not None
+
+def test_RUNTIME03_stored_callback_outlives_registration_scope(env):
+    def register():
+        local = {"n": 0}
+        @env.command
+        def bump(state):
+            local["n"] += 1                      # closure capture must be rooted
+            return local["n"]
+    register()                                   # scope exits; callable must survive
+    assert env.evaluate("x/bump") == 1
+
+def test_RUNTIME04_nested_evaluation_does_not_deadlock(env):
+    @env.command
+    def outer(state, context):
+        return context.evaluate("hello/greet")   # reentrancy policy under test
+    assert env.evaluate("x/outer", timeout=5) is not None
+
+def test_RUNTIME05_cancellation_and_shutdown_release_handles(env):
+    h = env.evaluate_async("slow/query")
+    h.cancel()
+    env.shutdown()
+    assert h.is_terminal() and env.live_handle_count() == 0
+
+def test_RUNTIME06_panic_and_exception_containment(env):
+    @env.command
+    def bad(state): raise RuntimeError("x")
+    with pytest.raises(lq.Error):
+        env.evaluate("x/bad")
+    assert env.evaluate("hello/greet") is not None   # env still usable afterwards
+```
+
+### VALUE
+
+```python
+@pytest.mark.parametrize("v", [None, True, False, 0, -1, 3.5, "", "text", b"\x00\xff"])
+def test_VALUE01_primitive_roundtrip(v):
+    assert lq.from_value(lq.to_value(v)) == v
+
+def test_VALUE02_nested_array_object_roundtrip():
+    v = {"a": [1, 2, {"b": None}], "c": {"d": [True, "x"]}}
+    assert lq.from_value(lq.to_value(v)) == v
+
+@pytest.mark.parametrize("n", [0, 2**31, 2**53 - 1, 2**53, 2**63 - 1, -(2**63)])
+def test_VALUE03_integer_boundaries(n):
+    # JS: beyond 2**53 must use BigInt or raise — never silently lose precision.
+    try:
+        assert lq.from_value(lq.to_value(n)) == n
+    except lq.Error as e:
+        assert e.error_type == lq.ErrorType.ConversionError
+
+def test_VALUE04_bytes_are_not_confused_with_text():
+    b, s = lq.to_value(b"abc"), lq.to_value("abc")
+    assert b.type_name != s.type_name
+    assert isinstance(lq.from_value(b), bytes) and isinstance(lq.from_value(s), str)
+
+def test_VALUE05_unknown_object_uses_opaque_value():
+    obj = object()
+    assert lq.from_value(lq.to_value(obj)) is obj    # if identity retention is promised
+
+def test_VALUE06_opaque_serialization_fails_or_uses_its_codec():
+    v = lq.to_value(object())
+    with pytest.raises(lq.Error) as e:
+        v.to_bytes()                                  # implicit serialization refused
+    assert e.value.error_type == lq.ErrorType.SerializationError
+    assert v.to_bytes(codec="pickle") is not None     # only when explicitly opted in
+
+def test_VALUE07_cycles_follow_policy():
+    a = {}; a["self"] = a
+    with pytest.raises(lq.Error):                     # or: assert shared identity kept
+        lq.to_value(a)
+
+def test_VALUE08_representative_extvalue_roundtrip():
+    for v in [lq.parse_query("a/b"), lq.parse_key("d/f"), lq.DataFrame({"x": [1, 2]})]:
+        assert lq.from_value(lq.to_value(v)) == v
+
+def test_VALUE09_checked_upcast_and_downcast():
+    v = lq.to_value(lq.parse_key("d/f"))
+    assert v.downcast(lq.Key) == lq.parse_key("d/f")
+    with pytest.raises(lq.Error) as e:
+        v.downcast(lq.DataFrame)                      # wrong tag must be reported
+    assert e.value.error_type == lq.ErrorType.ConversionError
+
+def test_VALUE10_language_only_object_retains_documented_identity():
+    class C: pass
+    c = C()
+    assert lq.from_value(lq.to_value(c)) is c
+
+def test_VALUE11_callable_retention_or_rejection_follows_policy():
+    f = lambda x: x
+    v = lq.to_value(f)
+    assert v.is_callable_handle()                     # stored as an ID, not as data
+    with pytest.raises(lq.Error):
+        v.to_bytes()                                  # never accidentally serialized
+
+def test_VALUE12_scalar_operators_produce_documented_result():
+    v = lq.to_value(2)
+    assert v + 3 == 5 and bool(lq.to_value(0)) is False and str(lq.to_value("x")) == "x"
+
+def test_VALUE13_state_operations_preserve_or_discard_metadata(env):
+    s = env.evaluate_state("hello/greet")
+    assert s.metadata is not None
+    assert isinstance(s.value, str)                   # .value is the safe explicit path
+    # The design states whether derived states keep metadata; assert that choice:
+    assert s.map(str.upper).metadata == s.metadata
+```
+
+### ENVIRON
+
+```python
+def test_ENVIRON01_default_environment_evaluates_builtin(env):
+    assert env.evaluate("hello/greet") is not None
+
+def test_ENVIRON02_custom_services_are_the_ones_returned(env):
+    st = lq.MemoryStore()
+    e = lq.Environment(store=st)
+    assert e.store is st
+
+def test_ENVIRON03_repeated_initialization_follows_policy():
+    a, b = lq.Environment(), lq.Environment()
+    assert a is not b                                 # or: assert a is b, if global
+
+def test_ENVIRON04_failed_initialization_is_recoverable():
+    with pytest.raises(lq.Error):
+        lq.Environment(store=lq.Store.from_url("bogus://nowhere"))
+    assert lq.Environment().evaluate("hello/greet") is not None
+
+def test_ENVIRON05_isolated_test_environments_do_not_leak_registration():
+    a = lq.Environment()
+    a.register_command("only_in_a", lambda state: state)
+    with pytest.raises(lq.Error):
+        lq.Environment().evaluate("x/only_in_a")
+
+def test_ENVIRON06_shutdown_is_idempotent(env):
+    env.shutdown(); env.shutdown()                    # second call must not raise
+```
+
+### EVAL
+
+```python
+def test_EVAL01_evaluate_builtin_query(env):
+    assert env.evaluate("hello/greet") == "Hello, hello!"
+
+def test_EVAL02_string_and_wrapped_query_agree(env):
+    assert env.evaluate("hello/greet") == env.evaluate(lq.parse_query("hello/greet"))
+
+def test_EVAL03_metadata_and_logs_available(env):
+    s = env.evaluate_state("hello/greet")
+    assert s.metadata.status is not None and isinstance(s.metadata.log, list)
+
+def test_EVAL04_invalid_query_maps_through_error(env):
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("///bad///")
+    assert e.value.error_type == lq.ErrorType.ParseError
+
+def test_EVAL05_payload_and_context_reach_a_command(env):
+    @env.command
+    def echo_payload(state, context):
+        return context.payload["k"]
+    assert env.evaluate("x/echo_payload", payload={"k": "v"}) == "v"
+
+def test_EVAL06_cancellation_has_defined_terminal_result(env):
+    h = env.evaluate_async("slow/query")
+    h.cancel()
+    with pytest.raises(lq.Error) as e:
+        h.result()
+    assert e.value.error_type == lq.ErrorType.Cancelled
+```
+
+### COMMAND
+
+```python
+def test_COMMAND01_register_and_execute_first_command(env):
+    @env.command
+    def constant() -> str: return "c"
+    assert env.evaluate("constant") == "c"
+
+def test_COMMAND02_transform_receives_state_and_parameter(env):
+    @env.command
+    def repeat(state: str, count: int = 2) -> str:
+        return state * count
+    assert env.evaluate("hello/repeat-3") == "hellohellohello"
+
+def test_COMMAND03_exception_crosses_command_boundary(env):
+    @env.command
+    def boom(state): raise ValueError("inner")
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("hello/boom")
+    assert e.value.error_type == lq.ErrorType.ExecutionError
+
+def test_COMMAND04_defaults_enums_and_variadics_bind(env):
+    @env.command
+    def f(state, mode: str = "a", *rest: int) -> str:
+        return f"{mode}:{sum(rest)}"
+    assert env.evaluate("x/f") == "a:0"
+    assert env.evaluate("x/f-b-1-2") == "b:3"
+
+def test_COMMAND05_metadata_matches_the_declaration(env):
+    @env.command(label="Repeat", doc="Repeat the input.")
+    def repeat(state: str, count: int = 2) -> str: ...
+    md = env.commands.metadata("repeat")
+    assert md.label == "Repeat" and md.doc.startswith("Repeat")
+    assert [a.name for a in md.arguments] == ["count"]
+    assert md.arguments[0].type == lq.ArgumentType.Integer
+    assert md.arguments[0].default == 2
+
+def test_COMMAND06_duplicate_and_unregister_policy(env):
+    env.register_command("dup", lambda state: state)
+    with pytest.raises(lq.Error) as e:                 # or: assert replacement wins
+        env.register_command("dup", lambda state: state)
+    assert e.value.error_type == lq.ErrorType.CommandAlreadyRegistered
+    env.unregister_command("dup")
+    assert "dup" not in env.commands
+
+def test_COMMAND07_context_injection(env):
+    @env.command
+    def logs(state, context):
+        context.info("hello from command")
+        return state
+    s = env.evaluate_state("x/logs")
+    assert any("hello from command" in str(m) for m in s.metadata.log)
+
+def test_COMMAND08_returned_opaque_value_follows_value_rules(env):
+    sentinel = object()
+    @env.command
+    def give(state): return sentinel
+    assert env.evaluate("x/give") is sentinel
+
+def test_COMMAND09_minimal_declaration_has_useful_metadata_defaults(env):
+    @env.command
+    def plain(state: str) -> str: return state
+    md = env.commands.metadata("plain")
+    assert md.name == "plain" and md.realm is not None and md.namespace is not None
+
+def test_COMMAND10_complete_declaration_preserves_every_field(env):
+    @env.command(label="L", doc="D", namespace="ns", realm="r",
+                 filename="out.txt", volatile=True)
+    def full(state): ...
+    md = env.commands.metadata("full")
+    assert (md.label, md.doc, md.namespace, md.realm, md.filename, md.volatile) \
+        == ("L", "D", "ns", "r", "out.txt", True)
+
+def test_COMMAND11_closure_captures_retained_per_runtime_rules(env):
+    def make(n):
+        @env.command(name=f"add{n}")
+        def add(state: int) -> int: return state + n
+    make(5)
+    assert env.evaluate("1/add5") == 6
+```
+
+### ASYNCQ
+
+```python
+async def test_ASYNCQ01_await_successful_evaluation(env):
+    assert await env.evaluate_async("hello/greet") is not None
+
+async def test_ASYNCQ02_failure_rejects_with_structured_error(env):
+    with pytest.raises(lq.Error) as e:
+        await env.evaluate_async("///bad///")
+    assert e.value.error_type == lq.ErrorType.ParseError
+
+async def test_ASYNCQ03_two_evaluations_make_progress(env):
+    import asyncio
+    a, b = await asyncio.gather(env.evaluate_async("hello/greet"),
+                                env.evaluate_async("hello/greet"))
+    assert a == b
+
+async def test_ASYNCQ04_cancellation_propagates(env):
+    h = env.evaluate_async("slow/query")
+    h.cancel()
+    with pytest.raises(lq.Error) as e:
+        await h
+    assert e.value.error_type == lq.ErrorType.Cancelled
+
+async def test_ASYNCQ05_dropping_host_handle_follows_policy(env):
+    h = env.evaluate_async("slow/query")
+    del h                                              # detach or cancel — assert which
+    assert env.live_handle_count() == 0
+
+async def test_ASYNCQ06_no_event_loop_blocking(env):
+    import asyncio, time
+    ticks = 0
+    async def ticker():
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.01); ticks += 1
+    t = asyncio.create_task(ticker())
+    await env.evaluate_async("slow/query")
+    t.cancel()
+    assert ticks > 0                                   # loop kept running throughout
+
+def test_ASYNCQ07_documented_non_async_workaround_completes(env):
+    # Only for a language with no async model; must be outside any event loop.
+    assert env.evaluate_blocking("hello/greet") is not None
+
+async def test_ASYNCQ08_nested_event_loop_use_is_rejected_or_safe(env):
+    with pytest.raises(lq.Error):                      # or: assert it completes
+        env.evaluate_blocking("hello/greet")           # called from inside the loop
+```
+
+### ASYNCCMD
+
+```python
+async def test_ASYNCCMD01_async_command_result(env):
+    @env.command
+    async def slow(state: str) -> str:
+        await asyncio.sleep(0); return state.upper()
+    assert await env.evaluate_async("hello/slow") == "HELLO"
+
+async def test_ASYNCCMD02_async_exception(env):
+    @env.command
+    async def boom(state): raise ValueError("x")
+    with pytest.raises(lq.Error) as e:
+        await env.evaluate_async("x/boom")
+    assert e.value.error_type == lq.ErrorType.ExecutionError
+
+async def test_ASYNCCMD03_cancellation_in_both_directions(env):
+    @env.command
+    async def slow(state):
+        await asyncio.sleep(60)
+    h = env.evaluate_async("x/slow"); h.cancel()
+    with pytest.raises(lq.Error):
+        await h
+
+async def test_ASYNCCMD04_nested_async_evaluation(env):
+    @env.command
+    async def outer(state, context):
+        return await context.evaluate_async("hello/greet")
+    assert await env.evaluate_async("x/outer") is not None
+
+async def test_ASYNCCMD05_concurrent_calls_do_not_corrupt_state(env):
+    @env.command
+    async def idem(state: int) -> int:
+        await asyncio.sleep(0); return state * 2
+    results = await asyncio.gather(*[env.evaluate_async(f"{i}/idem") for i in range(50)])
+    assert results == [i * 2 for i in range(50)]
+
+def test_ASYNCCMD06_sync_and_async_metadata_differ(env):
+    @env.command
+    def s(state): ...
+    @env.command
+    async def a(state): ...
+    assert env.commands.metadata("s").is_async is False
+    assert env.commands.metadata("a").is_async is True
+```
+
+### STORE
+
+```python
+async def test_STORE01_set_get_data_and_metadata(store):
+    k = lq.parse_key("d/f.txt")
+    await store.set(k, b"data", lq.Metadata(media_type="text/plain"))
+    assert await store.get(k) == b"data"
+    assert (await store.get_metadata(k)).media_type == "text/plain"
+
+async def test_STORE02_missing_key_error(store):
+    with pytest.raises(lq.Error) as e:
+        await store.get(lq.parse_key("d/absent"))
+    assert e.value.error_type == lq.ErrorType.KeyNotFound
+
+async def test_STORE03_directory_listing_invariants(store):
+    await store.set(lq.parse_key("d/a"), b"1", lq.Metadata())
+    await store.set(lq.parse_key("d/b"), b"2", lq.Metadata())
+    names = await store.listdir(lq.parse_key("d"))
+    assert set(names) == {"a", "b"}
+    for n in names:
+        assert await store.contains(lq.parse_key(f"d/{n}"))
+
+async def test_STORE04_remove_and_removedir(store):
+    k = lq.parse_key("d/x")
+    await store.set(k, b"1", lq.Metadata())
+    await store.remove(k)
+    assert not await store.contains(k)
+    await store.removedir(lq.parse_key("d"))
+    assert not await store.contains(lq.parse_key("d"))
+
+async def test_STORE05_unsupported_key(store):
+    with pytest.raises(lq.Error) as e:
+        await store.get(lq.parse_key("../escape"))
+    assert e.value.error_type == lq.ErrorType.KeyNotSupported
+
+async def test_STORE06_concurrent_update_policy(store):
+    k = lq.parse_key("d/race")
+    await asyncio.gather(*[store.set(k, bytes([i]), lq.Metadata()) for i in range(10)])
+    assert len(await store.get(k)) == 1              # last write wins, not a torn value
+
+async def test_STORE07_store_works_in_end_to_end_evaluation(env, store):
+    await store.set(lq.parse_key("d/in.txt"), b"hello", lq.Metadata())
+    assert await env.evaluate_async("d/in.txt/-/greet") is not None
+```
+
+### RECIPE
+
+```python
+async def test_RECIPE01_found_and_missing_recipe(env):
+    p = env.recipes
+    assert await p.recipe_opt(lq.parse_key("d/known")) is not None
+    assert await p.recipe_opt(lq.parse_key("d/absent")) is None   # not an error
+
+async def test_RECIPE02_list_and_contains_are_consistent(env):
+    p = env.recipes
+    for k in await p.list(lq.parse_key("d")):
+        assert await p.contains(k) and await p.recipe_opt(k) is not None
+
+async def test_RECIPE03_recipe_produces_a_valid_plan(env):
+    r = await env.recipes.recipe(lq.parse_key("d/known"))
+    assert len(r.to_plan().steps) > 0
+
+async def test_RECIPE04_provider_error_maps_through_error(env):
+    env.recipes = lq.FailingRecipeProvider()
+    with pytest.raises(lq.Error):
+        await env.evaluate_async("d/known")
+
+async def test_RECIPE05_volatility_and_expiration_metadata_survive(env):
+    r = await env.recipes.recipe(lq.parse_key("d/volatile"))
+    assert r.volatile is True and r.expires is not None
+
+async def test_RECIPE06_end_to_end_keyed_evaluation(env):
+    assert await env.evaluate_async("d/known") is not None
+
+async def test_RECIPE07_nested_environment_use_follows_policy(env):
+    # A provider callback that evaluates a query must obey the RUNTIME reentrancy rules.
+    assert await env.evaluate_async("d/recipe_that_evaluates", timeout=5) is not None
+```
+
+### MODULE
+
+```python
+async def test_MODULE01_module_loads_from_configured_prefix(env, store):
+    await store.set(lq.parse_key("code/mymod.py"), b"VALUE = 42", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    assert env.import_module("mymod").VALUE == 42
+
+async def test_MODULE02_module_outside_search_path_is_not_loaded(env, store):
+    await store.set(lq.parse_key("other/secret.py"), b"VALUE = 1", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    with pytest.raises(lq.Error) as e:
+        env.import_module("secret")
+    assert e.value.error_type == lq.ErrorType.KeyNotFound
+
+async def test_MODULE03_relative_import_resolves_against_cwd(env, store):
+    await store.set(lq.parse_key("proj/helper.py"), b"VALUE = 7", lq.Metadata())
+    await store.set(lq.parse_key("proj/recipes.yaml"), b"...", lq.Metadata())
+    # cwd is set automatically when recipes load from a folder (Recipe::cwd)
+    @env.command
+    def uses_helper(state, context):
+        assert context.cwd_key == lq.parse_key("proj")
+        return context.import_module("helper").VALUE
+    assert await env.evaluate_async("proj/uses_helper") == 7
+
+async def test_MODULE04_absent_cwd_follows_policy(env):
+    @env.command
+    def no_cwd(state, context):
+        assert context.cwd_key is None
+        with pytest.raises(lq.Error):            # or: falls back to module_path only
+            context.import_module("helper")
+    await env.evaluate_async("x/no_cwd")
+
+async def test_MODULE05_package_and_submodule_resolution(env, store):
+    await store.set(lq.parse_key("code/pkg/__init__.py"), b"", lq.Metadata())
+    await store.set(lq.parse_key("code/pkg/sub.py"), b"VALUE = 3", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    assert env.import_module("pkg.sub").VALUE == 3
+
+async def test_MODULE06_native_module_takes_documented_precedence(env, store):
+    await store.set(lq.parse_key("code/json.py"), b"VALUE = 'shadow'", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    import json as stdlib_json
+    assert env.import_module("json") is stdlib_json     # stdlib must win by default
+
+async def test_MODULE07_changed_module_bytes_follow_reload_policy(env, store):
+    k = lq.parse_key("code/m.py")
+    await store.set(k, b"VALUE = 1", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    assert env.import_module("m").VALUE == 1
+    await store.set(k, b"VALUE = 2", lq.Metadata())
+    # Assert the documented policy — automatic, explicit, or never:
+    assert env.import_module("m", reload=True).VALUE == 2
+
+async def test_MODULE08_module_key_is_a_dependency_and_expires_assets(env, store):
+    k = lq.parse_key("code/m.py")
+    await store.set(k, b"def f(x): return x * 2", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    first = await env.evaluate_async("2/uses_m")
+    await store.set(k, b"def f(x): return x * 3", lq.Metadata())
+    assert await env.evaluate_async("2/uses_m") != first   # stale result must not persist
+
+async def test_MODULE09_untrusted_prefix_is_refused(env, store):
+    await store.set(lq.parse_key("untrusted/evil.py"), b"import os", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]           # default is empty, not the root
+    with pytest.raises(lq.Error) as e:
+        env.import_module("evil", search=lq.parse_key("untrusted"))
+    assert e.value.error_type == lq.ErrorType.NotSupported
+
+async def test_MODULE10_store_failure_maps_through_error(env):
+    env.store = lq.FailingStore()
+    env.module_path = [lq.parse_key("code")]
+    with pytest.raises(lq.Error) as e:
+        env.import_module("mymod")
+    assert e.value.error_type in (lq.ErrorType.KeyReadError, lq.ErrorType.General)
+
+async def test_MODULE11_import_inside_a_command_does_not_deadlock(env, store):
+    await store.set(lq.parse_key("code/m.py"), b"VALUE = 1", lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    @env.command
+    def importer(state, context):
+        return context.import_module("m").VALUE     # sync import from an async worker
+    assert await env.evaluate_async("x/importer", timeout=5) == 1
+
+async def test_MODULE12_command_registered_by_store_module_is_executable(env, store):
+    await store.set(lq.parse_key("code/cmds.py"),
+                    b"def register(env):\n"
+                    b"    env.register_command('shout', lambda s: s.upper())\n",
+                    lq.Metadata())
+    env.module_path = [lq.parse_key("code")]
+    env.import_module("cmds").register(env)
+    assert await env.evaluate_async("hello/shout") == "HELLO"
+```
+
+### UIUSE
+
+```python
+def test_UIUSE01_start_or_attach_to_existing_backend(env):
+    ui = env.ui.start(backend="egui", background=True)
+    assert ui.is_running()
+    ui.shutdown()
+
+def test_UIUSE02_render_or_inspect_representative_ui_value(env, ui):
+    el = ui.open(env.evaluate_state("data/table"))
+    assert el.element_type is not None
+
+def test_UIUSE03_event_reaches_correct_command_and_context(env, ui):
+    seen = []
+    @env.command
+    def on_click(state, context): seen.append(context.query); return state
+    ui.dispatch(ui.open_query("x/on_click"), lq.UIEvent.click())
+    assert len(seen) == 1
+
+def test_UIUSE04_progress_and_status_ordering(env, ui):
+    events = ui.subscribe_progress(env.evaluate_async("slow/query"))
+    seq = [e.fraction for e in events]
+    assert seq == sorted(seq) and seq[-1] == 1.0
+
+def test_UIUSE05_unsubscribe_releases_callbacks(env, ui):
+    sub = ui.subscribe(lambda e: None)
+    sub.dispose()
+    assert ui.live_subscription_count() == 0
+
+def test_UIUSE06_stale_update_is_ignored(env, ui):
+    h = ui.open_query("slow/query")
+    ui.deliver(h, lq.UpdateMessage(generation=1))
+    ui.deliver(h, lq.UpdateMessage(generation=0))     # older generation
+    assert h.generation == 1
+
+def test_UIUSE07_ui_error_maps_through_error(env, ui):
+    with pytest.raises(lq.Error):
+        ui.open_query("///bad///")
+
+def test_UIUSE08_shutdown_obeys_thread_affinity(env, ui):
+    import threading
+    err = []
+    threading.Thread(target=lambda: err.append(ui.shutdown_from_wrong_thread())).start_and_join()
+    assert isinstance(err[0], lq.Error)                # refused, not undefined behaviour
+```
+
+### UIDEF
+
+```python
+def test_UIDEF01_register_and_render_language_defined_element(env, ui):
+    @env.ui_element("gauge")
+    class Gauge:
+        def render(self, ctx): return ctx.text(f"{self.value}%")
+    assert ui.render_element("gauge", {"value": 50}).contains_text("50%")
+
+def test_UIDEF02_properties_and_state_roundtrip(env, ui):
+    el = ui.create_element("gauge", {"value": 10})
+    el.set_property("value", 20)
+    assert el.get_property("value") == 20
+
+def test_UIDEF03_event_invokes_correct_callback(env, ui):
+    calls = []
+    @env.ui_element("btn")
+    class Btn:
+        def on_event(self, e): calls.append(e)
+    ui.dispatch(ui.create_element("btn", {}), lq.UIEvent.click())
+    assert len(calls) == 1
+
+@pytest.mark.parametrize("backend", ["egui", "web"])
+def test_UIDEF04_element_works_in_each_claimed_backend(env, backend):
+    ui = env.ui.start(backend=backend, background=True)
+    assert ui.render_element("gauge", {"value": 1}) is not None
+    ui.shutdown()
+
+def test_UIDEF05_unknown_element_has_fallback_or_error(ui):
+    r = ui.render_element("no_such_type", {})
+    assert r.is_fallback() or isinstance(r, lq.Error)
+
+def test_UIDEF06_dispose_releases_callbacks(env, ui):
+    el = ui.create_element("btn", {})
+    el.dispose()
+    assert ui.live_callback_count() == 0
+
+def test_UIDEF07_minimal_language_backend_renders_standard_element(env):
+    backend = lq.TestRendererBackend()                # implemented in the language
+    ui = env.ui.start(backend=backend)
+    assert ui.render_element("text", {"text": "hi"}).contains_text("hi")
+
+def test_UIDEF08_async_updates_respect_ui_thread_affinity(env, ui):
+    h = ui.open_query("slow/query")
+    ui.await_settled(h)
+    assert ui.all_updates_applied_on_ui_thread()
+```
+
+### POLYGLOT
+
+```python
+def test_POLYGLOT01_language_a_command_feeds_language_b(env):
+    env.register_command("a_upper", lambda s: s.upper())            # Python
+    env.eval_starlark("def b_wrap(s): return '[' + s + ']'")        # Starlark
+    assert env.evaluate("hi/a_upper/b_wrap") == "[HI]"
+
+def test_POLYGLOT02_bytes_and_metadata_preserve_type(env):
+    env.eval_starlark("def give_bytes(): return b'\\x00\\xff'")
+    s = env.evaluate_state("give_bytes")
+    assert isinstance(s.value, bytes) and s.metadata.media_type is not None
+
+def test_POLYGLOT03_opaque_transfer_is_rejected_or_encoded(env):
+    obj = object()
+    env.register_command("give_opaque", lambda s: obj)
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("x/give_opaque/starlark_consume")
+    assert e.value.error_type == lq.ErrorType.ConversionError
+
+def test_POLYGLOT04_errors_retain_origin(env):
+    env.eval_starlark("def boom(): fail('from starlark')")
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("boom")
+    assert e.value.origin_runtime == "starlark"
+
+def test_POLYGLOT05_cross_runtime_nested_call_does_not_deadlock(env):
+    assert env.evaluate("x/py_calls_starlark_calls_py", timeout=5) is not None
+
+def test_POLYGLOT06_name_collision_policy(env):
+    env.register_command("dup", lambda s: s)
+    with pytest.raises(lq.Error):                     # or: language-qualified realms
+        env.eval_starlark("def dup(s): return s")
+
+def test_POLYGLOT07_shutdown_releases_both_runtimes(env):
+    env.shutdown()
+    assert env.live_runtime_count() == 0
+
+def test_POLYGLOT08_embedded_command_works_through_outer_integration(env):
+    # A Starlark command owned by liquers-lib, reached through the Python integration.
+    env.enable_starlark()
+    env.eval_starlark("def sl(s): return s + '!'")
+    assert env.evaluate("hi/sl") == "hi!"
+
+def test_POLYGLOT09_outer_cancellation_reaches_embedded_runtime(env):
+    h = env.evaluate_async("x/slow_starlark")
+    h.cancel()
+    with pytest.raises(lq.Error) as e:
+        h.result()
+    assert e.value.error_type == lq.ErrorType.Cancelled
+```
+
+### WEBSERV
+
+```python
+def test_WEBSERV01_start_on_ephemeral_port_and_reach_readiness(env):
+    srv = env.serve(port=0, background=True)
+    srv.wait_ready(timeout=5)
+    assert srv.port != 0
+    srv.shutdown()
+
+def test_WEBSERV02_standard_route_uses_configured_environment(env, srv):
+    env.register_command("marker", lambda s: "from-this-env")
+    assert http_get(f"{srv.url}/q/x/marker").text == "from-this-env"
+
+def test_WEBSERV03_startup_error_maps_through_error(env, srv):
+    with pytest.raises(lq.Error):
+        env.serve(port=srv.port, background=True)     # port already bound
+
+def test_WEBSERV04_graceful_shutdown(env, srv):
+    srv.shutdown(graceful=True)
+    assert srv.inflight_requests() == 0 and not srv.is_running()
+
+def test_WEBSERV05_background_handle_owns_server_lifetime(env):
+    srv = env.serve(port=0, background=True)
+    del srv                                           # assert the documented policy
+    # either the server stops with the handle, or it is explicitly detached
+
+def test_WEBSERV06_language_handler_receives_documented_types(env, srv):
+    @env.route("/custom")
+    def handler(request):
+        assert isinstance(request.headers, dict)
+        return lq.Response(200, b"ok", media_type="text/plain")
+    assert http_get(f"{srv.url}/custom").text == "ok"
+
+def test_WEBSERV07_handler_exception_becomes_safe_http_error(env, srv):
+    @env.route("/boom")
+    def handler(request): raise ValueError("secret internal detail")
+    r = http_get(f"{srv.url}/boom")
+    assert r.status == 500 and "secret internal detail" not in r.text
+
+def test_WEBSERV08_concurrent_handlers_do_not_block_runtime(env, srv):
+    rs = parallel_get([f"{srv.url}/q/hello/greet"] * 20, timeout=5)
+    assert all(r.status == 200 for r in rs)
+```
+
+### WEBAPI
+
+```python
+def test_WEBAPI01_framework_neutral_query_handler_success(env):
+    resp = lq.handlers.query(env, lq.Request(path="/q/hello/greet"))
+    assert resp.status == 200
+
+def test_WEBAPI02_error_maps_to_specified_http_response(env):
+    resp = lq.handlers.query(env, lq.Request(path="/q////bad///"))
+    assert resp.status == 400 and resp.json()["error_type"] == "ParseError"
+
+def test_WEBAPI03_media_type_and_metadata_survive(env):
+    resp = lq.handlers.query(env, lq.Request(path="/q/data/table/out.csv"))
+    assert resp.headers["content-type"].startswith("text/csv")
+
+async def test_WEBAPI04_asgi_adapter(env):
+    app = lq.asgi_app(env)
+    assert (await asgi_get(app, "/q/hello/greet")).status == 200
+
+def test_WEBAPI05_wsgi_adapter_does_not_create_runtime_per_request(env):
+    app = lq.wsgi_app(env)
+    before = lq.runtime_count()
+    for _ in range(20):
+        wsgi_get(app, "/q/hello/greet")
+    assert lq.runtime_count() == before
+
+async def test_WEBAPI06_disconnect_cancellation_propagates(env):
+    app = lq.asgi_app(env)
+    task = asgi_get(app, "/q/slow/query")
+    task.disconnect()
+    assert env.last_evaluation_status() == lq.Status.Cancelled
+
+def test_WEBAPI07_large_streaming_response_follows_memory_limits(env):
+    resp = lq.handlers.data(env, lq.Request(path="/data/big.bin"))
+    assert resp.is_streaming and peak_memory_during(resp.consume) < LIMIT
+
+def test_WEBAPI08_authentication_context_reaches_evaluation(env):
+    @env.command
+    def whoami(state, context): return context.user.name
+    resp = lq.handlers.query(env, lq.Request(path="/q/x/whoami", user=lq.User("ada")))
+    assert resp.body == b"ada"
+
+def test_WEBAPI09_route_behavior_matches_liquers_axum(env, srv):
+    for path in ["/q/hello/greet", "/data/d/f.txt", "/meta/d/f.txt"]:
+        neutral = lq.handlers.dispatch(env, lq.Request(path=path))
+        axum = http_get(srv.url + path)
+        assert (neutral.status, neutral.headers["content-type"]) \
+            == (axum.status, axum.headers["content-type"])
+```
+
+### STUBS
+
+```python
+def test_STUBS01_declarations_exist_for_every_exposed_module():
+    for mod in lq.exposed_modules():
+        assert declaration_file_for(mod).exists()
+
+def test_STUBS02_type_checker_accepts_representative_sample():
+    assert run_type_checker("tests/typing/sample_usage.py").exit_code == 0
+
+def test_STUBS03_declared_names_match_runtime_surface():
+    for mod in lq.exposed_modules():
+        assert set(declared_names(mod)) == set(runtime_public_names(mod))
+
+def test_STUBS04_command_decorator_preserves_signature():
+    # A decorator returning an untyped callable erases every user command's signature.
+    src = """
+    import liquers as lq
+    env = lq.Environment()
+    @env.command
+    def repeat(state: str, count: int = 2) -> str: return state * count
+    reveal_type(repeat)   # must reveal (str, int) -> str, not (*args) -> Any
+    """
+    assert "(str, int) -> str" in run_type_checker_reveal(src)
+
+def test_STUBS05_async_entry_points_declared_awaitable():
+    assert is_declared_awaitable("liquers.Environment.evaluate_async")
+
+def test_STUBS06_type_checker_rejects_incorrect_usage():
+    src = "import liquers as lq; lq.parse_query(42)"
+    assert run_type_checker_src(src).exit_code != 0
+
+def test_STUBS07_declarations_ship_in_the_artifact():
+    names = artifact_namelist(built_artifact())
+    assert any(n.endswith(".pyi") for n in names)
+    assert "liquers/py.typed" in names            # without this, stubs are ignored
+```
+
+### PACKAGE
+
+```python
+@pytest.mark.parametrize("target", CLAIMED_PLATFORMS)
+def test_PACKAGE01_clean_build_produces_artifact(target):
+    assert build_artifact(target).exists()
+
+def test_PACKAGE02_install_into_clean_environment_loads():
+    with clean_virtualenv() as venv:
+        venv.install(built_artifact())
+        assert venv.run("import liquers; print(liquers.__version__)").exit_code == 0
+
+def test_PACKAGE03_quickstart_evaluates_a_query_end_to_end():
+    with clean_virtualenv() as venv:
+        venv.install(built_artifact())
+        r = venv.run(read_quickstart_snippet("README.md"))
+        assert r.exit_code == 0 and r.stdout.strip() != ""
+
+def test_PACKAGE04_version_metadata_matches_linked_core():
+    assert lq.__core_version__ == cargo_locked_version("liquers-core")
+
+def test_PACKAGE05_default_feature_set_produces_documented_value_type():
+    assert lq.value_type_name() == DOCUMENTED_DEFAULT_VALUE_TYPE
+
+@pytest.mark.parametrize("extra", DECLARED_EXTRAS)     # e.g. "polars", "ui", "web"
+def test_PACKAGE06_optional_extra_installs_and_activates(extra):
+    with clean_virtualenv() as venv:
+        venv.install(f"{built_artifact()}[{extra}]")
+        assert venv.run(f"import liquers; liquers.require('{extra}')").exit_code == 0
+
+def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
+    names = artifact_namelist(built_artifact())
+    assert any("LICENSE" in n for n in names)
+    assert artifact_metadata(built_artifact())["requires_python"] is not None
+```
