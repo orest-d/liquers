@@ -690,6 +690,68 @@ impl CommandPreset {
         self
     }
 }
+/// Whether a command or plan needs an evaluation payload to run.
+///
+/// A payload carries per-evaluation, non-serializable resources (UI handles, connections)
+/// that cannot be expressed in a query. Because a payload is not part of the dependency key,
+/// a plan that requires one is evaluated ad hoc: never cached, never shared, and never
+/// registered as a dependency of anything else. Requiring a payload therefore implies
+/// volatility.
+///
+/// An `Optional` state — runs without a payload but receives one when available — is
+/// deliberately **not** implemented; see `specs/ISSUES.md`. Adding it would re-open the
+/// otherwise unreachable "not volatile, but uses payload" state and is intentionally a
+/// breaking change for exhaustive matches, so that every match site must decide how to
+/// treat it.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PayloadRequirement {
+    /// The command does not use a payload. Cacheable and shareable as usual.
+    #[default]
+    None,
+    /// The command refuses to run without a payload. Implies volatility.
+    Required,
+}
+
+impl PayloadRequirement {
+    /// Combines two requirements, as when aggregating the steps of a plan.
+    /// [`Self::Required`] dominates.
+    pub fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (PayloadRequirement::Required, _) => PayloadRequirement::Required,
+            (_, PayloadRequirement::Required) => PayloadRequirement::Required,
+            (PayloadRequirement::None, PayloadRequirement::None) => PayloadRequirement::None,
+        }
+    }
+
+    /// Returns true when a payload must be present for evaluation to proceed.
+    pub fn is_required(self) -> bool {
+        match self {
+            PayloadRequirement::Required => true,
+            PayloadRequirement::None => false,
+        }
+    }
+
+    /// Returns true when no payload is needed.
+    ///
+    /// Used as a `skip_serializing_if` predicate so that metadata of commands that do not
+    /// use a payload serializes exactly as it did before this field existed.
+    pub fn is_none(&self) -> bool {
+        match self {
+            PayloadRequirement::None => true,
+            PayloadRequirement::Required => false,
+        }
+    }
+}
+
+impl std::fmt::Display for PayloadRequirement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PayloadRequirement::None => write!(f, "none"),
+            PayloadRequirement::Required => write!(f, "required"),
+        }
+    }
+}
+
 // TODO: support input type
 // TODO: support output type
 /// CommandMetadata describes a command.
@@ -780,6 +842,16 @@ pub struct CommandMetadata {
     /// Default is false.
     pub volatile: bool,
 
+    /// Whether the command needs an evaluation payload to run.
+    ///
+    /// Declared via the `payload:` statement of `register_command!`. A command registered as
+    /// [`PayloadRequirement::Required`] also has [`Self::volatile`] set at registration time,
+    /// so that all existing volatility propagation applies to it unchanged.
+    /// Default is [`PayloadRequirement::None`].
+    #[serde(skip_serializing_if = "PayloadRequirement::is_none")]
+    #[serde(default)]
+    pub payload_required: PayloadRequirement,
+
     /// Expiration specification for the command result.
     /// If set to anything other than Never, assets produced by this command
     /// will have their expiration time derived from this specification.
@@ -826,6 +898,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            payload_required: PayloadRequirement::None,
             expires: Expires::Never,
             is_async: false,
             definition: CommandDefinition::Registered,
@@ -857,6 +930,7 @@ impl CommandMetadata {
             arguments: Vec::new(),
             cache: true,
             volatile: false,
+            payload_required: PayloadRequirement::None,
             expires: Expires::Never,
             is_async: false,
             definition: CommandDefinition::Registered,
@@ -1226,5 +1300,80 @@ mod tests {
                 .metadata_version,
             Version::new(0)
         );
+    }
+
+    // ---- PayloadRequirement (U1) ----
+
+    #[test]
+    fn test_payload_requirement_join() {
+        use PayloadRequirement::{None, Required};
+        assert_eq!(None.join(None), None);
+        assert_eq!(None.join(Required), Required);
+        assert_eq!(Required.join(None), Required);
+        assert_eq!(Required.join(Required), Required);
+    }
+
+    #[test]
+    fn test_payload_requirement_default_is_none() {
+        assert_eq!(PayloadRequirement::default(), PayloadRequirement::None);
+        assert!(PayloadRequirement::default().is_none());
+        assert!(!PayloadRequirement::default().is_required());
+    }
+
+    #[test]
+    fn test_payload_requirement_predicates() {
+        assert!(PayloadRequirement::None.is_none());
+        assert!(!PayloadRequirement::None.is_required());
+        assert!(!PayloadRequirement::Required.is_none());
+        assert!(PayloadRequirement::Required.is_required());
+    }
+
+    // ---- Serialization compatibility (U2, CommandMetadata half) ----
+
+    #[test]
+    fn test_command_metadata_defaults_to_no_payload() {
+        let cm = CommandMetadata::new("test");
+        assert_eq!(cm.payload_required, PayloadRequirement::None);
+        assert_eq!(
+            CommandMetadata::from_key(CommandKey::new("", "root", "test")).payload_required,
+            PayloadRequirement::None
+        );
+    }
+
+    #[test]
+    fn test_none_requirement_is_not_serialized() -> Result<(), Box<dyn std::error::Error>> {
+        // Metadata for a command that does not use a payload must serialize exactly as it
+        // did before this field existed.
+        let cm = CommandMetadata::new("test");
+        let json = serde_json::to_string(&cm)?;
+        assert!(
+            !json.contains("payload_required"),
+            "PayloadRequirement::None must be skipped, got: {}",
+            json
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_command_metadata_without_payload_field_deserializes(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Shape captured before this change: no `payload_required` key at all.
+        let json = r#"{"realm":"","namespace":"root","name":"test","label":"test",
+            "module":"","doc":"","state_argument":null,"cache":true,"volatile":false,
+            "definition":"Registered","filename":""}"#;
+        let cm: CommandMetadata = serde_json::from_str(json)?;
+        assert_eq!(cm.payload_required, PayloadRequirement::None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_required_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cm = CommandMetadata::new("test");
+        cm.payload_required = PayloadRequirement::Required;
+        let json = serde_json::to_string(&cm)?;
+        assert!(json.contains("payload_required"));
+        let back: CommandMetadata = serde_json::from_str(&json)?;
+        assert_eq!(back.payload_required, PayloadRequirement::Required);
+        Ok(())
     }
 }
