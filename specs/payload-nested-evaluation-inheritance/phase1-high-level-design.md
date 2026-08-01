@@ -540,11 +540,10 @@ runtime asset layer.
 
 #### Undecided / low priority
 
-- `metadata.rs:816-820` `MetadataRecord.is_volatile` (**serialized**) and its helpers
-  (`:1246-1264`, `:2085-2101`, `:2210-2243`). Recording "this result required a payload" on the
-  produced asset is useful for introspection, but it is derived and the operational consequence is
-  already conveyed by `is_volatile`. Adding it is a serialized-format change — recommend **deferring**
-  unless Phase 2 finds a consumer.
+- ~~`metadata.rs:816-820` `MetadataRecord.is_volatile` (**serialized**) and its helpers
+  (`:1246-1264`, `:2085-2101`, `:2210-2243`)~~ — **now in scope.** Deferred here "unless Phase 2
+  finds a consumer"; **diagnostics is that consumer**. `AssetInfo`, `MetadataRecord`, and `Metadata`
+  all gain a `payload_required` query mirroring `is_volatile`. See `phase2-architecture.md`.
 - `liquers-lib` UI display of volatility (`query_console_element.rs`, `egui/widgets.rs`) — cosmetic
   parity, last.
 

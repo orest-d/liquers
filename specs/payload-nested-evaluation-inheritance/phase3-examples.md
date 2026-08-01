@@ -19,6 +19,8 @@ plus the ones Phase 2 specifies, so they can be pasted in and compiled once the 
 | U3 | Unit | `PlanBuilder` local detection | Command requirement lands on the plan; link parameters propagate; `volatile` implied |
 | U4 | Unit | Plan splitting | Both halves inherit `payload_required` (`plan.rs:1599,1607`) |
 | U5 | Unit | Macro codegen | `payload: required` sets both `payload_required` and `volatile`; unknown ident is a compile error |
+| U6 | Unit | Diagnostic surface | `AssetInfo` / `MetadataRecord` / `Metadata` expose `payload_required`; all five copy sites carry it; legacy JSON defaults |
+| U7 | Unit | `init_steps` reasoning | An explanatory `Step::Info` appears **only** when a payload-requiring command is present, and only once |
 | I1 | Integration | Inheritance through `evaluate` | Rewrite of `test_payload_not_inherited_in_nested_evaluation` |
 | I2 | Integration | Inheritance through `get_dependency_state` and `apply` | The other two nested entry points |
 | I3 | Integration | Payload-free child stays shared | Child goes through the manager, is cached and reused |
@@ -277,6 +279,60 @@ fn test_plan_split_preserves_payload_required() -> Result<(), Box<dyn std::error
 | `test_payload_required_sets_volatile` | `cm.volatile == true` (the D7 shortcut) |
 | `test_payload_none_is_default` | omitting the statement leaves `None` |
 | `test_unknown_payload_ident_fails` | `payload: bogus` is a compile error — `trybuild` if available, otherwise documented as manual |
+
+**U6 — Diagnostic surface** (`metadata.rs`, inline `mod tests`)
+
+```rust
+#[test]
+fn test_metadata_record_payload_required_helper() {
+    let mut mr = MetadataRecord::new();
+    assert_eq!(mr.payload_required(), PayloadRequirement::None);
+    mr.set_payload_required();
+    assert_eq!(mr.payload_required(), PayloadRequirement::Required);
+}
+
+#[test]
+fn test_asset_info_round_trip_preserves_payload_required() -> Result<(), Box<dyn std::error::Error>> {
+    // MetadataRecord -> to_asset_info -> From<AssetInfo> -> MetadataRecord
+    // Guards metadata.rs:992 and metadata.rs:746 together.
+}
+
+#[test]
+fn test_legacy_metadata_without_payload_field_defaults_to_none() -> Result<(), Box<dyn std::error::Error>> {
+    // Metadata::LegacyMetadata JSON object with no `payload_required` key.
+    // Mirrors the existing is_volatile unwrap_or(false) treatment.
+}
+
+#[test]
+fn test_plan_to_metadata_record_carries_payload_required() -> Result<(), Box<dyn std::error::Error>> {
+    // Guards plan.rs:1456 (to_metadata_record) and plan.rs:1496 (update_metadata_record).
+}
+```
+
+**Note:** unlike `is_volatile()`, `payload_required()` has **no `Status` disjunction** — there is no
+`Status::PayloadRequired`. A test should assert that a `MetadataRecord` with
+`status == Status::Volatile` still reports `payload_required() == None`, so the two concepts are not
+accidentally conflated later.
+
+**U7 — `init_steps` reasoning** (`plan.rs`)
+
+```rust
+#[test]
+fn test_no_info_when_no_payload_command() -> Result<(), Box<dyn std::error::Error>> {
+    // A plan with no payload-requiring command must add NO payload message to init_steps.
+}
+
+#[test]
+fn test_info_added_once_for_payload_command() -> Result<(), Box<dyn std::error::Error>> {
+    // Two payload-requiring commands in one plan -> exactly ONE init_steps message,
+    // because mark_payload_required guards on the transition (plan.rs:923-929).
+}
+
+#[test]
+fn test_info_names_the_trigger() -> Result<(), Box<dyn std::error::Error>> {
+    // The message identifies the command (or link query) that caused the requirement.
+}
+```
 
 ### Integration tests (`liquers-core/tests/injection.rs`)
 

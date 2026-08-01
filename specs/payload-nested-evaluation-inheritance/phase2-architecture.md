@@ -96,6 +96,58 @@ always required in the serialized format. `payload_required` **does** get `#[ser
 because plans serialized before this change contain no such field and must still deserialize.
 Matching `is_volatile`'s strictness would break every stored plan.
 
+### Diagnostic surface: `AssetInfo`, `MetadataRecord`, `Metadata`
+
+Phase 1 D8 deferred this "pending a consumer". Diagnostics **is** that consumer, so it is now in
+scope. Each addition mirrors its `is_volatile` counterpart exactly.
+
+```rust
+// AssetInfo (metadata.rs:654-656) — note the existing field already carries a
+// legacy-support serde(default) comment; follow the same pattern.
+pub struct AssetInfo {
+    pub is_volatile: bool,                        // unchanged
+    #[serde(default)]
+    pub payload_required: PayloadRequirement,     // new
+}
+
+// MetadataRecord (metadata.rs:816-820)
+pub struct MetadataRecord {
+    pub is_volatile: bool,                        // unchanged
+    #[serde(default)]
+    #[serde(skip_serializing_if = "PayloadRequirement::is_none")]
+    pub payload_required: PayloadRequirement,     // new
+}
+
+impl MetadataRecord {
+    /// Mirrors `is_volatile()` (metadata.rs:1246-1248).
+    pub fn payload_required(&self) -> PayloadRequirement;
+    /// Mirrors `set_volatile()` (metadata.rs:1261-1264).
+    pub fn set_payload_required(&mut self) -> &mut Self;
+}
+
+impl Metadata {
+    /// Mirrors `is_volatile()` (metadata.rs:2085-2101), including legacy-JSON extraction.
+    pub fn payload_required(&self) -> PayloadRequirement;
+}
+```
+
+**Simpler than `is_volatile` in one respect:** `MetadataRecord::is_volatile()` returns
+`self.is_volatile || self.status == Status::Volatile`. There is no `Status::PayloadRequired`
+(Phase 1 D7/D8), so `payload_required()` is a plain field read with no status disjunction.
+
+**Wiring — the five sites that copy `is_volatile` must copy the new field too:**
+
+| Site | Current line |
+|---|---|
+| `MetadataRecord::to_asset_info` | `is_volatile: self.is_volatile` (`metadata.rs:992`) |
+| `MetadataRecord::from(asset_info)` | `metadata.is_volatile = asset_info.is_volatile` (`metadata.rs:746`) |
+| `Plan::to_metadata_record` | `mr.is_volatile = self.is_volatile` (`plan.rs:1456`) |
+| `Plan::update_metadata_record` | `mr.is_volatile = self.is_volatile` (`plan.rs:1496`) |
+| `MetadataRecord` legacy-JSON load | `m.is_volatile = ...` (`metadata.rs:1348-1350`) |
+
+Legacy JSON without the key must default to `None`, matching the existing `unwrap_or(false)`
+treatment of `is_volatile`.
+
 ### Modified: `PlanBuilder` (`plan.rs:880-1010`)
 
 ```rust
@@ -294,10 +346,31 @@ Consequences — all simplifying:
 
 ### `liquers-core/src/plan.rs` — local detection
 
+**Diagnostic reasoning in `init_steps`** — this costs nothing, because `mark_volatile` already has
+exactly the required shape (`plan.rs:923-929`):
+
+```rust
+fn mark_volatile(&mut self, reason: &str) {
+    if !self.is_volatile {          // fires once, on transition only
+        self.is_volatile = true;
+        self.plan.init_info(reason.to_string());
+    }
+}
+```
+
+The transition guard is what makes it satisfy "only if there *is* a command requiring payload": a
+plan with no such command never calls it, so no message appears; a plan with several emits one
+message naming the first cause, not one per step. `mark_payload_required` mirrors this exactly.
+
+Message content should name the trigger so the diagnostic is actionable, e.g.
+`"Payload required due to command 'get_user_id'"` and, for the link-parameter path,
+`"Payload required due to link parameter to payload-requiring query: <query>"` — parallel to the
+existing volatility messages.
+
 ```rust
 impl<'c> PlanBuilder<'c> {
-    /// Mark plan as payload-requiring and add explanatory Step::Info.
-    /// Mirrors `mark_volatile` (plan.rs:923-929).
+    /// Mark plan as payload-requiring and add explanatory Step::Info to init_steps.
+    /// Mirrors `mark_volatile` (plan.rs:923-929), including the once-only transition guard.
     fn mark_payload_required(&mut self, reason: &str);
 
     /// Read `payload_required` from CommandMetadata.
@@ -392,7 +465,8 @@ exhaustive match on `ErrorType`. A `payload_required` *constructor* alongside `k
 |---|---|---|
 | `CommandMetadata::payload_required` | `#[serde(default)]` + `skip_serializing_if = "PayloadRequirement::is_none"` | Existing metadata documents lack the field; output stays byte-identical when unused |
 | `Plan::payload_required` | `#[serde(default)]` | Stored plans predate the field; deliberately unlike `is_volatile` |
-| `MetadataRecord` | **no change** | Phase 1 D8: derived, and `is_volatile` already conveys the operational consequence. Deferred pending a consumer |
+| `MetadataRecord::payload_required` | `#[serde(default)]` + `skip_serializing_if = "PayloadRequirement::is_none"` | **In scope** — diagnostics is the consumer Phase 1 D8 was waiting for. Legacy documents load as `None` |
+| `AssetInfo::payload_required` | `#[serde(default)]` | Matches the existing legacy-support treatment of `AssetInfo::is_volatile` (`metadata.rs:654-656`) |
 
 **Round-trip requirement:** a `CommandMetadata` serialized before this change must deserialize, and
 re-serializing it must not introduce a `payload_required` key.
@@ -430,7 +504,8 @@ checklist for all `ui/commands.rs` sites.
 | Crate | File | Change |
 |---|---|---|
 | liquers-core | `command_metadata.rs` | `PayloadRequirement` enum + `CommandMetadata` field |
-| liquers-core | `plan.rs` | `Plan` field, `PlanBuilder` field + 3 methods, `build()`, **plan splitting** |
+| liquers-core | `plan.rs` | `Plan` field, `PlanBuilder` field + 3 methods, `build()`, **plan splitting**, `to_metadata_record` + `update_metadata_record` |
+| liquers-core | `metadata.rs` | `AssetInfo` + `MetadataRecord` fields, `payload_required()` / `set_payload_required()`, `Metadata::payload_required()`, legacy-JSON load, `to_asset_info` / `From<AssetInfo>` |
 | liquers-core | `interpreter.rs` | `RequiresPayload` trait + 6 impls; pre-pass must leave payload-requiring queries to `do_step` (`interpreter.rs:85-86`) |
 | liquers-core | `assets.rs` | 1 `AssetManager` default method; `DefaultAssetManager` override (queued) + `ImmediateAssetManager` override (new — it inherits the default today) |
 | liquers-core | `context.rs` | routing switch in `schedule_dependency_asset`; active-query cycle guard; `apply`; `ImmediateEnvironmentWithPayload`; module rustdoc at `:76-80` |
