@@ -395,16 +395,41 @@ building. Three consequences for this design, none of them breaking:
 
 ```rust
 let plan = match recipe.store_to_key()? {
-    Some(key) => recipe.to_plan_for_key(cmr, &key),
-    None      => recipe.to_plan(cmr),
+    Some(key) => recipe.to_plan_for_key(cmr, &key),   // stored recipe: payload boundary applies
+    None      => recipe.to_plan(cmr),                 // ad-hoc recipe: it does not
 };
 ```
 
-`store_to_key()` is `cwd.join(filename)` and returns `None` when either is absent — so a recipe
-list validated without `--cwd` silently degrades to the plain `to_plan` check rather than
-failing. This is a real gain in coverage: "this recipe requires an evaluation payload but is
-stored under a key" is precisely the kind of `recipes.yaml` defect this tool exists to catch, and
-`assets.rs` now enforces it at evaluation time, so the validator matches production behaviour.
+**Both branches are first-class, not a primary path and a fallback.** A recipe need not be stored
+under a key at all: `Recipe::filename()`'s own doc notes that "ad-hoc recipes (stemming e.g. from
+web API calls) of queries converted to recipes do not need to have a filename", and such a recipe
+is evaluated directly rather than becoming a keyed asset. The payload boundary is a property of
+being keyed, so for an ad-hoc recipe there is nothing to enforce and `to_plan` is the *correct*
+check, not a weaker one. `store_to_key()` is `cwd.join(filename)` and returns `None` when either
+part is missing, which is exactly the ad-hoc case.
+
+For a stored recipe the extra check is a real gain in coverage: "this recipe requires an
+evaluation payload but is stored under a key" is precisely the kind of `recipes.yaml` defect this
+tool exists to catch, and `assets.rs` now enforces it at evaluation time, so the validator matches
+production.
+
+Because the two branches check genuinely different things, **which one ran must be visible** —
+otherwise an agent that forgot `--cwd` would silently receive the weaker check and read it as a
+clean bill of health:
+
+```rust
+/// Which recipe check was applied. `None` for query inputs.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeCheck {
+    /// Recipe resolves to a storage key; the payload boundary was enforced.
+    Stored,
+    /// Ad-hoc recipe with no storage key; the payload boundary does not apply.
+    AdHoc,
+}
+```
+
+carried on `ValidationResult` as
+`#[serde(skip_serializing_if = "Option::is_none", default)] pub recipe_check: Option<RecipeCheck>`.
 
 Note the two key-shaped methods are *not* interchangeable: `Recipe::key()` is the key of the
 recipe's **query**, while `store_to_key()` is where the **result** is stored. `ValidationResult.key`
@@ -466,7 +491,7 @@ new error type, no `unwrap()`/`expect()` outside tests.
 | Query does not parse | `parse_query`'s `Error` → `ValidationResult.error`, status `Error`. Not an `Err`. |
 | Command not registered | `PlanBuilder::build` → `Error::action_not_registered` → `ValidationResult.error`, status `Error` |
 | Recipe override names a missing argument | `Recipe::to_plan`'s `Error::general_error` → `ValidationResult.error` |
-| Keyed recipe requires an evaluation payload | `Recipe::to_plan_for_key`'s `Error::general_error` → `ValidationResult.error`; only reachable when `--cwd` gives the recipe a storage key |
+| Stored recipe requires an evaluation payload | `Recipe::to_plan_for_key`'s `Error::general_error` → `ValidationResult.error`. Not reachable for an ad-hoc recipe, where the boundary does not apply; `recipe_check` records which case held |
 | Plan built but carries `Plan::error` / `Step::Error` | status `Warning`, `warnings` populated, **exit 0** |
 | Registry file is neither JSON nor YAML | `Err(Error::general_error)` quoting *both* parser messages, with the source name |
 | Duplicate `CommandKey` on merge | `Err(Error::general_error)` naming the key and the file, unless `--allow-overwrite` |
