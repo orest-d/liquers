@@ -2689,6 +2689,26 @@ pub trait AssetManager<E: Environment>:
         self.get_asset(query).await
     }
 
+    /// Resolve the asset for `query` as a dependency of `parent`, forwarding `payload` to
+    /// the evaluation.
+    ///
+    /// Called instead of [`Self::get_dependency_asset`] when the dependency's plan requires
+    /// a payload. Such an asset is evaluated inline rather than through a job queue: it is
+    /// volatile by construction, so it is fresh, unshared, and never persisted or reused,
+    /// and there is nothing to gain by queueing it.
+    ///
+    /// Default: ignore the payload and delegate, preserving existing behavior for managers
+    /// that have not opted in. Implementors that support payload evaluation override this.
+    async fn get_dependency_asset_with_payload(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = payload;
+        self.get_dependency_asset(parent, query).await
+    }
+
     /// Drain `parent`'s local dependency queue: claim and inline-run each still-runnable
     /// entry sequentially inside the caller's future. Default: no-op (managers without
     /// local queues have nothing to drain).
@@ -3919,6 +3939,26 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
             return Ok(asset);
         }
+    }
+
+    async fn get_dependency_asset_with_payload(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        // A payload-requiring query is volatile by construction, so `get_query_asset`
+        // resolves it to a fresh, unshared asset that is in no map and cannot be reused.
+        // There is nothing to fast-track and nothing to evict; run it inline in the
+        // caller's future rather than consuming a job-queue slot.
+        let asset = if let Some(key) = query.key() {
+            self.get_resource_asset(&key).await?
+        } else {
+            self.get_query_asset(query).await?
+        };
+        asset.run_immediately(payload).await?;
+        Ok(asset)
     }
 
     async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
@@ -5235,6 +5275,29 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
         asset_ref.run_inline().await?;
         Ok(asset_ref)
+    }
+
+    /// Inline counterpart of `DefaultAssetManager`'s override.
+    ///
+    /// This manager inherits the trait-default `get_dependency_asset` (which delegates to
+    /// `get_asset`), but the payload variant must be implemented here: `get_asset` has no
+    /// payload parameter, so delegating would silently drop it.
+    async fn get_dependency_asset_with_payload(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        self.ensure_started().await;
+        // Volatile by construction, so this is a fresh unshared asset in no map.
+        let asset = if let Some(key) = query.key() {
+            self.get_resource_asset(&key).await?
+        } else {
+            self.get_query_asset(query).await?
+        };
+        asset.run_immediately_inline(payload).await?;
+        Ok(asset)
     }
 
     async fn apply_immediately(
