@@ -42,7 +42,8 @@ None. No `ExtValue` variant is added; the validator never instantiates a rich `V
 None.
 
 ### UI
-None (CLI only; JSON on stdout, exit codes for pass/fail).
+None (CLI only; JSON envelope on stdout, human-readable `WARNING …` lines on stderr, exit codes
+for pass/fail).
 
 ## Crate Placement
 
@@ -68,9 +69,12 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
 5. **Output is a diagnostic envelope**, not a bare `Query`/`Plan`: status, the serialized `Query`
    and `Plan`, the serialized `Error` (already carrying `position` line/column/offset and the
    offending query), and registry provenance. Serialized `Plan` is the floor, not the cap.
-6. **A `Plan` carrying `error` or `Step::Error` is a successful validation** — planning
-   succeeded, and the caller inspects the serialized plan to judge whether it encodes the intended
-   behaviour. Only parse failure and plan-*construction* failure are non-zero exits.
+6. **A `Plan` carrying `error` or `Step::Error` is a successful validation, reported as a
+   warning.** Planning succeeded, and the caller inspects the serialized plan to judge whether it
+   encodes the intended behaviour. The envelope carries a `warnings` list and the CLI prints
+   `WARNING  Plan contains error: …` (from `Plan::error`, `Step::Error`, `Step::Warning`, and
+   `init_steps`, using the existing `Step::is_error`/`is_warning` helpers). Only parse failure and
+   plan-*construction* failure are non-zero exits.
 7. **Recipes and recipe lists are first-class inputs.** `Recipe::to_plan(&cmr)` already exists in
    `liquers-core/src/recipes.rs` and validates more than a bare query: it also checks that every
    `arguments` and `links` override names something present in the plan's last action. A
@@ -78,19 +82,29 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
 8. **No checked-in registry artifact for now.** The exporter writes a file on demand; the
    validator reads it via `--registry-file`. If a committed artifact proves useful later, it can
    be added with a freshness test, without changing either tool's interface.
+9. **Input kind comes from explicit CLI parameters, never inference.** A bare positional argument
+   is a query — the shortest, most scriptable form and the primary path for an agent. Recipes come
+   from a file or stdin (`--recipe`, `--recipe-list`, `-` meaning stdin); a query may optionally
+   be read the same way. Nothing sniffs file extensions or content shape.
+10. **Recipe `cwd` is supplied on the command line** (`--cwd`), since a recipe validated in
+    isolation has lost the folder it came from. Note that `cwd` does *not* affect the plan —
+    `Recipe::to_plan` never consults it. It affects `Recipe::key()` and `store_to_key()`, i.e. the
+    resolved absolute target key, which the envelope reports as a diagnostic. An unparseable
+    `--cwd` is itself a validation error.
 
 ## Open Questions
 
-1. How does the CLI discriminate input kinds — explicit subcommands (`query` / `recipe` /
-   `recipe-list`), a `--kind` flag, or inference from file extension and content shape? → Phase 2.
-2. Does the validator need a zero-setup path to the liquers-lib registry (a conventional file
+1. Does the validator need a zero-setup path to the liquers-lib registry (a conventional file
    path or `LIQUERS_COMMAND_REGISTRY` env var), or is passing `--registry-file` explicitly on
    every call good enough for an agent? → Phase 2.
-3. Exporter selection granularity: cargo features are compile-time (`--features polars,egui`)
+2. Exporter selection granularity: cargo features are compile-time (`--features polars,egui`)
    while namespace filtering is runtime. Does one flag surface cover both, or are they separate?
    → Phase 2.
-4. Does the exporter emit YAML as well as JSON, and does the validator accept both on input?
+3. Does the exporter emit YAML as well as JSON, and does the validator accept both on input?
    → Phase 2 (both crates already depend on `serde_yaml`, so this is nearly free).
+4. `--cwd` against a recipe list: `RecipeList::set_cwd` hard-errors when *any* recipe already
+   carries its own `cwd` (and prints to stdout). Should the validator use it as-is, or default
+   cwd only on the recipes that lack one and report the rest? → Phase 2.
 
 ## References
 
