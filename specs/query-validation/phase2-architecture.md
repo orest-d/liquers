@@ -34,8 +34,15 @@ to distinguish "the query is bad" from "the validator is broken" by inspecting m
 3. **`Recipe::to_plan` ignores `cwd`** entirely. `cwd` feeds only `Recipe::key()` and
    `store_to_key()`. So `--cwd` changes the reported target key, never the plan.
 4. **`Plan::steps` and `Plan::init_steps` both carry diagnostics**; `Plan::error` is set by
-   `set_error`, which *also* pushes a `Step::Error` into `init_steps` (`plan.rs:1441`). Warning
-   collection must therefore de-duplicate, or a plan error is reported twice.
+   `set_error`, which *also* pushes a `Step::Error` into `init_steps`. Warning collection must
+   therefore de-duplicate, or a plan error is reported twice.
+5. **Keyed recipes are a payload boundary** (added by PR #14). `Recipe::to_plan_for_key(cmr, key)`
+   (`recipes.rs:193`) runs `to_plan` and then rejects the result if `plan.payload_required` is
+   `Required`, because a key names one shared asset while a payload is supplied per evaluation.
+   Its doc comment notes it cannot be folded into `to_plan`, since only the caller that looked the
+   recipe up knows the key it is registered under — and the validator *is* such a caller:
+   `Recipe::store_to_key()` yields exactly that key from `cwd` + filename. See "Payload
+   requirement" below.
 
 ## Data Structures
 
@@ -96,7 +103,8 @@ pub struct ValidationResult {
     pub query: Option<Query>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub plan: Option<Plan>,
-    /// Absolute target key resolved through `cwd`. Recipes only.
+    /// Storage key the recipe result would land under — `Recipe::store_to_key()`,
+    /// i.e. `cwd` joined with the filename. Recipes only; `None` without `--cwd`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub key: Option<Key>,
     /// Set when `status == Error`.
@@ -203,7 +211,9 @@ pub fn validate_query(
 ) -> ValidationResult;
 
 /// Validate one recipe. Uses `Recipe::to_plan`, which additionally checks that every
-/// `arguments` and `links` override names something in the plan's last action.
+/// `arguments` and `links` override names something in the plan's last action — and
+/// `Recipe::to_plan_for_key` instead when the recipe resolves to a storage key, which
+/// additionally enforces the payload boundary. See "Payload requirement".
 pub fn validate_recipe(
     recipe: &Recipe,
     index: usize,
@@ -369,6 +379,37 @@ The exporter builds `DefaultEnvironment<Value, SimpleUIPayload>` (the payload is
 `lui` group), invokes the selected `register_*_commands!` macros, and serializes
 `env.get_command_metadata_registry()`.
 
+### Payload requirement
+
+PR #14 added `PayloadRequirement` (`command_metadata.rs:707`) and threaded it through plan
+building. Three consequences for this design, none of them breaking:
+
+1. **`Plan` gained `payload_required`**, so it is already in the serialized envelope for free —
+   no new field of ours. It carries `#[serde(default)]`, so plans serialized before the field
+   existed still deserialize.
+2. **`CommandMetadata` gained `payload_required`**, defaulting to `PayloadRequirement::None` in
+   both `new()` and `from_key()`. So the permissive CLI command needs no change and correctly
+   declares no payload requirement. The field is `skip_serializing_if` its default, so exported
+   registries stay compact and pre-existing registry files still load.
+3. **Recipe validation should prefer `to_plan_for_key`** when the recipe has a storage key:
+
+```rust
+let plan = match recipe.store_to_key()? {
+    Some(key) => recipe.to_plan_for_key(cmr, &key),
+    None      => recipe.to_plan(cmr),
+};
+```
+
+`store_to_key()` is `cwd.join(filename)` and returns `None` when either is absent — so a recipe
+list validated without `--cwd` silently degrades to the plain `to_plan` check rather than
+failing. This is a real gain in coverage: "this recipe requires an evaluation payload but is
+stored under a key" is precisely the kind of `recipes.yaml` defect this tool exists to catch, and
+`assets.rs` now enforces it at evaluation time, so the validator matches production behaviour.
+
+Note the two key-shaped methods are *not* interchangeable: `Recipe::key()` is the key of the
+recipe's **query**, while `store_to_key()` is where the **result** is stored. `ValidationResult.key`
+reports the latter.
+
 ## Integration Points
 
 | Crate | Change | Risk |
@@ -425,6 +466,7 @@ new error type, no `unwrap()`/`expect()` outside tests.
 | Query does not parse | `parse_query`'s `Error` → `ValidationResult.error`, status `Error`. Not an `Err`. |
 | Command not registered | `PlanBuilder::build` → `Error::action_not_registered` → `ValidationResult.error`, status `Error` |
 | Recipe override names a missing argument | `Recipe::to_plan`'s `Error::general_error` → `ValidationResult.error` |
+| Keyed recipe requires an evaluation payload | `Recipe::to_plan_for_key`'s `Error::general_error` → `ValidationResult.error`; only reachable when `--cwd` gives the recipe a storage key |
 | Plan built but carries `Plan::error` / `Step::Error` | status `Warning`, `warnings` populated, **exit 0** |
 | Registry file is neither JSON nor YAML | `Err(Error::general_error)` quoting *both* parser messages, with the source name |
 | Duplicate `CommandKey` on merge | `Err(Error::general_error)` naming the key and the file, unless `--allow-overwrite` |
