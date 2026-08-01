@@ -175,6 +175,38 @@ impl Recipe {
                 .with_query(&query));
             }
         }
+
+        Ok(plan)
+    }
+
+    /// Builds the plan for a recipe that is *stored at* `key`, rejecting one that requires an
+    /// evaluation payload.
+    ///
+    /// Keys are a payload boundary: a key names a single shared asset, while a payload is
+    /// supplied per evaluation, so a keyed recipe requiring one would need a global payload —
+    /// which this design does not provide. Rejecting here surfaces the problem against the
+    /// recipe that caused it, rather than as an obscure injection failure during evaluation.
+    ///
+    /// Note this cannot be folded into [`Self::to_plan`]: [`Self::key`] reports the key of the
+    /// recipe's *query*, which is unrelated to the key the recipe is registered under. Only the
+    /// caller that looked the recipe up knows that key.
+    pub fn to_plan_for_key(
+        &self,
+        cmr: &CommandMetadataRegistry,
+        key: &Key,
+    ) -> Result<Plan, Error> {
+        let plan = self.to_plan(cmr)?;
+        if plan.payload_required.is_required() {
+            return Err(Error::general_error(format!(
+                "Recipe for key '{}' requires an evaluation payload, but keyed recipes cannot \
+                 receive one: a key identifies a single shared asset, while a payload is \
+                 supplied per evaluation. Remove the 'payload: required' commands from this \
+                 recipe, or evaluate the query directly with EnvRef::evaluate_immediately \
+                 instead of storing it as a recipe.",
+                key
+            ))
+            .with_key(key));
+        }
         Ok(plan)
     }
 
@@ -344,7 +376,7 @@ pub trait AsyncRecipeProvider<E: Environment>:
         eprintln!("Getting asset info for recipe at key {}", key);
         let recipe = self.recipe(key, envref.clone()).await?;
         let mut asset_info = recipe.get_asset_info()?;
-        match create_plan_with_init_metadata(&recipe, envref).await {
+        match create_plan_with_init_metadata(&recipe, envref, Some(key)).await {
             Ok(plan) => {
                 asset_info.is_volatile = plan.is_volatile;
                 asset_info.expires = plan.expires;
@@ -370,8 +402,13 @@ pub trait AsyncRecipeProvider<E: Environment>:
 async fn create_plan_with_init_metadata<E: Environment>( // TODO: missleading name, use conventioanl plan building functionality
     recipe: &Recipe,
     envref: EnvRef<E>,
+    key: Option<&Key>,
 ) -> Result<Plan, Error> {
-    let mut plan = recipe.to_plan(envref.get_command_metadata_registry())?;
+    let cmr = envref.get_command_metadata_registry();
+    let mut plan = match key {
+        Some(key) => recipe.to_plan_for_key(cmr, key)?,
+        None => recipe.to_plan(cmr)?,
+    };
     let _ = has_volatile_dependencies(envref.clone(), &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
     if plan.error.is_none() {
         let _ = has_expirable_dependencies(envref, &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
@@ -470,7 +507,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
                 Error::general_error(format!("No recipe found for key {} (recipe plan)", key))
                     .with_key(key),
             )?;
-            create_plan_with_init_metadata(recipe, envref)
+            create_plan_with_init_metadata(recipe, envref, Some(key))
                 .await
                 .map_err(|e| e.with_key(key))
         } else {

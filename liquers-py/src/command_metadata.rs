@@ -363,6 +363,15 @@ impl CommandMetadata {
         self.0.volatile
     }
 
+    /// Whether the command needs an evaluation payload: `"none"` or `"required"`.
+    ///
+    /// Returned as a string rather than a Python enum, since there are only two states.
+    /// A command that requires a payload is also `volatile`.
+    #[getter]
+    fn payload_required(&self) -> String {
+        self.0.payload_required.to_string()
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
     }

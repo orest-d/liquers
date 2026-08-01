@@ -30,7 +30,9 @@ fn my_command(state: &State<Value>, user_id: UserId) -> Result<Value, Error> {
     Ok(Value::none())
 }
 
-register_command!(cr, fn my_command(state, user_id: UserId injected) -> result)?;
+register_command!(cr, fn my_command(state, user_id: UserId injected) -> result
+    payload: required
+)?;
 
 // 5. Provide payload when evaluating
 let payload = MyPayload { user_id: "alice".to_string(), window_id: 42 };
@@ -47,7 +49,11 @@ envref.evaluate_immediately("/-/my_command", payload).await?;
 
 **Optional** - Payload is NOT available in all execution contexts:
 - ✅ Available: Immediate query evaluation (e.g., UI interactions, API requests)
+- ✅ Available: Nested evaluation of a command declared `payload: required` (inherited)
 - ❌ Not available: Background/async asset evaluation, store-triggered evaluations
+- ❌ Not available: Keyed assets — see *Keys are a payload boundary* below
+
+Evaluating a plan that requires a payload without one is an **error**, not a silent fallback.
 
 **Environment-specific** - Each environment defines ONE payload type:
 ```rust
@@ -62,9 +68,26 @@ impl Environment for MyEnvironment {
 type Payload: Clone + Send + Sync + 'static;
 ```
 
-**Inheritance** - Sub-queries inherit the parent's payload:
-- When a command evaluates a nested query/link, the same payload is passed through
+**Inheritance** - Sub-queries inherit the parent's payload, if they declare that they need it:
+- A command that reads the payload must declare `payload: required` in `register_command!`
+- The requirement propagates to the plan, and `Context::evaluate`,
+  `Context::get_dependency_state` and `Context::apply` then forward the parent's payload
 - Enables deep command chains to access the same context
+
+> **Declare it, or lose it.** A command that reads the payload but omits
+> `payload: required` still works at top level (where `evaluate_immediately` installs the
+> payload directly) and silently receives **no** payload when evaluated as a nested
+> dependency. Nothing in its plan says it needs one, so nothing forwards one.
+
+**Requiring a payload implies `volatile`.** A payload-evaluated result is fresh per
+evaluation, never cached, never shared, and never registered as a dependency of another
+asset — a payload is not part of the dependency key, so nothing may hold a reference to
+such an asset. It may still *have* dependencies of its own.
+
+**Keys are a payload boundary.** A key names one shared, global asset while a payload is
+supplied per evaluation, so a keyed recipe may not require one: such a recipe is rejected
+when its plan is built. A payload requirement never propagates through a keyed step
+either.
 
 ## When to Use Payload
 
@@ -1120,7 +1143,9 @@ pub struct UserId(pub String);  // Field is public
 | **Access** | Via `Context::get_payload_clone()` or `injected` parameters |
 | **Injection** | Requires type to implement `InjectedFromContext<E>` trait |
 | **Newtype Pattern** | **Recommended** - Use newtypes for specific payload fields |
-| **Inheritance** | Automatically passed to nested queries |
+| **Inheritance** | Passed to nested queries that declare `payload: required` |
+| **Implies** | `volatile` — never cached, shared, or usable as a dependency |
+| **Boundary** | Keyed recipes cannot require a payload |
 | **Common uses** | UI handles, HTTP request context, user sessions |
 
 ### Quick Reference: Access Patterns

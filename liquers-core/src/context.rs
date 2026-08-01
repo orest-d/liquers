@@ -76,8 +76,23 @@
 //! A payload is optional on `Context` even though its type is fixed by
 //! [`Environment::Payload`]. [`EnvRef::evaluate_immediately`] installs one.
 //! It remains available to actions in that evaluation, including injected command
-//! parameters. Nested asset evaluation through [`Context::evaluate`] or
-//! [`Context::get_dependency_state`] does **not** currently inherit it.
+//! parameters.
+//!
+//! Nested asset evaluation **inherits** it, but only where it is needed and only where it
+//! can be honoured. A command declares `payload: required` in `register_command!`, which
+//! propagates to `Plan::payload_required`; when a nested query's plan requires a payload,
+//! [`Context::evaluate`], [`Context::get_dependency_state`] and [`Context::apply`] forward
+//! this context's payload and the nested asset is evaluated inline. Requiring a payload
+//! implies volatility, so such an asset is fresh, unshared and never persisted.
+//!
+//! Two boundaries limit this. **Keys are a payload boundary**: keys are global while a
+//! payload is per-evaluation, so a keyed recipe may not require one, and a requirement never
+//! propagates through a keyed step. And a payload-evaluated asset may *have* dependencies but
+//! may never *be* one, because a payload is not part of the dependency key — so it is not
+//! registered in the dependency graph, and cycles among such assets are detected along the
+//! evaluation path instead.
+//!
+//! Evaluating a payload-requiring plan without a payload is an error.
 
 use core::panic;
 use std::sync::{Arc, Mutex};
@@ -326,6 +341,18 @@ pub struct Context<E: Environment> {
     /// Dependencies discovered during evaluation (via Context::evaluate calls).
     /// Collected here and written to the asset's metadata after evaluation completes.
     pending_dependencies: Arc<tokio::sync::Mutex<Vec<DependencyRecord>>>,
+
+    /// Queries currently being evaluated with an inherited payload, along this evaluation path.
+    ///
+    /// Payload-evaluated assets are not registered in the dependency graph — a payload is not
+    /// part of the dependency key, so nothing may hold an edge to one. That removes the site
+    /// where `register_scheduled_dependency` would detect a cycle, and neither end of a
+    /// payload-to-payload chain is a graph node in the first place. This set restores
+    /// detection along the evaluation path, in the same way `find_dependencies` uses a visited
+    /// stack while walking recipe chains.
+    ///
+    /// Shared across context clones so it tracks the path rather than one action.
+    active_payload_queries: Arc<tokio::sync::Mutex<Vec<Query>>>,
 }
 
 impl<E: Environment> Context<E> {
@@ -344,6 +371,17 @@ impl<E: Environment> Context<E> {
             payload: None,
             is_volatile, // Initialize from parameter
             pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Seeds the payload-evaluation path inherited from the asset this context belongs to.
+    ///
+    /// Called by `AssetRef::create_context`. Each nested asset builds a fresh context, so the
+    /// path cannot live on `Context` alone — it is carried on the asset and re-seeded here.
+    pub(crate) async fn seed_payload_path(&self, path: Vec<Query>) {
+        if !path.is_empty() {
+            *self.active_payload_queries.lock().await = path;
         }
     }
 
@@ -357,6 +395,11 @@ impl<E: Environment> Context<E> {
         self.payload.clone()
     }
 
+    /// Returns whether a payload is present, without cloning it.
+    pub fn has_payload(&self) -> bool {
+        self.payload.is_some()
+    }
+
     /// Schedule a dependency of the current asset without waiting for it, returning the
     /// captured child `AssetRef`. Internal helper (not a command-facing schedule/wait API):
     /// the only callers are `evaluate`, `get_dependency_state`, and the interpreter pre-pass.
@@ -366,6 +409,13 @@ impl<E: Environment> Context<E> {
     /// captures the AssetRef exactly once (volatile-safe) via `get_dependency_asset`, and
     /// records the runtime dependency (metadata + untracked dependent). Does NOT enter
     /// `Status::Dependencies` — that happens at drain/wait time.
+    ///
+    /// If the dependency's plan requires an evaluation payload, this instead takes the
+    /// payload path: the parent's payload is forwarded and the asset is evaluated inline.
+    /// Such an asset is **not** registered in the dependency graph, because a payload is not
+    /// part of the dependency key and two evaluations with different payloads would
+    /// otherwise share one identity. It still records its own dependencies, and cycles are
+    /// detected along the evaluation path via `active_payload_queries`.
     pub(crate) async fn schedule_dependency_asset(
         &self,
         query: &Query,
@@ -373,6 +423,17 @@ impl<E: Environment> Context<E> {
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
         let query_dep_key = DependencyKey::from(query);
+
+        // Does this dependency need a payload to run? Known from the plan, so the path is
+        // chosen without speculatively evaluating anything.
+        let requirement = {
+            use crate::interpreter::RequiresPayload;
+            query.requires_payload(envref.clone()).await?
+        };
+
+        if requirement.is_required() {
+            return self.schedule_payload_dependency_asset(query).await;
+        }
 
         // Current asset's key (if keyed) for dependent classification.
         let current_key_opt = {
@@ -424,6 +485,67 @@ impl<E: Environment> Context<E> {
         Ok(asset)
     }
 
+    /// Schedule a dependency whose plan requires an evaluation payload.
+    ///
+    /// Differs from the normal path in exactly three ways, all following from the fact that
+    /// a payload is not part of the dependency key:
+    ///
+    /// 1. No graph edge is registered, and the parent is not recorded as a dependent asset
+    ///    of this query — nothing may hold a reference *to* a payload-evaluated asset.
+    /// 2. Cycles are detected along the evaluation path instead of through the graph.
+    /// 3. The payload is forwarded and the asset is evaluated inline.
+    ///
+    /// The asset's own dependency record is still written to the parent's metadata: a payload
+    /// asset may *have* dependencies, it just may not *be* one.
+    async fn schedule_payload_dependency_asset(
+        &self,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
+        let envref = self.assetref.get_envref().await;
+        let manager = envref.get_asset_manager();
+        let query_dep_key = DependencyKey::from(query);
+
+        let payload = self.payload.clone();
+        if payload.is_none() {
+            return Err(Error::general_error(format!(
+                "Query '{}' requires an evaluation payload, but the evaluation was started \
+                 without one. Use EnvRef::evaluate_immediately to supply a payload, or remove \
+                 the 'payload: required' declaration from the commands involved.",
+                query.encode()
+            ))
+            .with_query(query));
+        }
+
+        // Path-based cycle detection. The dependency graph cannot see these cycles: neither
+        // end of a payload-to-payload chain is a graph node. The extended path travels with
+        // the child asset, since the child builds its own context.
+        let child_path = {
+            let active = self.active_payload_queries.lock().await;
+            if active.iter().any(|q| q == query) {
+                return Err(Error::dependency_cycle(&query_dep_key));
+            }
+            let mut path = active.clone();
+            path.push(query.clone());
+            path
+        };
+
+        let version = manager
+            .dependency_manager()
+            .get_version(&query_dep_key)
+            .await
+            .unwrap_or_else(Version::unknown);
+
+        let asset = manager
+            .get_dependency_asset_with_payload(&self.assetref, query, payload, child_path)
+            .await?;
+
+        // A payload asset may have dependencies even though it may not be one.
+        self.add_dependency(DependencyRecord::new(query_dep_key, version))
+            .await;
+
+        Ok(asset)
+    }
+
     /// Wait on a previously-scheduled dependency AssetRef on behalf of the current asset.
     /// Thin wrapper over `AssetManager::wait_for_dependency`; idempotent.
     pub(crate) async fn wait_for_dependency(
@@ -447,7 +569,8 @@ impl<E: Environment> Context<E> {
 
     /// Schedules a dependency, records it, and waits for its state.
     ///
-    /// The nested evaluation does not inherit this context's payload.
+    /// If the nested query requires a payload, this context's payload is inherited; see
+    /// [`Self::schedule_dependency_asset`].
     pub async fn get_dependency_state(&self, query: &Query) -> Result<State<E::Value>, Error> {
         let asset = self.schedule_dependency_asset(query).await?;
         self.wait_for_dependency(&asset).await
@@ -456,8 +579,9 @@ impl<E: Environment> Context<E> {
     /// Schedules and records a dependency, then returns its asset handle.
     ///
     /// The local dependency queue is drained before return so callers can safely
-    /// wait through [`AssetRef::get`](crate::assets::AssetRef::get). The nested
-    /// asset receives no copy of this context's payload.
+    /// wait through [`AssetRef::get`](crate::assets::AssetRef::get). If the nested query
+    /// requires a payload, this context's payload is inherited and the nested asset is
+    /// evaluated inline instead of being queued.
     pub async fn evaluate(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         let asset = self.schedule_dependency_asset(query).await?;
         self.evaluate_local_queue().await?;
@@ -466,10 +590,30 @@ impl<E: Environment> Context<E> {
 
     /// Applies a query to a supplied state as an ad-hoc asset.
     ///
-    /// This delegates to [`AssetManager::apply`]. It does not record the result as
-    /// a dependency and does not pass this context's payload.
+    /// This does not record the result as a dependency. If the query requires a payload,
+    /// this context's payload is inherited and the application is evaluated immediately via
+    /// [`AssetManager::apply_immediately`]; otherwise it delegates to
+    /// [`AssetManager::apply`] as before.
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
+        let requirement = {
+            use crate::interpreter::RequiresPayload;
+            query.requires_payload(envref.clone()).await?
+        };
+        if requirement.is_required() {
+            if self.payload.is_none() {
+                return Err(Error::general_error(format!(
+                    "Query '{}' requires an evaluation payload, but the evaluation was \
+                     started without one.",
+                    query.encode()
+                ))
+                .with_query(query));
+            }
+            return envref
+                .get_asset_manager()
+                .apply_immediately(query.into(), to, self.payload.clone())
+                .await;
+        }
         envref.get_asset_manager().apply(query.into(), to).await
     }
 
@@ -518,6 +662,7 @@ impl<E: Environment> Context<E> {
             payload: self.payload.clone(),
             is_volatile: volatile || self.is_volatile, // Propagate if parent is volatile
             pending_dependencies: self.pending_dependencies.clone(),
+            active_payload_queries: self.active_payload_queries.clone(),
         }
     }
 
@@ -579,6 +724,7 @@ impl<E: Environment> Context<E> {
             payload: self.payload.clone(),
             is_volatile: self.is_volatile,
             pending_dependencies: self.pending_dependencies.clone(),
+            active_payload_queries: self.active_payload_queries.clone(),
         }
     }
     /// Returns the current working key used for relative query resolution.
@@ -674,6 +820,7 @@ impl<E: Environment> Clone for Context<E> {
             payload: self.payload.clone(),
             is_volatile: self.is_volatile,
             pending_dependencies: self.pending_dependencies.clone(),
+            active_payload_queries: self.active_payload_queries.clone(),
         }
     }
 }
@@ -889,6 +1036,128 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
     type Payload = ();
+    type AssetManager = crate::assets::ImmediateAssetManager<Self>;
+
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+        &self.command_registry.command_metadata_registry
+    }
+
+    fn get_command_executor(&self) -> &Self::CommandExecutor {
+        &self.command_registry
+    }
+
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
+        self.async_store.clone()
+    }
+
+    fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
+        self.asset_store.clone()
+    }
+
+    fn create_session(&self, user: User) -> Self::SessionType {
+        SimpleSession { user }
+    }
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
+        use crate::interpreter::{apply_plan, finalize_plan};
+        async move {
+            let recipe_expires = recipe.expires.clone();
+            let mut plan = {
+                let cmr = envref.0.get_command_metadata_registry();
+                recipe.to_plan(cmr)?
+            };
+            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            let combined_expires = plan.expires.clone() | recipe_expires;
+            context.set_expires(combined_expires).await?;
+            let res = apply_plan(plan, input_state, context, envref).await?;
+            Ok(res)
+        }
+        .maybe_boxed()
+    }
+
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
+        if let Some(provider) = &self.recipe_provider {
+            return provider.clone();
+        }
+        Arc::new(crate::recipes::TrivialRecipeProvider)
+    }
+
+    fn init_with_envref(&self, envref: EnvRef<Self>) {
+        // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
+        self.get_asset_manager().set_envref(envref);
+    }
+}
+
+/// Spawn-free environment with a custom payload and inline asset evaluation.
+///
+/// This is the payload-bearing counterpart to [`ImmediateEnvironment`], and the inline
+/// counterpart to [`SimpleEnvironmentWithPayload`]. It uses
+/// [`crate::assets::ImmediateAssetManager`], has no job queue or expiration-monitor task,
+/// and starts lazily on first evaluation, so it can be constructed without a Tokio runtime.
+///
+/// This is the only environment pairing a payload with the inline asset manager, and it is
+/// therefore what makes the Wasm-compatible payload path exercisable natively.
+///
+/// If no recipe provider is configured, this environment returns
+/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
+pub struct ImmediateEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
+    #[cfg(feature = "async_store")]
+    async_store: Arc<dyn crate::store::AsyncStore>,
+    pub command_registry: CommandRegistry<Self>,
+    asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
+    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
+    _payload: std::marker::PhantomData<P>,
+}
+
+impl<V: ValueInterface, P: crate::commands::PayloadType> Default
+    for ImmediateEnvironmentWithPayload<V, P>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWithPayload<V, P> {
+    /// Creates an inline payload-bearing environment with no asynchronous persistence.
+    pub fn new() -> Self {
+        ImmediateEnvironmentWithPayload {
+            command_registry: CommandRegistry::new(),
+            #[cfg(feature = "async_store")]
+            async_store: Arc::new(crate::store::NoAsyncStore),
+            asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
+            recipe_provider: None,
+            _payload: std::marker::PhantomData::<P>,
+        }
+    }
+    /// Sets the asynchronous store used by assets.
+    #[cfg(feature = "async_store")]
+    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
+        self.async_store = Arc::from(store);
+        self
+    }
+    /// Sets the keyed recipe provider.
+    pub fn with_recipe_provider(
+        &mut self,
+        provider: Box<dyn AsyncRecipeProvider<Self>>,
+    ) -> &mut Self {
+        self.recipe_provider = Some(Arc::from(provider));
+        self
+    }
+}
+
+impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
+    for ImmediateEnvironmentWithPayload<V, P>
+{
+    type Value = V;
+    type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = SimpleSession;
+    type Payload = P;
     type AssetManager = crate::assets::ImmediateAssetManager<Self>;
 
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {

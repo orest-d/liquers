@@ -5,7 +5,7 @@ use crate::maybe_send::MaybeBoxed;
 
 use crate::{
     assets::{AssetManager, AssetRef},
-    command_metadata::CommandKey,
+    command_metadata::{CommandKey, PayloadRequirement},
     commands::{CommandArguments, CommandExecutor},
     context::{Context, EnvRef, Environment},
     error::Error,
@@ -123,6 +123,21 @@ pub fn apply_plan<E: Environment>(
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
+        // A plan declared `payload: required` must not run without one. This is the
+        // authoritative gate: it covers every execution path — top-level `EnvRef::evaluate`,
+        // keyed evaluation, and nested scheduling alike — where the per-entry-point checks
+        // cover only the nested ones. Without it, a command that reads the payload through
+        // `Context` and tolerates its absence would run despite declaring that it cannot.
+        if plan.payload_required.is_required() && !context.has_payload() {
+            return Err(Error::general_error(format!(
+                "Query '{}' requires an evaluation payload, but the evaluation was started \
+                 without one. Use EnvRef::evaluate_immediately to supply a payload, or remove \
+                 the 'payload: required' declaration from the commands involved.",
+                plan.query.encode()
+            ))
+            .with_query(&plan.query));
+        }
+
         // Pre-pass: schedule known dependencies before executing steps (concurrency +
         // one inline drain so at-capacity dependencies begin executing up front).
         schedule_plan_dependencies(&plan, &context).await?;
@@ -505,6 +520,110 @@ impl<E: Environment> IsVolatile<E> for Step {
             Step::Plan(plan) => plan.is_volatile(env).await,
             Step::SetCwd(_) => Ok(false),
             Step::UseKeyValue(_) => Ok(false),
+        }
+    }
+}
+
+/// Whether a plan, query, recipe or step needs an evaluation payload to run.
+///
+/// Mirrors [`IsVolatile`], with one deliberate difference: **keys are a payload boundary**.
+/// A keyed asset is evaluated independently through the asset manager and never inherits a
+/// caller's payload, because keys are global while a payload is per-evaluation. The keyed
+/// step arms below therefore return [`PayloadRequirement::None`] unconditionally instead of
+/// consulting the asset manager as `IsVolatile` does. A keyed recipe that does require a
+/// payload is rejected where the plan for that key is built.
+///
+/// Because no arm consults the asset manager, this traversal is cheaper than `IsVolatile`:
+/// its only asynchronous work is `make_plan` in the [`Query`] implementation.
+pub(crate) trait RequiresPayload<E: Environment> {
+    async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error>;
+}
+
+impl<E: Environment> RequiresPayload<E> for ParameterValue {
+    async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error> {
+        if let Some(link) = self.link() {
+            Box::pin(link.requires_payload(env)).await
+        } else {
+            Ok(PayloadRequirement::None)
+        }
+    }
+}
+
+impl<E: Environment> RequiresPayload<E> for ResolvedParameterValues {
+    async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error> {
+        for param in self.0.iter() {
+            if param.requires_payload(env.clone()).await?.is_required() {
+                return Ok(PayloadRequirement::Required);
+            }
+        }
+        Ok(PayloadRequirement::None)
+    }
+}
+
+impl<E: Environment> RequiresPayload<E> for Plan {
+    async fn requires_payload(&self, _env: EnvRef<E>) -> Result<PayloadRequirement, Error> {
+        // Return cached value - Plan.payload_required is set during plan building.
+        Ok(self.payload_required)
+    }
+}
+
+impl<E: Environment> RequiresPayload<E> for Recipe {
+    async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error> {
+        // Note: unlike `volatile`, Recipe has no author-declarable payload override.
+        // The requirement is always derived from the commands the recipe uses.
+        let plan = self.to_plan(env.get_command_metadata_registry())?;
+        plan.requires_payload(env).await
+    }
+}
+
+impl<E: Environment> RequiresPayload<E> for Query {
+    async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error> {
+        let plan = make_plan(env.clone(), self.clone()).await?;
+        plan.requires_payload(env).await
+    }
+}
+
+impl<E: Environment> RequiresPayload<E> for Step {
+    async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error> {
+        match self {
+            Step::Action {
+                realm,
+                ns,
+                action_name,
+                position: _,
+                parameters,
+            } => {
+                if let Some(cmd) =
+                    env.get_command_metadata_registry()
+                        .find_command(&realm, &ns, action_name)
+                {
+                    if cmd.payload_required.is_required() {
+                        return Ok(PayloadRequirement::Required);
+                    }
+                    return parameters.requires_payload(env).await;
+                } else {
+                    Ok(PayloadRequirement::None)
+                }
+            }
+            // Keys are a payload boundary: a keyed asset is resolved through the manager
+            // without a payload, so a payload requirement never propagates through one.
+            Step::GetAsset(_) => Ok(PayloadRequirement::None),
+            Step::GetAssetBinary(_) => Ok(PayloadRequirement::None),
+            Step::GetAssetMetadata(_) => Ok(PayloadRequirement::None),
+            Step::GetAssetRecipe(_) => Ok(PayloadRequirement::None),
+            Step::GetAssetDirectory(_) => Ok(PayloadRequirement::None),
+            Step::GetResource(_) => Ok(PayloadRequirement::None),
+            Step::GetResourceMetadata(_) => Ok(PayloadRequirement::None),
+            Step::GetResourceDirectory(_) => Ok(PayloadRequirement::None),
+            Step::Evaluate(query) => query.requires_payload(env).await,
+            Step::UseQueryValue(_) => Ok(PayloadRequirement::None),
+            Step::Filename(_) => Ok(PayloadRequirement::None),
+            Step::Info(_) => Ok(PayloadRequirement::None),
+            Step::Warning(_) => Ok(PayloadRequirement::None),
+            Step::Error(_) => Ok(PayloadRequirement::None),
+            Step::Plan(plan) => plan.requires_payload(env).await,
+            Step::SetCwd(_) => Ok(PayloadRequirement::None),
+            Step::UseKeyValue(_) => Ok(PayloadRequirement::None),
         }
     }
 }

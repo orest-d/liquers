@@ -76,77 +76,52 @@ Add tests covering:
    `ImmediateAssetManager`.
 6. Native queued execution and the Wasm-compatible inline path.
 
-### Issue: PAYLOAD-NESTED-EVALUATION-INHERITANCE
+### Issue: VOLATILE-KEYED-RECIPE-SELF-DELEGATION
 Status: Open
-Priority: P0 (High)
+Priority: P1 (Medium-High)
 
 #### Problem
 
-The payload documentation promises that nested evaluations inherit the parent
-evaluation's payload. The implementation does not provide that behavior.
+Evaluating a keyed asset whose recipe is volatile fails with a spurious
+`ErrorType::DependencyCycle` instead of producing a value.
 
-`EnvRef::evaluate_immediately` supplies a payload to the context of the ad-hoc
-asset it creates. That payload remains available to the actions within that asset
-evaluation. However, when a command starts a nested asset through
-`Context::evaluate` or `Context::get_dependency_state`, dependency scheduling goes
-through the asset manager without forwarding the parent context's payload. The
-child context therefore has no payload.
+`AssetManager::get` resolves a volatile key through `get_volatile_resource_asset`, which
+builds a **fresh** `AssetRef` and deliberately does not insert it into the `assets` map
+(`liquers-core/src/assets.rs`). `AssetRef::evaluate_recipe` then calls `manager.get(&key)`
+to decide whether it owns the recipe, and compares asset ids: because the volatile path
+mints a new asset on every call, the returned id never equals the caller's, so the branch
+always takes the *delegation* path. The delegation records a dependency of the asset on
+what is effectively itself, and `register_scheduled_dependency` correctly reports a cycle.
 
-This behavior is explicitly verified by
-`test_payload_not_inherited_in_nested_evaluation` in
-`liquers-core/tests/injection.rs`: a child command requiring an injected payload
-fails when invoked through `Context::evaluate`.
+Non-volatile keyed recipes are unaffected: their assets are shared through the map, so the
+id comparison succeeds and the asset evaluates its own recipe.
 
-The current implementation conflicts with at least:
+#### Reproduction
 
-- `specs/PAYLOAD_GUIDE.md`, which states that subqueries inherit the parent's
-  payload.
-- `specs/PROJECT_OVERVIEW.md`, which describes payload as inherited by subqueries.
+`liquers-core/tests/payload_inheritance.rs::test_volatile_keyed_recipe_cycles_preexisting_defect`
+registers a command with `volatile: true`, stores a recipe using it, and evaluates
+`-R/<key>`. No payload is involved. The test currently asserts the broken behaviour so that
+a fix fails loudly.
 
-This mismatch can cause developers and coding agents to generate nested commands
-that depend on payload injection and then fail only at runtime.
+#### Impact
 
-#### Required decision
+Any keyed recipe using a volatile command is unusable. This also blocks the natural
+evaluation-path test for the keyed-payload boundary, since `payload: required` implies
+`volatile` — see PAYLOAD-NESTED-EVALUATION-INHERITANCE. That rejection is therefore verified
+through recipe resolution and asset introspection instead.
 
-Define one authoritative payload boundary:
+#### Fix direction
 
-1. **Implement inheritance:** nested evaluations receive the parent payload, with
-   explicit rules for cloning, caching, persistence, dependency identity, and
-   security-sensitive request or session data.
-2. **Keep payload asset-local:** nested evaluations do not inherit payloads, and
-   all reference and guide documentation must say so. APIs that require forwarding
-   should use a separate explicit operation.
-
-Payload forwarding must not be added implicitly without deciding how
-payload-dependent execution interacts with reusable or shared assets.
-
-#### Expected behavior
-
-Until the design decision is implemented, the API reference is authoritative:
-
-1. `EnvRef::evaluate_immediately` installs a payload only on the asset evaluation
-   it creates.
-2. Actions in that evaluation receive clones of the payload.
-3. `Context::evaluate`, `Context::get_dependency_state`, and `Context::apply` do
-   not forward the payload.
-4. Missing payloads continue to produce the normal `InjectedFromContext` error in
-   child commands that require them.
+The ownership test in `evaluate_recipe` should not rely on asset-id identity for volatile
+keys, since that identity is not stable by design. Consider comparing keys, or having the
+volatile path return the calling asset when one is already evaluating that key.
 
 #### Verification
 
-Maintain or add tests covering:
-
-1. Payload availability across multiple actions in one immediate evaluation.
-2. Direct payload and extracted-newtype injection.
-3. A nested `Context::evaluate` call.
-4. A nested `Context::get_dependency_state` call.
-5. `Context::apply`.
-6. Both queued and inline asset managers.
-7. The chosen caching and asset-sharing behavior if inheritance is implemented.
-
-When resolved, update `specs/PAYLOAD_GUIDE.md`,
-`specs/PROJECT_OVERVIEW.md`, the `liquers_core::context` Rustdoc, and the existing
-non-inheritance test together.
+1. A keyed volatile recipe evaluates to its value rather than a cycle error.
+2. Non-volatile keyed recipes are unchanged.
+3. Invert `test_volatile_keyed_recipe_cycles_preexisting_defect` and re-enable the
+   `evaluate()` path in `test_keyed_recipe_requiring_payload_is_rejected`.
 
 ### Issue: ASSET-EXPIRED-CACHED-BINARY-READ
 Status: Open
@@ -450,3 +425,60 @@ consume the same signal, so they get the fix too. No `liquers-core`, macro, `liq
 - Browser: `examples-web/ui_spec_demo/tests/webui.spec.ts` — a *Remove Last Panel* entry
   (`ns-lui/remove-last`) that resolves fully inline, plus a node-identity case. Both were checked
   in the failing direction as well: each fails against the behaviour it replaces.
+
+## Resolved
+
+### Issue: PAYLOAD-NESTED-EVALUATION-INHERITANCE
+Status: Resolved
+Priority: P0 (High)
+
+#### Resolution
+
+Inheritance is implemented, opt-in per command. A command that reads the payload declares
+`payload: required` in `register_command!`; the requirement propagates to
+`Plan::payload_required`, and `Context::evaluate`, `Context::get_dependency_state` and
+`Context::apply` forward the parent's payload to such a nested evaluation, which then runs
+inline rather than through the job queue.
+
+Design record: `specs/payload-nested-evaluation-inheritance/` (phases 1-4).
+
+Rules adopted:
+
+1. **Requiring a payload implies `volatile`.** Set at registration, so all existing
+   volatility propagation applies unchanged. A payload-evaluated asset is fresh per
+   evaluation, never cached, shared, or persisted.
+2. **A payload asset may have dependencies, but may never be one.** A payload is not part of
+   the dependency key, so no graph edge may point at such an asset. Its own dependency
+   records are still written.
+3. **Cycles are detected along the evaluation path**, since neither end of a
+   payload-to-payload chain is a graph node. The path travels on `AssetData` and is re-seeded
+   into each nested context.
+4. **Keys are a payload boundary.** A key names one shared global asset while a payload is
+   per-evaluation, so a keyed recipe requiring a payload is rejected when its plan is built,
+   and a requirement never propagates through a keyed step.
+5. **`Optional` is deliberately not implemented.** It would re-open the otherwise unreachable
+   "not volatile but uses payload" state. Adding it is intentionally a breaking change for
+   exhaustive matches on `PayloadRequirement`.
+
+#### Known limitations
+
+- **Declaration is manual and not compiler-visible.** A command that reads the payload but
+  omits `payload: required` keeps the previous behaviour: it works at top level and silently
+  receives no payload when nested. Pinned by
+  `test_unannotated_payload_command_is_payload_free_when_nested`.
+- **Commands with dynamically constructed nested queries** are invisible to plan analysis and
+  fail at execution rather than at plan time. Accepted.
+- The keyed-recipe rejection is verified through recipe resolution and asset introspection
+  rather than through `evaluate("-R/<key>")`, because of
+  VOLATILE-KEYED-RECIPE-SELF-DELEGATION above.
+
+#### Verification
+
+`liquers-core/tests/payload_inheritance.rs` (11 tests) and
+`liquers-core/tests/injection.rs::test_payload_inherited_in_nested_evaluation`, plus unit
+tests in `command_metadata.rs`, `metadata.rs`, `plan.rs` and
+`tests/volatility_integration.rs`.
+
+Not run in the implementing environment: `cargo check --target wasm32-unknown-unknown`
+(target not installed). The inline path is covered natively via
+`ImmediateEnvironmentWithPayload`.

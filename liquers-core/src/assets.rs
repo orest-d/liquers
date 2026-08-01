@@ -430,6 +430,14 @@ pub struct AssetData<E: Environment> {
     /// If true, this asset is volatile (computed from recipe/plan before execution)
     is_volatile: bool,
 
+    /// Chain of payload-evaluated queries leading to this asset, used for cycle detection.
+    ///
+    /// A payload-evaluated asset is not a dependency-graph node, so the graph cannot detect a
+    /// cycle among such assets. The path is carried here rather than on `Context` because each
+    /// nested asset builds a fresh context; propagating through `AssetData` is how volatility
+    /// already crosses that boundary.
+    payload_path: Vec<Query>,
+
     /// Resolved expiration time for this asset
     expiration_time: ExpirationTime,
 
@@ -527,6 +535,7 @@ impl<E: Environment> AssetData<E> {
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
+            payload_path: Vec::new(),
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
@@ -1170,11 +1179,20 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// The context refers back to this asset and exposes its environment services.
     pub async fn create_context(&self) -> Context<E> {
-        let is_volatile = {
+        let (is_volatile, payload_path) = {
             let lock = self.data.read().await;
-            lock.is_volatile
+            (lock.is_volatile, lock.payload_path.clone())
         };
-        Context::new(self.clone(), is_volatile).await
+        let context = Context::new(self.clone(), is_volatile).await;
+        context.seed_payload_path(payload_path).await;
+        context
+    }
+
+    /// Records the chain of payload-evaluated queries leading to this asset, so that the
+    /// context created for it can continue cycle detection down the evaluation path.
+    pub(crate) async fn set_payload_path(&self, path: Vec<Query>) {
+        let mut lock = self.data.write().await;
+        lock.payload_path = path;
     }
 
     /// Estimate the volatility before execution.
@@ -1747,8 +1765,11 @@ impl<E: Environment> AssetRef<E> {
                     let recipe = envref
                         .clone()
                         .get_recipe_provider()
-                        .recipe(&key, envref)
+                        .recipe(&key, envref.clone())
                         .await?;
+                    // Keys are a payload boundary: reject a keyed recipe that requires an
+                    // evaluation payload, since no payload can reach a keyed asset.
+                    recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
                     eprintln!(
                         "Evaluating asset {} using its own recipe for key {}:\n{}\n",
                         self.id(),
@@ -2659,10 +2680,20 @@ pub trait AssetManager<E: Environment>:
     /// Return timing depends on [`Self::eval_mode`].
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     /// Returns the recipe for a key, if one exists.
+    ///
+    /// A recipe that requires an evaluation payload is rejected here: keys are a payload
+    /// boundary. This is the earliest funnel where a recipe is resolved *for a key*, so the
+    /// rejection precedes asset creation and volatility resolution.
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
-        self.get_recipe_provider()
+        let recipe = self
+            .get_recipe_provider()
             .recipe_opt(key, self.get_envref())
-            .await
+            .await?;
+        if let Some(recipe) = &recipe {
+            let envref = self.get_envref();
+            recipe.to_plan_for_key(envref.get_command_metadata_registry(), key)?;
+        }
+        Ok(recipe)
     }
     /// Returns whether the keyed resource's recipe is volatile.
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
@@ -2687,6 +2718,27 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         self.get_asset(query).await
+    }
+
+    /// Resolve the asset for `query` as a dependency of `parent`, forwarding `payload` to
+    /// the evaluation.
+    ///
+    /// Called instead of [`Self::get_dependency_asset`] when the dependency's plan requires
+    /// a payload. Such an asset is evaluated inline rather than through a job queue: it is
+    /// volatile by construction, so it is fresh, unshared, and never persisted or reused,
+    /// and there is nothing to gain by queueing it.
+    ///
+    /// Default: ignore the payload and delegate, preserving existing behavior for managers
+    /// that have not opted in. Implementors that support payload evaluation override this.
+    async fn get_dependency_asset_with_payload(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+        payload: Option<E::Payload>,
+        payload_path: Vec<Query>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = (payload, payload_path);
+        self.get_dependency_asset(parent, query).await
     }
 
     /// Drain `parent`'s local dependency queue: claim and inline-run each still-runnable
@@ -3919,6 +3971,28 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
             return Ok(asset);
         }
+    }
+
+    async fn get_dependency_asset_with_payload(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+        payload: Option<E::Payload>,
+        payload_path: Vec<Query>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        // A payload-requiring query is volatile by construction, so `get_query_asset`
+        // resolves it to a fresh, unshared asset that is in no map and cannot be reused.
+        // There is nothing to fast-track and nothing to evict; run it inline in the
+        // caller's future rather than consuming a job-queue slot.
+        let asset = if let Some(key) = query.key() {
+            self.get_resource_asset(&key).await?
+        } else {
+            self.get_query_asset(query).await?
+        };
+        asset.set_payload_path(payload_path).await;
+        asset.run_immediately(payload).await?;
+        Ok(asset)
     }
 
     async fn drain_dependencies(&self, parent: &AssetRef<E>) -> Result<(), Error> {
@@ -5235,6 +5309,31 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, self.envref()).to_ref();
         asset_ref.run_inline().await?;
         Ok(asset_ref)
+    }
+
+    /// Inline counterpart of `DefaultAssetManager`'s override.
+    ///
+    /// This manager inherits the trait-default `get_dependency_asset` (which delegates to
+    /// `get_asset`), but the payload variant must be implemented here: `get_asset` has no
+    /// payload parameter, so delegating would silently drop it.
+    async fn get_dependency_asset_with_payload(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+        payload: Option<E::Payload>,
+        payload_path: Vec<Query>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        self.ensure_started().await;
+        // Volatile by construction, so this is a fresh unshared asset in no map.
+        let asset = if let Some(key) = query.key() {
+            self.get_resource_asset(&key).await?
+        } else {
+            self.get_query_asset(query).await?
+        };
+        asset.set_payload_path(payload_path).await;
+        asset.run_immediately_inline(payload).await?;
+        Ok(asset)
     }
 
     async fn apply_immediately(
