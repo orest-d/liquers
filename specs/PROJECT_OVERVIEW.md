@@ -268,9 +268,9 @@ Context (per-action, created for each command execution)
 - Type is specified by the Environment (generic parameter)
 - Associated with a single query evaluation
 - **Mutable**: Commands can modify payload (interior mutability)
-- **Inherited**: Sub-queries (e.g., link parameters) receive the same payload as parent
+- **Inherited**: Sub-queries receive the parent's payload when the command declares `payload: required`
 - Use case: UI window handle, request context, accumulated state
-- **Limitation**: Only available for immediate query evaluation; background/async evaluation uses a default payload
+- **Limitation**: Not available to background/async evaluation, nor to keyed assets (a key is global, a payload is per-evaluation). Requiring a payload implies `volatile`
 
 **Session** (planned/minimal):
 ```
@@ -387,7 +387,7 @@ Session (user session - currently minimal)
 | **Segment Header** | Query metadata specifying realm (applies to whole segment) |
 | **Environment** | Global shared state providing access to services (store, assets, recipes) |
 | **Context** | Per-action execution context, created for each command in a pipeline |
-| **Payload** | Mutable user data passed through Context; inherited by sub-queries; type defined by Environment |
+| **Payload** | Mutable user data passed through Context; inherited by sub-queries that declare `payload: required`; type defined by Environment |
 
 ---
 

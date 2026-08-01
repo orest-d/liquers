@@ -741,6 +741,12 @@ enum ResultType {
 
 enum CommandSignatureStatement {
     Volatile(bool),
+    /// `payload: required` / `payload: none`.
+    ///
+    /// Kept as a bool because only two states exist today; `PayloadRequirement` reserves an
+    /// `Optional` state that this would become an enum for. The generated code names the
+    /// `liquers_core` enum variant, so no compile-time dependency is introduced here.
+    PayloadRequired(bool),
     Expires(String),
     Version(CommandImplVersionSpec),
     Label(String),
@@ -774,6 +780,20 @@ impl Parse for CommandSignatureStatement {
             "volatile" => {
                 let lit: syn::LitBool = input.parse()?;
                 Ok(CommandSignatureStatement::Volatile(lit.value()))
+            }
+            "payload" => {
+                // Takes a bare ident (`required` / `none`), not a bool literal.
+                let value: syn::Ident = input.parse()?;
+                match value.to_string().as_str() {
+                    "required" => Ok(CommandSignatureStatement::PayloadRequired(true)),
+                    "none" => Ok(CommandSignatureStatement::PayloadRequired(false)),
+                    other => Err(syn::Error::new(
+                        value.span(),
+                        format!(
+                            "unknown payload requirement '{other}', expected 'required' or 'none'"
+                        ),
+                    )),
+                }
             }
             "label" => {
                 let lit: syn::LitStr = input.parse()?;
@@ -1041,6 +1061,7 @@ struct CommandSignature {
     pub next: Vec<CommandPreset>,
     pub filename: String,
     pub volatile: bool,
+    pub payload_required: bool,
     pub expires: String,
     pub impl_version: Option<CommandImplVersionSpec>,
     pub wrapper_version: WrapperVersion,
@@ -1227,6 +1248,17 @@ impl CommandSignature {
         } else {
             quote!()
         };
+        // A payload requirement always implies volatility: setting `volatile` here means
+        // every existing volatility-propagation path applies to payload commands unchanged.
+        let payload_required_code = if self.payload_required {
+            quote!(
+                cm.payload_required =
+                    liquers_core::command_metadata::PayloadRequirement::Required;
+                cm.volatile = true;
+            )
+        } else {
+            quote!()
+        };
         let expires_code = if !self.expires.is_empty() {
             let expires_str = &self.expires;
             quote! {
@@ -1277,6 +1309,7 @@ impl CommandSignature {
                 #next_code
                 cm.with_filename(#filename);
                 #volatile_code
+                #payload_required_code
                 #expires_code
                 #is_async_code
                 #impl_version_code
@@ -1644,6 +1677,7 @@ impl Parse for CommandSignature {
         let mut next = Vec::new();
         let mut filename = String::new();
         let mut volatile: bool = false;
+        let mut payload_required: bool = false;
         let mut expires: String = String::new();
         let mut impl_version: Option<CommandImplVersionSpec> = None;
         for stmt in &command_statements {
@@ -1661,6 +1695,9 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Filename(f) => filename = f.clone(),
                 CommandSignatureStatement::Volatile(b) => {
                     volatile = *b;
+                }
+                CommandSignatureStatement::PayloadRequired(b) => {
+                    payload_required = *b;
                 }
                 CommandSignatureStatement::Expires(s) => {
                     expires = s.clone();
@@ -1685,6 +1722,7 @@ impl Parse for CommandSignature {
             next,
             filename,
             volatile,
+            payload_required,
             expires,
             impl_version,
             wrapper_version: WrapperVersion::V2,

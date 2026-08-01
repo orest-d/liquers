@@ -1,7 +1,7 @@
 // Integration tests for volatility system
 use liquers_core::{
     assets::AssetManager,
-    command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry},
+    command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry, PayloadRequirement},
     commands::{CommandArguments, CommandRegistry},
     context::{Context, EnvRef, Environment, SimpleEnvironment},
     error::Error,
@@ -278,3 +278,127 @@ async fn test_asset_to_override() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+// ---- payload: required statement in register_command! (U5) ----
+
+/// The `payload: required` statement must set both `payload_required` and `volatile`.
+#[tokio::test]
+async fn test_payload_required_sets_metadata_and_volatile(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+
+    fn test_payload_cmd(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("payload result"))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn test_payload_cmd(state) -> result
+        namespace: "test"
+        payload: required
+    )?;
+
+    let metadata = env
+        .get_command_metadata_registry()
+        .find_command("", "test", "test_payload_cmd")
+        .ok_or_else(|| Error::general_error("command not registered".to_string()))?;
+
+    assert_eq!(metadata.payload_required, PayloadRequirement::Required);
+    // Requiring a payload implies volatility, so existing propagation applies unchanged.
+    assert!(
+        metadata.volatile,
+        "payload: required must also set volatile"
+    );
+    Ok(())
+}
+
+/// Omitting the statement must leave the command payload-free.
+#[tokio::test]
+async fn test_payload_none_is_the_default() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+
+    fn test_plain_cmd(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("plain result"))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn test_plain_cmd(state) -> result
+        namespace: "test"
+    )?;
+
+    let metadata = env
+        .get_command_metadata_registry()
+        .find_command("", "test", "test_plain_cmd")
+        .ok_or_else(|| Error::general_error("command not registered".to_string()))?;
+
+    assert_eq!(metadata.payload_required, PayloadRequirement::None);
+    assert!(!metadata.volatile);
+    Ok(())
+}
+
+/// `payload: none` is accepted and is equivalent to omitting the statement.
+#[tokio::test]
+async fn test_payload_none_statement_is_accepted() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+
+    fn test_explicit_none_cmd(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("result"))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn test_explicit_none_cmd(state) -> result
+        namespace: "test"
+        payload: none
+    )?;
+
+    let metadata = env
+        .get_command_metadata_registry()
+        .find_command("", "test", "test_explicit_none_cmd")
+        .ok_or_else(|| Error::general_error("command not registered".to_string()))?;
+
+    assert_eq!(metadata.payload_required, PayloadRequirement::None);
+    assert!(!metadata.volatile);
+    Ok(())
+}
+
+/// A plan built from a payload-requiring command must carry the requirement and a
+/// diagnostic message naming the cause.
+#[tokio::test]
+async fn test_payload_command_marks_plan() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+
+    fn test_payload_plan_cmd(_state: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("result"))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn test_payload_plan_cmd(state) -> result
+        namespace: "test"
+        payload: required
+    )?;
+
+    let envref = env.to_ref();
+    let query = parse_query("ns-test/test_payload_plan_cmd")?;
+    let plan = make_plan(envref, &query).await?;
+
+    assert_eq!(plan.payload_required, PayloadRequirement::Required);
+    assert!(plan.is_volatile, "payload requirement implies volatility");
+    assert!(
+        plan.init_steps.iter().any(|s| matches!(
+            s,
+            liquers_core::plan::Step::Info(m)
+                if m.contains("Payload required") && m.contains("test_payload_plan_cmd")
+        )),
+        "expected an init_steps message naming the command, got: {:?}",
+        plan.init_steps
+    );
+    Ok(())
+}
+
