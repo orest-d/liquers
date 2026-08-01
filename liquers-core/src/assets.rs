@@ -1747,8 +1747,11 @@ impl<E: Environment> AssetRef<E> {
                     let recipe = envref
                         .clone()
                         .get_recipe_provider()
-                        .recipe(&key, envref)
+                        .recipe(&key, envref.clone())
                         .await?;
+                    // Keys are a payload boundary: reject a keyed recipe that requires an
+                    // evaluation payload, since no payload can reach a keyed asset.
+                    recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
                     println!(
                         "Evaluating asset {} using its own recipe for key {}:\n{}\n",
                         self.id(),
@@ -2659,10 +2662,20 @@ pub trait AssetManager<E: Environment>:
     /// Return timing depends on [`Self::eval_mode`].
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error>;
     /// Returns the recipe for a key, if one exists.
+    ///
+    /// A recipe that requires an evaluation payload is rejected here: keys are a payload
+    /// boundary. This is the earliest funnel where a recipe is resolved *for a key*, so the
+    /// rejection precedes asset creation and volatility resolution.
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
-        self.get_recipe_provider()
+        let recipe = self
+            .get_recipe_provider()
             .recipe_opt(key, self.get_envref())
-            .await
+            .await?;
+        if let Some(recipe) = &recipe {
+            let envref = self.get_envref();
+            recipe.to_plan_for_key(envref.get_command_metadata_registry(), key)?;
+        }
+        Ok(recipe)
     }
     /// Returns whether the keyed resource's recipe is volatile.
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
