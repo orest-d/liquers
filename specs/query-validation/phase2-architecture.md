@@ -298,8 +298,8 @@ both unconstrained, as required.
 liquers-validate [OPTIONS] [QUERY]
 
 Input (mutually exclusive, exactly one required):
-  [QUERY]                     Query as a positional argument (primary path)
-  -Q, --query-file <FILE>     Query text from FILE, or `-` for stdin
+  [QUERY]...                  One or more queries as positional arguments (primary path)
+  -Q, --query-file <FILE>     Newline-separated queries from FILE, or `-` for stdin
   -r, --recipes <FILE>        RecipeList (recipes.yaml shape) from FILE, or `-` for stdin
 
 Registry:
@@ -325,6 +325,28 @@ I/O failure (clap's default for argument errors).
 
 `--cwd` is recipe-only, enforced by `requires = "recipes"` in clap: nothing in the query plan path
 consumes a cwd, so accepting it for a bare query would silently do nothing.
+
+#### Batch queries
+
+All three input forms produce the same `Vec<ValidationResult>`, so batching is not a third input
+mode — only a different count. Positional arguments accept one or more queries; `--query-file`
+takes **one query per line**.
+
+Newline separation is safe rather than merely conventional, and so is the comment marker: the
+query grammar admits only alphanumerics, `_ + . - / ~` and entity escapes
+(`parse.rs:201-237`), so neither a newline nor `#` can occur inside a query. A stray newline is
+therefore impossible to mistake for query content, and `parse_query` rejects unconsumed input
+(`parse.rs:758`) rather than silently truncating, so the separator is self-checking.
+
+Blank lines and lines whose first non-whitespace character is `#` are skipped, letting an agent
+annotate a query list it generates. Because skipping shifts the ordinals, `ValidationResult`
+gains one field so a finding can be traced back to the file:
+
+```rust
+/// 1-based line in the source file, when the input came from --query-file.
+#[serde(skip_serializing_if = "Option::is_none", default)]
+pub line: Option<usize>,
+```
 
 ### CLI: `export_command_registry`
 
@@ -424,11 +446,20 @@ stdout carries only the serialized envelope.
 2. **Exporter granularity — two axes, bridged by `--list-groups`** (see the CLI section).
 3. **`--cwd` is recipe-only**, enforced by clap.
 
+## Resolved Open Questions from this Phase
+
+1. **Group decomposition confirmed** as `core` / `lui` / `egui` / `image` / `polars`.
+2. **Batch queries: newline-separated**, plus multiple positional arguments — see "Batch queries".
+3. **No per-result namespace reporting is needed.** `Step::Action` already carries the resolved
+   `realm` and `ns` alongside `action_name`, `position` and `parameters` (`plan.rs:136-142`), so
+   every action in a serialized plan is already self-describing. `RegistryProvenance` covers the
+   registry-level default list, and the two together leave no gap.
+
 ## Open Questions
 
-1. Group decomposition for the exporter (see Relevant Commands) — user input wanted.
-2. Should `liquers-validate` also accept *many* queries (one per line) from `--query-file`, or is
-   the recipe list the only batch form? A plain query list is a lighter thing for an agent to
-   produce than a `RecipeList`, but it is a third input mode.
-3. Should the report include resolved namespaces per result when an `ns` action changes them
-   mid-query, or is the registry-level list in `RegistryProvenance` enough?
+None outstanding for Phase 2. Two items carried forward as implementation-time checks:
+
+- The `cli` feature must be verified across the build matrix (`--no-default-features`,
+  `--features cli`, default) before Phase 4 sign-off.
+- `liquers-store` (12), `liquers-macro` (7) and `liquers-py` (1) still contain `println!`;
+  outside this feature's path, still awaiting a decision.
