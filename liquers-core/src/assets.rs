@@ -430,6 +430,14 @@ pub struct AssetData<E: Environment> {
     /// If true, this asset is volatile (computed from recipe/plan before execution)
     is_volatile: bool,
 
+    /// Chain of payload-evaluated queries leading to this asset, used for cycle detection.
+    ///
+    /// A payload-evaluated asset is not a dependency-graph node, so the graph cannot detect a
+    /// cycle among such assets. The path is carried here rather than on `Context` because each
+    /// nested asset builds a fresh context; propagating through `AssetData` is how volatility
+    /// already crosses that boundary.
+    payload_path: Vec<Query>,
+
     /// Resolved expiration time for this asset
     expiration_time: ExpirationTime,
 
@@ -527,6 +535,7 @@ impl<E: Environment> AssetData<E> {
             save_in_background: true,
             cancelled: false,
             is_volatile: false,
+            payload_path: Vec::new(),
             expiration_time: ExpirationTime::Never,
             persistence_status: PersistenceStatus::None,
             last_persistence_error: None,
@@ -1170,11 +1179,20 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// The context refers back to this asset and exposes its environment services.
     pub async fn create_context(&self) -> Context<E> {
-        let is_volatile = {
+        let (is_volatile, payload_path) = {
             let lock = self.data.read().await;
-            lock.is_volatile
+            (lock.is_volatile, lock.payload_path.clone())
         };
-        Context::new(self.clone(), is_volatile).await
+        let context = Context::new(self.clone(), is_volatile).await;
+        context.seed_payload_path(payload_path).await;
+        context
+    }
+
+    /// Records the chain of payload-evaluated queries leading to this asset, so that the
+    /// context created for it can continue cycle detection down the evaluation path.
+    pub(crate) async fn set_payload_path(&self, path: Vec<Query>) {
+        let mut lock = self.data.write().await;
+        lock.payload_path = path;
     }
 
     /// Estimate the volatility before execution.
@@ -2717,8 +2735,9 @@ pub trait AssetManager<E: Environment>:
         parent: &AssetRef<E>,
         query: &Query,
         payload: Option<E::Payload>,
+        payload_path: Vec<Query>,
     ) -> Result<AssetRef<E>, Error> {
-        let _ = payload;
+        let _ = (payload, payload_path);
         self.get_dependency_asset(parent, query).await
     }
 
@@ -3959,6 +3978,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         parent: &AssetRef<E>,
         query: &Query,
         payload: Option<E::Payload>,
+        payload_path: Vec<Query>,
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         // A payload-requiring query is volatile by construction, so `get_query_asset`
@@ -3970,6 +3990,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         } else {
             self.get_query_asset(query).await?
         };
+        asset.set_payload_path(payload_path).await;
         asset.run_immediately(payload).await?;
         Ok(asset)
     }
@@ -5300,6 +5321,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         parent: &AssetRef<E>,
         query: &Query,
         payload: Option<E::Payload>,
+        payload_path: Vec<Query>,
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         self.ensure_started().await;
@@ -5309,6 +5331,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         } else {
             self.get_query_asset(query).await?
         };
+        asset.set_payload_path(payload_path).await;
         asset.run_immediately_inline(payload).await?;
         Ok(asset)
     }

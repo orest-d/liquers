@@ -375,6 +375,16 @@ impl<E: Environment> Context<E> {
         }
     }
 
+    /// Seeds the payload-evaluation path inherited from the asset this context belongs to.
+    ///
+    /// Called by `AssetRef::create_context`. Each nested asset builds a fresh context, so the
+    /// path cannot live on `Context` alone — it is carried on the asset and re-seeded here.
+    pub(crate) async fn seed_payload_path(&self, path: Vec<Query>) {
+        if !path.is_empty() {
+            *self.active_payload_queries.lock().await = path;
+        }
+    }
+
     /// Installs a payload on this context clone.
     pub fn set_payload(&mut self, payload: E::Payload) {
         self.payload = Some(payload);
@@ -502,14 +512,17 @@ impl<E: Environment> Context<E> {
         }
 
         // Path-based cycle detection. The dependency graph cannot see these cycles: neither
-        // end of a payload-to-payload chain is a graph node.
-        {
-            let mut active = self.active_payload_queries.lock().await;
+        // end of a payload-to-payload chain is a graph node. The extended path travels with
+        // the child asset, since the child builds its own context.
+        let child_path = {
+            let active = self.active_payload_queries.lock().await;
             if active.iter().any(|q| q == query) {
                 return Err(Error::dependency_cycle(&query_dep_key));
             }
-            active.push(query.clone());
-        }
+            let mut path = active.clone();
+            path.push(query.clone());
+            path
+        };
 
         let version = manager
             .dependency_manager()
@@ -517,18 +530,9 @@ impl<E: Environment> Context<E> {
             .await
             .unwrap_or_else(Version::unknown);
 
-        let result = manager
-            .get_dependency_asset_with_payload(&self.assetref, query, payload)
-            .await;
-
-        {
-            let mut active = self.active_payload_queries.lock().await;
-            if let Some(pos) = active.iter().rposition(|q| q == query) {
-                active.remove(pos);
-            }
-        }
-
-        let asset = result?;
+        let asset = manager
+            .get_dependency_asset_with_payload(&self.assetref, query, payload, child_path)
+            .await?;
 
         // A payload asset may have dependencies even though it may not be one.
         self.add_dependency(DependencyRecord::new(query_dep_key, version))

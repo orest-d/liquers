@@ -245,3 +245,313 @@ async fn test_volatile_keyed_recipe_cycles_preexisting_defect(
     }
     Ok(())
 }
+
+// ============================================================================
+// I2: the other nested entry points
+// ============================================================================
+
+/// `Context::get_dependency_state` inherits the payload.
+#[tokio::test]
+async fn test_payload_inherited_via_get_dependency_state(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    async fn parent(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let q = parse_query("/-/child")?;
+        let state = context.get_dependency_state(&q).await?;
+        Ok(Value::from(format!("via_state:{}", state.try_into_string()?)))
+    }
+    fn child(_s: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn parent(state, context) -> result payload: required)?;
+    register_command!(cr, fn child(state, window_id: WindowId injected) -> result
+        payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/parent", TestPayload::new("nina", 55))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "via_state:window:55");
+    Ok(())
+}
+
+/// `Context::apply` inherits the payload.
+#[tokio::test]
+async fn test_payload_inherited_via_apply() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    async fn parent(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let q = parse_query("/-/applied")?;
+        let input = State::new().with_data(Value::from("seed"));
+        let asset = context.apply(&q, input).await?;
+        Ok(Value::from(format!(
+            "via_apply:{}",
+            asset.get().await?.try_into_string()?
+        )))
+    }
+    fn applied(state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!(
+            "{}:{}",
+            state.try_into_string()?,
+            window_id.0
+        )))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn parent(state, context) -> result payload: required)?;
+    register_command!(cr, fn applied(state, window_id: WindowId injected) -> result
+        payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/parent", TestPayload::new("omar", 66))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "via_apply:seed:66");
+    Ok(())
+}
+
+// ============================================================================
+// I3: a payload-free child stays a normal shared asset
+// ============================================================================
+
+/// A payload-free dependency of a payload-requiring parent goes through the asset manager
+/// and is cached and reused, unaffected by the parent's payload.
+#[tokio::test]
+async fn test_payload_free_child_is_cached_and_shared(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    async fn parent(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let q = parse_query("/-/pure_child")?;
+        let a = context.evaluate(&q).await?;
+        let b = context.evaluate(&q).await?;
+        // A cached, shared asset is the same instance on both requests.
+        Ok(Value::from(format!("same:{}", a.id() == b.id())))
+    }
+    fn pure_child(_s: &State<Value>) -> Result<Value, Error> {
+        Ok(Value::from("pure"))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn parent(state, context) -> result payload: required)?;
+    register_command!(cr, fn pure_child(state) -> result)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/parent", TestPayload::new("pia", 7))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "same:true");
+    Ok(())
+}
+
+// ============================================================================
+// I6: cycle guard
+// ============================================================================
+
+/// Two payload-requiring commands calling each other must be detected. Neither end is a
+/// dependency-graph node, so this relies on the evaluation-path guard on `Context`.
+#[tokio::test]
+async fn test_payload_cycle_is_detected() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    async fn cyc_a(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let q = parse_query("/-/cyc_b")?;
+        match context.evaluate(&q).await {
+            Ok(asset) => match asset.get().await {
+                Ok(state) => match state.value_state() {
+                    Ok(vs) => Ok(Value::from(
+                        vs.try_into_string().unwrap_or_else(|_| "err".to_string()),
+                    )),
+                    Err(e) => Ok(Value::from(format!("INNER:{}", e))),
+                },
+                Err(e) => Ok(Value::from(format!("INNER:{}", e))),
+            },
+            Err(e) => Ok(Value::from(format!("CYCLE:{}", e))),
+        }
+    }
+    async fn cyc_b(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let q = parse_query("/-/cyc_a")?;
+        match context.evaluate(&q).await {
+            Ok(asset) => match asset.get().await {
+                Ok(state) => match state.value_state() {
+                    Ok(vs) => Ok(Value::from(
+                        vs.try_into_string().unwrap_or_else(|_| "err".to_string()),
+                    )),
+                    Err(e) => Ok(Value::from(format!("INNER:{}", e))),
+                },
+                Err(e) => Ok(Value::from(format!("INNER:{}", e))),
+            },
+            Err(e) => Ok(Value::from(format!("CYCLE:{}", e))),
+        }
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn cyc_a(state, context) -> result payload: required)?;
+    register_command!(cr, async fn cyc_b(state, context) -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/cyc_a", TestPayload::new("quinn", 8))
+        .await?;
+    let result = asset.get().await?.try_into_string()?;
+
+    // The cycle must be reported, not hang and not silently succeed.
+    assert!(
+        result.contains("cycle") || result.contains("Cycle"),
+        "expected a cycle to be reported, got: {}",
+        result
+    );
+    Ok(())
+}
+
+// ============================================================================
+// I8 / C3: inline manager parity and deep nesting
+// ============================================================================
+
+/// The inline (Wasm-compatible) manager inherits payload with the same semantics.
+/// This is what `ImmediateEnvironmentWithPayload` exists for.
+#[tokio::test]
+async fn test_inline_manager_payload_inheritance() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = InlineEnv;
+    let mut env = InlineEnv::new();
+
+    async fn parent(_s: State<Value>, user_id: UserId, context: Context<InlineEnv>)
+        -> Result<Value, Error> {
+        let q = parse_query("/-/child")?;
+        let asset = context.evaluate(&q).await?;
+        Ok(Value::from(format!(
+            "parent:{}|child:{}",
+            user_id.0,
+            asset.get().await?.try_into_string()?
+        )))
+    }
+    fn child(_s: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn parent(state, user_id: UserId injected, context) -> result
+        payload: required)?;
+    register_command!(cr, fn child(state, window_id: WindowId injected) -> result
+        payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/parent", TestPayload::new("rosa", 99))
+        .await?;
+    assert_eq!(
+        asset.get().await?.try_into_string()?,
+        "parent:rosa|child:window:99"
+    );
+    Ok(())
+}
+
+/// Payload survives three levels of nesting unchanged.
+#[tokio::test]
+async fn test_deep_nesting_payload_propagation() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    async fn l1(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let a = context.evaluate(&parse_query("/-/l2")?).await?;
+        Ok(Value::from(format!("l1>{}", a.get().await?.try_into_string()?)))
+    }
+    async fn l2(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let a = context.evaluate(&parse_query("/-/l3")?).await?;
+        Ok(Value::from(format!("l2>{}", a.get().await?.try_into_string()?)))
+    }
+    fn l3(_s: &State<Value>, user_id: UserId, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("l3:{}:{}", user_id.0, window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn l1(state, context) -> result payload: required)?;
+    register_command!(cr, async fn l2(state, context) -> result payload: required)?;
+    register_command!(cr, fn l3(state, user_id: UserId injected, window_id: WindowId injected)
+        -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/l1", TestPayload::new("sven", 3))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "l1>l2>l3:sven:3");
+    Ok(())
+}
+
+// ============================================================================
+// C1: concurrent evaluations with distinct payloads must not share
+// ============================================================================
+
+/// Because a payload requirement implies volatility, each evaluation resolves to a fresh,
+/// unshared asset. Two concurrent evaluations of the same query with different payloads must
+/// each see their own.
+#[tokio::test]
+async fn test_concurrent_payloads_do_not_share() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn who(_s: &State<Value>, user_id: UserId, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("{}:{}", user_id.0, window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn who(state, user_id: UserId injected, window_id: WindowId injected)
+        -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let (a, b) = tokio::join!(
+        envref.evaluate_immediately("/-/who", TestPayload::new("tom", 1)),
+        envref.evaluate_immediately("/-/who", TestPayload::new("uma", 2)),
+    );
+    assert_eq!(a?.get().await?.try_into_string()?, "tom:1");
+    assert_eq!(b?.get().await?.try_into_string()?, "uma:2");
+    Ok(())
+}
+
+// ============================================================================
+// C2: payload cloning shares interior state
+// ============================================================================
+
+/// The payload is cloned per action, so large data belongs behind an `Arc`. All actions in a
+/// chain must observe the same underlying allocation.
+#[tokio::test]
+async fn test_payload_clone_shares_interior_state() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn note(_s: &State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let payload = context
+            .get_payload_clone()
+            .ok_or_else(|| Error::general_error("no payload".to_string()))?;
+        let mut log = payload
+            .log
+            .lock()
+            .map_err(|e| Error::general_error(format!("lock poisoned: {e}")))?;
+        log.push("noted".to_string());
+        Ok(Value::from(log.len() as i64))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn note(state, context) -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let payload = TestPayload::new("vic", 0);
+    let shared = payload.log.clone();
+    envref.evaluate_immediately("/-/note", payload).await?
+        .get().await?;
+
+    let count = shared
+        .lock()
+        .map_err(|e| Error::general_error(format!("lock poisoned: {e}")))?
+        .len();
+    assert_eq!(count, 1, "the caller's Arc must observe the command's write");
+    Ok(())
+}
+
