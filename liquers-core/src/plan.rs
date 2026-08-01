@@ -1223,7 +1223,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     fn process_query(&mut self, query: &Query) -> Result<(), Error> {
-        //println!("process query {}", query);
+        //eprintln!("process query {}", query);
         if query.is_empty() || query.is_ns() {
             return Ok(());
         }
@@ -1269,12 +1269,12 @@ impl<'c> PlanBuilder<'c> {
         }
 
         if let Some(rq) = query.resource_query() {
-            //println!("RESOURCE {}", rq);
+            //eprintln!("RESOURCE {}", rq);
             self.process_resource_query(&rq)?;
             return Ok(());
         }
         if let Some(transform) = query.transform_query() {
-            //println!("TRANSFORM {}", &transform);
+            //eprintln!("TRANSFORM {}", &transform);
             if let Some(action) = transform.action() {
                 let mut query = query.clone();
                 query.segments = Vec::new();
@@ -1282,7 +1282,7 @@ impl<'c> PlanBuilder<'c> {
                 return Ok(());
             }
             if transform.is_filename() {
-                //println!("FILENAME {}", &transform);
+                //eprintln!("FILENAME {}", &transform);
                 self.plan
                     .steps
                     .push(Step::Filename(transform.filename.unwrap().clone()));
@@ -1291,8 +1291,8 @@ impl<'c> PlanBuilder<'c> {
         }
 
         let (p, q) = query.predecessor();
-        //println!("PREDECESOR: {:?}", &p);
-        //println!("REMAINDER:  {:?}", &q);
+        //eprintln!("PREDECESOR: {:?}", &p);
+        //eprintln!("REMAINDER:  {:?}", &q);
 
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
@@ -2088,18 +2088,18 @@ mod tests {
         let plan = PlanBuilder::new(parse_query("a-1").unwrap(), &cr)
             .build()
             .unwrap();
-        println!("plan: {:?}", plan);
+        eprintln!("plan: {:?}", plan);
         print!("");
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.yaml:\n{}",
             serde_yaml::to_string(&cr).unwrap()
         );
         print!("");
-        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        eprintln!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.json:\n{}",
             serde_json::to_string(&cr).unwrap()
         );
@@ -2115,19 +2115,19 @@ mod tests {
             .unwrap();
         assert!(plan.override_value("b", Value::String("test".to_string())));
         assert!(!plan.override_value("c", Value::String("test".to_string())));
-        println!("plan: {:?}", plan);
+        eprintln!("plan: {:?}", plan);
         print!("");
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
-        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.yaml:\n{}",
             serde_yaml::to_string(&cr).unwrap()
         );
         print!("");
-        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        eprintln!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.json:\n{}",
             serde_json::to_string(&cr).unwrap()
         );
@@ -2152,7 +2152,7 @@ mod tests {
             .with_placeholders_allowed()
             .build()
             .unwrap();
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         assert!(plan.len() == 1);
         if let Step::Action {
             action_name,
@@ -2457,7 +2457,7 @@ mod tests {
         assert!(p2[2].is_context_modifier());
 
         // Plan with two actions
-        println!("### Testing plan with two actions");
+        eprintln!("### Testing plan with two actions");
         let plan = Plan {
             query: Default::default(),
             init_steps: vec![],

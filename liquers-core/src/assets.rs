@@ -1382,7 +1382,7 @@ impl<E: Environment> AssetRef<E> {
 
     /// Process messages from the service channel
     pub(crate) async fn process_service_messages(&self) -> Result<(), Error> {
-        println!(
+        eprintln!(
             "Starting to process service messages for asset {}",
             self.id()
         );
@@ -1394,7 +1394,7 @@ impl<E: Environment> AssetRef<E> {
         let mut rx = service_rx_ref.lock().await;
 
         while let Some(msg) = rx.recv().await {
-            println!("Received message: {:?} by asset {}", msg, self.id());
+            eprintln!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
                 // Post-finish message policy: once the asset is finalized, DISPLAY-mutating and
                 // control messages are dropped so a late producer cannot corrupt the terminal
@@ -1446,7 +1446,7 @@ impl<E: Environment> AssetRef<E> {
                     return Ok(());
                 }
                 AssetServiceMessage::UpdatePrimaryProgress(progress) => {
-                    println!(
+                    eprintln!(
                         "Asset {} updating primary progress: {:?}",
                         self.id(),
                         progress
@@ -1749,7 +1749,7 @@ impl<E: Environment> AssetRef<E> {
                         .get_recipe_provider()
                         .recipe(&key, envref)
                         .await?;
-                    println!(
+                    eprintln!(
                         "Evaluating asset {} using its own recipe for key {}:\n{}\n",
                         self.id(),
                         key,
@@ -1757,7 +1757,7 @@ impl<E: Environment> AssetRef<E> {
                     );
                     (input_state, recipe)
                 } else {
-                    println!(
+                    eprintln!(
                         "Delegating evaluation of asset {} to asset {}",
                         self.id(),
                         asset.id()
@@ -1778,7 +1778,7 @@ impl<E: Environment> AssetRef<E> {
             }
         };
 
-        println!("Evaluating recipe {:?}", &recipe);
+        eprintln!("Evaluating recipe {:?}", &recipe);
         let envref = self.get_envref().await;
         /*
         let plan = {
@@ -1788,9 +1788,9 @@ impl<E: Environment> AssetRef<E> {
         */
         let context = self.create_context().await;
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
-        println!("Applying recipe");
+        eprintln!("Applying recipe");
         let res = envref.apply_recipe(input_state, recipe, context).await?;
-        //println!("Recipe evaluated, result: {:?}", &res);
+        //eprintln!("Recipe evaluated, result: {:?}", &res);
 
         // Collect observed dependencies from context into metadata
         let observed_deps = context_for_deps.take_pending_dependencies().await;
@@ -1858,7 +1858,7 @@ impl<E: Environment> AssetRef<E> {
                 Ok(())
             }
             Err(e) => {
-                println!("Error during evaluation of asset {}: {}", self.id(), e);
+                eprintln!("Error during evaluation of asset {}: {}", self.id(), e);
                 let mut lock = self.data.write().await;
                 lock.data = None;
                 lock.metadata.with_error(e.clone());
@@ -1913,7 +1913,7 @@ impl<E: Environment> AssetRef<E> {
         // Check cancelled flag before writing to store (cancel-safety)
         // This prevents orphaned tasks from overwriting data after cancellation
         if self.is_cancelled().await {
-            println!(
+            eprintln!(
                 "Asset {} cancelled, skipping store write in save_to_store",
                 self.id()
             );
@@ -1930,7 +1930,7 @@ impl<E: Environment> AssetRef<E> {
 
             // Double-check cancelled flag after potentially long serialization
             if lock.is_cancelled() {
-                println!(
+                eprintln!(
                     "Asset {} cancelled after serialization, skipping store write",
                     self.id()
                 );
@@ -2447,7 +2447,7 @@ impl<E: Environment> AssetRef<E> {
     /// Use AssetManager::set_state instead.
     pub(crate) async fn set_value(&self, value: <E as Environment>::Value) -> Result<(), Error> {
         // TODO: Remove?
-        println!("Setting value for asset {}", self.id());
+        eprintln!("Setting value for asset {}", self.id());
         let mut lock = self.data.write().await;
         lock.metadata
             .with_type_identifier(value.identifier().to_string());
@@ -2487,7 +2487,7 @@ impl<E: Environment> AssetRef<E> {
         &self,
         state: State<<E as Environment>::Value>,
     ) -> Result<(), Error> {
-        println!("Setting state for asset {}", self.id());
+        eprintln!("Setting state for asset {}", self.id());
         let mut lock = self.data.write().await;
         let data = state.data_unchecked().clone();
         lock.data = Some(data);
@@ -3386,7 +3386,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             max_dependency_retries: 3,
         };
         tokio::spawn(async move {
-            println!("Spawned job queue");
+            eprintln!("Spawned job queue");
             job_queue.run().await;
         });
         tokio::spawn(Self::run_expiration_monitor(monitor_rx));
@@ -4059,13 +4059,13 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             assetref.get_asset_info().await
         } else {
             let store = self.get_envref().get_async_store();
-            println!(
+            eprintln!(
                 "Checking if store contains key {} {:?}",
                 key,
                 store.contains(key).await
             );
             if store.contains(key).await? {
-                println!("Getting asset info from store for key {}", key);
+                eprintln!("Getting asset info from store for key {}", key);
                 store.get_asset_info(key).await
             } else {
                 let rp = self.get_recipe_provider();
@@ -4819,7 +4819,7 @@ pub struct JobQueue<E: Environment> {
 impl<E: Environment + 'static> JobQueue<E> {
     /// Create a new job queue with the specified capacity
     pub fn new(capacity: usize) -> Self {
-        println!("Creating job queue with capacity {}", capacity);
+        eprintln!("Creating job queue with capacity {}", capacity);
         JobQueue {
             jobs: Arc::new(Mutex::new(Vec::new())),
             running_count: Arc::new(AtomicUsize::new(0)),
@@ -5920,8 +5920,8 @@ mod tests {
 
         let store = envref.get_async_store();
         let contains = store.contains(&store_key).await.unwrap();
-        println!("store_key: {}", store_key);
-        println!("Store keys: {:?}", store.keys().await.unwrap());
+        eprintln!("store_key: {}", store_key);
+        eprintln!("Store keys: {:?}", store.keys().await.unwrap());
         assert!(contains);
         let (data, _metadata) = store.get(&store_key).await.unwrap();
         assert_eq!(data, b"Hello, world!");
@@ -6121,7 +6121,7 @@ mod tests {
         let key = CommandKey::new_name("test");
         env.command_registry
             .register_command(key.clone(), |_, _, ctx| {
-                println!("HELLO from test");
+                eprintln!("HELLO from test");
                 ctx.info("Hello from test")?;
                 Ok(Value::from("Hello, world!"))
             })

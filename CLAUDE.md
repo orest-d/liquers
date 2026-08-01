@@ -57,6 +57,24 @@ Error::from_error(ErrorType::General, external_error)
 // Error::new(ErrorType::ParseError, "...")  // Avoid this
 ```
 
+### Diagnostic Output
+
+Library code must never write to **stdout**. Use `eprintln!`, never `println!`:
+
+```rust
+// DO: diagnostics go to stderr
+eprintln!("Recipe already has CWD set to {:?}", recipe.cwd);
+
+// DON'T: this corrupts machine-readable stdout
+// println!("Recipe already has CWD set to {:?}", recipe.cwd);
+```
+
+Stdout is reserved for a binary's *intended* output — CLI tools serialize JSON/YAML there, and a
+stray `println!` anywhere in the libraries they link makes that output unparseable. The rule is
+blanket (it applies inside `#[cfg(test)]` modules too) so nobody has to reason about whether a
+given line sits in a code path some future binary will call. Only `[[bin]]` targets, examples and
+doc-comment examples print to stdout.
+
 ### Async Patterns
 - Default to async (`AsyncStore`, `AsyncStoreRouter`)
 - Use `#[async_trait]` for async trait methods
@@ -168,6 +186,7 @@ is broken.
 
 ### Do NOT
 - Use `unwrap()` or `expect()` in library code (only in tests)
+- Use `println!` in library code (use `eprintln!` — stdout belongs to the binary's output)
 - Create new error types outside `liquers_core::error`
 - Use `Error::new` directly
 - Use blocking I/O in async contexts

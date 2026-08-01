@@ -437,7 +437,7 @@ impl UIElement for UISpecElement {
         // 4. Render layout
         match &self.layout_spec {
             LayoutSpec::Horizontal => {
-                println!(
+                eprintln!(
                     "Rendering horizontal layout with {} children",
                     child_handles.len()
                 );
@@ -445,7 +445,7 @@ impl UIElement for UISpecElement {
                     .horizontal(|ui| {
                         for child_handle in child_handles {
                             if let Ok(mut child) = app_state.take_element(child_handle) {
-                                println!("Rendering child with handle {:?}", child_handle);
+                                eprintln!("Rendering child with handle {:?}", child_handle);
                                 child.show_in_egui(ui, ctx, app_state);
                                 let _ = app_state.put_element(child_handle, child);
                             }

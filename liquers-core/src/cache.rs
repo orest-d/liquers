@@ -312,7 +312,7 @@ mod tests {
                     )
                     .unwrap();
                 assert!(cache.get_metadata(&key).unwrap().query().unwrap() == key);
-                println!("T1 CACHED {:?}", cache.get_binary(&key));
+                eprintln!("T1 CACHED {:?}", cache.get_binary(&key));
             }
         });
         let c2 = cache.clone();
@@ -326,13 +326,13 @@ mod tests {
                         &Metadata::new().with_query(key.to_owned()).unwrap(),
                     )
                     .unwrap();
-                println!("T2 CACHED {:?}", cache.get_binary(&key));
+                eprintln!("T2 CACHED {:?}", cache.get_binary(&key));
             }
         });
         t1.join().unwrap();
         if let Ok(cache) = cache.lock() {
             assert!(cache.contains(&key));
-            println!("Joint t1 CACHED {:?}", cache.get_binary(&key));
+            eprintln!("Joint t1 CACHED {:?}", cache.get_binary(&key));
             assert!(cache.get_binary(&key).is_some());
         } else {
             assert!(false);
@@ -340,7 +340,7 @@ mod tests {
         t2.join().unwrap();
         if let Ok(cache) = cache.lock() {
             assert!(cache.contains(&key));
-            println!("Joint t2 CACHED {:?}", cache.get_binary(&key));
+            eprintln!("Joint t2 CACHED {:?}", cache.get_binary(&key));
             assert!(cache.get_binary(&key).is_some());
         } else {
             assert!(false);

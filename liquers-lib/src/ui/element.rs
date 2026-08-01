@@ -125,7 +125,7 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
         _ctx: &UIContext,
         _app_state: &mut dyn super::app_state::AppState,
     ) -> egui::Response {
-        println!("Showing element: {} - UNDEFINED show_in_egui", self.title());
+        eprintln!("Showing element: {} - UNDEFINED show_in_egui", self.title());
         ui.label(self.title())
     }
 

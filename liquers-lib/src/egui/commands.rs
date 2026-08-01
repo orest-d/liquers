@@ -36,7 +36,7 @@ where
 {
     // Guarded value access: a terminal Error/Cancelled input propagates instead of being coerced.
     let value = state.value()?;
-    println!(
+    eprintln!(
         "text_editor command called, state type: {}",
         value.type_name()
     );

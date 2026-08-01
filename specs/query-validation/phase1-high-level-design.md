@@ -103,6 +103,11 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
     `Error`, warnings — and likewise the exporter's registry output. Every one of those types
     already derives `Serialize`/`Deserialize`, and both crates already depend on `serde_yaml`.
 
+12. **Stdout belongs to the binary; libraries use `eprintln!`.** Any stray `println!` in a linked
+    library corrupts the JSON/YAML envelope. This is now a codebase rule in `CLAUDE.md` and has
+    been applied ahead of implementation: all 136 `println!` in `liquers-core/src` and the 9 in
+    `liquers-lib/src` (including the one on `RecipeList::set_cwd`'s error path) are converted.
+
 ## Open Questions
 
 1. Does the validator need a zero-setup path to the liquers-lib registry (a conventional file
@@ -111,12 +116,11 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
 2. Exporter selection granularity: cargo features are compile-time (`--features polars,egui`)
    while namespace filtering is runtime. Does one flag surface cover both, or are they separate?
    → Phase 2.
-3. `RecipeList::set_cwd` contains a stray `println!` on its error path (`recipes.rs:552`). Since
-   stdout carries the JSON envelope, that line would corrupt machine-readable output. Removing it
-   is a small, justified fix to liquers-core — the returned `Error` already says the same thing.
-   Confirm this small out-of-crate change is acceptable. → Phase 2.
-4. Does `--cwd` also apply when validating a bare query, or is it recipe-only? Queries can contain
+3. Does `--cwd` also apply when validating a bare query, or is it recipe-only? Queries can contain
    relative keys too, but nothing in the plan path consumes a cwd. → Phase 2.
+4. `liquers-store` (12), `liquers-macro` (7) and `liquers-py` (1) still contain `println!`. They
+   are outside this feature's stdout path, and the macro/py ones may be deliberate, so they were
+   left alone rather than swept blindly. Convert them too? → Phase 2 or a separate cleanup.
 
 ## References
 

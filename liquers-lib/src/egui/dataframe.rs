@@ -32,14 +32,14 @@ pub fn display_polars_dataframe(
         };
         match df.sort(&by, options) {
             Ok(sorted_df) => {
-                println!(
+                eprintln!(
                     "Dataframe sorted by column: {} ascending: {}",
                     col_name, ascending
                 );
                 df = sorted_df;
             }
             Err(_) => {
-                println!("Failed to sort dataframe by column: {}", col_name);
+                eprintln!("Failed to sort dataframe by column: {}", col_name);
             }
         }
     }
@@ -75,12 +75,12 @@ pub fn display_polars_dataframe(
                             name.clone()
                         };
                         if ui.button(label).clicked() {
-                            println!("Sorting by column: {} {:?}", name, *sort_state);
+                            eprintln!("Sorting by column: {} {:?}", name, *sort_state);
                             match *sort_state {
                                 Some((idx, asc)) if idx == i => *sort_state = Some((i, !asc)),
                                 _ => *sort_state = Some((i, true)),
                             }
-                            println!("Sorting changed: {} {:?}", name, *sort_state);
+                            eprintln!("Sorting changed: {} {:?}", name, *sort_state);
                         }
                     });
                 }
