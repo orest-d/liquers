@@ -93,8 +93,9 @@ where
 /// `evaluate("-R/<key>")`. A keyed recipe whose command is volatile — which
 /// `payload: required` implies — currently fails with a spurious dependency cycle before any
 /// recipe check runs. That is a **pre-existing** defect, reproducible with a plain
-/// `volatile: true` command and no payload involvement whatsoever
-/// (see `diagnostic_volatile_keyed_recipe` below), and is tracked separately.
+/// `volatile: true` command and no payload involvement whatsoever — see
+/// `test_volatile_keyed_recipe_cycles_preexisting_defect` below and
+/// `specs/ISSUES.md`: VOLATILE-KEYED-RECIPE-SELF-DELEGATION.
 #[tokio::test]
 async fn test_keyed_recipe_requiring_payload_is_rejected(
 ) -> Result<(), Box<dyn std::error::Error>> {
