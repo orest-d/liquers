@@ -947,6 +947,128 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
     }
 }
 
+/// Spawn-free environment with a custom payload and inline asset evaluation.
+///
+/// This is the payload-bearing counterpart to [`ImmediateEnvironment`], and the inline
+/// counterpart to [`SimpleEnvironmentWithPayload`]. It uses
+/// [`crate::assets::ImmediateAssetManager`], has no job queue or expiration-monitor task,
+/// and starts lazily on first evaluation, so it can be constructed without a Tokio runtime.
+///
+/// This is the only environment pairing a payload with the inline asset manager, and it is
+/// therefore what makes the Wasm-compatible payload path exercisable natively.
+///
+/// If no recipe provider is configured, this environment returns
+/// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
+pub struct ImmediateEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
+    #[cfg(feature = "async_store")]
+    async_store: Arc<dyn crate::store::AsyncStore>,
+    pub command_registry: CommandRegistry<Self>,
+    asset_store: Arc<crate::assets::ImmediateAssetManager<Self>>,
+    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
+    _payload: std::marker::PhantomData<P>,
+}
+
+impl<V: ValueInterface, P: crate::commands::PayloadType> Default
+    for ImmediateEnvironmentWithPayload<V, P>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWithPayload<V, P> {
+    /// Creates an inline payload-bearing environment with no asynchronous persistence.
+    pub fn new() -> Self {
+        ImmediateEnvironmentWithPayload {
+            command_registry: CommandRegistry::new(),
+            #[cfg(feature = "async_store")]
+            async_store: Arc::new(crate::store::NoAsyncStore),
+            asset_store: Arc::new(crate::assets::ImmediateAssetManager::new()),
+            recipe_provider: None,
+            _payload: std::marker::PhantomData::<P>,
+        }
+    }
+    /// Sets the asynchronous store used by assets.
+    #[cfg(feature = "async_store")]
+    pub fn with_async_store(&mut self, store: Box<dyn crate::store::AsyncStore>) -> &mut Self {
+        self.async_store = Arc::from(store);
+        self
+    }
+    /// Sets the keyed recipe provider.
+    pub fn with_recipe_provider(
+        &mut self,
+        provider: Box<dyn AsyncRecipeProvider<Self>>,
+    ) -> &mut Self {
+        self.recipe_provider = Some(Arc::from(provider));
+        self
+    }
+}
+
+impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
+    for ImmediateEnvironmentWithPayload<V, P>
+{
+    type Value = V;
+    type CommandExecutor = CommandRegistry<Self>;
+    type SessionType = SimpleSession;
+    type Payload = P;
+    type AssetManager = crate::assets::ImmediateAssetManager<Self>;
+
+    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
+        &self.command_registry.command_metadata_registry
+    }
+
+    fn get_command_executor(&self) -> &Self::CommandExecutor {
+        &self.command_registry
+    }
+
+    #[cfg(feature = "async_store")]
+    fn get_async_store(&self) -> Arc<dyn crate::store::AsyncStore> {
+        self.async_store.clone()
+    }
+
+    fn get_asset_manager(&self) -> Arc<crate::assets::ImmediateAssetManager<Self>> {
+        self.asset_store.clone()
+    }
+
+    fn create_session(&self, user: User) -> Self::SessionType {
+        SimpleSession { user }
+    }
+
+    fn apply_recipe(
+        envref: EnvRef<Self>,
+        input_state: State<Self::Value>,
+        recipe: Recipe,
+        context: Context<Self>,
+    ) -> crate::maybe_send::BoxFuture<'static, Result<Arc<Self::Value>, Error>> {
+        use crate::interpreter::{apply_plan, finalize_plan};
+        async move {
+            let recipe_expires = recipe.expires.clone();
+            let mut plan = {
+                let cmr = envref.0.get_command_metadata_registry();
+                recipe.to_plan(cmr)?
+            };
+            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            let combined_expires = plan.expires.clone() | recipe_expires;
+            context.set_expires(combined_expires).await?;
+            let res = apply_plan(plan, input_state, context, envref).await?;
+            Ok(res)
+        }
+        .maybe_boxed()
+    }
+
+    fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
+        if let Some(provider) = &self.recipe_provider {
+            return provider.clone();
+        }
+        Arc::new(crate::recipes::TrivialRecipeProvider)
+    }
+
+    fn init_with_envref(&self, envref: EnvRef<Self>) {
+        // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
+        self.get_asset_manager().set_envref(envref);
+    }
+}
+
 /// Native environment with a custom payload and queued asset evaluation.
 ///
 /// This is the payload-bearing counterpart to [`SimpleEnvironment`]. Construction
