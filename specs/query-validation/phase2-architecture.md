@@ -166,7 +166,8 @@ Deliberately few. This feature adds **no new traits** and implements no Liquers 
 | `ValidationLevel`, `ValidationStatus`, `WarningSource` | `Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq` | fieldless, so `Copy` is sound and avoids clone noise |
 | `ValidationStatus` | additionally `PartialOrd, Ord` | lets `results.iter().map(\|r\| r.status).max()` compute the report status |
 | `ValidationLevel`, `ValidationStatus` | additionally `Default` | `Parse` and `Ok` are the natural zero values |
-| `ValidationResult`, `ValidationReport`, `ValidationWarning`, `RegistryProvenance`, `ValidationCounts` | `Serialize, Deserialize, Debug, Clone` | not `Copy` (contain `String`/`Vec`); not `PartialEq` (they embed `Error` and `Plan`, which are not `PartialEq`) |
+| `ValidationResult`, `ValidationReport` | `Serialize, Deserialize, Debug, Clone` | not `Copy` (contain `String`/`Vec`); **not `PartialEq`** — they embed `Plan`, which derives only `Serialize, Deserialize, Debug, Clone` (`plan.rs:1352`). `Error` *is* `PartialEq` (`error.rs:41`), so it is `Plan` alone that blocks it. Tests must therefore compare fields, not whole results |
+| `ValidationWarning`, `RegistryProvenance`, `ValidationCounts` | `Serialize, Deserialize, Debug, Clone, PartialEq` | these embed no `Plan`, so `PartialEq` is available and worth having for test assertions |
 | `ValidationLevel` | `std::str::FromStr` | `"parse"` / `"plan"` for clap; returns `Error` |
 
 `std::fmt::Display` on `ValidationStatus` and `ValidationLevel` for the human-readable stderr
@@ -374,10 +375,20 @@ The namespaces that matter are the ones the exporter can emit, discovered by sur
 | Group | Namespace(s) | Explicit-namespace count | Cargo feature | Macro |
 |---|---|---|---|---|
 | `core` | `root`, `dep` | `dep`: 2 | always | `register_core_commands!` |
+| `lui` | `lui` | 14 | **always** | `register_lui_commands!`; needs a `UIPayload` |
 | `egui` | `root` | — | `egui` | `register_egui_commands!` |
 | `image` | `root` | — | `image-support` | `register_image_commands!` |
 | `polars` | `pl` | 26 | `polars` | `register_polars_commands!` |
-| `lui` | `lui` | 14 | `egui` | `register_lui_commands!`; needs a `UIPayload` |
+
+`lui` is **not** gated on `egui`: `pub mod ui;` in `liquers-lib/src/lib.rs:8` carries no `cfg`, and
+`ui/commands.rs` references no egui type. So `core` and `lui` are always exportable, and only the
+last three groups depend on cargo features.
+
+**The exporter must not use `register_all_commands!`.** That composite macro expands to
+`register_egui_commands!` / `register_polars_commands!` unconditionally, and those macros do not
+*exist* when their features are off (they are defined inside `#[cfg(feature = …)] pub mod` blocks),
+so it only compiles with every feature enabled. The exporter instead invokes each macro inside its
+own `#[cfg(feature = "…")]` block — which is also what makes `--list-groups` honest.
 
 **Question for the user:** is this the right group decomposition, or should `core` split further
 (e.g. `dep` separately), and should `webui` appear as a group once it registers commands?
