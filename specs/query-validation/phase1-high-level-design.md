@@ -84,13 +84,24 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
    be added with a freshness test, without changing either tool's interface.
 9. **Input kind comes from explicit CLI parameters, never inference.** A bare positional argument
    is a query — the shortest, most scriptable form and the primary path for an agent. Recipes come
-   from a file or stdin (`--recipe`, `--recipe-list`, `-` meaning stdin); a query may optionally
-   be read the same way. Nothing sniffs file extensions or content shape.
-10. **Recipe `cwd` is supplied on the command line** (`--cwd`), since a recipe validated in
-    isolation has lost the folder it came from. Note that `cwd` does *not* affect the plan —
-    `Recipe::to_plan` never consults it. It affects `Recipe::key()` and `store_to_key()`, i.e. the
-    resolved absolute target key, which the envelope reports as a diagnostic. An unparseable
-    `--cwd` is itself a validation error.
+   from a file or stdin via `--recipes` (named for the `recipes.yaml` convention that
+   `DefaultRecipeProvider` reads), with `-` meaning stdin; a query may optionally be read the same
+   way. There is no separate single-recipe option: a one-element `RecipeList` covers that case.
+   Nothing sniffs file extensions or content shape.
+10. **Recipe `cwd` is supplied on the command line** (`--cwd`), mirroring what
+    `DefaultRecipeProvider` does with the containing folder key, and applied through the existing
+    `RecipeList::set_cwd`. That keeps production semantics exactly — including its refusal when a
+    recipe carries its own `cwd`, which is a genuine finding, since such a `recipes.yaml` would
+    fail in production too. Note that `cwd` does *not* affect the plan — `Recipe::to_plan` never
+    consults it. It affects `Recipe::key()` and `store_to_key()`, i.e. the resolved absolute
+    target key, which the envelope reports as a diagnostic. An unparseable `--cwd` is itself a
+    validation error.
+11. **JSON and YAML are interchangeable on both sides.** Inputs (recipes, command registry files)
+    are parsed as JSON first and YAML second, with both diagnostics reported if both fail — so no
+    format flag is needed and the `recipes.yaml` convention works unchanged. Output format is one
+    `--format json|yaml` flag (default `json`) covering the whole envelope — `Query`, `Plan`,
+    `Error`, warnings — and likewise the exporter's registry output. Every one of those types
+    already derives `Serialize`/`Deserialize`, and both crates already depend on `serde_yaml`.
 
 ## Open Questions
 
@@ -100,11 +111,12 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
 2. Exporter selection granularity: cargo features are compile-time (`--features polars,egui`)
    while namespace filtering is runtime. Does one flag surface cover both, or are they separate?
    → Phase 2.
-3. Does the exporter emit YAML as well as JSON, and does the validator accept both on input?
-   → Phase 2 (both crates already depend on `serde_yaml`, so this is nearly free).
-4. `--cwd` against a recipe list: `RecipeList::set_cwd` hard-errors when *any* recipe already
-   carries its own `cwd` (and prints to stdout). Should the validator use it as-is, or default
-   cwd only on the recipes that lack one and report the rest? → Phase 2.
+3. `RecipeList::set_cwd` contains a stray `println!` on its error path (`recipes.rs:552`). Since
+   stdout carries the JSON envelope, that line would corrupt machine-readable output. Removing it
+   is a small, justified fix to liquers-core — the returned `Error` already says the same thing.
+   Confirm this small out-of-crate change is acceptable. → Phase 2.
+4. Does `--cwd` also apply when validating a bare query, or is it recipe-only? Queries can contain
+   relative keys too, but nothing in the plan path consumes a cwd. → Phase 2.
 
 ## References
 
