@@ -395,6 +395,11 @@ impl<E: Environment> Context<E> {
         self.payload.clone()
     }
 
+    /// Returns whether a payload is present, without cloning it.
+    pub fn has_payload(&self) -> bool {
+        self.payload.is_some()
+    }
+
     /// Schedule a dependency of the current asset without waiting for it, returning the
     /// captured child `AssetRef`. Internal helper (not a command-facing schedule/wait API):
     /// the only callers are `evaluate`, `get_dependency_state`, and the interpreter pre-pass.

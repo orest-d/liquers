@@ -123,6 +123,21 @@ pub fn apply_plan<E: Environment>(
 //impl std::future::Future<Output = Result<State<<E as NGEnvironment>::Value>, Error>>
 {
     async move {
+        // A plan declared `payload: required` must not run without one. This is the
+        // authoritative gate: it covers every execution path — top-level `EnvRef::evaluate`,
+        // keyed evaluation, and nested scheduling alike — where the per-entry-point checks
+        // cover only the nested ones. Without it, a command that reads the payload through
+        // `Context` and tolerates its absence would run despite declaring that it cannot.
+        if plan.payload_required.is_required() && !context.has_payload() {
+            return Err(Error::general_error(format!(
+                "Query '{}' requires an evaluation payload, but the evaluation was started \
+                 without one. Use EnvRef::evaluate_immediately to supply a payload, or remove \
+                 the 'payload: required' declaration from the commands involved.",
+                plan.query.encode()
+            ))
+            .with_query(&plan.query));
+        }
+
         // Pre-pass: schedule known dependencies before executing steps (concurrency +
         // one inline drain so at-capacity dependencies begin executing up front).
         schedule_plan_dependencies(&plan, &context).await?;

@@ -555,3 +555,108 @@ async fn test_payload_clone_shares_interior_state() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+// ============================================================================
+// Plan-level enforcement of `payload: required` (PR #14 review, comment 3)
+// ============================================================================
+
+/// A command declared `payload: required` must not run without a payload, even when nothing
+/// forces the issue: no injected argument, and the body tolerates a missing payload.
+///
+/// The per-entry-point checks in `Context` only cover nested scheduling, so before the
+/// plan-level gate this command ran happily through the top-level payload-free
+/// `EnvRef::evaluate`, contradicting its own declaration.
+#[tokio::test]
+async fn test_toplevel_required_payload_is_enforced() -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    // No injected argument, and absence of a payload is handled rather than propagated.
+    fn tolerant(_s: &State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        match context.get_payload_clone() {
+            Some(p) => Ok(Value::from(format!("payload:{}", p.window_id))),
+            None => Ok(Value::from("RAN_WITHOUT_PAYLOAD")),
+        }
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn tolerant(state, context) -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref.evaluate("/-/tolerant").await?;
+    let state = asset.get().await?;
+    let err = state
+        .value_state()
+        .err()
+        .ok_or_else(|| Error::general_error(
+            "a payload-required command must not run without a payload".to_string()))?;
+
+    assert!(
+        err.to_string().contains("requires an evaluation payload"),
+        "expected the payload requirement to be enforced, got: {}",
+        err
+    );
+    Ok(())
+}
+
+/// The same command with a payload supplied runs normally — the gate rejects only the
+/// genuinely payload-free case.
+#[tokio::test]
+async fn test_toplevel_required_payload_runs_when_supplied(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    fn tolerant(_s: &State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        match context.get_payload_clone() {
+            Some(p) => Ok(Value::from(format!("payload:{}", p.window_id))),
+            None => Ok(Value::from("RAN_WITHOUT_PAYLOAD")),
+        }
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn tolerant(state, context) -> result payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/tolerant", TestPayload::new("wendy", 11))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "payload:11");
+    Ok(())
+}
+
+/// Sibling evaluations of the same payload-requiring query are concurrent branches, not an
+/// ancestor cycle (PR #14 review, comment 2). The path is copied per branch rather than
+/// shared, so one sibling never sees the other's entry.
+#[tokio::test]
+async fn test_sibling_payload_evaluations_are_not_a_cycle(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = QueuedEnv;
+    let mut env = QueuedEnv::new();
+
+    async fn parent(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
+        let q = parse_query("/-/leaf")?;
+        let a = context.evaluate(&q).await?;
+        let b = context.evaluate(&q).await?;
+        Ok(Value::from(format!(
+            "a={} b={}",
+            a.get().await?.try_into_string()?,
+            b.get().await?.try_into_string()?
+        )))
+    }
+    fn leaf(_s: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("w{}", window_id.0)))
+    }
+
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn parent(state, context) -> result payload: required)?;
+    register_command!(cr, fn leaf(state, window_id: WindowId injected) -> result
+        payload: required)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/parent", TestPayload::new("xena", 5))
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "a=w5 b=w5");
+    Ok(())
+}
+
