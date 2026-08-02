@@ -1,0 +1,2018 @@
+# Liquers command registry — GENERATED, do not edit by hand.
+# Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
+#               --format yaml -o specs/command_registry.yaml
+# Origin:   groups=core,lui,egui,image,polars  features=egui,image,polars
+# Commands: 95
+# CHANGELOG-BEGIN
+# 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
+# CHANGELOG-END
+commands:
+- name: to_text
+  label: To text
+  doc: Convert input state to string
+  filename: text.txt
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b2768a7be3ee3ca2861f81f479b158c0
+- name: to_metadata
+  label: To metadata
+  doc: Extract metadata from input state
+  filename: metadata.json
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: c8329c425c5d062085a96398b8ad0670
+- name: commands_doc
+  label: Commands documentation
+  doc: Generate markdown documentation of registered commands
+  filename: commands.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: namespace
+    label: namespace
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  - name: command_name
+    label: command name
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9c6f7aca873c0cfeffee7427043353e5
+- namespace: dep
+  name: command_metadata
+  label: Command Metadata
+  doc: Returns the CommandMetadata for the named command
+  filename: command_metadata.json
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: realm
+    label: realm
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  - name: namespace
+    label: namespace
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  - name: name
+    label: name
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 1d837872f60743c09543fdd8895e5d96
+- namespace: dep
+  name: command_implementation
+  label: Command Implementation Version
+  doc: Returns the impl_version from the registered CommandMetadata
+  filename: command_impl.json
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: realm
+    label: realm
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  - name: namespace
+    label: namespace
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  - name: name
+    label: name
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: d6ccb88b7a96ed84e21ddd5dc3c5bacc
+- namespace: lui
+  name: add
+  label: Add element
+  doc: Add a new element to the UI tree
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: position_word
+    label: position word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: reference_word
+    label: reference word
+    default: !Value current
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: a867a4ae63aac06b104b1cff0fc54574
+- namespace: lui
+  name: remove
+  label: Remove element
+  doc: Remove an element from the UI tree
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: 6615e74fbda25dd5fc9b42f949b0ef90
+- namespace: lui
+  name: children
+  label: Children
+  doc: Get children handles of target element
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: b7187d14a7a3505a29db972fa5a978f1
+- namespace: lui
+  name: first
+  label: First child
+  doc: Navigate to first child of target
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: d60391ee34e40fb9cee87f38a5ba0183
+- namespace: lui
+  name: last
+  label: Last child
+  doc: Navigate to last child of target
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: 7711dbf238dcb93ebb2e3c2c39369359
+- namespace: lui
+  name: parent
+  label: Parent
+  doc: Navigate to parent of target
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: 10ea6e81fbd2871bb3d71ea5beb0ff9a
+- namespace: lui
+  name: next
+  label: Next sibling
+  doc: Navigate to next sibling of target
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: 284dd3ec92b8569d80ea66cca0e186b0
+- namespace: lui
+  name: prev
+  label: Previous sibling
+  doc: Navigate to previous sibling of target
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: 68166720f8d50a19df1a757ca286814b
+- namespace: lui
+  name: roots
+  label: Roots
+  doc: Get all root element handles
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: f3a67b6f510b8e43090259efa0da7000
+- namespace: lui
+  name: activate
+  label: Activate
+  doc: Set the active element
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: target_word
+    label: target word
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  is_async: true
+  definition: Registered
+  impl_version: 624befc790e6408453b4f08c2202dfe1
+- namespace: lui
+  name: ui_spec
+  label: UI Spec
+  doc: Create UISpecElement from YAML specification
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 96f4edde7c9f5881c141f1188c4d650c
+- namespace: lui
+  name: markdown
+  label: Markdown
+  doc: Create a markdown viewer element
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 2b4824f417ef2dbb2ed6f1538e52ac1e
+- namespace: lui
+  name: query_console
+  label: Query Console
+  doc: Create an interactive query console element
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 353776d67c163324e56c942bfbcfe6b0
+- namespace: lui
+  name: submit
+  label: Submit
+  doc: Interpret the input state as a query string and submit it for the current element
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: true
+  payload_required: Required
+  expires: never
+  definition: Registered
+  impl_version: 70240959ef3144b534993fd065eaf200
+- name: label
+  label: Show label
+  doc: Show text as a GUI label
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: txt
+    label: txt
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: f2bd4e981e9805bd3d13652f1c6be56d
+- name: text_editor
+  label: Text editor
+  doc: Show a text editor widget for editing text identified by a key; state must contain a key
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 4239fe561774385771befda3c1583a16
+- name: show_asset_info
+  label: Show asset info
+  doc: Show information about an asset sourced from the state metadata
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 434c81377e84c368a633c9f22644e3dd
+- namespace: img
+  name: from_bytes
+  label: From bytes
+  doc: Load image from bytes with auto-detected format
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b4659d786578458ff498e369aacfa138
+- namespace: img
+  name: from_format
+  label: From format
+  doc: Load image from bytes with explicitly specified format
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: format_str
+    label: format str
+    default: None
+    argument_type: !Enum
+      name: format_str
+      values:
+      - alias: png
+        value: !Value png
+      - alias: jpeg
+        value: !Value jpeg
+      - alias: webp
+        value: !Value webp
+      - alias: gif
+        value: !Value gif
+      - alias: bmp
+        value: !Value bmp
+      - alias: tiff
+        value: !Value tiff
+      - alias: ico
+        value: !Value ico
+      others_allowed: true
+      value_type: string
+    gui_info: EnumSelector
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 5c519e4488fa6a514ec1f51d066eeb41
+- namespace: img
+  name: svg_to_image
+  label: SVG to image
+  doc: Render SVG to raster image with specified dimensions
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: width
+    label: width
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: height
+    label: height
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 100c54a2f43b0befbfbbd4b09e971549
+- namespace: img
+  name: to_png
+  label: To PNG
+  doc: Convert image to PNG format (returns bytes)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 8feb7f836b195e2d0a285e128510dfc9
+- namespace: img
+  name: to_jpeg
+  label: To JPEG
+  doc: Convert image to JPEG format with specified quality (1-100)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: quality
+    label: quality
+    default: !Value 85
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: fbf6d74f8ce73adb5ccd4653e9318a04
+- namespace: img
+  name: to_dataurl
+  label: To data URL
+  doc: Convert image to base64 data URL with specified format (png, jpeg, webp, etc.)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: format_str
+    label: format str
+    default: !Value png
+    argument_type: !Enum
+      name: format_str
+      values:
+      - alias: png
+        value: !Value png
+      - alias: jpeg
+        value: !Value jpeg
+      - alias: webp
+        value: !Value webp
+      - alias: gif
+        value: !Value gif
+      - alias: bmp
+        value: !Value bmp
+      - alias: tiff
+        value: !Value tiff
+      - alias: ico
+        value: !Value ico
+      others_allowed: true
+      value_type: string
+    gui_info: EnumSelector
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 4f39b67333335fa869cf53abcaaceb1d
+- namespace: img
+  name: color_format
+  label: Color format
+  doc: Convert image color format (rgb8, rgba8, luma8, luma_alpha8, rgb16, rgba16)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: format
+    label: format
+    default: None
+    argument_type: !Enum
+      name: format
+      values:
+      - alias: rgb8
+        value: !Value rgb8
+      - alias: rgba8
+        value: !Value rgba8
+      - alias: luma8
+        value: !Value luma8
+      - alias: luma_alpha8
+        value: !Value luma_alpha8
+      - alias: rgb16
+        value: !Value rgb16
+      - alias: rgba16
+        value: !Value rgba16
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9bbf411b3e37d7bc3a09ab1286c5923e
+- namespace: img
+  name: resize
+  label: Resize
+  doc: Resize image to exact dimensions in pixels
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: width
+    label: width
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: height
+    label: height
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: method
+    label: method
+    default: !Value lanczos3
+    argument_type: !Enum
+      name: method
+      values:
+      - alias: nearest
+        value: !Value nearest
+      - alias: triangle
+        value: !Value triangle
+      - alias: catmullrom
+        value: !Value catmullrom
+      - alias: gaussian
+        value: !Value gaussian
+      - alias: lanczos3
+        value: !Value lanczos3
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: f7b9ab42f094fe42cacc73e1e18d40ef
+- namespace: img
+  name: resize_by
+  label: Resize by percentage
+  doc: Resize image by percentage (uniform scaling)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: percent
+    label: percent
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  - name: method
+    label: method
+    default: !Value lanczos3
+    argument_type: !Enum
+      name: method
+      values:
+      - alias: nearest
+        value: !Value nearest
+      - alias: triangle
+        value: !Value triangle
+      - alias: catmullrom
+        value: !Value catmullrom
+      - alias: gaussian
+        value: !Value gaussian
+      - alias: lanczos3
+        value: !Value lanczos3
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 45de8cd9d8c9a0f60e8009193e870cfa
+- namespace: img
+  name: thumb
+  label: Thumbnail
+  doc: Resize image preserving aspect ratio (fits within max dimensions)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: max_width
+    label: max width
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: max_height
+    label: max height
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: method
+    label: method
+    default: !Value lanczos3
+    argument_type: !Enum
+      name: method
+      values:
+      - alias: nearest
+        value: !Value nearest
+      - alias: triangle
+        value: !Value triangle
+      - alias: catmullrom
+        value: !Value catmullrom
+      - alias: gaussian
+        value: !Value gaussian
+      - alias: lanczos3
+        value: !Value lanczos3
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9528ff653b55c6e7094ed4d72571787c
+- namespace: img
+  name: crop
+  label: Crop
+  doc: Crop image to rectangle (x, y, width, height)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x
+    label: x
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y
+    label: y
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: width
+    label: width
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: height
+    label: height
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: dc1cdd354e484bc93023be78153c3588
+- namespace: img
+  name: rotate
+  label: Rotate
+  doc: Rotate image by arbitrary angle in degrees (positive = clockwise)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: angle
+    label: angle
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 064cf70f62da586c034c7dd387bdcb4f
+- namespace: img
+  name: rot90
+  label: Rotate 90°
+  doc: Rotate image 90 degrees clockwise
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 3ac98507253128bcdefa83fa43e6dfa7
+- namespace: img
+  name: rot180
+  label: Rotate 180°
+  doc: Rotate image 180 degrees
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: c533e66ef94bbadb28efcfbbe56c81df
+- namespace: img
+  name: rot270
+  label: Rotate 270°
+  doc: Rotate image 270 degrees clockwise (90 degrees counter-clockwise)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b9d63957fdf12097091e56094807cfbd
+- namespace: img
+  name: fliph
+  label: Flip horizontal
+  doc: Flip image horizontally
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 346827aeb674b4e6c93d58026a8cbdaa
+- namespace: img
+  name: flipv
+  label: Flip vertical
+  doc: Flip image vertically
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: c5485a6dc723fb5fcda3bab57bcc2d0e
+- namespace: img
+  name: gray
+  label: Grayscale
+  doc: Convert image to grayscale
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: d90f2930f8bede6554949fa0db64c47e
+- namespace: img
+  name: invert
+  label: Invert
+  doc: Invert image colors (negative)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: c6f7305ebe3bdc0b414f7ec746638ed2
+- namespace: img
+  name: brighten
+  label: Brighten
+  doc: Adjust brightness (positive = brighten, negative = darken)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: value
+    label: value
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9d18e119c5ed49a0b954c784bc5ae04c
+- namespace: img
+  name: contrast
+  label: Contrast
+  doc: Adjust contrast (positive = increase, negative = decrease)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: value
+    label: value
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 67991e54cec887490f5f8891b187fea2
+- namespace: img
+  name: huerot
+  label: Hue rotate
+  doc: Rotate hue by specified degrees (-180 to 180)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: value
+    label: value
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 4e67685d95fd2db86b0d8d397f32896b
+- namespace: img
+  name: blur
+  label: Blur
+  doc: Apply Gaussian blur with specified sigma value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: sigma
+    label: sigma
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 12dbd062e916c4f3cc8fad152d7580a3
+- namespace: img
+  name: sharpen
+  label: Sharpen
+  doc: Sharpen image using unsharp mask
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 2b8ebbb7ede74c599679cece10e2e0a0
+- namespace: img
+  name: dims
+  label: Dimensions
+  doc: Get image dimensions as 'WIDTHxHEIGHT' string
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: cd56a6c19ecf0c0de93928feb451167e
+- namespace: img
+  name: width
+  label: Width
+  doc: Get image width in pixels
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 95dc1c25882e5ef3feda92db8c4317ed
+- namespace: img
+  name: height
+  label: Height
+  doc: Get image height in pixels
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: ddaa5ee7143c7862316ac5fc853aaa70
+- namespace: img
+  name: colortype
+  label: Color type
+  doc: Get image color type (Rgb8, Rgba8, L8, etc.)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 7195bfbcd9df4ab1776fa973c45fc0b5
+- namespace: img
+  name: to_webp
+  label: To WebP
+  doc: Convert image to WebP format (returns bytes)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: a01323b50b0873baaa6182e5469669f7
+- namespace: img
+  name: to_gif
+  label: To GIF
+  doc: Convert image to GIF format (returns bytes)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 93fb64e66add7c850188c8f147b5989b
+- namespace: img
+  name: to_bmp
+  label: To BMP
+  doc: Convert image to BMP format (returns bytes)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 6ecc4379a5890204d011b513d042d26c
+- namespace: img
+  name: gamma
+  label: Gamma correction
+  doc: Apply gamma correction (gamma > 1 darkens, < 1 brightens)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: gamma_value
+    label: gamma value
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 8ccd168d8fc76ec99a7a03cc77eaa0fa
+- namespace: img
+  name: saturate
+  label: Saturate
+  doc: Adjust color saturation (1.0 = no change, > 1 = more, < 1 = less)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: factor
+    label: factor
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 9bdce8fe8b87128a5822006ba1c2069a
+- namespace: img
+  name: median
+  label: Median filter
+  doc: Apply median filter for noise reduction (radius in pixels)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 3acebbab631b08bc7d7543fcccf82b26
+- namespace: img
+  name: boxfilt
+  label: Box filter
+  doc: Apply box/mean filter for blur (radius in pixels)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 7b1cf2ea1af6fe687c88032b5173a89f
+- namespace: img
+  name: erode
+  label: Erode
+  doc: Morphological erosion (shrink bright regions, radius in pixels)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 1a56a442d937f986da6594ee88421542
+- namespace: img
+  name: dilate
+  label: Dilate
+  doc: Morphological dilation (expand bright regions, radius in pixels)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 2120f5eebdc52d2d393a86062438dddd
+- namespace: img
+  name: opening
+  label: Opening
+  doc: Morphological opening (remove noise, radius in pixels)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: d635e2b4d9c2c71c9133ad3cc23f009c
+- namespace: img
+  name: closing
+  label: Closing
+  doc: Morphological closing (fill holes, radius in pixels)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 7f062ba0bfc9c5a248eed8a0afa302c7
+- namespace: img
+  name: draw_line
+  label: Draw line
+  doc: Draw line from (x1,y1) to (x2,y2) with specified color
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x1
+    label: x1
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y1
+    label: y1
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: x2
+    label: x2
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y2
+    label: y2
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: color_str
+    label: color str
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 14e3462c1eb7b6b625b6755e587da822
+- namespace: img
+  name: draw_rect
+  label: Draw rectangle
+  doc: Draw rectangle outline at (x,y) with specified dimensions and color
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x
+    label: x
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y
+    label: y
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: width
+    label: width
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: height
+    label: height
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: color_str
+    label: color str
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 8af9daa53f8bee08a24b4916446fed1d
+- namespace: img
+  name: draw_filled_rect
+  label: Draw filled rectangle
+  doc: Draw filled rectangle at (x,y) with specified dimensions and color
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x
+    label: x
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y
+    label: y
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: width
+    label: width
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: height
+    label: height
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: color_str
+    label: color str
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b99df808f83f6c7076e43d8020b6bea9
+- namespace: img
+  name: draw_circle
+  label: Draw circle
+  doc: Draw circle outline at (x,y) with specified radius and color
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x
+    label: x
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y
+    label: y
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: color_str
+    label: color str
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 87848c544f6a1b1a46dcc86f263eb067
+- namespace: img
+  name: draw_filled_circle
+  label: Draw filled circle
+  doc: Draw filled circle at (x,y) with specified radius and color
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x
+    label: x
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y
+    label: y
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: radius
+    label: radius
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: color_str
+    label: color str
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: bfa01e9f55caec30d9c918d0ab1e88a9
+- namespace: img
+  name: draw_text
+  label: Draw text
+  doc: Draw text at (x,y) with specified font size and color
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: x
+    label: x
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: y
+    label: y
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: size
+    label: size
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  - name: color_str
+    label: color str
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 4ac4b40210fec7e013d66263bd5e3dce
+- namespace: img
+  name: sobel
+  label: Sobel edge detection
+  doc: Apply Sobel edge detection (horizontal + vertical edges)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 7d873203b5d6a50eeb044113a95ac983
+- namespace: img
+  name: canny
+  label: Canny edge detection
+  doc: Apply Canny edge detection with low and high thresholds
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: low_threshold
+    label: low threshold
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  - name: high_threshold
+    label: high threshold
+    default: None
+    argument_type: float
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: f23eaca41dbcd7f86ec6073442b9659a
+- namespace: pl
+  name: from_csv
+  label: Load DataFrame from CSV
+  doc: 'Parse CSV data into a Polars DataFrame. Supports custom separators: comma (default), tab, semicolon, pipe.'
+  filename: data.csv
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: separator
+    label: separator
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 738d55b8a3350271d9385d840c48d748
+- namespace: pl
+  name: to_csv
+  label: Export DataFrame to CSV
+  doc: Convert DataFrame to CSV string with comma separator
+  filename: data.csv
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b214e1c2f8023cf7dd254c199a6bdda3
+- namespace: pl
+  name: select_columns
+  label: Select columns
+  doc: Select columns by name (separated by dashes)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 0faad4d873b77029b8a791dd7efe4e24
+- namespace: pl
+  name: drop_columns
+  label: Drop columns
+  doc: Remove columns by name (separated by dashes)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: c72093e30c04bea93abebb6d8338c6e9
+- namespace: pl
+  name: head
+  label: Get first rows
+  doc: 'Return first N rows (default: 5)'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: de08a646e2af3a5621ba8d666fe67d6e
+- namespace: pl
+  name: tail
+  label: Get last rows
+  doc: 'Return last N rows (default: 5)'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 4061d1b5a52515b786804d13d99727bb
+- namespace: pl
+  name: slice
+  label: Slice rows
+  doc: Extract rows by range (offset, length)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: offset
+    label: offset
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  - name: length
+    label: length
+    default: None
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 56e590b919d643e2e3e268abae38c511
+- namespace: pl
+  name: eq
+  label: Equal to
+  doc: Filter rows where column equals value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 96c298b9f96bc0f981db1a0cf19ebb79
+- namespace: pl
+  name: ne
+  label: Not equal to
+  doc: Filter rows where column does not equal value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: cdd853bd36ffffbd622de28a23d81bc1
+- namespace: pl
+  name: gt
+  label: Greater than
+  doc: Filter rows where column is greater than value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: f3433d07b23c47be0b6b4d99d6b13b06
+- namespace: pl
+  name: gte
+  label: Greater than or equal
+  doc: Filter rows where column is greater than or equal to value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 51613168e612e274399e9a75acafba65
+- namespace: pl
+  name: lt
+  label: Less than
+  doc: Filter rows where column is less than value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 307d0f70cc1fa3c31b1ca965e76b12bf
+- namespace: pl
+  name: lte
+  label: Less than or equal
+  doc: Filter rows where column is less than or equal to value
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: cfc59a652b34030ae94f0e0c09daa021
+- namespace: pl
+  name: sort
+  label: Sort by column
+  doc: Sort DataFrame by column. Use 't'/'true' for ascending (default), 'f'/'false' for descending
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 20
+  - name: ascending
+    label: ascending
+    default: !Value t
+    argument_type: string
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 8824c3d4e188eed6b26583c4725b28ca
+- namespace: pl
+  name: sum
+  label: Sum
+  doc: Sum of all numeric columns
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 53ad89df330ef10c96afd64d6bc7daf6
+- namespace: pl
+  name: mean
+  label: Mean
+  doc: Mean of all numeric columns
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: e77b8e1836c40cdab8e2624d1b51fc8d
+- namespace: pl
+  name: median
+  label: Median
+  doc: Median of all numeric columns
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 3bfdfc39454cc9d16e78e17ec6f6f5cf
+- namespace: pl
+  name: min
+  label: Minimum
+  doc: Minimum of all numeric columns
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: a95954a4aece2b69be007f68b1131de3
+- namespace: pl
+  name: max
+  label: Maximum
+  doc: Maximum of all numeric columns
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 290b47f4dc9d6582c3fa7e66bfabf39b
+- namespace: pl
+  name: std
+  label: Standard Deviation
+  doc: Standard deviation of all numeric columns
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 3e88c1d328246815ffc0efd91494ed25
+- namespace: pl
+  name: count
+  label: Count
+  doc: Count non-null values per column
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 8620dd6cc07d06c76ce24eb182378eec
+- namespace: pl
+  name: describe
+  label: Describe
+  doc: Statistical summary of DataFrame
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: e04d3fc5361e303672e86ab8957e2ab0
+- namespace: pl
+  name: shape
+  label: Shape
+  doc: Get DataFrame shape (rows and columns)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 242f8ea79bc0983ed7aa0422ed72d496
+- namespace: pl
+  name: nrows
+  label: Number of rows
+  doc: Get number of rows in DataFrame
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 96ec1fd476b7c2b2c065a1661ac7f12e
+- namespace: pl
+  name: ncols
+  label: Number of columns
+  doc: Get number of columns in DataFrame
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 04112291f2adbcc0cca33c11c6fe7634
+- namespace: pl
+  name: schema
+  label: Schema
+  doc: Get DataFrame schema (column names and types)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 96923ef5d3d15b5f97d7669db6315345
+default_namespaces:
+- ''
+- root
+global_enums: {}

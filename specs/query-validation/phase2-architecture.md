@@ -585,12 +585,17 @@ The namespaces that matter are the ones the exporter can emit, discovered by sur
 | `core` | `root`, `dep` | `dep`: 2 | always | `register_core_commands!` |
 | `lui` | `lui` | 14 | **always** | `register_lui_commands!`; needs a `UIPayload` |
 | `egui` | `root` | — | `egui` | `register_egui_commands!` |
-| `image` | `root` | — | `image-support` | `register_image_commands!` |
+| `image` | `img` | 47 | `image-support` | `register_image_commands!` |
 | `polars` | `pl` | 26 | `polars` | `register_polars_commands!` |
 
 `lui` is **not** gated on `egui`: `pub mod ui;` in `liquers-lib/src/lib.rs:8` carries no `cfg`, and
 `ui/commands.rs` references no egui type. So `core` and `lui` are always exportable, and only the
 last three groups depend on cargo features.
+
+Counts are from a real export (95 commands with default features): `img` 47, `pl` 26, `lui` 14,
+`""` 6, `dep` 2. Note the `register_command!` DSL keyword for a namespace is **`ns:`**, not
+`namespace:` — grepping for the latter misses the 47 image commands entirely and makes `img`
+look like `root`.
 
 **The exporter must not use `register_all_commands!`.** That composite macro expands to
 `register_egui_commands!` / `register_polars_commands!` unconditionally, and those macros do not
