@@ -30,6 +30,13 @@ Phase 2 for the authoritative shape.
 4. **`DefaultEnvironment::new()` requires a tokio runtime** — it constructs `DefaultAssetManager`,
    which calls `tokio::spawn`. The exporter binary therefore needs `#[tokio::main]` despite doing
    no async work. This would have been a compile-and-panic surprise in Phase 4.
+5. **The `recipes.yaml` in Example 5 deserializes into `RecipeList`** and behaves as claimed: all
+   three recipes give `store_to_key() == None` (hence `AdHoc`), while the filename-terminated
+   variant under `set_cwd("reports")` gives `Some(reports/preview.csv)` (hence `Stored`).
+
+An independent reviewer re-derived every claim above with its own harness after mine was deleted,
+and confirmed all of them — including the 81-command total, the 4-step polars plan, and both sides
+of the `-R/` key-swallowing comparison.
 
 ## Overview Table
 
