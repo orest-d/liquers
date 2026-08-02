@@ -177,6 +177,7 @@ pub fn validate_recipes(recipes: &RecipeList, level: ValidationLevel,
                         cmr: &CommandMetadataRegistry) -> Vec<ValidationResult>;
 pub fn build_report(level: ValidationLevel, registry: RegistryProvenance,
                     results: Vec<ValidationResult>) -> ValidationReport;
+pub fn apply_cwd(recipes: &mut RecipeList, cwd: &str) -> Result<(), Error>;
 fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
 ```
 
@@ -215,6 +216,20 @@ fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
 
 Implement U1–U26 from Phase 3 "Test Plan". Distribute: U1–U10 and U19 in `mod.rs`, U11–U15 in
 `registry.rs`, U16–U18 and U20–U26 in `report.rs`.
+
+**Plus U27, covering Phase 3 corner case C9** (a recipe carrying its own `cwd` while `--cwd` is
+given). To make it testable at library level rather than only through the binary, step 4 exposes a
+thin wrapper:
+
+```rust
+/// Apply a CLI-supplied cwd to a recipe list, with `RecipeList::set_cwd`'s semantics:
+/// an `Err` when any recipe already declares its own `cwd`, matching `DefaultRecipeProvider`.
+pub fn apply_cwd(recipes: &mut RecipeList, cwd: &str) -> Result<(), Error>;
+```
+
+U27 asserts that a list containing a recipe with `cwd: something` returns `Err` whose type is
+`NotSupported`. This is one of the few genuine `Err` paths in an otherwise failures-as-data API,
+so it is worth pinning: it is a *tool* error (exit 2), not a `ValidationResult`.
 
 **Watch:** compare **fields**, not whole `ValidationResult`s (no `PartialEq`). U3 must assert
 `error.position.line == 1` and `column > 0` — position fidelity is what makes the output useful,
@@ -255,6 +270,15 @@ CARGO_INCREMENTAL=0 cargo run -p liquers-core --features cli --bin liquers-valid
   '-R/data/report.txt/-/to_text'
 CARGO_INCREMENTAL=0 cargo run -p liquers-core --features cli --bin liquers-validate -- \
   'bad query with spaces'; echo "exit=$?"     # expect 1
+
+# C9 smoke: a recipe declaring its own cwd, plus --cwd, must fail as a tool error
+printf 'recipes:\n  - query: -R/a/b.txt\n    cwd: elsewhere\n' > /tmp/c9.yaml
+CARGO_INCREMENTAL=0 cargo run -p liquers-core --features cli --bin liquers-validate -- \
+  --recipes /tmp/c9.yaml --cwd reports; echo "exit=$?"   # expect 2, message names not_supported
+
+# clap smoke: --cwd without --recipes is a usage error
+CARGO_INCREMENTAL=0 cargo run -p liquers-core --features cli --bin liquers-validate -- \
+  'to_text' --cwd reports; echo "exit=$?"     # expect 2
 ```
 
 **Agent:** sonnet · skills: rust-best-practices · knowledge: Phase 2 CLI section, Phase 3
@@ -366,7 +390,7 @@ legitimate stdout writers, and they go through the envelope.
 | When | What | Command |
 |---|---|---|
 | After steps 1–4 | Compiles, nothing regressed | `cargo check -p liquers-core` |
-| After step 5 | Unit tests U1–U26 | `cargo test -p liquers-core --lib validate` |
+| After step 5 | Unit tests U1–U27 | `cargo test -p liquers-core --lib validate` |
 | After steps 6–7 | Binaries run; manual smoke | the `cargo run` lines above |
 | After step 8 | Full suites, both crates | `cargo test -p liquers-{core,lib} --lib --tests` |
 | Step 10 | Feature matrix + stdout audit | the block above |
@@ -377,7 +401,9 @@ error. Run `cargo clean` first if `target/` has seen several profiles — per `C
 `liquers-lib` test build is ~4.2 GB and ~3 min.
 
 **Not tested, deliberately:** store interaction (there is none), command execution (never runs
-one), and clap's own parsing beyond one smoke test that `--cwd` without `--recipes` exits 2.
+one), and clap's own parsing beyond the one `--cwd`-without-`--recipes` smoke test in step 6.
+Phase 3's C10 (very long / deeply nested queries) is also deliberately untested: we impose no
+limit the rest of the system lacks, so there is no behaviour of ours to assert.
 
 ---
 
