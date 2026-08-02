@@ -105,7 +105,7 @@ impl ValidationReport {
 
 **Watch:** derive `PartialEq` on `ValidationWarning`, `RegistryProvenance`, `ValidationCounts`
 but **not** on `ValidationResult`/`ValidationReport` — they embed `Plan`, which is not `PartialEq`
-(`plan.rs:1352`). `FromStr::Err` is `Error` via `Error::general_error`, never a new error type.
+(`plan.rs:1399`). `FromStr::Err` is `Error` via `Error::general_error`, never a new error type.
 Serialization errors wrap with `Error::from_error(ErrorType::General, e)`.
 
 **Validation:** `CARGO_INCREMENTAL=0 cargo check -p liquers-core`
@@ -138,7 +138,7 @@ impl ValidationRegistryBuilder {
 **Two traps, both load-bearing:**
 
 1. **Duplicate detection must precede `add_command`.** `CommandMetadataRegistry::add_command`
-   overwrites silently (`command_metadata.rs:992`), so check `self.registry.get(key.clone())`
+   overwrites silently (`command_metadata.rs:1067`), so check `self.registry.get(key.clone())`
    first and return `Err` unless `allow_overwrite`.
 2. **`from_json_or_yaml` tries JSON then YAML and reports *both* failures.** Returning only the
    YAML error would mislead on a malformed JSON file.
@@ -194,7 +194,7 @@ fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
    ```
    Both are correct outcomes; `AdHoc` is not a fallback. Record `recipe_check` either way.
 3. **`collect_warnings` de-duplicates.** `Plan::set_error` sets `error` *and* pushes a
-   `Step::Error` into `init_steps` (`plan.rs:1441`), so emit the `PlanError` warning once and skip
+   `Step::Error` into `init_steps` (`plan.rs:1496`), so emit the `PlanError` warning once and skip
    the `init_steps` entry whose message equals `plan.error`'s.
 4. **No `_ =>` arm on `Step`.** Two arms for `Error`/`Warning`, one `|`-joined arm naming the
    other fifteen variants, so a new variant is a compile error.

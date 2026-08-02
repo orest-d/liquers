@@ -24,12 +24,12 @@ to distinguish "the query is bad" from "the validator is broken" by inspecting m
 ### Discovered constraints that shape the design
 
 1. **An unknown command is a hard `Err` from `PlanBuilder::build()`**, not a `Step::Error`
-   (`plan.rs:1037` → `Error::action_not_registered`). So against an empty registry, *any* query
+   (`plan.rs:1075` → `Error::action_not_registered`). So against an empty registry, *any* query
    containing an action fails at level 2. This is correct behaviour, and it is exactly why the
    `--command` override exists. Level 2 against an empty registry is only meaningful for pure
    key/resource queries.
 2. **`CommandMetadataRegistry::add_command` silently overwrites** an existing `CommandKey`
-   (`command_metadata.rs:984`). Duplicate detection must therefore happen *before* the call, via
+   (`command_metadata.rs:1058`). Duplicate detection must therefore happen *before* the call, via
    `get(key)` — `add_command` cannot report the collision.
 3. **`Recipe::to_plan` ignores `cwd`** entirely. `cwd` feeds only `Recipe::key()` and
    `store_to_key()`. So `--cwd` changes the reported target key, never the plan.
@@ -174,7 +174,7 @@ Deliberately few. This feature adds **no new traits** and implements no Liquers 
 | `ValidationLevel`, `ValidationStatus`, `WarningSource` | `Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq` | fieldless, so `Copy` is sound and avoids clone noise |
 | `ValidationStatus` | additionally `PartialOrd, Ord` | lets `results.iter().map(\|r\| r.status).max()` compute the report status |
 | `ValidationLevel`, `ValidationStatus` | additionally `Default` | `Parse` and `Ok` are the natural zero values |
-| `ValidationResult`, `ValidationReport` | `Serialize, Deserialize, Debug, Clone` | not `Copy` (contain `String`/`Vec`); **not `PartialEq`** — they embed `Plan`, which derives only `Serialize, Deserialize, Debug, Clone` (`plan.rs:1352`). `Error` *is* `PartialEq` (`error.rs:41`), so it is `Plan` alone that blocks it. Tests must therefore compare fields, not whole results |
+| `ValidationResult`, `ValidationReport` | `Serialize, Deserialize, Debug, Clone` | not `Copy` (contain `String`/`Vec`); **not `PartialEq`** — they embed `Plan`, which derives only `Serialize, Deserialize, Debug, Clone` (`plan.rs:1399`). `Error` *is* `PartialEq` (`error.rs:41`), so it is `Plan` alone that blocks it. Tests must therefore compare fields, not whole results |
 | `ValidationWarning`, `RegistryProvenance`, `ValidationCounts` | `Serialize, Deserialize, Debug, Clone, PartialEq` | these embed no `Plan`, so `PartialEq` is available and worth having for test assertions |
 | `ValidationLevel` | `std::str::FromStr` | `"parse"` / `"plan"` for clap; returns `Error` |
 
