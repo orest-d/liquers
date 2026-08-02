@@ -5,7 +5,7 @@
 **Feature:** Query validation utility for coding agents — `liquers_core::validate` plus two CLIs.
 
 **Architecture:** A dependency-free `validate` module in `liquers-core` holds all logic; a
-`liquers-validate` binary (feature `cli`) wraps it, and an `export_command_registry` binary in
+`liquers-validate` binary (feature `cli`) wraps it, and an `export-command-registry` binary in
 `liquers-lib` produces the command metadata it consumes.
 
 **Shape of the change:** almost entirely additive. Six new files; four existing files touched, by
@@ -177,7 +177,7 @@ pub fn validate_recipes(recipes: &RecipeList, level: ValidationLevel,
                         cmr: &CommandMetadataRegistry) -> Vec<ValidationResult>;
 pub fn build_report(level: ValidationLevel, registry: RegistryProvenance,
                     results: Vec<ValidationResult>) -> ValidationReport;
-pub fn apply_cwd(recipes: &mut RecipeList, cwd: &str) -> Result<(), Error>;
+pub fn apply_cwd(recipes: &mut RecipeList, cwd: &str) -> Result<Vec<usize>, Error>;
 fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
 ```
 
@@ -185,19 +185,31 @@ fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
 
 1. **These functions never return `Err`.** A bad query is `ValidationResult { status: Error,
    error: Some(..) }`. This is the design's central decision; getting it wrong inverts the API.
-2. **Recipe branch selection:**
+2. **Recipe branch selection — and `store_to_key` is fallible.** It calls
+   `filename()` → `get_query()` → `parse_query`, so a recipe whose *query* does not parse (the
+   commonest defect there is) errors here, before `to_plan` is reached. `?` is **not available**:
+   this function returns `ValidationResult`, not `Result`. Writing `?` will not compile, and
+   "fixing" it by changing the return type would invert the design's central decision.
    ```rust
-   let plan = match recipe.store_to_key()? {
-       Some(key) => { check = RecipeCheck::Stored; recipe.to_plan_for_key(cmr, &key) }
-       None      => { check = RecipeCheck::AdHoc;  recipe.to_plan(cmr) }
+   let plan = match recipe.store_to_key() {
+       Err(e)        => return ValidationResult::failed(index, source, e),  // recipe_check: None
+       Ok(Some(key)) => { check = Some(RecipeCheck::Stored);
+                          recipe.to_plan_for_key(cmr, &key) }
+       Ok(None)      => { check = Some(RecipeCheck::AdHoc);
+                          recipe.to_plan(cmr) }
    };
    ```
-   Both are correct outcomes; `AdHoc` is not a fallback. Record `recipe_check` either way.
+   Both `Ok` branches are correct outcomes; `AdHoc` is not a fallback. Record `recipe_check` in
+   both, and leave it `None` when the key could not be computed at all.
 3. **`collect_warnings` de-duplicates.** `Plan::set_error` sets `error` *and* pushes a
    `Step::Error` into `init_steps` (`plan.rs:1496`), so emit the `PlanError` warning once and skip
    the `init_steps` entry whose message equals `plan.error`'s.
-4. **No `_ =>` arm on `Step`.** Two arms for `Error`/`Warning`, one `|`-joined arm naming the
-   other fifteen variants, so a new variant is a compile error.
+4. **No `_ =>` arm on `Step`, and `Step::Plan` must recurse.** `Step` has **18** variants
+   (`plan.rs:125-150`): one arm each for `Error` and `Warning`, one for `Plan(Plan)` which
+   **recurses** — a nested plan carries its own `steps`, `init_steps` and `error`, so without
+   recursion an error inside one is invisible and the result wrongly reports `Ok` — and one
+   `|`-joined arm naming the remaining 15. Prefix nested messages with `nested plan: ` so depth is
+   readable from the flat `warnings` list.
 
 `build_report` computes `status` as the max over results (`ValidationStatus: Ord`) and fills
 `counts`; **zero results must yield `Ok`, not `Error`** (Phase 3 C8).
@@ -214,22 +226,33 @@ fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
 
 **File:** `liquers-core/src/validate/mod.rs` and the two submodules, `#[cfg(test)] mod tests`
 
-Implement U1–U26 from Phase 3 "Test Plan". Distribute: U1–U10 and U19 in `mod.rs`, U11–U15 in
+Implement U1–U26 from Phase 3 "Test Plan", plus U30 asserting that an error inside a
+`Step::Plan` nested plan is collected (see behaviour 4). Distribute: U1–U10 and U19 in `mod.rs`, U11–U15 in
 `registry.rs`, U16–U18 and U20–U26 in `report.rs`.
 
-**Plus U27, covering Phase 3 corner case C9** (a recipe carrying its own `cwd` while `--cwd` is
-given). To make it testable at library level rather than only through the binary, step 4 exposes a
-thin wrapper:
+**Plus U27–U29, covering Phase 3 corner case C9** (a recipe carrying its own `cwd` while `--cwd`
+is given). Step 4 exposes:
 
 ```rust
-/// Apply a CLI-supplied cwd to a recipe list, with `RecipeList::set_cwd`'s semantics:
-/// an `Err` when any recipe already declares its own `cwd`, matching `DefaultRecipeProvider`.
-pub fn apply_cwd(recipes: &mut RecipeList, cwd: &str) -> Result<(), Error>;
+/// Apply a CLI-supplied cwd to a recipe list.
+/// Returns the indices of recipes that already declare their own `cwd`; those are reported as
+/// per-recipe findings, not as a whole-run failure. `Err` only for an unparseable `cwd`.
+pub fn apply_cwd(recipes: &mut RecipeList, cwd: &str) -> Result<Vec<usize>, Error>;
 ```
 
-U27 asserts that a list containing a recipe with `cwd: something` returns `Err` whose type is
-`NotSupported`. This is one of the few genuine `Err` paths in an otherwise failures-as-data API,
-so it is worth pinning: it is a *tool* error (exit 2), not a `ValidationResult`.
+**Do not delegate to `RecipeList::set_cwd`**, for two reasons found by inspection: it aborts on
+the *first* offender (so a list with three bad recipes yields one finding, defeating batch mode),
+and it *partially mutates* before returning `Err`, leaving earlier recipes already assigned.
+`apply_cwd` iterates itself, assigning `cwd` where absent and collecting the rest.
+
+It must `parse_key(cwd)?` **first** and pass `.encode()` on, mirroring `DefaultRecipeProvider`
+(`recipes.rs:473`). `set_cwd` alone accepts any string — verified: `set_cwd("not a key!!")`
+returns `Ok(())` — and the error would then surface inside `store_to_key`, in the no-`Err` zone.
+
+- **U27**: a list with two `cwd`-carrying recipes returns both indices, and both surface as
+  `ValidationResult`s with `status: Error` — *not* a single `Err`.
+- **U28**: `apply_cwd` with an unparseable cwd returns `Err` (`ParseError`) and mutates nothing.
+- **U29**: recipes lacking `cwd` are assigned it; those carrying one are left untouched.
 
 **Watch:** compare **fields**, not whole `ValidationResult`s (no `PartialEq`). U3 must assert
 `error.position.line == 1` and `column > 0` — position fidelity is what makes the output useful,
@@ -291,14 +314,19 @@ Examples 1–5, clap 4 derive docs.
 **File:** `liquers-lib/src/bin/export_command_registry.rs`
 
 ```rust
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() { ... }
 ```
 
 **Three traps, all discovered during Phase 3 and each fatal if missed:**
 
-1. **`#[tokio::main]` is required.** `DefaultEnvironment::new()` constructs `DefaultAssetManager`,
-   which calls `tokio::spawn`; without a runtime it panics at *runtime*, not compile time.
+1. **A tokio runtime is required, and it must be `current_thread`.** `DefaultEnvironment::new()`
+   constructs `DefaultAssetManager`, which calls `tokio::spawn`; without a runtime it panics at
+   *runtime*, not compile time. But bare `#[tokio::main]` expands to `Builder::new_multi_thread()`,
+   which needs the `rt-multi-thread` feature — and `liquers-lib` enables only
+   `["sync", "rt", "macros", "time"]` (`liquers-lib/Cargo.toml:63`), so it would fail to
+   *compile*. `flavor = "current_thread"` works with plain `rt` and is sufficient: the exporter
+   awaits nothing and the spawned asset-manager task never needs to run.
 2. **Do not use `register_all_commands!`.** It expands to `register_egui_commands!` and
    `register_polars_commands!` unconditionally, and those macros do not exist when their features
    are off. Invoke each inside its own `#[cfg(feature = "…")]` block.
@@ -315,7 +343,7 @@ CARGO_INCREMENTAL=0 cargo run -p liquers-lib --features cli --bin export-command
   --list-groups
 CARGO_INCREMENTAL=0 cargo run -p liquers-lib --features cli --bin export-command-registry -- \
   -o /tmp/reg.json && python3 -c "import json;print(len(json.load(open('/tmp/reg.json'))['commands']))"
-# expect 81 with default features
+# expect 95 with default features (81 + the 14 always-available lui commands)
 ```
 
 **Agent:** sonnet · skills: rust-best-practices · knowledge: Phase 2 "Relevant Commands" and
@@ -390,7 +418,7 @@ legitimate stdout writers, and they go through the envelope.
 | When | What | Command |
 |---|---|---|
 | After steps 1–4 | Compiles, nothing regressed | `cargo check -p liquers-core` |
-| After step 5 | Unit tests U1–U27 | `cargo test -p liquers-core --lib validate` |
+| After step 5 | Unit tests U1–U29 | `cargo test -p liquers-core --lib validate` |
 | After steps 6–7 | Binaries run; manual smoke | the `cargo run` lines above |
 | After step 8 | Full suites, both crates | `cargo test -p liquers-{core,lib} --lib --tests` |
 | Step 10 | Feature matrix + stdout audit | the block above |

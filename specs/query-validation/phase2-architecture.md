@@ -8,7 +8,7 @@ Three deliverables, in two crates:
 |---|---|---|
 | `validate` module — the whole validation logic, no I/O | `liquers-core/src/validate/` | nothing new |
 | `liquers-validate` CLI | `liquers-core/src/bin/liquers_validate.rs` | `clap` (optional, feature `cli`) |
-| `export_command_registry` CLI | `liquers-lib/src/bin/export_command_registry.rs` | `clap` (optional, feature `cli`) |
+| `export-command-registry` CLI | `liquers-lib/src/bin/export_command_registry.rs` | `clap` (optional, feature `cli`) |
 
 The module is the product; the binaries are thin argument-parsing shells over it. That split lets
 unit tests exercise validation directly without spawning a process, and lets other crates
@@ -95,6 +95,18 @@ pub struct ValidationResult {
     pub index: usize,
     /// The query text exactly as supplied.
     pub source: String,
+    /// The query re-encoded from the parsed `Query` (`Query::encode()`, `query.rs:1447`).
+    /// Diffing this against `source` reveals mis-parses at level 1, with no registry —
+    /// see "Why `encoded` earns its place" below. Absent when parsing failed.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub encoded: Option<String>,
+    /// 1-based line in the source file, when the input came from `--query-file`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub line: Option<usize>,
+    /// Which recipe check ran. `None` for query inputs, and when the storage key
+    /// could not be computed because the recipe's own query does not parse.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub recipe_check: Option<RecipeCheck>,
     /// Recipe title, when the input was a recipe list.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title: Option<String>,
@@ -261,10 +273,15 @@ impl ValidationReport {
 fn collect_warnings(plan: &Plan) -> Vec<ValidationWarning>;
 ```
 
-`collect_warnings` matches `Step` exhaustively with **no `_ =>` arm**: two arms for
-`Step::Error` / `Step::Warning`, and one `|`-joined arm listing every remaining variant
-explicitly. Adding a `Step` variant then becomes a compile error, as the convention intends,
-without writing seventeen separate arms.
+`collect_warnings` matches `Step` exhaustively with **no `_ =>` arm**. `Step` has **18** variants
+(`plan.rs:125-150`), so: one arm for `Step::Error`, one for `Step::Warning`, one for
+`Step::Plan(Plan)` — which **recurses**, since a nested plan carries its own `steps`,
+`init_steps` and `error`, and an error inside one would otherwise be invisible and the result
+would report `Ok` — and one `|`-joined arm naming the remaining 15 variants explicitly. Adding a
+`Step` variant then becomes a compile error, as the convention intends.
+
+Nested-plan warnings are prefixed (`nested plan: …`) so an agent can tell depth from the flat
+`warnings` list without the envelope growing a tree.
 
 ### `liquers-core/src/validate/registry.rs`
 
@@ -309,22 +326,63 @@ liquers-validate [OPTIONS] [QUERY]
 
 Input (mutually exclusive, exactly one required):
   [QUERY]...                  One or more queries as positional arguments (primary path)
-  -Q, --query-file <FILE>     Newline-separated queries from FILE, or `-` for stdin
-  -r, --recipes <FILE>        RecipeList (recipes.yaml shape) from FILE, or `-` for stdin
+      --query-file <FILE>     Newline-separated queries from FILE, or `-` for stdin
+      --recipes <FILE>        RecipeList (recipes.yaml shape) from FILE, or `-` for stdin
 
 Registry:
-  -R, --registry-file <FILE>  Merge a serialized registry; repeatable, applied in order
-  -c, --command <SPEC>        Permissive command `name`|`ns/name`|`realm/ns/name`; repeatable
+      --registry-file <FILE>  Merge a serialized registry; repeatable, applied in order
+      --command <SPEC>        Permissive command `name`|`ns/name`|`realm/ns/name`; repeatable
       --allow-overwrite       Permit duplicate CommandKey when merging
+      --no-registry           Ignore LIQUERS_COMMAND_REGISTRY; force an empty base
 
 Validation:
-  -l, --level <parse|plan>    Default: `plan` if any registry source was given, else `parse`
+      --level <parse|plan>    Default: `plan` if any registry source was given, else `parse`
       --cwd <KEY>             Working directory for recipes; requires --recipes
 
 Output:
-  -f, --format <json|yaml>    Default json
+      --format <json|yaml>    Default json
+      --detail <summary|full> Default full (status + Query + Plan). `summary` drops Query and
+                              Plan, keeping status, source, encoded, error and warnings
       --quiet                 Suppress the human-readable stderr lines
 ```
+
+#### No short flags, and why
+
+**Liquers queries begin with `-`.** `-R/data/…` is a resource query; `-` also opens transform
+segments (`parse.rs:304,328,339`). A short `-R` for `--registry-file` would make the tool's own
+primary documented invocation silently wrong:
+
+```bash
+liquers-validate '-R/data/report.txt/-/to_text'
+#  clap reads this as --registry-file=/data/report.txt/-/to_text
+#  -> reads a nonexistent registry file, validates nothing, never reaches the positional
+```
+
+That is a wrong answer rather than an error, in the first command a new user runs. So:
+
+1. **No short flags at all.** `-R` and `-r` are the two characters most likely to begin a query,
+   and reserving any single letter invites the same collision later. Long flags only.
+2. **The positional takes `allow_hyphen_values(true)`**, so a leading `-` is a value, not a flag.
+3. **`--` is documented as the robust form** — `liquers-validate -- '-R/…'` — and used in every
+   example that starts with a query, so copy-pasted commands stay correct even if a future flag
+   is added.
+
+#### Why `encoded` earns its place
+
+`Query::encode()` (`query.rs:1447`) round-trips a parsed query back to text — the same
+normalization `Recipe::new` already applies. Emitting it turns the `-R/` swallowing trap
+(see Phase 3 Example 3) into a one-line diff an agent can check **at level 1, with no registry
+and no export step**:
+
+```
+source:  -R/data/report.txt/to_text        encoded: -R/data/report.txt/to_text
+source:  -R/data/report.txt/-/to_text      encoded: -R/data/report.txt/-/to_text
+```
+
+It costs one `String` per result and is the cheapest high-value signal in the envelope. `--detail
+summary` keeps it precisely because it carries most of the diagnostic value at a fraction of the
+size: a full `Plan` serializes to hundreds of bytes per result, mostly `position` objects, which
+matters when an agent batch-validates thirty queries to find two failures.
 
 Exit codes: **0** all results ok or warning · **1** at least one result errored · **2** usage or
 I/O failure (clap's default for argument errors).
@@ -358,10 +416,10 @@ gains one field so a finding can be traced back to the file:
 pub line: Option<usize>,
 ```
 
-### CLI: `export_command_registry`
+### CLI: `export-command-registry`
 
 ```
-export_command_registry [OPTIONS]
+export-command-registry [OPTIONS]
 
   -o, --output <FILE>         Default: stdout
   -f, --format <json|yaml>    Default json
@@ -371,7 +429,7 @@ export_command_registry [OPTIONS]
 ```
 
 Selection has **two axes** and both are needed. Cargo features are compile-time and decide what
-*exists* (`cargo run -p liquers-lib --features cli,polars --bin export_command_registry`);
+*exists* (`cargo run -p liquers-lib --features cli,polars --bin export-command-registry`);
 `--groups` and `--namespaces` are runtime filters over that. `--list-groups` is the bridge — it
 reports what this particular binary can offer, so a caller never guesses.
 
@@ -394,9 +452,16 @@ building. Three consequences for this design, none of them breaking:
 3. **Recipe validation should prefer `to_plan_for_key`** when the recipe has a storage key:
 
 ```rust
-let plan = match recipe.store_to_key()? {
-    Some(key) => recipe.to_plan_for_key(cmr, &key),   // stored recipe: payload boundary applies
-    None      => recipe.to_plan(cmr),                 // ad-hoc recipe: it does not
+// store_to_key() is fallible for *query* reasons, not just cwd ones: it calls
+// filename() -> get_query() -> parse_query. A recipe whose query does not parse —
+// the single most common defect — errors HERE, before to_plan is ever reached.
+// `?` is therefore not available: this function returns ValidationResult, not Result.
+let plan = match recipe.store_to_key() {
+    Err(e) => return ValidationResult::failed(index, source, e),   // recipe_check: None
+    Ok(Some(key)) => { check = Some(RecipeCheck::Stored);          // payload boundary applies
+                       recipe.to_plan_for_key(cmr, &key) }
+    Ok(None)      => { check = Some(RecipeCheck::AdHoc);           // it does not
+                       recipe.to_plan(cmr) }
 };
 ```
 
@@ -496,13 +561,45 @@ new error type, no `unwrap()`/`expect()` outside tests.
 | Registry file is neither JSON nor YAML | `Err(Error::general_error)` quoting *both* parser messages, with the source name |
 | Duplicate `CommandKey` on merge | `Err(Error::general_error)` naming the key and the file, unless `--allow-overwrite` |
 | Malformed `--command` spec | `Err(Error::general_error)` showing the accepted forms |
-| Unparseable `--cwd` | `parse_key`'s `Error` propagated as `Err` — it is a CLI mistake, not a finding about the input |
-| Recipe carries its own `cwd` while `--cwd` given | `RecipeList::set_cwd`'s `Error::not_supported` as `Err`; matches `DefaultRecipeProvider` exactly |
+| Unparseable `--cwd` | `apply_cwd` calls `parse_key(cwd)?` **first**, then passes `.encode()` on, mirroring `DefaultRecipeProvider` (`recipes.rs:473`). Propagated as `Err` — a CLI mistake, not a finding about the input. Note `RecipeList::set_cwd` alone would *not* catch this: it accepts any string and the error would surface later inside `store_to_key`, in the no-`Err` zone |
+| Recipe carries its own `cwd` while `--cwd` given | Reported **per recipe** as `ValidationResult.status = Error`, not as a whole-run `Err` — see below |
 | File unreadable / stdin closed | `Error::from_error(ErrorType::General, io_err)` |
 
 In the binaries, argument handling and I/O live in a `run() -> Result<i32, Error>` function;
 `main` prints any error to **stderr** and sets the exit code. Per the rule added to `CLAUDE.md`,
 stdout carries only the serialized envelope.
+
+### `--cwd` collisions are per-recipe findings, not a whole-run abort
+
+`apply_cwd` does **not** delegate to `RecipeList::set_cwd`, for two reasons discovered by
+inspection:
+
+1. `set_cwd` **aborts on the first offender** and returns `Err`, so a list with three bad recipes
+   yields one finding per run. That defeats the point of batch validation, whose whole value is
+   seeing every problem at once.
+2. It **partially mutates before failing** — recipes earlier in the list already have `cwd`
+   assigned when it returns `Err`, leaving the list in a half-applied state.
+
+So `apply_cwd` iterates itself: it sets `cwd` on recipes that lack one, and records the rest as
+per-recipe `ValidationResult`s with `status: Error` carrying the same `Error::not_supported`
+message. The *semantics are unchanged* — a recipe declaring its own `cwd` is still an error, and
+such a `recipes.yaml` would still fail in `DefaultRecipeProvider` — but all offenders are
+reported, and the finding lands where every other finding lands, as data.
+
+This restores consistency with the central decision: `Err` from `apply_cwd` is reserved for the
+one genuine CLI mistake (an unparseable `--cwd`), which is about the *invocation*, not the input.
+
+### What stdout carries on each exit path
+
+| Exit | Meaning | stdout |
+|---|---|---|
+| 0 | All results ok or warning | The envelope |
+| 1 | At least one result errored | The envelope — the errors are *in* it |
+| 2 | Tool or usage failure | **Empty**; the message is on stderr |
+
+Exit 2 is the only path with no envelope, and it is deliberately narrow: bad arguments, an
+unreadable file, an unparseable registry, an unparseable `--cwd`. An agent can therefore treat
+"stdout is empty" as "I invoked it wrong" without parsing anything.
 
 ## Resolved Open Questions from Phase 1
 

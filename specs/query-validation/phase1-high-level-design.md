@@ -3,7 +3,7 @@
 ## Feature Name
 
 Query Validation Utility — `liquers_core::validate` module + `liquers-validate` CLI,
-with a companion `export_command_registry` CLI in `liquers-lib`.
+with a companion `export-command-registry` CLI in `liquers-lib`.
 
 ## Purpose
 
@@ -27,7 +27,7 @@ None. Validation is purely static — no store is opened, so resource queries (`
 No new liquers commands. The validator *consumes* a `CommandMetadataRegistry` assembled from an
 empty base plus two overrides: a YAML/JSON registry file merged in, and permissive command names
 given on the command line (one `Any` + `multiple` argument each, so any argument list validates).
-Metadata is **data, not linked code** — `export_command_registry` in liquers-lib serializes its
+Metadata is **data, not linked code** — `export-command-registry` in liquers-lib serializes its
 registered commands to JSON/YAML, with selectable command groups and namespaces
 (`root`, `pl`, `lui`, `dep`), so the validator never links egui/polars/image.
 
@@ -54,7 +54,7 @@ dependency. Everything the validator needs already lives here: `parse_query`, `P
 `position`. The feature gate keeps the "liquers-core stays minimal" rule intact: default builds
 (liquers-py, wasm) pull in neither clap nor the binary.
 
-**`liquers-lib`** — `[[bin]] export_command_registry` only. Builds the environment, registers the
+**`liquers-lib`** — `[[bin]] export-command-registry` only. Builds the environment, registers the
 selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
 
 ## Resolved Design Decisions

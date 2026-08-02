@@ -6,8 +6,8 @@
 
 Examples are illustrative rather than compiling — the code lands in Phase 4 — but no query,
 namespace or command name in this document is invented. Each was run through `parse_query` and
-`PlanBuilder::build` against three registries (empty, the full liquers-lib set of **81 commands**,
-and a permissive CLI-style one) using a throwaway harness, since a design document full of queries
+`PlanBuilder::build` against three registries (empty, a liquers-lib set of **81 commands**, and a
+permissive CLI-style one) using a throwaway harness, since a design document full of queries
 that do not parse is worse than none. Every "expected output" below is what the code actually
 produced. The harness was deleted; its findings are recorded here.
 
@@ -37,6 +37,12 @@ Phase 2 for the authoritative shape.
 An independent reviewer re-derived every claim above with its own harness after mine was deleted,
 and confirmed all of them — including the 81-command total, the 4-step polars plan, and both sides
 of the `-R/` key-swallowing comparison.
+
+**81 is the harness total, not the exporter's.** The harness used `register_all_commands_fn` plus
+`register_polars_commands`, which is core 5 + egui 3 + image 47 + polars 26 = 81 and **excludes
+`lui`**. The exporter always includes `lui` (Phase 2: `core` and `lui` are never feature-gated),
+so its default export is **95**. Plan-building results are unaffected — none of these examples
+uses a `lui` command — but the `command_count` an agent sees from an export is 95.
 
 ## Overview Table
 
@@ -76,8 +82,17 @@ of the `-R/` key-swallowing comparison.
 registry, no setup.
 
 ```bash
-liquers-validate '-R/data/report.txt/-/to_text'
+liquers-validate -- '-R/data/report.txt/-/to_text'
 ```
+
+The `--` is not decoration. Liquers resource queries begin with `-`, so a bare leading-`-`
+positional is exactly the shape of a flag; `--` ends option parsing and makes it a value. Phase 2
+removes every short flag for the same reason.
+
+**If `LIQUERS_COMMAND_REGISTRY` is set** (Example 2 exports it), this invocation is no longer the
+zero-setup path: a registry source is present, so `--level` defaults to `plan` and
+`command_count` reflects the exported registry rather than 0. Pass `--no-registry` to get the
+output shown here regardless of environment.
 
 Verified: parses. Output (abridged — `position` objects elided for readability; the real envelope
 carries them on every element):
@@ -91,6 +106,7 @@ carries them on every element):
     {
       "index": 0,
       "source": "-R/data/report.txt/-/to_text",
+      "encoded": "-R/data/report.txt/-/to_text",
       "status": "Ok",
       "query": {
         "segments": [
@@ -124,7 +140,7 @@ arguments given.
 
 ```bash
 # once per session
-cargo run -p liquers-lib --features cli --bin export_command_registry -- \
+cargo run -p liquers-lib --features cli --bin export-command-registry -- \
   -o /tmp/liquers-commands.json
 export LIQUERS_COMMAND_REGISTRY=/tmp/liquers-commands.json
 
@@ -141,7 +157,7 @@ Verified against the real 81-command registry: **plan built, 4 steps.** `--level
   "level": "Plan",
   "registry": {
     "merged_files": ["/tmp/liquers-commands.json"],
-    "command_count": 81,
+    "command_count": 95,
     "default_namespaces": ["", "root"]
   },
   "results": [ { "index": 0, "status": "Ok",
@@ -175,14 +191,24 @@ doc example, and no amount of parse checking finds it.
 ## Example 3: The `-R/` swallowing trap
 
 **Scenario:** this is the failure mode that motivates emitting the whole `Plan` rather than a
-pass/fail. Both of these parse, and both build a plan, against every registry:
+pass/fail. Both of these parse; both report `status: "Ok"`; they mean different things.
 
 ```bash
-liquers-validate '-R/data/report.txt/-/to_text'   # intended
-liquers-validate '-R/data/report.txt/to_text'     # typo: missing /-/
+liquers-validate --command to_text -- '-R/data/report.txt/-/to_text'   # intended
+liquers-validate --command to_text -- '-R/data/report.txt/to_text'     # typo: missing /-/
 ```
 
-Both report `status: "Ok"`. The plans are not the same:
+Two details in that invocation matter, and both were wrong in an earlier draft:
+
+- **`--command to_text` is required.** Without a registry, `--level` defaults to `Parse` and no
+  plan is produced at all; and against an *empty* registry the first query fails outright with
+  `Action 'to_text' not registered` (corner case C1). Only the second query survives an empty
+  registry, because its `to_text` is part of the key, not an action. A one-word `--command`
+  supplies the registry with no export step.
+- **`--` before the query.** Liquers resource queries begin with `-`, so `--` is the habit that
+  keeps a leading-`-` query a value rather than a flag.
+
+With `to_text` registered, the plans are:
 
 | Query | `steps` |
 |---|---|
@@ -199,6 +225,19 @@ contract is "here is exactly what your query means", not "your query is good". P
 agent comparing `steps` against intent catches it; an agent trusting a green checkmark does not.
 
 This is worth stating in the tool's own `--help`.
+
+**The cheap version of the same check.** Comparing plans needs a registry and level 2. The
+`encoded` field catches the same class of mistake at **level 1, with no registry at all**:
+
+```bash
+liquers-validate -- '-R/data/report.txt/to_text'
+#  "source":  "-R/data/report.txt/to_text"
+#  "encoded": "-R/data/report.txt/to_text"    <- one key segment, no /-/ appears
+```
+
+`Query::encode()` normalizes, so `encoded` shows the structure the parser actually built. An agent
+that diffs `source` against `encoded`, and reads whether a `/-/` boundary survived, gets most of
+this example's value for one string per result.
 
 ---
 
@@ -220,7 +259,7 @@ searched after the requested `custom`.
   "status": "Ok",
   "level": "Plan",
   "registry": {
-    "cli_commands": [ { "realm": "", "namespace": "root", "name": "greet" },
+    "cli_commands": [ { "realm": "", "namespace": "", "name": "greet" },
                       { "realm": "", "namespace": "custom", "name": "transform" } ],
     "command_count": 2,
     "default_namespaces": ["", "root"]
@@ -231,9 +270,14 @@ searched after the requested `custom`.
 }
 ```
 
-The permissive command accepts **any number of arguments of any type** — verified with five
-(`greet-a-b-c-d-e`) — because it carries one `ArgumentInfo::any_argument("arguments").set_multiple()`,
-and `multiple` consumes all remaining parameters.
+The permissive command accepts **any number of arguments of any type** — verified with zero
+(`greet`), one (`greet-world`) and five (`greet-a-b-c-d-e`) — because it carries one
+`ArgumentInfo::any_argument("arguments").set_multiple()`, and `multiple` consumes all remaining
+parameters.
+
+Note `"namespace": ""` for `greet`: `CommandKey::new` normalizes the default namespace `root` to
+the empty string (`command_metadata.rs:567-575`), so provenance reports it that way even though
+`--command greet` places it in `root`. Worth knowing, since an agent reads provenance literally.
 
 Mixing is the real workflow: `-R $LIQUERS_COMMAND_REGISTRY --command my_new_command` validates a
 query that combines existing commands with one being designed.
@@ -263,7 +307,7 @@ liquers-validate --recipes recipes.yaml --cwd reports
 {
   "status": "Error",
   "level": "Plan",
-  "registry": { "merged_files": ["/tmp/liquers-commands.json"], "command_count": 81,
+  "registry": { "merged_files": ["/tmp/liquers-commands.json"], "command_count": 95,
                 "default_namespaces": ["", "root"] },
   "results": [
     { "index": 0, "source": "-R/data/sales.csv/-/ns-pl/head-10",
@@ -390,7 +434,7 @@ cargo test -p liquers-lib --lib --tests
 cargo check -p liquers-core --no-default-features          # cli off, no clap
 cargo check -p liquers-core --features cli                 # binary builds
 cargo check -p liquers-lib --no-default-features --features cli
-cargo run -p liquers-lib --features cli --bin export_command_registry -- --list-groups
+cargo run -p liquers-lib --features cli --bin export-command-registry -- --list-groups
 ```
 
 ### Coverage gaps deliberately not tested
