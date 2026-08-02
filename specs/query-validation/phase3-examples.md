@@ -50,9 +50,10 @@ uses a `lui` command — but the `command_count` an agent sees from an export is
 |---|---|---|---|
 | **Examples** |
 | 1 | Example | Level 1 — parse only | The zero-setup path: one query, no registry, `Query` as JSON. What an agent runs first |
-| 2 | Example | Level 2 — plan against exported registry | The full loop: export once, validate many. Catches unknown commands and bad argument types |
+| 2 | Example | Level 2 — plan against the committed registry | Zero setup: `specs/command_registry.yaml` is found automatically. Catches unknown commands and bad argument types |
 | 3 | Example | The `-R/` swallowing trap | Two queries that both validate `Ok`; only the serialized `Plan` reveals one is wrong. Justifies emitting the whole plan |
 | 4 | Example | Permissive CLI commands | Validating a query whose commands do not exist yet — the design-phase use case |
+| 4b | Example | Design overlay with changed signature | Base registry + proposed-commands file with `--allow-overwrite`; why repeatable merging is real |
 | 5 | Example | Recipe list batch validation | `recipes.yaml` in, per-recipe results out, including the stored/ad-hoc payload distinction |
 | **Corner cases** |
 | C1 | Corner | Empty registry + action | Every action errors; documents why `--level plan` needs a registry |
@@ -63,6 +64,8 @@ uses a `lui` command — but the `command_count` an agent sees from an export is
 | C6 | Corner | JSON/YAML input ambiguity | Both parse; both diagnostics reported when both fail |
 | C7 | Corner | Blank/comment lines in a query file | Skipped, `line` still points at the true source line |
 | C8 | Corner | Empty input | Empty query string, empty recipe list, empty stdin |
+| C13 | Corner | Committed registry stale | Freshness test fails when `specs/command_registry.yaml` no longer matches the registered commands |
+| C14 | Corner | Regenerating preserves changelog | Export over an existing file keeps the `CHANGELOG-BEGIN/END` block verbatim |
 | **Unit tests** |
 | U1–U6 | Unit | `validate_query` | Happy path both levels, parse error, unknown command, position fidelity, index |
 | U7–U10 | Unit | `validate_recipe(s)` | Ad-hoc, stored, bad override, ordering |
@@ -78,21 +81,22 @@ uses a `lui` command — but the `command_count` an agent sees from an export is
 
 ## Example 1: Level 1 — parse only
 
-**Scenario:** an agent is about to put a query in a doc example and wants to know it parses. No
-registry, no setup.
+**Scenario:** an agent is about to put a query in a doc example and wants to know it parses,
+without involving any command registry.
 
 ```bash
-liquers-validate -- '-R/data/report.txt/-/to_text'
+liquers-validate --no-registry -- '-R/data/report.txt/-/to_text'
 ```
 
 The `--` is not decoration. Liquers resource queries begin with `-`, so a bare leading-`-`
 positional is exactly the shape of a flag; `--` ends option parsing and makes it a value. Phase 2
 removes every short flag for the same reason.
 
-**If `LIQUERS_COMMAND_REGISTRY` is set** (Example 2 exports it), this invocation is no longer the
-zero-setup path: a registry source is present, so `--level` defaults to `plan` and
-`command_count` reflects the exported registry rather than 0. Pass `--no-registry` to get the
-output shown here regardless of environment.
+**`--no-registry` is what makes this level 1.** In a checkout of this repo the validator finds
+`specs/command_registry.yaml` by walking up from the working directory, so the *default* is level
+2 against 95 commands — which is the right default, but it is not what this example is showing.
+`--no-registry` also overrides `$LIQUERS_COMMAND_REGISTRY`, so the output below is reproducible
+whatever the environment holds.
 
 Verified: parses. Output (abridged — `position` objects elided for readability; the real envelope
 carries them on every element):
@@ -133,19 +137,22 @@ way I meant?", which is a different question from "did it parse". Example 3 is t
 
 ---
 
-## Example 2: Level 2 — plan against the exported registry
+## Example 2: Level 2 — plan against the committed registry
 
 **Scenario:** the agent wants to know the commands in a query actually exist and take the
 arguments given.
 
 ```bash
-# once per session
-cargo run -p liquers-lib --features cli --bin export-command-registry -- \
-  -o /tmp/liquers-commands.json
-export LIQUERS_COMMAND_REGISTRY=/tmp/liquers-commands.json
+liquers-validate -- '-R/data/sales.csv/-/ns-pl/select_columns-name-price/head-10/preview.csv'
+```
 
-# then, repeatedly
-liquers-validate '-R/data/sales.csv/-/ns-pl/select_columns-name-price/head-10/preview.csv'
+**No setup.** `specs/command_registry.yaml` is committed, so the validator finds it by walking up
+from the working directory and `--level` defaults to `plan`. Re-exporting is a maintenance task
+under the `CLAUDE.md` policy, not something a caller does:
+
+```bash
+cargo run -p liquers-lib --features cli --bin export-command-registry -- \
+  --format yaml -o specs/command_registry.yaml     # only when commands change
 ```
 
 Verified against the real 81-command registry: **plan built, 4 steps.** `--level` defaults to
@@ -156,7 +163,7 @@ Verified against the real 81-command registry: **plan built, 4 steps.** `--level
   "status": "Ok",
   "level": "Plan",
   "registry": {
-    "merged_files": ["/tmp/liquers-commands.json"],
+    "merged_files": ["specs/command_registry.yaml"],
     "command_count": 95,
     "default_namespaces": ["", "root"]
   },
@@ -279,8 +286,44 @@ Note `"namespace": ""` for `greet`: `CommandKey::new` normalizes the default nam
 the empty string (`command_metadata.rs:567-575`), so provenance reports it that way even though
 `--command greet` places it in `root`. Worth knowing, since an agent reads provenance literally.
 
-Mixing is the real workflow: `-R $LIQUERS_COMMAND_REGISTRY --command my_new_command` validates a
-query that combines existing commands with one being designed.
+Mixing is the real workflow: the committed registry is found automatically, so
+`--command my_new_command` alone validates a query that combines existing commands with one being
+designed.
+
+### Example 4b: validating a design document against a changed signature
+
+`--command` declares a command that accepts *anything*, which is right while a signature is still
+undecided. Once a design document proposes a concrete signature — or **changes an existing
+one** — the overlay is a registry file:
+
+```yaml
+# specs/my-feature/proposed_commands.yaml
+commands:
+  - name: head
+    namespace: pl
+    arguments:
+      - name: rows
+        argument_type: int
+      - name: offset          # newly proposed second parameter
+        argument_type: int
+        default: {Value: 0}
+```
+
+```bash
+liquers-validate --registry-file specs/command_registry.yaml \
+                 --registry-file specs/my-feature/proposed_commands.yaml \
+                 --allow-overwrite \
+                 -- '-R/data/sales.csv/-/ns-pl/head-10-5'
+```
+
+`--allow-overwrite` is **required here and only here**: `pl/head` already exists in the committed
+registry, so redefining it is a duplicate `CommandKey`. Adding a genuinely new command needs no
+such flag. The default-is-an-error rule is what makes this safe — without it, a typo'd command
+name in an overlay would silently shadow a real command instead of being reported.
+
+This is the case that justifies `--registry-file` being repeatable: the base is the committed
+truth, the overlay is the proposal, and the design document's queries are checked against their
+sum.
 
 ---
 

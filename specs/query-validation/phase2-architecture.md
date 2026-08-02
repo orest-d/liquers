@@ -307,6 +307,22 @@ impl ValidationRegistryBuilder {
 `&mut self -> Result<&mut Self, Error>` rather than a consuming builder, because these are called
 in a fallible loop over CLI arguments where a consuming builder forces awkward reassignment.
 
+**Why merging is repeatable, and why `--allow-overwrite` exists.** The motivating workflow is
+designing commands, not just using them. A design document proposes new commands or *changes an
+existing command's signature*; its queries must be validated against the proposed state, which is
+the committed registry **plus** a design-time overlay:
+
+```bash
+liquers-validate --registry-file specs/command_registry.yaml \
+                 --registry-file specs/my-feature/proposed_commands.yaml \
+                 --allow-overwrite -- '<query from the design doc>'
+```
+
+Adding a command needs only the second file. **Changing a signature needs `--allow-overwrite`**,
+because the key already exists in the base and a silent overwrite would be indistinguishable from
+a typo — which is exactly why the default is an error. Later files win, so the overlay is applied
+in argument order.
+
 The permissive command is built as:
 
 ```rust
@@ -436,6 +452,45 @@ reports what this particular binary can offer, so a caller never guesses.
 The exporter builds `DefaultEnvironment<Value, SimpleUIPayload>` (the payload is required by the
 `lui` group), invokes the selected `register_*_commands!` macros, and serializes
 `env.get_command_metadata_registry()`.
+
+#### The committed artifact and its header
+
+`specs/command_registry.yaml` is checked in. YAML rather than JSON precisely because YAML has
+comments: the file documents its own provenance and history.
+
+```yaml
+# Liquers command registry — GENERATED, do not edit by hand.
+# Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
+#               --format yaml -o specs/command_registry.yaml
+# Origin:   groups=core,lui,egui,image,polars   features=egui,image-support,polars
+# Commands: 95                                  Generated: 2026-08-02
+# CHANGELOG-BEGIN
+# 2026-08-02  initial export (95 commands)
+# CHANGELOG-END
+commands:
+  - name: to_text
+    ...
+```
+
+`serde_yaml` does not round-trip comments, so the exporter writes the header itself. When the
+output file already exists it **preserves the lines between `# CHANGELOG-BEGIN` and
+`# CHANGELOG-END` verbatim** and regenerates everything else. That is the whole mechanism — a
+hand-maintained changelog that survives regeneration, without teaching the exporter to understand
+YAML comments in general.
+
+#### Registry resolution order
+
+The validator takes the first source that exists:
+
+1. `--registry-file` (repeatable, explicit — always wins)
+2. `$LIQUERS_COMMAND_REGISTRY`
+3. `specs/command_registry.yaml`, found by walking up from the working directory
+4. empty
+
+`--no-registry` forces 4. `RegistryProvenance.merged_files` always names what was actually used,
+so the resolution is never hidden. Source 3 is what makes level 2 the default experience rather
+than an opt-in: in a checkout of this repo, `liquers-validate -- '<query>'` plans against the real
+command set with no build step at all.
 
 ### Payload requirement
 

@@ -79,9 +79,13 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
    `liquers-core/src/recipes.rs` and validates more than a bare query: it also checks that every
    `arguments` and `links` override names something present in the plan's last action. A
    `RecipeList` (the `recipes.yaml` format) supplies batch mode naturally.
-8. **No checked-in registry artifact for now.** The exporter writes a file on demand; the
-   validator reads it via `--registry-file`. If a committed artifact proves useful later, it can
-   be added with a freshness test, without changing either tool's interface.
+8. **A committed registry artifact at `specs/command_registry.yaml`**, maintained under a policy
+   documented in `CLAUDE.md`. YAML rather than JSON so the file can carry a comment header
+   recording its origin (exporter version, groups, cargo features, command count, date) and a
+   changelog. The validator finds it automatically, so level 2 works in a fresh checkout with no
+   build step — without it, "export once" costs a full liquers-lib build with polars+egui+image
+   (~3 min, ~4.2 GB per `CLAUDE.md`), which nobody validating a single doc example will pay, and
+   level 2 would go unused. A freshness test keeps the artifact from rotting.
 9. **Input kind comes from explicit CLI parameters, never inference.** A bare positional argument
    is a query — the shortest, most scriptable form and the primary path for an agent. Recipes come
    from a file or stdin via `--recipes` (named for the `recipes.yaml` convention that

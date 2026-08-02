@@ -8,22 +8,22 @@
 `liquers-validate` binary (feature `cli`) wraps it, and an `export-command-registry` binary in
 `liquers-lib` produces the command metadata it consumes.
 
-**Shape of the change:** almost entirely additive. Six new files; four existing files touched, by
-one line each in three of them:
+**Shape of the change:** almost entirely additive. Eight new files; four existing files touched,
+by one line each in three of them:
 
 | Existing file | Change |
 |---|---|
 | `liquers-core/Cargo.toml` | optional `clap`, `cli` feature, one `[[bin]]` |
 | `liquers-core/src/lib.rs` | `pub mod validate;` |
 | `liquers-lib/Cargo.toml` | optional `clap`, `cli` feature, one `[[bin]]` |
-| `CLAUDE.md` | a "Validating queries" section under Common Tasks |
+| `CLAUDE.md` | "Validating queries" and the `specs/command_registry.yaml` policy |
 
 No existing signature changes, so `liquers-py`, `liquers-axum` and the `register_command!` macro
 cannot break. `clap` 4 (current 4.6.5, crates.io reachable — verified) is the only new dependency,
 and it is off by default.
 
 **Sequencing rationale:** types → registry assembly → validation logic → unit tests → binaries →
-integration tests → docs. Each step compiles on its own, so a failure never leaves a half-built
+integration tests → committed artifact → docs. Each step compiles on its own, so a failure never leaves a half-built
 module. Unit tests land at step 5, before the binaries, so the library contract is pinned before
 anything depends on it.
 
@@ -375,14 +375,62 @@ integration table and Example 3.
 
 ---
 
+### Step 8b — The committed registry and its maintenance policy
+
+**Files:** `specs/command_registry.yaml` (new, generated),
+`liquers-lib/tests/registry_freshness.rs` (new), `CLAUDE.md`
+
+Three pieces, in order:
+
+1. **Header support in the exporter** (extends step 7). When `--format yaml` writes to a file,
+   emit the provenance header from Phase 2 "The committed artifact and its header". If the target
+   already exists, read it first and **carry the `# CHANGELOG-BEGIN … # CHANGELOG-END` block over
+   verbatim**; `serde_yaml` does not round-trip comments, so nothing else survives regeneration
+   and nothing else needs to.
+2. **Generate the artifact:**
+   ```bash
+   CARGO_INCREMENTAL=0 cargo run -p liquers-lib --features cli --bin export-command-registry -- \
+     --format yaml -o specs/command_registry.yaml
+   ```
+   Commit it. Expect 95 commands with default features.
+3. **Freshness test** — `liquers-lib/tests/registry_freshness.rs`, `#[tokio::test]`: build the
+   registry in-process, deserialize `specs/command_registry.yaml`, and compare the sets of
+   `CommandKey`s **and** each command's `metadata_version`. Fail with the regenerate command in
+   the message. Compare parsed structures, never file bytes — key order and formatting are not
+   the contract, and a byte comparison would fail spuriously on a serde_yaml version bump.
+
+**Watch:** compare on `metadata_version`, which `add_command` already recomputes from the
+serialized command (`command_metadata.rs:960-970`); do **not** compare `impl_version`, which
+tracks the implementation rather than the signature and would make the test fail on unrelated
+edits.
+
+**The `CLAUDE.md` policy** states: the file is generated, never hand-edited; regenerate whenever a
+`register_command!` signature changes or a command is added or removed; add a dated changelog line
+inside the markers; the freshness test in CI is what enforces it.
+
+**Validation:**
+```bash
+CARGO_INCREMENTAL=0 cargo test -p liquers-lib --test registry_freshness
+# then break it deliberately: add a command, re-run, confirm the test fails with the hint
+```
+
+**Agent:** sonnet · skills: rust-best-practices, liquers-unittest · knowledge: Phase 2 "The
+committed artifact and its header", step 7, `command_metadata.rs` versioning.
+
+---
+
 ### Step 9 — Documentation
 
 **Files:** `CLAUDE.md`, `specs/query-validation/README.md` (new)
 
-`CLAUDE.md` gains a short "Validating queries" entry under Common Tasks — the export-once,
-validate-many loop, and the warning that a green result means "here is what your query means",
-not "your query is right" (Example 3). This is the entry point for the agents the tool is *for*,
-so if it is not in `CLAUDE.md` the tool will not get used.
+`CLAUDE.md` gains two entries:
+
+- **"Validating queries"** under Common Tasks — the zero-setup invocation (`liquers-validate --
+  '<query>'`, which finds `specs/command_registry.yaml` by itself), the design-overlay form with
+  `--allow-overwrite` for a changed signature, and the warning that a green result means "here is
+  what your query means", not "your query is right" (Example 3). This is the entry point for the
+  agents the tool is *for*: if it is not in `CLAUDE.md`, the tool will not get used.
+- **"Maintaining `specs/command_registry.yaml`"** — the policy from step 8b.
 
 `PROJECT_OVERVIEW.md` needs **no** change: no core concept, Query encoding or Key encoding moved.
 
@@ -421,6 +469,7 @@ legitimate stdout writers, and they go through the envelope.
 | After step 5 | Unit tests U1–U29 | `cargo test -p liquers-core --lib validate` |
 | After steps 6–7 | Binaries run; manual smoke | the `cargo run` lines above |
 | After step 8 | Full suites, both crates | `cargo test -p liquers-{core,lib} --lib --tests` |
+| After step 8b | Registry freshness | `cargo test -p liquers-lib --test registry_freshness` |
 | Step 10 | Feature matrix + stdout audit | the block above |
 
 **Regression watch:** liquers-core currently passes **352** lib tests and liquers-lib **363**
@@ -447,6 +496,7 @@ limit the rest of the system lacks, so there is no behaviour of ours to assert.
 | 6 Validator CLI | sonnet | rust-best-practices | clap groups, env fallback, conditional default |
 | 7 Exporter CLI | sonnet | rust-best-practices | Three fatal traps, one of them runtime-only |
 | 8 Integration | sonnet | liquers-unittest, rust-best-practices | Cross-crate contract between the binaries |
+| 8b Registry artifact | sonnet | rust-best-practices, liquers-unittest | Header preservation and a freshness test that must not be spuriously fragile |
 | 9 Docs | haiku | — | Prose |
 | 10 Gate | haiku | rust-best-practices | Running commands and reading output |
 
@@ -468,6 +518,7 @@ The change is additive, so rollback is per-step and cheap.
 | 6 | Delete `liquers-core/src/bin/liquers_validate.rs` and its `[[bin]]` block |
 | 7 | Delete `liquers-lib/src/bin/export_command_registry.rs` and its `[[bin]]` block |
 | 8 | Delete the two `tests/` files |
+| 8b | Delete `specs/command_registry.yaml` and the freshness test; the validator falls back to the env var, then empty. Nothing else reads the file |
 | 9 | Revert the `CLAUDE.md` section; delete the README |
 
 **Full rollback:** `git revert` the feature commits. Because `cli` is not a default feature and
