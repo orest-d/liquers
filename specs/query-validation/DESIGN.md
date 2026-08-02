@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-01
 
-**Status:** Design complete (all 4 phases approved) — implementation not started
+**Status:** Complete — designed, implemented, tested
 
 ## Phase Status
 
@@ -10,13 +10,18 @@
 - [x] Phase 2: Solution & Architecture — approved
 - [x] Phase 3: Examples & Testing — approved
 - [x] Phase 4: Implementation Plan — approved
-- [ ] Implementation Complete
+- [x] Implementation Complete
 
 ## Notes
 
-Design approved 2026-08-02. Implementation follows `phase4-implementation.md`, steps 1–10
-(including 8b). Landed ahead of implementation, as a separate concern: the `println!` →
+Design approved and implemented 2026-08-02, following `phase4-implementation.md` steps 1–10
+(including 8b). See that document's "Implementation Notes" for the four places reality differed
+from the plan. Landed ahead of implementation, as a separate concern: the `println!` →
 `eprintln!` conversion across liquers-core and liquers-lib, plus the stdout rule in `CLAUDE.md`.
+
+Shipped: `liquers_core::validate` (+ 41 tests), the `liquers-validate` and
+`export-command-registry` binaries behind a non-default `cli` feature, and
+`specs/command_registry.yaml` with a freshness test.
 
 Reviews run during design: 2 (Phase 2), 3 (Phase 3), 5 (Phase 4, incl. a cross-phase Opus pass).
 The final review found five blocking issues, the most serious being that `-R` as a short flag for

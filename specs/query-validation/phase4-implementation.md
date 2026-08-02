@@ -399,10 +399,13 @@ Three pieces, in order:
    the message. Compare parsed structures, never file bytes — key order and formatting are not
    the contract, and a byte comparison would fail spuriously on a serde_yaml version bump.
 
-**Watch:** compare on `metadata_version`, which `add_command` already recomputes from the
-serialized command (`command_metadata.rs:960-970`); do **not** compare `impl_version`, which
-tracks the implementation rather than the signature and would make the test fail on unrelated
-edits.
+**Watch — corrected during implementation:** `metadata_version` **cannot** be used for this. It
+is `#[serde(skip)]` (`command_metadata.rs:876`), so it never reaches the file and always reads
+back as zero; comparing it silently compares every command against 0 and the test fails
+immediately. Instead reproduce what `calculate_metadata_version` hashes — the command with
+`impl_version` zeroed, serialized to JSON — which tracks the signature while ignoring
+implementation identity. Verified by tampering: the test catches both a changed `doc` string and
+a removed command.
 
 **The `CLAUDE.md` policy** states: the file is generated, never hand-edited; regenerate whenever a
 `register_command!` signature changes or a command is added or removed; add a dated changelog line
@@ -542,3 +545,52 @@ useful and should *not* be reverted with the feature.
 3. **`--list-groups` honesty depends on `cfg` discipline.** If a group is registered outside its
    `cfg` block, the listing and the export disagree. I5 covers the filtering, but a wrong-`cfg`
    build only shows up in the feature matrix at step 10.
+
+---
+
+## Implementation Notes (recorded during execution)
+
+The plan was followed as written except for four points, each found by running the thing rather
+than reading it.
+
+1. **`metadata_version` cannot drive the freshness test.** Step 8b said to compare on it. It is
+   `#[serde(skip)]` (`command_metadata.rs:876`), so it never reaches the file and always reads
+   back as `Version(0)` — the test failed on its first run for every command. The working
+   comparison reproduces what `calculate_metadata_version` hashes: the command with
+   `impl_version` zeroed, serialized to JSON. That still tracks the signature and still ignores
+   implementation identity, which was the intent. Verified by tampering — it catches both an
+   edited `doc` string and a deleted command.
+
+2. **clap's `requires = "recipes"` did not fire** for `--cwd`, so `--cwd` without `--recipes`
+   exited 0 instead of 2. Replaced with an explicit check in `run()`, which also produces a
+   better message than clap's generic one.
+
+3. **The registration macros need more in scope than `type CommandEnvironment`.** They expand to
+   `register_command!` invocations naming `Context`, `State`, `ArgumentType`,
+   `CommandDefinition`, `CommandParameterValue`, `ValueInterface`, `SimpleValue` and
+   `CommandRegistryAccess` unqualified. The exporter and the export test both import that set
+   behind `#[allow(unused_imports)]`, since which ones are actually used depends on the enabled
+   features.
+
+4. **`cargo check -p liquers-core --no-default-features` fails**, with 142 unresolved-import
+   errors for `futures` and `async_trait`. This is **pre-existing** — verified identical on
+   `origin/main` — because `async_store` is a default feature the crate's code depends on
+   unconditionally. It is unrelated to this feature and was dropped from the step 10 gate. The
+   meaningful checks (`cli` off, `cli` on, and liquers-lib with `--no-default-features --features
+   cli`) all pass.
+
+One design claim was also corrected: **image commands are in namespace `img`, not `root`.** The
+`register_command!` DSL keyword is `ns:`, not `namespace:`, so an earlier grep missed all 47 of
+them. The real export is `img` 47, `pl` 26, `lui` 14, `""` 6, `dep` 2 = **95**.
+
+### Final state
+
+| Check | Result |
+|---|---|
+| `cargo test -p liquers-core --lib --tests` | 486 passed, 0 failed |
+| `cargo test -p liquers-lib --lib --tests` | 367 passed, 0 failed |
+| `cargo check -p liquers-core` (cli off) | clean; clap absent from the dependency tree |
+| `cargo check -p liquers-core --features cli` | clean |
+| `cargo check -p liquers-lib --no-default-features --features cli` | clean — proves the per-`cfg` group registration works where `register_all_commands!` would not compile |
+| stdout audit | the only `println!` outside `src/bin/` is a doc-comment example |
+| `specs/command_registry.yaml` | 95 commands, freshness test green, changelog survives regeneration |

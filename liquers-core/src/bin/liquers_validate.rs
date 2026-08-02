@@ -105,7 +105,11 @@ struct Cli {
     level: Option<LevelArg>,
 
     /// Working directory for recipes, as `DefaultRecipeProvider` would supply it.
-    #[arg(long, value_name = "KEY", requires = "recipes")]
+    ///
+    /// Recipe-only. Nothing in the query plan path consumes a cwd, so accepting it for a bare
+    /// query would silently do nothing. Enforced in `run` rather than by clap's `requires`,
+    /// which did not fire for this combination.
+    #[arg(long, value_name = "KEY")]
     cwd: Option<String>,
 
     #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
@@ -133,6 +137,14 @@ fn main() {
 
 fn run() -> Result<i32, Error> {
     let cli = Cli::parse();
+
+    if cli.cwd.is_some() && cli.recipes.is_none() {
+        return Err(Error::general_error(
+            "--cwd applies to recipes only; pass --recipes. A cwd affects the storage key a \
+             recipe result lands under, and nothing in a bare query's plan consumes it."
+                .to_string(),
+        ));
+    }
 
     let (registry, provenance) = assemble_registry(&cli)?;
     let level: ValidationLevel = match cli.level {
