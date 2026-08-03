@@ -129,4 +129,5 @@ pub mod query;
 pub mod recipes;
 pub mod state;
 pub mod store;
+pub mod validate;
 pub mod value;

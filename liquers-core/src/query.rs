@@ -2368,7 +2368,7 @@ impl Query {
         let mut buff: Option<Query>;
         while qp.is_some() {
             /*
-            println!(
+            eprintln!(
                 "qp/qr: {}  {}",
                 qp.unwrap().encode(),
                 qr.as_ref().map_or("None".to_owned(), |x| x.encode())
@@ -2922,13 +2922,13 @@ mod tests {
         );
         let q = parse_query("-Rname-key/xxx/yyy/-/hello-abc-123/xxx-yyy/world.txt")?;
         let position = q[1].position();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         let position = q[1].transform_query_segment().unwrap().query[0]
             .position
             .clone();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         let position = q[1].transform_query_segment().unwrap().query[0].parameters[1].position();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         let position = q[1]
             .transform_query_segment()
             .unwrap()
@@ -2937,7 +2937,7 @@ mod tests {
             .unwrap()
             .position
             .clone();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         Ok(())
     }
 }

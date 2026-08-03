@@ -373,7 +373,7 @@ pub trait AsyncRecipeProvider<E: Environment>:
     /// Returns asset info for the asset represented by key
     /// This is a true asset info only if the asset is not available.
     async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
-        println!("Getting asset info for recipe at key {}", key);
+        eprintln!("Getting asset info for recipe at key {}", key);
         let recipe = self.recipe(key, envref.clone()).await?;
         let mut asset_info = recipe.get_asset_info()?;
         match create_plan_with_init_metadata(&recipe, envref, Some(key)).await {
@@ -586,7 +586,7 @@ impl RecipeList {
             if recipe.cwd.is_none() {
                 recipe.cwd = Some(cwd.clone());
             } else {
-                println!("Recipe already has CWD set to {:?}", recipe.cwd);
+                eprintln!("Recipe already has CWD set to {:?}", recipe.cwd);
                 return Err(Error::not_supported(
                     "CWD can't be explicitly specified in a recipe".to_owned(),
                 ));
@@ -622,10 +622,10 @@ mod test {
         let plan = recipe
             .to_plan(&super::CommandMetadataRegistry::new())
             .unwrap();
-        println!("plan: {:?}", &plan);
-        println!("");
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
-        println!("");
+        eprintln!("plan: {:?}", &plan);
+        eprintln!("");
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("");
     }
     #[test]
     fn recipe_with_parameter() {
@@ -639,8 +639,8 @@ mod test {
         .unwrap()
         .with_argument("b".to_string(), serde_json::json!("c"));
         let plan = recipe.to_plan(&cr).unwrap();
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
-        println!("");
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("");
         assert!(plan.len() == 1);
         if let Step::Action {
             action_name,
@@ -668,7 +668,7 @@ mod test {
             .with_argument("b".to_string(), serde_json::json!("c"));
         let mut recipelist = RecipeList::new();
         recipelist.add_recipe(recipe);
-        println!(
+        eprintln!(
             "recipes.yaml:\n{}",
             serde_yaml::to_string(&recipelist).unwrap()
         );
@@ -707,7 +707,7 @@ mod test {
 
         // Serialize to YAML
         let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
-        println!("recipes.yaml content:\n{}", yaml_content);
+        eprintln!("recipes.yaml content:\n{}", yaml_content);
 
         // Store the recipes.yaml in memory at folder/recipes.yaml
         let recipes_key = parse_key("folder/recipes.yaml").unwrap();

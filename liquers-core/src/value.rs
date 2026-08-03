@@ -890,12 +890,12 @@ mod tests {
 
     #[test]
     fn test1() -> Result<(), Box<dyn std::error::Error>> {
-        println!("Hello.");
+        eprintln!("Hello.");
         let v = Value::I32(123);
         let b = v.as_bytes("json")?;
-        println!("Serialized    {:?}: {}", v, std::str::from_utf8(&b)?);
+        eprintln!("Serialized    {:?}: {}", v, std::str::from_utf8(&b)?);
         let w: Value = DefaultValueSerializer::deserialize_from_bytes(&b, "generic", "json")?;
-        println!("De-Serialized {:?}", w);
+        eprintln!("De-Serialized {:?}", w);
         Ok(())
     }
     #[test]

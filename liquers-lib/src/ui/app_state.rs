@@ -270,7 +270,7 @@ pub trait AppState: Send + Sync + std::fmt::Debug {
         point: &InsertionPoint,
         element: Box<dyn UIElement>,
     ) -> Result<UIHandle, Error> {
-        println!(
+        eprintln!(
             "Inserting element at {:?} with title {:?}",
             point,
             element.title()

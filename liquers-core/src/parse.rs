@@ -446,16 +446,16 @@ fn filename_or_action(text: Span) -> IResult<Span, FilenameOrAction> {
 }
 
 fn transform_segment_with_header(text: Span) -> IResult<Span, TransformQuerySegment> {
-    //    println!("transform_segment_with_header: {:?}", text);
+    //    eprintln!("transform_segment_with_header: {:?}", text);
     let (text, header) = transform_segment_header(text)?;
-    //    println!("  header: {:?}", header);
-    //    println!("  text:   {:?}", text);
+    //    eprintln!("  header: {:?}", header);
+    //    eprintln!("  text:   {:?}", text);
     //let (text, mut query) = many0(terminated(action_request, tag("/")))(text)?;
     let (text, mut query) = action_requests(text)?;
-    //    println!("  query:  {:?}", query);
-    //    println!("  text:   {:?}", text);
+    //    eprintln!("  query:  {:?}", query);
+    //    eprintln!("  text:   {:?}", text);
     let (text, fna) = filename_or_action(text)?;
-    //    println!("  fna-text:   {:?}", text);
+    //    eprintln!("  fna-text:   {:?}", text);
     match fna {
         FilenameOrAction::Filename(fname) => Ok((
             text,
@@ -487,20 +487,20 @@ fn transform_qs0(text: Span) -> IResult<Span, QuerySegment> {
     Ok((text, QuerySegment::Transform(tqs)))
 }
 fn transform_qs1(text: Span) -> IResult<Span, QuerySegment> {
-    //    println!("transform_qs1: {:?}", text);
+    //    eprintln!("transform_qs1: {:?}", text);
     let (text, tqs) = transform_segment_with_header(text)?;
-    //    println!("  tqs text: {:?}", text);
-    //    println!("  tqs:      {:?}", tqs);
+    //    eprintln!("  tqs text: {:?}", text);
+    //    eprintln!("  tqs:      {:?}", tqs);
     Ok((text, QuerySegment::Transform(tqs)))
 }
 fn query_segment0(text: Span) -> IResult<Span, QuerySegment> {
     alt((resource_qs, transform_qs0)).parse(text)
 }
 fn query_segment1(text: Span) -> IResult<Span, QuerySegment> {
-    //    println!("query_segment1: {:?}", text);
+    //    eprintln!("query_segment1: {:?}", text);
     let (text, x) = alt((resource_qs, transform_qs1)).parse(text)?;
-    //    println!("  qs text: {:?}", text);
-    //    println!("  qs:      {:?}", x);
+    //    eprintln!("  qs text: {:?}", text);
+    //    eprintln!("  qs:      {:?}", x);
     Ok((text, x))
 }
 /*
@@ -574,14 +574,14 @@ fn transform_segment_without_header_and_filename(
 */
 
 fn simple_transform_query(text: Span) -> IResult<Span, Query> {
-    //    println!("simple_transform_query: {:?}", text);
+    //    eprintln!("simple_transform_query: {:?}", text);
     let (text, abs) = opt(tag("/")).parse(text)?;
     let (text, tqs) = alt((
         transform_segment_without_header,
         //transform_segment_without_header_and_filename,
     ))
     .parse(text)?;
-    //    println!("simple_transform_query SUCCESS");
+    //    eprintln!("simple_transform_query SUCCESS");
     Ok((
         text,
         Query {
@@ -593,12 +593,12 @@ fn simple_transform_query(text: Span) -> IResult<Span, Query> {
 }
 
 fn resource_transform_query(text: Span) -> IResult<Span, Query> {
-    //    println!("resource_transform_query: {:?}", text);
+    //    eprintln!("resource_transform_query: {:?}", text);
     let (text, abs) = opt(tag("/")).parse(text)?;
     let (text, resource) = resource_path1(text)?;
     let (text, _slash) = tag("/")(text)?;
     let (text, tqs) = transform_segment_with_header(text)?;
-    //    println!("resource_transform_query SUCCESS");
+    //    eprintln!("resource_transform_query SUCCESS");
     Ok((
         text,
         Query {
@@ -615,15 +615,15 @@ fn resource_transform_query(text: Span) -> IResult<Span, Query> {
     ))
 }
 fn general_query(text: Span) -> IResult<Span, Query> {
-    //    println!("general_query: {:?}", text);
+    //    eprintln!("general_query: {:?}", text);
     let (text, abs) = opt(tag("/")).parse(text)?;
     let (text, q0) = query_segment0(text)?;
-    //    println!("q0: {:?}", q0);
+    //    eprintln!("q0: {:?}", q0);
     let (text, mut segments) = many0(preceded(tag("/"), query_segment1)).parse(text)?;
-    //    println!("segments: {:?}", segments);
+    //    eprintln!("segments: {:?}", segments);
 
     segments.insert(0, q0);
-    //    println!("general_query SUCCESS");
+    //    eprintln!("general_query SUCCESS");
     Ok((
         text,
         Query {
@@ -855,8 +855,8 @@ mod tests {
     #[test]
     fn parse_path_test() -> Result<(), Box<dyn std::error::Error>> {
         let (remainder, path) = query_parser(Span::new("abc-def/xxx-123"))?;
-        println!("REMAINDER: {:#?}", remainder);
-        println!("PATH:      {:#?}", path);
+        eprintln!("REMAINDER: {:#?}", remainder);
+        eprintln!("PATH:      {:#?}", path);
         assert_eq!(remainder.fragment().len(), 0);
         assert_eq!(remainder.to_string().len(), 0);
         Ok(())
@@ -865,8 +865,8 @@ mod tests {
     #[test]
     fn transform_segment_without_header_test() -> Result<(), Box<dyn std::error::Error>> {
         let (remainder, tqs) = transform_segment_without_header(Span::new("abc/def/file.txt"))?;
-        println!("REMAINDER: {:#?}", remainder);
-        println!("TQS:      {:#?}", tqs);
+        eprintln!("REMAINDER: {:#?}", remainder);
+        eprintln!("TQS:      {:#?}", tqs);
         Ok(())
     }
 
@@ -899,23 +899,23 @@ mod tests {
     #[test]
     fn parse_query_test2() -> Result<(), Box<dyn std::error::Error>> {
         let (s, p) = resource_path1(Span::new("a/b/c"))?;
-        println!("remainder {s}");
-        println!("path      {:?}", p);
+        eprintln!("remainder {s}");
+        eprintln!("path      {:?}", p);
         assert_eq!(s.fragment().len(), 0);
 
         let (s, rqs) = resource_segment_with_header(Span::new("-R/a/b/c"))?;
-        println!("remainder {s}");
-        println!("rqs     {:?}", rqs);
-        println!("rqs enc {}", rqs.encode());
+        eprintln!("remainder {s}");
+        eprintln!("rqs     {:?}", rqs);
+        eprintln!("rqs enc {}", rqs.encode());
         assert_eq!(s.fragment().len(), 0);
         let path = parse_query("-R/a/b/c")?;
         assert_eq!(path.len(), 1);
         let path = parse_query("-R/a/b/-/c/d")?;
         assert_eq!(path.len(), 2);
         let (s, q) = resource_transform_query(Span::new("a/b/-/c/d"))?;
-        println!("remainder '{s}'");
-        println!("query     {:?}", q);
-        println!("query enc {:?}", q.encode());
+        eprintln!("remainder '{s}'");
+        eprintln!("query     {:?}", q);
+        eprintln!("query enc {:?}", q.encode());
         assert_eq!(s.fragment().len(), 0);
         let path = parse_query("a/b/-/c/d")?;
         assert_eq!(path.len(), 2);
@@ -1016,14 +1016,14 @@ mod tests {
     #[test]
     fn actionreqests() -> Result<(), Box<dyn std::error::Error>> {
         let (rest, ar) = action_requests(Span::new("abc/def/-/xxx/-q/qqq"))?;
-        println!("rest: {:?}", rest);
-        println!("ar:   {:?}", ar);
-        println!();
+        eprintln!("rest: {:?}", rest);
+        eprintln!("ar:   {:?}", ar);
+        eprintln!();
         assert_eq!(ar.len(), 1);
         let (rest, q) = transform_segment_without_header(Span::new("abc/def/-/xxx/-q/qqq"))?;
-        println!("rest: {:?}", rest);
-        println!("tqs:  {:?}", q);
-        println!();
+        eprintln!("rest: {:?}", rest);
+        eprintln!("tqs:  {:?}", q);
+        eprintln!();
         assert_eq!(q.encode(), "abc/def");
         Ok(())
     }
@@ -1042,10 +1042,10 @@ mod tests {
     fn general_query1() -> Result<(), Box<dyn std::error::Error>> {
         //let (rest, q) = general_query(Span::new("abc/def/-/xxx/-q/qqq"))?;
         let (rest, q) = general_query(Span::new("abc/def/-/xxx/yyy"))?;
-        println!("rest: {:?}", rest);
-        println!("gq:  {}", q.encode());
-        println!("gq:  {:#?}", q);
-        println!();
+        eprintln!("rest: {:?}", rest);
+        eprintln!("gq:  {}", q.encode());
+        eprintln!("gq:  {:#?}", q);
+        eprintln!();
         assert_eq!(q.segments.len(), 2);
         assert!(q.segments[0].is_transform_query_segment());
         assert!(q.segments[1].is_transform_query_segment());
@@ -1056,10 +1056,10 @@ mod tests {
     fn general_query2() -> Result<(), Box<dyn std::error::Error>> {
         //let (rest, q) = general_query(Span::new("abc/def/-/xxx/-q/qqq"))?;
         let (rest, q) = general_query(Span::new("abc/def/-/xxx/-/yyy"))?;
-        println!("rest: {:?}", rest);
-        println!("gq:  {}", q.encode());
-        println!("gq:  {:#?}", q);
-        println!();
+        eprintln!("rest: {:?}", rest);
+        eprintln!("gq:  {}", q.encode());
+        eprintln!("gq:  {:#?}", q);
+        eprintln!();
         assert_eq!(q.segments.len(), 3);
         assert!(q.segments[0].is_transform_query_segment());
         assert!(q.segments[1].is_transform_query_segment());
@@ -1071,10 +1071,10 @@ mod tests {
     fn general_query3() -> Result<(), Box<dyn std::error::Error>> {
         //let (rest, q) = general_query(Span::new("abc/def/-/xxx/-q/qqq"))?;
         let (rest, q) = general_query(Span::new("abc/def/-/xxx/-q/qqq"))?;
-        println!("rest: {:?}", rest);
-        println!("gq:  {}", q.encode());
-        println!("gq:  {:#?}", q);
-        println!();
+        eprintln!("rest: {:?}", rest);
+        eprintln!("gq:  {}", q.encode());
+        eprintln!("gq:  {:#?}", q);
+        eprintln!();
         assert_eq!(q.segments.len(), 3);
         assert!(q.segments[0].is_transform_query_segment());
         assert!(q.segments[1].is_transform_query_segment());
@@ -1086,10 +1086,10 @@ mod tests {
     fn query3a() -> Result<(), Box<dyn std::error::Error>> {
         //let (rest, q) = general_query(Span::new("abc/def/-/xxx/-q/qqq"))?;
         let (rest, q) = general_query(Span::new("abc/def/-/xxx/yyy/-/xxx/yyy"))?;
-        println!("rest: {:?}", rest);
-        println!("gq:  {}", q.encode());
-        println!("gq:  {:#?}", q);
-        println!();
+        eprintln!("rest: {:?}", rest);
+        eprintln!("gq:  {}", q.encode());
+        eprintln!("gq:  {:#?}", q);
+        eprintln!();
         assert_eq!(q.segments.len(), 3);
         let q = parse_query("-R/abc/def/-q/xxx/-q/qqq")?;
         assert_eq!(q.segments.len(), 3);
@@ -1268,7 +1268,7 @@ mod tests {
             assert!(!tp.is_filename());
             assert!(tr.is_filename());
             let pr = tp + tr;
-            println!("pr: {:#?}", &pr);
+            eprintln!("pr: {:#?}", &pr);
             assert!(pr.filename.is_some());
             assert_eq!(pr.encode(), "ghi/jkl/file.txt");
         } else {
@@ -1286,7 +1286,7 @@ mod tests {
         let t = parse_simple_template("abc$def/ghi$")?;
         assert_eq!(t.0.len(), 2);
         assert_eq!(t.0[0], SimpleTemplateElement::Text("abc".to_owned()));
-        println!("Template: {:?}", t);
+        eprintln!("Template: {:?}", t);
         if let SimpleTemplateElement::ExpandQuery(q) = &t.0[1] {
             assert_eq!(q.encode(), "def/ghi");
         } else {

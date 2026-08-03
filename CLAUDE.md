@@ -57,6 +57,24 @@ Error::from_error(ErrorType::General, external_error)
 // Error::new(ErrorType::ParseError, "...")  // Avoid this
 ```
 
+### Diagnostic Output
+
+Library code must never write to **stdout**. Use `eprintln!`, never `println!`:
+
+```rust
+// DO: diagnostics go to stderr
+eprintln!("Recipe already has CWD set to {:?}", recipe.cwd);
+
+// DON'T: this corrupts machine-readable stdout
+// println!("Recipe already has CWD set to {:?}", recipe.cwd);
+```
+
+Stdout is reserved for a binary's *intended* output — CLI tools serialize JSON/YAML there, and a
+stray `println!` anywhere in the libraries they link makes that output unparseable. The rule is
+blanket (it applies inside `#[cfg(test)]` modules too) so nobody has to reason about whether a
+given line sits in a code path some future binary will call. Only `[[bin]]` targets, examples and
+doc-comment examples print to stdout.
+
 ### Async Patterns
 - Default to async (`AsyncStore`, `AsyncStoreRouter`)
 - Use `#[async_trait]` for async trait methods
@@ -168,6 +186,7 @@ is broken.
 
 ### Do NOT
 - Use `unwrap()` or `expect()` in library code (only in tests)
+- Use `println!` in library code (use `eprintln!` — stdout belongs to the binary's output)
 - Create new error types outside `liquers_core::error`
 - Use `Error::new` directly
 - Use blocking I/O in async contexts
@@ -241,6 +260,65 @@ register_command!(cr,
 - Metadata: `label:`, `doc:`, `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`
 
 See examples in `liquers-lib/src/commands.rs` and `liquers-core/tests/async_hellow_world.rs`.
+
+### Validating queries
+
+Before putting a query into an example, a doc snippet or a test, check it with `liquers-validate`.
+It parses the query and builds its plan without evaluating anything — no store is opened, no
+command runs.
+
+```bash
+cargo run -p liquers-core --features cli --bin liquers-validate -- -- '<query>'
+```
+
+The `--` before the query is not optional in practice: Liquers resource queries begin with `-`
+(`-R/data/x.csv`), which otherwise looks like a flag. The tool has no short flags for this reason.
+
+It finds `specs/command_registry.yaml` by walking up from the working directory, so it validates
+against the real command set with no setup. Useful variations:
+
+| Need | Flag |
+|---|---|
+| Parse only, ignore the registry | `--no-registry` |
+| A command that does not exist yet | `--command my_new_command` (accepts any arguments) |
+| A design that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file <proposal>.yaml --allow-overwrite` |
+| A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
+| Many queries | positional list, or `--query-file -` (one per line, `#` comments skipped) |
+| Less output | `--detail summary` |
+
+Exit codes: **0** ok or warning · **1** a query failed · **2** the tool was invoked wrongly
+(stdout is empty; read stderr).
+
+**A clean result tells you what your query *means*, not that it is correct.** Both of these
+validate:
+
+```
+-R/data/report.txt/-/to_text     ->  GetAsset[data, report.txt], Action{to_text}
+-R/data/report.txt/to_text       ->  GetAsset[data, report.txt, to_text]
+```
+
+The second fetches a file *named* `to_text`: `-R/` consumes the rest of the string as a key
+unless `/-/` starts a new segment. Compare the `encoded` field (or the plan's steps) against what
+you meant. `encoded` works at parse level, with no registry.
+
+### Maintaining `specs/command_registry.yaml`
+
+The file is **generated — never edit it by hand**. It exists so query validation does not have to
+link liquers-lib and its optional dependencies.
+
+Regenerate whenever a `register_command!` signature changes, or a command is added or removed:
+
+```bash
+cargo run -p liquers-lib --features cli --bin export-command-registry -- \
+  --format yaml -o specs/command_registry.yaml
+```
+
+Then add a dated line inside the `# CHANGELOG-BEGIN` / `# CHANGELOG-END` markers — the exporter
+carries that block over verbatim, and it is the only hand-maintained part of the file.
+
+`cargo test -p liquers-lib --test registry_export` enforces this: it fails when the file no
+longer matches the registered commands, comparing signatures rather than file bytes, so
+reformatting is not a failure but a changed argument list is.
 
 ### Adding a Store Backend
 1. Implement `AsyncStore` trait in `liquers-store/src/`

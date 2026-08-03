@@ -11,9 +11,22 @@ crate-type = ["cdylib", "lib"]
 default=["async_store"]
 async_store=["futures", "async-trait"]
 tokio_exec=["futures", "async-trait", "async_store"]
+# Command-line tools. Deliberately NOT in `default`: this keeps clap out of every
+# library consumer (liquers-py, wasm builds) while still shipping the validator.
+cli=["dep:clap"]
+
+# The `liquers-validate` query validation utility. See specs/query-validation/.
+# An explicit [[bin]] block is required: auto-discovered binaries in src/bin/
+# cannot carry `required-features`, so without this the crate would try to build
+# the binary — and fail on the missing clap — whenever `cli` is off.
+[[bin]]
+name = "liquers-validate"
+path = "src/bin/liquers_validate.rs"
+required-features = ["cli"]
 
 [dependencies]
 itertools = "0.14.0"
+clap = { version = "4", features = ["derive"], optional = true }
 nom = "8.0.0"
 nom_locate = "5.0.0"
 regex = "1.9.3"

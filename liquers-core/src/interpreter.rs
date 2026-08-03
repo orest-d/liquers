@@ -144,7 +144,7 @@ pub fn apply_plan<E: Environment>(
         context.evaluate_local_queue().await?;
         let mut state = input_state;
         for i in 0..plan.len() {
-            println!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
+            eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
             let envref1 = envref.clone();
             let context1 = context.clone();
@@ -201,10 +201,10 @@ pub fn do_step<E: Environment>(
         }
         .maybe_boxed(),
         Step::GetResourceDirectory(key) => async move {
-            println!("Getting resource directory for key {:?}", key);
+            eprintln!("Getting resource directory for key {:?}", key);
             let store = envref.get_async_store();
             let d = store.listdir_asset_info(&key).await?;
-            println!("Got resource directory: {:?}", d);
+            eprintln!("Got resource directory: {:?}", d);
 
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
@@ -811,7 +811,7 @@ mod tests {
             greet: String,
             context: Context<CommandEnvironment>,
         ) -> Result<Value, Error> {
-            println!("greet command called");
+            eprintln!("greet command called");
             let what = state.try_into_string()?;
             context.info(&format!("Greeting {what}"))?;
             let upper = context
@@ -834,7 +834,7 @@ mod tests {
 
         let asset = envref.evaluate("world/greet-Ciao").await?;
         let state = asset.get().await?;
-        println!("Metadata: {:?}", state.metadata);
+        eprintln!("Metadata: {:?}", state.metadata);
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, WORLD!");
@@ -884,7 +884,7 @@ mod tests {
             .evaluate_immediately("word/greet-Ciao", "Earth".into())
             .await?;
         let state = asset.get().await?;
-        println!("Metadata: {:?}", state.metadata);
+        eprintln!("Metadata: {:?}", state.metadata);
 
         let value = state.try_into_string()?;
         assert_eq!(value, "Ciao, EARTH!");
@@ -925,7 +925,7 @@ mod tests {
 
         // Serialize to YAML
         let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
-        println!("recipes.yaml content:\n{}", yaml_content);
+        eprintln!("recipes.yaml content:\n{}", yaml_content);
 
         // Store the recipes.yaml in memory at folder/recipes.yaml
         let recipes_key = parse_key("folder/recipes.yaml").unwrap();
@@ -953,8 +953,8 @@ mod tests {
         let a = envref.evaluate("-R-dir/folder").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
-        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        //eprintln!("Directory listing:\n{:?}", &**s.data_unchecked());
+        //eprintln!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
         if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 3);
@@ -962,7 +962,7 @@ mod tests {
                 .iter()
                 .map(|x| x.filename.as_ref().unwrap().clone())
                 .collect();
-            //println!("Names: {:?}", names);
+            //eprintln!("Names: {:?}", names);
             assert!(names.contains(&"recipes.yaml".to_string()));
             assert!(names.contains(&"file1.txt".to_string()));
             assert!(names.contains(&"file2.txt".to_string()));
@@ -1002,8 +1002,8 @@ mod tests {
         let a = envref.evaluate("-R-dir/folder").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
-        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        //eprintln!("Directory listing:\n{:?}", &**s.data_unchecked());
+        //eprintln!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
         if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
@@ -1011,7 +1011,7 @@ mod tests {
                 .iter()
                 .map(|x| x.filename.as_ref().unwrap().clone())
                 .collect();
-            //println!("Names: {:?}", names);
+            //eprintln!("Names: {:?}", names);
             assert!(names.contains(&"test.txt".to_string()));
         } else {
             panic!("Expected AssetInfo value");
@@ -1020,8 +1020,8 @@ mod tests {
         let a = envref.evaluate("-R-dir").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
-        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        //eprintln!("Directory listing:\n{:?}", &**s.data_unchecked());
+        //eprintln!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
         if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
@@ -1029,7 +1029,7 @@ mod tests {
                 .iter()
                 .map(|x| x.filename.as_ref().unwrap().clone())
                 .collect();
-            //println!("Names: {:?}", names);
+            //eprintln!("Names: {:?}", names);
             assert!(names.contains(&"folder".to_string()));
         } else {
             panic!("Expected AssetInfo value");
@@ -1065,8 +1065,8 @@ mod tests {
         let a = envref.evaluate("-R-dir").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
 
-        //println!("Directory listing:\n{:?}", &**s.data_unchecked());
-        //println!("Directory metadata:\n{:?}", &*s.metadata);
+        //eprintln!("Directory listing:\n{:?}", &**s.data_unchecked());
+        //eprintln!("Directory metadata:\n{:?}", &*s.metadata);
         assert!(!s.is_error().unwrap());
         if let Value::AssetInfo(a) = &**s.data_unchecked() {
             assert_eq!(a.len(), 1);
@@ -1074,7 +1074,7 @@ mod tests {
                 .iter()
                 .map(|x| x.filename.as_ref().unwrap().clone())
                 .collect();
-            //println!("Names: {:?}", names);
+            //eprintln!("Names: {:?}", names);
             assert!(names.contains(&"file1.txt".to_string()));
         } else {
             panic!("Expected AssetInfo value");
