@@ -2,70 +2,390 @@
 
 ## Overview
 
-[2-3 sentences summarizing the architectural approach]
+Three new private parser productions in `liquers-core/src/parse.rs`, plus a positioned
+error mapping in `parse_query`. No new public types, no new commands, no signature changes
+anywhere. The embedded query is parsed **in band** on the original `Span` — there is no
+substring extraction — so inner node positions are absolute in the source text for free.
+The resource/transform shorthand is detected inside a link and rejected with a worded
+diagnostic rather than reinterpreted.
 
 ## Data Structures
 
 ### New Structs
 
-[Define structs with fields, types, ownership rationale]
+**None.** The feature adds productions, not state.
 
 ### New Enums
 
-[Define enums with variants and their semantics]
+**None.** `ActionParameter::Link(Query, Position)` already exists
+(`liquers-core/src/query.rs:540`) and is unchanged. No new match sites on Liquers-owned
+enums are introduced, so the no-default-arm rule is not engaged.
 
-### ExtValue Extensions (if applicable)
+### ExtValue Extensions
 
-[If adding new ExtValue variants, document them here]
+Not applicable — `liquers-core` has no `ExtValue`.
 
 ## Trait Implementations
 
-[List traits to implement, for which types, with signatures]
+**None.** No new traits, no new impls. `ActionParameter`'s existing `QueryRenderer`,
+`PartialEq`, `Hash` and `Display` impls already handle `Link` (`query.rs:607-669`) and are
+untouched.
 
 ## Generic Parameters & Bounds
 
-[Document generic parameters and justify bounds]
+**None.** All new functions are concrete over `Span<'a> = LocatedSpan<&'a str>`, matching
+the file's existing style. No trait bounds are introduced.
 
 ## Sync vs Async Decisions
 
-[Table or list of functions with async/sync choice and rationale]
+| Function | Async? | Rationale |
+|---|---|---|
+| all new productions | No | Pure CPU-bound text parsing, no I/O |
+| `parse_query` | No | Unchanged; already sync, called from both sync and async contexts |
+
+No `AsyncStore` involvement — parsing never opens a store.
 
 ## Function Signatures
 
-[Provide function signatures for all public functions]
+All new functions are private to `parse.rs` and follow the file's existing plain-`fn`
+combinator style (`fn(Span) -> IResult<Span, T>`), so they compose with `alt`, `many0` and
+`terminated` without closures or generics.
+
+### New productions
+
+```rust
+/// `link-parameter = "~X~", link-query, "~E"`
+///
+/// Position is taken at the `~X~` marker, matching how `parameter` takes its
+/// position at the start of the parameter text.
+fn link_parameter(text: Span) -> IResult<Span, ActionParameter>;
+
+/// The query grammar accepted between `~X~` and `~E`.
+///
+/// Equivalent to `query_parser` minus the two `eof`-gated alternatives, which can
+/// never match before a `~E`. Rejects the resource/transform shorthand.
+fn link_query(text: Span) -> IResult<Span, Query>;
+
+/// A single action parameter: a link, or a string parameter.
+///
+/// `parameter` matches the empty string and therefore never fails, so
+/// `link_parameter` must be tried first.
+fn action_parameter(text: Span) -> IResult<Span, ActionParameter>;
+```
+
+### Modified
+
+```rust
+// CHANGED: dispatches to action_parameter instead of parameter
+fn minus_parameter(text: Span) -> IResult<Span, ActionParameter>;
+
+// CHANGED: link-marker guard, and maps nom errors to a real Position and a
+// specific message instead of Position::unknown()
+pub fn parse_query(query: &str) -> Result<Query, Error>;
+```
+
+`parameter`, `action_request`, `query_parser`, `general_query`,
+`resource_transform_query` and every other existing production are **unmodified**.
+
+### Error helpers
+
+```rust
+/// Position of the input span a nom error stopped at.
+fn nom_error_position(err: &nom::Err<nom::error::Error<Span>>) -> Position;
+
+/// Human-readable cause for a failed query parse.
+fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String;
+```
+
+## Control Flow
+
+```rust
+fn action_parameter(text: Span) -> IResult<Span, ActionParameter> {
+    alt((link_parameter, parameter)).parse(text)
+}
+
+fn link_parameter(text: Span) -> IResult<Span, ActionParameter> {
+    let position: Position = text.into();
+    let (text, _) = tag("~X~")(text)?;                  // plain Error -> alt falls through
+    let (text, query) = cut(link_query).parse(text)?;   // committed from here on
+    let (text, _) = cut(tag("~E")).parse(text)?;
+    Ok((text, ActionParameter::Link(query, position)))
+}
+
+fn link_query(text: Span) -> IResult<Span, Query> {
+    // Reject, do not reinterpret, the resource/transform shorthand.
+    if peek(terminated(resource_transform_query, peek(tag("~E"))))
+        .parse(text)
+        .is_ok()
+    {
+        return Err(nom::Err::Failure(nom::error::Error::new(
+            text,
+            ErrorKind::Verify,
+        )));
+    }
+    alt((general_query, empty_query)).parse(text)
+}
+```
+
+**`cut` placement is the load-bearing detail.** `tag("~X~")` must fail *softly* so `alt`
+can fall through to an ordinary string parameter; everything after it is `cut`, so a
+malformed link produces `nom::Err::Failure` that short-circuits every enclosing `alt` and
+arrives at `parse_query` with the offending span intact. Without `cut`, `action-~X~hello`
+would silently backtrack to an empty string parameter and report a confusing leftover
+error further along.
+
+## Design Decisions
+
+### D1 — Why `link_query` is not `query_parser`
+
+`query_parser` (parse.rs:649) is:
+
+```rust
+alt((
+    terminated(resource_transform_query, eof),
+    terminated(simple_transform_query, eof),
+    general_query,
+    empty_query,
+))
+```
+
+Inside a link there is always a trailing `~E`, so neither `eof` gate can hold and every
+embedded query would fall through to `general_query` — silently changing meaning for the
+shorthand form. `link_query` therefore states the embedded grammar directly.
+
+### D2 — Why `simple_transform_query` is omitted rather than `~E`-gated
+
+`simple_transform_query` is `opt("/") + transform_segment_without_header`. In
+`general_query`, `query_segment0 → transform_qs0` tries **the same**
+`transform_segment_without_header` as its first alternative, and the following
+`many0(preceded(tag("/"), query_segment1))` can only add segments when more text follows.
+So whenever `simple_transform_query` would succeed with the body fully consumed,
+`general_query` produces the identical query. Verified empirically over 15 canonical forms
+before this document was written; Phase 3 adds a standing equivalence test.
+
+### D3 — Why the shorthand is detected with `resource_transform_query` itself
+
+The detector fires **exactly** on the divergent inputs, because it is the same production
+that creates the divergence:
+
+| body | detector | top-level meaning | inside link |
+|---|---|---|---|
+| `abc/def/-/xxx` | fires | `-R/abc/def/-/xxx` (resource+transform) | rejected |
+| `abc/def/-/xxx/-q/qqq` | does not fire (`~E` peek fails) | 3 transform segments | 3 transform segments ✅ |
+| `-R/abc/def/-/xxx` | does not fire (`-R` is not a resource name) | resource+transform | resource+transform ✅ |
+
+No false positives and no false negatives. Note this is a guard clause returning `Err`,
+**not** an `alt` arm that accepts — the arm shape sketched in Phase 1 would *accept* the
+shorthand instead of rejecting it.
+
+### D4 — Nesting and escaping need no code
+
+Nesting (`~X~a-~X~b~E~E`) falls out of the recursion: the inner `~X~` is reached at a
+parameter position and handled by the same `link_parameter`. The `~~` escape needs no
+scanner-side duplication because `entities` already consumes it, and `~E` is not in the
+entity table, so `parameter`'s `many0` halts there naturally.
+
+### D5 — Recursion depth guard (new risk introduced by this feature)
+
+Links are the **first recursive construct in the query grammar** — before this change,
+query parsing had no self-reference and a bounded stack. `parse_query` is reachable from
+untrusted input via liquers-axum, so `a-` followed by thousands of `~X~` would recurse
+until the stack overflows and the process aborts. A wasm target (1 MB default stack)
+overflows far sooner than native.
+
+**Guard:** an O(n) pre-check in the public entry points that reach `query_parser`:
+
+```rust
+/// Maximum number of `~X~` link markers accepted in one query.
+const MAX_LINK_MARKERS: usize = 64;
+```
+
+`parse_query` and `parse_simple_template` reject input containing more than
+`MAX_LINK_MARKERS` occurrences of `~X~` with `ErrorType::ParseError`, before parsing.
+`parse_key` needs no guard — it calls `resource_path`, which cannot recurse.
+
+**Trade-off, stated plainly:** nesting depth is bounded by the *count* of `~X~` markers,
+so the guard also caps non-nested sibling links at 64 per query. That over-rejection is
+acceptable (64 links in one query is already pathological) and buys a check with no state,
+no `unsafe`, and no type changes. The alternatives were a thread-local depth counter
+(correct but stateful) and threading depth through `LocatedSpan`'s `extra` parameter
+(clean, but requires the `unsafe fn new_from_raw_offset` to re-stamp mid-parse). If
+sibling-heavy generated queries ever appear, switch to true depth tracking.
+
+Phase 3 must include a test that a deeply nested input returns `ParseError` rather than
+overflowing the stack.
+
+### D6 — Error messages without a custom nom error type
+
+The parser is typed on nom's default `nom::error::Error<Span>`, which carries a span and
+an `ErrorKind` but no message. Carrying a `String` would mean a custom `ParseError`
+implementation and changing the error type on ~45 function signatures — mechanical, but
+well beyond this issue's scope.
+
+Instead, `link_query` marks the shorthand rejection with `ErrorKind::Verify`, which no
+other production in the file produces (the parser uses no `verify` combinator).
+`describe_query_failure` maps it back to a specific message:
+
+| Failure | `ErrorKind` | Message |
+|---|---|---|
+| shorthand inside a link | `Verify` | resource/transform shorthand is not allowed inside `~X~…~E`; use the explicit form, e.g. `-R/a/b/-/c` |
+| unterminated / invalid link | other | `Can't parse query` + the offending position |
+
+`ErrorKind` is an external enum, so `describe_query_failure` may use a `_ =>` arm; the
+Liquers no-default-arm rule covers Liquers-owned enums. Phase 3 pins the shorthand message
+with a test, so a future `verify()` added elsewhere in the file is caught.
+
+**Recorded as deferred work, not done here:** a custom nom error type would let every
+production carry a worded message and would fix error quality across the whole parser.
+
+## Positions
+
+| Node | Position |
+|---|---|
+| `ActionParameter::Link` | offset of `~X~` |
+| embedded `Query` segments, actions, parameters | absolute offsets in the *original* query string |
+
+Absolute inner positions are a direct consequence of in-band parsing: the body is never
+copied or re-spanned, so `LocatedSpan` offsets are already correct. (The rejected scanner
+design would have needed `take(n)` to preserve them.)
 
 ## Integration Points
 
-[Which crates, which files, which modules to modify or create]
+### Crate: liquers-core
+
+**File:** `liquers-core/src/parse.rs` (only source file changed)
+
+- add `link_parameter`, `link_query`, `action_parameter`, `nom_error_position`,
+  `describe_query_failure`, `MAX_LINK_MARKERS`
+- modify `minus_parameter` (one line) and `parse_query` (guard + error mapping)
+- add `cut` to the existing `nom::combinator` import; add `use nom::error::ErrorKind;`
+- module docs: delete the "Known link-parser bug" section (l. 59-66), add
+  `link-parameter` to the grammar, document the shorthand rule
+
+**File:** `liquers-core/src/query.rs` (doc comment only)
+
+- `ActionParameter::Link` doc (l. 536-540) currently says the encoded form cannot be
+  parsed; replace with the accepted syntax and the shorthand restriction
+
+### No other crate changes
+
+- `plan.rs` already consumes `ActionParameter::Link` (l. 615-633) — no change
+- `dependencies.rs` already models `DependencyRelation::ParameterLink` — no change
+- `liquers-py` wraps `ActionParameter` opaquely (`liquers-py/src/query.rs:59`, `147-148`)
+  — no change
+- `liquers-lib/src/utils.rs:109` reads `Vec<ActionParameter>` — no change
+- `specs/command_registry.yaml` — **not regenerated**; no command signatures change
+
+### Dependencies
+
+**None added.** `nom = "8.0.0"` and `nom_locate = "5.0.0"` already provide `cut`, `peek`,
+`terminated` and `ErrorKind`.
 
 ## Relevant Commands
 
 ### New Commands
-[List all new commands with full signatures]
+
+**None.** This is a parser fix; it registers nothing.
 
 ### Relevant Existing Namespaces
-[Which existing command namespaces interact with this feature?]
 
-## Web Endpoints (if applicable)
+A link is not restricted to query-typed arguments.
+`ParameterValue::from_action_parameter` (plan.rs:615-633) turns `ActionParameter::Link`
+into `ParameterValue::ParameterLink` for **any** `arginfo`, whatever its declared type —
+the linked query is evaluated and its result converted to the argument type. So every
+registered command in every namespace can receive a link argument.
 
-[Document new or modified HTTP endpoints]
+| Namespace | Commands | Relevance |
+|---|---|---|
+| `root` / `` (default) | 6 | `to_text`, `to_metadata`, … — smallest surface for round-trip and end-to-end tests |
+| `pl` (polars) | 26 | Realistic link targets (a link supplying a dataframe or a column name) |
+| `img` | 47 | Largest namespace; no link-specific behavior |
+| `lui`, `egui` | 14 | UI commands; links used for dynamic parameters |
+| `dep` | 2 | Dependency commands — closest to link semantics |
+
+**Question for the user:** Phase 3's end-to-end example needs one namespace. I propose
+`root`/default (`to_text` and friends) because it needs no optional feature — `pl`, `img`
+and `egui` are all behind feature flags, so a test using them would not run in the default
+`cargo test -p liquers-lib --lib --tests` loop. Is that the right choice, or would you
+rather see the worked example in `pl`?
+
+## Web Endpoints
+
+**None.** liquers-axum passes query text to `parse_query` unchanged; link queries simply
+stop being rejected. No route, handler or content-type change.
 
 ## Error Handling
 
-[Error scenarios, which ErrorType to use, error propagation strategy]
+No new error types (`liquers_core::error::Error` only), no `Error::new`, no
+`unwrap()`/`expect()` outside tests.
+
+| Scenario | Constructor | `ErrorType` | Position |
+|---|---|---|---|
+| shorthand inside a link | `Error::query_parse_error` | `ParseError` | start of the link body |
+| unterminated `~X~` (no `~E`) | `Error::query_parse_error` | `ParseError` | where `~E` was expected |
+| invalid embedded query | `Error::query_parse_error` | `ParseError` | inside the body |
+| link concatenated with text (`action-abc~X~q~E`) | `Error::query_parse_error` | `ParseError` | at the leftover `~X~` |
+| more than `MAX_LINK_MARKERS` links | `Error::query_parse_error` | `ParseError` | `Position::unknown()` (pre-parse) |
+
+**Improvement to existing behavior:** `parse_query`'s nom-error path currently reports
+`Position::unknown()` (parse.rs:756). It will report the real failure position via
+`nom_error_position`. No test asserts the current message or position — verified by
+searching for `query_parse_error` and the literal messages — so this is a safe change.
+
+`parse_key` and `parse_simple_template` share the same weakness. **Decision: fix
+`parse_query` only.** The other two are not on this issue's path, and changing three entry
+points at once widens the blast radius for no gain here. Recorded as follow-up.
 
 ## Serialization Strategy
 
-[Serde annotations, round-trip compatibility]
+**Unchanged.** `ActionParameter` already derives `Serialize, Deserialize` (`query.rs:531`)
+and `Link` already serializes through the derived impl. This feature changes only the
+*textual* representation's read path.
 
 ## Concurrency Considerations
 
-[Thread safety, locks, shared state]
+**No shared state.** All new functions are pure and take `Span` by value (a `Copy` wrapper
+around `&str`). Parsing is re-entrant and safe to call from multiple threads. The depth
+guard is a pure function of the input string — deliberately not a thread-local, so there
+is no per-thread state and no wasm caveat.
+
+## Documentation Deliverables
+
+Carried from Phase 1; all four must state the same rule.
+
+| Target | Change |
+|---|---|
+| `liquers-core/src/parse.rs` module docs | delete "Known link-parser bug"; add `link-parameter` grammar + shorthand rule |
+| `liquers-core/src/query.rs` | `ActionParameter::Link` doc comment |
+| `specs/api-docs-analysis/doc-02-query-language-reference.md` | replace "Link parameters do not parse"; drop the P0 row from the improvement table |
+| `specs/ISSUES.md` | mark `QUERY-ACTION-PARAMETER-LINK-PARSER` resolved |
+
+**The shared wording**, to be used consistently:
+
+> The resource/transform shorthand (`data/x.csv/-/to_text`) is **discouraged**. Prefer the
+> explicit form (`-R/data/x.csv/-/to_text`) — that is what `Query::encode` emits and what
+> round-trips unchanged. Inside `~X~…~E` the shorthand is **not allowed** and is a parse
+> error: a link has no `eof` to disambiguate it, so accepting it would make the same text
+> denote different queries depending on nesting depth.
 
 ## Compilation Validation
 
-[Mental check: would this compile with cargo check?]
+- [x] All signatures specified, concrete types only
+- [x] No `unwrap()` / `expect()` in the design
+- [x] No new error types; `Error::query_parse_error` only
+- [x] No default match arms on Liquers-owned enums (`_ =>` used once, on external
+      `ErrorKind`, with a documented reason)
+- [x] Imports named (`nom::combinator::cut`, `nom::error::ErrorKind`)
+- [x] No generics or trait bounds introduced
+
+**Check in Phase 4:** `cargo test -p liquers-core --lib` (core alone; the feature touches
+no other crate).
 
 ## References to liquers-patterns.md
 
-[Verify alignment with established patterns]
+- [x] Crate dependency flow respected — change is confined to `liquers-core`
+- [x] No `ExtValue` involvement (core has none)
+- [x] No commands registered, so `register_command!` is not involved
+- [x] AsyncStore pattern not applicable (no I/O)
+- [x] Error handling uses typed constructors (`Error::query_parse_error`)
+- [x] Async default not applicable — parsing is CPU-bound and sync by design
