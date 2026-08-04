@@ -114,6 +114,13 @@ fn link_parameter(text: Span) -> IResult<Span, ActionParameter> {
 
 fn link_query(text: Span) -> IResult<Span, Query> {
     // Reject, do not reinterpret, the resource/transform shorthand.
+    //
+    // The nesting of peeks is deliberate, do not "simplify" it:
+    //   - the inner peek(tag("~E")) asserts the shorthand consumed the whole body
+    //     without consuming the terminator, which link_parameter still needs;
+    //   - the outer peek discards resource_transform_query's output entirely, so
+    //     `text` still points at the start of the body and the reported error
+    //     position is the start of the offending query, not its end.
     if peek(terminated(resource_transform_query, peek(tag("~E"))))
         .parse(text)
         .is_ok()
@@ -126,6 +133,55 @@ fn link_query(text: Span) -> IResult<Span, Query> {
     alt((general_query, empty_query)).parse(text)
 }
 ```
+
+### `parse_query` (modified)
+
+```rust
+pub fn parse_query(query: &str) -> Result<Query, Error> {
+    // D5 guard: bound recursion before parsing.
+    if query.matches("~X~").count() > MAX_LINK_MARKERS {
+        return Err(Error::query_parse_error(
+            query,
+            "Too many link parameters",
+            &Position::unknown(),
+        ));
+    }
+
+    let (remainder, path) = query_parser(Span::new(query)).map_err(|e| {
+        // WAS: Position::unknown() and the Display of the nom error
+        Error::query_parse_error(query, &describe_query_failure(&e), &nom_error_position(&e))
+    })?;
+
+    // unchanged: complete-consumption check
+    if !remainder.fragment().is_empty() { /* ... */ }
+    Ok(path)
+}
+
+fn nom_error_position(err: &nom::Err<nom::error::Error<Span>>) -> Position {
+    match err {
+        nom::Err::Error(e) | nom::Err::Failure(e) => e.input.into(),
+        nom::Err::Incomplete(_) => Position::unknown(),
+    }
+}
+
+fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
+    match err {
+        nom::Err::Error(e) | nom::Err::Failure(e) => match e.code {
+            // Private marker set by link_query; see D6.
+            ErrorKind::Verify => "Resource/transform shorthand is not allowed inside \
+                 ~X~...~E; use the explicit form, for example -R/a/b/-/c"
+                .to_owned(),
+            // ErrorKind is an external enum -- a catch-all arm is permitted here.
+            _ => "Can't parse query".to_owned(),
+        },
+        nom::Err::Incomplete(_) => "Incomplete query".to_owned(),
+    }
+}
+```
+
+`nom::Err` is external, so its `Incomplete` variant is matched explicitly rather than
+swept into the catch-all — the streaming combinators that would produce it are not used,
+and an explicit arm documents that.
 
 **`cut` placement is the load-bearing detail.** `tag("~X~")` must fail *softly* so `alt`
 can fall through to an ordinary string parameter; everything after it is `cut`, so a
@@ -175,8 +231,10 @@ that creates the divergence:
 | `-R/abc/def/-/xxx` | does not fire (`-R` is not a resource name) | resource+transform | resource+transform ✅ |
 
 No false positives and no false negatives. Note this is a guard clause returning `Err`,
-**not** an `alt` arm that accepts — the arm shape sketched in Phase 1 would *accept* the
-shorthand instead of rejecting it.
+**not** an `alt` arm that accepts. Phase 1's original sketch was simply wrong on this
+point: written as an `alt` arm it would have *accepted* the shorthand and given it the
+resource+transform reading, which is the opposite of the decision. Phase 1 has been
+corrected to match.
 
 ### D4 — Nesting and escaping need no code
 
@@ -186,6 +244,9 @@ scanner-side duplication because `entities` already consumes it, and `~E` is not
 entity table, so `parameter`'s `many0` halts there naturally.
 
 ### D5 — Recursion depth guard (new risk introduced by this feature)
+
+**This risk was not identified in Phase 1** — it surfaced only when the recursion was
+written out concretely. Phase 1 has been annotated to point here.
 
 Links are the **first recursive construct in the query grammar** — before this change,
 query parsing had no self-reference and a bounded stack. `parse_query` is reachable from
@@ -214,6 +275,22 @@ sibling-heavy generated queries ever appear, switch to true depth tracking.
 
 Phase 3 must include a test that a deeply nested input returns `ParseError` rather than
 overflowing the stack.
+
+### D7 — The existing rejection test must be replaced, not deleted
+
+`parse.rs:1322-1323` currently asserts the bug:
+
+```rust
+// Link encoding exists in query.rs, but parse.rs has no link production.
+assert!(parse_query("action-~X~hello~E").is_err());
+```
+
+That assertion inverts under this design. It is the issue's own stated verification
+("The current rejection test … should be replaced by successful parsing and round-trip
+assertions"), so Phase 3 owns the replacement: successful parse, round-trip through
+`encode`, and the new negative cases (shorthand inside a link, unterminated `~X~`,
+marker-count guard). Deleting it without replacement would silently drop coverage of the
+`documented_query_language_contract` test's link clause.
 
 ### D6 — Error messages without a custom nom error type
 
@@ -275,6 +352,9 @@ design would have needed `take(n)` to preserve them.)
   — no change
 - `liquers-lib/src/utils.rs:109` reads `Vec<ActionParameter>` — no change
 - `specs/command_registry.yaml` — **not regenerated**; no command signatures change
+- UI — not applicable; `QueryRenderer for ActionParameter` (`query.rs:607-644`) already
+  renders `Link` as `~X~` / `~E` entities around the embedded query, and now renders
+  something the parser can read back
 
 ### Dependencies
 
@@ -367,6 +447,37 @@ Carried from Phase 1; all four must state the same rule.
 > round-trips unchanged. Inside `~X~…~E` the shorthand is **not allowed** and is a parse
 > error: a link has no `eof` to disambiguate it, so accepting it would make the same text
 > denote different queries depending on nesting depth.
+
+**Second documented limitation** (Phase 1 open question 4, carried through): an embedded
+query built *programmatically* whose resource name contains `~E` does not survive
+encode→parse, because `ResourceName::encode` does not escape it. This belongs in the
+`parse.rs` module docs next to the existing note that programmatic construction is not
+validation, and mirrors the `SimpleTemplate::encode` caveat about a literal `$` in a text
+element (`parse.rs:684-690`). Not fixed here — escaping resource names is a separate
+change to `Key` encoding with its own compatibility question.
+
+## Issue Requirement Coverage
+
+The issue's six "Expected behavior" items, mapped to this architecture:
+
+| # | Requirement | Where satisfied |
+|---|---|---|
+| 1 | parser recognizes `~X~<query>~E` | `link_parameter`, reached via `action_parameter` |
+| 2 | `<query>` parsed using the authoritative grammar | `link_query` — see the note below |
+| 3 | result is `ActionParameter::Link(query, position)` | `link_parameter` return value; position = `~X~` offset |
+| 4 | encode/reparse preserves link and embedded semantics | D1 + D2: `link_query` accepts every form `Query::encode` emits, verified over 15 canonical forms |
+| 5 | links work at every parameter position | `minus_parameter` dispatches to `action_parameter` for *every* parameter, so position in the list is irrelevant |
+| 6 | malformed link → `ErrorType::ParseError` with a useful position | `cut` in `link_parameter` + `nom_error_position` / `describe_query_failure` |
+
+**On requirement 2, precisely.** `link_query` is not literally `query_parser`, so the
+requirement is met in substance rather than by identity: for every input that can appear
+before a `~E`, `link_query` yields the same `Query` as `query_parser` would, with one
+deliberate exception — the resource/transform shorthand, which is rejected instead of
+being given a second meaning. The two `eof`-gated alternatives `link_query` omits cannot
+match before a `~E` at all (D1), and of those, `simple_transform_query` is subsumed by
+`general_query` (D2). So the embedded grammar is the authoritative grammar restricted to
+what is unambiguous in a delimited context, and every restriction is a rejection, never a
+silent reinterpretation.
 
 ## Compilation Validation
 

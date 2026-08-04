@@ -33,11 +33,11 @@ would silently drop every embedded query into `general_query`. Instead:
 
 ```rust
 fn link_query(text: Span) -> IResult<Span, Query> {
-    alt((
-        terminated(resource_transform_query, peek(tag("~E"))),  // detected, then rejected
-        general_query,
-        empty_query,
-    ))
+    // resource_transform_query, terminated by a peeked `~E`, detects the shorthand.
+    // It is a *guard clause that returns an error*, not an accepting alt arm —
+    // see Phase 2 D3. (An earlier draft of this document sketched it as an alt
+    // arm, which would have accepted the shorthand rather than rejecting it.)
+    alt((general_query, empty_query))
 }
 ```
 
@@ -55,6 +55,10 @@ with a clear diagnostic ("resource/transform shorthand is not allowed inside `~X
 write `-R/a/b/-/c`") rather than let it parse into a different query than the same text
 means at top level. Nesting (`~X~a-~X~b~E~E`) and the `~~` escape need no special
 handling — both fall out of the recursion and the existing `entities` production.
+
+**Consequence identified during Phase 2, recorded here for traceability:** links are the
+first recursive construct in the query grammar, so this feature introduces a
+stack-overflow risk on untrusted input. Phase 2 D5 designs the guard.
 
 No other grammar changes: resource names, headers, filenames and keys are untouched. Link
 syntax is currently unparseable, so no existing valid query changes meaning.
