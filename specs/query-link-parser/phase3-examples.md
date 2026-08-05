@@ -39,12 +39,13 @@ documentation deliverable) where they are compiled by `cargo test --doc`.
 | B6 | Round-trip | `link_equality_and_hash` | parsed link == programmatic link; equal hashes | parse.rs |
 | C1 | Negative | `link_shorthand_rejected` | ParseError + D6 message + position at body start (D3) | parse.rs |
 | C2 | Negative | `link_explicit_resource_accepted` | contrast case: rejection is targeted, not blanket | parse.rs |
-| C3 | Negative | `link_unterminated` | `action-~X~hello` → "Unterminated link" + position | parse.rs |
+| C3 | Negative | `link_unterminated` | `action-~X~hello` → "Expected ~E here" + position | parse.rs |
 | C4 | Negative | `link_body_stops_early` | `action-~X~a b~E` → ParseError at the space | parse.rs |
 | C5 | Negative | `link_concatenated_with_text` | `action-abc~X~q~E` → "only valid as a complete action parameter", offset 10 | parse.rs |
 | C6 | Negative | `unpaired_link_terminator` | `action-a~E` → "Unpaired ~E", offset 8 | parse.rs |
 | C7 | Negative | `link_marker_guard` | > `MAX_LINK_MARKERS` → ParseError (D5) | parse.rs |
-| C8 | Negative | `link_deep_nesting_does_not_overflow` | guard rejects *before* recursion (D5) | parse.rs |
+| C8 | Negative | `link_deep_nesting_rejected_by_guard` | guard rejects *before* recursion (D5) | parse.rs |
+| C8b | Boundary | `link_max_permitted_depth_parses` | 64 **nested** links parse — validates the constant is survivable | parse.rs |
 | C9 | Replacement | `documented_query_language_contract` | the bug assertion inverted (D7) | parse.rs |
 | C10 | Negative | `link_not_allowed_in_resource_path` | `-R/data-~X~q~E` rejected — links are transform-only | parse.rs |
 | C11 | Behavior | `predecessor_does_not_descend_into_link` | pins that `all_predecessors` stays at segment level | parse.rs |
@@ -63,7 +64,7 @@ and consolidated here; the drafts overlapped heavily on nesting and positions, w
 deduplicated above. Full drafts are working material, not deliverables.
 
 **All new productions are private** (`link_parameter`, `link_query`, `action_parameter`,
-`nom_error_position`, `describe_query_failure`). Every test therefore drives them through
+`nom_error_position`, `describe_query_failure`, `describe_leftover`). Every test therefore drives them through
 `parse_query` / `parse_simple_template`, the only public entry points. No test may call a
 private production directly — the two temporary tests used to gather the verified data
 below did, which is precisely why they were reverted rather than kept.
@@ -86,8 +87,9 @@ Spelling these out so Phase 4 has nothing left to invent.
 | A14 | `first/second-~X~q~E/-/third` | link in the first of two segments |
 | A15 | `café-~X~cmd~E` | `~X~` at byte offset 6, **column 6** (5 chars + 1) |
 | C7 accept | `a` + `-~X~q~E` × 64 | parses (limit is inclusive) |
-| C7 reject | `a` + `-~X~q~E` × 65 | `ParseError`, "too many" |
+| C7 reject | `a` + `-~X~q~E` × 65 | `ParseError`, message exactly `Too many link parameters` (assert the literal — `contains("too many")` is case-sensitive and would fail) |
 | C8 | `a-` + `~X~a-` × 65 + `~E` × 65 | `ParseError` from the guard, recursion never entered |
+| C8b | `a-` + `~X~a-` × 64 + `~E` × 64 | parses — the deepest input the guard permits |
 | C10 | `-R/data-~X~q~E` | `ParseError` — `resource_name` halts at `~`, leftover text |
 | A16 | `action-~X~inner-a~~E~E` | link body `inner-a~~E`; the embedded param decodes to `a~E` |
 
@@ -311,6 +313,20 @@ was the sharpest observation to come out of drafting, and it dictates the test d
 
 - **C7** exercises the guard directly, in both directions: 64 sibling links parse, 65 give
   `ParseError`. This documents that the limit is inclusive.
+- **C8b closes a hole the other two leave open.** C7's accept case is 64 *siblings* —
+  recursion depth 1. C8's case is 65 *nested*, which the guard rejects. So without C8b the
+  deepest input any test actually parses is depth 2 (A6), while the design permits depth
+  64. The whole point of `MAX_LINK_MARKERS` is that the depth it allows is survivable, and
+  nothing would check that. C8b parses `a-` + `~X~a-` × 64 + `~E` × 64.
+
+  **If C8b overflows, the constant is wrong — lower it.** Each nesting level costs roughly
+  15-20 nom frames (`link_parameter → cut → link_query → alt → general_query →
+  query_segment0 → alt → transform_qs0 → alt → transform_segment_without_header →
+  action_requests → many0 → terminated → action_request → many0 → minus_parameter →
+  action_parameter → alt → link_parameter`), so 64 levels is ~1200 frames in a debug
+  build. Comfortable on a native 2 MiB test thread; **not obviously safe on the 1 MiB wasm
+  stack that D5 names as the motivating case.** Far better to learn this from C8b than
+  from a wasm crash report.
 - **C8** must *not* attempt to trigger an overflow, and its name should say what it does
   assert — read it as "the guard rejects before recursion is entered", not "we proved no
   overflow occurs". A test that tried to prove the overflow is real would abort the suite
@@ -327,8 +343,8 @@ determinate from the productions:
 | Input | Mechanism | Outcome |
 |---|---|---|
 | `action-a~E` | `parameter` = `many0(alt((parameter_text, entities)))`; `~E` matches neither, so it halts leaving `~E` unconsumed | `ParseError` at the `~E` (**verified: offset 8**), message `Unpaired ~E: link terminator without a matching ~X~` |
-| `action-~X~hello` | `tag("~E")` finds no terminator; marked `ErrorKind::Fail` | `ParseError` where `~E` was expected, message `Unterminated link: expected ~E to close ~X~` |
-| `action-~X~a b~E` | space is not in `parameter_text`; body parse stops at it; the terminator match then fails | `ParseError` (hard failure, no backtrack) at the space |
+| `action-~X~hello` | `tag("~E")` finds no terminator; marked `ErrorKind::Fail` | `ParseError` where `~E` was expected, message `Expected ~E here to close ~X~` |
+| `action-~X~a b~E` | space is not in `parameter_text`; body parse stops at it; the terminator match then fails **at the space** | same `ParseError` and message as the row above — per D4a a malformed body has no error of its own, which is why the message says "Expected ~E here" rather than "unterminated" |
 | `action-abc~X~q~E` | `parameter` consumes `abc`, halts at `~`; `many0(minus_parameter)` needs `-`; `~X~q~E` left over | `ParseError` at the `~X~` (**verified: offset 10**), message `~X~...~E is only valid as a complete action parameter` |
 
 **Unpaired delimiters are diagnosed in both directions**, and the two directions take
@@ -359,7 +375,8 @@ Covered by group D. Neither liquers-py nor liquers-axum needs a test here: py wr
 
 ### Unit tests — `liquers-core/src/parse.rs`, `mod tests`
 
-Groups A, B, C above (26 tests). Existing style: `#[test] fn name() -> Result<(), Error>`
+Groups A, B, C above (34 test fns: A16 + B6 + C12, of which C9 replaces an existing
+assertion rather than adding a fn, so 33 are new). Existing style: `#[test] fn name() -> Result<(), Error>`
 or `-> Result<(), Box<dyn std::error::Error>>` where `?` is used on mixed error types.
 
 **C9 replaces, does not delete**, the link clause of `documented_query_language_contract`:

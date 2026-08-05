@@ -95,6 +95,11 @@ fn nom_error_position(err: &nom::Err<nom::error::Error<Span>>) -> Position;
 
 /// Human-readable cause for a failed query parse.
 fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String;
+
+/// Diagnose text the parser stopped before consuming.
+///
+/// A stray `~E` is not a parse failure, so it never reaches `describe_query_failure`.
+fn describe_leftover(rest: &str) -> &'static str;
 ```
 
 ## Control Flow
@@ -107,7 +112,8 @@ fn action_parameter(text: Span) -> IResult<Span, ActionParameter> {
 fn link_parameter(text: Span) -> IResult<Span, ActionParameter> {
     let position: Position = text.into();
     let (text, _) = tag("~X~")(text)?;                  // plain Error -> alt falls through
-    let (text, query) = cut(link_query).parse(text)?;   // committed from here on
+    // Defensive only: link_query cannot return Err::Error today (D4a).
+    let (text, query) = cut(link_query).parse(text)?;
     // Marked with ErrorKind::Fail so the message can name the missing terminator.
     let (text, _) = tag("~E")(text).map_err(|_: nom::Err<nom::error::Error<Span>>| {
         nom::Err::Failure(nom::error::Error::new(text, ErrorKind::Fail))
@@ -121,9 +127,10 @@ fn link_query(text: Span) -> IResult<Span, Query> {
     // The nesting of peeks is deliberate, do not "simplify" it:
     //   - the inner peek(tag("~E")) asserts the shorthand consumed the whole body
     //     without consuming the terminator, which link_parameter still needs;
-    //   - the outer peek discards resource_transform_query's output entirely, so
-    //     `text` still points at the start of the body and the reported error
-    //     position is the start of the offending query, not its end.
+    //   - the outer peek is defensive rather than necessary: the result is
+    //     discarded by `.is_ok()` and `text` is a Copy local that is never
+    //     rebound, so the error position is the start of the body either way.
+    //     Kept so the non-consuming intent is explicit at the call site.
     if peek(terminated(resource_transform_query, peek(tag("~E"))))
         .parse(text)
         .is_ok()
@@ -156,19 +163,22 @@ Reading a parameter that begins with `~X~`:
    because no production accepts a bare `~`: `parameter`'s `many0(alt((parameter_text,
    entities)))` stops there, and `~E` is not in the entity table.
 5. **`tag("~E")`** consumes the terminator. If the body parse stopped early (leaving junk
-   before `~E`), or the input ran out, this fails — under `cut`, so it is a hard failure
-   at the offending character rather than a backtrack.
+   before `~E`), or the input ran out, this fails — raised explicitly as `Err::Failure`,
+   so it is a hard failure at the offending character rather than a backtrack. Per D4a
+   this is also where a malformed *body* surfaces, which is why the message says
+   "Expected ~E here" rather than "unterminated".
 6. **Nesting** needs no code: an inner `~X~` inside the body is reached at a parameter
    position and handled by this same sequence, one recursion level down. The `~E` that
    closes the inner link is consumed by the inner step 5, so the outer step 5 sees the
    outer `~E`.
 
-**`cut` placement is the load-bearing detail.** `tag("~X~")` must fail *softly* so `alt`
-can fall through to an ordinary string parameter; everything after it is `cut`, so a
-malformed link produces `nom::Err::Failure` that short-circuits every enclosing `alt` and
-arrives at `parse_query` with the offending span intact. Without `cut`, `action-~X~hello`
-would silently backtrack to an empty string parameter and report a confusing leftover
-error further along.
+**The soft/hard failure boundary is the load-bearing detail.** `tag("~X~")` must fail
+*softly* so `alt` can fall through to an ordinary string parameter. Everything after it
+raises `nom::Err::Failure`, which short-circuits every enclosing `alt` and arrives at
+`parse_query` with the offending span intact. Without that, `action-~X~hello` would
+silently backtrack to an empty string parameter and report a confusing leftover error
+further along. Note the boundary is enforced by the explicit `map_err` on the terminator,
+not by `cut(link_query)` -- which per D4a currently has nothing to convert.
 
 ### `parse_query` (modified)
 
@@ -214,9 +224,11 @@ fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
             ErrorKind::Verify => "Resource/transform shorthand is not allowed inside \
                  ~X~...~E; use the explicit form, for example -R/a/b/-/c"
                 .to_owned(),
-            ErrorKind::Fail => "Unterminated link: expected ~E to close ~X~".to_owned(),
+            // True whether the terminator is missing or displaced; see D4a.
+            ErrorKind::Fail => "Expected ~E here to close ~X~".to_owned(),
             // ErrorKind is an external enum -- a catch-all arm is permitted here.
-            _ => "Can't parse query".to_owned(),
+            // Not "Can't parse query": query_parse_error already prefixes that.
+            _ => "unexpected input".to_owned(),
         },
         nom::Err::Incomplete(_) => "Incomplete query".to_owned(),
     }
@@ -337,6 +349,34 @@ Phase 1's original sketch was wrong on this point: written as an `alt` arm,
 shorthand and given it the resource+transform reading — the opposite of the decision.
 Phase 1 has been corrected to match.
 
+### D4a — `link_query` cannot fail, and that shapes every error path
+
+**This is the least obvious property of the design and the one most likely to mislead an
+implementer.** `link_query` ends in `alt((general_query, empty_query))`, and `empty_query`
+is `opt(tag("/"))` followed by an unconditional `Ok` — it cannot fail. So `link_query`
+returns an error *only* through the shorthand guard, which raises `Err::Failure`. It never
+returns `Err::Error`.
+
+Three consequences:
+
+1. **`cut(link_query)` is currently a no-op.** It has nothing to convert. Keep it — it is
+   defensive and documents intent if `link_query` ever gains a failing path — but the
+   commit boundary that actually matters is established by the `~E` match, not by this
+   `cut`.
+2. **A malformed body never reports its own error.** There is no "invalid embedded query"
+   failure mode. Whatever the body parser could not consume is simply left, and the error
+   surfaces at the terminator match, positioned wherever the body parse stopped.
+3. **Therefore the terminator message must be true of both cases.** `action-~X~hello` has
+   no `~E` at all; `action-~X~a b~E` has one, but the body stopped at the space. Both
+   arrive at the same match. "Unterminated link" would be false for the second — it
+   visibly ends in `~E` — so the message is **`Expected ~E here to close ~X~`**, which is
+   accurate whether the terminator is missing or merely displaced.
+
+An implementer who does not know this will go looking for where to raise a body-specific
+error, find no such branch, and either manufacture one with a spurious `verify`/`cut`
+(breaking the `ErrorKind::Verify` uniqueness D6 depends on) or conclude the design is
+wrong.
+
 ### D4 — Nesting and escaping need no code
 
 Nesting (`~X~a-~X~b~E~E`) falls out of the recursion: the inner `~X~` is reached at a
@@ -380,8 +420,20 @@ no `unsafe`, and no type changes. The alternatives were a thread-local depth cou
 (clean, but requires the `unsafe fn new_from_raw_offset` to re-stamp mid-parse). If
 sibling-heavy generated queries ever appear, switch to true depth tracking.
 
-Phase 3 must include a test that a deeply nested input returns `ParseError` rather than
-overflowing the stack.
+Phase 3 must include **two** tests, not one: that input exceeding the bound returns
+`ParseError` rather than recursing (C7/C8), *and* that input at exactly the permitted
+depth — 64 **nested**, not 64 sibling — parses successfully (C8b). Without the second, the
+constant is asserted but never validated: the guard's entire purpose is that the depth it
+permits is survivable, and 64 nested links is ~1200 nom frames, which is comfortable
+natively but not obviously safe on the 1 MiB wasm stack this decision names as its
+motivating case. **If C8b overflows, lower `MAX_LINK_MARKERS` — the constant is a
+hypothesis until that test passes.**
+
+**Message size.** `Error::query_parse_error` embeds the full query text in the message
+(error.rs:232). This guard is the one path deliberately reached by hostile input, so the
+largest inputs produce the largest echoes into logs and HTTP responses. Pre-existing for
+every parse error and not fixed here, but worth truncating the echo if this path is ever
+exposed without a request-size limit in front of it.
 
 ### D6 — Error messages without a custom nom error type
 
@@ -400,10 +452,10 @@ one applies depends on whether the parser *failed* or merely *stopped*:
 | Condition | Mechanism | Message |
 |---|---|---|
 | shorthand inside a link body | `ErrorKind::Verify` marker | `Resource/transform shorthand is not allowed inside ~X~...~E; use the explicit form, for example -R/a/b/-/c` |
-| `~X~` with no closing `~E` | `ErrorKind::Fail` marker | `Unterminated link: expected ~E to close ~X~` |
+| `~X~` with no `~E`, or a body that stopped early | `ErrorKind::Fail` marker | `Expected ~E here to close ~X~` |
 | **stray `~E` with no `~X~`** | leftover-text inspection | `Unpaired ~E: link terminator without a matching ~X~` |
 | `~X~` where a link cannot appear | leftover-text inspection | `~X~...~E is only valid as a complete action parameter` |
-| anything else | — | `Can't parse query` + position |
+| anything else | — | `unexpected input` + position |
 
 **Why two mechanisms.** A stray `~E` is not a parse *failure* at all: `parameter`'s
 `many0` simply halts there, the action completes successfully, and the `~E` is left over.
@@ -475,7 +527,7 @@ design would have needed `take(n)` to preserve them.)
 **File:** `liquers-core/src/parse.rs` (only source file changed)
 
 - add `link_parameter`, `link_query`, `action_parameter`, `nom_error_position`,
-  `describe_query_failure`, `MAX_LINK_MARKERS`
+  `describe_query_failure`, `describe_leftover`, `MAX_LINK_MARKERS`
 - modify `minus_parameter` (one line) and `parse_query` (guard + error mapping)
 - add `cut` to the existing `nom::combinator` import; add `use nom::error::ErrorKind;`
 - module docs: delete the "Known link-parser bug" section (l. 59-66), add
@@ -551,12 +603,14 @@ position, and every link-related one carries a specific message:
 | Scenario | Position | Message |
 |---|---|---|
 | shorthand inside a link | start of the link body | names the explicit `-R/` form |
-| unterminated `~X~` (no `~E`) | where `~E` was expected | `Unterminated link: expected ~E to close ~X~` |
+| `~X~` with no `~E`, **or** a body that stopped early | where `~E` was expected | `Expected ~E here to close ~X~` |
 | **stray `~E` (no `~X~`)** | at the `~E` | `Unpaired ~E: link terminator without a matching ~X~` |
 | link concatenated with text (`action-abc~X~q~E`) | at the leftover `~X~` | `~X~...~E is only valid as a complete action parameter` |
 | link inside a resource path (`-R/data~X~q~E`) | at the leftover `~X~` | same as above |
-| invalid embedded query | inside the body | generic `Can't parse query` |
 | more than `MAX_LINK_MARKERS` links | `Position::unknown()` (pre-parse) | `Too many link parameters` |
+
+There is deliberately **no** "invalid embedded query" row: per D4a, a malformed body cannot
+produce its own error and always surfaces at the terminator.
 
 **Improvement to existing behavior:** `parse_query`'s nom-error path currently reports
 `Position::unknown()` (parse.rs:756). It will report the real failure position via
@@ -643,7 +697,26 @@ steering them away from a syntax that now works.
 > explicit form (`-R/data/x.csv/-/to_text`) — that is what `Query::encode` emits and what
 > round-trips unchanged. Inside `~X~…~E` the shorthand is **not allowed** and is a parse
 > error: a link has no `eof` to disambiguate it, so accepting it would make the same text
-> denote different queries depending on nesting depth.
+> denote different queries depending on nesting depth. **The same ambiguity exists inside
+> `$…$` template expansions, where the shorthand is currently accepted with the transform
+> reading and is *not* diagnosed. Prefer the explicit form there too.**
+
+**On that last sentence — it is not hypothetical, and the wording matters.** The `eof`
+problem is not peculiar to links. `template_expand_query` (parse.rs:715-720) calls
+`query_parser` with a trailing `$`, so the two `eof`-gated arms cannot fire there either.
+Measured on the current tree, with no links involved at all:
+
+```
+parse_query("data/report/-/to_text")             -> -R/data/report/-/to_text     (resource read)
+parse_simple_template("$data/report/-/to_text$") -> ExpandQuery(data/report/-/to_text)
+                                                                                 (three commands)
+```
+
+Same text, two meanings, no diagnostic — a pre-existing hazard this feature neither causes
+nor fixes. **Leaving it is a deliberate scope call** (templates are not on this issue's
+path), but the documentation must not imply the problem is links-specific, or a reader
+will conclude templates are safe. Recorded as a follow-up: the same detector could be
+applied at the template boundary, with `peek(tag("$"))` in place of `peek(tag("~E"))`.
 
 Every target states this rule, and the two docs that carry examples
 (`parse.rs`, doc-02) show both sides of it:
@@ -653,13 +726,30 @@ Every target states this rule, and the two docs that carry examples
 ~X~data/report/-/to_text~E        ParseError: shorthand not allowed inside a link
 ```
 
-**Second documented limitation** (Phase 1 open question 4, carried through): an embedded
-query built *programmatically* whose resource name contains `~E` does not survive
-encode→parse, because `ResourceName::encode` does not escape it. This goes in the
-`parse.rs` module docs and in doc-02's "Programmatic construction is not validation"
-section, and mirrors the `SimpleTemplate::encode` caveat about a literal `$` in a text
-element (`parse.rs:684-690`). Not fixed here — escaping resource names is a separate
-change to `Key` encoding with its own compatibility question.
+**Second documented limitation** (Phase 1 open question 4, carried through). The first
+draft of this scoped it to resource names; that was too narrow in two ways.
+
+`encode_token` is the **only** escaping path in the encoder, and it is applied only to
+`ActionParameter::String`. Every other token is emitted raw:
+
+| Emitted raw by | |
+|---|---|
+| `ResourceName::encode` (query.rs:734) | also covers the terminal filename |
+| `ActionRequest::encode` (query.rs:811) | the action name |
+| `SegmentHeader::encode` | the header name |
+| `HeaderParameter::encode` (query.rs:905) | header values |
+
+So the limitation is: **any programmatically-set token not routed through `encode_token`
+— resource names, action names, header names and values, filenames — containing `~X~` or
+`~E` breaks the encode→parse round-trip.** And the failure is worse than "does not
+round-trip": such text may re-parse as a *different valid query* rather than erroring.
+
+None of this is reachable from parsed input — `identifier`, `resource_name` and
+`header_parameter` all exclude `~` — so it belongs exactly where doc-02 already files this
+class of problem, under "Programmatic construction is not validation". It mirrors the
+`SimpleTemplate::encode` caveat about a literal `$` in a text element (`parse.rs:684-690`).
+Not fixed here: adding escaping to those tokens is a change to `Key`/`Query` encoding with
+its own compatibility question.
 
 ## Issue Requirement Coverage
 

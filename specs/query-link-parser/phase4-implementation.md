@@ -10,7 +10,7 @@
 new public types, no new commands, no signature changes, no new dependencies.
 
 **Estimated complexity:** Low for the code (~90 lines), Medium for the test and
-documentation surface (37 tests, 4 doc targets).
+documentation surface (40 tests, 3 doc-verification items, 5 doc targets).
 
 **Prerequisites:** Phases 1-3 approved. All open questions resolved. `nom = "8.0.0"` and
 `nom_locate = "5.0.0"` already provide everything needed.
@@ -97,9 +97,10 @@ fn link_query(text: Span) -> IResult<Span, Query> {
     // The nesting of peeks is deliberate, do not "simplify" it:
     //   - the inner peek(tag("~E")) asserts the shorthand accounts for the whole
     //     body without consuming the terminator, which link_parameter still needs;
-    //   - the outer peek discards the parse entirely, so `text` still points at the
-    //     start of the body and the error position is the start of the offending
-    //     query rather than its end.
+    //   - the outer peek is defensive rather than necessary: the result is
+    //     discarded by `.is_ok()` and `text` is a Copy local never rebound, so
+    //     the error position is the body start either way. Kept to make the
+    //     non-consuming intent explicit.
     if peek(terminated(resource_transform_query, peek(tag("~E"))))
         .parse(text)
         .is_ok()
@@ -117,9 +118,15 @@ fn link_parameter(text: Span) -> IResult<Span, ActionParameter> {
     let position: Position = text.into();
     // Must fail softly: `alt` in action_parameter falls through to a string parameter.
     let (text, _) = tag("~X~")(text)?;
-    // Committed from here: a malformed link is an error, not a backtrack.
+    // `cut` is defensive only: link_query cannot currently return Err::Error,
+    // because empty_query never fails. See Phase 2 D4. Keep it so a future
+    // failing path in link_query is committed rather than silently backtracked.
     let (text, query) = cut(link_query).parse(text)?;
-    let (text, _) = cut(tag("~E")).parse(text)?;
+    // Marked with ErrorKind::Fail so the message can name the missing terminator.
+    // This is where a malformed body surfaces too -- see Phase 2 D4.
+    let (text, _) = tag("~E")(text).map_err(|_: nom::Err<nom::error::Error<Span>>| {
+        nom::Err::Failure(nom::error::Error::new(text, ErrorKind::Fail))
+    })?;
     Ok((text, ActionParameter::Link(query, position)))
 }
 
@@ -142,9 +149,9 @@ cargo test -p liquers-core --lib
 **Rollback:** `git checkout liquers-core/src/parse.rs`
 
 **Agent:** sonnet · skills: rust-best-practices · knowledge: Phase 2 (Control Flow,
-"How link_query works", D1-D4), parse.rs in full · *Rationale: the load-bearing step. The
-`cut` boundary and the peek nesting are both easy to get subtly wrong, and both are silent
-failures rather than compile errors.*
+"How link_query works", D1-D4a), parse.rs in full · *Rationale: the load-bearing step. The
+soft/hard failure boundary and the peek nesting are both easy to get subtly wrong, and
+both fail silently rather than at compile time. Must read D4a before starting.*
 
 ---
 
@@ -157,14 +164,15 @@ failures rather than compile errors.*
 
 **Code changes:** two points the implementer must not deviate on:
 
-- `parse_query`'s existing complete-consumption branch (l. 758-767) is **unchanged**. Only
-  the `map_err` closure at l. 754-757 changes.
+- `parse_query`'s complete-consumption branch (l. 758-767) keeps its **position**
+  unchanged; its **message** becomes `describe_leftover(...)`. Both the `map_err` closure
+  (l. 754-757) and that branch change.
 - `parse_simple_template` gets the marker guard **only**, not the error mapping. Phase 2
   scoped the position work to `parse_query` (Phase 1 open question 3); the guard is
   separate and applies wherever `query_parser` is reachable.
 
 **Three link diagnostics, two mechanisms.** `describe_query_failure` maps the two
-`ErrorKind` markers (`Verify` = shorthand, `Fail` = missing `~E`). The new
+`ErrorKind` markers (`Verify` = shorthand, `Fail` = terminator not matched). The new
 `describe_leftover` diagnoses text the parser stopped before consuming — a stray `~E` is
 not a parse failure, so it never reaches the nom error path. Both `ErrorKind` values are
 free: searching `parse.rs` for `verify`, `fail` and `ErrorKind` returns no hits.
@@ -235,13 +243,18 @@ fn nom_error_position(err: &nom::Err<nom::error::Error<Span>>) -> Position {
 fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
     match err {
         nom::Err::Error(e) | nom::Err::Failure(e) => match e.code {
-            // Private marker set by link_query. No other production in this file
-            // uses `verify`, so this code cannot arrive from anywhere else.
+            // Private markers set in link_query / link_parameter. No other
+            // production in this file uses `verify` or `fail`, so these codes
+            // cannot arrive from anywhere else.
             ErrorKind::Verify => "Resource/transform shorthand is not allowed inside \
                  ~X~...~E; use the explicit form, for example -R/a/b/-/c"
                 .to_owned(),
+            // Covers both a missing terminator and a body that stopped early --
+            // "here" is true of either. See Phase 2 D4.
+            ErrorKind::Fail => "Expected ~E here to close ~X~".to_owned(),
             // ErrorKind is nom's enum, not ours: a catch-all arm is correct here.
-            _ => "Can't parse query".to_owned(),
+            // Not "Can't parse query" -- query_parse_error already prefixes that.
+            _ => "unexpected input".to_owned(),
         },
         nom::Err::Incomplete(_) => "Incomplete query".to_owned(),
     }
@@ -370,7 +383,7 @@ passes vacuously; needs judgment about what is actually being compared.*
 
 **File:** `liquers-core/src/parse.rs`, `mod tests`
 
-**Action:** add C1-C8, C10, C11. (C9 was done in step 4+5.) Use Phase 3's Concrete Inputs
+**Action:** add C1-C8, C8b, C10, C11. (C9 was done in step 4+5.) Use Phase 3's Concrete Inputs
 table verbatim for C7, C8 and C10 — the marker-count structures in particular
 (`a` + `-~X~q~E` × 64 accepts, × 65 rejects; `a-` + `~X~a-` × 65 + `~E` × 65 for the
 nesting case) are easy to get off by one, and an off-by-one there means the test passes
@@ -603,7 +616,7 @@ code.*
 |---|---|---|
 | After each of steps 1-3 | `cargo test -p liquers-core --lib` | 387 passing, unchanged |
 | After step 4+5 | `cargo test -p liquers-core --lib` | 387 passing, contract test inverted (C9 is that inversion, not a new test) |
-| After steps 6-8 | `cargo test -p liquers-core --lib parse::tests` | +32 tests: A(15) + B(6) + C minus C9(10), plus C9 already inverted in step 4+5 |
+| After steps 6-8 | `cargo test -p liquers-core --lib parse::tests` | +33 new fns: A(16) + B(6) + C minus C9(11); C9 was inverted in step 4+5, not added |
 | After step 9 | `cargo test -p liquers-core --lib plan::tests` | +4 tests |
 | After step 10 | `cargo test -p liquers-core --test action_parameter_link` | +2 tests |
 | After steps 11-12 | `cargo test -p liquers-core --doc` | doc examples pass |
