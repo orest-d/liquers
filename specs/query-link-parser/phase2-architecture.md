@@ -134,6 +134,39 @@ fn link_query(text: Span) -> IResult<Span, Query> {
 }
 ```
 
+### How `link_query` works, step by step
+
+Reading a parameter that begins with `~X~`:
+
+1. **`action_parameter`** tries `link_parameter` first. It must be first because
+   `parameter` (parse.rs:295) wraps `many0`, which succeeds on empty input and therefore
+   never fails — put second, `link_parameter` would never run.
+2. **`tag("~X~")`** either matches or returns an ordinary `nom::Err::Error`, letting `alt`
+   fall through to a normal string parameter. This is the only softly-failing step.
+3. **The shorthand guard** runs `resource_transform_query` on the body under a `peek`. If
+   it succeeds *and* the very next characters are `~E` — i.e. the shorthand accounts for
+   the entire body — the body is rejected with `nom::Err::Failure` carrying
+   `ErrorKind::Verify`. Nothing is consumed, so the error position is the first character
+   of the body. See D3 for what this detects and why.
+4. **Otherwise the body is parsed** by `alt((general_query, empty_query))` directly on the
+   original span — no slicing, no copying. `general_query` halts by itself at `~E`,
+   because no production accepts a bare `~`: `parameter`'s `many0(alt((parameter_text,
+   entities)))` stops there, and `~E` is not in the entity table.
+5. **`tag("~E")`** consumes the terminator. If the body parse stopped early (leaving junk
+   before `~E`), or the input ran out, this fails — under `cut`, so it is a hard failure
+   at the offending character rather than a backtrack.
+6. **Nesting** needs no code: an inner `~X~` inside the body is reached at a parameter
+   position and handled by this same sequence, one recursion level down. The `~E` that
+   closes the inner link is consumed by the inner step 5, so the outer step 5 sees the
+   outer `~E`.
+
+**`cut` placement is the load-bearing detail.** `tag("~X~")` must fail *softly* so `alt`
+can fall through to an ordinary string parameter; everything after it is `cut`, so a
+malformed link produces `nom::Err::Failure` that short-circuits every enclosing `alt` and
+arrives at `parse_query` with the offending span intact. Without `cut`, `action-~X~hello`
+would silently backtrack to an empty string parameter and report a confusing leftover
+error further along.
+
 ### `parse_query` (modified)
 
 ```rust
@@ -183,13 +216,6 @@ fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
 swept into the catch-all — the streaming combinators that would produce it are not used,
 and an explicit arm documents that.
 
-**`cut` placement is the load-bearing detail.** `tag("~X~")` must fail *softly* so `alt`
-can fall through to an ordinary string parameter; everything after it is `cut`, so a
-malformed link produces `nom::Err::Failure` that short-circuits every enclosing `alt` and
-arrives at `parse_query` with the offending span intact. Without `cut`, `action-~X~hello`
-would silently backtrack to an empty string parameter and report a confusing leftover
-error further along.
-
 ## Design Decisions
 
 ### D1 — Why `link_query` is not `query_parser`
@@ -219,22 +245,83 @@ So whenever `simple_transform_query` would succeed with the body fully consumed,
 `general_query` produces the identical query. Verified empirically over 15 canonical forms
 before this document was written; Phase 3 adds a standing equivalence test.
 
-### D3 — Why the shorthand is detected with `resource_transform_query` itself
+### D3 — The shorthand detector: what it detects and why it is needed
 
-The detector fires **exactly** on the divergent inputs, because it is the same production
-that creates the divergence:
+#### What the shorthand is, mechanically
 
-| body | detector | top-level meaning | inside link |
+A resource path cannot contain a component starting with `-`: `resource_name`
+(parse.rs:223) requires its first character to be alphanumeric, `_` or `.`. So in
+`data/report/-/to_text`, `resource_path1` takes `data` and `report`, then **stops** —
+`-` cannot begin a resource name. `/-/` is therefore not *inside* the resource query; it
+is the **seam** where the resource part ends and the transform part begins:
+
+```text
+resource_transform_query = opt("/"), resource_path1, "/", transform_segment_with_header
+                                     └── data/report ┘ └── -/to_text ────────────────┘
+```
+
+The detector asks exactly one question: *does the link body parse as
+`<resource path>/<transform segment>`, covering everything up to the `~E`?* If yes, the
+body is written in the shorthand and is rejected.
+
+#### Why a detector is needed: the misinterpretation, worked
+
+Yes — the problem is precisely that the same text would denote a different query inside a
+link than at top level, and both parses succeed, so nothing would flag it.
+
+Take the body `data/report/-/to_text`.
+
+**At top level,** `query_parser` tries `terminated(resource_transform_query, eof)` first
+and it succeeds:
+
+```text
+Resource[data/report] + Transform[to_text]      encodes: -R/data/report/-/to_text
+```
+
+Meaning: *read the stored resource `data/report`, then apply the `to_text` command.*
+
+**Inside a link,** the trailing `~E` means `eof` cannot hold, so that alternative is
+skipped and `general_query` parses the same text instead. `action_requests` consumes
+`data/` (a `/` not followed by `-`), then stops before `report` because the *next* `/` is
+followed by `-`; `filename_or_action` takes `report` as an action; `/-/to_text` becomes a
+second transform segment:
+
+```text
+Transform[data, report] + Transform[to_text]    encodes: data/report/-/to_text
+```
+
+Meaning: *run command `data`, then command `report`, then command `to_text`.*
+
+A store read has silently become three command invocations. Whether that surfaces as an
+error depends on luck: if no commands named `data` and `report` are registered, plan
+building fails with a confusing "Action 'data' not registered"; if they happen to exist,
+the query runs and returns the wrong thing. Rejecting at parse time replaces both outcomes
+with one clear message.
+
+#### Verified behavior
+
+Measured with the exact detector expression against `parse_query` (temporary test, output
+reproduced verbatim):
+
+| body | detector fires | top-level meaning | `general_query` fallback |
 |---|---|---|---|
-| `abc/def/-/xxx` | fires | `-R/abc/def/-/xxx` (resource+transform) | rejected |
-| `abc/def/-/xxx/-q/qqq` | does not fire (`~E` peek fails) | 3 transform segments | 3 transform segments ✅ |
-| `-R/abc/def/-/xxx` | does not fire (`-R` is not a resource name) | resource+transform | resource+transform ✅ |
+| `data/report/-/to_text` | **true** | `-R/data/report/-/to_text` | `data/report/-/to_text` ← **differs** |
+| `-R/data/report/-/to_text` | false | `-R/data/report/-/to_text` | `-R/data/report/-/to_text` ✅ |
+| `abc/def/-/xxx/-q/qqq` | false | `abc/def/-/xxx/-q/qqq` | `abc/def/-/xxx/-q/qqq` ✅ |
+| `hello` | false | `hello` | `hello` ✅ |
+| `` (empty) | false | `` | `` ✅ |
 
-No false positives and no false negatives. Note this is a guard clause returning `Err`,
-**not** an `alt` arm that accepts. Phase 1's original sketch was simply wrong on this
-point: written as an `alt` arm it would have *accepted* the shorthand and given it the
-resource+transform reading, which is the opposite of the decision. Phase 1 has been
-corrected to match.
+The detector fires on exactly the one row where the two readings differ. That is the
+correctness property: **fires ⟺ the body would mean something different inside a link.**
+The `-R/` row shows why the explicit form is always safe — `-R` cannot start a resource
+name, so `resource_transform_query` never matches it and the detector never fires.
+
+#### It is a guard clause, not an `alt` arm
+
+Phase 1's original sketch was wrong on this point: written as an `alt` arm,
+`terminated(resource_transform_query, peek(tag("~E")))` would have *accepted* the
+shorthand and given it the resource+transform reading — the opposite of the decision.
+Phase 1 has been corrected to match.
 
 ### D4 — Nesting and escaping need no code
 
@@ -245,7 +332,13 @@ entity table, so `parameter`'s `many0` halts there naturally.
 
 ### D5 — Recursion depth guard (new risk introduced by this feature)
 
-**This risk was not identified in Phase 1** — it surfaced only when the recursion was
+**Scope note: this is a robustness measure, not a limit that real queries will meet.**
+A Liquers query is typically a one-liner, and links nested more than two or three deep are
+already unusual. Deep recursion is reachable only from a malformed or deliberately hostile
+query — which is exactly the case a parser exposed to HTTP input has to survive, so the
+guard is worth having, but it should not be read as a constraint on ordinary use.
+
+**The risk was not identified in Phase 1** — it surfaced only when the recursion was
 written out concretely. Phase 1 has been annotated to point here.
 
 Links are the **first recursive construct in the query grammar** — before this change,
@@ -276,22 +369,6 @@ sibling-heavy generated queries ever appear, switch to true depth tracking.
 Phase 3 must include a test that a deeply nested input returns `ParseError` rather than
 overflowing the stack.
 
-### D7 — The existing rejection test must be replaced, not deleted
-
-`parse.rs:1322-1323` currently asserts the bug:
-
-```rust
-// Link encoding exists in query.rs, but parse.rs has no link production.
-assert!(parse_query("action-~X~hello~E").is_err());
-```
-
-That assertion inverts under this design. It is the issue's own stated verification
-("The current rejection test … should be replaced by successful parsing and round-trip
-assertions"), so Phase 3 owns the replacement: successful parse, round-trip through
-`encode`, and the new negative cases (shorthand inside a link, unterminated `~X~`,
-marker-count guard). Deleting it without replacement would silently drop coverage of the
-`documented_query_language_contract` test's link clause.
-
 ### D6 — Error messages without a custom nom error type
 
 The parser is typed on nom's default `nom::error::Error<Span>`, which carries a span and
@@ -314,6 +391,22 @@ with a test, so a future `verify()` added elsewhere in the file is caught.
 
 **Recorded as deferred work, not done here:** a custom nom error type would let every
 production carry a worded message and would fix error quality across the whole parser.
+
+### D7 — The existing rejection test must be replaced, not deleted
+
+`parse.rs:1322-1323` currently asserts the bug:
+
+```rust
+// Link encoding exists in query.rs, but parse.rs has no link production.
+assert!(parse_query("action-~X~hello~E").is_err());
+```
+
+That assertion inverts under this design. It is the issue's own stated verification
+("The current rejection test … should be replaced by successful parsing and round-trip
+assertions"), so Phase 3 owns the replacement: successful parse, round-trip through
+`encode`, and the new negative cases (shorthand inside a link, unterminated `~X~`,
+marker-count guard). Deleting it without replacement would silently drop coverage of the
+`documented_query_language_contract` test's link clause.
 
 ## Positions
 
@@ -369,25 +462,29 @@ design would have needed `take(n)` to preserve them.)
 
 ### Relevant Existing Namespaces
 
-A link is not restricted to query-typed arguments.
-`ParameterValue::from_action_parameter` (plan.rs:615-633) turns `ActionParameter::Link`
-into `ParameterValue::ParameterLink` for **any** `arginfo`, whatever its declared type —
-the linked query is evaluated and its result converted to the argument type. So every
-registered command in every namespace can receive a link argument.
+**None. This is a pure parser change and no namespace is relevant to it.**
 
-| Namespace | Commands | Relevance |
-|---|---|---|
-| `root` / `` (default) | 6 | `to_text`, `to_metadata`, … — smallest surface for round-trip and end-to-end tests |
-| `pl` (polars) | 26 | Realistic link targets (a link supplying a dataframe or a column name) |
-| `img` | 47 | Largest namespace; no link-specific behavior |
-| `lui`, `egui` | 14 | UI commands; links used for dynamic parameters |
-| `dep` | 2 | Dependency commands — closest to link semantics |
+The parser assigns no meaning to command names, so no namespace is privileged or affected.
+Two facts make this concrete:
 
-**Question for the user:** Phase 3's end-to-end example needs one namespace. I propose
-`root`/default (`to_text` and friends) because it needs no optional feature — `pl`, `img`
-and `egui` are all behind feature flags, so a test using them would not run in the default
-`cargo test -p liquers-lib --lib --tests` loop. Is that the right choice, or would you
-rather see the worked example in `pl`?
+- **Links are not tied to any argument type.** `ParameterValue::from_action_parameter`
+  (plan.rs:615-633) turns `ActionParameter::Link` into `ParameterValue::ParameterLink` for
+  **any** `arginfo`, whatever its declared type. Every registered command in every
+  namespace can already receive a link; nothing about that changes here.
+- **Namespace selection (`ns-…`) is orthogonal to link parameters.** `ns` is an ordinary
+  action whose parameters happen to name namespaces (`Query::ns`, `query.rs:801`), read by
+  `active_namespace` (`liquers-lib/src/utils.rs:106-116`) via
+  `ns_params.last().map(|p| p.encode())`. A link written there is syntactically accepted
+  but semantically inert: `encode()` on a `Link` yields the literal text `~X~…~E`, which
+  can never match a registered namespace. That is pre-existing behavior, unchanged by this
+  feature, and not worth special-casing — the parser's job is to produce the syntax tree,
+  not to police which parameters are meaningful.
+
+**Consequence for Phase 3:** the earlier question about which namespace to use for a
+worked example is withdrawn. Tests belong in `liquers-core` — parser and round-trip tests
+in `parse.rs`, and plan-level tests using the commands `liquers-core`'s own test suites
+already register. No `liquers-lib` namespace, and therefore no optional feature flag,
+needs to be involved.
 
 ## Web Endpoints
 
