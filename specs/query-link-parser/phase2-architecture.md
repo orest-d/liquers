@@ -108,7 +108,10 @@ fn link_parameter(text: Span) -> IResult<Span, ActionParameter> {
     let position: Position = text.into();
     let (text, _) = tag("~X~")(text)?;                  // plain Error -> alt falls through
     let (text, query) = cut(link_query).parse(text)?;   // committed from here on
-    let (text, _) = cut(tag("~E")).parse(text)?;
+    // Marked with ErrorKind::Fail so the message can name the missing terminator.
+    let (text, _) = tag("~E")(text).map_err(|_: nom::Err<nom::error::Error<Span>>| {
+        nom::Err::Failure(nom::error::Error::new(text, ErrorKind::Fail))
+    })?;
     Ok((text, ActionParameter::Link(query, position)))
 }
 
@@ -185,8 +188,15 @@ pub fn parse_query(query: &str) -> Result<Query, Error> {
         Error::query_parse_error(query, &describe_query_failure(&e), &nom_error_position(&e))
     })?;
 
-    // unchanged: complete-consumption check
-    if !remainder.fragment().is_empty() { /* ... */ }
+    // CHANGED: the leftover branch keeps its position and gains a diagnosis.
+    if !remainder.fragment().is_empty() {
+        let position: Position = remainder.into();
+        return Err(Error::query_parse_error(
+            query,
+            describe_leftover(remainder.fragment()),
+            &position,
+        ));
+    }
     Ok(path)
 }
 
@@ -200,16 +210,20 @@ fn nom_error_position(err: &nom::Err<nom::error::Error<Span>>) -> Position {
 fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
     match err {
         nom::Err::Error(e) | nom::Err::Failure(e) => match e.code {
-            // Private marker set by link_query; see D6.
+            // Private markers set in link_query / link_parameter; see D6.
             ErrorKind::Verify => "Resource/transform shorthand is not allowed inside \
                  ~X~...~E; use the explicit form, for example -R/a/b/-/c"
                 .to_owned(),
+            ErrorKind::Fail => "Unterminated link: expected ~E to close ~X~".to_owned(),
             // ErrorKind is an external enum -- a catch-all arm is permitted here.
             _ => "Can't parse query".to_owned(),
         },
         nom::Err::Incomplete(_) => "Incomplete query".to_owned(),
     }
 }
+
+/// Diagnose text the parser stopped before consuming.
+fn describe_leftover(rest: &str) -> &'static str { /* see D6 */ }
 ```
 
 `nom::Err` is external, so its `Incomplete` variant is matched explicitly rather than
@@ -376,21 +390,56 @@ an `ErrorKind` but no message. Carrying a `String` would mean a custom `ParseErr
 implementation and changing the error type on ~45 function signatures — mechanical, but
 well beyond this issue's scope.
 
-Instead, `link_query` marks the shorthand rejection with `ErrorKind::Verify`, which no
-other production in the file produces (the parser uses no `verify` combinator).
-`describe_query_failure` maps it back to a specific message:
+Instead, link failures are marked with `ErrorKind` values that **no other production in
+this file produces** — verified by searching `parse.rs` for `verify`, `fail` and
+`ErrorKind`, which returns no hits. `describe_query_failure` maps them back to messages.
 
-| Failure | `ErrorKind` | Message |
+Every link-related failure gets a specific diagnosis. There are two mechanisms, and which
+one applies depends on whether the parser *failed* or merely *stopped*:
+
+| Condition | Mechanism | Message |
 |---|---|---|
-| shorthand inside a link | `Verify` | resource/transform shorthand is not allowed inside `~X~…~E`; use the explicit form, e.g. `-R/a/b/-/c` |
-| unterminated / invalid link | other | `Can't parse query` + the offending position |
+| shorthand inside a link body | `ErrorKind::Verify` marker | `Resource/transform shorthand is not allowed inside ~X~...~E; use the explicit form, for example -R/a/b/-/c` |
+| `~X~` with no closing `~E` | `ErrorKind::Fail` marker | `Unterminated link: expected ~E to close ~X~` |
+| **stray `~E` with no `~X~`** | leftover-text inspection | `Unpaired ~E: link terminator without a matching ~X~` |
+| `~X~` where a link cannot appear | leftover-text inspection | `~X~...~E is only valid as a complete action parameter` |
+| anything else | — | `Can't parse query` + position |
+
+**Why two mechanisms.** A stray `~E` is not a parse *failure* at all: `parameter`'s
+`many0` simply halts there, the action completes successfully, and the `~E` is left over.
+It surfaces in `parse_query`'s existing complete-consumption branch, which already computes
+the right position — measured on the current tree, `action-a~E` reports offset 8, exactly
+the `~`. What that branch lacks is a diagnosis, so it gains a classifier over the leftover
+text. The two marker cases, by contrast, are genuine `Err::Failure`s raised inside
+`link_parameter`, where the parser knows precisely what went wrong.
+
+The leftover classifier distinguishes its two cases by what the remaining text starts
+with, which is sufficient and needs no parser state:
+
+```rust
+fn describe_leftover(rest: &str) -> &'static str {
+    if rest.starts_with("~E") {
+        "Unpaired ~E: link terminator without a matching ~X~"
+    } else if rest.starts_with("~X~") {
+        // Reached for `action-abc~X~q~E` (concatenated with text) and for
+        // `-R/data~X~q~E` (resource paths cannot contain links). One message
+        // covers both: the link is in a position where no link may appear.
+        "~X~...~E is only valid as a complete action parameter"
+    } else {
+        "Can't parse query completely"
+    }
+}
+```
 
 `ErrorKind` is an external enum, so `describe_query_failure` may use a `_ =>` arm; the
-Liquers no-default-arm rule covers Liquers-owned enums. Phase 3 pins the shorthand message
-with a test, so a future `verify()` added elsewhere in the file is caught.
+Liquers no-default-arm rule covers Liquers-owned enums. Phase 3 pins each message with a
+test, so a future `verify()` or `fail()` added elsewhere in the file is caught.
 
-**Recorded as deferred work, not done here:** a custom nom error type would let every
-production carry a worded message and would fix error quality across the whole parser.
+**An honest note on where this is heading.** The marker approach now carries two markers
+and a text classifier for three diagnostics. It is still the right call for this change —
+a custom nom error type would touch ~45 signatures for a bug fix — but each new message
+makes that deferred work more attractive, and a fourth would be the point to stop
+extending this and do it properly.
 
 ### D7 — The existing rejection test must be replaced, not deleted
 
@@ -496,13 +545,18 @@ stop being rejected. No route, handler or content-type change.
 No new error types (`liquers_core::error::Error` only), no `Error::new`, no
 `unwrap()`/`expect()` outside tests.
 
-| Scenario | Constructor | `ErrorType` | Position |
-|---|---|---|---|
-| shorthand inside a link | `Error::query_parse_error` | `ParseError` | start of the link body |
-| unterminated `~X~` (no `~E`) | `Error::query_parse_error` | `ParseError` | where `~E` was expected |
-| invalid embedded query | `Error::query_parse_error` | `ParseError` | inside the body |
-| link concatenated with text (`action-abc~X~q~E`) | `Error::query_parse_error` | `ParseError` | at the leftover `~X~` |
-| more than `MAX_LINK_MARKERS` links | `Error::query_parse_error` | `ParseError` | `Position::unknown()` (pre-parse) |
+All use `Error::query_parse_error` and `ErrorType::ParseError`. Every one carries a
+position, and every link-related one carries a specific message:
+
+| Scenario | Position | Message |
+|---|---|---|
+| shorthand inside a link | start of the link body | names the explicit `-R/` form |
+| unterminated `~X~` (no `~E`) | where `~E` was expected | `Unterminated link: expected ~E to close ~X~` |
+| **stray `~E` (no `~X~`)** | at the `~E` | `Unpaired ~E: link terminator without a matching ~X~` |
+| link concatenated with text (`action-abc~X~q~E`) | at the leftover `~X~` | `~X~...~E is only valid as a complete action parameter` |
+| link inside a resource path (`-R/data~X~q~E`) | at the leftover `~X~` | same as above |
+| invalid embedded query | inside the body | generic `Can't parse query` |
+| more than `MAX_LINK_MARKERS` links | `Position::unknown()` (pre-parse) | `Too many link parameters` |
 
 **Improvement to existing behavior:** `parse_query`'s nom-error path currently reports
 `Position::unknown()` (parse.rs:756). It will report the real failure position via

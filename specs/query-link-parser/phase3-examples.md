@@ -39,10 +39,10 @@ documentation deliverable) where they are compiled by `cargo test --doc`.
 | B6 | Round-trip | `link_equality_and_hash` | parsed link == programmatic link; equal hashes | parse.rs |
 | C1 | Negative | `link_shorthand_rejected` | ParseError + D6 message + position at body start (D3) | parse.rs |
 | C2 | Negative | `link_explicit_resource_accepted` | contrast case: rejection is targeted, not blanket | parse.rs |
-| C3 | Negative | `link_unterminated` | `action-~X~hello` → ParseError, useful position | parse.rs |
+| C3 | Negative | `link_unterminated` | `action-~X~hello` → "Unterminated link" + position | parse.rs |
 | C4 | Negative | `link_body_stops_early` | `action-~X~a b~E` → ParseError at the space | parse.rs |
-| C5 | Negative | `link_concatenated_with_text` | `action-abc~X~q~E` rejected | parse.rs |
-| C6 | Negative | `stray_link_terminator` | `action-a~E` rejected | parse.rs |
+| C5 | Negative | `link_concatenated_with_text` | `action-abc~X~q~E` → "only valid as a complete action parameter", offset 10 | parse.rs |
+| C6 | Negative | `unpaired_link_terminator` | `action-a~E` → "Unpaired ~E", offset 8 | parse.rs |
 | C7 | Negative | `link_marker_guard` | > `MAX_LINK_MARKERS` → ParseError (D5) | parse.rs |
 | C8 | Negative | `link_deep_nesting_does_not_overflow` | guard rejects *before* recursion (D5) | parse.rs |
 | C9 | Replacement | `documented_query_language_contract` | the bug assertion inverted (D7) | parse.rs |
@@ -326,12 +326,21 @@ determinate from the productions:
 
 | Input | Mechanism | Outcome |
 |---|---|---|
-| `action-a~E` | `parameter` = `many0(alt((parameter_text, entities)))`; `~E` matches neither, so it halts leaving `~E` unconsumed | `ParseError`, "Can't parse query completely" at the `~E` |
-| `action-~X~a b~E` | space is not in `parameter_text`; body parse stops at it; `cut(tag("~E"))` then fails | `ParseError` (hard failure, no backtrack) at the space |
-| `action-abc~X~q~E` | `parameter` consumes `abc`, halts at `~`; `many0(minus_parameter)` needs `-`; `~X~q~E` left over | `ParseError` at the `~X~` |
+| `action-a~E` | `parameter` = `many0(alt((parameter_text, entities)))`; `~E` matches neither, so it halts leaving `~E` unconsumed | `ParseError` at the `~E` (**verified: offset 8**), message `Unpaired ~E: link terminator without a matching ~X~` |
+| `action-~X~hello` | `tag("~E")` finds no terminator; marked `ErrorKind::Fail` | `ParseError` where `~E` was expected, message `Unterminated link: expected ~E to close ~X~` |
+| `action-~X~a b~E` | space is not in `parameter_text`; body parse stops at it; the terminator match then fails | `ParseError` (hard failure, no backtrack) at the space |
+| `action-abc~X~q~E` | `parameter` consumes `abc`, halts at `~`; `many0(minus_parameter)` needs `-`; `~X~q~E` left over | `ParseError` at the `~X~` (**verified: offset 10**), message `~X~...~E is only valid as a complete action parameter` |
 
-The third is how "a link is a whole parameter, never concatenated" is enforced — it falls
-out of the existing grammar and needs no new rule.
+**Unpaired delimiters are diagnosed in both directions**, and the two directions take
+different routes through the parser. A missing `~E` is a genuine parse *failure* inside
+`link_parameter`, so it is marked and reported from there. A stray `~E` is not a failure at
+all — `parameter` simply halts, the action completes, and the `~E` is left over — so it is
+diagnosed by `parse_query`'s complete-consumption branch, which already reports the right
+position and now also says what is wrong. Both were measured on the current tree: the
+positions above are what the parser reports today; only the messages are new.
+
+The fourth row is how "a link is a whole parameter, never concatenated" is enforced — it
+falls out of the existing grammar and needs no new rule.
 
 ### Serialization
 

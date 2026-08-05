@@ -163,6 +163,12 @@ failures rather than compile errors.*
   scoped the position work to `parse_query` (Phase 1 open question 3); the guard is
   separate and applies wherever `query_parser` is reachable.
 
+**Three link diagnostics, two mechanisms.** `describe_query_failure` maps the two
+`ErrorKind` markers (`Verify` = shorthand, `Fail` = missing `~E`). The new
+`describe_leftover` diagnoses text the parser stopped before consuming — a stray `~E` is
+not a parse failure, so it never reaches the nom error path. Both `ErrorKind` values are
+free: searching `parse.rs` for `verify`, `fail` and `ErrorKind` returns no hits.
+
 The guard goes at the top of each function, before any parsing, and the mapping replaces
 the existing closure — spelled out here so neither has to be reconstructed from Phase 2:
 
@@ -183,10 +189,37 @@ pub fn parse_query(query: &str) -> Result<Query, Error> {
         Error::query_parse_error(query, &describe_query_failure(&e), &nom_error_position(&e))
     })?;
 
-    // UNCHANGED from here down (l. 758-767).
-    if !remainder.fragment().is_empty() { /* ... */ } else { Ok(path) }
+    // CHANGED (l. 758-767): keeps its position, gains a diagnosis.
+    if !remainder.fragment().is_empty() {
+        let position: Position = remainder.into();
+        return Err(Error::query_parse_error(
+            query,
+            describe_leftover(remainder.fragment()),
+            &position,
+        ));
+    }
+    Ok(path)
+}
+
+/// Diagnose text the parser stopped before consuming.
+///
+/// A stray `~E` is not a parse failure -- `parameter` halts, the action completes,
+/// and the terminator is simply left over -- so it cannot be diagnosed from a nom
+/// error. See D6.
+fn describe_leftover(rest: &str) -> &'static str {
+    if rest.starts_with("~E") {
+        "Unpaired ~E: link terminator without a matching ~X~"
+    } else if rest.starts_with("~X~") {
+        "~X~...~E is only valid as a complete action parameter"
+    } else {
+        "Can't parse query completely"
+    }
 }
 ```
+
+**Do not change the position** computed in that branch — it is already correct. Measured
+on the current tree: `action-a~E` reports offset 8 (the `~`) and `action-abc~X~q~E`
+reports offset 10. Only the message is new.
 
 The same guard block goes at the top of `parse_simple_template`, using
 `Error::general_error` to match that function's existing error style.
@@ -341,8 +374,15 @@ passes vacuously; needs judgment about what is actually being compared.*
 table verbatim for C7, C8 and C10 — the marker-count structures in particular
 (`a` + `-~X~q~E` × 64 accepts, × 65 rejects; `a-` + `~X~a-` × 65 + `~E` × 65 for the
 nesting case) are easy to get off by one, and an off-by-one there means the test passes
-for the wrong reason. C1 asserts the exact D6 message; if it fails on message text,
-reconcile with Phase 2 D6 rather than loosening the assertion.
+for the wrong reason.
+
+**C1, C3, C5 and C6 each assert a specific message and position**, not just `is_err()` —
+they are the tests that prove unpaired delimiters are diagnosed rather than swept into the
+generic "Can't parse query completely". C3 and C6 cover the two directions (missing `~E`
+and stray `~E`), which reach the error through different mechanisms. C6 and C5 assert
+offsets 8 and 10 respectively; those are what the parser reports on the current tree, so a
+failure there means the leftover branch's position was changed, which step 3 forbids. If
+any message assertion fails, reconcile with Phase 2 D6 rather than loosening it.
 
 **Two constraints that must not be relaxed:**
 - C7/C8 assert on the guard's **message**, not merely `is_err()` — otherwise they pass for
