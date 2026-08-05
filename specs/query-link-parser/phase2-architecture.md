@@ -528,14 +528,60 @@ is no per-thread state and no wasm caveat.
 
 ## Documentation Deliverables
 
-Carried from Phase 1; all four must state the same rule.
+Carried from Phase 1. Documentation is a deliverable of this feature, not a follow-up:
+the link syntax has never been specified anywhere as a *supported* form — only recorded as
+a bug — so every target below needs a **positive specification**, not just the removal of
+a limitation note.
 
 | Target | Change |
 |---|---|
-| `liquers-core/src/parse.rs` module docs | delete "Known link-parser bug"; add `link-parameter` grammar + shorthand rule |
+| `liquers-core/src/parse.rs` module docs | delete "Known link-parser bug"; add the `link-parameter` grammar, the entity-table clarification, and the shorthand rule |
 | `liquers-core/src/query.rs` | `ActionParameter::Link` doc comment |
-| `specs/api-docs-analysis/doc-02-query-language-reference.md` | replace "Link parameters do not parse"; drop the P0 row from the improvement table |
+| `specs/api-docs-analysis/doc-02-query-language-reference.md` | see the per-section breakdown below |
 | `specs/ISSUES.md` | mark `QUERY-ACTION-PARAMETER-LINK-PARSER` resolved |
+
+### `parse.rs` module docs — required edits
+
+1. **Delete** the `## Known link-parser bug` section (l. 59-66) in full.
+2. **Add** to the `# String action parameters` grammar block:
+   ```text
+   action          = identifier, { "-", action-parameter }
+   action-parameter = link-parameter | string-parameter
+   link-parameter  = "~X~", link-query, "~E"
+   ```
+3. **Clarify the entity table** (l. 40-51). `~X~` and `~E` must *not* be added as rows:
+   the table lists entities that decode to characters *within* a string parameter, whereas
+   `~X~`/`~E` are delimiters that select a different parameter kind. Add a sentence under
+   the table saying exactly that, so nobody reads `~X~` as "an escape for X".
+4. **State the shorthand rule** (shared wording below) in a new subsection under
+   `# String action parameters` or a sibling `# Link action parameters` section, with
+   worked examples: `action-~X~hello~E`, `action-before-~X~hello~E-after`,
+   `~X~-R/data/report/-/to_text~E` (valid) and `~X~data/report/-/to_text~E` (rejected).
+5. **Add** the `~E`-in-resource-name limitation (below).
+6. **Note** the `MAX_LINK_MARKERS` bound in the `# Positions and errors` section, since it
+   is an observable property of `parse_query`.
+
+### doc-02 (API reference) — required edits, per section
+
+This file has its own factual-verification policy (`specs/api-docs-analysis/README.md`),
+so each claim below must be backed by a test or by source, and the `## Verification`
+section updated with what was run.
+
+| Section | Edit |
+|---|---|
+| `## Outcome` (l. 6-27) | no change — it already points at `parse.rs` as authoritative |
+| `### Action-parameter entities` (l. 90-105) | add the clarification that `~X~`/`~E` are link delimiters, not string entities, with a pointer to the new subsection |
+| `### Link action parameters` (**new**, after "Action-parameter entities") | the positive specification: grammar production, that the payload is a full query parsed by the same grammar, that the result is `ActionParameter::Link`, that links may appear at any parameter position and may nest, the shorthand restriction, and the `MAX_LINK_MARKERS` bound. Include the valid/rejected examples above. |
+| `### Parse precedence` (l. 118-136) | in the "important consequences" list, mark the shorthand as discouraged in favour of the explicit `-R/` form, and note it is rejected inside `~X~…~E` |
+| `### Link parameters do not parse` (l. 234-243) | **delete the section.** Replaced by the positive specification; leaving a "limitation" heading would contradict it |
+| `### Programmatic construction is not validation` (l. 260-266) | append the `~E`-in-resource-name limitation — it is an instance of exactly this heading's point |
+| `## Prioritized remaining improvements` (l. 267-285) | drop the `P0 | Link encoder has no matching parser production` row; the remaining P1/P2 rows are untouched |
+| `## Coding-agent performance assessment` (l. 287-289) | item 2 currently reads "Inventing unsupported escapes, **nested-query syntax**, or header semantics". Nested-query syntax is now supported, so this must be reworded — otherwise the doc tells agents the feature does not exist |
+| `## Verification` (l. 305+) | add a dated entry recording the tests run for these claims |
+
+The last row matters more than its size suggests: doc-02 currently instructs coding agents
+that nested-query syntax is something they invent incorrectly. Left alone, it would keep
+steering them away from a syntax that now works.
 
 **The shared wording**, to be used consistently:
 
@@ -545,11 +591,19 @@ Carried from Phase 1; all four must state the same rule.
 > error: a link has no `eof` to disambiguate it, so accepting it would make the same text
 > denote different queries depending on nesting depth.
 
+Every target states this rule, and the two docs that carry examples
+(`parse.rs`, doc-02) show both sides of it:
+
+```text
+~X~-R/data/report/-/to_text~E     accepted
+~X~data/report/-/to_text~E        ParseError: shorthand not allowed inside a link
+```
+
 **Second documented limitation** (Phase 1 open question 4, carried through): an embedded
 query built *programmatically* whose resource name contains `~E` does not survive
-encode→parse, because `ResourceName::encode` does not escape it. This belongs in the
-`parse.rs` module docs next to the existing note that programmatic construction is not
-validation, and mirrors the `SimpleTemplate::encode` caveat about a literal `$` in a text
+encode→parse, because `ResourceName::encode` does not escape it. This goes in the
+`parse.rs` module docs and in doc-02's "Programmatic construction is not validation"
+section, and mirrors the `SimpleTemplate::encode` caveat about a literal `$` in a text
 element (`parse.rs:684-690`). Not fixed here — escaping resource names is a separate
 change to `Key` encoding with its own compatibility question.
 
