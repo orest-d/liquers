@@ -25,6 +25,18 @@ production and re-baseline the contract test together. No step may be left half-
 Steps 1-3 add code that is not yet reachable, so they compile clean and change no
 behavior. That is deliberate: it keeps the risky wiring step small and isolated.
 
+### Two scoping decisions carried from earlier phases
+
+Both are easy to lose in the step detail, so they are stated once here:
+
+- **`parse_simple_template` gets the marker guard, not the error mapping.** Phase 1 open
+  question 3 asked whether the improved error positions should extend to the other public
+  entry points; Phase 2 scoped that to `parse_query`. The recursion guard is a separate
+  concern and applies wherever `query_parser` is reachable, which includes templates.
+- **`link_query` omits `simple_transform_query` deliberately.** Phase 2 D2 established
+  that `general_query` subsumes it, verified over 15 canonical forms before the design was
+  written. Do not "restore" it during implementation.
+
 ## Implementation Steps
 
 ### Step 1: Imports and the recursion bound
@@ -143,14 +155,41 @@ failures rather than compile errors.*
 **Action:** add the two error helpers; add the marker guard and error mapping to
 `parse_query`; add the marker guard to `parse_simple_template`.
 
-**Code changes:** as specified in Phase 2 "`parse_query` (modified)". Two points the
-implementer must not deviate on:
+**Code changes:** two points the implementer must not deviate on:
 
 - `parse_query`'s existing complete-consumption branch (l. 758-767) is **unchanged**. Only
   the `map_err` closure at l. 754-757 changes.
 - `parse_simple_template` gets the marker guard **only**, not the error mapping. Phase 2
-  scoped the position work to `parse_query`; the guard is separate and applies wherever
-  `query_parser` is reachable.
+  scoped the position work to `parse_query` (Phase 1 open question 3); the guard is
+  separate and applies wherever `query_parser` is reachable.
+
+The guard goes at the top of each function, before any parsing, and the mapping replaces
+the existing closure — spelled out here so neither has to be reconstructed from Phase 2:
+
+```rust
+pub fn parse_query(query: &str) -> Result<Query, Error> {
+    // NEW: bound recursion before parsing (D5).
+    if query.matches("~X~").count() > MAX_LINK_MARKERS {
+        return Err(Error::query_parse_error(
+            query,
+            "Too many link parameters",
+            &Position::unknown(),
+        ));
+    }
+
+    let (remainder, path) = query_parser(Span::new(query)).map_err(|e| {
+        // WAS: let message = format!("{}", e);
+        //      Error::query_parse_error(query, &message, &Position::unknown())
+        Error::query_parse_error(query, &describe_query_failure(&e), &nom_error_position(&e))
+    })?;
+
+    // UNCHANGED from here down (l. 758-767).
+    if !remainder.fragment().is_empty() { /* ... */ } else { Ok(path) }
+}
+```
+
+The same guard block goes at the top of `parse_simple_template`, using
+`Error::general_error` to match that function's existing error style.
 
 ```rust
 fn nom_error_position(err: &nom::Err<nom::error::Error<Span>>) -> Position {
@@ -241,8 +280,19 @@ moment behavior changes and the only step with a red window if mis-sequenced.*
 
 **File:** `liquers-core/src/parse.rs`, `mod tests`
 
-**Action:** add A1-A15 from Phase 3, using the Concrete Inputs table verbatim. Do not
+**Action:** add A1-A16 from Phase 3, using the Concrete Inputs table verbatim. Do not
 invent inputs — every one is specified.
+
+**A16 is the one to write carefully.** `action-~X~inner-a~~E~E` must parse with the body
+`inner-a~~E`, not terminate at the first `~E`-looking byte sequence. It is the test that
+defends the in-band design against a future refactor to delimiter scanning, which would
+pass every other test in the suite.
+
+**Standing rule for steps 6-8:** every test drives the parser through `parse_query` or
+`parse_simple_template`. **No test may call `link_parameter`, `link_query` or
+`action_parameter` directly** — they are private, and a test that reaches around the
+public entry point would not exercise the `alt` ordering, the `cut` boundary or the marker
+guard, which is where the behavior actually lives.
 
 **Validation:**
 ```bash
@@ -287,7 +337,12 @@ passes vacuously; needs judgment about what is actually being compared.*
 
 **File:** `liquers-core/src/parse.rs`, `mod tests`
 
-**Action:** add C1-C8, C10, C11. (C9 was done in step 4+5.)
+**Action:** add C1-C8, C10, C11. (C9 was done in step 4+5.) Use Phase 3's Concrete Inputs
+table verbatim for C7, C8 and C10 — the marker-count structures in particular
+(`a` + `-~X~q~E` × 64 accepts, × 65 rejects; `a-` + `~X~a-` × 65 + `~E` × 65 for the
+nesting case) are easy to get off by one, and an off-by-one there means the test passes
+for the wrong reason. C1 asserts the exact D6 message; if it fails on message text,
+reconcile with Phase 2 D6 rather than loosening the assertion.
 
 **Two constraints that must not be relaxed:**
 - C7/C8 assert on the guard's **message**, not merely `is_err()` — otherwise they pass for
@@ -507,8 +562,8 @@ code.*
 | When | Command | Gate |
 |---|---|---|
 | After each of steps 1-3 | `cargo test -p liquers-core --lib` | 387 passing, unchanged |
-| After step 4+5 | `cargo test -p liquers-core --lib` | 387 passing, contract test inverted |
-| After steps 6-8 | `cargo test -p liquers-core --lib parse::tests` | +32 tests |
+| After step 4+5 | `cargo test -p liquers-core --lib` | 387 passing, contract test inverted (C9 is that inversion, not a new test) |
+| After steps 6-8 | `cargo test -p liquers-core --lib parse::tests` | +32 tests: A(15) + B(6) + C minus C9(10), plus C9 already inverted in step 4+5 |
 | After step 9 | `cargo test -p liquers-core --lib plan::tests` | +4 tests |
 | After step 10 | `cargo test -p liquers-core --test action_parameter_link` | +2 tests |
 | After steps 11-12 | `cargo test -p liquers-core --doc` | doc examples pass |

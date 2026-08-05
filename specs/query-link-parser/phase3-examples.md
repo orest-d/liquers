@@ -30,6 +30,7 @@ documentation deliverable) where they are compiled by `cargo test --doc`.
 | A13 | Positive | `link_in_named_header_segment` | `-backend/action-~X~q~E` — header `/` vs `~E` | parse.rs |
 | A14 | Positive | `link_in_multi_segment_query` | link in a middle segment | parse.rs |
 | A15 | Positive | `link_position_with_utf8` | `café-~X~cmd~E` — `get_utf8_column` arithmetic | parse.rs |
+| A16 | Positive | `link_body_with_escaped_tilde_before_e` | `action-~X~inner-a~~E~E` — `~~E` is *not* a terminator | parse.rs |
 | B1 | Round-trip | `link_roundtrip_programmatic` | build → `encode` → parse → equal + identical text | parse.rs |
 | B2 | Round-trip | `link_roundtrip_handwritten` | parse → encode → parse is stable | parse.rs |
 | B3 | Round-trip | `link_body_canonical_corpus` | 15 canonical forms survive as link bodies | parse.rs |
@@ -88,6 +89,20 @@ Spelling these out so Phase 4 has nothing left to invent.
 | C7 reject | `a` + `-~X~q~E` × 65 | `ParseError`, "too many" |
 | C8 | `a-` + `~X~a-` × 65 + `~E` × 65 | `ParseError` from the guard, recursion never entered |
 | C10 | `-R/data-~X~q~E` | `ParseError` — `resource_name` halts at `~`, leftover text |
+| A16 | `action-~X~inner-a~~E~E` | link body `inner-a~~E`; the embedded param decodes to `a~E` |
+
+**A16 is the test that justifies the whole in-band design.** An escaped tilde immediately
+before an `E` produces the byte sequence `~~E`, which *looks* like a terminator to any
+left-to-right scan. It is not: `entities` consumes `~~` as a unit (decoding to `~`), and
+the `E` is then ordinary parameter text. Verified against the current parser —
+`parse_query("inner-a~~E")` yields the string parameter `a~E`, and `encode_token("a~E")`
+emits `a~~E` again, so it round-trips.
+
+This is exactly the case the rejected scanner design had to handle with explicit
+escape-aware scanning and a nesting depth counter. The in-band parser gets it right for
+free, because it never scans for the delimiter — it lets the grammar decide where the body
+ends. Without A16 that advantage is undefended, and a future "optimization" back to
+scanning would pass every other test.
 
 **A15 is the one with a trap in it.** `café` is 5 bytes (`é` is 2), so `~X~` sits at byte
 offset 6 but at *column* 6 as well — `get_utf8_column()` counts characters, not bytes, and
