@@ -26,10 +26,14 @@ documentation deliverable) where they are compiled by `cargo test --doc`.
 | A9 | Positive | `link_inner_positions_are_absolute` | embedded nodes carry offsets in the *original* string | parse.rs |
 | A10 | Positive | `link_inside_simple_template` | `$…$` template containing a link | parse.rs |
 | A11 | Positive | `link_multiple_siblings` | two links in one action | parse.rs |
+| A12 | Positive | `link_followed_by_filename` | `action-~X~q~E/out.json` — link then terminal filename | parse.rs |
+| A13 | Positive | `link_in_named_header_segment` | `-backend/action-~X~q~E` — header `/` vs `~E` | parse.rs |
+| A14 | Positive | `link_in_multi_segment_query` | link in a middle segment | parse.rs |
+| A15 | Positive | `link_position_with_utf8` | `café-~X~cmd~E` — `get_utf8_column` arithmetic | parse.rs |
 | B1 | Round-trip | `link_roundtrip_programmatic` | build → `encode` → parse → equal + identical text | parse.rs |
 | B2 | Round-trip | `link_roundtrip_handwritten` | parse → encode → parse is stable | parse.rs |
 | B3 | Round-trip | `link_body_canonical_corpus` | 15 canonical forms survive as link bodies | parse.rs |
-| B4 | Equivalence | `link_body_matches_toplevel_meaning` | `parse(X) == link_body(X)` for non-shorthand X (D2) | parse.rs |
+| B4 | Equivalence | `link_body_matches_toplevel_meaning` | `parse(X) == link_body(X)` over the canonical corpus (D2) | parse.rs |
 | B5 | Equivalence | `link_body_rejects_shorthand_corpus` | the *other* side of B4: shorthand X is rejected | parse.rs |
 | B6 | Round-trip | `link_equality_and_hash` | parsed link == programmatic link; equal hashes | parse.rs |
 | C1 | Negative | `link_shorthand_rejected` | ParseError + D6 message + position at body start (D3) | parse.rs |
@@ -41,6 +45,8 @@ documentation deliverable) where they are compiled by `cargo test --doc`.
 | C7 | Negative | `link_marker_guard` | > `MAX_LINK_MARKERS` → ParseError (D5) | parse.rs |
 | C8 | Negative | `link_deep_nesting_does_not_overflow` | guard rejects *before* recursion (D5) | parse.rs |
 | C9 | Replacement | `documented_query_language_contract` | the bug assertion inverted (D7) | parse.rs |
+| C10 | Negative | `link_not_allowed_in_resource_path` | `-R/data-~X~q~E` rejected — links are transform-only | parse.rs |
+| C11 | Behavior | `predecessor_does_not_descend_into_link` | pins that `all_predecessors` stays at segment level | parse.rs |
 | D1 | Integration | `plan_textual_link_is_parameter_link` | text link → `ParameterValue::ParameterLink` | plan.rs |
 | D2 | Integration | `plan_textual_and_programmatic_links_agree` | both paths produce the same plan | plan.rs |
 | D3 | Integration | `plan_link_position_propagates` | plan carries the link's real position | plan.rs |
@@ -48,10 +54,46 @@ documentation deliverable) where they are compiled by `cargo test --doc`.
 | D5 | Integration | `evaluate_query_with_textual_link` | end-to-end evaluation | tests/ |
 | D6 | Integration | `evaluate_nested_textual_link` | end-to-end with nesting | tests/ |
 | E1 | Docs | rustdoc examples in `parse.rs` | compiled by `cargo test --doc` | parse.rs |
+| E2 | Docs | rustdoc example on `ActionParameter::Link` | makes the query.rs doc deliverable executable | query.rs |
+| E3 | Docs | doc-02 `## Verification` entry | evidence trail required by that folder's policy | doc-02 |
 
 Drafted in parallel by four agents (positive, round-trip/equivalence, errors, integration)
 and consolidated here; the drafts overlapped heavily on nesting and positions, which are
 deduplicated above. Full drafts are working material, not deliverables.
+
+**All new productions are private** (`link_parameter`, `link_query`, `action_parameter`,
+`nom_error_position`, `describe_query_failure`). Every test therefore drives them through
+`parse_query` / `parse_simple_template`, the only public entry points. No test may call a
+private production directly — the two temporary tests used to gather the verified data
+below did, which is precisely why they were reverted rather than kept.
+
+## Concrete Inputs
+
+Spelling these out so Phase 4 has nothing left to invent.
+
+| Test | Input(s) | Expected |
+|---|---|---|
+| A3 first | `action-~X~q1~E-b-c` | params: Link, "b", "c" |
+| A3 middle | `action-a-~X~q2~E-c` | params: "a", Link, "c" |
+| A3 last | `action-a-b-~X~q3~E` | params: "a", "b", Link |
+| A5 | `action-~X~cmd-x~_y~E` | embedded param decodes to `x-y` |
+| A5 | `action-~X~cmd-x~.y~E` | embedded param decodes to `x y` |
+| A10 | `Result: $action-~X~nested~E$` | one Text + one ExpandQuery element |
+| A11 | `action-~X~q1~E-~X~q2~E` | two Link params, distinct positions |
+| A12 | `action-~X~q~E/out.json` | link param, then filename `out.json` |
+| A13 | `-backend/action-~X~q~E` | named header segment, link intact |
+| A14 | `first/second-~X~q~E/-/third` | link in the first of two segments |
+| A15 | `café-~X~cmd~E` | `~X~` at byte offset 6, **column 6** (5 chars + 1) |
+| C7 accept | `a` + `-~X~q~E` × 64 | parses (limit is inclusive) |
+| C7 reject | `a` + `-~X~q~E` × 65 | `ParseError`, "too many" |
+| C8 | `a-` + `~X~a-` × 65 + `~E` × 65 | `ParseError` from the guard, recursion never entered |
+| C10 | `-R/data-~X~q~E` | `ParseError` — `resource_name` halts at `~`, leftover text |
+
+**A15 is the one with a trap in it.** `café` is 5 bytes (`é` is 2), so `~X~` sits at byte
+offset 6 but at *column* 6 as well — `get_utf8_column()` counts characters, not bytes, and
+is 1-based, so 4 characters + the `-` = 5, and the marker is the 6th character. Offset and
+column coincide here by accident of the arithmetic; the test is worth having precisely
+because a byte-based column implementation would report 7.
 
 ## What is genuinely new, and therefore what matters most
 
@@ -205,6 +247,24 @@ fires=true   abc/def/-/xxx    fires=true   data/report/-/to_text    fires=true  
 All 15 canonical entries pass; all three shorthand forms are caught. **Test B3 must
 therefore assert acceptance for all 15, and B5 must assert rejection for the three.**
 
+### B4's equivalence class, stated precisely
+
+B4 claims `parse_query(X)` and the link body of `~X~X~E` yield the same `Query`. That is
+not true for arbitrary `X`, so the class must be pinned rather than left as "non-shorthand":
+
+**B4 ranges over exactly the 15-entry canonical corpus above** — the strings
+`Query::encode()` can emit, which is the set requirement 4 cares about. For each, assert
+`parse_query(X)?.encode() == parse_query(&format!("a-~X~{X}~E"))?` …link body… `.encode()`.
+
+**B5 ranges over exactly the three shorthand forms** and asserts `ParseError`, not
+equality. Together B4 and B5 partition the interesting inputs: every canonical string
+means the same thing in both contexts, and every string that would *not* is refused.
+
+The class that is deliberately excluded is the shorthand — the only place where the
+top-level grammar's `eof`-gated alternatives change the reading (D1/D3). There is no third
+class: the corpus check above is exhaustive over what the encoder produces, and the
+detector check is exhaustive over what diverges.
+
 One correction worth recording, because the wrong reason would mislead a future reader.
 `abc/def/-/xxx/-q/qqq` does not fire — but *not* because "the `/` is followed by `-` so
 it is an explicit header". `resource_transform_query` matches its prefix `abc/def/-/xxx`
@@ -234,12 +294,15 @@ Links are the first recursive construct in the query grammar. **A real stack ove
 aborts the process and cannot be caught by `#[should_panic]` or `catch_unwind`** — this
 was the sharpest observation to come out of drafting, and it dictates the test design:
 
-- **C7** exercises the guard directly: 65 `~X~` markers → `ParseError`, no recursion
-  entered.
-- **C8** must *not* attempt to trigger an overflow. It asserts that input which would
-  recurse deeply is rejected by the marker count **before** parsing begins. A test that
-  tried to prove the overflow is real would abort the suite when the guard works.
-- A boundary test at exactly 64 markers documents that the limit is inclusive.
+- **C7** exercises the guard directly, in both directions: 64 sibling links parse, 65 give
+  `ParseError`. This documents that the limit is inclusive.
+- **C8** must *not* attempt to trigger an overflow, and its name should say what it does
+  assert — read it as "the guard rejects before recursion is entered", not "we proved no
+  overflow occurs". A test that tried to prove the overflow is real would abort the suite
+  precisely when the guard is working correctly.
+
+Neither test can distinguish "the guard rejected it" from "parsing failed for some other
+reason", so both must assert on the guard's own message, not merely on `is_err()`.
 
 ### Errors
 
@@ -314,6 +377,38 @@ cargo run -p liquers-core --features cli --bin liquers-validate -- \
 The two `liquers-validate` invocations double as the acceptance demo: they show the
 feature working through a real entry point, and they exercise the D6 message end to end.
 
+### Documentation verification
+
+Phase 2 made documentation a deliverable across four targets. Three of them are prose and
+would otherwise ship unverified, which matters most for `doc-02` — that folder carries a
+**factual-verification policy** (`specs/api-docs-analysis/README.md`) requiring every
+API-reference claim to be backed by source or a test, and its `## Verification` section to
+record what was run. Phase 3 therefore owns making the docs checkable:
+
+| Deliverable | How it is verified |
+|---|---|
+| `parse.rs` module docs | **E1** — the worked examples go in the rustdoc as a ```` ```rust ```` block, so `cargo test --doc` compiles and runs them. A grammar change that breaks the documented syntax fails the build. |
+| `query.rs` `ActionParameter::Link` doc | **E2** — give the doc comment a short runnable example (parse `action-~X~hello~E`, assert `is_link()` and `encode()`), turning a prose claim into a compiled one. The current comment states the opposite of the new behavior, so it cannot be left alone. |
+| `doc-02` sections | **E3** — the eight edits are prose and cannot be executed. What the policy requires instead is an evidence trail: add a dated `## Verification` entry naming the test groups (A/B/C/D) and the exact `cargo test` invocations, mirroring the existing 2026-07-26 entry. |
+| `specs/ISSUES.md` | The issue's own Verification list is the acceptance criterion; the coverage table below maps each of its six items to a test. Marking it resolved is justified by that table, not by assertion. |
+
+`documented_query_language_contract` is the existing mechanism this repo already uses to
+pin documented behavior in an executable test — **C9** extends it rather than replacing
+that role, which is why the test keeps its name.
+
+### A note on `parse_simple_template` (A10)
+
+Phase 2's Error Handling section says "fix `parse_query` only", which reads as though
+templates are untouched. Two things are true at once and the distinction matters:
+
+- **The error-position mapping** is `parse_query`-only, as Phase 2 decided.
+- **The `MAX_LINK_MARKERS` guard** is applied to `parse_simple_template` as well (Phase 2
+  D5), because it also reaches `query_parser` and so inherits the recursion.
+
+Link *support* inside templates needs no new code at all: `template_expand_query`
+(parse.rs:715-720) calls `query_parser` directly, so a link in `$…$` works the moment the
+parameter production exists. A10 pins that consequence; it is not new design.
+
 ### Regression surface
 
 `cargo test -p liquers-core --lib` must stay green apart from the deliberate C9 inversion.
@@ -334,3 +429,22 @@ about `~X~`, verified by searching the tree for the marker.
 
 Two areas go beyond the issue's list, both because the design created them: the shorthand
 restriction (C1, C2, B5) and the recursion guard (C7, C8).
+
+## Behavior deliberately pinned rather than required
+
+Two tests exist to record what the parser *does*, so a future change is a conscious one
+rather than an accident. Neither asserts a requirement from the issue.
+
+**C11 — `predecessor()` does not descend into links.** `Query::predecessor()` and
+`all_predecessors()` decompose a query segment by segment; they do not walk into an
+`ActionParameter::Link`'s embedded query. That is correct: link dependencies are resolved
+in `plan.rs` via `ParameterValue::ParameterLink` (plan.rs:615-633, 1900-1950), which is a
+separate mechanism from predecessor decomposition. A review draft suggested embedded
+queries *must* appear in the predecessor chain "for dependency tracking to work" — that is
+not how link dependencies flow, and building it would duplicate the planner's job. C11
+pins the actual behavior so the question does not get re-litigated.
+
+**C10 — links cannot appear in a resource path.** `-R/data-~X~q~E` is rejected, but not by
+any rule about links: `resource_name` accepts `-` in non-initial position, so it consumes
+`data-` and halts at `~`, leaving text that nothing can parse. The exclusion falls out of
+the existing grammar. Worth pinning because the reason is non-obvious.
