@@ -1014,6 +1014,39 @@ fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
     }
 }
 
+/// The `$...$` expansion spans of a template, excluding the literal text between them.
+///
+/// Used only to scope the link bounds: literal template text never reaches
+/// [`query_parser`], so link markers appearing in prose must not be counted against a
+/// query's limits. Mirrors the template grammar's own precedence by treating `$$` as an
+/// escaped dollar before looking for an expansion.
+///
+/// Deliberately conservative rather than exact: an unterminated trailing `$` yields its
+/// remainder as a span, which the parser rejects anyway, and mis-slicing can only cause
+/// text that *might* be a query to be inspected.
+fn template_query_spans(text: &str) -> Vec<&str> {
+    let mut spans = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('$') {
+        let after = &rest[open + 1..];
+        if let Some(stripped) = after.strip_prefix('$') {
+            rest = stripped; // `$$` is a literal dollar, not an expansion
+            continue;
+        }
+        match after.find('$') {
+            Some(close) => {
+                spans.push(&after[..close]);
+                rest = &after[close + 1..];
+            }
+            None => {
+                spans.push(after);
+                break;
+            }
+        }
+    }
+    spans
+}
+
 /// Diagnose text the parser stopped before consuming.
 ///
 /// A stray `~E` is not a parse failure: `parameter` simply halts there, the action
@@ -1061,10 +1094,14 @@ pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
 /// expansion. The embedded query uses [`parse_query`]'s grammar.
 pub fn parse_simple_template<S: AsRef<str>>(template_text: S) -> Result<SimpleTemplate, Error> {
     // Templates reach query_parser through `$...$` expansion, so they inherit the link
-    // recursion and need the same bound. Only the guard applies here; the positioned
-    // error mapping is scoped to parse_query.
-    if let Some(message) = link_bounds_exceeded(template_text.as_ref()) {
-        return Err(Error::general_error(message.to_owned()));
+    // recursion and need the same bound. It applies to the expansion spans ONLY: literal
+    // template text is never parsed as a query, so `~X~` appearing in prose — including
+    // prose documenting this very syntax — must not be counted. Only the guard applies
+    // here; the positioned error mapping is scoped to parse_query.
+    for span in template_query_spans(template_text.as_ref()) {
+        if let Some(message) = link_bounds_exceeded(span) {
+            return Err(Error::general_error(message.to_owned()));
+        }
     }
     let (remainder, template) =
         simple_template(Span::new(template_text.as_ref())).map_err(|e| {
@@ -2148,4 +2185,50 @@ mod link_tests {
         assert!(encodings.contains(&"first".to_owned()));
         Ok(())
     }
+
+    #[test]
+    fn c12_template_bounds_apply_only_to_expansion_spans() -> Result<(), Error> {
+        // Literal template text is never parsed as a query, so link markers in prose --
+        // including prose documenting the link syntax -- must not count against the
+        // bounds. Regression test for a review finding on PR #17.
+        let prose = "~X~".repeat(MAX_LINK_DEPTH + 1);
+        let template = parse_simple_template(&prose)?;
+        assert_eq!(template.0.len(), 1);
+        assert_eq!(template.0[0], SimpleTemplateElement::Text(prose.clone()));
+
+        // Documentation about nesting, in literal text: accepted.
+        let doc = format!(
+            "Links nest: {}{}",
+            "~X~a-".repeat(MAX_LINK_DEPTH + 4),
+            "~E".repeat(MAX_LINK_DEPTH + 4)
+        );
+        assert!(parse_simple_template(&doc).is_ok());
+
+        // Inside an expansion the bound still applies.
+        let over = format!(
+            "$a-{}{}$",
+            "~X~a-".repeat(MAX_LINK_DEPTH + 1),
+            "~E".repeat(MAX_LINK_DEPTH + 1)
+        );
+        let err = parse_simple_template(&over).expect_err("expansion is still bounded");
+        assert!(err.message.contains("nested too deeply"), "got: {}", err.message);
+
+        // Prose over the limit plus a legal expansion: still accepted.
+        let mixed = format!("{prose} and $a-~X~b~E$");
+        let template = parse_simple_template(&mixed)?;
+        assert_eq!(template.0.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn c12b_template_query_spans_skips_escaped_dollars() -> Result<(), Error> {
+        assert_eq!(template_query_spans("no expansion here"), Vec::<&str>::new());
+        assert_eq!(template_query_spans("a $q$ b"), vec!["q"]);
+        assert_eq!(template_query_spans("$a$ text $b$"), vec!["a", "b"]);
+        // `$$` is an escaped dollar and must not open a span.
+        assert_eq!(template_query_spans("cost: $$5 and $q$"), vec!["q"]);
+        assert_eq!(template_query_spans("$$"), Vec::<&str>::new());
+        Ok(())
+    }
 }
+
