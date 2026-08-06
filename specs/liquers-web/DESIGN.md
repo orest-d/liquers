@@ -25,7 +25,17 @@ so the artifact is loadable. `STORE`, `RECIPE`, `UIUSE`, `UIDEF` deferred;
 inferred from the function only where honestly possible (3); global singleton first plus
 explicit instances (4); re-entrant evaluation runs inline, tradeoffs accepted (5); Promises
 supported from the start (6); trunk first, CDN/plain-page loadable, single-file wasm wanted
-next, npm later (7). Only question 2 (opaque `JsValue` ownership and identity) is open.
+next, npm later (7).
+
+**Question 2 (opaque `JsValue`) closed — all Phase 1 questions resolved.** Structural conversion
+by default, opaque retention opt-in, `JsValue` held directly (registry-plus-ID reserved for
+callables under `COMMAND`). Liquers guarantees query determinism, **not** `roundtrip(obj) === obj`,
+so direct retention is an optimization and structural conversion is a legitimate fallback.
+Follows from that: `===` may hold incidentally but is not promised; opaque values are immutable
+by convention, since mutating a retained object retroactively changes a cached asset and voids
+the determinism guarantee; retention is session-and-realm-scoped, converting or erroring at the
+boundary; serialization fails cleanly, which the core already absorbs
+(`assets.rs:2994`/`:3016`).
 
 **Phase 1 findings:**
 - The wasm foundation already exists: `MaybeSend`/`MaybeSync`, `BoxFuture`, and

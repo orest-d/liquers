@@ -51,7 +51,8 @@ the completed [async-wasm-refactor](../async-wasm-refactor/DESIGN.md). Evaluatio
 Needs a browser *value type* that can hold an **opaque `JsValue`** alongside ordinary Liquers values,
 plus a bidirectional structural bridge (null/bool/number/string/`Uint8Array`/array/object). Reuses
 `CombinedValue<SimpleValue, JsExt>` rather than a new enum, after relaxing `ValueExtension` — see
-decision 1.
+decision 1. Structural conversion is the default and opaque retention is opt-in; identity is not
+guaranteed, so structural conversion is always an available fallback — see decision 2.
 
 ### Web/API
 None. The public surface is `#[wasm_bindgen]` classes and functions, not HTTP routes.
@@ -89,6 +90,43 @@ and 4 are now largely answered by the async-wasm-refactor.
      is unchanged; only `wasm32` gains the vacuous bound.
 
    Executed as a Phase 4 step, ahead of the `JsExt` work that depends on it.
+
+2. **Opaque value ownership — decided.** Structural conversion is the default; a *language value*
+   becomes opaque only through an **explicit opt-in**, and an opaque value retains the `JsValue`
+   **directly** (`JsExt::Opaque(JsValue)`), not through a registry of IDs. Callables are the
+   exception and keep the guide's registry-plus-stable-ID pattern, owned by `COMMAND`.
+
+   **Liquers does not guarantee `roundtrip(obj) === obj`.** The framework guarantee is that the same
+   query evaluates to the same value when it is neither volatile nor expired — a statement about
+   query determinism, not about preserving a JavaScript object graph. Direct retention is therefore
+   an *optimization* (avoid a lossy copy; keep a live object usable inside the session), not a
+   contract, which is what makes **structural conversion a legitimate fallback** rather than a
+   broken promise.
+
+   Consequences Phase 2 must carry through:
+   - **Identity may hold in practice and must not be relied upon.** A cached non-volatile query
+     returns the identical JS object from the in-memory asset map on re-evaluation, so `===` will
+     often be observably true. It is documented as incidental, not promised (`VALUE10`).
+   - **Opaque values are treated as immutable by convention.** A retained `JsValue` is mutable and
+     shared, so page code or a later command can mutate it *after* the asset is cached and
+     retroactively change that asset's value. Structural conversion is immune (a copy is a
+     snapshot); direct retention is not. Mutating a retained object voids the determinism guarantee
+     for assets derived from it.
+   - **Opaque retention is session-and-realm-scoped.** Anything leaving that scope — persistence
+     through a store, a worker or second realm, a codec boundary — structurally converts if it can
+     and raises a typed error if it cannot.
+   - **Lifetime is automatic.** `JsValue` clone/drop is a refcount on the wasm-bindgen heap table,
+     so no hand-rolled refcounting in `Clone`/`Drop` and no ambient registry. Note the cost: while
+     an opaque value sits in `asset_data.data`, it pins whatever it references (a DOM subtree, a
+     large `ArrayBuffer`) for the cache's lifetime. The explicit opt-in keeps that from happening
+     by accident.
+   - **Serialization fails cleanly by default** (`VALUE06`). The core already absorbs this:
+     `assets.rs:2994` falls back to `Version::from_time_now()` and `assets.rs:3016` to
+     `store.set_metadata(...)`, so a non-serializable value degrades instead of breaking
+     evaluation — at the cost of a time-based version, which makes such assets look freshly changed
+     to dependency tracking. Degrading to structural conversion at the serialization boundary is
+     **opt-in only**: a class instance silently returning as a plain object after a cache eviction
+     is a bad debugging experience, and silent inference is ruled out by decision 3.
 
 3. **Command declaration — decided.** Meaningful defaults wherever possible. **Required:** the
    command `name` and the JS function. **Everything else is defaulted**, so the minimal declaration
@@ -131,8 +169,15 @@ and 4 are now largely answered by the async-wasm-refactor.
 
 ## Open Questions
 
-2. **Opaque value ownership.** How is a retained `JsValue` kept alive, compared, and reported when
-   serialization is attempted (`VALUE06`)? Identity retention promised or not? → Phase 2.
+All seven Phase 1 open questions are resolved above. Questions carried into Phase 2 as design work
+rather than as unknowns:
+
+- The honest limit of argument inference from a JS function, given no types, minifier-mangled
+  parameter names, and the requirement that inference stay visible (decision 3).
+- A demonstration that inline re-entrant evaluation cannot self-deadlock against
+  `ImmediateAssetManager`'s `std::sync::Mutex` on a single-threaded event loop (decision 5).
+- The exact opt-in surface and typed error for opaque values leaving session/realm scope
+  (decision 2).
 
 ## References
 
