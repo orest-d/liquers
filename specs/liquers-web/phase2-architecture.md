@@ -82,7 +82,71 @@ cfg'd arm. **14 sites**, verified:
 Mechanical, but it must hold for all four build configurations, and per the project rule no `_ =>`
 arm may be used to dodge it.
 
-**The rest of this document is written against Option Y**, noting where Option X would differ.
+**Decided: Option Y**, with the extensibility requirement below. The rest of this document is
+written against it.
+
+## Extensibility: user-defined value types and environments
+
+Option Y fixes the *default*, not the *only* possibility. A `liquers-web` user integrating a
+third-party JavaScript library with its own data type must be able to supply their own value type
+and environment. Two tiers, and most cases stop at the first.
+
+### Tier 1 — opaque, no Rust work at all
+
+A third-party type (an Arrow table, a Plotly figure, a WebGL handle) that only needs to *pass
+through* Liquers from one JS command to another requires **no** custom value type: it is retained
+opaquely by `liquers.opaque(x)` under decision 2. This is the cheap and expected path, and it is
+also the fast one — O(1) instead of O(size) at the boundary. A custom Rust value type is needed only
+when *Rust* commands must operate on the type structurally.
+
+### Tier 2 — a user-defined value type and environment
+
+**Constraint:** `#[wasm_bindgen]` cannot export generic types — it must generate JS glue for
+monomorphic types. So `liquers-web` cannot export a generic environment; it must export a concrete
+one. The extension mechanism is therefore *generic internals with a concrete default export*:
+
+```rust
+// Generic — reusable by a downstream crate with its own V and E.
+pub fn js_to_value<V: ValueInterface + JsValueBridge>(js: &JsValue, policy: ConversionPolicy)
+    -> Result<V, Error>;
+pub fn value_to_js<V: ValueInterface + JsValueBridge>(v: &V) -> Result<JsValue, Error>;
+pub fn register_js_command<E>(cr: &mut CommandRegistry<E>, spec: JsCommandSpec) -> Result<(), Error>
+where E: Environment, E::Value: JsValueBridge;
+pub fn evaluate_to_promise<E>(envref: EnvRef<E>, query: Query) -> js_sys::Promise
+where E: Environment, E::Value: JsValueBridge;
+
+/// The one trait a custom value type implements to join the bridge.
+pub trait JsValueBridge: ValueInterface + Sized {
+    /// Structural conversion of a JS value this type understands; `Ok(None)` means
+    /// "not mine, try the next rule".
+    fn from_js_custom(js: &JsValue) -> Result<Option<Self>, Error>;
+    /// Inverse. `Ok(None)` falls back to the standard structural mapping.
+    fn to_js_custom(&self) -> Result<Option<JsValue>, Error>;
+    /// Wrap an opaque JS value. Returning `Err(NotSupported)` opts out of decision 2.
+    fn from_js_opaque(js: JsValue, type_tag: Arc<str>) -> Result<Self, Error>;
+}
+```
+
+`liquers-web` implements `JsValueBridge` for `liquers_lib::value::Value` (the default) and exports
+the concrete `LiquersEnvironment` built on it. A downstream crate — `my-app-web`, depending on
+`liquers-web` — defines its own `ExtValue`-like type, implements `JsValueBridge`, and exports its
+own `#[wasm_bindgen]` wrapper reusing every generic function above. It writes the wrapper struct and
+its `#[wasm_bindgen]` impl; it does not rewrite the bridge, the command adapter, or the Promise
+bridge.
+
+**Requirements this places on the implementation**, which Phase 4 must honour:
+
+- No item in the conversion, command-adapter or Promise-bridge modules may name
+  `liquers_lib::value::Value` concretely. The concrete type appears **only** in the exported
+  `#[wasm_bindgen]` wrappers and the `JsValueBridge` impl for the default.
+- `WebEnvironment` is a type *alias*, not a newtype, so a downstream crate can substitute its own
+  `DefaultEnvironment<MyValue, P>` — or an entirely custom `Environment` impl — without forking.
+- These generic functions are public API and are covered by their own tests instantiated at a second
+  value type, so the genericity is proven rather than assumed (Phase 3).
+
+**Documented limitation:** a downstream crate must produce its own wasm artifact; two independently
+compiled wasm modules do not share an environment. Cross-module sharing would be `POLYGLOT`, which
+is `NA` for this milestone.
 
 ## Data Structures
 
@@ -264,39 +328,49 @@ enum IsAsync {
 
 **No default match arm** on `StateMode` or `IsAsync`.
 
-#### Argument inference — the honest limit (Phase 1 carried item (a))
+#### Argument declaration is explicit — inference rejected on evidence
 
-Phase 1 required this be settled here rather than deferred. The rule:
+Phase 1 decision 3 made argument specifications required *unless they could be inferred from the
+function*, and assigned the verification here. **Inference was tested and rejected.**
 
-**Signals actually available from a JS function**
+Measured with `node` against the candidate signals:
 
-| Signal | Reliability | Used for |
+| Function | `fn.length` | Finding |
 |---|---|---|
-| `Function.prototype.length` | Reliable, but counts only parameters **before** the first default or rest parameter | arity |
-| `Function.prototype.toString()` parameter list | Unreliable — minifiers and bundlers rename freely | names, best-effort |
-| Types | **Do not exist** | nothing |
+| `(state, count)` | 2 | correct |
+| `(state, count = 2)` | **1** | collapses at the first default parameter |
+| `(state, a = 1, b = 2)` | **1** | two parameters invisible |
+| `(state, ...rest)` | 1 | rest parameter invisible |
+| `(state, {a, b})` | 2 | destructured parameter **has no name at all** |
+| `(state, f = (x,y) => x)` | 1 | naive comma-splitting of `toString()` yields garbage |
+| `fn.bind(null)` | 2 | `toString()` → `function () { [native code] }` |
 
-**The rule.** When `arguments` is omitted:
+`Reflect.getParameterNames` does not exist, and `Function.prototype` exposes no parameter-name
+reflection. Names and defaults are recoverable *only* by parsing source text, which (a) requires a
+real JavaScript parser to handle destructuring, nested parens, comments and template literals,
+(b) is defeated by any minifier, and (c) yields default *expressions* that cannot be evaluated
+outside the function's closure. Types do not exist at all.
 
-1. Compute declared arity as `fn.length`, minus one when `state_mode != StateMode::None`.
-2. Parse the parameter list from `toString()`. **If it contains a default (`=`) or rest (`...`)
-   parameter, refuse to infer** and fail registration with a `ParameterError` telling the author to
-   declare `arguments` explicitly. This is the critical case: `(state, count = 2)` has
-   `fn.length === 1`, so inference would silently register a **zero-argument** command and every
-   call would then misbind. Failing loudly is the only safe behaviour.
-3. If parsing succeeds and yields exactly the expected count, use those names; otherwise use
-   positional `arg0…argN`.
-4. Every inferred argument gets `ArgumentType::Any` — which is already the enum's `#[default]`
-   (`command_metadata.rs:170-172`) — and no default value.
+**The rule.**
 
-**Inference is never silent.** `describeCommand(name)` returns the resulting `CommandMetadata`
-including an `inferred: true` marker per argument, satisfying the guide's rule that metadata is the
-planning contract (`COMMAND05`, `COMMAND09`). An explicit `arguments` array always wins outright;
-the two are never merged.
+1. **`arguments` is required for any command that takes parameters.** It is used verbatim; nothing
+   is synthesized from the function.
+2. **Omitting `arguments` declares a command with no parameters** — the common case for source
+   commands and simple transforms, so the minimal declaration stays one line (`COMMAND09`).
+3. **`fn.length` is used only to catch the mistake, never to build metadata.** If
+   `fn.length - state_offset` exceeds the declared argument count, registration fails with a
+   `ParameterError` naming both counts. The check is deliberately one-directional: `fn.length`
+   *under*-reports past a default or rest parameter, so a lower value proves nothing, while a
+   higher value proves the declaration is missing arguments the function requires.
+4. Declared arguments without a `type` get `ArgumentType::Any`, already the enum's `#[default]`
+   (`command_metadata.rs:170-172`).
 
-**Documented limitation:** under a minifying bundler, inferred names degrade to `arg0…argN` while
-arity stays correct. Queries bind positionally, so this affects readability and UI labels, not
-correctness. Authors who want stable names declare them.
+Two things fall out of this. No JavaScript parser is linked into the wasm binary, which matters for
+artifact size (decision 7). And minification becomes a non-issue rather than a documented
+limitation — nothing depends on source text surviving a bundler.
+
+`describeCommand(name)` still returns the resulting `CommandMetadata`, so what was registered is
+always inspectable (`COMMAND05`).
 
 ## Trait Implementations
 
@@ -650,8 +724,8 @@ segment, per the guide's Appendix A).
 
 ## Open Questions for the user
 
-1. **Option X vs Option Y** — the recommendation is Y. It costs ~8-10 cfg'd match arms in
-   `liquers-lib` and buys the existing command library plus a cheap path to `UIUSE`.
+1. ~~Option X vs Option Y~~ — **decided: Option Y**, plus the generic-internals extension path in
+   "Extensibility" above, so a user can still supply their own value type and environment.
 2. **Command namespaces** — should JS-registered commands default to the root namespace (simplest,
    collides with Rust commands) or to a dedicated `js` namespace (safer, more to type)? The
    recommendation is **root with replace-on-duplicate**, since replacement is already
@@ -666,9 +740,11 @@ segment, per the guide's Appendix A).
 - Benchmark the opaque-vs-structural boundary cost (Phase 1 decision 2's unmeasured hypothesis).
 - `RUNTIME04` must actually exercise the reentrancy argument above; if it cannot be made to pass,
   the design changes, not the test.
-- Test cases for each argument-inference limit: `fn.length` with a default parameter (must fail
-  registration, not misbind), a minified function (names degrade, arity holds), and an explicit
-  `arguments` array overriding inference.
+- Test cases for the argument-declaration rule: a function whose `fn.length` exceeds the declared
+  argument count must fail registration; a function with default parameters must register correctly
+  from its explicit declaration despite `fn.length` under-reporting.
+- The generic bridge functions must be instantiated at a **second** value type in the test suite, so
+  the Tier-2 extension path is proven rather than assumed.
 - `PACKAGE03`: the quick-start page must evaluate a query end to end from a plain
   `<script type="module">`, with no bundler.
 

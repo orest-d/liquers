@@ -159,12 +159,14 @@ and 4 are now largely answered by the async-wasm-refactor.
    stays one line (`COMMAND09`). Argument specifications are required *unless* they can be inferred
    from the JS function.
 
-   Phase 2 must resolve how far inference can honestly go, because JavaScript carries no type
-   information: `Function.prototype.length` yields arity only, and parameter *names* are available
-   only by parsing `Function.prototype.toString()`, which a minifier or bundler is free to mangle.
-   Inferred arguments therefore get a permissive argument type, and the guide's rule stands — do not
-   infer *silently*: inference results must be visible through metadata inspection after
-   registration (`COMMAND05`), and an explicit `arguments` array always wins.
+   **Resolved in Phase 2 by measurement: inference is rejected, declaration is explicit.** The
+   conditional above was tested. `Function.prototype.length` collapses at the first default or rest
+   parameter (`(state, a = 1, b = 2)` reports 1), a destructured parameter has no name at all,
+   `bind` yields `[native code]`, and no parameter-name reflection API exists — names and defaults
+   are recoverable only by parsing source text that a minifier may have rewritten. So `arguments` is
+   required for any command that takes parameters; omitting it declares a parameterless command; and
+   `fn.length` is used only as a one-directional consistency check to catch a missing declaration,
+   never to synthesize metadata. See Phase 2, "Argument declaration is explicit".
 
 4. **Environment lifecycle — decided.** Support **both a global singleton and explicit instances**,
    with the singleton as the first priority and the documented default path. Explicit instances

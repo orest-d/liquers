@@ -6,8 +6,8 @@
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (drafted; awaiting user approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (all 7 questions decided)
+- [x] Phase 2: Solution & Architecture (reviewed; Option Y decided, awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
@@ -60,6 +60,25 @@ exists either way); size belongs to the packaging milestone.
   native behaviour unchanged.
 - `liquers-wf` was designed but never implemented (not a workspace member); `liquers-web`
   supersedes it.
+
+**Phase 2 outcome.** No new `Environment` and no new `CommandExecutor` are needed —
+`DefaultEnvironment` is already generic over the value type and cfg-selects `ImmediateAssetManager`
+on wasm, and the executor closure aliases already drop `Send`/`Sync` there, so a JS command is an
+ordinary async command whose closure owns a `js_sys::Function`.
+
+**Option Y decided:** the opaque JS value is a cfg-gated `ExtValue::Js` variant in `liquers-lib`
+(14 match sites to extend), so `liquers-web` reuses `liquers_lib::value::Value` and the existing
+wasm-viable command library. Precedent: `liquers-py` already carries `Py { value: Py<PyAny> }`.
+**Extensibility requirement (user):** the bridge, command adapter and Promise bridge stay generic
+over `E`/`V` behind a `JsValueBridge` trait, with the concrete type appearing only in the exported
+`#[wasm_bindgen]` wrappers, so a downstream crate can supply its own value type and environment.
+Most third-party JS types need no custom value type at all — the opaque path covers them.
+
+**Argument inference rejected on evidence.** Measured with `node`: `fn.length` collapses at the
+first default/rest parameter, destructured parameters have no name, `bind` yields `[native code]`,
+and no parameter-name reflection API exists. Explicit `arguments` declaration is required whenever a
+command takes parameters; `fn.length` serves only as a one-directional check for a missing
+declaration. Consequence: no JavaScript parser is linked into the wasm artifact.
 
 ## Links
 
