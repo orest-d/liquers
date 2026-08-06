@@ -267,6 +267,10 @@ Before putting a query into an example, a doc snippet or a test, check it with `
 It parses the query and builds its plan without evaluating anything — no store is opened, no
 command runs.
 
+The `liquers-validate` skill (`.claude/skills/liquers-validate/`) wraps this: it bundles a digest
+front-end that renders the resolved plan compactly, plus references for the output envelope,
+recipe validation and registry overlays.
+
 ```bash
 cargo run -p liquers-core --features cli --bin liquers-validate -- -- '<query>'
 ```
