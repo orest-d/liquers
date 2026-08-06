@@ -22,8 +22,9 @@ useless unless it can be loaded from a page.
 |---|---|---|
 | `OBJECT` `ERROR` `RUNTIME` `VALUE` `ENVIRON` `EVAL` `COMMAND` | Essential | **selected** |
 | `ASYNCQ` | Profile | **selected** (browser has no synchronous option) |
-| `STUBS` `PACKAGE` | Optional | **selected, minimal** — `wasm-bindgen` emits `.d.ts`; a `wasm-pack`/`trunk` build and a runnable quick-start page |
-| `ASYNCCMD` `STORE` `RECIPE` `UIUSE` `UIDEF` | Optional | deferred, Phase 2 must not preclude them |
+| `ASYNCCMD` | Optional | **selected** — promoted into the initial phase by decision 6; a command that fetches from a server is a primary use case, and a Promise-returning `run` is the natural JS idiom |
+| `STUBS` `PACKAGE` | Optional | **selected, minimal** — `wasm-bindgen` emits `.d.ts`; a `trunk` build and a runnable quick-start page (decision 7) |
+| `STORE` `RECIPE` `UIUSE` `UIDEF` | Optional | deferred, Phase 2 must not preclude them |
 | `MODULE` `POLYGLOT` `WEBSERV` `WEBAPI` | Optional | `NA` for this milestone (`WEBSERV`/`WEBAPI` are server-side; reasons recorded in Phase 2) |
 
 ## Core Interactions
@@ -39,7 +40,8 @@ localStorage/IndexedDB backends) is deferred. Phase 2 must keep the environment'
 ### Command System
 Adds a JS command backend: a `CommandExecutor` adapter plus a callable registry, so a JS object
 carrying metadata and a `run` function becomes a real command with real `CommandMetadata`, planned
-and executed like a Rust command. Rust and JS commands coexist in one registry.
+and executed like a Rust command. Rust and JS commands coexist in one registry. `run` may return a
+value or a Promise (decisions 3 and 6).
 
 ### Asset System
 Reuses `AssetManager`/`AssetRef` unchanged — on wasm this is the `ImmediateAssetManager` selected by
@@ -88,21 +90,49 @@ and 4 are now largely answered by the async-wasm-refactor.
 
    Executed as a Phase 4 step, ahead of the `JsExt` work that depends on it.
 
+3. **Command declaration — decided.** Meaningful defaults wherever possible. **Required:** the
+   command `name` and the JS function. **Everything else is defaulted**, so the minimal declaration
+   stays one line (`COMMAND09`). Argument specifications are required *unless* they can be inferred
+   from the JS function.
+
+   Phase 2 must resolve how far inference can honestly go, because JavaScript carries no type
+   information: `Function.prototype.length` yields arity only, and parameter *names* are available
+   only by parsing `Function.prototype.toString()`, which a minifier or bundler is free to mangle.
+   Inferred arguments therefore get a permissive argument type, and the guide's rule stands — do not
+   infer *silently*: inference results must be visible through metadata inspection after
+   registration (`COMMAND05`), and an explicit `arguments` array always wins.
+
+4. **Environment lifecycle — decided.** Support **both a global singleton and explicit instances**,
+   with the singleton as the first priority and the documented default path. Explicit instances
+   exist for embedders and for test isolation (`ENVIRON05`).
+
+5. **Reentrancy — decided.** A JS command that calls `evaluate` **evaluates immediately/inline**.
+   No heavy long-running background computation is expected in a browser, so the tradeoffs are
+   accepted. Phase 2 must still show the inline path cannot self-deadlock: `ImmediateAssetManager`
+   guards its maps with `std::sync::Mutex`, and on a single-threaded event loop a guard held across
+   an `await` that re-enters the manager would deadlock rather than block. Decision 6 helps here —
+   an async JS command yields to the event loop instead of blocking it (`RUNTIME04`).
+
+6. **Async commands — decided.** Promises are supported **from the start**; `ASYNCCMD` joins the
+   initial phase (see the feature matrix). Many commands are expected to fetch data from a server,
+   so async is a primary case rather than an extension. Sync and async commands must remain
+   distinguishable in metadata (`ASYNCCMD06`).
+
+7. **Packaging — decided.** Start with **trunk**. The artifact must be usable by including the wasm
+   library from a CDN or a plain website — i.e. a plain `<script type="module">` page, not only a
+   bundler. **Embedded/single-file wasm** (everything inlined into one HTML file) is a wanted second
+   delivery form; `npm`/`wasm-pack` and other packaging come later. For the initial phase trunk is
+   sufficient.
+
+   Reference for the single-file target: [`orest-d/gymlog`](https://github.com/orest-d/gymlog).
+   Its build mechanism was not established during Phase 1 — the repository appears to be
+   Dioxus-based rather than trunk-based, so its approach must be examined directly at the packaging
+   milestone rather than assumed to transfer.
+
 ## Open Questions
 
 2. **Opaque value ownership.** How is a retained `JsValue` kept alive, compared, and reported when
-   serialization is attempted (`VALUE06`)? Identity retention promised or not?
-3. **Command declaration shape.** Confirm the guide's object-literal form
-   (`{name, arguments, doc, run}`) and decide which metadata is mandatory versus defaulted, since JS
-   supplies no types for planning (`COMMAND09`/`COMMAND10`).
-4. **Environment lifecycle.** Global singleton, explicit instances, or both? When is the registry
-   frozen, and does `init()` return a Promise as the guide requires?
-5. **Reentrancy.** A JS command that calls `evaluate` re-enters the environment on a single-threaded
-   event loop — what is the policy (`RUNTIME04`), and can `ImmediateAssetManager` support it?
-6. **Async commands.** `ASYNCCMD` is deferred, but a `run` returning a Promise is the obvious JS
-   idiom — reject it explicitly in this milestone or accept it early?
-7. **Packaging.** `wasm-pack` (npm package) or `trunk` (page bundle) — which delivery forms are
-   supported, and does the build run in this repository's constrained CI?
+   serialization is attempted (`VALUE06`)? Identity retention promised or not? → Phase 2.
 
 ## References
 
