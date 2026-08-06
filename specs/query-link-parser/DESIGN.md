@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-04
 
-**Status:** Design complete — ready to implement
+**Status:** Complete — designed, implemented, tested and documented
 
 ## Phase Status
 
@@ -10,7 +10,7 @@
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
-- [ ] Implementation Complete
+- [x] Implementation Complete (2026-08-06)
 
 ## Notes
 
@@ -26,8 +26,11 @@ Key decisions, for anyone picking this up cold:
   the top-level one.
 - **D4a** — `link_query` cannot fail, so a malformed body always surfaces at the
   terminator. Read this before touching the error paths.
-- **D5** — links are the grammar's first recursive construct; `MAX_LINK_MARKERS = 64` is
-  a hypothesis until test C8b passes.
+- **D5** — links are the grammar's first recursive construct. The bound was designed as
+  `MAX_LINK_MARKERS = 64` and **implementation proved that wrong**: parsing is exponential
+  in nesting depth, so 64 never finishes and the guard was itself a DoS vector. Now two
+  bounds: `MAX_LINK_DEPTH = 8` and `MAX_LINK_MARKERS = 64`. See Phase 4 → Implementation
+  Findings, and follow-up `QUERY-LINK-EXPONENTIAL-BACKTRACKING` in `specs/ISSUES.md`.
 
 ## Links
 

@@ -702,3 +702,94 @@ Beyond the four Phase 2 deliverables (steps 11-14):
 2. **Create a task list** — defer, with the steps as tasks.
 3. **Revise** — return to any earlier phase.
 4. **Exit** — implement manually from this plan.
+
+---
+
+## Implementation Findings (2026-08-06)
+
+Executed on branch `claude/query-action-parameter-link-parser-ijoa47`. The plan above is
+left as it was approved; this section records where reality differed. Two findings changed
+the design, one invalidated a test input, and one step was relocated.
+
+### 1. The depth bound was wrong by orders of magnitude — and was itself the hazard
+
+**Designed:** `MAX_LINK_MARKERS = 64`, justified as bounding recursion depth, with C8b
+added to check that depth 64 was survivable and the instruction "if C8b overflows, lower
+the constant".
+
+**Found:** C8b did not overflow. It *hung*. Parsing is **exponential in nesting depth**:
+
+| depth | 10 | 12 | 14 | 15 | 16 | 17 |
+|---|---|---|---|---|---|---|
+| debug parse time | 32 ms | 139 ms | 0.54 s | 1.09 s | 2.26 s | 4.28 s |
+
+The cause is a double parse per level, pre-existing and unrelated to links.
+`transform_segment_without_header` runs `action_requests` first, which parses the action in
+full — recursing through any nested link — then discards it when the required `/` separator
+does not follow. `filename_or_action` immediately parses the same action again. So
+`T(n) = 2·T(n-1)`.
+
+At depth 64 the parse never finishes, which means **the guard as designed did not merely
+fail to protect: it was the denial-of-service vector.** A ~200-byte query would hang the
+parser.
+
+**Changed:** two separate bounds, because the two dimensions have different costs —
+siblings are linear and cheap, nesting is exponential and dangerous. A single count bound
+must be sized for the exponential case and then over-restricts the cheap one.
+
+```rust
+const MAX_LINK_MARKERS: usize = 64;  // total links; siblings are cheap
+const MAX_LINK_DEPTH: usize = 8;     // nesting; ~10 ms worst case
+```
+
+`link_bounds_exceeded` does one linear scan computing both, honouring the `~~` escape so an
+escaped tilde before an `E` is not miscounted as a terminator (test C8c).
+
+**This is exactly what C8b was written to catch**, and the only reason it was caught before
+merge. The Phase 3 reasoning was right; only the predicted failure mode was wrong — hang,
+not overflow. Recorded as follow-up `QUERY-LINK-EXPONENTIAL-BACKTRACKING`; removing the
+depth bound requires restructuring the double parse, which is a change to the core grammar.
+
+### 2. A15's input was impossible
+
+**Designed:** `café-~X~cmd~E`, asserting `~X~` at byte offset 6 and column 6, to exercise
+`get_utf8_column`.
+
+**Found:** `café` does not parse at all. `identifier` tests `AsChar::is_alpha(c as u8)`, and
+that cast truncates: `é` is U+00E9 → 233, which is not alpha. The query fails at offset 3.
+Non-ASCII characters are not part of the query grammar anywhere — `resource_name`,
+`parameter_text` and `header_parameter` all use the same truncating test — so a multi-byte
+character can never precede a reported position, and `get_utf8_column` is not observable
+through valid input.
+
+**Changed:** A15 now pins the actual behavior — non-ASCII is rejected with a position at the
+offending byte, and the ASCII prefix (`caf-~X~cmd~E`) parses links normally.
+
+### 3. D4 could not live in the integration test file
+
+`find_dependencies` is `pub(crate)`, so it is unreachable from `tests/`. D4 moved to
+`plan.rs`'s test module as a `#[tokio::test]`, alongside D1-D3. The remaining end-to-end
+tests (D5, D6, plus a shorthand rejection check) are in
+`liquers-core/tests/action_parameter_link.rs` as planned.
+
+### 4. Minor
+
+- `parse_query`'s error message for a non-link failure was changed from `"Can't parse
+  query"` to `"unexpected input"`, since `Error::query_parse_error` already prefixes
+  `Can't parse query '<q>': `. Caught in review, applied here.
+- One test bug of my own: B5 initially used `unwrap_or_else` on a `Result`, which panics on
+  `Err` — so it fired precisely when the shorthand *was* correctly rejected. Fixed to
+  `expect_err`.
+
+### Result
+
+| Check | Outcome |
+|---|---|
+| `cargo test -p liquers-core --lib` | **425 passed** (was 387; +34 parser, +4 plan) |
+| `cargo test -p liquers-core --tests` | all integration binaries pass, including 3 new |
+| `cargo test -p liquers-core --doc` | **5 passed** (was 3; +2 link examples) |
+| `cargo doc -p liquers-core --no-deps` | no new warnings |
+| Acceptance demo via `liquers-validate` | accepts the explicit form; rejects the shorthand and an unpaired `~E`, each with its worded message |
+
+Steps 1-15 are complete, including all five documentation targets.
+
