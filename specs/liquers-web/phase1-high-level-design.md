@@ -47,8 +47,9 @@ the completed [async-wasm-refactor](../async-wasm-refactor/DESIGN.md). Evaluatio
 
 ### Value Types
 Needs a browser *value type* that can hold an **opaque `JsValue`** alongside ordinary Liquers values,
-plus a bidirectional structural bridge (null/bool/number/string/`Uint8Array`/array/object). Likely
-`CombinedValue<SimpleValue, JsExt>` rather than a new enum — see open question 1.
+plus a bidirectional structural bridge (null/bool/number/string/`Uint8Array`/array/object). Reuses
+`CombinedValue<SimpleValue, JsExt>` rather than a new enum, after relaxing `ValueExtension` — see
+decision 1.
 
 ### Web/API
 None. The public surface is `#[wasm_bindgen]` classes and functions, not HTTP routes.
@@ -65,12 +66,30 @@ features off. Named `liquers-web` per the request; it supersedes the never-imple
 sketch in [`specs/liquers-wf`](../liquers-wf/phase1-high-level-design.md), whose open questions 1, 2
 and 4 are now largely answered by the async-wasm-refactor.
 
+## Decisions
+
+1. **Value type composition — decided.** `liquers_lib::value::extended::ValueExtension`
+   (`liquers-lib/src/value/extended.rs:12`) currently requires `Send + Sync + 'static`, which an
+   opaque `JsValue` cannot satisfy. **Relax it to `MaybeSend + MaybeSync + 'static`** and reuse
+   `CombinedValue`; do not define a competing standalone value type. `liquers-web` then supplies
+   `JsExt: ValueExtension` and uses `WebValue = CombinedValue<SimpleValue, JsExt>`.
+
+   The change is a one-line supertrait edit with a verified-small blast radius:
+   - `liquers_core::value::ValueInterface` already uses exactly these markers
+     (`liquers-core/src/value.rs:49-50`), so this is the async-wasm-refactor's own convention
+     finishing a spot it missed — not a new relaxation of the model.
+   - `ValueExtension` has exactly **one** implementor today, `ExtValue`
+     (`liquers-lib/src/value/mod.rs:113`), and it satisfies the weaker bound trivially.
+   - Every use site writes the bound as `Ext: ValueExtension` and lives inside `extended.rs`, so no
+     call site or generic parameter changes.
+   - The `ValueInterface for CombinedValue<B, E>` impl (`extended.rs:75`) still forces
+     `E: Send + Sync` on native through `MaybeSend`/`MaybeSync`, so native multi-threaded behaviour
+     is unchanged; only `wasm32` gains the vacuous bound.
+
+   Executed as a Phase 4 step, ahead of the `JsExt` work that depends on it.
+
 ## Open Questions
 
-1. **Value type composition.** `liquers_lib::value::extended::ValueExtension` requires
-   `Send + Sync + 'static`, which `JsValue` does not satisfy. Relax it to `MaybeSend`/`MaybeSync`
-   (consistent with the core refactor) and reuse `CombinedValue`, or define a standalone `WebValue`
-   in `liquers-web`? → Phase 2, with the cost to `liquers-lib` measured.
 2. **Opaque value ownership.** How is a retained `JsValue` kept alive, compared, and reported when
    serialization is attempted (`VALUE06`)? Identity retention promised or not?
 3. **Command declaration shape.** Confirm the guide's object-literal form

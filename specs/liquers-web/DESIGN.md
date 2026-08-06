@@ -24,10 +24,12 @@ so the artifact is loadable. `STORE`, `RECIPE`, `ASYNCCMD`, `UIUSE`, `UIDEF` def
   `ImmediateAssetManager` were delivered by `specs/async-wasm-refactor` (complete), and
   `liquers-core` + `liquers-lib` already compile to `wasm32-unknown-unknown` with a Playwright
   e2e proof (`liquers-lib/examples-web/ui_spec_demo`).
-- **Blocker candidate:** `liquers_lib::value::extended::ValueExtension` still requires
+- **Resolved (user decision):** `liquers_lib::value::extended::ValueExtension` still requires
   `Send + Sync + 'static` (`liquers-lib/src/value/extended.rs:12`), which an opaque `JsValue`
-  cannot satisfy. Either relax it to `MaybeSend`/`MaybeSync` or define a standalone value type
-  in `liquers-web` — Phase 2 decision (open question 1).
+  cannot satisfy. It will be **relaxed to `MaybeSend + MaybeSync + 'static`**, matching
+  `ValueInterface` (`liquers-core/src/value.rs:49-50`), and `liquers-web` reuses `CombinedValue`
+  with a `JsExt` extension. One implementor (`ExtValue`), all bounds local to `extended.rs`,
+  native behaviour unchanged.
 - `liquers-wf` was designed but never implemented (not a workspace member); `liquers-web`
   supersedes it.
 
