@@ -107,11 +107,20 @@ and 4 are now largely answered by the async-wasm-refactor.
    - **Identity may hold in practice and must not be relied upon.** A cached non-volatile query
      returns the identical JS object from the in-memory asset map on re-evaluation, so `===` will
      often be observably true. It is documented as incidental, not promised (`VALUE10`).
-   - **Opaque values are treated as immutable by convention.** A retained `JsValue` is mutable and
-     shared, so page code or a later command can mutate it *after* the asset is cached and
-     retroactively change that asset's value. Structural conversion is immune (a copy is a
-     snapshot); direct retention is not. Mutating a retained object voids the determinism guarantee
-     for assets derived from it.
+   - **Opaque values are immutable by discipline, not by enforcement.** A retained `JsValue` is
+     mutable and shared, so page code or a later command can mutate it *after* the asset is cached
+     and retroactively change that asset's value. Structural conversion is immune (a copy is a
+     snapshot); direct retention is not. This looseness is **accepted deliberately**: the older
+     Python implementation permitted the same thing, discipline proved sufficient, and it caused
+     fewer problems in practice than expected. For the browser — simpler, often frontend
+     applications — flexibility and simplicity outrank strong guarantees. The native/backend side
+     (`liquers-axum`) has the opposite tradeoff and should not inherit this posture.
+   - **Mutable state belongs in the language runtime, not in a liquers value.** A JS command can
+     close over a module-scope variable, `window`, a DOM node, or IndexedDB through `web-sys`, which
+     keeps mutation explicit instead of hidden inside a value. Liquers values therefore do not need
+     to be mutable, which is what makes the convention above cheap. Consequence: such state is
+     invisible to dependency tracking, so a command reading it should be declared `volatile` or its
+     assets are cached against state Liquers cannot see.
    - **Opaque retention is session-and-realm-scoped.** Anything leaving that scope — persistence
      through a store, a worker or second realm, a codec boundary — structurally converts if it can
      and raises a typed error if it cannot.
@@ -127,6 +136,23 @@ and 4 are now largely answered by the async-wasm-refactor.
      to dependency tracking. Degrading to structural conversion at the serialization boundary is
      **opt-in only**: a class instance silently returning as a plain object after a cache eviction
      is a bad debugging experience, and silent inference is ruled out by decision 3.
+   - **Opaque retention is also the fast path, which is why the opt-in must be ergonomic.**
+     Structural conversion of a compound object costs roughly one boundary crossing per property
+     (each `Reflect` access is a call) plus a UTF-16→UTF-8 re-encode per string, so it is O(size);
+     opaque retention is one heap-table slot, O(1). For a value that passes *through* Rust untouched
+     — the common JS-command-to-JS-command frontend pipeline — conversion is pure overhead.
+
+     This does **not** flip the default. Primitives must convert or the framework stops working: an
+     opaque string has no `identifier`, `type_name`, media type or filename, fails `as_bytes` so it
+     never persists, and no Rust command can consume it. And any Rust command that does inspect the
+     value pays the conversion anyway, only later and possibly repeatedly. The magnitude of the
+     win is a *hypothesis to be measured* in Phase 3 (a benchmark crossing the boundary with a large
+     object, both ways), not an assumption to design on.
+
+     Wasm **size** is not a factor in this choice: the conversion layer exists either way, so opaque
+     support adds an enum variant rather than a subsystem. The size levers are `liquers-lib` default
+     features, panic/formatting machinery, and `wasm-opt` — a packaging-milestone concern
+     (decision 7).
 
 3. **Command declaration — decided.** Meaningful defaults wherever possible. **Required:** the
    command `name` and the JS function. **Everything else is defaulted**, so the minimal declaration

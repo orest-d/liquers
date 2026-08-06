@@ -32,10 +32,20 @@ by default, opaque retention opt-in, `JsValue` held directly (registry-plus-ID r
 callables under `COMMAND`). Liquers guarantees query determinism, **not** `roundtrip(obj) === obj`,
 so direct retention is an optimization and structural conversion is a legitimate fallback.
 Follows from that: `===` may hold incidentally but is not promised; opaque values are immutable
-by convention, since mutating a retained object retroactively changes a cached asset and voids
-the determinism guarantee; retention is session-and-realm-scoped, converting or erroring at the
-boundary; serialization fails cleanly, which the core already absorbs
-(`assets.rs:2994`/`:3016`).
+by discipline rather than enforcement (the Python implementation allowed the same and it caused
+fewer problems than expected — the browser deliberately trades guarantees for flexibility, and
+`liquers-axum`/backend must not inherit that posture); mutable state belongs in the language
+runtime (`window`, closures, IndexedDB via `web-sys`) and such commands should be `volatile`
+since that state is invisible to dependency tracking; retention is session-and-realm-scoped,
+converting or erroring at the boundary; serialization fails cleanly, which the core already
+absorbs (`assets.rs:2994`/`:3016`).
+
+Opaque retention is also the **fast path** — structural conversion is O(size) boundary crossings
+(one `Reflect` call per property, UTF-16→UTF-8 per string) versus O(1) for a heap-table slot — so
+the opt-in must be ergonomic. It still does not flip the default, because primitives must convert
+or `identifier`/`type_name`/media type/`as_bytes` and every Rust command break. Magnitude is a
+**Phase 3 measurement**, not an assumption. Wasm *size* is not a factor here (the conversion layer
+exists either way); size belongs to the packaging milestone.
 
 **Phase 1 findings:**
 - The wasm foundation already exists: `MaybeSend`/`MaybeSync`, `BoxFuture`, and
