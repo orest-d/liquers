@@ -28,10 +28,13 @@
 //!
 //! # String action parameters
 //!
-//! An action is an identifier followed by zero or more `-parameter` components:
+//! An action is an identifier followed by zero or more `-parameter` components. A
+//! parameter is either a string or a [link](#link-action-parameters):
 //!
 //! ```text
-//! action = identifier, { "-", string-parameter }
+//! action           = identifier, { "-", action-parameter }
+//! action-parameter = link-parameter | string-parameter
+//! link-parameter   = "~X~", link-query, "~E"
 //! ```
 //!
 //! Unescaped parameter text accepts ASCII alphanumeric characters, `_`, `+`, and
@@ -54,16 +57,70 @@
 //! and `-`. It does not emit the protocol abbreviations, although the parser
 //! accepts them.
 //!
+//! `~X~` and `~E` are **not** entities. They do not decode to a character inside a string
+//! parameter; they delimit a different kind of parameter entirely. See below.
+//!
 //! Empty parameters are accepted: `action-` contains one empty string parameter.
 //!
-//! ## Known link-parser bug
+//! # Link action parameters
 //!
-//! [`crate::query::ActionParameter::Link`] is part of the query data model and its
-//! encoder emits `~X~<query>~E`. The current parser has no production for that
-//! form. Consequently, an encoded `Link` parameter does **not** currently
-//! round-trip through [`parse_query`]. The `~X~<query>~E` syntax is an intended,
-//! supported language feature; its omission from this parser is tracked as
-//! `QUERY-ACTION-PARAMETER-LINK-PARSER` in `specs/ISSUES.md`.
+//! A parameter of the form `~X~<query>~E` is a **link**: the delimited text is a complete
+//! Liquers query, and the parameter parses to
+//! [`crate::query::ActionParameter::Link`]. The linked query is evaluated and its result
+//! supplied as the argument value.
+//!
+//! ```text
+//! action-~X~hello~E                  one link parameter
+//! action-before-~X~hello~E-after     a link between two string parameters
+//! action-~X~inner-~X~deep~E~E        links nest
+//! action-~X~~E                       an empty embedded query
+//! ```
+//!
+//! A link is a *whole* parameter and is never concatenated with parameter text:
+//! `action-abc~X~q~E` is a parse error. Links may appear at any parameter position, but
+//! only in a transform segment — a resource path cannot contain one.
+//!
+//! The `~~` escape still applies inside the embedded query, so `~~E` is an escaped tilde
+//! followed by `E`, not a terminator: `action-~X~inner-a~~E~E` has the body
+//! `inner-a~~E`, whose parameter decodes to `a~E`.
+//!
+//! ## The shorthand is not allowed inside a link
+//!
+//! The resource/transform shorthand (`data/report/-/to_text`) is **discouraged
+//! everywhere** — prefer the explicit `-R/data/report/-/to_text`, which is what
+//! [`crate::query::Query::encode`] emits and what round-trips unchanged — and inside
+//! `~X~…~E` it is **rejected**:
+//!
+//! ```text
+//! action-~X~-R/data/report/-/to_text~E    accepted
+//! action-~X~data/report/-/to_text~E       parse error
+//! ```
+//!
+//! The reason is that the shorthand is recognised only when it accounts for the entire
+//! query, which the parser detects with `eof`. A link has no `eof` before its `~E`, so
+//! accepting the shorthand there would make the same text denote a resource fetch at top
+//! level and three command invocations inside a link. Rejecting it removes the ambiguity
+//! rather than resolving it silently.
+//!
+//! The same ambiguity exists inside `$…$` template expansions, where the shorthand is
+//! currently accepted with the transform reading and is **not** diagnosed. Prefer the
+//! explicit form there too.
+//!
+//! ## Bounds
+//!
+//! Links are the only recursive construct in the grammar, and parsing is exponential in
+//! nesting depth. [`parse_query`] and [`parse_simple_template`] therefore reject, before
+//! parsing, any input nested deeper than 8 links or containing more than 64 in total.
+//!
+//! ## Round-trip limits of programmatic construction
+//!
+//! [`crate::query::encode_token`] is the only escaping path in the encoder, and it is
+//! applied only to string parameters. Resource names, action names, header names and
+//! values, and filenames are emitted raw. A programmatically-set token containing `~X~`
+//! or `~E` therefore breaks the encode→parse round-trip, and may re-parse as a *different
+//! valid query* rather than failing. None of this is reachable from parsed input, since
+//! those productions all exclude `~`; it is an instance of the general rule that
+//! programmatic construction is not validation.
 //!
 //! # Segment headers
 //!
@@ -160,6 +217,24 @@
 //!
 //! let template = parse_simple_template("Result: $load/to_text$")?;
 //! assert_eq!(template.encode(), "Result: $load/to_text$");
+//! # Ok::<(), liquers_core::error::Error>(())
+//! ```
+//!
+//! Link parameters:
+//!
+//! ```
+//! use liquers_core::parse::parse_query;
+//!
+//! // The parameter is a query, not a literal.
+//! let query = parse_query("greet-~X~greeting~E")?;
+//! let parameter = &query.action().expect("action").parameters[0];
+//! assert!(parameter.is_link());
+//! assert_eq!(parameter.link_value().expect("link").encode(), "greeting");
+//! assert_eq!(query.encode(), "greet-~X~greeting~E");
+//!
+//! // The explicit resource form is accepted inside a link; the shorthand is not.
+//! assert!(parse_query("to_text-~X~-R/data/report/-/to_text~E").is_ok());
+//! assert!(parse_query("to_text-~X~data/report/-/to_text~E").is_err());
 //! # Ok::<(), liquers_core::error::Error>(())
 //! ```
 

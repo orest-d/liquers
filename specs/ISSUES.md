@@ -165,8 +165,10 @@ and verify:
 5. `Ready`, `Source`, `Override`, and `Volatile` binary behavior remains unchanged.
 
 ### Issue: QUERY-ACTION-PARAMETER-LINK-PARSER
-Status: Open
+Status: Resolved (2026-08-06)
 Priority: P0 (High)
+
+Design: `specs/query-link-parser/`. Implementation: `liquers-core/src/parse.rs`.
 
 #### Problem
 
@@ -216,6 +218,67 @@ The existing encoder tests in `liquers-core/src/query.rs` establish the intended
 serialized form. The current rejection test in `liquers-core/src/parse.rs` records
 the bug and should be replaced by successful parsing and round-trip assertions when
 the parser is fixed.
+
+#### Resolution
+
+All six expected behaviors are implemented and covered:
+
+| # | Expected behavior | Test |
+|---|---|---|
+| 1 | parser recognizes `~X~<query>~E` | `link_tests::a1`, `documented_query_language_contract` |
+| 2 | embedded query uses the authoritative grammar | `link_tests::b3`, `b4` (15-entry canonical corpus) |
+| 3 | result is `ActionParameter::Link(query, position)` | `link_tests::a1`, `a8` |
+| 4 | encode/reparse preserves link and embedded semantics | `link_tests::b1`, `b2`, `b3` |
+| 5 | links work at every parameter position | `link_tests::a2`, `a3`, `a11` |
+| 6 | malformed link → `ParseError` with a useful position | `link_tests::c1`, `c3`-`c6`, `c10` |
+
+The rejection test at `parse.rs` was replaced, not deleted, as required.
+
+Two behaviors were added beyond the issue's scope because the fix created them:
+
+1. **The resource/transform shorthand is rejected inside a link.** `~X~a/b/-/c~E`
+   would otherwise mean something different from `parse_query("a/b/-/c")`, because the
+   `eof`-gated query forms cannot match before a `~E`. Rejecting removes the ambiguity
+   instead of resolving it silently. The shorthand is also now documented as
+   discouraged generally.
+2. **Nesting and total link count are bounded** (`MAX_LINK_DEPTH = 8`,
+   `MAX_LINK_MARKERS = 64`). See the follow-up below.
+
+#### Follow-up: QUERY-LINK-EXPONENTIAL-BACKTRACKING
+
+Discovered while implementing this issue, and the reason a depth bound exists.
+
+**Parsing is exponential in link nesting depth.** In
+`transform_segment_without_header`, `action_requests` parses an action in full —
+recursing through any nested link — and then discards that work when the required `/`
+separator does not follow; `filename_or_action` immediately parses the same action
+again. Two full sub-parses per level gives `T(n) = 2·T(n-1)`.
+
+Measured on a debug build: depth 10 ≈ 32 ms, 14 ≈ 0.54 s, 16 ≈ 2.3 s, 17 ≈ 4.3 s,
+doubling per level. A ~200-byte query nested 64 deep never finishes, so an unbounded
+depth limit would itself be a denial-of-service vector on any parser reachable from
+HTTP input.
+
+`MAX_LINK_DEPTH = 8` (≈10 ms worst case) contains it. Removing the bound requires
+restructuring the double-parse in `transform_segment_without_header`, which is a
+change to the core query grammar and was out of scope here. The exponential behavior
+predates links — links are simply the first construct that makes it reachable through
+recursion.
+
+#### Follow-up: QUERY-TEMPLATE-SHORTHAND-AMBIGUITY
+
+The same shorthand ambiguity this issue fixes for links exists in `$...$` template
+expansions and is **not** diagnosed. `template_expand_query` calls `query_parser` with
+a trailing `$`, so the `eof`-gated forms cannot match there either:
+
+```
+parse_query("data/report/-/to_text")             -> -R/data/report/-/to_text  (resource read)
+parse_simple_template("$data/report/-/to_text$") -> data/report/-/to_text     (three commands)
+```
+
+Pre-existing, unrelated to links, and left alone deliberately. The same detector would
+apply with `peek(tag("$"))` in place of `peek(tag("~E"))`. Documented as a caveat in
+`parse.rs` and doc-02 in the meantime.
 
 ### Issue: ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS
 Status: Partially Resolved (WP-2)
