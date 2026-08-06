@@ -74,11 +74,20 @@ over `E`/`V` behind a `JsValueBridge` trait, with the concrete type appearing on
 `#[wasm_bindgen]` wrappers, so a downstream crate can supply its own value type and environment.
 Most third-party JS types need no custom value type at all — the opaque path covers them.
 
-**Argument inference rejected on evidence.** Measured with `node`: `fn.length` collapses at the
-first default/rest parameter, destructured parameters have no name, `bind` yields `[native code]`,
-and no parameter-name reflection API exists. Explicit `arguments` declaration is required whenever a
-command takes parameters; `fn.length` serves only as a one-directional check for a missing
-declaration. Consequence: no JavaScript parser is linked into the wasm artifact.
+**Argument declaration: explicit path plus inference over a verified-safe subset.** Explicit
+`arguments` is the reliable path and always wins. Inference (regex over `toString()`) is accepted
+**only** when every parameter is a plain identifier and the token count equals `fn.length`;
+defaults, rest, destructuring and bound/native functions are refused with a specific
+`ParameterError` rather than mangled — measured case by case with `node`. Minification stays
+undetectable, giving correct arity and wrong names; because Liquers binds arguments **positionally**
+that degrades labels rather than behaviour, and a heuristic `console.warn` surfaces it. A
+parser-based inference can widen the accepted subset later without changing the contract. No
+JavaScript parser is linked into the wasm artifact.
+
+**Namespaces:** root is the primary path; any explicit namespace is supported (no forced `js`
+namespace); duplicates replace, inheriting `add_command`'s existing behaviour, with a warning when a
+JS command replaces a Rust one. `web` is reserved for platform-dependent commands (`alert`, DOM),
+registers nothing in this phase, and rejects registration from JS.
 
 ## Links
 

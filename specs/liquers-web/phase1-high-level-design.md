@@ -159,16 +159,15 @@ and 4 are now largely answered by the async-wasm-refactor.
    stays one line (`COMMAND09`). Argument specifications are required *unless* they can be inferred
    from the JS function.
 
-   **Resolved in Phase 2 by measurement: inference is rejected, declaration is explicit.** The
-   conditional above was tested. `Function.prototype.length` collapses at the first default or rest
-   parameter (`(state, a = 1, b = 2)` reports 1), a destructured parameter has no name at all,
-   `bind` yields `[native code]`, and no parameter-name reflection API exists. The canonical
-   `toString()`-plus-regex technique was implemented and measured: it returns correct-looking but
-   **wrong** names for minified functions rather than failing, and AngularJS 1.x's retreat from
-   exactly this mechanism to `$inject`/`ngAnnotate` is the industry precedent. So `arguments` is
-   required for any command that takes parameters; omitting it declares a parameterless command; and
-   `fn.length` is used only as a one-directional consistency check to catch a missing declaration,
-   never to synthesize metadata. See Phase 2, "Argument declaration is explicit".
+   **Resolved in Phase 2: both paths, with inference restricted to a verified-safe subset.**
+   Explicit `arguments` is the reliable path and always wins. When absent, a regex parse of
+   `Function.prototype.toString()` infers names — but *only* when every parameter is a plain
+   identifier and the token count equals `fn.length`; defaults, rest, destructuring, and
+   bound/native functions are refused with a specific `ParameterError` rather than mangled. The one
+   undetectable case is minification, which yields correct arity and wrong names; since Liquers
+   binds arguments **positionally**, that degrades labels and documentation rather than behaviour,
+   and a heuristic `console.warn` surfaces it. See Phase 2, "Argument declaration, and simple
+   inference over a verified-safe subset".
 
 4. **Environment lifecycle — decided.** Support **both a global singleton and explicit instances**,
    with the singleton as the first priority and the documented default path. Explicit instances

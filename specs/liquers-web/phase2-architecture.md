@@ -328,10 +328,21 @@ enum IsAsync {
 
 **No default match arm** on `StateMode` or `IsAsync`.
 
-#### Argument declaration is explicit — inference rejected on evidence
+#### Argument declaration, and simple inference over a verified-safe subset
 
-Phase 1 decision 3 made argument specifications required *unless they could be inferred from the
-function*, and assigned the verification here. **Inference was tested and rejected.**
+Two paths, by design:
+
+- **Explicit `arguments`** — the reliable path, always available, and sufficient on its own. It is
+  what a command should use when it takes anything non-trivial.
+- **Regex inference** — a quick, ergonomic path for the common shape, accepted **only over a subset
+  where the parse is provably exact**, and refusing loudly everywhere else.
+
+A parser-based inference covering defaults and destructuring can extend the accepted subset later
+without changing this contract; that is deliberately out of the initial phase.
+
+##### Why a subset, and which one
+
+The candidate signals were measured rather than assumed.
 
 Measured with `node` against the candidate signals:
 
@@ -381,30 +392,69 @@ defeated by minification, it still cannot evaluate a default *expression* such a
 JavaScript parser into the wasm artifact — against decision 7's size goal. Rejected on all three
 counts.
 
-**Opt-in inference is rejected too.** Offering `inferArguments: true` as a development convenience
-was considered; it fails in the same silent way under a bundler, so it would ship a foot-gun whose
-symptom appears only in production builds.
+##### The rule
 
-**The rule.**
+1. **An explicit `arguments` array always wins**, is used verbatim, and is the documented reliable
+   path. The two are never merged.
+2. **When `arguments` is absent, infer** — but only over the safe subset:
+   - Strip comments, take the text between the first `(` and the first `)`, split on `,`.
+   - **Every token must match `^[A-Za-z_$][A-Za-z0-9_$]*$`** — a plain identifier. Any token that
+     does not (a default `=`, a rest `...`, a destructuring `{`/`[`) **refuses inference** with a
+     `ParameterError` naming the offending parameter and directing the author to declare
+     `arguments`.
+   - **Cross-check `tokens.length == fn.length`.** This catches bound and native functions, whose
+     `toString()` yields no recoverable parameter list, and any case where the split disagrees with
+     the one reliable signal. Because defaults and rest are already refused, this is an exact
+     equality rather than a one-directional check.
+   - Drop the first token when `state_mode != StateMode::None`.
+3. Inferred arguments get `ArgumentType::Any` — already the enum's `#[default]`
+   (`command_metadata.rs:170-172`) — and no default value. A JS default like `count = 2` is *not*
+   readable as metadata; a command needing one declares `arguments`.
+4. Inferred arguments are flagged `inferred: true` in metadata, so `describeCommand(name)` shows
+   exactly what was registered and how it was obtained (`COMMAND05`, `COMMAND09`).
 
-1. **`arguments` is required for any command that takes parameters.** It is used verbatim; nothing
-   is synthesized from the function.
-2. **Omitting `arguments` declares a command with no parameters** — the common case for source
-   commands and simple transforms, so the minimal declaration stays one line (`COMMAND09`).
-3. **`fn.length` is used only to catch the mistake, never to build metadata.** If
-   `fn.length - state_offset` exceeds the declared argument count, registration fails with a
-   `ParameterError` naming both counts. The check is deliberately one-directional: `fn.length`
-   *under*-reports past a default or rest parameter, so a lower value proves nothing, while a
-   higher value proves the declaration is missing arguments the function requires.
-4. Declared arguments without a `type` get `ArgumentType::Any`, already the enum's `#[default]`
-   (`command_metadata.rs:170-172`).
+##### Verified behaviour of the rule
 
-Two things fall out of this. No JavaScript parser is linked into the wasm binary, which matters for
-artifact size (decision 7). And minification becomes a non-issue rather than a documented
-limitation — nothing depends on source text surviving a bundler.
+Measured against the implementation of the rule above:
 
-`describeCommand(name)` still returns the resulting `CommandMetadata`, so what was registered is
-always inspectable (`COMMAND05`).
+| Signature | Result |
+|---|---|
+| `(state, count)` | infer `["count"]` |
+| `(state, a, b)` | infer `["a","b"]` |
+| `(a, b)` — no state | infer `["a","b"]` |
+| `(state)` | infer `[]` |
+| `function (state /*, hidden */, count)` | infer `["count"]` — comments stripped correctly |
+| `(state, count = 2)` | **refuse** — `"count = 2"` is not a plain identifier |
+| `(state, f = (x,y) => x)` | **refuse** — `"f = (x"` is not a plain identifier |
+| `(state, {a, b})` | **refuse** — `"{a"` is not a plain identifier |
+| `(state, ...rest)` | **refuse** — `"...rest"` is not a plain identifier |
+| `fn.bind(null)` | **refuse** — token count 0 ≠ `fn.length` 2 |
+| `Math.max` (native) | **refuse** — token count 0 ≠ `fn.length` 2 |
+| `(a,b)` after minification | infer `["b"]` — **correct arity, wrong name** |
+
+Every case the regex mangles is refused with a specific reason. The subset it accepts, it parses
+exactly.
+
+##### The one residual failure, and why it is acceptable
+
+Minification is undetectable: `(a,b)` parses cleanly and consistently, so inference accepts it and
+produces `["b"]` instead of `["count"]`.
+
+**This degrades labels, not behaviour.** Liquers binds query arguments **positionally** —
+`repeat-3`, not `repeat-count=3` — and arity survives minification intact. So a minified inferred
+command still evaluates correctly; what suffers is the argument *name* shown in metadata,
+documentation and UI labels. That is a real cost but a bounded one, and it is the price of the
+ergonomic path. Authors who need stable names, or who ship through a minifying bundler, declare
+`arguments` — which is exactly what AngularJS 1.x concluded when minification broke its
+`toString`-based DI and it added `$inject` and `ngAnnotate`.
+
+Implementation must therefore make the degradation visible rather than silent: when every inferred
+name is ≤ 2 characters and there is more than one, a `console.warn` notes that the names look
+minified and suggests an explicit declaration. Cheap, and it surfaces the one failure the parse
+cannot detect.
+
+No JavaScript parser is linked into the wasm artifact (decision 7's size goal); the regex plus the
+identifier check is the whole mechanism.
 
 ## Trait Implementations
 
@@ -475,6 +525,30 @@ the `Function` and takes `state`/`args`/`ctx` by value, borrowing nothing.
 `IsAsync::Async` is registered *only* on the async path; if the sync path is reached for it, the
 result is an `ExecutionError` stating that an async command cannot execute synchronously — rather
 than a silent wrong answer.
+
+### Namespace policy
+
+**Root is the primary path.** A declaration without a `namespace` registers into the root namespace,
+where it sits alongside the Rust commands and is callable with no namespace prefix in a query. This
+keeps the minimal declaration minimal.
+
+**Any explicit namespace is supported.** `namespace: "myapp"` puts the command in `myapp`, reachable
+via the usual `ns-myapp/` selector. There is deliberately **no** forced `js` namespace: a command's
+namespace should reflect what it is for, not which language implemented it. The user picks.
+
+**Duplicate policy: replace.** Registering a name that already exists replaces both the executor and
+the metadata. This is already `CommandMetadataRegistry::add_command`'s behaviour
+(`command_metadata.rs:1058-1071` — it overwrites in place and preserves `impl_version`), so the
+policy is inherited rather than invented, and it matches an iterative browser workflow where a page
+re-registers commands on reload. A JS command may replace another JS command; **replacing a Rust
+command is permitted but emits a `console.warn`**, since silently shadowing a built-in is the more
+surprising case (`COMMAND06`).
+
+**Reserved namespace.** `web` is reserved for platform-dependent commands provided by `liquers-web`
+itself — browser-only operations such as `alert`, and later DOM or `window` access — so that a query
+using them is visibly platform-bound and a native environment can reject or stub them. The initial
+phase **registers no commands there**; the name is reserved now so that later additions do not have
+to fight user code for it. Registration into `web` from JS is rejected with a `ParameterError`.
 
 ## Sync vs Async
 
@@ -760,11 +834,7 @@ segment, per the guide's Appendix A).
 
 1. ~~Option X vs Option Y~~ — **decided: Option Y**, plus the generic-internals extension path in
    "Extensibility" above, so a user can still supply their own value type and environment.
-2. **Command namespaces** — should JS-registered commands default to the root namespace (simplest,
-   collides with Rust commands) or to a dedicated `js` namespace (safer, more to type)? The
-   recommendation is **root with replace-on-duplicate**, since replacement is already
-   `CommandMetadataRegistry::add_command`'s behaviour (`command_metadata.rs:1058-1071`) and matches
-   an iterative browser workflow.
+2. ~~Command namespaces~~ — **decided**, see "Namespace policy" below.
 3. **Unregistration** — `CommandRegistry` has no `unregister`. Re-registration (replace) works
    today. Is unregister needed in this phase, or is `COMMAND06` satisfied by the replace policy plus
    a documented limitation?
@@ -774,9 +844,12 @@ segment, per the guide's Appendix A).
 - Benchmark the opaque-vs-structural boundary cost (Phase 1 decision 2's unmeasured hypothesis).
 - `RUNTIME04` must actually exercise the reentrancy argument above; if it cannot be made to pass,
   the design changes, not the test.
-- Test cases for the argument-declaration rule: a function whose `fn.length` exceeds the declared
-  argument count must fail registration; a function with default parameters must register correctly
-  from its explicit declaration despite `fn.length` under-reporting.
+- Test cases for the inference rule, one per row of the verified-behaviour table: each accepted
+  shape infers the right names, and each refused shape fails registration with its specific reason
+  rather than misbinding. Plus: an explicit `arguments` array overrides inference entirely, and a
+  minified-looking inference emits the warning.
+- Namespace tests: root default, explicit namespace, replace-on-duplicate, the warning when a Rust
+  command is replaced, and rejection of registration into the reserved `web` namespace.
 - The generic bridge functions must be instantiated at a **second** value type in the test suite, so
   the Tier-2 extension path is proven rather than assumed.
 - `PACKAGE03`: the quick-start page must evaluate a query end to end from a plain
