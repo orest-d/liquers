@@ -90,7 +90,17 @@ replacement emits a `console.warn`** — with a distinct message when a JS comma
 Rust one. `web` is reserved for platform-dependent commands (`alert`, DOM), registers nothing in
 this phase, and rejects registration from JS.
 
-**Unregistration in scope (user decision).** `liquers-core` gains two additive inherent methods:
+**Unregistration in scope (user decision).** Justification, since replace already covers page
+reload: without removal, a JS command closure owns a `js_sys::Function` whose scope can retain DOM
+nodes, buffers, listeners and socket handles, and the registry holds that closure in an `Arc` for
+the environment's lifetime — so an SPA registering commands per route leaks them all on navigation,
+with no recourse because the primary path is a *singleton* environment. `unregister` drops the entry
+and releases the handles (`RUNTIME05`). Secondary: singleton test isolation (`ENVIRON05`) and
+`COMMAND06` conformance without a carve-out. **Known limitation:** replacing a Rust command destroys
+it (`insert` overwrites, `commands.rs:497`), so unregister removes the replacement and cannot
+restore the built-in — hence the warning on replacement.
+
+`liquers-core` gains two additive inherent methods:
 `CommandRegistry::unregister` and `CommandMetadataRegistry::remove_command` — neither registry has
 any removal method today. The correctness requirement is that metadata and *both* executor maps are
 removed together, since planning consults metadata while execution consults executors; removing only

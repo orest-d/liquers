@@ -528,6 +528,41 @@ than a silent wrong answer.
 
 ### Unregistration — a small `liquers-core` addition
 
+#### Why unregister is needed
+
+Replace already covers the obvious case — a page re-registering its commands on reload — so
+unregister has to earn its place on something replace cannot do. It does:
+
+1. **Otherwise, a command's JavaScript resources are pinned for the environment's lifetime.** This
+   is the substantive reason. A JS command closure owns a `js_sys::Function`, and that function's
+   closure scope can retain arbitrary JS objects: DOM nodes, large `ArrayBuffer`s, event listeners,
+   WebSocket or `EventSource` handles. The closure is stored in
+   `Arc<Box<AsyncExecutorFn<E>>>` inside the registry's map, so nothing releases it while the
+   environment lives. In a single-page app that registers commands per route or per view,
+   navigating away therefore leaks every JS object those commands captured, with no way to
+   reclaim them short of discarding the whole environment — and the environment is the *singleton*
+   on the primary path (decision 4). `unregister` drops the map entry, the `Arc` refcount reaches
+   zero, the `Function` drops, and the wasm-bindgen heap slot is released. This is `RUNTIME05`
+   ("cancellation and shutdown release handles") applied to registration, and it is the same
+   pinning analysis Phase 1 decision 2 made for opaque values.
+2. **Test isolation on the singleton path (`ENVIRON05`).** An explicit instance can be dropped
+   wholesale, but tests exercising the documented default path share one global environment.
+   Without removal, each test leaks its registrations into the next.
+3. **`COMMAND06` conformance without a carve-out.** The guide requires a duplicate *and* unregister
+   policy. Replace-only would mean marking half the feature `NA` in a design whose whole purpose is
+   to conform.
+
+**What unregister does *not* fix, stated because it is easy to assume otherwise.** Replacing a Rust
+command **destroys** it rather than shadowing it: `register_command` and `register_async_command`
+`insert` into the same map keyed by `CommandKey` (`commands.rs:497`), overwriting the previous
+executor, and `add_command` overwrites the metadata in place. There is no saved original, so
+`unregister` removes the *replacement* and leaves the key empty — it cannot restore the built-in.
+Within a session a shadowed Rust command is gone until the environment is rebuilt. This is the
+reason replacement now warns; if restoring built-ins ever matters, it needs a separate mechanism
+(saving the displaced executor) and is out of scope here.
+
+#### Specification
+
 `COMMAND` asks for register, inspect, replace **and unregister**. Replace exists; unregister does
 not — neither `CommandRegistry` nor `CommandMetadataRegistry` has any removal method today
 (verified: `command_metadata.rs` exposes `add_command`, `get`, `get_mut`,
