@@ -46,26 +46,36 @@ def find_repo_root(start: Path) -> Path:
 
 
 def find_binary(root: Path) -> list[str]:
-    """Prefer an already-built binary; fall back to `cargo run`, which builds on demand.
+    """Resolve how to invoke the validator, preferring correctness over startup time.
 
-    A cold build of liquers-core with the `cli` feature takes a couple of minutes, so it is
-    worth saying that is what is happening rather than appearing to hang.
+    Inside the workspace this always goes through `cargo run`, which performs Cargo's freshness
+    check and rebuilds when the parser, planner or validator sources have changed. Running a
+    stale `target/debug` artifact instead would silently validate against obsolete code — the
+    worst possible failure for a tool whose entire job is to tell you the truth about a query.
+    The check costs ~0.25s when everything is up to date, which is a good trade.
+
+    `$LQV_BINARY` is the explicit escape hatch for a prebuilt binary (CI, or a sandbox where
+    building is not an option). It is opt-in, so it cannot surprise anyone with stale results.
     """
-    for profile in ("debug", "release"):
-        candidate = root / "target" / profile / BIN_NAME
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return [str(candidate)]
+    override = os.environ.get("LQV_BINARY")
+    if override:
+        return [override]
+
+    if (root / "liquers-core").is_dir():
+        return [
+            "cargo", "run", "--quiet", "-p", "liquers-core",
+            "--features", "cli", "--bin", BIN_NAME, "--",
+        ]
+
+    # Outside a checkout, cargo has nothing to build from; fall back to an installed binary.
     on_path = shutil.which(BIN_NAME)
     if on_path:
         return [on_path]
-    print(
-        f"note: no built {BIN_NAME} found; building it with cargo (first run takes a few minutes)",
-        file=sys.stderr,
+
+    sys.exit(
+        f"error: not inside a liquers checkout and no {BIN_NAME} on PATH.\n"
+        f"       Run from the repository, or set LQV_BINARY to a built validator."
     )
-    return [
-        "cargo", "run", "--quiet", "-p", "liquers-core",
-        "--features", "cli", "--bin", BIN_NAME, "--",
-    ]
 
 
 def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
@@ -242,8 +252,15 @@ def main() -> int:
     completed = subprocess.run(command, capture_output=True, text=True)
 
     if not completed.stdout.strip():
-        # Exit 2 keeps stdout empty on purpose: the tool was invoked wrongly.
+        # Empty stdout means either a bad invocation (the validator exits 2 that way on purpose)
+        # or a failed build. Cargo's exit code distinguishes them, and stderr carries the reason.
         sys.stderr.write(completed.stderr)
+        if completed.returncode not in (0, 1, 2):
+            print(
+                f"note: {' '.join(command[:2])} failed before the validator ran "
+                f"(exit {completed.returncode}) — this is a build failure, not a bad query.",
+                file=sys.stderr,
+            )
         return completed.returncode if completed.returncode else 2
 
     if raw:

@@ -45,8 +45,14 @@ python3 .claude/skills/liquers-validate/scripts/lqv.py -- '<query>' ['<query>' â
 
 `lqv.py` runs the validator and renders the part you have to read. The raw envelope carries a
 `position` object on every element, so a two-step plan is ~40 lines of JSON; the digest is four.
-It passes all options through, finds or builds the binary, and returns the validator's exit code.
-Add `--raw` for the full JSON when you need a field the digest omits.
+It passes all options through and returns the validator's exit code. Add `--raw` for the full JSON
+when you need a field the digest omits.
+
+It invokes the validator through `cargo run`, so Cargo's freshness check rebuilds when the parser,
+planner or validator sources have changed â€” a tool that reports on obsolete code is worse than no
+tool. That costs ~0.25s when everything is up to date. Set `LQV_BINARY` to a prebuilt validator to
+skip it (CI, or a sandbox where building is not possible); being explicit, it cannot surprise you
+with stale results.
 
 ```
 $ python3 .claude/skills/liquers-validate/scripts/lqv.py -- \

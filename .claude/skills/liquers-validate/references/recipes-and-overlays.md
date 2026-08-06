@@ -116,20 +116,52 @@ that does not exist.
 
 ### A proposal that changes an existing signature
 
-Once a design document proposes a concrete signature, an overlay file is better than `--command`:
+Once a design document proposes a concrete signature, an overlay file is better than `--command`.
+
+**Build the overlay by copying the real entry out of `specs/command_registry.yaml` and editing
+it.** An overlay file is a whole `CommandMetadataRegistry`, and most of its fields have no serde
+default — `label`, `cache`, `volatile`, `expires`, `definition` and `state_argument` on the
+command, `label` on every argument, and `default_namespaces` plus `global_enums` at the top level
+are all required. Hand-writing one means discovering that a field at a time; copying the generated
+entry gets it right immediately and keeps the unchanged fields honest.
+
+This one is verified to work — it adds a proposed second parameter to `pl/head`:
 
 ```yaml
 # specs/my-feature/proposed_commands.yaml
 commands:
-  - name: head
-    namespace: pl
-    arguments:
-      - name: rows
-        argument_type: int
-      - name: offset            # newly proposed second parameter
-        argument_type: int
-        default: {Value: 0}
+- namespace: pl
+  name: head
+  label: Get first rows
+  doc: 'Return first N rows (default: 5)'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 20
+  - name: offset            # newly proposed second parameter
+    label: offset
+    default: !Value 0
+    argument_type: int
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+default_namespaces:
+- ''
+- root
+global_enums: {}
 ```
+
+Note `default: !Value 0`. Defaults are `CommandParameterValue`, a serde-tagged enum, so YAML wants
+the tag form. The JSON-style `default: {Value: 0}` does not deserialize.
 
 ```bash
 python3 .claude/skills/liquers-validate/scripts/lqv.py \
@@ -139,7 +171,25 @@ python3 .claude/skills/liquers-validate/scripts/lqv.py \
   -- '-R/data/sales.csv/-/ns-pl/head-10-5'
 ```
 
-Three things to note:
+```
+[0] OK      -R/data/sales.csv/-/ns-pl/head-10-5
+    plan     GetAsset[data/sales.csv]
+    plan     action pl/head(n=10, offset=5)
+```
+
+Against today's one-argument `pl/head` the same query resolves to `pl/head(n=10)` — the `5` is
+dropped silently (`PLAN-EXCESS-ACTION-PARAMETERS-DROPPED`). Comparing those two lines is exactly
+what the overlay is for.
+
+A malformed overlay fails loudly, naming the missing field and the file:
+
+```
+ERROR    Could not parse 'proposed_commands.yaml' as JSON or YAML.
+  as JSON: expected value at line 1 column 1
+  as YAML: commands[0]: missing field `cache` at line 2 column 5
+```
+
+Three further things to note:
 
 - Passing `--registry-file` **replaces** the automatic lookup, so the committed registry must be
   listed explicitly as the base. Files are merged in the order given.
