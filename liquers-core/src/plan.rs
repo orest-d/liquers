@@ -3169,4 +3169,117 @@ mod tests {
         assert_eq!(back.payload_required, PayloadRequirement::Required);
         Ok(())
     }
+
+    // ---- Action-parameter links reached from query TEXT (query-link-parser) ----
+    //
+    // ActionParameter::Link and this whole planner path already worked for
+    // programmatically built links; what was impossible was reaching any of it from
+    // query text. These pin the newly-reachable path.
+
+    fn link_registry() -> command_metadata::CommandMetadataRegistry {
+        let mut cr = command_metadata::CommandMetadataRegistry::new();
+        cr.add_command(CommandMetadata::new("greet").with_argument(ArgumentInfo::any_argument("who")));
+        cr.add_command(&CommandMetadata::new("world"));
+        cr
+    }
+
+    fn action_parameters(plan: &Plan) -> ResolvedParameterValues {
+        for step in &plan.steps {
+            if let Step::Action { parameters, .. } = step {
+                return parameters.clone();
+            }
+        }
+        panic!("plan has no action step: {plan:?}");
+    }
+
+    #[test]
+    fn d1_plan_textual_link_is_parameter_link() -> Result<(), Error> {
+        let cr = link_registry();
+        let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+        match &action_parameters(&plan).0[0] {
+            ParameterValue::ParameterLink(name, query, _) => {
+                assert_eq!(name, "who");
+                assert_eq!(query.encode(), "world");
+            }
+            other => panic!("expected a ParameterLink, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn d2_plan_textual_and_programmatic_links_agree() -> Result<(), Error> {
+        let cr = link_registry();
+
+        // From query text.
+        let from_text = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+
+        // The same query built programmatically, the only route available before this fix.
+        let mut built = parse_query("greet-placeholder")?;
+        match &mut built.segments[0] {
+            QuerySegment::Transform(tqs) => {
+                tqs.query[0].parameters[0] = ActionParameter::new_link(parse_query("world")?);
+            }
+            QuerySegment::Resource(_) => panic!("expected a transform segment"),
+        }
+        let from_built = PlanBuilder::new(built, &cr).build()?;
+
+        let (a, b) = (action_parameters(&from_text), action_parameters(&from_built));
+        match (&a.0[0], &b.0[0]) {
+            (
+                ParameterValue::ParameterLink(n1, q1, _),
+                ParameterValue::ParameterLink(n2, q2, _),
+            ) => {
+                assert_eq!(n1, n2);
+                assert_eq!(q1.encode(), q2.encode());
+            }
+            (x, y) => panic!("expected two ParameterLinks, got {x:?} and {y:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn d3_plan_link_position_propagates() -> Result<(), Error> {
+        // The plan must carry the link's real position, not Position::unknown(), so
+        // downstream diagnostics can point back into the query text.
+        let cr = link_registry();
+        let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+        match &action_parameters(&plan).0[0] {
+            ParameterValue::ParameterLink(_, _, position) => {
+                assert!(!position.is_unknown(), "position must survive plan building");
+                assert_eq!(position.offset, "greet-".len());
+            }
+            other => panic!("expected a ParameterLink, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn d4_link_becomes_parameter_link_dependency() -> Result<(), Error> {
+        // find_dependencies is pub(crate), so this lives here rather than in
+        // tests/action_parameter_link.rs alongside the other end-to-end checks.
+        use crate::context::{Environment, SimpleEnvironment};
+        use crate::dependencies::DependencyRelation;
+
+        // `Value` in this module is serde_json::Value; the environment needs ours.
+        let env = SimpleEnvironment::<crate::value::Value>::new();
+        let envref = env.to_ref();
+
+        let cr = link_registry();
+        let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+
+        let mut stack = Vec::new();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, None).await?;
+
+        let links: Vec<_> = dependencies
+            .iter()
+            .filter(|d| matches!(d.relation, DependencyRelation::ParameterLink(_)))
+            .collect();
+        assert_eq!(
+            links.len(),
+            1,
+            "the embedded query must appear as a ParameterLink dependency: {dependencies:?}"
+        );
+        Ok(())
+    }
 }
+
