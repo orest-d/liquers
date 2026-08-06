@@ -104,6 +104,65 @@ code.
 `encode_token` emits the general escapes for tilde, space, slash, and hyphen. It
 does not emit the protocol abbreviations, although the parser accepts them.
 
+`~X~` and `~E` are **not** entities and must not be read as rows of this table. They
+do not decode to a character within a string parameter; they delimit a different kind
+of parameter. See the next section.
+
+### Link action parameters
+
+A parameter of the form `~X~<query>~E` is a **link**. The delimited text is a complete
+Liquers query, parsed with the same grammar, and the parameter parses to
+`ActionParameter::Link`. The linked query is evaluated and its result supplied as the
+argument value. Links are not restricted to any argument type: `PlanBuilder` turns a
+link into `ParameterValue::ParameterLink` for any argument of any command.
+
+```text
+action-~X~hello~E                  one link parameter
+action-before-~X~hello~E-after     a link between two string parameters
+action-~X~inner-~X~deep~E~E        links nest
+action-~X~~E                       an empty embedded query
+```
+
+Rules:
+
+- A link is a whole parameter and is never concatenated with parameter text.
+  `action-abc~X~q~E` is a parse error.
+- Links may appear at any parameter position, but only within a transform segment. A
+  resource path cannot contain one.
+- The `~~` escape applies inside the embedded query, so `~~E` is an escaped tilde
+  followed by `E`, not a terminator. `action-~X~inner-a~~E~E` has the body
+  `inner-a~~E`, whose parameter decodes to `a~E`.
+- The resource/transform shorthand is rejected inside a link; see below.
+- Parsing is exponential in nesting depth, so `parse_query` and
+  `parse_simple_template` reject input nested deeper than 8 links, or containing more
+  than 64 links in total, before parsing.
+
+Every link error carries a source position and a specific message: the shorthand
+rejection, a missing or displaced `~E`, an unpaired `~E`, and a link in a position
+where none may appear.
+
+#### The shorthand is discouraged, and rejected inside a link
+
+The resource/transform shorthand (`data/report/-/to_text`) is **discouraged
+everywhere**. Prefer the explicit form (`-R/data/report/-/to_text`): that is what
+`Query::encode` emits and what round-trips unchanged. Inside `~X~...~E` the shorthand
+is **not allowed** and is a parse error:
+
+```text
+action-~X~-R/data/report/-/to_text~E    accepted
+action-~X~data/report/-/to_text~E       parse error
+```
+
+The shorthand is recognised only when it accounts for an entire query, which the
+parser detects with `eof`. A link has no `eof` before its `~E`, so accepting the
+shorthand there would make the same text denote a resource fetch at top level and
+three command invocations inside a link. It is rejected rather than silently
+reinterpreted.
+
+The same ambiguity exists inside `$...$` template expansions, where the shorthand is
+currently accepted with the transform reading and is **not** diagnosed. Prefer the
+explicit form there too.
+
 ### Segment forms
 
 - A resource header begins with one or more `-`, then `R`, an optional name, and
@@ -127,7 +186,8 @@ does not emit the protocol abbreviations, although the parser accepts them.
 This precedence has important consequences:
 
 - `data/input.csv/-/load` begins with a resource segment. Encoding makes its
-  shorthand header explicit: `-R/data/input.csv/-/load`.
+  shorthand header explicit: `-R/data/input.csv/-/load`. The shorthand is
+  discouraged in favour of the explicit form, and is rejected inside `~X~...~E`.
 - `load/process` is a transform query containing two actions, not a key.
 - `file.txt` is a filename-only transform query.
 - A pure textual resource query requires `-R/path`; `parse_key("path")` is the
@@ -231,17 +291,6 @@ An unrecognized first parameter produces `ErrorType::NotSupported`.
 
 ## Important implementation limitations
 
-### Link parameters do not parse
-
-`ActionParameter::Link` and its encoder exist, and the project overview describes
-nested query parameters. However, `parse.rs` contains no link-parameter production.
-`ActionParameter::Link(query).encode()` emits `~X~<query>~E`, but feeding that text
-to `parse_query` fails.
-
-Reference status: **supported language feature with a parser bug**. The intended
-syntax is `~X~<query>~E`; current rejection is tracked as
-`QUERY-ACTION-PARAMETER-LINK-PARSER` in [`specs/ISSUES.md`](../ISSUES.md).
-
 ### Realm scope is narrower than the design language suggests
 
 The project overview describes named transform headers as realms. The current
@@ -264,6 +313,13 @@ Public constructors such as `ResourceName::new`, `ActionRequest::new`, and
 and `parse_query` for validation and should not assume that every programmatically
 constructed value round-trips.
 
+`encode_token` is the only escaping path in the encoder, and it is applied only to
+string action parameters. Resource names, action names, header names and values, and
+filenames are emitted raw. A programmatically-set token containing `~X~` or `~E`
+therefore breaks the encode/parse round-trip, and may re-parse as a *different valid
+query* rather than failing. None of this is reachable from parsed input, since those
+productions all exclude `~`.
+
 ## Prioritized remaining improvements
 
 The P0 reference gap is closed, but implementation/API issues constrain what the
@@ -271,7 +327,6 @@ documentation can promise.
 
 | Priority | Gap | Human impact | Coding-agent impact | Recommended action |
 |---:|---|---|---|---|
-| P0 | Link encoder has no matching parser production | High | Very high | Fix `QUERY-ACTION-PARAMETER-LINK-PARSER` by implementing the supported syntax |
 | P1 | Realm behavior is limited and partly documented as future work | Medium | High | Define intended multi-segment semantics, implement them, then update reference |
 | P1 | Resource selector error text does not list valid selectors | Medium | High | Return a precise diagnostic with accepted values |
 | P1 | Public constructors allow non-round-trippable values | Medium | High | Add validated constructors or clearly named unchecked constructors |
@@ -289,7 +344,8 @@ as intended semantics: it stores `encode_token(value)`, while `encode()` applies
 This work should materially reduce three frequent classes of generated-code error:
 
 1. Treating ordinary slash-separated text as a resource key inside `parse_query`
-2. Inventing unsupported escapes, nested-query syntax, or header semantics
+2. Inventing unsupported escapes or header semantics, or assuming nested-query
+   syntax is unavailable (`~X~<query>~E` is supported and documented above)
 3. Confusing textual encoding, canonical identity, relative resolution, and
    provenance
 
@@ -303,6 +359,22 @@ contracts without requiring a tutorial flow. A separate user guide can later der
 task-oriented explanations from this verified base.
 
 ## Verification
+
+Completed on 2026-08-06 (link action parameters, `QUERY-ACTION-PARAMETER-LINK-PARSER`):
+
+- Added 34 parser tests in `liquers-core/src/parse.rs` (`link_tests`) covering
+  positive parsing, encode/parse round-trip, grammar equivalence with the top-level
+  reading over the 15-entry canonical corpus, and every error path.
+- Added 4 plan-level tests in `liquers-core/src/plan.rs` and 3 end-to-end tests in
+  `liquers-core/tests/action_parameter_link.rs`.
+- Ran `cargo test -p liquers-core --lib`: 425 passed (was 387).
+- Ran `cargo test -p liquers-core --tests`: all integration binaries passed.
+- Ran `cargo test -p liquers-core --doc`: 5 passed, 2 intentionally ignored. The link
+  examples in this reference are compiled from the `parse.rs` and
+  `ActionParameter::Link` rustdoc.
+- Ran `cargo doc -p liquers-core --no-deps`: no new warnings.
+- The exponential-depth claim is measured, not asserted: debug-build parse times were
+  32 ms at depth 10, 0.54 s at 14, 2.3 s at 16 and 4.3 s at 17, doubling per level.
 
 Completed on 2026-07-26:
 

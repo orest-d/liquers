@@ -114,8 +114,13 @@ liquers-core (foundation - all core abstractions)
 - `~_` → `-`
 - `~I` or `~/` → `/`
 - `~.` → space
-- `~X~...~E` → nested query (embedded link)
 - `~H` → `https://`, `~h` → `http://`
+
+`~X~...~E` delimits a **link action parameter** — a nested query supplied as an
+argument value. It is not an entity: it does not decode to a character inside a string
+parameter but selects a different kind of parameter. See `liquers_core::parse` for the
+syntax, the nesting bounds, and why the resource/transform shorthand is rejected
+inside a link.
 
 ### 2. Three-Layer Value Encapsulation
 
@@ -344,7 +349,13 @@ Session (user session - currently minimal)
 - First command metadata: Commands that generate data need better metadata support
 
 **Code Quality**:
-- Query encoding needs more careful design for embedded links
+- Query encoding: only string action parameters are escaped (`encode_token`).
+  Resource names, action names, header names and values, and filenames are
+  emitted raw, so a programmatically-set token containing `~X~` or `~E` breaks
+  the encode/parse round-trip. Not reachable from parsed input.
+- Query parsing is exponential in link nesting depth, currently contained by a
+  depth bound rather than fixed; see `QUERY-LINK-EXPONENTIAL-BACKTRACKING` in
+  `specs/ISSUES.md`
 - Documentation needs to be written (current Python docs are obsolete/incomplete)
 - Some sync code may be considered obsolete
 - Testing gaps: Both unit tests and integration tests need improvement
