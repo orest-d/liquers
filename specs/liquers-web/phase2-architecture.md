@@ -526,6 +526,63 @@ the `Function` and takes `state`/`args`/`ctx` by value, borrowing nothing.
 result is an `ExecutionError` stating that an async command cannot execute synchronously — rather
 than a silent wrong answer.
 
+### Unregistration — a small `liquers-core` addition
+
+`COMMAND` asks for register, inspect, replace **and unregister**. Replace exists; unregister does
+not — neither `CommandRegistry` nor `CommandMetadataRegistry` has any removal method today
+(verified: `command_metadata.rs` exposes `add_command`, `get`, `get_mut`,
+`update_command_metadata_version`, `update_all_metadata_versions`, `find_command*` and nothing else).
+Two purely additive inherent methods are therefore added to `liquers-core`:
+
+```rust
+// liquers-core/src/command_metadata.rs
+impl CommandMetadataRegistry {
+    /// Removes a command's metadata. Returns the removed metadata, or `None` if absent.
+    pub fn remove_command<K>(&mut self, key: K) -> Option<CommandMetadata>
+    where K: Into<CommandKey>;
+}
+
+// liquers-core/src/commands.rs
+impl<E: Environment> CommandRegistry<E> {
+    /// Removes a command's sync executor, async executor and metadata.
+    ///
+    /// Returns `true` if anything was removed. Idempotent: unregistering an absent
+    /// command is `false`, not an error.
+    pub fn unregister<K>(&mut self, key: K) -> bool
+    where K: Into<CommandKey>;
+}
+```
+
+**The correctness requirement is that all three are removed together.** `CommandRegistry` holds two
+executor maps plus the metadata registry (`commands.rs:470-474`), and planning consults *metadata*
+while execution consults the *executors*. Removing only the executors would leave a command that
+plans successfully and then fails at execution with `unknown_command_executor`; removing only the
+metadata would leave an unreachable executor. `unregister` removes from `executors`,
+`async_executors` and `command_metadata_registry` in one call — which is precisely why it belongs in
+core next to the maps it owns, rather than being assembled by callers.
+
+**Additive and safe for existing code:** these are inherent methods, not trait methods, so no
+implementor anywhere — including `liquers-py` — is affected.
+
+**One documented behavioural consequence.** `add_command` preserves an existing command's
+`impl_version` when replacing it (`command_metadata.rs:1062`). After `unregister`, that history is
+gone, so a subsequent re-registration starts from a fresh `impl_version`. Assets computed by the
+earlier command therefore see a version change and expire. This is *correct* — an unregister/
+re-register genuinely is a new implementation, unlike a replace — but it differs from replace and
+must be stated, because it is the kind of difference that otherwise surfaces as mysterious cache
+invalidation.
+
+**JS surface:**
+
+```rust
+#[wasm_bindgen(js_name = unregisterCommand)]
+pub fn unregister_command(name: &str) -> bool;          // module-level, singleton
+// and the same on LiquersEnvironment
+```
+
+Returns `false` for an unknown command rather than throwing, so teardown paths need no
+existence check. Unlike replacement, unregistration is explicit by nature and emits **no** warning.
+
 ### Namespace policy
 
 **Root is the primary path.** A declaration without a `namespace` registers into the root namespace,
@@ -674,7 +731,7 @@ naming the path. It is not silently truncated. Opaque retention has no cycle pro
 
 | Crate | Change |
 |---|---|
-| `liquers-core` | **None.** |
+| `liquers-core` | Two additive inherent methods: `CommandMetadataRegistry::remove_command` and `CommandRegistry::unregister` (see "Unregistration"). No trait changes, so no implementor is affected. |
 | `liquers-lib` | `ValueExtension` bound relaxed to `MaybeSend + MaybeSync + 'static` (decision 1); `ExtValue::Js` variant + cfg'd match arms (Option Y) |
 | `liquers-store` | Not a dependency in this phase (no `STORE`) |
 | `liquers-web` | New crate |
@@ -849,9 +906,11 @@ segment, per the guide's Appendix A).
 1. ~~Option X vs Option Y~~ — **decided: Option Y**, plus the generic-internals extension path in
    "Extensibility" above, so a user can still supply their own value type and environment.
 2. ~~Command namespaces~~ — **decided**, see "Namespace policy" below.
-3. **Unregistration** — `CommandRegistry` has no `unregister`. Re-registration (replace) works
-   today. Is unregister needed in this phase, or is `COMMAND06` satisfied by the replace policy plus
-   a documented limitation?
+3. ~~Unregistration~~ — **decided: in scope.** `CommandRegistry::unregister` and
+   `CommandMetadataRegistry::remove_command` are added to `liquers-core`; see "Unregistration".
+   `COMMAND06` is then satisfied fully rather than by a documented limitation.
+
+**No open questions remain.** Phase 2 is ready for approval.
 
 ## Carried into Phase 3
 
@@ -862,6 +921,11 @@ segment, per the guide's Appendix A).
   shape infers the right names, and each refused shape fails registration with its specific reason
   rather than misbinding. Plus: an explicit `arguments` array overrides inference entirely, and a
   minified-looking inference emits the warning.
+- Unregistration tests (`COMMAND06`): after `unregister`, the query fails to *plan* rather than
+  failing at execution — the assertion that proves metadata and both executor maps were removed
+  together; `unregister` of an absent command returns `false` without error; and
+  unregister-then-re-register yields a fresh `impl_version`, expiring assets computed by the earlier
+  command. These are `liquers-core` unit tests, not only browser tests.
 - Namespace tests: root default, explicit namespace, replace-on-duplicate, **a warning on every
   replacement** (both the JS-replaces-JS and JS-replaces-Rust messages), and rejection of
   registration into the reserved `web` namespace. The warning assertions need a captured

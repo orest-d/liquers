@@ -90,6 +90,17 @@ replacement emits a `console.warn`** — with a distinct message when a JS comma
 Rust one. `web` is reserved for platform-dependent commands (`alert`, DOM), registers nothing in
 this phase, and rejects registration from JS.
 
+**Unregistration in scope (user decision).** `liquers-core` gains two additive inherent methods:
+`CommandRegistry::unregister` and `CommandMetadataRegistry::remove_command` — neither registry has
+any removal method today. The correctness requirement is that metadata and *both* executor maps are
+removed together, since planning consults metadata while execution consults executors; removing only
+one leaves a command that plans and then fails, or an unreachable executor. Additive inherent
+methods, so no implementor (including `liquers-py`) is affected. Documented consequence: `unregister`
+discards the `impl_version` that `add_command` preserves across a replace, so re-registering later
+starts fresh and expires assets computed by the earlier command.
+
+**Phase 2 has no open questions remaining.**
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
