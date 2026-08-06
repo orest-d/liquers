@@ -162,8 +162,10 @@ and 4 are now largely answered by the async-wasm-refactor.
    **Resolved in Phase 2 by measurement: inference is rejected, declaration is explicit.** The
    conditional above was tested. `Function.prototype.length` collapses at the first default or rest
    parameter (`(state, a = 1, b = 2)` reports 1), a destructured parameter has no name at all,
-   `bind` yields `[native code]`, and no parameter-name reflection API exists — names and defaults
-   are recoverable only by parsing source text that a minifier may have rewritten. So `arguments` is
+   `bind` yields `[native code]`, and no parameter-name reflection API exists. The canonical
+   `toString()`-plus-regex technique was implemented and measured: it returns correct-looking but
+   **wrong** names for minified functions rather than failing, and AngularJS 1.x's retreat from
+   exactly this mechanism to `$inject`/`ngAnnotate` is the industry precedent. So `arguments` is
    required for any command that takes parameters; omitting it declares a parameterless command; and
    `fn.length` is used only as a one-directional consistency check to catch a missing declaration,
    never to synthesize metadata. See Phase 2, "Argument declaration is explicit".

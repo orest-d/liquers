@@ -346,10 +346,44 @@ Measured with `node` against the candidate signals:
 | `fn.bind(null)` | 2 | `toString()` → `function () { [native code] }` |
 
 `Reflect.getParameterNames` does not exist, and `Function.prototype` exposes no parameter-name
-reflection. Names and defaults are recoverable *only* by parsing source text, which (a) requires a
-real JavaScript parser to handle destructuring, nested parens, comments and template literals,
-(b) is defeated by any minifier, and (c) yields default *expressions* that cannot be evaluated
-outside the function's closure. Types do not exist at all.
+reflection. Types do not exist at all.
+
+**The canonical technique was implemented and measured, not assumed.** The widely-cited
+`toString()`-plus-regex parse (the top answer to
+[SO 914968](https://stackoverflow.com/questions/914968/), and the mechanism AngularJS 1.x used for
+dependency injection) produces:
+
+| Signature | Returns |
+|---|---|
+| `(state, count)` | `["state","count"]` — correct |
+| `(state, count = 2)` | `["state","count","=","2"]` |
+| `(state, f = (x,y) => x)` | `["state","f","=","(x","y"]` |
+| `(state, {a, b})` | `["state","{a","b}"]` |
+| `(state, ...rest)` | `["state","...rest"]` |
+| `function (state /*, hidden */, count)` | `["state","count"]` — correct |
+| `(a,b)` after minification | `["a","b"]` — **plausible, and wrong** |
+| `fn.bind(null)` | `[]` |
+| `Math.max` (native) | `[]` |
+
+The minified row is the disqualifying one: the technique does not fail, it returns confident wrong
+names. Metadata would look correct and be a lie — precisely the failure the guide warns about when
+it says a stale declaration is worse than none.
+
+**The industry precedent is decisive.** AngularJS 1.x used exactly this parse for DI; minification
+broke it so comprehensively that Angular added the `$inject` property, the array-annotation form
+`['$scope', function($scope){}]`, and the `ngAnnotate` build step. A major framework tried
+inference-from-`toString` at scale and retreated to explicit declaration.
+
+**The stronger variant is also rejected.** Parsing with a real JavaScript parser (esprima/acorn)
+instead of a regex would handle destructuring, nested parens and defaults correctly, but it is still
+defeated by minification, it still cannot evaluate a default *expression* such as
+`count = DEFAULT_COUNT` because that identifier lives in the function's closure, and it would link a
+JavaScript parser into the wasm artifact — against decision 7's size goal. Rejected on all three
+counts.
+
+**Opt-in inference is rejected too.** Offering `inferArguments: true` as a development convenience
+was considered; it fails in the same silent way under a bundler, so it would ship a foot-gun whose
+symptom appears only in production builds.
 
 **The rule.**
 
