@@ -85,9 +85,10 @@ parser-based inference can widen the accepted subset later without changing the 
 JavaScript parser is linked into the wasm artifact.
 
 **Namespaces:** root is the primary path; any explicit namespace is supported (no forced `js`
-namespace); duplicates replace, inheriting `add_command`'s existing behaviour, with a warning when a
-JS command replaces a Rust one. `web` is reserved for platform-dependent commands (`alert`, DOM),
-registers nothing in this phase, and rejects registration from JS.
+namespace); duplicates replace, inheriting `add_command`'s existing behaviour, and **every
+replacement emits a `console.warn`** — with a distinct message when a JS command shadows a built-in
+Rust one. `web` is reserved for platform-dependent commands (`alert`, DOM), registers nothing in
+this phase, and rejects registration from JS.
 
 ## Links
 

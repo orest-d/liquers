@@ -536,13 +536,27 @@ keeps the minimal declaration minimal.
 via the usual `ns-myapp/` selector. There is deliberately **no** forced `js` namespace: a command's
 namespace should reflect what it is for, not which language implemented it. The user picks.
 
-**Duplicate policy: replace.** Registering a name that already exists replaces both the executor and
-the metadata. This is already `CommandMetadataRegistry::add_command`'s behaviour
+**Duplicate policy: replace, and always warn.** Registering a name that already exists replaces both
+the executor and the metadata. This is already `CommandMetadataRegistry::add_command`'s behaviour
 (`command_metadata.rs:1058-1071` — it overwrites in place and preserves `impl_version`), so the
 policy is inherited rather than invented, and it matches an iterative browser workflow where a page
-re-registers commands on reload. A JS command may replace another JS command; **replacing a Rust
-command is permitted but emits a `console.warn`**, since silently shadowing a built-in is the more
-surprising case (`COMMAND06`).
+re-registers commands on reload.
+
+**Every replacement emits a `console.warn`** naming the command key and what it replaced —
+never silently. Two messages, because the two cases differ in how surprising they are:
+
+| Case | Message |
+|---|---|
+| JS command replaces a JS command | `liquers: command "<key>" was replaced` |
+| JS command replaces a **Rust** command | `liquers: command "<key>" replaces a built-in Rust command` |
+
+Registration still succeeds in both cases (`COMMAND06`). The warning exists because replacement is
+indistinguishable from an accidental name collision at the point it happens, and a shadowed built-in
+is otherwise invisible until a query returns the wrong thing.
+
+This is consistent with the project's diagnostic-output rule (`CLAUDE.md`): `console.warn` is the
+browser analogue of `eprintln!`, not of `println!` — it goes to the console's error/warning stream
+and never contaminates a value or a returned payload.
 
 **Reserved namespace.** `web` is reserved for platform-dependent commands provided by `liquers-web`
 itself — browser-only operations such as `alert`, and later DOM or `window` access — so that a query
@@ -848,8 +862,11 @@ segment, per the guide's Appendix A).
   shape infers the right names, and each refused shape fails registration with its specific reason
   rather than misbinding. Plus: an explicit `arguments` array overrides inference entirely, and a
   minified-looking inference emits the warning.
-- Namespace tests: root default, explicit namespace, replace-on-duplicate, the warning when a Rust
-  command is replaced, and rejection of registration into the reserved `web` namespace.
+- Namespace tests: root default, explicit namespace, replace-on-duplicate, **a warning on every
+  replacement** (both the JS-replaces-JS and JS-replaces-Rust messages), and rejection of
+  registration into the reserved `web` namespace. The warning assertions need a captured
+  `console.warn` — a spy installed by the test harness, since `wasm-bindgen-test` does not capture
+  console output by default.
 - The generic bridge functions must be instantiated at a **second** value type in the test suite, so
   the Tier-2 extension path is proven rather than assumed.
 - `PACKAGE03`: the quick-start page must evaluate a query end to end from a plain
