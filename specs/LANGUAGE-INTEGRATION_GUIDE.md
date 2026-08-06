@@ -578,6 +578,33 @@ This appendix gives a reference implementation of every prescribed test from §5
 
 Python is used throughout because it reads as pseudocode for the widest audience, not because these tests belong to `liquers-py`.
 
+**The queries are not pseudocode.** While the API surface is a placeholder, every query string,
+key and recipe below is real Liquers syntax and has been checked with `liquers-validate` (see
+`CLAUDE.md`, “Validating queries”), against the registry plus an overlay declaring the fixture
+commands. An *integration* substituting its own API keeps the queries verbatim.
+
+### Query input has to come from somewhere
+
+The single most common mistake when writing Liquers test queries is treating the first segment as
+a literal input. **Every segment of a query is a command.** `x/boom` does not mean “apply `boom`
+to the string `x`”; it means “run command `x`, then run command `boom` on its result”, and it
+fails with `Action 'x' not registered` unless an `x` command exists. There is no literal-value
+segment in the query language.
+
+Test input therefore comes from one of two places, and every query in this appendix uses one of
+them:
+
+- a **source command** — a command declared without a state argument, which produces a value
+  rather than transforming one. This is the `world` in `world/greet` in
+  `liquers-core/tests/async_hellow_world.rs`. Source commands may take parameters, which is how a
+  test parameterises its input: `number-42/…`.
+- a **store resource** — `-R/<key>`, optionally continued with `/-/` and an action chain:
+  `-R/d/in.txt/-/greet`. Note that `-R/` swallows everything up to `/-/` into the key, so
+  `-R/d/in.txt/greet` would fetch a file *named* `greet`.
+
+Segments ending in a recognised filename (`out.txt`, `preview.csv`) are `Filename` steps, not
+actions, and are what makes a recipe *stored* under a key rather than ad-hoc.
+
 ### Conventions and harness
 
 ```python
@@ -592,10 +619,30 @@ def na(reason):
     reason recorded in the design (§3: absence is not an NA decision)."""
     return pytest.mark.skip(reason=f"NA: {reason}")
 
+def register_fixture_commands(e):
+    """The three source commands every query in this appendix draws its input from.
+    An integration must provide equivalents before any of these tests can run."""
+
+    @e.command                                   # text input:    hello/greet
+    def hello() -> str:
+        return "hello"
+
+    @e.command                                   # integer input: number-42/idem
+    def number(n: int = 0) -> int:
+        return n
+
+    @e.command(volatile=True)                    # slow input:    sleep-60
+    async def sleep(context, seconds: float = 60.0) -> str:
+        # Must report progress through `context` for UIUSE04, and must observe
+        # cancellation for EVAL06/ASYNCQ04/RUNTIME05.
+        await async_sleep_reporting_progress(context, seconds)
+        return "done"
+
 @pytest.fixture
 def env():
     """Isolated environment per test — see ENVIRON05."""
     e = lq.Environment()
+    register_fixture_commands(e)
     yield e
     e.shutdown()
 
@@ -604,11 +651,56 @@ def store(env):
     return env.store
 ```
 
+Beyond the source commands, a few tests need store content the design must supply. Nothing else
+in this appendix depends on data existing in the store:
+
+| Key | Needed by | Content |
+|---|---|---|
+| `d/in.txt` | STORE07 | written by the test itself |
+| `d/f.txt` | WEBAPI09 | any small file, for the store data/metadata routes |
+| `big.bin` | WEBAPI07 | large enough to exceed the streaming threshold |
+| `data/table.csv` | UIUSE02 | a table the *UI backend* can render |
+| `data/sales.csv` | WEBAPI03 | a CSV, so `ns-pl/head-10` yields `text/csv` |
+| `d/recipes.yaml` | RECIPE01–07 | `D_RECIPES_YAML` below |
+| `proj/recipes.yaml`, `proj/helper.py` | MODULE03 | `PROJ_RECIPES_YAML` below; `helper.py` is written by the test |
+
+The two recipe files are:
+
+```yaml
+# d/recipes.yaml (D_RECIPES_YAML) — fixture for the RECIPE tests
+recipes:
+- query: hello/greet/known.txt          # -> key d/known.txt
+  title: Known
+  description: The recipe RECIPE01, RECIPE03 and RECIPE06 look up.
+- query: sleep-1/greet/volatile.txt     # -> key d/volatile.txt
+  title: Volatile
+  description: Carries the volatility and expiration RECIPE05 asserts.
+  volatile: true
+  expires: in 5 minutes
+- query: recipe_that_evaluates/nested.txt   # -> key d/nested.txt
+  title: Nested
+  description: Its provider callback evaluates a query (RECIPE07).
+```
+
+```yaml
+# proj/recipes.yaml (PROJ_RECIPES_YAML) — fixture for MODULE03;
+# loading it from the folder sets Recipe::cwd to proj
+recipes:
+- query: uses_helper/value.txt          # -> key proj/value.txt
+  title: Uses a module imported from the recipe folder
+  description: uses_helper imports `helper` relative to the recipe cwd (proj/).
+```
+
 ### OBJECT
 
 ```python
 def test_OBJECT01_query_parse_encode_roundtrip():
-    for text in ["hello/greet", "data/q/query_to_string/output.txt", "a/b-1-2/c"]:
+    # Parse level only — none of these need a registry. The last two cover the
+    # forms most likely to break a reimplemented parser: the `q` instruction and
+    # a resource query with an action chain after `/-/`.
+    for text in ["hello/greet", "a/b-1-2/c",
+                 "data/q/query_to_string/output.txt",
+                 "-R/data/report.txt/-/to_text"]:
         assert lq.parse_query(text).encode() == text
 
 def test_OBJECT02_key_equality_and_hash():
@@ -659,7 +751,7 @@ def test_ERROR01_every_error_type_maps(et):
 def test_ERROR02_fields_survive_rust_language_rust():
     e = lq.Error(lq.ErrorType.ParseError, "boom",
                  position=lq.Position(line=1, column=3),
-                 query=lq.parse_query("a/b"), key=lq.parse_key("d/f"))
+                 query=lq.parse_query("hello/greet"), key=lq.parse_key("d/f"))
     r = lq.Error._from_rust(e._to_rust())
     assert (r.message, r.position, r.query, r.key) == (e.message, e.position, e.query, e.key)
 
@@ -667,7 +759,7 @@ def test_ERROR03_language_exception_includes_class_and_stack(env):
     @env.command
     def boom(state): raise ValueError("inner")
     with pytest.raises(lq.Error) as e:
-        env.evaluate("x/boom")
+        env.evaluate("hello/boom")
     assert e.value.error_type == lq.ErrorType.ExecutionError   # documented fallback
     assert "ValueError" in e.value.cause and "inner" in e.value.cause
 
@@ -675,7 +767,7 @@ def test_ERROR04_non_error_throw_has_safe_fallback(env):
     @env.command
     def odd(state): raise BaseException("not an Exception subclass")
     with pytest.raises(lq.Error) as e:
-        env.evaluate("x/odd")
+        env.evaluate("hello/odd")
     assert e.value.error_type == lq.ErrorType.ExecutionError
 
 def test_ERROR05_no_panic_crosses_the_boundary(env):
@@ -699,7 +791,7 @@ def test_RUNTIME01_native_adapter_satisfies_thread_bounds(env):
 def test_RUNTIME02_wasm_accepts_non_send_callback(env):
     # On wasm32 a non-Send closure must be accepted (MaybeSend model).
     env.register_command("cb", lambda state: state, non_send=True)
-    assert env.evaluate("x/cb") is not None
+    assert env.evaluate("hello/cb") is not None
 
 def test_RUNTIME03_stored_callback_outlives_registration_scope(env):
     def register():
@@ -709,16 +801,16 @@ def test_RUNTIME03_stored_callback_outlives_registration_scope(env):
             local["n"] += 1                      # closure capture must be rooted
             return local["n"]
     register()                                   # scope exits; callable must survive
-    assert env.evaluate("x/bump") == 1
+    assert env.evaluate("hello/bump") == 1
 
 def test_RUNTIME04_nested_evaluation_does_not_deadlock(env):
     @env.command
     def outer(state, context):
         return context.evaluate("hello/greet")   # reentrancy policy under test
-    assert env.evaluate("x/outer", timeout=5) is not None
+    assert env.evaluate("hello/outer", timeout=5) is not None
 
 def test_RUNTIME05_cancellation_and_shutdown_release_handles(env):
-    h = env.evaluate_async("slow/query")
+    h = env.evaluate_async("sleep-60")           # the slow source command (harness)
     h.cancel()
     env.shutdown()
     assert h.is_terminal() and env.live_handle_count() == 0
@@ -727,7 +819,7 @@ def test_RUNTIME06_panic_and_exception_containment(env):
     @env.command
     def bad(state): raise RuntimeError("x")
     with pytest.raises(lq.Error):
-        env.evaluate("x/bad")
+        env.evaluate("hello/bad")
     assert env.evaluate("hello/greet") is not None   # env still usable afterwards
 ```
 
@@ -772,7 +864,7 @@ def test_VALUE07_cycles_follow_policy():
         lq.to_value(a)
 
 def test_VALUE08_representative_extvalue_roundtrip():
-    for v in [lq.parse_query("a/b"), lq.parse_key("d/f"), lq.DataFrame({"x": [1, 2]})]:
+    for v in [lq.parse_query("hello/greet"), lq.parse_key("d/f"), lq.DataFrame({"x": [1, 2]})]:
         assert lq.from_value(lq.to_value(v)) == v
 
 def test_VALUE09_checked_upcast_and_downcast():
@@ -810,7 +902,9 @@ def test_VALUE13_state_operations_preserve_or_discard_metadata(env):
 
 ```python
 def test_ENVIRON01_default_environment_evaluates_builtin(env):
-    assert env.evaluate("hello/greet") is not None
+    # `commands_doc` is a real registered command, not a fixture: it needs no
+    # store and no test registration, so it proves the *default* wiring works.
+    assert env.evaluate("commands_doc") is not None
 
 def test_ENVIRON02_custom_services_are_the_ones_returned(env):
     st = lq.MemoryStore()
@@ -824,13 +918,15 @@ def test_ENVIRON03_repeated_initialization_follows_policy():
 def test_ENVIRON04_failed_initialization_is_recoverable():
     with pytest.raises(lq.Error):
         lq.Environment(store=lq.Store.from_url("bogus://nowhere"))
-    assert lq.Environment().evaluate("hello/greet") is not None
+    # A bare environment, so a built-in rather than a harness fixture command.
+    assert lq.Environment().evaluate("commands_doc") is not None
 
 def test_ENVIRON05_isolated_test_environments_do_not_leak_registration():
     a = lq.Environment()
-    a.register_command("only_in_a", lambda state: state)
-    with pytest.raises(lq.Error):
-        lq.Environment().evaluate("x/only_in_a")
+    a.register_command("only_in_a", lambda: "a")   # a source command: the whole query
+    with pytest.raises(lq.Error) as e:             # is the one command under test
+        lq.Environment().evaluate("only_in_a")
+    assert e.value.error_type == lq.ErrorType.ActionNotRegistered
 
 def test_ENVIRON06_shutdown_is_idempotent(env):
     env.shutdown(); env.shutdown()                    # second call must not raise
@@ -856,12 +952,12 @@ def test_EVAL04_invalid_query_maps_through_error(env):
 
 def test_EVAL05_payload_and_context_reach_a_command(env):
     @env.command
-    def echo_payload(state, context):
+    def echo_payload(context):                     # source command: no state argument
         return context.payload["k"]
-    assert env.evaluate("x/echo_payload", payload={"k": "v"}) == "v"
+    assert env.evaluate("echo_payload", payload={"k": "v"}) == "v"
 
 def test_EVAL06_cancellation_has_defined_terminal_result(env):
-    h = env.evaluate_async("slow/query")
+    h = env.evaluate_async("sleep-60")
     h.cancel()
     with pytest.raises(lq.Error) as e:
         h.result()
@@ -893,8 +989,11 @@ def test_COMMAND04_defaults_enums_and_variadics_bind(env):
     @env.command
     def f(state, mode: str = "a", *rest: int) -> str:
         return f"{mode}:{sum(rest)}"
-    assert env.evaluate("x/f") == "a:0"
-    assert env.evaluate("x/f-b-1-2") == "b:3"
+    # The variadic must map to an ArgumentInfo with multiple=True, otherwise the
+    # planner silently drops the extra parameters (PLAN-EXCESS-ACTION-PARAMETERS-DROPPED
+    # in specs/ISSUES.md) and this asserts "b:1" instead of failing loudly.
+    assert env.evaluate("hello/f") == "a:0"
+    assert env.evaluate("hello/f-b-1-2") == "b:3"
 
 def test_COMMAND05_metadata_matches_the_declaration(env):
     @env.command(label="Repeat", doc="Repeat the input.")
@@ -918,14 +1017,14 @@ def test_COMMAND07_context_injection(env):
     def logs(state, context):
         context.info("hello from command")
         return state
-    s = env.evaluate_state("x/logs")
+    s = env.evaluate_state("hello/logs")
     assert any("hello from command" in str(m) for m in s.metadata.log)
 
 def test_COMMAND08_returned_opaque_value_follows_value_rules(env):
     sentinel = object()
     @env.command
-    def give(state): return sentinel
-    assert env.evaluate("x/give") is sentinel
+    def give(): return sentinel                    # source command
+    assert env.evaluate("give") is sentinel
 
 def test_COMMAND09_minimal_declaration_has_useful_metadata_defaults(env):
     @env.command
@@ -946,7 +1045,7 @@ def test_COMMAND11_closure_captures_retained_per_runtime_rules(env):
         @env.command(name=f"add{n}")
         def add(state: int) -> int: return state + n
     make(5)
-    assert env.evaluate("1/add5") == 6
+    assert env.evaluate("number-1/add5") == 6      # `number` supplies the integer input
 ```
 
 ### ASYNCQ
@@ -967,14 +1066,14 @@ async def test_ASYNCQ03_two_evaluations_make_progress(env):
     assert a == b
 
 async def test_ASYNCQ04_cancellation_propagates(env):
-    h = env.evaluate_async("slow/query")
+    h = env.evaluate_async("sleep-60")
     h.cancel()
     with pytest.raises(lq.Error) as e:
         await h
     assert e.value.error_type == lq.ErrorType.Cancelled
 
 async def test_ASYNCQ05_dropping_host_handle_follows_policy(env):
-    h = env.evaluate_async("slow/query")
+    h = env.evaluate_async("sleep-60")
     del h                                              # detach or cancel — assert which
     assert env.live_handle_count() == 0
 
@@ -986,7 +1085,7 @@ async def test_ASYNCQ06_no_event_loop_blocking(env):
         while True:
             await asyncio.sleep(0.01); ticks += 1
     t = asyncio.create_task(ticker())
-    await env.evaluate_async("slow/query")
+    await env.evaluate_async("sleep-1")            # short: this one runs to completion
     t.cancel()
     assert ticks > 0                                   # loop kept running throughout
 
@@ -1012,14 +1111,14 @@ async def test_ASYNCCMD02_async_exception(env):
     @env.command
     async def boom(state): raise ValueError("x")
     with pytest.raises(lq.Error) as e:
-        await env.evaluate_async("x/boom")
+        await env.evaluate_async("hello/boom")
     assert e.value.error_type == lq.ErrorType.ExecutionError
 
 async def test_ASYNCCMD03_cancellation_in_both_directions(env):
     @env.command
-    async def slow(state):
+    async def hang(state):                         # not named `slow`: ASYNCCMD01 uses that
         await asyncio.sleep(60)
-    h = env.evaluate_async("x/slow"); h.cancel()
+    h = env.evaluate_async("hello/hang"); h.cancel()
     with pytest.raises(lq.Error):
         await h
 
@@ -1027,13 +1126,14 @@ async def test_ASYNCCMD04_nested_async_evaluation(env):
     @env.command
     async def outer(state, context):
         return await context.evaluate_async("hello/greet")
-    assert await env.evaluate_async("x/outer") is not None
+    assert await env.evaluate_async("hello/outer") is not None
 
 async def test_ASYNCCMD05_concurrent_calls_do_not_corrupt_state(env):
     @env.command
     async def idem(state: int) -> int:
         await asyncio.sleep(0); return state * 2
-    results = await asyncio.gather(*[env.evaluate_async(f"{i}/idem") for i in range(50)])
+    results = await asyncio.gather(
+        *[env.evaluate_async(f"number-{i}/idem") for i in range(50)])
     assert results == [i * 2 for i in range(50)]
 
 def test_ASYNCCMD06_sync_and_async_metadata_differ(env):
@@ -1076,6 +1176,9 @@ async def test_STORE04_remove_and_removedir(store):
     assert not await store.contains(lq.parse_key("d"))
 
 async def test_STORE05_unsupported_key(store):
+    # `..` is not a parse error — lq.parse_key("../escape") succeeds and
+    # -R/../escape plans as GetAsset[../escape]. The rejection is the store's
+    # job, so the design must name at least one key shape its store refuses.
     with pytest.raises(lq.Error) as e:
         await store.get(lq.parse_key("../escape"))
     assert e.value.error_type == lq.ErrorType.KeyNotSupported
@@ -1087,16 +1190,23 @@ async def test_STORE06_concurrent_update_policy(store):
 
 async def test_STORE07_store_works_in_end_to_end_evaluation(env, store):
     await store.set(lq.parse_key("d/in.txt"), b"hello", lq.Metadata())
-    assert await env.evaluate_async("d/in.txt/-/greet") is not None
+    # Write -R/ explicitly: it is the canonical encoding, and without the /-/
+    # separator the whole string would be read as one key.
+    assert await env.evaluate_async("-R/d/in.txt/-/greet") == "Hello, hello!"
 ```
 
 ### RECIPE
 
 ```python
+# All keys below come from d/recipes.yaml in the harness section. A recipe key is
+# the recipe's *filename segment* under the recipe folder, so the keys carry an
+# extension: `hello/greet/known.txt` in folder d yields key d/known.txt. A query
+# ending in `known` would have no filename segment and the recipe would be ad-hoc.
+
 async def test_RECIPE01_found_and_missing_recipe(env):
     p = env.recipes
-    assert await p.recipe_opt(lq.parse_key("d/known")) is not None
-    assert await p.recipe_opt(lq.parse_key("d/absent")) is None   # not an error
+    assert await p.recipe_opt(lq.parse_key("d/known.txt")) is not None
+    assert await p.recipe_opt(lq.parse_key("d/absent.txt")) is None   # not an error
 
 async def test_RECIPE02_list_and_contains_are_consistent(env):
     p = env.recipes
@@ -1104,24 +1214,26 @@ async def test_RECIPE02_list_and_contains_are_consistent(env):
         assert await p.contains(k) and await p.recipe_opt(k) is not None
 
 async def test_RECIPE03_recipe_produces_a_valid_plan(env):
-    r = await env.recipes.recipe(lq.parse_key("d/known"))
-    assert len(r.to_plan().steps) > 0
+    r = await env.recipes.recipe(lq.parse_key("d/known.txt"))
+    # hello -> greet -> Filename[known.txt]
+    assert len(r.to_plan().steps) == 3
 
 async def test_RECIPE04_provider_error_maps_through_error(env):
     env.recipes = lq.FailingRecipeProvider()
     with pytest.raises(lq.Error):
-        await env.evaluate_async("d/known")
+        await env.evaluate_async("-R/d/known.txt")
 
 async def test_RECIPE05_volatility_and_expiration_metadata_survive(env):
-    r = await env.recipes.recipe(lq.parse_key("d/volatile"))
+    r = await env.recipes.recipe(lq.parse_key("d/volatile.txt"))
     assert r.volatile is True and r.expires is not None
 
 async def test_RECIPE06_end_to_end_keyed_evaluation(env):
-    assert await env.evaluate_async("d/known") is not None
+    # -R/ is required: `d/known.txt` alone parses as the action chain d()/known.txt.
+    assert await env.evaluate_async("-R/d/known.txt") == "Hello, hello!"
 
 async def test_RECIPE07_nested_environment_use_follows_policy(env):
     # A provider callback that evaluates a query must obey the RUNTIME reentrancy rules.
-    assert await env.evaluate_async("d/recipe_that_evaluates", timeout=5) is not None
+    assert await env.evaluate_async("-R/d/nested.txt", timeout=5) is not None
 ```
 
 ### MODULE
@@ -1141,21 +1253,23 @@ async def test_MODULE02_module_outside_search_path_is_not_loaded(env, store):
 
 async def test_MODULE03_relative_import_resolves_against_cwd(env, store):
     await store.set(lq.parse_key("proj/helper.py"), b"VALUE = 7", lq.Metadata())
-    await store.set(lq.parse_key("proj/recipes.yaml"), b"...", lq.Metadata())
+    await store.set(lq.parse_key("proj/recipes.yaml"),
+                    PROJ_RECIPES_YAML, lq.Metadata())   # see the harness section
     # cwd is set automatically when recipes load from a folder (Recipe::cwd)
     @env.command
-    def uses_helper(state, context):
+    def uses_helper(context):                    # source command; the recipe supplies it
         assert context.cwd_key == lq.parse_key("proj")
         return context.import_module("helper").VALUE
-    assert await env.evaluate_async("proj/uses_helper") == 7
+    # The recipe `uses_helper/value.txt` in proj/recipes.yaml gives key proj/value.txt.
+    assert await env.evaluate_async("-R/proj/value.txt") == 7
 
 async def test_MODULE04_absent_cwd_follows_policy(env):
     @env.command
-    def no_cwd(state, context):
-        assert context.cwd_key is None
+    def no_cwd(context):
+        assert context.cwd_key is None           # ad-hoc query: no recipe folder
         with pytest.raises(lq.Error):            # or: falls back to module_path only
             context.import_module("helper")
-    await env.evaluate_async("x/no_cwd")
+    await env.evaluate_async("no_cwd")
 
 async def test_MODULE05_package_and_submodule_resolution(env, store):
     await store.set(lq.parse_key("code/pkg/__init__.py"), b"", lq.Metadata())
@@ -1182,9 +1296,11 @@ async def test_MODULE08_module_key_is_a_dependency_and_expires_assets(env, store
     k = lq.parse_key("code/m.py")
     await store.set(k, b"def f(x): return x * 2", lq.Metadata())
     env.module_path = [lq.parse_key("code")]
-    first = await env.evaluate_async("2/uses_m")
+    # `uses_m` is a transform command calling m.f on its input; the design must
+    # register it alongside the module fixture.
+    first = await env.evaluate_async("number-2/uses_m")
     await store.set(k, b"def f(x): return x * 3", lq.Metadata())
-    assert await env.evaluate_async("2/uses_m") != first   # stale result must not persist
+    assert await env.evaluate_async("number-2/uses_m") != first  # stale must not persist
 
 async def test_MODULE09_untrusted_prefix_is_refused(env, store):
     await store.set(lq.parse_key("untrusted/evil.py"), b"import os", lq.Metadata())
@@ -1204,9 +1320,9 @@ async def test_MODULE11_import_inside_a_command_does_not_deadlock(env, store):
     await store.set(lq.parse_key("code/m.py"), b"VALUE = 1", lq.Metadata())
     env.module_path = [lq.parse_key("code")]
     @env.command
-    def importer(state, context):
+    def importer(context):
         return context.import_module("m").VALUE     # sync import from an async worker
-    assert await env.evaluate_async("x/importer", timeout=5) == 1
+    assert await env.evaluate_async("importer", timeout=5) == 1
 
 async def test_MODULE12_command_registered_by_store_module_is_executable(env, store):
     await store.set(lq.parse_key("code/cmds.py"),
@@ -1227,18 +1343,19 @@ def test_UIUSE01_start_or_attach_to_existing_backend(env):
     ui.shutdown()
 
 def test_UIUSE02_render_or_inspect_representative_ui_value(env, ui):
-    el = ui.open(env.evaluate_state("data/table"))
+    # Needs a tabular fixture in the store at data/table.csv.
+    el = ui.open(env.evaluate_state("-R/data/table.csv"))
     assert el.element_type is not None
 
 def test_UIUSE03_event_reaches_correct_command_and_context(env, ui):
     seen = []
     @env.command
-    def on_click(state, context): seen.append(context.query); return state
-    ui.dispatch(ui.open_query("x/on_click"), lq.UIEvent.click())
+    def on_click(context): seen.append(context.query); return "clicked"
+    ui.dispatch(ui.open_query("on_click"), lq.UIEvent.click())
     assert len(seen) == 1
 
 def test_UIUSE04_progress_and_status_ordering(env, ui):
-    events = ui.subscribe_progress(env.evaluate_async("slow/query"))
+    events = ui.subscribe_progress(env.evaluate_async("sleep-1"))
     seq = [e.fraction for e in events]
     assert seq == sorted(seq) and seq[-1] == 1.0
 
@@ -1248,7 +1365,7 @@ def test_UIUSE05_unsubscribe_releases_callbacks(env, ui):
     assert ui.live_subscription_count() == 0
 
 def test_UIUSE06_stale_update_is_ignored(env, ui):
-    h = ui.open_query("slow/query")
+    h = ui.open_query("sleep-60")
     ui.deliver(h, lq.UpdateMessage(generation=1))
     ui.deliver(h, lq.UpdateMessage(generation=0))     # older generation
     assert h.generation == 1
@@ -1307,7 +1424,7 @@ def test_UIDEF07_minimal_language_backend_renders_standard_element(env):
     assert ui.render_element("text", {"text": "hi"}).contains_text("hi")
 
 def test_UIDEF08_async_updates_respect_ui_thread_affinity(env, ui):
-    h = ui.open_query("slow/query")
+    h = ui.open_query("sleep-1")
     ui.await_settled(h)
     assert ui.all_updates_applied_on_ui_thread()
 ```
@@ -1318,7 +1435,7 @@ def test_UIDEF08_async_updates_respect_ui_thread_affinity(env, ui):
 def test_POLYGLOT01_language_a_command_feeds_language_b(env):
     env.register_command("a_upper", lambda s: s.upper())            # Python
     env.eval_starlark("def b_wrap(s): return '[' + s + ']'")        # Starlark
-    assert env.evaluate("hi/a_upper/b_wrap") == "[HI]"
+    assert env.evaluate("hello/a_upper/b_wrap") == "[HELLO]"
 
 def test_POLYGLOT02_bytes_and_metadata_preserve_type(env):
     env.eval_starlark("def give_bytes(): return b'\\x00\\xff'")
@@ -1327,9 +1444,10 @@ def test_POLYGLOT02_bytes_and_metadata_preserve_type(env):
 
 def test_POLYGLOT03_opaque_transfer_is_rejected_or_encoded(env):
     obj = object()
-    env.register_command("give_opaque", lambda s: obj)
+    env.register_command("give_opaque", lambda: obj)          # source command
+    env.eval_starlark("def starlark_consume(v): return str(v)")
     with pytest.raises(lq.Error) as e:
-        env.evaluate("x/give_opaque/starlark_consume")
+        env.evaluate("give_opaque/starlark_consume")
     assert e.value.error_type == lq.ErrorType.ConversionError
 
 def test_POLYGLOT04_errors_retain_origin(env):
@@ -1339,7 +1457,9 @@ def test_POLYGLOT04_errors_retain_origin(env):
     assert e.value.origin_runtime == "starlark"
 
 def test_POLYGLOT05_cross_runtime_nested_call_does_not_deadlock(env):
-    assert env.evaluate("x/py_calls_starlark_calls_py", timeout=5) is not None
+    # A Python source command that evaluates a Starlark command which evaluates
+    # back into Python; the design must register the whole cycle.
+    assert env.evaluate("py_calls_starlark_calls_py", timeout=5) is not None
 
 def test_POLYGLOT06_name_collision_policy(env):
     env.register_command("dup", lambda s: s)
@@ -1354,10 +1474,10 @@ def test_POLYGLOT08_embedded_command_works_through_outer_integration(env):
     # A Starlark command owned by liquers-lib, reached through the Python integration.
     env.enable_starlark()
     env.eval_starlark("def sl(s): return s + '!'")
-    assert env.evaluate("hi/sl") == "hi!"
+    assert env.evaluate("hello/sl") == "hello!"
 
 def test_POLYGLOT09_outer_cancellation_reaches_embedded_runtime(env):
-    h = env.evaluate_async("x/slow_starlark")
+    h = env.evaluate_async("slow_starlark")        # a long-running Starlark source command
     h.cancel()
     with pytest.raises(lq.Error) as e:
         h.result()
@@ -1365,6 +1485,12 @@ def test_POLYGLOT09_outer_cancellation_reaches_embedded_runtime(env):
 ```
 
 ### WEBSERV
+
+Route prefixes follow the `liquers-axum` builders and the default base path of
+[WEB_API_SPECIFICATION.md](WEB_API_SPECIFICATION.md) §2.1: queries are served under
+`/liquer/q/{*query}`, the store under `/liquer/api/store/{data,metadata}/{*key}`, and assets under
+`/liquer/api/assets/{data,metadata}/{*query}`. A design that configures different base paths
+substitutes them here.
 
 ```python
 def test_WEBSERV01_start_on_ephemeral_port_and_reach_readiness(env):
@@ -1374,8 +1500,8 @@ def test_WEBSERV01_start_on_ephemeral_port_and_reach_readiness(env):
     srv.shutdown()
 
 def test_WEBSERV02_standard_route_uses_configured_environment(env, srv):
-    env.register_command("marker", lambda s: "from-this-env")
-    assert http_get(f"{srv.url}/q/x/marker").text == "from-this-env"
+    env.register_command("marker", lambda: "from-this-env")     # source command
+    assert http_get(f"{srv.url}/liquer/q/marker").text == "from-this-env"
 
 def test_WEBSERV03_startup_error_maps_through_error(env, srv):
     with pytest.raises(lq.Error):
@@ -1404,7 +1530,7 @@ def test_WEBSERV07_handler_exception_becomes_safe_http_error(env, srv):
     assert r.status == 500 and "secret internal detail" not in r.text
 
 def test_WEBSERV08_concurrent_handlers_do_not_block_runtime(env, srv):
-    rs = parallel_get([f"{srv.url}/q/hello/greet"] * 20, timeout=5)
+    rs = parallel_get([f"{srv.url}/liquer/q/hello/greet"] * 20, timeout=5)
     assert all(r.status == 200 for r in rs)
 ```
 
@@ -1412,46 +1538,52 @@ def test_WEBSERV08_concurrent_handlers_do_not_block_runtime(env, srv):
 
 ```python
 def test_WEBAPI01_framework_neutral_query_handler_success(env):
-    resp = lq.handlers.query(env, lq.Request(path="/q/hello/greet"))
+    resp = lq.handlers.query(env, lq.Request(path="/liquer/q/hello/greet"))
     assert resp.status == 200
 
 def test_WEBAPI02_error_maps_to_specified_http_response(env):
-    resp = lq.handlers.query(env, lq.Request(path="/q////bad///"))
+    resp = lq.handlers.query(env, lq.Request(path="/liquer/q///bad///"))
     assert resp.status == 400 and resp.json()["error_type"] == "ParseError"
 
 def test_WEBAPI03_media_type_and_metadata_survive(env):
-    resp = lq.handlers.query(env, lq.Request(path="/q/data/table/out.csv"))
+    # Needs data/sales.csv in the store and the polars command group; any query
+    # whose result carries a non-default media type serves the same purpose.
+    resp = lq.handlers.query(
+        env, lq.Request(path="/liquer/q/-R/data/sales.csv/-/ns-pl/head-10/preview.csv"))
     assert resp.headers["content-type"].startswith("text/csv")
 
 async def test_WEBAPI04_asgi_adapter(env):
     app = lq.asgi_app(env)
-    assert (await asgi_get(app, "/q/hello/greet")).status == 200
+    assert (await asgi_get(app, "/liquer/q/hello/greet")).status == 200
 
 def test_WEBAPI05_wsgi_adapter_does_not_create_runtime_per_request(env):
     app = lq.wsgi_app(env)
     before = lq.runtime_count()
     for _ in range(20):
-        wsgi_get(app, "/q/hello/greet")
+        wsgi_get(app, "/liquer/q/hello/greet")
     assert lq.runtime_count() == before
 
 async def test_WEBAPI06_disconnect_cancellation_propagates(env):
     app = lq.asgi_app(env)
-    task = asgi_get(app, "/q/slow/query")
+    task = asgi_get(app, "/liquer/q/sleep-60")
     task.disconnect()
     assert env.last_evaluation_status() == lq.Status.Cancelled
 
 def test_WEBAPI07_large_streaming_response_follows_memory_limits(env):
-    resp = lq.handlers.data(env, lq.Request(path="/data/big.bin"))
+    resp = lq.handlers.data(env, lq.Request(path="/liquer/api/store/data/big.bin"))
     assert resp.is_streaming and peak_memory_during(resp.consume) < LIMIT
 
 def test_WEBAPI08_authentication_context_reaches_evaluation(env):
     @env.command
-    def whoami(state, context): return context.user.name
-    resp = lq.handlers.query(env, lq.Request(path="/q/x/whoami", user=lq.User("ada")))
+    def whoami(context): return context.user.name      # source command
+    resp = lq.handlers.query(
+        env, lq.Request(path="/liquer/q/whoami", user=lq.User("ada")))
     assert resp.body == b"ada"
 
 def test_WEBAPI09_route_behavior_matches_liquers_axum(env, srv):
-    for path in ["/q/hello/greet", "/data/d/f.txt", "/meta/d/f.txt"]:
+    for path in ["/liquer/q/hello/greet",
+                 "/liquer/api/store/data/d/f.txt",
+                 "/liquer/api/store/metadata/d/f.txt"]:
         neutral = lq.handlers.dispatch(env, lq.Request(path=path))
         axum = http_get(srv.url + path)
         assert (neutral.status, neutral.headers["content-type"]) \
