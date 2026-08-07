@@ -13,10 +13,13 @@ command is therefore an ordinary registered async command whose closure owns a `
 The crate contributes three things: a value bridge, a `#[wasm_bindgen]` object/eval/command surface,
 and a Promise bridge. Everything else is reuse.
 
-## Decision requiring user confirmation: where the JS value variant lives
+## Where the JS value variant lives — decided: Option Y (cfg-gated `ExtValue`)
 
-This is the one open architectural fork. Phase 1 decision 2 fixed the *semantics* (structural by
-default, opaque opt-in, direct `JsValue` retention); it did not fix *which enum* carries it.
+Phase 1 decision 2 fixed the *semantics* (structural by default, opaque opt-in, direct `JsValue`
+retention); it did not fix *which enum* carries it. **Confirmed by the user: Option Y, the
+cfg-gated `ExtValue` variant**, together with the generic extension path in "Extensibility" below,
+so a user can still supply their own value type and environment. Option X is retained here as the
+rejected alternative and as the reference point for what the extension path must preserve.
 
 ### Option X — own value type in `liquers-web`
 
