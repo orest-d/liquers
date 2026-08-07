@@ -337,7 +337,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | VALUE05 | `value05_unknown_object_uses_opaque_value` | W | policy = refuse unless `opaque()` |
 | VALUE06 | `value06_opaque_serialization_fails_or_uses_its_codec` | W | |
 | VALUE07 | `value07_cycles_follow_policy` | W | |
-| VALUE08 | `value08_representative_extvalue_roundtrip` | W | **Not `NA`.** `ExtValue::Foreign` *is* a representative variant — roundtrip through `CombinedValue::Extended`, plus a downcast to `JsOpaque` |
+| VALUE08 | `value08_representative_extvalue_roundtrip` | W | **Corrected.** An earlier draft called this nearly-`NA` for want of a wasm-viable rich variant; Appendix A uses `Query` and `Key` as representatives, and both are available on wasm. Tests `Query`, `Key` **and** `ExtValue::Foreign`, which is a stronger test than the original disposition |
 | VALUE09 | `value09_checked_upcast_and_downcast` | W | |
 | VALUE10 | `value10_language_only_object_retains_documented_identity` | W | asserts identity holds *and* that it is documented as incidental |
 | VALUE11 | `value11_callable_retention_or_rejection_follows_policy` | W | **Not `NA`.** The policy is testable: a bare function → `ConversionError`; `opaque(fn)` → retained |
@@ -372,7 +372,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | ASYNCQ04 | `asyncq04_cancellation_propagates` | W | via `LiquersAsset.cancel()` |
 | ASYNCQ05 | `asyncq05_dropping_host_handle_follows_policy` | W | incl. Promise pending when the environment is freed |
 | ASYNCQ06 | `asyncq06_no_event_loop_blocking` | W | |
-| ASYNCQ07 | `asyncq07_documented_non_async_workaround_completes` | W | **Not `NA`.** The documented position is that *no* workaround exists — so the test asserts the exported surface contains **no** blocking/sync evaluation entry point. A surface assertion, and it fails if someone later adds one |
+| ASYNCQ07 | — | — | **`NA`: JavaScript has a native async model.** Appendix A scopes this test to *languages with no async model*; an earlier draft missed that scoping and reinterpreted it. The useful part of the reinterpretation is kept as `web_no_blocking_api` below, which is not a conformance test |
 | ASYNCQ08 | `asyncq08_nested_event_loop_use_is_rejected_or_safe` | W | |
 | ASYNCCMD01 | `asynccmd01_async_command_result` | W | |
 | ASYNCCMD02 | `asynccmd02_async_exception` | W | |
@@ -395,7 +395,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | PACKAGE06 | — | — | **`NA`: no optional extras exist in this phase.** `liquers-web` exposes no installable extra Cargo feature — the build is one artefact with one feature set. Becomes required the moment any feature is exposed as an extra (npm packaging, `UIUSE`) |
 | PACKAGE07 | `PACKAGE07 artifact carries declarations license and metadata` | P | `.d.ts` + LICENSE beside the wasm |
 
-**Count:** 83 prescribed · **82 required** · 1 `NA` (PACKAGE06, with the condition that reverses it).
+**Count:** 83 prescribed · **81 required** · 2 `NA`, each with the condition that reverses it: `PACKAGE06` (no optional Cargo extra exists yet) and `ASYNCQ07` (scoped by Appendix A to languages with no async model).
 
 The five `NA` marks the first draft carried were all of the kinds the guide now names as
 insufficient (§3, "When a prescribed test does not apply"): `STUBS02`/`STUBS06` were excused for
@@ -449,6 +449,7 @@ to this architecture, and are named `web_*` so they are distinguishable from con
 | `web_evaluate_before_init` (W) | module-level `evaluate` before `init()` rejects with a clear error, not a panic or a hang |
 | `web_promise_after_free` (W) | a Promise still pending when its environment is `.free()`d settles rather than hanging |
 | `web_encode_param_roundtrip` (W) | `encodeParam` round-trips a URL, a lone colon, a space and a leading minus — the `PARAMETER-ESCAPING-INCOMPLETE` guard |
+| `web_no_blocking_api` (C) | the exported surface contains no blocking/sync evaluation entry point; fails if one is ever added. Carries no guide ID — `ASYNCQ07` is `NA` here — but the property is worth pinning |
 
 ### The guide's mandatory end-to-end test
 

@@ -46,6 +46,8 @@ Unless qualified, “value” is informal. Designs should use *language value*, 
 
 ## 3. How to Use the Features
 
+**The “Objects/API to map or implement” lists say what the *integration* must cover, not what already exists.** Some entries are already provided by `liquers-core` or `liquers-lib` and only need exposing; others do not exist yet and must be added. Adding to core is legitimate and expected — `CommandRegistry::unregister` was added for exactly this reason — provided the addition is **additive**: new inherent methods and new trait methods with defaults, never a changed signature, since every implementor including `liquers-py` must keep compiling. Check before designing around an absence.
+
 A feature ID is preferably a pronounceable uppercase word of at most eight alphanumeric characters. A familiar abbreviation is acceptable; exceptionally, a longer ID may be used when shortening it would reduce clarity. IDs contain no underscores. IDs are stable and must not be renamed for one *integrated language*. A specific design may split a feature into milestones, but status and tests must still roll up to the ID.
 
 Use these requirement levels:
@@ -70,6 +72,38 @@ A status claim should link to design sections, implementation, and test evidence
 | Feature | Selected level | Status | Limitations | Test evidence |
 |---|---|---|---|---|
 | `VALUE` | Essential | PARTIAL | Opaque values cannot be serialized | `test_VALUE01_*` … |
+
+### Choosing a test harness
+
+The harness is *language*-specific, so this guide prescribes questions rather than an answer. Answer
+them in the design, before writing tests: getting this wrong is not a correctness problem but it
+reliably costs hours, and the failures are obscure.
+
+1. **What does each test actually need — the full *language runtime* host, or only its value
+   semantics?** These are usually different, and the difference is large. A *value bridge* test
+   exercising numbers, strings, byte arrays, containers and object identity typically needs only the
+   language's core semantics; a test of the event loop, UI thread, or module system needs the real
+   host. Classify the inventory on this axis first.
+2. **Is there a lighter runtime for the tests that do not need the host?** Browser JavaScript has
+   one: all thirteen `VALUE` tests for `liquers-web` are pure ECMAScript and run under Node with no
+   browser and no WebDriver, while `RUNTIME`, `ASYNCQ` and `PACKAGE` need a real browser. Python has
+   the same split between a bare interpreter and an application host. Using the lighter runtime
+   where it suffices removes an entire class of setup failure from most of the suite.
+3. **What version coupling does the harness impose, and does a mismatch fail loudly?** Toolchains
+   around foreign runtimes are often version-locked in ways that fail *late*: a `wasm-bindgen` CLI
+   that does not match the crate version fails at bindgen time rather than at compile time, and a
+   WebDriver whose major version does not match the browser fails with a bare HTTP 404. Record the
+   coupled versions and how to check them.
+4. **Does the harness need a separate driver or process, and is it present in every environment the
+   tests must run in?** A test suite that silently requires a browser driver is a test suite that
+   does not run in CI.
+5. **Does the test *binary* run natively at all?** For a cross-compiled target it may not — a
+   `wasm32` test binary is not executable, and without a configured runner the failure is an opaque
+   `Exec format error` rather than anything about tests.
+6. **Which tests must run in the heavyweight harness even though a lighter one would pass?** Some
+   contracts are only meaningful in the real host: event-loop behaviour, cancellation, and anything
+   `PACKAGE` asserts about a delivered artifact. Mark those explicitly so nobody "optimises" them
+   into the fast harness.
 
 ### Test naming
 
@@ -102,6 +136,8 @@ The tests listed below are the default conformance inventory. An *integration* d
 3. **The behaviour is hard to observe.** `RUNTIME05` (shutdown releases handles) is awkward — it may need a debug-only counter, a weak reference, or an instrumented allocator. Difficulty of observation calls for a mechanism, not an exemption. A test whose assertion would pass with the bug present is worse than an absent test, because it reports safety it never checked.
 4. **The test's literal wording assumes a different host.** `RUNTIME01` ("native adapter satisfies required thread bounds") reads as inapplicable to a browser-only *integration* — but the contract behind it, that the *integration* has not weakened the thread bounds the native build relies on, is both testable and exactly where such an *integration* is most likely to do damage. **Restate the contract in the *integration*'s own terms and keep the ID.** Reinterpretation is expected; the IDs are contracts, not test scripts.
 5. **No obvious instance is at hand.** Before concluding that nothing exists to test — no representative *value type* variant, no enum with unknown variants — check whether the *integration* provides one under a different name. An *opaque language value* is a representative variant; an unrecognised string arriving from the *integrated language* is an unknown variant.
+
+**Some prescribed tests are conditional, and the condition is normative.** Where a test's entry in §5 or its reference implementation in [Appendix A](#appendix-a-reference-test-implementations) scopes it — "only for a *language* with no async model", "only where an optional extra exists" — a *language* outside that scope marks it `NA` and cites the condition. That is a genuine disposition, not an evasion. Check the appendix before reinterpreting a test: its pseudocode often fixes the contract more narrowly than the one-line summary suggests, and following it literally is usually right. `VALUE04`, for instance, asserts that a byte array and a string map to *different type names* — a statement about the mapping, not a claim that the *value type* must refuse to decode bytes as text later.
 
 **Every `NA` carries a reversing condition.** State what would make the test required again — "when any optional extra is defined", "when a payload type other than `()` is selected". Without it, an `NA` written for a good reason at one milestone silently outlives that reason.
 
@@ -169,7 +205,9 @@ Recommended minimum profiles:
 
 **The design must answer:** Which binding technique is used—such as PyO3 classes, `wasm-bindgen` exported types, Starlark custom values, C ABI handles, or plain serialized data—and why? What common conventions govern constructors, ownership, cloning, getters/setters, `repr`/`toString`, errors, and Rust-to-language conversion? Which objects are wrapped, copied, or represented as plain *language values*? How are Rust enums represented: native language enums, tagged classes/objects, strings, or integer discriminants, and how are unknown future variants handled? Are *wrappers* mutable? How are identity, equality, hashing, subclassing, and invalidated handles handled? Which Rust fields are intentionally hidden?
 
-**Issues and patterns.** Reimplementing the Liquers query/key parser in the *integrated language* can produce different results and can fall out of date when the Rust grammar changes; route strings through the Liquers parser instead. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
+**Issues and patterns.** Reimplementing the Liquers query/key parser in the *integrated language* can produce different results and can fall out of date when the Rust grammar changes; route strings through the Liquers parser instead.
+
+The **encode direction needs the same discipline and is easier to overlook.** Any *integration* that lets host code supply a string parameter must turn that string into query text, and query text has its own escaping (tilde entities: `~~`, `~_`, `~.`, `~/`, `~h`, `~H`, `~f`, `~P`, and `~<digit>` for a negative number). Percent-encoding is *not* part of the grammar and will not parse. Do not hand-roll an encoder in the *integrated language*: build the `Query` programmatically and call `encode()`, so the escaping comes from Rust. Two open issues bound what is currently possible — `PARAMETER-ESCAPING-INCOMPLETE` (values containing a colon or any non-ASCII character cannot be encoded at all today) and `QUERY-BUILDER-TOOLING` (there is no supported query-construction utility yet) — so an *integration* should raise a typed error for values it cannot represent rather than emit text that will not parse. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
 
 **Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions.
 
@@ -205,6 +243,28 @@ Recommended minimum profiles:
 
 **The design must answer:** Which thread/event loop owns the language runtime? Can callbacks move between threads? What is owned across `await`? How are nested evaluation, locks, cancellation, teardown, and callbacks after shutdown handled? Which compile targets are supported?
 
+#### The thread bounds are chosen by the *target*, not by the *integration*
+
+`MaybeSend`/`MaybeSync` are gated on `target_arch`, **never** on a Cargo feature — deliberately, because Cargo feature unification is additive across a workspace and a `non_send`-style feature would silently strip `Send` from the native multi-threaded build everywhere (`liquers-core/src/maybe_send.rs`). So an *integration* does not select its thread model. What it must determine, early, is whether its language's value handles can satisfy `Send + Sync` **at all**, because that decides which targets the *integration* can exist on:
+
+| Handle | `Send + Sync`? | Consequence |
+|---|---|---|
+| Python `Py<PyAny>` | yes | the *integration* runs natively |
+| Starlark owned/frozen value | to be established | determines whether a native Starlark *integration* is possible |
+| JavaScript `JsValue` | **no, on any target** | the *integration* is confined to `wasm32`, where the markers are vacuous |
+
+A *language* whose handles are not `Send + Sync` is not thereby excluded — but it is confined to a target where the markers are vacuous, and that is a fact to establish in the high-level design rather than discover during implementation.
+
+#### Relaxing a thread bound is transitive, and native builds cannot detect it
+
+If a *value type* becomes non-`Send` on some target, **every trait that stores that value under a hard `Send + Sync` bound must be relaxed too, transitively.** This is the single most under-estimated cost in this guide's experience so far: relaxing `ValueExtension` for `liquers-web` was costed as "one implementor, bounds local to one file", and it cascaded to `UIElement` (whose implementors hold a value behind a lock) and then to `AppState` (which stores `dyn UIElement` handles).
+
+Three things follow, and they generalize to any *integration*:
+
+- **Budget for the closure of the relation, not the first hop.** Trace what stores your value, then what stores *that*, until the chain closes.
+- **Every native configuration compiles throughout.** The markers still mean `Send + Sync` there, so nothing fails until the constrained target is built. A build-configuration matrix that includes that target is the only thing that finds it.
+- **Establish where the chain stops, and say so.** Relax one trait, observe the next failure, repeat, then record the closure. For this repository the chain is `ValueExtension → UIElement → AppState`, and the only hard `Send + Sync` bound remaining on a trait that could carry a value is the legacy synchronous `Store`, which is already excluded on `wasm32`.
+
 **Issues and patterns.** Do not hold a GIL, VM lock, Rust mutex guard, Starlark heap borrow, or JS borrow across blocking work or `await`. Copy, freeze, root, or use an owned handle before crossing the boundary. Separate target-specific type aliases for trait objects; `dyn Trait + MaybeSend` is not a substitute for conditional `+ Send`. Define and test a reentrancy policy rather than relying on the host runtime.
 
 **Meaningful tests:** `RUNTIME01` native adapter satisfies required thread bounds; `RUNTIME02` wasm accepts a non-`Send` callback; `RUNTIME03` stored callback outlives registration scope safely; `RUNTIME04` nested evaluation does not deadlock; `RUNTIME05` cancellation and shutdown release handles; `RUNTIME06` panic/exception containment.
@@ -227,11 +287,58 @@ Recommended minimum profiles:
 
 1. Does the *integrated language* have a universal value representation, such as JavaScript `JsValue`, Starlark `Value<'v>`, a JSON value, or Python `Py<PyAny>`? Can it safely be retained inside the *value type*?
 2. Which *language values* receive *structural conversion*, which are exposed as *wrappers* around existing Rust values, and which must remain *opaque language values*? Provide a bidirectional mapping table for all supported types.
-3. Is the *value type* a new implementation, a generic composition such as `CombinedValue`, or an extension of an existing Liquers value? How are *upcast* and *downcast* operations exposed, checked, and reported on failure?
+3. Is the *value type* a new implementation, a generic composition such as `CombinedValue`, or an extension of an existing Liquers value? How are *upcast* and *downcast* operations exposed, checked, and reported on failure? **Before answering, see “Retaining an opaque language value” below — the shared mechanism usually makes a bespoke variant unnecessary.**
 4. Are conversions strict, permissive, or configurable? How are integer range, NaN/infinity, cycles, shared identity, mutation, and unknown objects handled?
 5. Can an *opaque language value* cross stores, threads, processes, Wasm boundaries, or another *language runtime*? Which codecs are supported and trusted?
 6. Does the *integrated language* support function pointers, bound methods, closures, or callable objects? May they be retained as *opaque language values*? Are they serializable? Are they accepted as *language commands* through `COMMAND`, even when they are not ordinary data values?
 7. Can users operate conveniently on a *value type* *wrapper* or *State* as if it were a language scalar? Which conversions are implicit versus explicit? Can arithmetic, comparison, indexing, iteration, truthiness, and display operators be defined without hiding conversion errors or metadata loss?
+
+#### Retaining an *opaque language value*: use the shared `ForeignValue`
+
+`liquers-lib` provides one variant for *all* integrated languages rather than one per language:
+
+```rust
+// liquers-lib/src/value/mod.rs — ungated: no target_arch, no feature.
+ExtValue::Foreign { value: Arc<dyn ForeignValue> }
+
+// liquers-lib/src/value/foreign.rs
+pub trait ForeignValue: Debug + MaybeSend + MaybeSync + 'static {
+    fn origin(&self) -> &'static str;          // "javascript" | "starlark" | "python"
+    fn as_any(&self) -> &dyn core::any::Any;   // object-safe downcast hook
+    fn identifier(&self) -> Cow<'static, str>;
+    fn type_name(&self) -> Cow<'static, str>;
+    fn default_extension(&self) -> Cow<'static, str>;
+    fn default_filename(&self) -> Cow<'static, str>;
+    fn default_media_type(&self) -> Cow<'static, str>;
+    fn try_into_string(&self) -> Result<String, Error>;      // refuses by default
+    fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;  // refuses by default
+    fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error>;         // refuses by default
+}
+```
+
+**An *integration* implements this trait in its own crate and adds nothing to `liquers-lib`.** The
+concrete wrapper — `JsOpaque` in `liquers-web`, a frozen-value wrapper for Starlark, `Py<PyAny>` for
+Python — stays where it belongs, and every `match` arm on the variant inside `liquers-lib` is a
+one-line delegation to the trait. Adding a language costs no variant and no match arms.
+
+Why this rather than a per-language variant:
+
+- **Languages are separated at *downcast* time, not at variant time.** `as_any().downcast_ref::<T>()`
+  returning `None` means the value came from a different runtime, and `origin()` names which — so a
+  cross-language mistake produces a diagnosable error rather than a bare conversion failure. That is
+  `POLYGLOT03` and `POLYGLOT04` satisfied by the mechanism instead of by extra machinery.
+- **The variant is ungated**, so a missing match arm is a compile error in *every* build
+  configuration rather than in one of them. Prefer this shape generally: a mechanism whose omissions
+  the compiler catches everywhere beats one it catches only where someone remembered to build.
+- **The refusing defaults are the right ones.** Refusing byte serialization is safe because the asset
+  layer already absorbs it, falling back to a time-based version and metadata-only persistence, so an
+  unserializable value degrades instead of breaking evaluation.
+
+Two cautions when adding any variant to a shared enum: **audit for pre-existing `_ =>` arms first**,
+because those absorb a new variant silently and are the one place the compiler will not help; and
+note that structural conversion of *compound* values goes through `try_from_json_value`, which is the
+only constructor every *value type* supports — so bytes nested inside an array or object degrade to
+an array of numbers, while top-level bytes are preserved.
 
 **Issues and patterns.** Prefer lossless *structural conversion* and an explicit opaque fallback. A JSON-like representation is portable but cannot preserve arbitrary objects, callable identity, cycles, bytes without a convention, or all numeric types. *Opaque language values* must advertise their ownership and serialization limits. JavaScript `Number` cannot losslessly represent every `i64`; use checked conversion or `BigInt`. Use `Uint8Array` for bytes. Starlark values are heap-lifetime-bound, so copy primitives/containers or retain an owned frozen value; never store a borrowed `Value<'v>`. Python may permissively retain `Py<PyAny>` and use an opt-in pickle codec, with the security implications documented.
 
@@ -294,7 +401,10 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 - A callable registry and stable callable handle/ID
 - A Rust `CommandExecutor`/`CommandRegistry` adapter for language callables
 - Argument binder for `State`, ordinary parameters, variadics, and injected `Context`/services
-- Register, inspect, replace, and unregister operations
+- Register, inspect, replace, and unregister operations. Core provides
+  `CommandRegistry::unregister` and `CommandMetadataRegistry::remove_command`; both clear the
+  metadata registry *and* both executor maps together, because planning consults the metadata while
+  execution consults the executors, so a partial removal leaves a command that plans and then fails
 
 **The design must answer:** What is the most natural, small, and readable declaration in this *integrated language*: a decorator/annotation, function call, builder, module scan, callable object, or data object containing a function and metadata? Show minimal and complete examples. How do signature, annotations, defaults, variadics, documentation, namespace, realm, volatility, and async status map to metadata? Which fields require explicit metadata? How is callable identity retained? Which state-passing modes exist? Is registration reversible?
 
@@ -338,7 +448,7 @@ def test_COMMAND02_transform_receives_state_and_parameter(env):
 
 **Issues and patterns.** Bridge, do not block: Rust `Future` to JavaScript `Promise`, Python awaitable, or an explicit host task. On wasm, `JsFuture` and language callbacks are non-`Send`; use the core's wasm execution model. Exported wasm futures generally need owned (`'static`) inputs. If the *integrated language* has no async model, possible restricted workarounds are: a blocking call executed outside any async worker/event-loop thread; a task handle with `poll`/`wait`/`cancel`; callbacks scheduled onto the *language runtime*; or an explicitly synchronous inline environment. State which operations can deadlock or starve. Never offer blocking wait on a single-threaded browser event loop.
 
-**Meaningful tests:** `ASYNCQ01` await successful evaluation; `ASYNCQ02` failure rejects/raises structured `ERROR`; `ASYNCQ03` two evaluations make progress; `ASYNCQ04` cancellation propagates; `ASYNCQ05` dropping the host handle follows policy; `ASYNCQ06` no event-loop blocking; `ASYNCQ07` documented non-async workaround completes safely; `ASYNCQ08` nested event-loop use is rejected or works without deadlock.
+**Meaningful tests:** `ASYNCQ01` await successful evaluation; `ASYNCQ02` failure rejects/raises structured `ERROR`; `ASYNCQ03` two evaluations make progress; `ASYNCQ04` cancellation propagates; `ASYNCQ05` dropping the host handle follows policy; `ASYNCQ06` no event-loop blocking; `ASYNCQ07` documented non-async workaround completes safely — **conditional: only for a *language* with no async model**, and correctly `NA` where the *language* has one; `ASYNCQ08` nested event-loop use is rejected or works without deadlock.
 
 ### ASYNCCMD — Async language commands
 
@@ -585,6 +695,9 @@ Every language-specific design should contain:
 ## 8. References
 
 - Liquers core integration boundaries: `liquers-core/src/value.rs`, `error.rs`, `context.rs`, `commands.rs`, `store.rs`, `recipes.rs`, `assets.rs`, and `maybe_send.rs`
+- Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
+- Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
+- A worked *integration* design following this guide: [`specs/liquers-web/`](liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
 - [Async/Wasm Refactor Design](async-wasm-refactor/DESIGN.md)
 - [Liquers Web API Specification](WEB_API_SPECIFICATION.md)
