@@ -65,12 +65,40 @@ integration that accepts a string parameter from its host language. Non-English 
 unrepresentable in a parameter, which makes this an internationalization defect and not only an
 escaping one.
 
+#### Intended solution
+
+**An HTML/XML-like entity system, with `~` as the escape character**, supporting both *named*
+entities and *numeric* entities in hexadecimal, octal or another radix — the role `&amp;` and
+`&#x41;` play in XML. `~` is already the established escape character in the query grammar and this
+extends it rather than introducing a second mechanism.
+
+The natural extension point is the `entities` combinator in
+`liquers_core::parse` (`parse.rs:386`, the `alt((tilde_entity, minus_entity, …))` list) together
+with its encoder counterpart, `encode_token`. **`liquers-core/src/entities.rs` is the intended home
+for the consolidated table**, so both directions derive from one definition.
+
+**This requires a proper design** — a `liquers-designer` run, not an incremental patch. The grammar
+constraints below are already known and are what make it non-trivial:
+
+- **Existing entities are terminator-free and fixed-length** (`~~`, `~_`, `~.`, `~I`, `~/`, `~h`,
+  `~H`, `~f`, `~P`). A variable-length named or numeric entity needs a terminator. `;` is a natural
+  choice and is currently *not* in the accepted character set, so it cannot occur unescaped — but
+  admitting it is itself a grammar change.
+- **`~<digit>` already means a negative number.** `negative_number_entity` (`parse.rs:378`) parses
+  `~42` as `-42`. Any numeric-entity syntax of the shape `~<digits>` collides with it directly. This
+  is the sharpest constraint on the design: either numeric entities take a distinguishing prefix
+  (`~#41;`, `~x41;`, `~u0041;`), or the compact negative-number form is retired with a migration
+  path.
+- **`alt` is ordered**, so a named-entity parser added to the list must not shadow the existing
+  short forms — a named entity beginning `h` must not capture `~h` (`http://`).
+- **Backward compatibility is required.** Every query and recipe already written must keep parsing
+  and keep meaning the same thing. The existing mnemonics stay as compact special cases layered over
+  the general mechanism.
+
 #### Expected behavior
 
-1. **A general escaping feature covering all of Unicode.** Any `char` must be representable in a
-   string parameter through some escape, so that `encode_token(s)` round-trips for every `s`. A
-   numeric-escape entity — for example `~u<hex>;` or similar — is the usual shape; the existing
-   mnemonic entities (`~H`, `~/`, …) then remain as compact special cases layered on top.
+1. **A general escaping feature covering all of Unicode**, per the entity design above. Any `char`
+   must be representable in a string parameter, so that `encode_token(s)` round-trips for every `s`.
 2. `encode_token` emits those escapes, and emits the mnemonic entities where they apply so URLs
    still encode to the compact `~H…` form.
 3. The `c as u8` truncation at `parse.rs:340` is replaced with a decision made deliberately: either
@@ -79,9 +107,9 @@ escaping one.
 4. A round-trip property test over a generated character set, including astral-plane code points,
    guards all three.
 
-**The placeholder module for this work is `liquers-core/src/entities.rs`.** It exists, is empty
-(0 lines), and is not declared in `lib.rs` — it must be added to the module list when filled. The
-entity table currently lives inline in `parse.rs` (`tilde_entity`, `minus_entity`, `slash_entity`,
+**The placeholder module is `liquers-core/src/entities.rs`.** It exists, is empty (0 lines), and is
+not declared in `lib.rs` — it must be added to the module list when filled. The entity table
+currently lives inline in `parse.rs` (`tilde_entity`, `minus_entity`, `slash_entity`,
 `https_entity`, … and the `entities` combinator) with its encoder counterpart in `query.rs`; the two
 are separated by a whole module and drift silently, which is the structural reason this defect went
 unnoticed. Consolidating both directions into `entities.rs` — one table, one encoder, one parser,
@@ -94,9 +122,11 @@ Item 1 and item 3 are grammar changes and affect the encoding description in
 
 | Location | Role |
 |---|---|
-| `liquers-core/src/entities.rs` | **empty placeholder** — intended home, not yet in `lib.rs` |
+| `liquers-core/src/entities.rs` | **empty placeholder** — intended home for the consolidated table, not yet in `lib.rs` |
 | `liquers-core/src/parse.rs:340` | unescaped character class, with the `as u8` truncation |
-| `liquers-core/src/parse.rs:345-399` | entity parsers and the `entities` combinator |
+| `liquers-core/src/parse.rs:345-377` | the fixed-length entity parsers |
+| `liquers-core/src/parse.rs:378` | `negative_number_entity` — the `~<digit>` form that collides with numeric entities |
+| `liquers-core/src/parse.rs:386` | the `entities` combinator — **the extension point** |
 | `liquers-core/src/query.rs:503` | `encode_token`, the encoder half |
 | `liquers-core/src/query.rs:609-646` | `Query` encoding paths that depend on it |
 | `specs/PROJECT_OVERVIEW.md` | documents query encoding; needs updating with the outcome |
