@@ -47,6 +47,14 @@ thread_local! {
     ///
     /// Left unset when initialization fails, so a retry can succeed (`ENVIRON04`).
     static GLOBAL_ENV: RefCell<Option<EnvRef<WebEnvironment>>> = const { RefCell::new(None) };
+
+    /// Every command declaration registered so far, in order.
+    ///
+    /// Retained so the environment can be rebuilt: registering after the environment has been
+    /// shared replays these into a fresh one. Holding the original declaration objects rather than
+    /// the parsed specs keeps replay identical to first registration — one code path, so the two
+    /// cannot drift.
+    static REGISTERED_SPECS: RefCell<Vec<JsValue>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Builds a fresh environment with the standard command set registered.
@@ -55,102 +63,201 @@ pub fn build_environment() -> Result<EnvRef<WebEnvironment>, Error> {
     Ok(env.to_ref())
 }
 
-/// Registers a JavaScript command declaration on the pending global environment.
+/// Registers a JavaScript command declaration on the global environment.
 ///
-/// **Limitation, and it is a real one:** commands can only be registered *before* the first
-/// evaluation. `Environment::to_ref` consumes the environment into an `Arc` and
-/// `Environment::get_command_executor` hands out a reference, so once the environment is shared
-/// there is no path to `&mut CommandRegistry`. Registering afterwards returns a typed error rather
-/// than silently doing nothing.
+/// Registration needs `&mut CommandRegistry`, and `Environment::to_ref` consumes the environment
+/// into an `Arc`, so once it has been shared there is no mutable path back to it. Rather than
+/// refuse, this follows the same shape Rust code uses — build the registry, then the environment,
+/// then share it — and simply does it again:
 ///
-/// This blocks the per-route registration pattern that motivated `unregister`, and the fix belongs
-/// in `liquers-core` — see `POST-INIT-COMMAND-REGISTRATION` in `specs/ISSUES.md`.
+/// - **Before the first evaluation** the environment is still un-shared, so the command is
+///   registered directly. This is the ordinary path and costs nothing.
+/// - **After the first evaluation** a fresh environment is built, every declaration so far is
+///   replayed into it along with the new one, and the singleton is swapped.
+///
+/// The cost of a rebuild is the asset cache, which is discarded with the old environment. An
+/// evaluation already in flight keeps the old `EnvRef` and completes against it, so nothing is
+/// interrupted — it simply does not see the new command. Registering all commands before the first
+/// evaluation avoids the rebuild entirely.
 pub fn register_command_on(spec: &JsValue) -> Result<(), Error> {
+    // Parse first, so an invalid declaration fails before anything is mutated or rebuilt.
     let parsed = crate::command::JsCommandSpec::parse(spec)?;
     let key = parsed.key.clone();
 
-    PENDING_ENV.with(|cell| {
+    let replaced = existing_command_kind(&key);
+
+    let registered_directly = PENDING_ENV.with(|cell| -> Result<bool, Error> {
         let mut guard = cell.borrow_mut();
-        let env = guard.as_mut().ok_or_else(|| {
-            if GLOBAL_ENV.with(|g| g.borrow().is_some()) {
-                Error::from_error(
-                    ErrorType::NotSupported,
-                    format!(
-                        "Cannot register command {:?}: the environment has already been shared by an \
-                         evaluation, and Liquers does not yet support registering commands \
-                         afterwards. Register commands before the first evaluate().",
-                        key.name
-                    ),
-                )
-            } else {
-                Error::from_error(
-                    ErrorType::NotAvailable,
-                    "Liquers is not initialized — await liquers.init() first".to_string(),
-                )
+        match guard.as_mut() {
+            Some(env) => {
+                crate::command::register_js_command(&mut env.command_registry, parsed)?;
+                Ok(true)
             }
-        })?;
-
-        let existed = env
-            .command_registry
-            .command_metadata_registry
-            .get(key.clone())
-            .is_some();
-        let was_javascript = env
-            .command_registry
-            .command_metadata_registry
-            .get(key.clone())
-            .map(|m| m.module == "javascript")
-            .unwrap_or(false);
-
-        crate::command::register_js_command(&mut env.command_registry, parsed)?;
-
-        // Every replacement warns: replacement and an accidental collision look identical at the
-        // point they happen, and a shadowed built-in stays invisible until a query returns the
-        // wrong thing.
-        if existed {
-            let message = if was_javascript {
-                format!("liquers: command {:?} was replaced", key.name)
-            } else {
-                format!(
-                    "liquers: command {:?} replaces a built-in Rust command",
-                    key.name
-                )
-            };
-            web_sys::console::warn_1(&JsValue::from_str(&message));
+            None => Ok(false),
         }
-        Ok(())
-    })
+    })?;
+
+    if !registered_directly {
+        if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
+            return Err(Error::from_error(
+                ErrorType::NotAvailable,
+                "Liquers is not initialized — await liquers.init() first".to_string(),
+            ));
+        }
+        rebuild_with(spec.clone())?;
+    }
+
+    REGISTERED_SPECS.with(|cell| cell.borrow_mut().push(spec.clone()));
+    warn_on_replacement(&key.name, replaced);
+    Ok(())
 }
 
-/// Removes a command from the pending global environment.
+/// What was registered under a key before, if anything.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Replaced {
+    Nothing,
+    JavaScriptCommand,
+    RustCommand,
+}
+
+fn existing_command_kind(key: &liquers_core::command_metadata::CommandKey) -> Replaced {
+    let lookup = |registry: &liquers_core::command_metadata::CommandMetadataRegistry| {
+        match registry.get(key.clone()) {
+            Some(m) if m.module == "javascript" => Replaced::JavaScriptCommand,
+            Some(_) => Replaced::RustCommand,
+            None => Replaced::Nothing,
+        }
+    };
+    let pending = PENDING_ENV.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|env| lookup(&env.command_registry.command_metadata_registry))
+    });
+    if let Some(kind) = pending {
+        return kind;
+    }
+    GLOBAL_ENV
+        .with(|cell| {
+            cell.borrow()
+                .as_ref()
+                .map(|envref| lookup(envref.0.get_command_metadata_registry()))
+        })
+        .unwrap_or(Replaced::Nothing)
+}
+
+/// Every replacement warns. Replacement and an accidental name collision look identical at the
+/// point they happen, and a shadowed built-in stays invisible until a query returns the wrong
+/// thing.
+fn warn_on_replacement(name: &str, replaced: Replaced) {
+    let message = match replaced {
+        Replaced::Nothing => return,
+        Replaced::JavaScriptCommand => format!("liquers: command {name:?} was replaced"),
+        Replaced::RustCommand => {
+            format!("liquers: command {name:?} replaces a built-in Rust command")
+        }
+    };
+    web_sys::console::warn_1(&JsValue::from_str(&message));
+}
+
+/// Rebuilds the shared environment from every retained declaration, plus `additional`.
+///
+/// Used when a command is registered after the environment has been shared.
+fn rebuild_with(additional: JsValue) -> Result<(), Error> {
+    let mut env = WebEnvironment::new();
+
+    let specs = REGISTERED_SPECS.with(|cell| cell.borrow().clone());
+    for spec in specs.iter().chain(std::iter::once(&additional)) {
+        // Replay through the same path as first registration, so the two cannot drift.
+        let parsed = crate::command::JsCommandSpec::parse(spec)?;
+        crate::command::register_js_command(&mut env.command_registry, parsed)?;
+    }
+
+    let envref = env.to_ref();
+    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
+    Ok(())
+}
+
+/// Removes a command from the global environment.
+///
+/// Returns `false` when no such command was registered, rather than throwing, so teardown paths
+/// need no existence check. Like registration, this rebuilds the environment when it has already
+/// been shared.
 pub fn unregister_command_on(name: &str) -> Result<bool, Error> {
     let key = liquers_core::command_metadata::CommandKey::new("", "", name);
-    PENDING_ENV.with(|cell| {
-        let mut guard = cell.borrow_mut();
-        let env = guard.as_mut().ok_or_else(|| {
-            Error::from_error(
-                ErrorType::NotSupported,
-                "Cannot unregister after the environment has been shared by an evaluation"
-                    .to_string(),
-            )
-        })?;
-        Ok(env.command_registry.unregister(key))
-    })
+
+    // Drop every retained declaration for this command, so a later rebuild does not resurrect it.
+    let removed_spec = REGISTERED_SPECS.with(|cell| {
+        let mut specs = cell.borrow_mut();
+        let before = specs.len();
+        specs.retain(|s| spec_name(s).as_deref() != Some(name));
+        before != specs.len()
+    });
+
+    let removed_here = PENDING_ENV.with(|cell| {
+        cell.borrow_mut()
+            .as_mut()
+            .map(|env| env.command_registry.unregister(key.clone()))
+    });
+
+    match removed_here {
+        // Still un-shared: the direct removal is authoritative.
+        Some(removed) => Ok(removed || removed_spec),
+        // Already shared: rebuild without it.
+        None => {
+            if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
+                return Ok(false);
+            }
+            if removed_spec {
+                rebuild_without()?;
+            }
+            Ok(removed_spec)
+        }
+    }
+}
+
+/// Rebuilds the shared environment from the retained declarations as they now stand.
+fn rebuild_without() -> Result<(), Error> {
+    let mut env = WebEnvironment::new();
+    let specs = REGISTERED_SPECS.with(|cell| cell.borrow().clone());
+    for spec in specs.iter() {
+        let parsed = crate::command::JsCommandSpec::parse(spec)?;
+        crate::command::register_js_command(&mut env.command_registry, parsed)?;
+    }
+    let envref = env.to_ref();
+    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
+    Ok(())
+}
+
+/// The `name` field of a declaration object, for matching retained specs.
+fn spec_name(spec: &JsValue) -> Option<String> {
+    js_sys::Reflect::get(spec, &JsValue::from_str("name"))
+        .ok()
+        .and_then(|v| v.as_string())
 }
 
 /// Returns a command's registered metadata as JSON, or `null` when it is not registered.
 pub fn describe_command_on(name: &str) -> Result<JsValue, Error> {
     let key = liquers_core::command_metadata::CommandKey::new("", "", name);
-    let json = PENDING_ENV.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|env| {
+    let json = PENDING_ENV
+        .with(|cell| {
+            cell.borrow().as_ref().and_then(|env| {
                 env.command_registry
                     .command_metadata_registry
                     .get(key.clone())
                     .cloned()
             })
-    });
+        })
+        .or_else(|| {
+            GLOBAL_ENV.with(|cell| {
+                cell.borrow().as_ref().and_then(|envref| {
+                    envref
+                        .0
+                        .get_command_metadata_registry()
+                        .get(key.clone())
+                        .cloned()
+                })
+            })
+        });
     match json {
         Some(meta) => serde_wasm_bindgen::to_value(&meta).map_err(|e| {
             Error::from_error(
@@ -228,18 +335,8 @@ pub fn init_global() -> Result<(), Error> {
 
 /// Whether a command is registered on the pending environment. Test support.
 pub fn has_command(name: &str) -> bool {
-    let key = liquers_core::command_metadata::CommandKey::new("", "", name);
-    PENDING_ENV.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .map(|env| {
-                env.command_registry
-                    .command_metadata_registry
-                    .get(key.clone())
-                    .is_some()
-            })
-            .unwrap_or(false)
-    })
+    existing_command_kind(&liquers_core::command_metadata::CommandKey::new("", "", name))
+        != Replaced::Nothing
 }
 
 /// Clears the singleton. Test support, and the shutdown path.
@@ -252,6 +349,7 @@ pub fn reset_global() {
     PENDING_ENV.with(|cell| {
         *cell.borrow_mut() = None;
     });
+    REGISTERED_SPECS.with(|cell| cell.borrow_mut().clear());
 }
 
 /// A Liquers environment, visible to JavaScript.

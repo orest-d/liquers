@@ -4,63 +4,68 @@
 
 ### Issue: POST-INIT-COMMAND-REGISTRATION
 Status: Open
-Priority: P1 (High for language integrations)
+Priority: P3 (Low — an optimization, not a blocker)
+
+**Downgraded.** This was first filed as a P1 blocker on the claim that a command cannot be
+registered after an environment is shared. That claim was wrong: the ordinary Rust ordering —
+build the registry, then the environment, then `to_ref` — applies to a language integration too,
+and can simply be done again. `liquers-web` implements it and has no such limitation.
 
 #### Problem
 
-**A command cannot be registered after an environment has been shared.** Registration needs
-`&mut CommandRegistry`, and there is no path to one once `Environment::to_ref` has run:
+Registration needs `&mut CommandRegistry`, and there is no path to one once
+`Environment::to_ref` has run:
 
 - `Environment::to_ref(self)` **consumes** the environment into `EnvRef(Arc<E>)`
-  (`liquers-core/src/context.rs:213`), so no `&mut E` exists afterwards. `Arc::get_mut` does not
-  help — `init_with_envref` stores a clone of the `EnvRef` inside the environment, so the strong
-  count is never 1.
+  (`liquers-core/src/context.rs:213`). `Arc::get_mut` does not help — `init_with_envref` stores a
+  clone of the `EnvRef` inside the environment, so the strong count is never 1.
 - `Environment::get_command_executor(&self) -> &Self::CommandExecutor`
-  (`liquers-core/src/context.rs:170`) returns a **reference**, so the executor cannot be placed
-  behind a `RefCell`/`RwLock` by an implementor either.
+  (`liquers-core/src/context.rs:170`) returns a **reference**, so an implementor cannot place the
+  executor behind a `RefCell`/`RwLock` either.
 
-For Rust this is invisible: an environment is built, commands are registered, then `to_ref` is
-called once — the pattern in every existing example. For a **language integration it is a real
-constraint**, because the host registers commands at arbitrary times:
+So an environment is effectively frozen once shared.
 
-```javascript
-await liquers.init();
-liquers.registerCommand({ name: "a", run: () => 1 });
-await liquers.evaluate("a");                              // shares the environment
-liquers.registerCommand({ name: "b", run: () => 2 });     // ← impossible today
-```
+#### How this is handled today
 
-It also blocks the per-route registration pattern that motivated `CommandRegistry::unregister`: an
-application that registers commands when a view is opened cannot do so after its first evaluation,
-so `unregister` currently has nothing to pair with.
+`liquers-web` keeps the environment un-shared and mutable until the first evaluation, and rebuilds
+it when a command is registered afterwards: a fresh environment is constructed, every retained
+declaration is replayed into it along with the new one, and the shared handle is swapped. Replay
+goes through the same registration path as the original, so the two cannot drift.
 
-#### Current workaround
+The cost of a rebuild is the **asset cache**, discarded with the old environment. An evaluation
+already in flight keeps the old `EnvRef` and completes against it, so nothing is interrupted — it
+simply does not observe the new command. Registering all commands before the first evaluation
+avoids rebuilding entirely, which is the ordinary flow.
 
-`liquers-web` keeps the environment un-shared in a `PENDING_ENV` cell and creates the `EnvRef` on
-the first evaluation. Registration before that point works; afterwards it returns a typed
-`NotSupported` error naming the limitation, rather than silently doing nothing.
+#### Why it is still worth fixing
+
+The rebuild is correct but wasteful, and it gets more wasteful as an environment accumulates state
+that is expensive to rebuild — most obviously a populated asset cache, and later a configured store
+(`STORE`) or recipe provider (`RECIPE`). An application that registers commands per route pays it
+on every route change.
 
 #### Expected behavior
 
-A command can be registered at any point in an environment's life. Two candidate designs:
+Registering a command should not require discarding the environment. Two candidate designs:
 
 1. **Interior mutability in `CommandRegistry`.** Hold the executor maps and the metadata registry
    in `RefCell` (wasm) / `RwLock` (native, selected by the existing `MaybeSend`/`MaybeSync` split),
    and add `&self` registration methods alongside the current `&mut self` ones.
    `get_command_executor` keeps returning `&CommandRegistry`, so the trait is unchanged and the
-   addition is backward compatible. **Recommended** — it is additive and localized.
-2. **A registration hook on `Environment`,** e.g. `fn register_command(&self, …)`, implemented by
-   environments that support it. Larger surface, and every implementor must decide what to do.
+   addition is backward compatible. **Recommended** — additive and localized.
+2. **A registration hook on `Environment`**, e.g. `fn register_command(&self, …)`. Larger surface,
+   and every implementor must decide what to do.
 
-Either way the concurrency story needs stating: registration mutates a structure that evaluation
-reads, so on native the lock discipline matters, and on wasm the `RefCell` must not be borrowed
-across an `await`.
+Either way the concurrency story needs stating: registration mutates a structure evaluation reads,
+so on native the lock discipline matters, and on wasm the `RefCell` must not be held across an
+`await`.
 
 #### Discovery
 
-Found while implementing `specs/liquers-web` milestone M4. The design assumed registration could
-follow initialization — the JavaScript API is shaped that way and so is the guide's `COMMAND`
-feature — and neither Phase 2 nor its reviews caught that the core API forbids it.
+Found while implementing `specs/liquers-web` milestone M4, and corrected in the same milestone once
+the rebuild approach was identified. Recorded because the underlying constraint is real and worth
+removing, and because the first diagnosis being wrong is itself worth remembering: the absence of a
+mutable path is not the same as the absence of a way forward.
 
 ### Issue: QUERY-BUILDER-TOOLING
 Status: Open

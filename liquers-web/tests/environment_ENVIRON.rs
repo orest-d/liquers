@@ -8,7 +8,7 @@
 use liquers_core::context::Environment;
 use liquers_web::environment::{
     build_environment, has_command, init_global, is_initialized, register_command_on, reset_global,
-    with_global,
+    shared_env, unregister_command_on, with_global,
 };
 use wasm_bindgen::prelude::*;
 use liquers_web::LiquersEnvironment;
@@ -141,5 +141,79 @@ fn environ06_shutdown_is_idempotent() {
     // And it can be brought back up afterwards.
     init_global().expect("re-init after shutdown");
     assert!(is_initialized());
+    reset_global();
+}
+
+
+/// Builds a minimal declaration object: `{ name, run: () => <literal> }`.
+fn decl(name: &str, body: &str) -> JsValue {
+    let spec = js_sys::Object::new();
+    js_sys::Reflect::set(&spec, &"name".into(), &name.into()).expect("set name");
+    js_sys::Reflect::set(
+        &spec,
+        &"run".into(),
+        &js_sys::Function::new_no_args(body),
+    )
+    .expect("set run");
+    spec.into()
+}
+
+/// Registration works after the environment has been shared.
+///
+/// Not a prescribed conformance test — it guards the rebuild path, which exists because
+/// registration needs `&mut CommandRegistry` and `to_ref` consumes the environment. Before the
+/// rebuild existed, this case returned a `NotSupported` error.
+#[wasm_bindgen_test]
+fn web_register_after_sharing_rebuilds() {
+    reset_global();
+    init_global().expect("init");
+
+    register_command_on(&decl("before", "return 1;")).expect("register before sharing");
+
+    // Share the environment, as the first evaluation does.
+    let first = shared_env().expect("share");
+    assert!(has_command("before"));
+
+    // Registering now must succeed, and both commands must be present afterwards.
+    register_command_on(&decl("after", "return 2;")).expect("register after sharing");
+    assert!(has_command("after"), "the new command must be registered");
+    assert!(
+        has_command("before"),
+        "replaying must not lose commands registered earlier"
+    );
+
+    // The environment was rebuilt, so the shared handle is a different one. An evaluation already
+    // in flight would keep the old handle and complete against it.
+    let second = shared_env().expect("share again");
+    assert!(
+        !std::sync::Arc::ptr_eq(&first.0, &second.0),
+        "registering after sharing must have rebuilt the environment"
+    );
+
+    reset_global();
+}
+
+/// Unregistering after sharing also rebuilds, and does not resurrect the command.
+#[wasm_bindgen_test]
+fn web_unregister_after_sharing_rebuilds() {
+    reset_global();
+    init_global().expect("init");
+    register_command_on(&decl("keep", "return 1;")).expect("register keep");
+    register_command_on(&decl("drop", "return 2;")).expect("register drop");
+    shared_env().expect("share");
+
+    assert!(unregister_command_on("drop").expect("unregister"), "should report removal");
+    assert!(!has_command("drop"), "the command must be gone");
+    assert!(has_command("keep"), "unrelated commands must survive");
+
+    // A later registration rebuilds again; the dropped command must not come back.
+    register_command_on(&decl("third", "return 3;")).expect("register third");
+    assert!(!has_command("drop"), "a rebuild must not resurrect an unregistered command");
+    assert!(has_command("keep"));
+    assert!(has_command("third"));
+
+    // Unregistering something that was never registered is false, not an error.
+    assert!(!unregister_command_on("never").expect("unregister absent"));
+
     reset_global();
 }
