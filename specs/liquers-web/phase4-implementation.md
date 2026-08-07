@@ -716,6 +716,34 @@ full matrix green. **Native builds never showed any of this**, because the marke
 + 14 integration suites, 0 failed · `liquers-axum` and `liquers-py` check clean · all 6 build
 configurations green.
 
+## M2/M3 execution record
+
+**M2 COMPLETE ✅** — value bridge, 13/13 `VALUE*` green. Details in the commit; the substantive
+outcome is that writing the tests alongside the code found three real bridge bugs (text encoded as
+bytes, `BigInt` never readable, nested integers emitted as floats).
+
+**M3 COMPLETE ✅** — object wrappers, error bridge, environment. **32 tests green**
+(`VALUE*` 13, `OBJECT*` 8, `ERROR*` 5, `ENVIRON*` 6).
+
+Additions beyond the plan, each with a reason:
+
+- **`liquers_core::VERSION`** — a crate-version constant sourced from Cargo. `version()` needs to
+  report the linked core version and there was nothing to report; a hand-maintained string would
+  drift from the manifest exactly when `PACKAGE04` cared. Additive.
+- **`LiquersError::from_thrown`** — the plan had `js_error_to_liquers` returning a plain `Error`,
+  which left `jsClass`/`jsStack` permanently null. `ERROR03` would have passed on the message text
+  alone while the fields it names stayed empty — hollow conformance. The structured constructor
+  populates them.
+
+**One test is knowingly partial.** `ENVIRON01`'s contract is "evaluates a built-in command", and
+M3 has no evaluation surface — that is M4. It currently asserts the half that exists (the
+environment builds, its registry is reachable) and carries a comment saying it must be extended
+when M4 lands. It is **required, not satisfied**.
+
+**A bug the tests caught in the error bridge:** `JsString::from(JsValue)` is an unchecked cast, not
+a string coercion, so `throw 42` produced a generic "a non-Error value was thrown" with the value
+discarded. Scalars are now stringified explicitly with a debug fallback.
+
 ## Review record
 
 Both prescribed reviewers found real defects.

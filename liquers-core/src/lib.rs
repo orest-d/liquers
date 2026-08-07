@@ -109,6 +109,12 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
+/// The version of this crate, taken from Cargo rather than maintained by hand.
+///
+/// Language integrations report it so that a consumer can check which core an artifact was built
+/// against; a hand-maintained string would drift from the manifest exactly when it mattered.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod cache;
 pub mod command_metadata;
 #[macro_use]

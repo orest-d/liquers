@@ -161,10 +161,36 @@ fn value07_cycles_follow_policy() {
     );
 }
 
-/// VALUE08 — a representative `ExtValue` variant round-trips. `Foreign` is that variant: it is the
-/// only wasm-viable extended variant, and it carries the JavaScript value by identity.
+/// VALUE08 — representative non-primitive values round-trip.
+///
+/// Appendix A of the guide uses `Query` and `Key` as representatives alongside a rich extension
+/// value; both are available on wasm, so they are tested here as well as the foreign variant. An
+/// earlier draft tested only the foreign variant, on the mistaken grounds that nothing else was
+/// available on this target.
 #[wasm_bindgen_test]
 fn value08_representative_extvalue_roundtrip() {
+    use liquers_core::parse::{parse_key, parse_query};
+
+    // Query and Key survive a round trip through the value type.
+    let query = parse_query("hello/greet").expect("parse query");
+    let as_value = Value::Base(liquers_lib::value::simple::SimpleValue::Query {
+        value: query.clone(),
+    });
+    assert_eq!(
+        as_value.try_into_query().expect("back to query").encode(),
+        query.encode()
+    );
+
+    let key = parse_key("d/f").expect("parse key");
+    let key_value = Value::Base(liquers_lib::value::simple::SimpleValue::Key {
+        value: key.clone(),
+    });
+    assert_eq!(
+        key_value.try_into_key().expect("back to key").encode(),
+        key.encode()
+    );
+
+    // And the foreign variant, which is this integration's own representative.
     let original = js_sys::Date::new_0();
     let value = opaque_value::<Value>(original.clone().into()).expect("opaque");
     assert!(matches!(value, Value::Extended(ExtValue::Foreign { .. })));
