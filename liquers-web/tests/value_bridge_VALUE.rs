@@ -75,6 +75,37 @@ fn value02_nested_array_object_roundtrip() {
     let json = value.try_into_json_value().expect("as json");
     assert_eq!(json["items"][0], serde_json::json!(1));
     assert_eq!(json["items"][1]["n"], serde_json::json!(7));
+
+    // And back. Asserting only the inbound direction is how the outbound conversion shipped
+    // emitting JavaScript `Map`s instead of objects: `Map` carries the same data, so a JSON-level
+    // check passes while `result.items` reads `undefined` on the page.
+    let back = liquers_web::bridge::value_to_js(&value).expect("back to JavaScript");
+    assert!(
+        back.is_object() && !back.is_instance_of::<js_sys::Map>(),
+        "an object must return as a plain object, not a Map"
+    );
+    let items = js_sys::Reflect::get(&back, &"items".into()).expect("items");
+    assert!(js_sys::Array::is_array(&items), "an array must return as an Array");
+    let items = js_sys::Array::from(&items);
+    assert_eq!(items.get(0).as_f64(), Some(1.0));
+    let nested = items.get(1);
+    assert!(
+        nested.is_object() && !nested.is_instance_of::<js_sys::Map>(),
+        "a nested object must also be a plain object"
+    );
+    assert_eq!(
+        js_sys::Reflect::get(&nested, &"n".into()).expect("n").as_f64(),
+        Some(7.0)
+    );
+
+    // The whole point of plain objects: the idiomatic JavaScript operations work.
+    assert_eq!(
+        js_sys::JSON::stringify(&back)
+            .expect("stringify")
+            .as_string()
+            .as_deref(),
+        Some(r#"{"items":[1,{"n":7}]}"#)
+    );
 }
 
 /// VALUE03 — integer boundaries. Beyond 2^53 a `number` is not exact, `BigInt` is, and a `BigInt`

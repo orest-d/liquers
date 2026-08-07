@@ -753,14 +753,77 @@ Additions beyond the plan, each with a reason:
   alone while the fields it names stayed empty — hollow conformance. The structured constructor
   populates them.
 
-**One test is knowingly partial.** `ENVIRON01`'s contract is "evaluates a built-in command", and
-M3 has no evaluation surface — that is M4. It currently asserts the half that exists (the
-environment builds, its registry is reachable) and carries a comment saying it must be extended
-when M4 lands. It is **required, not satisfied**.
+**One test was knowingly partial.** `ENVIRON01`'s contract is "evaluates a built-in command", and
+M3 had no evaluation surface — that is M4. It asserted the half that existed (the environment
+builds, its registry is reachable) and carried a comment saying it must be extended when M4 landed.
+**M4 extended it**: it now evaluates end to end.
 
 **A bug the tests caught in the error bridge:** `JsString::from(JsValue)` is an unchecked cast, not
 a string coercion, so `throw 42` produced a generic "a non-Error value was thrown" with the value
 discarded. Scalars are now stringified explicitly with a debug fallback.
+
+## M4 execution record — COMPLETE ✅
+
+Steps 15-19 executed. **79 wasm tests green** (`VALUE*` 13, `OBJECT*`+`ERROR*` 13, `ENVIRON*` 8,
+`COMMAND*` 17, `EVAL*` 7, `ASYNCQ*` 8, `ASYNCCMD*` 7, `RUNTIME*` 6), plus 4 native `unregister`
+tests. Every prescribed ID for these groups is present; `ASYNCQ07` remains `NA` with its reversing
+condition recorded.
+
+Additions beyond the plan:
+
+- **`liquers-web/src/asset.rs`** — `Asset` and `State` wrappers, plus `getAsset`. Step 18 named
+  `LiquersAsset.cancel()` as the cancellation surface but no step created the type. Without it
+  `ASYNCQ04`, `EVAL03` and `EVAL06` had nothing to test against.
+- **`tests/common/mod.rs`** — the shared fixture module Phase 3 required (infrastructure #1 and
+  #2): the four fixture commands, the `console.warn` spy, and a `with_timeout` helper so
+  `RUNTIME04`'s deadlock guard fails by name rather than hanging.
+- **`arguments_were_inferred` / `argumentsInferred`** — Phase 2 says inference must never be
+  invisible, and `describeCommand` did not report it. Kept beside the registry rather than added to
+  `CommandMetadata`, which has no business carrying a JavaScript-only concern.
+- **`debug-handles` feature** — `live_handle_count()`, the deterministic mechanism Phase 3
+  specified for `RUNTIME05`.
+
+**Deviation from Phase 2's signature list.** `Asset.status()` and `Asset.cancel()` were written as
+synchronous; `AssetRef::status` and `AssetRef::cancel` are `async` in `liquers-core`, so exposing
+them synchronously would require blocking — the one thing this crate refuses to do on an event
+loop. Both are `Promise`s.
+
+### Three bugs the tests caught
+
+1. **JSON objects crossed to JavaScript as `Map`, not objects.** `serde_wasm_bindgen::to_value`
+   routes `serialize_map` — which every `serde_json::Value::Object` goes through — to a JavaScript
+   `Map`. A page reading `result.a`, `Object.keys(result)` or `JSON.stringify(result)` saw nothing.
+   Rust *structs* serialize as objects either way, which is why it survived M2: the affected values
+   were exactly the ones that came *from* JavaScript as objects. Every conversion now goes through
+   one `serialize_to_js` with `serialize_maps_as_objects(true)`, and `VALUE02` — which only tested
+   the inbound direction, and is named "roundtrip" — now closes the loop.
+2. **`describeCommand` omitted `arguments` entirely for a zero-argument command**, because
+   `CommandMetadata` carries `skip_serializing_if = "Vec::is_empty"`. Right for a config file,
+   wrong for an API: `describeCommand(n).arguments.map(...)` worked for every command except the
+   ones with no arguments. The shape is now normalized.
+3. **A stale `EnvRef` after registration.** `eval06` shared the environment before registering a
+   command; registering afterwards rebuilds, so the held handle no longer had the command. Correct
+   behaviour, documented on `register_command_on` — but it is a trap worth its test.
+
+### One finding filed as an issue
+
+**`WEB-CANCELLATION-INERT`.** `ImmediateAssetManager` evaluates during `get_asset`, so an asset is
+terminal before a caller can hold it and `cancel()` can never do anything. This follows from Phase
+1 decision 5 and is not a defect, but it was not stated, and `cancel()` resolving successfully makes
+it look like a working feature.
+
+**How it was found matters more than the finding.** The first version of all three cancellation
+tests matched on two outcomes — "either it was cancelled or it had already finished" — and passed.
+That assertion passes regardless of what the implementation does, and would have kept passing if
+`cancel()` began throwing or hanging. Probing which branch actually ran is what surfaced it. This is
+a live instance of the risk Phase 3 named — *conformance tests written to pass rather than to
+catch* — arriving in exactly the tests that section did **not** single out as hard. The three it
+did single out (`RUNTIME04`, `RUNTIME05`, `unregister01`) were fine, because they had specified
+mechanisms. The lesson generalizes: a two-branch `match` in a conformance test is a smell, and the
+fix is to determine which branch is real and assert it.
+
+All three are now deterministic assertions of the inert behaviour, so they fail the day a deferred
+asset manager lands.
 
 ## Review record
 

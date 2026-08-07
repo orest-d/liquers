@@ -28,6 +28,8 @@ features = ["console", "Window"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+# `select`/`pin_mut` for the RUNTIME04 timeouts — a deadlock must fail with a name, not hang.
+futures = "0.3"
 
 [features]
 default = []

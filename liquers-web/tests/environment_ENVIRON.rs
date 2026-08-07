@@ -14,19 +14,32 @@ use wasm_bindgen::prelude::*;
 use liquers_web::LiquersEnvironment;
 use wasm_bindgen_test::*;
 
-/// ENVIRON01 — a default environment can be built and exposes its services.
+/// ENVIRON01 — a default environment exposes its services and evaluates a command.
 ///
-/// **Partial until M4.** The full contract is "evaluates a built-in command", and there is no
-/// evaluation surface yet — that arrives with `EVAL`/`COMMAND`. What is asserted here is the part
-/// that exists: the environment builds and its command registry is reachable. This test must be
-/// extended to actually evaluate once M4 lands; it is listed as required, not as satisfied.
+/// Extended in M4 to the full contract. Until the evaluation surface existed this asserted only
+/// that the environment built and its registry was reachable, and carried a note saying so; it now
+/// evaluates end to end, which is what the ID actually requires.
 #[wasm_bindgen_test]
-fn environ01_default_environment_evaluates_builtin() {
+async fn environ01_default_environment_evaluates_builtin() {
+    // The services are reachable on a freshly built environment.
     let envref = build_environment().expect("build a default environment");
-    // The environment exposes its services; a command registry is present and inspectable.
-    let registry = envref.0.get_command_metadata_registry();
-    // A freshly built environment has a registry — empty is fine, absent is not.
-    let _ = registry.commands.len();
+    let _ = envref.0.get_command_metadata_registry().commands.len();
+
+    // And the environment evaluates. There are no Rust built-ins registered on the wasm
+    // environment yet, so the command under test is a registered one — which exercises the same
+    // planner, interpreter and asset lifecycle a built-in would.
+    reset_global();
+    init_global().expect("init");
+    register_command_on(&decl("env01cmd", "return 'evaluated';")).expect("register");
+
+    let envref = shared_env().expect("share");
+    let query = liquers_core::parse::parse_query("env01cmd").expect("parse");
+    let value = liquers_web::eval::evaluate_query(envref, query)
+        .await
+        .expect("the environment must evaluate a query end to end");
+    assert_eq!(value.as_string().as_deref(), Some("evaluated"));
+
+    reset_global();
 }
 
 /// ENVIRON02 — the services an environment returns are the ones it was configured with.

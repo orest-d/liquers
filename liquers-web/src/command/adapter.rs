@@ -7,19 +7,69 @@
 //! **No `RefCell` borrow and no manager guard may be held across the call into JavaScript.**
 //! Arguments are converted to owned Rust values first, then JavaScript is entered.
 
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
+use liquers_core::command_metadata::CommandKey;
 use liquers_core::commands::{CommandArguments, CommandRegistry};
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::state::State;
-use liquers_core::value::ValueInterface;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::bridge::{js_to_value, value_to_js, ConversionPolicy, JsValueBridge};
 use crate::command::spec::{IsAsync, JsCommandSpec, StateMode};
 use crate::error::js_error_to_liquers;
+
+thread_local! {
+    /// Keys whose argument list was inferred from the function source rather than declared.
+    ///
+    /// `CommandMetadata` has no field for this, and inventing one in `liquers-core` for a
+    /// JavaScript-only concern would be wrong — so it is kept beside the registry and reported by
+    /// `describeCommand` as `argumentsInferred`. Inference must never be invisible: a minified
+    /// build yields correct arity and wrong names, and the only way an author notices is by being
+    /// told which names were guessed.
+    ///
+    /// Registration is the single writer, so a rebuild — which replays through the same path —
+    /// reproduces this map exactly.
+    static INFERRED_ARGUMENTS: RefCell<HashSet<CommandKey>> = RefCell::new(HashSet::new());
+}
+
+/// How many JavaScript function handles the registrations currently hold.
+///
+/// Test-only, behind `debug-handles`. `RUNTIME05` claims that unregistering a command releases the
+/// `js_sys::Function` and everything its closure captured. JavaScript cannot observe a Rust drop,
+/// and `WeakRef`/`FinalizationRegistry` depend on GC timing, so a naive test is either flaky or
+/// vacuous. This counts the thing that actually matters — the number of live `CallableSpec`
+/// allocations, each of which owns exactly one `Function` — and does it deterministically.
+#[cfg(feature = "debug-handles")]
+pub fn live_handle_count() -> usize {
+    LIVE_HANDLES.with(|cell| cell.get())
+}
+
+#[cfg(feature = "debug-handles")]
+thread_local! {
+    static LIVE_HANDLES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether a command's argument list was inferred rather than declared.
+pub fn arguments_were_inferred(key: &CommandKey) -> bool {
+    INFERRED_ARGUMENTS.with(|cell| cell.borrow().contains(key))
+}
+
+/// Forgets one command's inference record. Called when a command is unregistered.
+pub fn forget_inference_record(key: &CommandKey) {
+    INFERRED_ARGUMENTS.with(|cell| {
+        cell.borrow_mut().remove(key);
+    });
+}
+
+/// Forgets every inference record. Called by environment teardown.
+pub fn clear_inference_records() {
+    INFERRED_ARGUMENTS.with(|cell| cell.borrow_mut().clear());
+}
 
 /// Registers a parsed declaration into a command registry.
 ///
@@ -40,15 +90,20 @@ where
         state_mode,
         is_async,
         run,
-        ..
+        arguments_inferred,
     } = spec;
 
-    let shared = Rc::new(CallableSpec {
-        run,
-        state_mode,
-        is_async,
-        name: key.name.clone(),
+    INFERRED_ARGUMENTS.with(|cell| {
+        let mut set = cell.borrow_mut();
+        if arguments_inferred {
+            set.insert(key.clone());
+        } else {
+            // A re-registration that declares its arguments must clear an earlier inference.
+            set.remove(&key);
+        }
     });
+
+    let shared = Rc::new(CallableSpec::new(run, state_mode, is_async, key.name.clone()));
 
     let for_async = shared.clone();
     registry.register_async_command(key.clone(), move |state, args, context| {
@@ -63,11 +118,35 @@ where
 }
 
 /// The retained callable and how to call it.
+///
+/// Held by `Rc` inside the registered closure, so it — and the `js_sys::Function` it owns — is
+/// released when the registry drops that closure. That is the mechanism `unregister` relies on,
+/// and what `live_handle_count` observes.
 pub struct CallableSpec {
     pub run: js_sys::Function,
     pub state_mode: StateMode,
     pub is_async: IsAsync,
     pub name: String,
+}
+
+impl CallableSpec {
+    fn new(run: js_sys::Function, state_mode: StateMode, is_async: IsAsync, name: String) -> Self {
+        #[cfg(feature = "debug-handles")]
+        LIVE_HANDLES.with(|cell| cell.set(cell.get() + 1));
+        CallableSpec {
+            run,
+            state_mode,
+            is_async,
+            name,
+        }
+    }
+}
+
+#[cfg(feature = "debug-handles")]
+impl Drop for CallableSpec {
+    fn drop(&mut self) {
+        LIVE_HANDLES.with(|cell| cell.set(cell.get().saturating_sub(1)));
+    }
 }
 
 /// Invokes a JavaScript command.

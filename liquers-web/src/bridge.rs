@@ -305,12 +305,32 @@ pub fn value_to_js<V: JsValueBridge>(value: &V) -> Result<JsValue, Error> {
 }
 
 fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
-    serde_wasm_bindgen::to_value(json).map_err(|e| {
+    serialize_to_js(json).map_err(|e| {
         Error::from_error(
             ErrorType::ConversionError,
             format!("Could not convert a Liquers value to JavaScript: {e}"),
         )
     })
+}
+
+/// Serializes anything `serde` can serialize into a JavaScript value, with **maps as plain
+/// objects**.
+///
+/// This is the only serializer this crate uses, and the reason is a trap:
+/// `serde_wasm_bindgen::to_value` maps `serialize_map` — which is what a `serde_json::Value::Object`
+/// and every `HashMap` go through — to a JavaScript **`Map`**, not an object. A page written the
+/// obvious way (`result.a`, `Object.keys(result)`, `JSON.stringify(result)`) then sees nothing:
+/// `Map` supports none of those. Rust structs happen to serialize as objects either way, so the
+/// difference only shows up on the values that came *from* JavaScript as objects in the first
+/// place — the ones most likely to be read back.
+///
+/// Routing every conversion through here keeps the shape uniform: an object that crossed into
+/// Liquers as an object crosses back as one.
+pub fn serialize_to_js<T: serde::Serialize + ?Sized>(
+    value: &T,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    value.serialize(&serializer)
 }
 
 /// Wraps a JavaScript value opaquely — the explicit opt-in behind `liquers.opaque(x)`.

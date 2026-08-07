@@ -33,6 +33,7 @@
 
 #![cfg(target_arch = "wasm32")]
 
+pub mod asset;
 pub mod bridge;
 pub mod error;
 pub mod environment;
@@ -42,6 +43,7 @@ pub mod command;
 pub mod default_value;
 pub mod value;
 
+pub use asset::{LiquersAsset, LiquersState};
 pub use bridge::{ConversionPolicy, JsValueBridge};
 pub use environment::{version, LiquersEnvironment, WebEnvironment};
 pub use error::LiquersError;
@@ -151,6 +153,28 @@ pub fn evaluate(query: &str) -> js_sys::Promise {
         Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
     };
     eval::evaluate_to_promise(envref, parsed)
+}
+
+/// Resolves a query to an [`LiquersAsset`] without waiting for it to become ready.
+///
+/// This is the low-level counterpart of [`evaluate`]: it gives access to status, metadata, logs
+/// and — the reason it exists — cancellation, which a `Promise` cannot express.
+#[wasm_bindgen(js_name = getAsset)]
+pub fn get_asset(query: &str) -> js_sys::Promise {
+    let envref = match environment::shared_env() {
+        Ok(e) => e,
+        Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    };
+    let parsed = match liquers_core::parse::parse_query(query) {
+        Ok(q) => q,
+        Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    };
+    wasm_bindgen_futures::future_to_promise(async move {
+        match asset::get_asset_for(envref, parsed).await {
+            Ok(a) => Ok(LiquersAsset::from_ref(a).into()),
+            Err(e) => Err(error::liquers_error_to_js(e)),
+        }
+    })
 }
 
 /// Registers a JavaScript command on the global environment.

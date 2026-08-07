@@ -193,6 +193,8 @@ pub fn unregister_command_on(name: &str) -> Result<bool, Error> {
         before != specs.len()
     });
 
+    crate::command::adapter::forget_inference_record(&key);
+
     let removed_here = PENDING_ENV.with(|cell| {
         cell.borrow_mut()
             .as_mut()
@@ -258,15 +260,48 @@ pub fn describe_command_on(name: &str) -> Result<JsValue, Error> {
                 })
             })
         });
-    match json {
-        Some(meta) => serde_wasm_bindgen::to_value(&meta).map_err(|e| {
+    let meta = match json {
+        Some(meta) => meta,
+        None => return Ok(JsValue::NULL),
+    };
+    let described = crate::bridge::serialize_to_js(&meta).map_err(|e| {
+        Error::from_error(
+            ErrorType::ConversionError,
+            format!("Could not convert command metadata: {e}"),
+        )
+    })?;
+
+    // `CommandMetadata` skips empty collections when it serializes, which is right for a config
+    // file and wrong for an API: a caller writing `describeCommand(n).arguments.map(...)` would
+    // work for every command except the zero-argument ones. Normalize the shape so the field is
+    // always an array.
+    if js_sys::Reflect::get(&described, &"arguments".into())
+        .map(|v| v.is_undefined())
+        .unwrap_or(true)
+    {
+        set_field(&described, "arguments", &js_sys::Array::new().into())?;
+    }
+
+    // Whether the argument names were guessed from the function source. Inference is never
+    // invisible — see `crate::command::adapter::arguments_were_inferred`.
+    set_field(
+        &described,
+        "argumentsInferred",
+        &JsValue::from_bool(crate::command::adapter::arguments_were_inferred(&key)),
+    )?;
+
+    Ok(described)
+}
+
+fn set_field(target: &JsValue, name: &str, value: &JsValue) -> Result<(), Error> {
+    js_sys::Reflect::set(target, &JsValue::from_str(name), value)
+        .map(|_| ())
+        .map_err(|_| {
             Error::from_error(
                 ErrorType::ConversionError,
-                format!("Could not convert command metadata: {e}"),
+                format!("Could not set {name:?} on the command description"),
             )
-        }),
-        None => Ok(JsValue::NULL),
-    }
+        })
 }
 
 /// Shares the pending environment, creating the `EnvRef` on first use.
@@ -350,6 +385,7 @@ pub fn reset_global() {
         *cell.borrow_mut() = None;
     });
     REGISTERED_SPECS.with(|cell| cell.borrow_mut().clear());
+    crate::command::adapter::clear_inference_records();
 }
 
 /// A Liquers environment, visible to JavaScript.
