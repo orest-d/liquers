@@ -7,8 +7,10 @@
 
 use liquers_core::context::Environment;
 use liquers_web::environment::{
-    build_environment, init_global, is_initialized, reset_global, with_global,
+    build_environment, has_command, init_global, is_initialized, register_command_on, reset_global,
+    with_global,
 };
+use wasm_bindgen::prelude::*;
 use liquers_web::LiquersEnvironment;
 use wasm_bindgen_test::*;
 
@@ -51,13 +53,26 @@ fn environ02_custom_services_are_the_ones_returned() {
 #[wasm_bindgen_test]
 fn environ03_repeated_initialization_follows_policy() {
     reset_global();
+    init_global().expect("first init");
 
-    let first = init_global().expect("first init");
-    let second = init_global().expect("second init");
+    // Register something, so the assertion has stakes: the contract is not merely that a second
+    // init returns Ok, but that it does not discard what happened in between.
+    let spec = js_sys::Object::new();
+    js_sys::Reflect::set(&spec, &"name".into(), &"env03cmd".into()).expect("set name");
+    js_sys::Reflect::set(
+        &spec,
+        &"run".into(),
+        &js_sys::Function::new_no_args("return 1;"),
+    )
+    .expect("set run");
+    register_command_on(&spec.into()).expect("register");
+    assert!(has_command("env03cmd"));
+
+    init_global().expect("second init");
 
     assert!(
-        std::sync::Arc::ptr_eq(&first.0, &second.0),
-        "a second init must return the existing environment; replacing it would silently discard \
+        has_command("env03cmd"),
+        "a second init must keep the existing environment; replacing it would silently discard \
          any command registered in between"
     );
     reset_global();
@@ -97,13 +112,7 @@ fn environ04_failed_initialization_is_recoverable() {
 #[wasm_bindgen_test]
 fn environ05_isolated_test_environments_do_not_leak_registration() {
     reset_global();
-    let global = init_global().expect("init");
-
-    let instance = LiquersEnvironment::new().expect("explicit instance");
-    assert!(
-        !std::sync::Arc::ptr_eq(&global.0, &instance.envref().0),
-        "an explicit instance must not be the singleton"
-    );
+    init_global().expect("init");
 
     let a = LiquersEnvironment::new().expect("instance a");
     let b = LiquersEnvironment::new().expect("instance b");

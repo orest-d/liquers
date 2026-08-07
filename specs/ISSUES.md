@@ -2,6 +2,66 @@
 
 ## Open
 
+### Issue: POST-INIT-COMMAND-REGISTRATION
+Status: Open
+Priority: P1 (High for language integrations)
+
+#### Problem
+
+**A command cannot be registered after an environment has been shared.** Registration needs
+`&mut CommandRegistry`, and there is no path to one once `Environment::to_ref` has run:
+
+- `Environment::to_ref(self)` **consumes** the environment into `EnvRef(Arc<E>)`
+  (`liquers-core/src/context.rs:213`), so no `&mut E` exists afterwards. `Arc::get_mut` does not
+  help — `init_with_envref` stores a clone of the `EnvRef` inside the environment, so the strong
+  count is never 1.
+- `Environment::get_command_executor(&self) -> &Self::CommandExecutor`
+  (`liquers-core/src/context.rs:170`) returns a **reference**, so the executor cannot be placed
+  behind a `RefCell`/`RwLock` by an implementor either.
+
+For Rust this is invisible: an environment is built, commands are registered, then `to_ref` is
+called once — the pattern in every existing example. For a **language integration it is a real
+constraint**, because the host registers commands at arbitrary times:
+
+```javascript
+await liquers.init();
+liquers.registerCommand({ name: "a", run: () => 1 });
+await liquers.evaluate("a");                              // shares the environment
+liquers.registerCommand({ name: "b", run: () => 2 });     // ← impossible today
+```
+
+It also blocks the per-route registration pattern that motivated `CommandRegistry::unregister`: an
+application that registers commands when a view is opened cannot do so after its first evaluation,
+so `unregister` currently has nothing to pair with.
+
+#### Current workaround
+
+`liquers-web` keeps the environment un-shared in a `PENDING_ENV` cell and creates the `EnvRef` on
+the first evaluation. Registration before that point works; afterwards it returns a typed
+`NotSupported` error naming the limitation, rather than silently doing nothing.
+
+#### Expected behavior
+
+A command can be registered at any point in an environment's life. Two candidate designs:
+
+1. **Interior mutability in `CommandRegistry`.** Hold the executor maps and the metadata registry
+   in `RefCell` (wasm) / `RwLock` (native, selected by the existing `MaybeSend`/`MaybeSync` split),
+   and add `&self` registration methods alongside the current `&mut self` ones.
+   `get_command_executor` keeps returning `&CommandRegistry`, so the trait is unchanged and the
+   addition is backward compatible. **Recommended** — it is additive and localized.
+2. **A registration hook on `Environment`,** e.g. `fn register_command(&self, …)`, implemented by
+   environments that support it. Larger surface, and every implementor must decide what to do.
+
+Either way the concurrency story needs stating: registration mutates a structure that evaluation
+reads, so on native the lock discipline matters, and on wasm the `RefCell` must not be borrowed
+across an `await`.
+
+#### Discovery
+
+Found while implementing `specs/liquers-web` milestone M4. The design assumed registration could
+follow initialization — the JavaScript API is shaped that way and so is the guide's `COMMAND`
+feature — and neither Phase 2 nor its reviews caught that the core API forbids it.
+
 ### Issue: QUERY-BUILDER-TOOLING
 Status: Open
 Priority: P2 (Medium)

@@ -406,8 +406,26 @@ prerequisites list and all of which cost a cycle to discover:
    at bindgen time with a schema-version error, not at compile time. Check `Cargo.lock` for the
    resolved version and `cargo install -f wasm-bindgen-cli --version <that>`.
 
-3. **A WebDriver and a browser.** `CHROMEDRIVER` must point at a chromedriver binary; the
-   pre-installed Chromium in this environment lives under `/opt/pw-browsers/`.
+3. **A WebDriver and a browser** — *if* you use the WebDriver harness at all.
+
+**Finding: the WebDriver harness is unavailable in this environment, and it does not matter.**
+`chromedriver` here is 147 and the bundled Chromium is 141; ChromeDriver enforces a major-version
+match and refuses the session outright (`session not created: This version of ChromeDriver only
+supports Chrome version 147`). Fetching either a matching driver or a matching browser is blocked
+by the environment's network policy — `googlechromelabs.github.io` is denied, and the `chromedriver`
+npm package installs from the (permitted) registry but downloads its binary from a host that is not.
+
+Two paths cover everything anyway, which is why this is a note rather than a blocker:
+
+| Harness | Provides | Covers |
+|---|---|---|
+| **Node** (`wasm-bindgen-test`, no driver) | full event loop, Promises, timers, ECMAScript | `VALUE` `OBJECT` `ERROR` `ENVIRON` `COMMAND` `EVAL` `ASYNCQ` `ASYNCCMD` `RUNTIME` |
+| **Playwright** (CDP, not WebDriver — already installed, already used by this repo) | a real page and DOM | `PACKAGE02/03/07`, `STUBS07` |
+
+The insight worth carrying: **`RUNTIME` and `ASYNCQ` do not need a *browser*, they need an *event
+loop*, and Node has one.** Only tests asserting something about a delivered artifact in a real page
+need the browser, and Playwright reaches those without WebDriver. `run_in_browser` should be used
+only where a DOM is genuinely required.
 
 **Feature forwarding is required, and its absence is silent.** `liquers-web` matches on `ExtValue`,
 whose `PolarsDataFrame` and `UiCommand`/`Widget` variants are gated on **`liquers-lib`'s** features.

@@ -33,7 +33,17 @@ use crate::error::liquers_error_to_js;
 pub type WebEnvironment = DefaultEnvironment<Value, ()>;
 
 thread_local! {
-    /// The global singleton, unset until `init()` resolves.
+    /// The environment while it is still mutable — before it has been shared.
+    ///
+    /// Command registration needs `&mut CommandRegistry`, and `Environment::to_ref` *consumes*
+    /// the environment into an `Arc`, after which no mutable path exists (and
+    /// `get_command_executor` returns a reference, so the executor cannot live behind a
+    /// `RefCell` either). So the environment is held here, mutable, until the first evaluation
+    /// shares it — see `PENDING_ENV` / `GLOBAL_ENV` and the limitation documented on
+    /// [`register_command_on`].
+    static PENDING_ENV: RefCell<Option<WebEnvironment>> = const { RefCell::new(None) };
+
+    /// The shared environment, created by the first evaluation.
     ///
     /// Left unset when initialization fails, so a retry can succeed (`ENVIRON04`).
     static GLOBAL_ENV: RefCell<Option<EnvRef<WebEnvironment>>> = const { RefCell::new(None) };
@@ -43,6 +53,131 @@ thread_local! {
 pub fn build_environment() -> Result<EnvRef<WebEnvironment>, Error> {
     let env = WebEnvironment::new();
     Ok(env.to_ref())
+}
+
+/// Registers a JavaScript command declaration on the pending global environment.
+///
+/// **Limitation, and it is a real one:** commands can only be registered *before* the first
+/// evaluation. `Environment::to_ref` consumes the environment into an `Arc` and
+/// `Environment::get_command_executor` hands out a reference, so once the environment is shared
+/// there is no path to `&mut CommandRegistry`. Registering afterwards returns a typed error rather
+/// than silently doing nothing.
+///
+/// This blocks the per-route registration pattern that motivated `unregister`, and the fix belongs
+/// in `liquers-core` — see `POST-INIT-COMMAND-REGISTRATION` in `specs/ISSUES.md`.
+pub fn register_command_on(spec: &JsValue) -> Result<(), Error> {
+    let parsed = crate::command::JsCommandSpec::parse(spec)?;
+    let key = parsed.key.clone();
+
+    PENDING_ENV.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let env = guard.as_mut().ok_or_else(|| {
+            if GLOBAL_ENV.with(|g| g.borrow().is_some()) {
+                Error::from_error(
+                    ErrorType::NotSupported,
+                    format!(
+                        "Cannot register command {:?}: the environment has already been shared by an \
+                         evaluation, and Liquers does not yet support registering commands \
+                         afterwards. Register commands before the first evaluate().",
+                        key.name
+                    ),
+                )
+            } else {
+                Error::from_error(
+                    ErrorType::NotAvailable,
+                    "Liquers is not initialized — await liquers.init() first".to_string(),
+                )
+            }
+        })?;
+
+        let existed = env
+            .command_registry
+            .command_metadata_registry
+            .get(key.clone())
+            .is_some();
+        let was_javascript = env
+            .command_registry
+            .command_metadata_registry
+            .get(key.clone())
+            .map(|m| m.module == "javascript")
+            .unwrap_or(false);
+
+        crate::command::register_js_command(&mut env.command_registry, parsed)?;
+
+        // Every replacement warns: replacement and an accidental collision look identical at the
+        // point they happen, and a shadowed built-in stays invisible until a query returns the
+        // wrong thing.
+        if existed {
+            let message = if was_javascript {
+                format!("liquers: command {:?} was replaced", key.name)
+            } else {
+                format!(
+                    "liquers: command {:?} replaces a built-in Rust command",
+                    key.name
+                )
+            };
+            web_sys::console::warn_1(&JsValue::from_str(&message));
+        }
+        Ok(())
+    })
+}
+
+/// Removes a command from the pending global environment.
+pub fn unregister_command_on(name: &str) -> Result<bool, Error> {
+    let key = liquers_core::command_metadata::CommandKey::new("", "", name);
+    PENDING_ENV.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let env = guard.as_mut().ok_or_else(|| {
+            Error::from_error(
+                ErrorType::NotSupported,
+                "Cannot unregister after the environment has been shared by an evaluation"
+                    .to_string(),
+            )
+        })?;
+        Ok(env.command_registry.unregister(key))
+    })
+}
+
+/// Returns a command's registered metadata as JSON, or `null` when it is not registered.
+pub fn describe_command_on(name: &str) -> Result<JsValue, Error> {
+    let key = liquers_core::command_metadata::CommandKey::new("", "", name);
+    let json = PENDING_ENV.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .and_then(|env| {
+                env.command_registry
+                    .command_metadata_registry
+                    .get(key.clone())
+                    .cloned()
+            })
+    });
+    match json {
+        Some(meta) => serde_wasm_bindgen::to_value(&meta).map_err(|e| {
+            Error::from_error(
+                ErrorType::ConversionError,
+                format!("Could not convert command metadata: {e}"),
+            )
+        }),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Shares the pending environment, creating the `EnvRef` on first use.
+pub fn shared_env() -> Result<EnvRef<WebEnvironment>, Error> {
+    if let Some(existing) = GLOBAL_ENV.with(|cell| cell.borrow().clone()) {
+        return Ok(existing);
+    }
+    let env = PENDING_ENV
+        .with(|cell| cell.borrow_mut().take())
+        .ok_or_else(|| {
+            Error::from_error(
+                ErrorType::NotAvailable,
+                "Liquers is not initialized — await liquers.init() before evaluating".to_string(),
+            )
+        })?;
+    let envref = env.to_ref();
+    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref.clone()));
+    Ok(envref)
 }
 
 /// Returns a clone of the global `EnvRef`, or an error when `init()` has not run.
@@ -68,21 +203,43 @@ pub fn with_global() -> Result<EnvRef<WebEnvironment>, Error> {
 /// Whether the singleton has been initialized.
 pub fn is_initialized() -> bool {
     GLOBAL_ENV.with(|cell| cell.borrow().is_some())
+        || PENDING_ENV.with(|cell| cell.borrow().is_some())
 }
 
 /// Initializes the singleton if it is not already initialized.
 ///
 /// Idempotent (`ENVIRON03`): a second call returns the existing environment rather than replacing
 /// it, so commands registered before it are not silently discarded.
-pub fn init_global() -> Result<EnvRef<WebEnvironment>, Error> {
-    if let Ok(existing) = with_global() {
-        return Ok(existing);
+/// Returns `Ok(())` once the environment exists, whether it was created now or already present.
+///
+/// Deliberately does **not** return an `EnvRef`: the environment stays un-shared and mutable so
+/// that commands can be registered, and the `EnvRef` is created by [`shared_env`] on the first
+/// evaluation. Handing one out here would either share the environment too early — making
+/// registration impossible — or hand back a throwaway that is not the one evaluation will use.
+pub fn init_global() -> Result<(), Error> {
+    if is_initialized() {
+        return Ok(());
     }
-    let envref = build_environment()?;
-    GLOBAL_ENV.with(|cell| {
-        *cell.borrow_mut() = Some(envref.clone());
+    PENDING_ENV.with(|cell| {
+        *cell.borrow_mut() = Some(WebEnvironment::new());
     });
-    Ok(envref)
+    Ok(())
+}
+
+/// Whether a command is registered on the pending environment. Test support.
+pub fn has_command(name: &str) -> bool {
+    let key = liquers_core::command_metadata::CommandKey::new("", "", name);
+    PENDING_ENV.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|env| {
+                env.command_registry
+                    .command_metadata_registry
+                    .get(key.clone())
+                    .is_some()
+            })
+            .unwrap_or(false)
+    })
 }
 
 /// Clears the singleton. Test support, and the shutdown path.
@@ -90,6 +247,9 @@ pub fn init_global() -> Result<EnvRef<WebEnvironment>, Error> {
 /// Idempotent (`ENVIRON06`): clearing an unset singleton is not an error.
 pub fn reset_global() {
     GLOBAL_ENV.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+    PENDING_ENV.with(|cell| {
         *cell.borrow_mut() = None;
     });
 }

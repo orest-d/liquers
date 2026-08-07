@@ -36,7 +36,9 @@
 pub mod bridge;
 pub mod error;
 pub mod environment;
+pub mod eval;
 pub mod objects;
+pub mod command;
 pub mod default_value;
 pub mod value;
 
@@ -135,5 +137,43 @@ impl LiquersValue {
     }
 }
 
-// The command and evaluation surface is added by milestone M4 of
-// `specs/liquers-web/phase4-implementation.md`.
+/// Evaluates a query on the global environment, returning a `Promise`.
+///
+/// There is deliberately no synchronous counterpart — see [`eval`].
+#[wasm_bindgen]
+pub fn evaluate(query: &str) -> js_sys::Promise {
+    let envref = match environment::shared_env() {
+        Ok(e) => e,
+        Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    };
+    let parsed = match liquers_core::parse::parse_query(query) {
+        Ok(q) => q,
+        Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    };
+    eval::evaluate_to_promise(envref, parsed)
+}
+
+/// Registers a JavaScript command on the global environment.
+///
+/// Replacing an existing command is permitted and **always warns** — replacement and an accidental
+/// name collision are indistinguishable at the point they happen, and a shadowed built-in stays
+/// invisible until a query quietly returns the wrong thing.
+#[wasm_bindgen(js_name = registerCommand)]
+pub fn register_command(spec: JsValue) -> Result<(), JsValue> {
+    environment::register_command_on(&spec).map_err(error::liquers_error_to_js)
+}
+
+/// Removes a command from the global environment.
+///
+/// Returns `false` for an unknown command rather than throwing, so teardown paths need no
+/// existence check.
+#[wasm_bindgen(js_name = unregisterCommand)]
+pub fn unregister_command(name: &str) -> Result<bool, JsValue> {
+    environment::unregister_command_on(name).map_err(error::liquers_error_to_js)
+}
+
+/// Returns the registered metadata for a command, or `null` when it is not registered.
+#[wasm_bindgen(js_name = describeCommand)]
+pub fn describe_command(name: &str) -> Result<JsValue, JsValue> {
+    environment::describe_command_on(name).map_err(error::liquers_error_to_js)
+}
