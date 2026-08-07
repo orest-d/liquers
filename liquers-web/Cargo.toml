@@ -31,6 +31,12 @@ wasm-bindgen-test = "0.3"
 
 [features]
 default = []
+# Forwarded so that `#[cfg(feature = "...")]` in this crate agrees with which ExtValue variants
+# actually exist. Without forwarding, these cfgs are evaluated against *this* crate's feature set,
+# are therefore always false, and a match on ExtValue would silently omit arms that a
+# feature-unified build does have.
+polars = ["liquers-lib/polars"]
+egui = ["liquers-lib/egui"]
 # Exposes a live count of retained JS handles so RUNTIME05 can assert handle release
 # deterministically, rather than depending on GC timing. Test-only.
 debug-handles = []

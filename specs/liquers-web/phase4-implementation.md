@@ -388,6 +388,35 @@ All 13 `VALUE` rows from the Phase 3 inventory, including the three that were ne
 
 **M2 gate:** all `VALUE*` green in headless Chromium.
 
+#### Browser-test tooling — prerequisites the plan under-specified
+
+Running `wasm-bindgen-test` needs three things beyond `cargo`, none of which were in the
+prerequisites list and all of which cost a cycle to discover:
+
+1. **A cargo runner for the target.** A `wasm32` test binary is not natively executable; without a
+   runner, `cargo test --target wasm32-unknown-unknown` fails with `Exec format error (os error 8)`
+   as cargo tries to exec the `.wasm`. Fixed by `.cargo/config.toml`:
+
+   ```toml
+   [target.wasm32-unknown-unknown]
+   runner = "wasm-bindgen-test-runner"
+   ```
+
+2. **A `wasm-bindgen-cli` whose version matches the `wasm-bindgen` crate exactly.** A mismatch fails
+   at bindgen time with a schema-version error, not at compile time. Check `Cargo.lock` for the
+   resolved version and `cargo install -f wasm-bindgen-cli --version <that>`.
+
+3. **A WebDriver and a browser.** `CHROMEDRIVER` must point at a chromedriver binary; the
+   pre-installed Chromium in this environment lives under `/opt/pw-browsers/`.
+
+**Feature forwarding is required, and its absence is silent.** `liquers-web` matches on `ExtValue`,
+whose `PolarsDataFrame` and `UiCommand`/`Widget` variants are gated on **`liquers-lib`'s** features.
+A `#[cfg(feature = "polars")]` written in `liquers-web` is evaluated against *`liquers-web`'s* own
+features, so without forwarding it is always false — the arm compiles out, and a feature-unified
+build that does have the variant would fail to match. `liquers-web/Cargo.toml` therefore forwards
+`polars` and `egui` to `liquers-lib`. The symptom before forwarding is only an
+`unexpected_cfg_condition_value` warning, which is easy to scroll past.
+
 ---
 
 ### M3 — Object surface, errors, environment

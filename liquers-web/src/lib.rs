@@ -33,5 +33,12 @@
 
 #![cfg(target_arch = "wasm32")]
 
-// Modules are added by the M2-M6 milestones of
-// `specs/liquers-web/phase4-implementation.md`.
+pub mod bridge;
+pub mod default_value;
+pub mod value;
+
+pub use bridge::{ConversionPolicy, JsValueBridge};
+pub use value::{JsOpaque, ORIGIN_JAVASCRIPT};
+
+// The `#[wasm_bindgen]` surface (objects, errors, environment, commands, evaluation) is added by
+// milestones M3-M4 of `specs/liquers-web/phase4-implementation.md`.
