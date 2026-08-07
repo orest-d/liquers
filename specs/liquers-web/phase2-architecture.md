@@ -77,7 +77,7 @@ cfg'd arm. **14 sites**, verified:
 |---|---|
 | `value/mod.rs` — `ExtValueInterface` (`as_image`, `as_polars_dataframe`, `as_ui_element`) | 3 |
 | `value/mod.rs` — `ValueExtension` (`identifier`, `type_name`, `default_extension`, `default_filename`, `default_media_type`) | 5 |
-| `value/mod.rs` — `DefaultValueSerializer::as_bytes` | 1 |
+| `value/mod.rs` — `DefaultValueSerializer::as_bytes` — **already has a `_ =>` arm** (`:190`), so it compiles with or without the new variant; the arm must be *removed* and replaced with explicit arms, and no compiler check will catch a mistake here | 1 |
 | `value/mod.rs` — `ExtValueInterface for Value`, matching `Value::Extended(ExtValue::…)` | 3 |
 | `ui/web/html.rs:84` — `ext_to_html` | 1 |
 | `egui/mod.rs:72` — `show` (native only; the new variant is wasm-only, so this arm is unreachable-by-cfg) | 1 |

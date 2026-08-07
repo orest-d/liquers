@@ -9,7 +9,7 @@
 - [x] Phase 1: High-Level Design (all 7 questions decided)
 - [x] Phase 2: Solution & Architecture (reviewed; Option Y decided, awaiting approval)
 - [x] Phase 3: Examples & Testing (reviewed; full 83-test inventory, awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 4: Implementation Plan (reviewed; 26 steps in 6 milestones, awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
@@ -134,6 +134,22 @@ typed error Phase 2 specified was removed rather than implemented.
 `specs/ISSUES.md`). `encode_token` emits unparseable text for any string containing `:`, and no
 lone-colon entity exists in the grammar. Affects every programmatic query builder, not just the
 browser integration.
+
+**Phase 4 outcome — 26 steps in 6 milestones.** M1 (groundwork in `liquers-core`/`liquers-lib`) is
+the only milestone touching existing crates and is separately gated: if it cannot be made green the
+design is wrong and nothing should be built on it. Rollback is cheap everywhere else, since
+`liquers-web` is a new crate excluded from `default-members`.
+
+Review found one blocking defect worth carrying into implementation:
+`DefaultValueSerializer::as_bytes` (`liquers-lib/src/value/mod.rs:190`) **already has a `_ =>` arm**
+(with `Error::new`, also against project rules), so it is the one site among the 14 where adding
+`ExtValue::Js` compiles silently — the build matrix cannot protect it. The catch-all must be removed
+and replaced with explicit arms. Also fixed: `opaque()` and `version()` were specified but assigned
+to no step (both test-before-implementation gaps), and the three API layers that share method names
+are now enumerated per owning file.
+
+**This repository has no CI** (no `.github/`), so every gate is a developer-run command and the
+multi-step gates ship as scripts. Adopting CI is a separate decision for the project owner.
 
 ## Links
 
