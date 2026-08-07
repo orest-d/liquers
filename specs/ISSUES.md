@@ -2,6 +2,55 @@
 
 ## Open
 
+### Issue: ENCODE-TOKEN-COLON
+Status: Open
+Priority: P2 (Medium)
+
+#### Problem
+
+`encode_token` produces action-parameter text that the query parser rejects, whenever the input
+contains a colon.
+
+`liquers_core::query::encode_token` (`liquers-core/src/query.rs:503`) escapes `~`, space, `/` and
+`-`, and passes every other character through unchanged. The parser's unescaped parameter set
+(`liquers-core/src/parse.rs:340`) accepts ASCII alphanumerics plus `_`, `+` and `.` — it does not
+accept `:`. Encoding is therefore not round-trip safe:
+
+| Parameter text | Parses |
+|---|---|
+| `f-a~Pb` (the `://` entity) | Ok |
+| `f-a~.b`, `f-a~_b`, `f-a~~b`, `f-a+b`, `f-a.b` | Ok |
+| `f-a:b` — what `encode_token("a:b")` emits | ParseError |
+| `fetch_json-https:~/~/api.example.com~/data` — what `encode_token` emits for a URL | ParseError |
+
+A URL *can* be expressed by hand, because dedicated entities exist: `~H` (`https://`), `~h`
+(`http://`), `~f` (`file://`), `~P` (`://`). `fetch_json-~Hapi.example.com~/data` parses and decodes
+to exactly `https://api.example.com/data`. But `encode_token` never emits any of these.
+
+There is a second, narrower gap: no entity represents a **lone** colon. `~P` covers `://` only, so a
+value such as a time (`12:30`) or a prefixed identifier (`key:value`) cannot be encoded by any
+encoder, correct or not.
+
+#### Expected behavior
+
+1. `encode_token(s)` output parses back to `s` for every `s`, or the function documents and returns
+   an error for inputs it cannot represent.
+2. `encode_token` emits the protocol entities where they apply, so URLs encode to the compact
+   `~H…` form rather than an unparseable one.
+3. A lone-colon entity is added, or the unescaped set is widened to include `:`, so colon-bearing
+   values are representable at all.
+
+Item 3 is a grammar change and needs its own decision — widening the unescaped set is the smaller
+change but affects `specs/PROJECT_OVERVIEW.md`'s encoding description.
+
+#### Discovery
+
+Found while validating the query in an example for `specs/liquers-web/phase3-examples.md`: the
+example initially assumed percent-encoding (which the grammar does not support at all), and checking
+the real mechanism surfaced the encoder defect. Any caller that builds a query programmatically from
+user-supplied string parameters is affected, not only the browser integration.
+
+
 ### Issue: QUEUED-MANAGER-STARTUP-READINESS
 Status: Open
 Priority: P1 (Medium-High)

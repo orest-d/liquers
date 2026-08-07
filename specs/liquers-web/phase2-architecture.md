@@ -706,10 +706,16 @@ self-deadlock against `ImmediateAssetManager`'s `std::sync::Mutex`. The argument
 3. **Async commands make re-entrancy safe rather than merely tolerable.** An async JS command that
    calls `evaluate` yields to the event loop instead of occupying it, so the nested evaluation runs
    as a separate task.
-4. **Residual risk, stated:** a *synchronous* JS command that re-enters `evaluate` cannot complete —
-   the inner evaluation needs the event loop the outer call is occupying. Policy: `evaluate` is
-   Promise-only, so a sync command physically cannot await it; it can only start it. Nested
-   evaluation from a sync command that then depends on the result is rejected with a typed error.
+4. **The dangerous case cannot actually arise** — corrected during Phase 3 review. A *synchronous*
+   JS command that re-enters `evaluate` receives a `Promise` and JavaScript gives it no way to
+   block on one. So it has exactly two options, both safe:
+   - **return the Promise**, in which case `IsAsync::Auto` detects it and awaits it on the async
+     path — the command was effectively async and is handled as such; or
+   - **ignore it**, in which case the command returns normally and the nested evaluation resolves
+     independently as its own task.
+
+   There is no third option, so no typed error is needed for this case and none is defined. An
+   earlier draft specified one; it described an unreachable state.
 
 `RUNTIME04` tests this; if the test cannot be made to pass, this section is wrong and the design,
 not the test, changes.

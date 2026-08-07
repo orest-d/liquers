@@ -8,7 +8,7 @@
 
 - [x] Phase 1: High-Level Design (all 7 questions decided)
 - [x] Phase 2: Solution & Architecture (reviewed; Option Y decided, awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 3: Examples & Testing (reviewed; full 83-test inventory, awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 
@@ -110,6 +110,30 @@ discards the `impl_version` that `add_command` preserves across a replace, so re
 starts fresh and expires assets computed by the earlier command.
 
 **Phase 2 has no open questions remaining.**
+
+**Phase 3 outcome — full conformance inventory.** Per user directive, **all 83 prescribed tests**
+for the 11 selected features are enumerated, named per the guide's scheme
+(`fn value01_primitive_roundtrip()`; `test("PACKAGE03 …")`; files carry the feature ID), and
+assigned a tier: **82 required**, 1 `NA` (`PACKAGE06` — no optional Cargo extra exists yet; the
+reversing condition is recorded). Four tiers: native Rust (fast loop), `wasm-bindgen-test` in
+headless Chromium (the bulk — `JsValue` panics natively, so conversion tests cannot be native), CI
+build steps (`STUBS`, build matrix), Playwright (built artefact).
+
+Five `NA` marks from the first draft were overturned on review as evasions rather than
+dispositions: `RUNTIME01` became a native static assertion that decision 1's relaxation did not
+weaken `Send + Sync` on native — the one real risk that relaxation carries; `VALUE08`/`VALUE11`,
+`EVAL05`, `ASYNCQ07` (asserts the exported surface contains *no* blocking API) and
+`STUBS02/04/06` are all testable as scoped.
+
+**A Phase 2 correction came out of Phase 3.** Specifying how `RUNTIME04` would assert its claim
+showed the deadlock case it guarded *cannot occur*: JavaScript cannot block on a Promise, so a sync
+command re-entering `evaluate` either returns it (handled on the async path) or ignores it. The
+typed error Phase 2 specified was removed rather than implemented.
+
+**A `liquers-core` defect was found by validating an example query:** `ENCODE-TOKEN-COLON` (filed in
+`specs/ISSUES.md`). `encode_token` emits unparseable text for any string containing `:`, and no
+lone-colon entity exists in the grammar. Affects every programmatic query builder, not just the
+browser integration.
 
 ## Links
 
