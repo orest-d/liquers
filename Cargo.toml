@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib"]
+members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-web"]
+
+# liquers-web is wasm32-only: it is excluded from the default set so that `cargo build`,
+# `cargo test` and `cargo check` at the workspace root keep working on native without
+# building it. Build it explicitly with `-p liquers-web --target wasm32-unknown-unknown`.
+# See specs/liquers-web/phase4-implementation.md, Step 8.
+default-members = ["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib"]
 
 # Debug info dominates the size of `target/` and is the difference between a test run that fits in
 # a constrained environment and one that does not: measured on `cargo test -p liquers-lib --lib

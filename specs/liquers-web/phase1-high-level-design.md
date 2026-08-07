@@ -89,7 +89,21 @@ and 4 are now largely answered by the async-wasm-refactor.
      `E: Send + Sync` on native through `MaybeSend`/`MaybeSync`, so native multi-threaded behaviour
      is unchanged; only `wasm32` gains the vacuous bound.
 
-   Executed as a Phase 4 step, ahead of the `JsExt` work that depends on it.
+   Executed as a Phase 4 step, ahead of the value-bridge work that depends on it.
+
+   **Corrected during M1 execution — this estimate was low.** The bounds *are* local to
+   `extended.rs`, but making `Value` non-`Send` on `wasm32` propagates to anything storing a
+   `Value` under a hard bound. Two further `liquers-lib` traits had to be relaxed the same way:
+   `ui::element::UIElement` (three implementors hold a `Value` behind an `RwLock`) and then
+   `ui::app_state::AppState` (stores `dyn UIElement` handles). The chain is
+   `ValueExtension → UIElement → AppState` and stops there. Nothing on native could have shown
+   this; only the `wasm32` build configuration did. See Phase 2, "Why the bound works across
+   languages", and Phase 4's M1 execution record.
+
+   **Naming note:** `JsExt` below is Phase 1 vocabulary. Phase 2 superseded it — the opaque value
+   is carried by an ungated, language-neutral `ExtValue::Foreign { Arc<dyn ForeignValue> }`, with
+   `JsOpaque` implementing `ForeignValue` in `liquers-web`. `CombinedValue` is still reused, via
+   `liquers_lib::value::Value`, so the substance of this decision is unchanged.
 
 2. **Opaque value ownership — decided.** Structural conversion is the default; a *language value*
    becomes opaque only through an **explicit opt-in**, and an opaque value retains the `JsValue`

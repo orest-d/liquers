@@ -56,8 +56,10 @@ exists either way); size belongs to the packaging milestone.
   `Send + Sync + 'static` (`liquers-lib/src/value/extended.rs:12`), which an opaque `JsValue`
   cannot satisfy. It will be **relaxed to `MaybeSend + MaybeSync + 'static`**, matching
   `ValueInterface` (`liquers-core/src/value.rs:49-50`), and `liquers-web` reuses `CombinedValue`
-  with a `JsExt` extension. One implementor (`ExtValue`), all bounds local to `extended.rs`,
-  native behaviour unchanged.
+  via `liquers_lib::value::Value`. (Phase 1 called the extension `JsExt`; Phase 2 superseded that
+  with the language-neutral `ExtValue::Foreign`.) **Blast-radius estimate later corrected:** the
+  bounds are local to `extended.rs`, but the relaxation cascades on wasm to `UIElement` and
+  `AppState` — see the M1 record below.
 - `liquers-wf` was designed but never implemented (not a workspace member); `liquers-web`
   supersedes it.
 

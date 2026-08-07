@@ -219,6 +219,19 @@ crate. Every one of the 14 arms is a one-line delegation:
 *every* configuration, so the compiler enforces 13 of the 14 sites. **No `_ =>` arm may be
 introduced** — the project rule this step is most likely to violate under time pressure.
 
+**Expect the bound to cascade, and budget for it.** On `wasm32`, `dyn ForeignValue` is not
+`Send`/`Sync`, so any trait that *stores* a `Value` under a hard `Send + Sync` bound stops
+compiling. Two traits in `liquers-lib` are affected and must be relaxed to the same
+`MaybeSend`/`MaybeSync` markers:
+
+| Trait | Why |
+|---|---|
+| `ui::element::UIElement` (`element.rs:60`) | `AssetViewElement`, `StateViewElement`, `QueryConsoleElement` each hold a `Value` behind an `RwLock` |
+| `ui::app_state::AppState` (`app_state.rs:155`) | stores `dyn UIElement` handles, so it cannot outrank them |
+
+**Only the `wasm32` matrix configuration surfaces this** — every native configuration compiles
+without it, so Step 7 is not optional before declaring Step 6 done.
+
 **One site the compiler cannot guard.** `DefaultValueSerializer::as_bytes`
 (`liquers-lib/src/value/mod.rs:190`) **already has a `_ =>` arm**, using `Error::new` — two
 pre-existing violations. So `ExtValue::Foreign` falls silently into the catch-all there and nothing

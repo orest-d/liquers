@@ -21,7 +21,7 @@
 //!
 //! See `specs/liquers-web/phase2-architecture.md`, "Where the foreign value lives".
 
-use liquers_core::error::Error;
+use liquers_core::error::{Error, ErrorType};
 use std::borrow::Cow;
 
 /// A value owned by an *integrated language* runtime, retained opaquely by Liquers.
@@ -78,10 +78,21 @@ pub trait ForeignValue:
     /// Refusing is a legitimate and expected implementation: the asset layer already tolerates it,
     /// falling back to a time-based version and to metadata-only persistence, so an unserializable
     /// foreign value degrades instead of failing evaluation.
+    ///
+    /// The refusal is a [`ErrorType::SerializationError`], not a `ConversionError`: this is the
+    /// byte-serialization boundary, and the design assigns those two error types to different
+    /// boundaries deliberately — a *structural* conversion refusal (`try_into_string`,
+    /// `try_into_json_value`) is a `ConversionError`, while failing to produce bytes is a
+    /// serialization failure. Keeping them distinct is what lets a caller tell "this value has no
+    /// text form" apart from "this value cannot be persisted".
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
-        Err(Error::conversion_error(
-            self.identifier().as_ref(),
-            &format!("bytes ({format})"),
+        Err(Error::from_error(
+            ErrorType::SerializationError,
+            format!(
+                "Serialization to {} not supported by {}",
+                format,
+                self.type_name()
+            ),
         ))
     }
 }
