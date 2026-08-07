@@ -2,53 +2,112 @@
 
 ## Open
 
-### Issue: ENCODE-TOKEN-COLON
+### Issue: PARAMETER-ESCAPING-INCOMPLETE
 Status: Open
-Priority: P2 (Medium)
+Priority: P1 (Medium-High)
 
 #### Problem
 
-`encode_token` produces action-parameter text that the query parser rejects, whenever the input
-contains a colon.
+Most characters cannot appear in a string action parameter at all, and `encode_token` silently
+produces text that the parser rejects rather than escaping them or reporting failure. **A general
+character-escaping mechanism, covering the full Unicode range, is missing.**
 
-`liquers_core::query::encode_token` (`liquers-core/src/query.rs:503`) escapes `~`, space, `/` and
-`-`, and passes every other character through unchanged. The parser's unescaped parameter set
-(`liquers-core/src/parse.rs:340`) accepts ASCII alphanumerics plus `_`, `+` and `.` — it does not
-accept `:`. Encoding is therefore not round-trip safe:
+Three separate defects, in increasing order of severity.
 
-| Parameter text | Parses |
-|---|---|
-| `f-a~Pb` (the `://` entity) | Ok |
-| `f-a~.b`, `f-a~_b`, `f-a~~b`, `f-a+b`, `f-a.b` | Ok |
-| `f-a:b` — what `encode_token("a:b")` emits | ParseError |
-| `fetch_json-https:~/~/api.example.com~/data` — what `encode_token` emits for a URL | ParseError |
+**1. `encode_token` is not round-trip safe.**
+`liquers_core::query::encode_token` (`liquers-core/src/query.rs:503`) escapes exactly four
+characters — `~`, space, `/`, `-` — and passes everything else through unchanged. The parser's
+unescaped parameter set (`liquers-core/src/parse.rs:340`) accepts only ASCII alphanumerics plus `_`,
+`+` and `.`. Everything in the gap encodes to unparseable text, with no error at encode time.
 
-A URL *can* be expressed by hand, because dedicated entities exist: `~H` (`https://`), `~h`
-(`http://`), `~f` (`file://`), `~P` (`://`). `fetch_json-~Hapi.example.com~/data` parses and decodes
-to exactly `https://api.example.com/data`. But `encode_token` never emits any of these.
+Measured — every one of these is **rejected** by the parser, and every one is what `encode_token`
+emits verbatim:
 
-There is a second, narrower gap: no entity represents a **lone** colon. `~P` covers `://` only, so a
-value such as a time (`12:30`) or a prefixed identifier (`key:value`) cannot be encoded by any
-encoder, correct or not.
+```
+a:b   a?b   a,b   a=b   a&b   a(b   a%b   a#b   a!b   a@b   a*b   a;b   a[b   café   日本
+```
+
+The failure is silent and deferred: encoding succeeds, and the resulting query fails to parse later,
+somewhere else.
+
+**2. No escape exists for most characters, so no correct encoder is currently possible.**
+The entity table (`parse.rs:386-399`) provides `~~` `~_` `~<digit>` `~.` `~I` `~/` `~h` `~H` `~f`
+`~P`. A URL is expressible by hand — `f-~Hapi.example.com~/data` parses and decodes to exactly
+`https://api.example.com/data` — but there is no entity for a **lone colon**, nor for `?`, `=`, `&`,
+`#`, `,`, `(`, `)`, `%`, or any other punctuation, **nor for any non-ASCII character**. So a value
+such as `12:30`, `a,b`, or `café` cannot be represented by any encoder, however correct. This is why
+defect 1 cannot simply be fixed inside `encode_token`.
+
+**3. Unicode acceptance is incoherent, because the character test truncates the code point.**
+`parse.rs:340` tests `AsChar::is_alphanum(c as u8)`, where `c` is a `char`. The `as u8` cast keeps
+only the low byte, so whether a non-ASCII character is accepted depends on its code point modulo
+256. Measured:
+
+| Char | Code point | Low byte | Parser |
+|---|---|---|---|
+| `Ł` | U+0141 | 0x41 = `A` | **accepted** |
+| `Ő` | U+0150 | 0x50 = `P` | **accepted** |
+| `ŗ` | U+0157 | 0x57 = `W` | **accepted** |
+| `é` | U+00E9 | 0xE9 | rejected |
+| `ā` | U+0101 | 0x01 | rejected |
+| `Ā` | U+0100 | 0x00 | rejected |
+
+`Ł` is accepted while `é` is not, for no reason a user could infer. Any character whose low byte
+happens to land in `[0-9A-Za-z]` slips through, which is arbitrary and almost certainly unintended.
+
+#### Impact
+
+Wider than a helper function. `encode_token` is used by `Query`'s own encoder
+(`query.rs:609`, `:615`, `:620`, `:631`, `:646`, including `StyledQueryToken::StringParameter`), so
+**encode → parse is not a round trip** for any programmatically constructed query. Affected: query
+builders in UI code, links, recipes, asset keys derived from user data, and every language
+integration that accepts a string parameter from its host language. Non-English text is
+unrepresentable in a parameter, which makes this an internationalization defect and not only an
+escaping one.
 
 #### Expected behavior
 
-1. `encode_token(s)` output parses back to `s` for every `s`, or the function documents and returns
-   an error for inputs it cannot represent.
-2. `encode_token` emits the protocol entities where they apply, so URLs encode to the compact
-   `~H…` form rather than an unparseable one.
-3. A lone-colon entity is added, or the unescaped set is widened to include `:`, so colon-bearing
-   values are representable at all.
+1. **A general escaping feature covering all of Unicode.** Any `char` must be representable in a
+   string parameter through some escape, so that `encode_token(s)` round-trips for every `s`. A
+   numeric-escape entity — for example `~u<hex>;` or similar — is the usual shape; the existing
+   mnemonic entities (`~H`, `~/`, …) then remain as compact special cases layered on top.
+2. `encode_token` emits those escapes, and emits the mnemonic entities where they apply so URLs
+   still encode to the compact `~H…` form.
+3. The `c as u8` truncation at `parse.rs:340` is replaced with a decision made deliberately: either
+   accept Unicode alphanumerics properly (`char::is_alphanumeric`) or restrict to ASCII explicitly
+   (`c.is_ascii_alphanumeric()`) and let escaping carry the rest. The current behaviour is neither.
+4. A round-trip property test over a generated character set, including astral-plane code points,
+   guards all three.
 
-Item 3 is a grammar change and needs its own decision — widening the unescaped set is the smaller
-change but affects `specs/PROJECT_OVERVIEW.md`'s encoding description.
+**The placeholder module for this work is `liquers-core/src/entities.rs`.** It exists, is empty
+(0 lines), and is not declared in `lib.rs` — it must be added to the module list when filled. The
+entity table currently lives inline in `parse.rs` (`tilde_entity`, `minus_entity`, `slash_entity`,
+`https_entity`, … and the `entities` combinator) with its encoder counterpart in `query.rs`; the two
+are separated by a whole module and drift silently, which is the structural reason this defect went
+unnoticed. Consolidating both directions into `entities.rs` — one table, one encoder, one parser,
+one round-trip test — is the natural fix.
+
+Item 1 and item 3 are grammar changes and affect the encoding description in
+`specs/PROJECT_OVERVIEW.md`.
+
+#### Related code
+
+| Location | Role |
+|---|---|
+| `liquers-core/src/entities.rs` | **empty placeholder** — intended home, not yet in `lib.rs` |
+| `liquers-core/src/parse.rs:340` | unescaped character class, with the `as u8` truncation |
+| `liquers-core/src/parse.rs:345-399` | entity parsers and the `entities` combinator |
+| `liquers-core/src/query.rs:503` | `encode_token`, the encoder half |
+| `liquers-core/src/query.rs:609-646` | `Query` encoding paths that depend on it |
+| `specs/PROJECT_OVERVIEW.md` | documents query encoding; needs updating with the outcome |
 
 #### Discovery
 
-Found while validating the query in an example for `specs/liquers-web/phase3-examples.md`: the
-example initially assumed percent-encoding (which the grammar does not support at all), and checking
-the real mechanism surfaced the encoder defect. Any caller that builds a query programmatically from
-user-supplied string parameters is affected, not only the browser integration.
+Found while validating a query for an example in `specs/liquers-web/phase3-examples.md`. The example
+had assumed percent-encoding, which the grammar does not support in any form; checking the real
+mechanism surfaced the encoder defect, and probing its boundaries surfaced the missing Unicode
+escapes and the truncation bug. Originally filed as `ENCODE-TOKEN-COLON`, renamed once the colon
+turned out to be only the presenting symptom.
 
 
 ### Issue: QUEUED-MANAGER-STARTUP-READINESS

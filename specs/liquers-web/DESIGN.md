@@ -130,7 +130,7 @@ showed the deadlock case it guarded *cannot occur*: JavaScript cannot block on a
 command re-entering `evaluate` either returns it (handled on the async path) or ignores it. The
 typed error Phase 2 specified was removed rather than implemented.
 
-**A `liquers-core` defect was found by validating an example query:** `ENCODE-TOKEN-COLON` (filed in
+**A `liquers-core` defect was found by validating an example query:** `PARAMETER-ESCAPING-INCOMPLETE` (filed in
 `specs/ISSUES.md`). `encode_token` emits unparseable text for any string containing `:`, and no
 lone-colon entity exists in the grammar. Affects every programmatic query builder, not just the
 browser integration.

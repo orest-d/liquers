@@ -46,7 +46,7 @@ declaring the fixture commands (`--command hello --command repeat --command shou
 | `fetch_json-https%3A%2F%2F…` | **Error** | percent-encoding is not in the grammar — `%` fails at offset 16. Recorded because the first draft of Example 2 assumed it worked |
 
 **Validation caught a real defect**, not just an example typo — see Example 2 and
-`ENCODE-TOKEN-COLON` in [`specs/ISSUES.md`](../ISSUES.md).
+`PARAMETER-ESCAPING-INCOMPLETE` in [`specs/ISSUES.md`](../ISSUES.md).
 
 **Why these shapes.** Per the guide's Appendix A, *every query segment is a command* — there is no
 literal-value segment. Test input therefore comes from a **source command** (`hello`, `number-42`),
@@ -140,7 +140,7 @@ alphanumerics plus `_`, `+`, `.`. Measured:
 
 So `encode_token` is **not round-trip safe** for any string containing a colon, and separately there
 is **no lone-colon entity** in the grammar — `~P` covers `://` only, so a value like `12:30` cannot
-be encoded by any encoder. Filed as `ENCODE-TOKEN-COLON` in [`specs/ISSUES.md`](../ISSUES.md).
+be encoded by any encoder. Filed as `PARAMETER-ESCAPING-INCOMPLETE` in [`specs/ISSUES.md`](../ISSUES.md).
 
 **Consequence for this design:** the planned JS helper must *not* be a port of `encode_token`, which
 would inherit the defect. Phase 4 either fixes `encode_token` first and mirrors it, or implements
@@ -395,6 +395,13 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 
 **Count:** 83 prescribed · **82 required** · 1 `NA` (PACKAGE06, with the condition that reverses it).
 
+The five `NA` marks the first draft carried were all of the kinds the guide now names as
+insufficient (§3, "When a prescribed test does not apply"): `STUBS02`/`STUBS06` were excused for
+running in CI rather than a browser (harness, not applicability); `EVAL05` for a deferred milestone;
+`RUNTIME05` was nearly excused as hard to observe; `RUNTIME01` for literal wording that assumed a
+native host; and `VALUE08`/`VALUE11` for having no obvious instance, when `ExtValue::Js` and a bare
+JS function are exactly the instances required. That experience is what the guide section records.
+
 #### Sub-suites required by Phase 2
 
 These expand two inventory rows rather than adding new IDs, and are named as `COMMAND05_*` /
@@ -439,7 +446,7 @@ to this architecture, and are named `web_*` so they are distinguishable from con
 | `web_build_matrix` (C) | `liquers-lib` compiles in **all six** configurations — see infrastructure item 4. Guards the 14 cfg'd match arms |
 | `web_evaluate_before_init` (W) | module-level `evaluate` before `init()` rejects with a clear error, not a panic or a hang |
 | `web_promise_after_free` (W) | a Promise still pending when its environment is `.free()`d settles rather than hanging |
-| `web_encode_param_roundtrip` (W) | `encodeParam` round-trips a URL, a lone colon, a space and a leading minus — the `ENCODE-TOKEN-COLON` guard |
+| `web_encode_param_roundtrip` (W) | `encodeParam` round-trips a URL, a lone colon, a space and a leading minus — the `PARAMETER-ESCAPING-INCOMPLETE` guard |
 
 ### The guide's mandatory end-to-end test
 
@@ -588,7 +595,7 @@ None blocking.
 1. **`PACKAGE06` is the sole `NA`**, because `liquers-web` exposes no optional Cargo feature as an
    installable extra in this phase. It becomes required the moment one exists — npm packaging or
    `UIUSE`. Recorded with its reversing condition so it is not silently dropped.
-2. **`ENCODE-TOKEN-COLON`** (filed in `specs/ISSUES.md`) is a `liquers-core` defect, not a
+2. **`PARAMETER-ESCAPING-INCOMPLETE`** (filed in `specs/ISSUES.md`) is a `liquers-core` defect, not a
    `liquers-web` one. Phase 4 must decide whether to fix `encode_token` and mirror it, or implement
    `encodeParam` against the entity table directly. The latter is smaller; the former fixes the
    defect for every programmatic query builder, not just this one.

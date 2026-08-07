@@ -84,6 +84,29 @@ Rust may use `fn value01_primitive_roundtrip()`, and browser tests may use `test
 
 The tests listed below are the default conformance inventory. An *integration* design must mark each one required or `NA` with a reason; `CONFORMANT` means all applicable tests pass. [Appendix A](#appendix-a-reference-test-implementations) gives a reference implementation of every one of them as Python pseudocode, fixing the contract each test must establish.
 
+### When a prescribed test does not apply
+
+`NA` means **intentionally not applicable**, and it is the only way a required test may go unwritten. Because it is the sole escape hatch, it attracts reasons that sound sufficient and are not. The default answer for a test belonging to a selected feature is **required**; `NA` has to be argued.
+
+**A test may be marked `NA` when:**
+
+1. **The capability does not exist in the *integrated language*.** A language with no async model cannot satisfy `ASYNCCMD01`. Usually the whole feature is `NA`, and its tests follow.
+2. **The prescribed subject does not exist in this *integration*.** `PACKAGE06` (an optional extra installs and activates its feature) has nothing to install when the design exposes no extras. The test would be vacuous, not failing.
+3. **The test's premise is unreachable by construction.** If the design makes the state the test describes impossible, the test cannot be written as specified. Prefer, where you can, to *assert the unreachability* instead and keep the ID: a test that fails if someone later makes the state reachable is worth more than an `NA`.
+4. **Another selected test establishes the identical contract.** Only when it genuinely does — overlapping subject matter is not the same as an identical contract.
+
+**A test may *not* be marked `NA` because:**
+
+1. **It runs in a different harness.** Whether a check is a CI step, a compile-time assertion, a browser test, or a type-checker invocation says nothing about whether it applies. `STUBS02` and `STUBS06` are type-checker runs, not runtime tests; that makes them build steps, not `NA`.
+2. **The feature is deferred to a later milestone.** That is what the implementation states (`NS`, `PARTIAL`) are for. `NA` is a statement about applicability, not about schedule. A design that marks future work `NA` loses the record that it was ever required.
+3. **The behaviour is hard to observe.** `RUNTIME05` (shutdown releases handles) is awkward — it may need a debug-only counter, a weak reference, or an instrumented allocator. Difficulty of observation calls for a mechanism, not an exemption. A test whose assertion would pass with the bug present is worse than an absent test, because it reports safety it never checked.
+4. **The test's literal wording assumes a different host.** `RUNTIME01` ("native adapter satisfies required thread bounds") reads as inapplicable to a browser-only *integration* — but the contract behind it, that the *integration* has not weakened the thread bounds the native build relies on, is both testable and exactly where such an *integration* is most likely to do damage. **Restate the contract in the *integration*'s own terms and keep the ID.** Reinterpretation is expected; the IDs are contracts, not test scripts.
+5. **No obvious instance is at hand.** Before concluding that nothing exists to test — no representative *value type* variant, no enum with unknown variants — check whether the *integration* provides one under a different name. An *opaque language value* is a representative variant; an unrecognised string arriving from the *integrated language* is an unknown variant.
+
+**Every `NA` carries a reversing condition.** State what would make the test required again — "when any optional extra is defined", "when a payload type other than `()` is selected". Without it, an `NA` written for a good reason at one milestone silently outlives that reason.
+
+**A selected feature with many `NA` tests is a warning.** Its tests define what the feature *is*; excusing most of them usually means the feature should not have been selected, or the design does not implement the contract it claims. Two or three `NA`s across a whole *integration* is ordinary. A feature where half the inventory is excused deserves a second look before the design is approved, not after.
+
 ## 4. Feature Overview
 
 | ID | Feature | Level | Depends on |
