@@ -1071,6 +1071,21 @@ impl CommandMetadataRegistry {
         self
     }
 
+    /// Removes a command's metadata.
+    ///
+    /// Returns the removed [`CommandMetadata`], or `None` if no command with this key was
+    /// registered. Prefer [`crate::commands::CommandRegistry::unregister`] over calling this
+    /// directly: metadata and executors must be removed together, since planning consults the
+    /// metadata while execution consults the executors.
+    pub fn remove_command<K>(&mut self, key: K) -> Option<CommandMetadata>
+    where
+        K: Into<CommandKey>,
+    {
+        let key: CommandKey = key.into();
+        let position = self.commands.iter().position(|command| command.key() == key)?;
+        Some(self.commands.remove(position))
+    }
+
     pub fn update_command_metadata_version<K>(&mut self, key: K) -> Option<Version>
     where
         K: Into<CommandKey>,

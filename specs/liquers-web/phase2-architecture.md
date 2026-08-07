@@ -126,6 +126,22 @@ Python on native and Starlark + JavaScript on wasm both work**, with one variant
 Decision 1 (relaxing `ValueExtension`) is still required: on wasm an `ExtValue` holding a
 `JsValue`-backed `ForeignValue` is not `Send`/`Sync`, so the old hard bound would still reject it.
 
+**The relaxation cascades further than Phase 1 estimated — found during M1 execution.** Phase 1
+decision 1 costed the blast radius as "one implementor, all bounds local to `extended.rs`". That is
+true of `ValueExtension` in isolation, but making `Value` non-`Send` on wasm propagates through
+anything that *stores* a `Value` under a hard bound. Two more traits in `liquers-lib` had to be
+relaxed to the same markers:
+
+| Trait | Why |
+|---|---|
+| `ui::element::UIElement` (`element.rs:60`) | was `Send + Sync`; `AssetViewElement`, `StateViewElement` and `QueryConsoleElement` each store a `Value` behind an `RwLock`, so the bound transitively required `ExtValue: Send + Sync` |
+| `ui::app_state::AppState` (`app_state.rs:155`) | was `Send + Sync`; an `AppState` stores `dyn UIElement` handles, so it cannot be more strongly bounded than they are |
+
+The chain is `ValueExtension → UIElement → AppState`, and it is exactly as far as it goes — verified
+by relaxing `UIElement` alone, observing `AppState` fail, and confirming the matrix is green with
+both. **None of this was visible on native**, where the markers still mean `Send + Sync`; only the
+`wasm32` matrix configuration surfaced it.
+
 **Open placement question, deliberately deferred:** `ForeignValue` starts next to `ExtValue` in
 `liquers-lib`. If it becomes cross-cutting `POLYGLOT` infrastructure with a second consumer, moving
 it to `liquers-core` is the natural follow-up — not done now, because a single consumer does not

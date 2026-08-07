@@ -10,7 +10,7 @@
 - [x] Phase 2: Solution & Architecture (reviewed; Option Y decided, awaiting approval)
 - [x] Phase 3: Examples & Testing (reviewed; full 83-test inventory, awaiting approval)
 - [x] Phase 4: Implementation Plan (reviewed; 26 steps in 6 milestones, awaiting approval)
-- [ ] Implementation Complete
+- [ ] Implementation Complete — **M1 done ✅** (Steps 1-7: groundwork in `liquers-core`/`liquers-lib`)
 
 ## Notes
 
@@ -159,6 +159,19 @@ are now enumerated per owning file.
 
 **This repository has no CI** (no `.github/`), so every gate is a developer-run command and the
 multi-step gates ship as scripts. Adopting CI is a separate decision for the project owner.
+
+**M1 EXECUTED ✅.** `ValueExtension` relaxed; `RUNTIME01` guard added; `CommandRegistry::unregister`
+and `CommandMetadataRegistry::remove_command` added with 4 passing tests; `ForeignValue` trait and
+ungated `ExtValue::Foreign` variant added with all match arms; `scripts/check-build-matrix.sh`
+added. Gates: `liquers-core` 431+ tests green, `liquers-lib` 296+ green, `liquers-axum`/`liquers-py`
+clean, all 6 build configurations green.
+
+Two things worth carrying forward. **Option Z paid off immediately** — the compiler flagged both
+missing match arms (`egui/mod.rs:72`, `ui/web/html.rs:84`) as errors rather than letting them pass
+in five of six configurations. And **the relaxation cascades further than Phase 1 estimated**: on
+wasm, `dyn ForeignValue` is not `Send`/`Sync`, which transitively broke `UIElement` and then
+`AppState`, both of which had hard `Send + Sync` bounds. Only the wasm32 matrix configuration
+surfaced it; nothing on native could have.
 
 ## Links
 

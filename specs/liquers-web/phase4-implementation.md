@@ -639,6 +639,41 @@ disk-allowance symptom, not a code error — `cargo clean` and retry before inve
 | Disk exhaustion during browser tests | Medium | `cargo clean` between native and browser loops |
 | `encodeParam` limitation surprises users | Low | Typed error, never silent breakage; documented; disappears when the entity design lands |
 
+## M1 execution record — COMPLETE ✅
+
+Steps 1-7 executed and green. Deviations from the plan, and what they cost:
+
+| Step | Outcome |
+|---|---|
+| 1 `ValueExtension` relaxed | as planned |
+| 2 `RUNTIME01` | as planned, **plus** an assertion that `Arc<dyn ForeignValue>` is `Send + Sync` on native — the property that lets the variant be ungated |
+| 3 `remove_command` | as planned |
+| 4 `unregister` | as planned |
+| 5 unregister tests | 4 tests, all pass. `unregister01` asserts the query fails to **plan**, not at execution |
+| 6 `ForeignValue` + `ExtValue::Foreign` + arms | **the compiler found the missing arms, exactly as Option Z predicted** — `egui/mod.rs:72` on the default build, `ui/web/html.rs:84` under `webui`. Both were compile errors, not silent |
+| 7 matrix script | `scripts/check-build-matrix.sh`; all six configurations green |
+
+**One design finding, and the matrix is what caught it.** The wasm32 configuration — the one the
+native loop never builds — failed with 24 errors: `dyn ForeignValue` is not `Send`/`Sync` there, and
+two further traits in `liquers-lib` transitively required it. Phase 1 decision 1 had costed the
+blast radius as "one implementor, bounds local to `extended.rs`", which was true of `ValueExtension`
+alone but missed that making `Value` non-`Send` on wasm propagates to anything storing a `Value`
+under a hard bound:
+
+- `ui::element::UIElement` (`element.rs:60`) — `AssetViewElement`, `StateViewElement` and
+  `QueryConsoleElement` each hold a `Value` behind an `RwLock`;
+- `ui::app_state::AppState` (`app_state.rs:155`) — stores `dyn UIElement` handles, so it cannot be
+  more strongly bounded than they are.
+
+Both relaxed to the same markers. The chain is `ValueExtension → UIElement → AppState` and stops
+there — established by relaxing `UIElement` alone, watching `AppState` fail, then confirming the
+full matrix green. **Native builds never showed any of this**, because the markers still mean
+`Send + Sync` there.
+
+**Gate results:** `liquers-core` 431 unit + 12 integration suites, 0 failed · `liquers-lib` 296 unit
++ 14 integration suites, 0 failed · `liquers-axum` and `liquers-py` check clean · all 6 build
+configurations green.
+
 ## Review record
 
 Both prescribed reviewers found real defects.

@@ -88,6 +88,14 @@ impl UIValueExtension for Value {
             Self::Extended(ExtValue::UIElement { value }) => {
                 ui.label(format!("UIElement: {}", value.type_name()));
             }
+            // A value owned by an integrated language runtime. egui cannot render it natively,
+            // so show its origin and type — enough to identify it while debugging.
+            Self::Extended(ExtValue::Foreign { value }) => {
+                ui.label(
+                    RichText::new(format!("{} value: {}", value.origin(), value.type_name()))
+                        .italics(),
+                );
+            }
             Self::Base(SimpleValue::None {}) => {
                 ui.label(RichText::new("None").italics());
             }
