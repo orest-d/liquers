@@ -10,7 +10,8 @@ is an ordinary async command whose closure owns a `js_sys::Function`. The crate 
 bridge, an object/eval/command surface, and a Promise bridge.
 
 **Estimated complexity:** Medium. The architecture is settled and the foundation exists; the risk is
-concentrated in two mechanical places (14 cfg'd match arms; 82 conformance tests).
+concentrated in two mechanical places (14 match arms; 82 conformance tests) — and Option Z made
+the first of those compiler-enforced.
 
 **Estimated time:** 5-7 days for an experienced Rust developer, distributed as M1 ≈ 0.5 d,
 M2 ≈ 1 d, M3 ≈ 1.5 d, M4 ≈ 1 d, M5 ≈ 1.5 d, M6 ≈ 1 d.
@@ -182,54 +183,61 @@ bug present.
 
 ---
 
-### Step 6: `ExtValue::Js` variant and its 14 match arms
+### Step 6: `ForeignValue` trait, ungated `ExtValue::Foreign` variant, 14 match arms
 
-**File:** `liquers-lib/src/value/mod.rs` (+ `ui/web/html.rs:84`, `egui/mod.rs:72`)
+**File:** `liquers-lib/src/value/mod.rs`, new `liquers-lib/src/value/foreign.rs`
+(+ `ui/web/html.rs:84`, `egui/mod.rs:72`)
 
 ```rust
-#[cfg(all(target_arch = "wasm32", feature = "webui"))]
-Js { value: crate::value::js::JsOpaque },
+// liquers-lib/src/value/foreign.rs — NO target_arch gate, NO feature gate.
+pub trait ForeignValue: core::fmt::Debug
+    + liquers_core::maybe_send::MaybeSend
+    + liquers_core::maybe_send::MaybeSync + 'static
+{
+    fn origin(&self) -> &'static str;
+    fn as_any(&self) -> &dyn core::any::Any;
+    fn identifier(&self) -> Cow<'static, str>;
+    fn type_name(&self) -> Cow<'static, str>;
+    fn default_extension(&self) -> Cow<'static, str>;
+    fn default_filename(&self) -> Cow<'static, str>;
+    fn default_media_type(&self) -> Cow<'static, str>;
+    fn try_into_string(&self) -> Result<String, Error>;
+    fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;
+    fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error>;
+}
+
+// liquers-lib/src/value/mod.rs
+Foreign { value: Arc<dyn ForeignValue> },
 ```
 
-Add one cfg'd arm to each of the 14 sites enumerated in Phase 2. **No `_ =>` arm may be introduced**
-— that is the project rule this step is most likely to violate under time pressure.
+**`liquers-lib` gains no language-specific code.** `JsOpaque` lives in `liquers-web` (Step 9), not
+here — that is what lets Starlark and Python implement the same trait later without touching this
+crate. Every one of the 14 arms is a one-line delegation:
+`ExtValue::Foreign { value } => value.identifier()`.
 
-**One site is not like the other 13, and it is the dangerous one.**
-`DefaultValueSerializer::as_bytes` (`liquers-lib/src/value/mod.rs:190`) **already has a `_ =>` arm**,
-using `Error::new` — two pre-existing violations of the project rules. Consequences:
+**The arms are unconditional**, which is the point of Option Z: a missing arm fails to compile in
+*every* configuration, so the compiler enforces 13 of the 14 sites. **No `_ =>` arm may be
+introduced** — the project rule this step is most likely to violate under time pressure.
 
-- Adding `ExtValue::Js` there does **not** fail to compile. The new variant silently falls into the
-  catch-all, so this is the one site where forgetting the arm produces no error at all.
-- **The build matrix cannot catch it.** Step 7 guards the other 13 sites, which fail to compile when
-  an arm is missing. Here the code compiles either way — so this site needs a *reviewer*, not a
-  compiler, and is called out for that reason.
+**One site the compiler cannot guard.** `DefaultValueSerializer::as_bytes`
+(`liquers-lib/src/value/mod.rs:190`) **already has a `_ =>` arm**, using `Error::new` — two
+pre-existing violations. So `ExtValue::Foreign` falls silently into the catch-all there and nothing
+fails. This site needs a *reviewer*, not a compiler.
 
 Required at this site: delete the `_ =>` arm, write explicit arms for all six variants (`Image`,
-`PolarsDataFrame`, `UiCommand`, `Widget`, `UIElement`, `Js`) with their cfg gates, and replace
-`Error::new` with the typed constructor. Then a future variant breaks the build as intended.
+`PolarsDataFrame`, `UiCommand`, `Widget`, `UIElement`, `Foreign`) with the cfg gates the *existing*
+variants need, and replace `Error::new` with a typed constructor. Then a future variant breaks the
+build as intended — which is what makes this the last time anyone has to think about it.
 
 The adjacent `deserialize_from_bytes` (`:211`) also has a `_ =>` arm, but it matches on a `&str`
 type identifier rather than the enum, so a catch-all there is correct and stays. Add an explicit
-`"js"` arm to it for a clearer message; the fallback would otherwise produce a serviceable but
-vaguer error.
+`"js"` arm for a clearer message.
 
-`JsOpaque` itself lives in a new `liquers-lib/src/value/js.rs`, gated the same way:
-
-```rust
-#[derive(Clone)]
-pub struct JsOpaque { value: wasm_bindgen::JsValue, type_tag: std::sync::Arc<str> }
-// hand-written Debug printing `Js(<type_tag>)` — never delegating to JsValue's Debug,
-// which can invoke JS and is unsuitable inside error paths.
-```
-
-**Validation — the build matrix, all six configurations:**
+**Validation — the build matrix, all six configurations.** With ungated arms the compiler already
+covers 13 sites in every configuration, so this now guards feature *interactions* and the `as_bytes`
+site rather than being the sole defence:
 ```bash
-cargo check -p liquers-lib --no-default-features
-cargo check -p liquers-lib --no-default-features --features egui
-cargo check -p liquers-lib --no-default-features --features polars
-cargo check -p liquers-lib --no-default-features --features webui
-cargo check -p liquers-lib                       # default
-cargo check -p liquers-lib --target wasm32-unknown-unknown --no-default-features --features webui
+bash scripts/check-build-matrix.sh
 ```
 
 **Rollback:** `git checkout liquers-lib/src/value/ liquers-lib/src/ui/web/html.rs liquers-lib/src/egui/mod.rs`
@@ -249,7 +257,9 @@ by a developer, and by CI later if the project adopts it:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-# Guards the cfg-gated ExtValue::Js variant across every build configuration.
+# Feature-interaction check across every build configuration. With Option Z the
+# ExtValue::Foreign arms are unconditional, so the compiler guards them directly;
+# this catches interactions and the as_bytes site the compiler cannot see.
 # A forgotten cfg arm breaks exactly one of these and nothing else catches it.
 for args in \
   "--no-default-features" \
@@ -306,8 +316,29 @@ for every later build command.
 
 **Files:** `liquers-web/src/value.rs`, `liquers-web/src/convert.rs`
 
-The trait from Phase 2, plus `js_to_value` / `value_to_js` implementing the full conversion table,
-**and the `opaque()` opt-in itself**:
+`JsOpaque` (the `ForeignValue` implementation for JavaScript) lives **here**, not in `liquers-lib`:
+
+```rust
+// liquers-web/src/value.rs
+#[derive(Clone)]
+pub struct JsOpaque { value: JsValue, type_tag: Arc<str> }
+
+impl ForeignValue for JsOpaque {
+    fn origin(&self) -> &'static str { "javascript" }
+    fn as_any(&self) -> &dyn core::any::Any { self }
+    // … per Phase 2's JsOpaque table
+}
+```
+
+Hand-written `Debug`, printing `Js(<type_tag>)` — never delegating to `JsValue`'s `Debug`, which can
+invoke JS and is unsuitable inside error paths.
+
+Recovering a JS value from an `ExtValue::Foreign` is a **checked downcast**
+(`value.as_any().downcast_ref::<JsOpaque>()`); `None` means the value came from another language
+runtime and yields a `ConversionError` naming `value.origin()`.
+
+Then the trait from Phase 2, plus `js_to_value` / `value_to_js` implementing the full conversion
+table, **and the `opaque()` opt-in itself**:
 
 ```rust
 // liquers-web/src/value.rs — exported; decision 2's opt-in. Must exist before Step 10,
@@ -335,7 +366,7 @@ silent data corruption lives.
 **File:** `liquers-web/tests/value_bridge_VALUE.rs` (`wasm-bindgen-test`)
 
 All 13 `VALUE` rows from the Phase 3 inventory, including the three that were nearly excused:
-`VALUE08` (roundtrip through `ExtValue::Js`), `VALUE11` (bare function → `ConversionError`;
+`VALUE08` (roundtrip through `ExtValue::Foreign` plus a downcast to `JsOpaque`), `VALUE11` (bare function → `ConversionError`;
 `opaque(fn)` → retained), and `VALUE03`'s `BigInt`/2^53 boundaries.
 
 **Validation:** `wasm-pack test --headless --chrome liquers-web`
@@ -595,13 +626,13 @@ disk-allowance symptom, not a code error — `cargo clean` and retry before inve
 | A single step | `git checkout <file>` — every step lists its files |
 | M1 (touches existing crates) | `git revert` the M1 commits. This is the **only** milestone that can break existing crates, which is why it is first and separately gated |
 | M2-M6 | `liquers-web` is a new crate excluded from `default-members`; deleting the directory and its workspace entry restores the previous state exactly |
-| The `ExtValue::Js` variant | Removing the variant and its 14 arms is mechanical; the build matrix proves the removal is complete |
+| The `ExtValue::Foreign` variant | Removing the variant and its 14 arms is mechanical, and because the arms are unconditional the compiler proves the removal is complete |
 
 ## Risk Register
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| A forgotten cfg arm breaks a downstream build config | **High** — 14 sites × 6 configs | Step 7's matrix script; it is the cheapest test in the plan. With no CI to enforce it, running it is part of M1's exit gate rather than automatic — a stated weakness |
+| A forgotten match arm breaks a build config | **Low** — was High under the superseded Option Y | Option Z made the arms **unconditional**, so 13 of the 14 sites fail to compile everywhere if missed. The residual is the single `as_bytes` site whose pre-existing `_ =>` arm hides the omission — mitigated by calling it out in Step 6 and by review, not by tooling |
 | `'static` / non-`Send` closure construction fights the borrow checker | Medium | Step 16 assigned to sonnet with the exact alias definitions as knowledge |
 | A `RefCell` borrow held across `await` deadlocks | Medium | Single documented invariant (Step 13); `RUNTIME04` has a timeout so it fails rather than hangs |
 | Conformance tests written to pass rather than to catch | Medium | Phase 3 specifies the mechanism for the three unfalsifiable ones; `unregister01` in particular must fail on execution-time failure |
@@ -614,7 +645,7 @@ Both prescribed reviewers found real defects.
 
 **Feasibility reviewer (verified against source).** One blocking finding, and it is the most useful
 result of this phase: `DefaultValueSerializer::as_bytes` (`value/mod.rs:190`) **already has a
-`_ =>` arm**, so it is the single site among the 14 where adding `ExtValue::Js` compiles silently and
+`_ =>` arm**, so it is the single site among the 14 where adding the new variant compiles silently and
 the build matrix provides no protection. Step 6 now calls it out specifically and requires the
 catch-all be removed rather than merely not introduced. It also confirmed every other load-bearing
 claim: the `maybe_send` paths, the three `CommandRegistry` fields, the 14 sites, the absence of

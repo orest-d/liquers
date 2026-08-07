@@ -172,7 +172,9 @@ await liquers.evaluate("load_table/row_count");    // 1000
 **What it demonstrates.** Opt-in opacity (never accidental); the object arrives at the second
 command as the *same* JS object, so no O(size) conversion happens on a value merely passing through
 (the performance argument); `identifier()` is `"js"` and `type_name()` is the captured
-`constructor.name`, so metadata stays debuggable.
+`constructor.name`, so metadata stays debuggable. Under the hood the value is
+`ExtValue::Foreign(JsOpaque)`, and `row_count` recovers it by downcasting — a value from a different
+language runtime would fail that downcast and produce a `ConversionError` naming its `origin()`.
 
 **Corners it exposes**, each with a test:
 
@@ -335,7 +337,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | VALUE05 | `value05_unknown_object_uses_opaque_value` | W | policy = refuse unless `opaque()` |
 | VALUE06 | `value06_opaque_serialization_fails_or_uses_its_codec` | W | |
 | VALUE07 | `value07_cycles_follow_policy` | W | |
-| VALUE08 | `value08_representative_extvalue_roundtrip` | W | **Not `NA`.** `ExtValue::Js` *is* a representative variant — roundtrip through `CombinedValue::Extended` |
+| VALUE08 | `value08_representative_extvalue_roundtrip` | W | **Not `NA`.** `ExtValue::Foreign` *is* a representative variant — roundtrip through `CombinedValue::Extended`, plus a downcast to `JsOpaque` |
 | VALUE09 | `value09_checked_upcast_and_downcast` | W | |
 | VALUE10 | `value10_language_only_object_retains_documented_identity` | W | asserts identity holds *and* that it is documented as incidental |
 | VALUE11 | `value11_callable_retention_or_rejection_follows_policy` | W | **Not `NA`.** The policy is testable: a bare function → `ConversionError`; `opaque(fn)` → retained |
@@ -399,7 +401,7 @@ The five `NA` marks the first draft carried were all of the kinds the guide now 
 insufficient (§3, "When a prescribed test does not apply"): `STUBS02`/`STUBS06` were excused for
 running in CI rather than a browser (harness, not applicability); `EVAL05` for a deferred milestone;
 `RUNTIME05` was nearly excused as hard to observe; `RUNTIME01` for literal wording that assumed a
-native host; and `VALUE08`/`VALUE11` for having no obvious instance, when `ExtValue::Js` and a bare
+native host; and `VALUE08`/`VALUE11` for having no obvious instance, when `ExtValue::Foreign` and a bare
 JS function are exactly the instances required. That experience is what the guide section records.
 
 #### Sub-suites required by Phase 2
@@ -443,7 +445,7 @@ to this architecture, and are named `web_*` so they are distinguishable from con
 
 | Test | Checks |
 |---|---|
-| `web_build_matrix` (C) | `liquers-lib` compiles in **all six** configurations — see infrastructure item 4. Guards the 14 cfg'd match arms |
+| `web_build_matrix` (C) | `liquers-lib` compiles in **all six** configurations — see infrastructure item 4. No longer the sole guard for the match arms (Option Z made them unconditional, so the compiler enforces them everywhere), but still catches feature-interaction breakage |
 | `web_evaluate_before_init` (W) | module-level `evaluate` before `init()` rejects with a clear error, not a panic or a hang |
 | `web_promise_after_free` (W) | a Promise still pending when its environment is `.free()`d settles rather than hanging |
 | `web_encode_param_roundtrip` (W) | `encodeParam` round-trips a URL, a lone colon, a space and a leading minus — the `PARAMETER-ESCAPING-INCOMPLETE` guard |
@@ -549,9 +551,11 @@ Discovered while planning, each a Phase 4 task:
    alone is the regression guard for genericity, but it is **not** sufficient for correctness, so
    `TestValue` additionally runs a reduced conversion suite (`VALUE01`, `VALUE04`, `VALUE09`) to
    show the generic path behaves, not merely type-checks.
-4. **Build-configuration matrix** — `ExtValue::Js` is gated
-   `#[cfg(all(target_arch = "wasm32", feature = "webui"))]`, and a forgotten cfg on any of the 14
-   match arms breaks a configuration that nothing else exercises. CI must `cargo check`:
+4. **Build-configuration matrix** — with Option Z the `ExtValue::Foreign` variant is **ungated**,
+   so a missing match arm fails to compile in *every* configuration rather than one, and the
+   compiler is the primary guard. The matrix remains worth running for feature-interaction
+   breakage (and for the one site the compiler cannot check — the pre-existing `_ =>` arm in
+   `as_bytes`). Check:
    `--no-default-features`; `--features egui`; `--features polars`; `--features webui`; default; and
    `--target wasm32-unknown-unknown --no-default-features --features webui`. This is the cheapest
    test in the plan and guards the single most mechanical part of the change.
@@ -579,7 +583,7 @@ and `unregister01` would each have passed with their bug present. All three now 
 mechanisms (see "How the three hardest tests actually assert"), and `RUNTIME05` gained a
 deterministic handle-count assertion in place of GC-dependent observation. It also caught that
 nothing tested the **build-configuration matrix**, which is the single most mechanical risk in the
-whole change — 14 cfg'd match arms across six configurations — and that `evaluate()` before
+whole change — 14 match arms across six configurations — and that `evaluate()` before
 `init()` and Promise-after-free were untested.
 
 **A correction propagated back to Phase 2.** Probing how `RUNTIME04` would assert its claim showed

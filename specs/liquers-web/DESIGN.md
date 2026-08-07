@@ -66,9 +66,18 @@ exists either way); size belongs to the packaging milestone.
 on wasm, and the executor closure aliases already drop `Send`/`Sync` there, so a JS command is an
 ordinary async command whose closure owns a `js_sys::Function`.
 
-**Option Y decided:** the opaque JS value is a cfg-gated `ExtValue::Js` variant in `liquers-lib`
-(14 match sites to extend), so `liquers-web` reuses `liquers_lib::value::Value` and the existing
-wasm-viable command library. Precedent: `liquers-py` already carries `Py { value: Py<PyAny> }`.
+**Option Z decided** (superseding Option Y, after the user asked whether feature-gating would
+reduce risk): the opaque value is an **ungated, language-neutral** `ExtValue::Foreign { Arc<dyn
+ForeignValue> }` variant in `liquers-lib`, with `JsOpaque` implementing the trait in `liquers-web`.
+Still 14 match sites, but the arms are **unconditional**, so the compiler enforces them in every
+build instead of one of six configurations catching a miss — this converts the plan's
+highest-likelihood risk into a compile error. Adding Starlark or Python later costs **zero**
+variants and **zero** arms, and `liquers-web` never edits `liquers-lib` again. Languages are
+distinguished by checked downcast plus an `origin()` tag, which is what `POLYGLOT03`/`POLYGLOT04`
+require anyway. Verified by compiling: supertrait transitivity makes `Arc<dyn ForeignValue>`
+`Send + Sync` on native, so no target gate is needed; `Py<PyAny>` already satisfies those bounds
+(proven by `liquers-py`), and `liquers-py`'s bespoke `Py` variant could migrate onto the shared one.
+`liquers-web` reuses `liquers_lib::value::Value` and the existing wasm-viable command library.
 **Extensibility requirement (user):** the bridge, command adapter and Promise bridge stay generic
 over `E`/`V` behind a `JsValueBridge` trait, with the concrete type appearing only in the exported
 `#[wasm_bindgen]` wrappers, so a downstream crate can supply its own value type and environment.

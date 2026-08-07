@@ -13,80 +13,141 @@ command is therefore an ordinary registered async command whose closure owns a `
 The crate contributes three things: a value bridge, a `#[wasm_bindgen]` object/eval/command surface,
 and a Promise bridge. Everything else is reuse.
 
-## Where the JS value variant lives — decided: Option Y (cfg-gated `ExtValue`)
+## Where the foreign value lives — decided: an ungated `ExtValue::Foreign` variant
 
 Phase 1 decision 2 fixed the *semantics* (structural by default, opaque opt-in, direct `JsValue`
-retention); it did not fix *which enum* carries it. **Confirmed by the user: Option Y, the
-cfg-gated `ExtValue` variant**, together with the generic extension path in "Extensibility" below,
-so a user can still supply their own value type and environment. Option X is retained here as the
-rejected alternative and as the reference point for what the extension path must preserve.
+retention); it did not fix *which enum* carries it. Three options were considered. **Decided: Option
+Z**, a single language-neutral variant.
 
-### Option X — own value type in `liquers-web`
+### Option X — own value type in `liquers-web` (rejected)
 
 ```rust
 pub type WebValue = CombinedValue<SimpleValue, JsExt>;   // JsExt defined in liquers-web
 ```
 
-Clean crate separation; `liquers-lib` is untouched. **Cost:** commands are registered against a
-concrete `E::Value`, so `WebValue` can use *none* of `liquers-lib`'s existing command library — not
-`register_core_commands!` (`to_text`, `to_metadata`, …) and not the `lui` namespace. Phase 1 named
-`UIUSE`/`UIDEF` over the existing `webui` DOM backend as the intended next milestone; Option X does
-not preclude it but makes it substantially more expensive.
+Clean crate separation; `liquers-lib` untouched. **Cost:** commands are registered against a
+concrete `E::Value`, so `WebValue` could use *none* of `liquers-lib`'s command library — not
+`register_core_commands!` (`to_text`, `to_metadata`, …) and not the `lui` namespace, which Phase 1
+named as the intended next milestone. Retained here as the reference point for what the Tier-2
+extension path must preserve.
 
-### Option Y — a cfg-gated variant on `ExtValue` (**recommended**)
+### Option Y — a cfg-gated `Js` variant (superseded)
 
 ```rust
-// liquers-lib/src/value/mod.rs
+#[cfg(all(target_arch = "wasm32", feature = "webui"))]
+Js { value: JsOpaque },
+```
+
+Chosen first, then superseded when the implementation risk was costed. Two problems, and the second
+is decisive:
+
+- **Fourteen *conditional* match arms.** A missing arm fails to compile in only one of six build
+  configurations, so nothing but a build matrix catches it — and the matrix has to be *run*.
+- **It does not compose across languages.** Starlark and Python would each need their own variant
+  and their own fourteen arms, and every integration would have to edit `liquers-lib` and churn an
+  enum that every downstream crate matches on.
+
+### Option Z — one ungated, language-neutral variant (**decided**)
+
+```rust
+// liquers-lib/src/value/mod.rs — no target_arch gate, no feature gate.
 pub enum ExtValue {
     Image { value: Arc<image::DynamicImage> },
     #[cfg(feature = "polars")]     PolarsDataFrame { .. },
     #[cfg(feature = "egui")]       UiCommand { .. },
     #[cfg(feature = "egui")]       Widget { .. },
     UIElement { value: Arc<dyn crate::ui::element::UIElement> },
-    /// Opaque JavaScript value. Browser-only.
-    #[cfg(all(target_arch = "wasm32", feature = "webui"))]
-    Js { value: JsOpaque },
+    /// An opaque value belonging to an integrated language runtime.
+    Foreign { value: Arc<dyn ForeignValue> },
+}
+
+/// Implemented once per integrated language: `JsOpaque` in `liquers-web`,
+/// a frozen-value wrapper for Starlark, `Py<PyAny>` for Python.
+pub trait ForeignValue: core::fmt::Debug + MaybeSend + MaybeSync + 'static {
+    /// Which runtime produced this value — "javascript", "starlark", "python".
+    /// Carried so errors name the origin rather than saying "conversion failed".
+    fn origin(&self) -> &'static str;
+    /// Object-safe downcast hook; each integration recovers its own concrete type.
+    fn as_any(&self) -> &dyn core::any::Any;
+
+    fn identifier(&self) -> Cow<'static, str>;
+    fn type_name(&self) -> Cow<'static, str>;
+    fn default_extension(&self) -> Cow<'static, str>;
+    fn default_filename(&self) -> Cow<'static, str>;
+    fn default_media_type(&self) -> Cow<'static, str>;
+    fn try_into_string(&self) -> Result<String, Error>;
+    fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;
+    /// Bytes plus a media type is the only sanctioned cross-language path.
+    fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error>;
 }
 ```
 
 `liquers-web` then uses `liquers_lib::value::Value` (= `CombinedValue<SimpleValue, ExtValue>`)
-unchanged, and inherits the whole wasm-viable command library.
+unchanged and inherits the whole wasm-viable command library — Option Y's benefit, kept.
 
-Four reasons this is the recommendation:
+Why this and not Option Y:
 
-1. **The pattern is already established here.** `ExtValue` carries `#[cfg(feature = "polars")]` and
-   `#[cfg(feature = "egui")]` variants today, so cfg-gated variants plus cfg-gated match arms are an
-   existing, exercised convention rather than a novel hazard.
-2. **`liquers-lib` already depends on `wasm-bindgen`** through the `webui` feature
-   (`liquers-lib/Cargo.toml`), so no new dependency edge is created.
-3. **It composes with decision 1.** The variant only exists on `wasm32`, so on native `ExtValue`
-   remains `Send + Sync` and nothing changes; on wasm the relaxed `MaybeSend`/`MaybeSync` bound is
-   exactly what admits `JsValue`. Decision 1 is load-bearing under either option — with Option Y it
-   is what makes the variant legal at all.
-4. **It keeps `UIUSE` cheap**, which Phase 1 asked Phase 2 not to preclude.
+1. **The conditional-arm risk disappears.** An ungated variant must be handled in *every*
+   configuration, so a missing arm fails to compile immediately and everywhere instead of silently
+   in one of six configs. The plan's highest-likelihood risk becomes a compile error that cannot be
+   missed, and the build matrix stops being the only guard.
+2. **`liquers-lib` is touched once, ever — for all languages.** Adding Starlark or another
+   JavaScript host later costs **zero** variants and **zero** match arms. `liquers-web` never
+   modifies `liquers-lib` again after this change.
+3. **It is the shape `POLYGLOT` needs.** Languages are distinguished at *downcast* time, not at
+   variant time: a JavaScript command receiving a Starlark value gets `None` from
+   `downcast_ref::<JsOpaque>()` and returns a typed error naming both origins. That is `POLYGLOT03`
+   ("opaque transfer is rejected or explicitly encoded") and `POLYGLOT04` ("errors retain origin")
+   falling out of the mechanism instead of needing separate machinery.
+4. **`liquers-py` can migrate onto it**, collapsing its bespoke `Py { value: Py<PyAny> }`
+   (`liquers-py/src/value.rs:45`) into the shared variant — not required by this design, but it
+   turns two parallel mechanisms into one.
+5. **It serves Tier-2 extensibility directly.** A downstream crate implements `ForeignValue` without
+   touching `liquers-lib` at all.
 
-5. **The precedent is not even hypothetical.** `liquers-py` already carries exactly this shape —
-   `Py { value: Py<PyAny> }` in its value enum (`liquers-py/src/value.rs:45`) — so an opaque
-   foreign-language variant beside the Rust ones is an established Liquers pattern, not an
-   innovation this design is introducing.
+#### Why the bound works across languages
 
-**Cost, stated honestly (counted, not estimated):** every exhaustive `match` on `ExtValue` gains one
-cfg'd arm. **14 sites**, verified:
+`MaybeSend`/`MaybeSync` are supertraits of `ForeignValue`, and supertrait transitivity carries
+`Send`/`Sync` to the trait object — **verified by compiling it**: `Arc<dyn ForeignValue>` satisfies
+`Send + Sync` on native. So the variant needs no target gate, and each language stores what it
+legally can:
+
+| Language | Handle | `Send + Sync` on native |
+|---|---|---|
+| Python | `Py<PyAny>` | **Yes** — proven by `liquers-py` compiling today, since its `Value` holds one and implements `ValueInterface` |
+| Starlark | owned/frozen value | Likely; **to be verified when Starlark is designed.** `Value<'v>` is heap-bound and `!'static`, so only a frozen form is storable at all |
+| JavaScript | `JsValue` | **No**, on any target |
+
+On native the bound is `Send + Sync`, so Python and Starlark qualify and JavaScript does not; on
+wasm it is vacuous, so all three do. The combination that would break — JavaScript beside another
+language *on native* — cannot arise, because JavaScript only exists in a wasm host. **Starlark +
+Python on native and Starlark + JavaScript on wasm both work**, with one variant and one trait.
+
+Decision 1 (relaxing `ValueExtension`) is still required: on wasm an `ExtValue` holding a
+`JsValue`-backed `ForeignValue` is not `Send`/`Sync`, so the old hard bound would still reject it.
+
+**Open placement question, deliberately deferred:** `ForeignValue` starts next to `ExtValue` in
+`liquers-lib`. If it becomes cross-cutting `POLYGLOT` infrastructure with a second consumer, moving
+it to `liquers-core` is the natural follow-up — not done now, because a single consumer does not
+justify widening the core.
+
+**Cost (counted, not estimated):** every exhaustive `match` on `ExtValue` gains one arm. **14
+sites** — the same count as Option Y, but the arms are now **unconditional**, so the compiler
+enforces all of them in every build:
 
 | Location | Sites |
 |---|---|
 | `value/mod.rs` — `ExtValueInterface` (`as_image`, `as_polars_dataframe`, `as_ui_element`) | 3 |
-| `value/mod.rs` — `ValueExtension` (`identifier`, `type_name`, `default_extension`, `default_filename`, `default_media_type`) | 5 |
-| `value/mod.rs` — `DefaultValueSerializer::as_bytes` — **already has a `_ =>` arm** (`:190`), so it compiles with or without the new variant; the arm must be *removed* and replaced with explicit arms, and no compiler check will catch a mistake here | 1 |
+| `value/mod.rs` — `ValueExtension` (`identifier`, `type_name`, `default_extension`, `default_filename`, `default_media_type`) — all delegate to the trait | 5 |
+| `value/mod.rs` — `DefaultValueSerializer::as_bytes` — **already has a `_ =>` arm** (`:190`), so it compiles with or without the new variant. **The one site the compiler cannot guard**: the catch-all must be removed and replaced with explicit arms | 1 |
 | `value/mod.rs` — `ExtValueInterface for Value`, matching `Value::Extended(ExtValue::…)` | 3 |
 | `ui/web/html.rs:84` — `ext_to_html` | 1 |
-| `egui/mod.rs:72` — `show` (native only; the new variant is wasm-only, so this arm is unreachable-by-cfg) | 1 |
+| `egui/mod.rs:72` — `show` | 1 |
 
-Mechanical, but it must hold for all four build configurations, and per the project rule no `_ =>`
-arm may be used to dodge it.
+Per the project rule, no `_ =>` arm may be used to dodge any of them.
 
-**Decided: Option Y**, with the extensibility requirement below. The rest of this document is
-written against it.
+The rest of this document is written against Option Z; `JsOpaque` is `liquers-web`'s implementation
+of `ForeignValue` rather than an `ExtValue` payload in its own right.
 
 ## Extensibility: user-defined value types and environments
 
@@ -153,7 +214,11 @@ is `NA` for this milestone.
 
 ## Data Structures
 
-### `JsOpaque` — the retained JavaScript value
+### `JsOpaque` — `liquers-web`'s `ForeignValue` implementation
+
+Lives in **`liquers-web`**, not `liquers-lib`. `liquers-lib` knows only the `ForeignValue` trait; it
+never names `JsValue`, which is what lets Starlark and Python implement the same trait elsewhere
+without any of them meeting.
 
 ```rust
 /// Owned handle to a JavaScript value retained by identity.
@@ -161,7 +226,6 @@ is `NA` for this milestone.
 /// Wraps `JsValue` to give it a meaningful `Debug` and to keep the type-tag and
 /// media-type policy in one place. Clone is a refcount bump on the wasm-bindgen
 /// heap table; drop releases the slot.
-#[cfg(all(target_arch = "wasm32", feature = "webui"))]
 #[derive(Clone)]
 pub struct JsOpaque {
     value: JsValue,
@@ -169,12 +233,22 @@ pub struct JsOpaque {
     /// so metadata and error messages stay debuggable.
     type_tag: Arc<str>,
 }
+
+impl ForeignValue for JsOpaque {
+    fn origin(&self) -> &'static str { "javascript" }
+    fn as_any(&self) -> &dyn core::any::Any { self }
+    // … remaining methods per the table below
+}
 ```
 
 **Ownership rationale.** The `JsValue` is owned outright — no registry, no ambient thread-local, no
-hand-rolled refcounting (Phase 1 decision 2). `type_tag` is `Arc<str>` because `ValueExtension`
-requires `Clone` and the tag is immutable after construction; cloning must stay cheap since values
-are cloned freely through `State`.
+hand-rolled refcounting (Phase 1 decision 2). `type_tag` is `Arc<str>` because the tag is immutable
+after construction and cloning must stay cheap, since values are cloned freely through `State`.
+
+**Recovering it.** A JS command downcasts:
+`value.as_any().downcast_ref::<JsOpaque>()`. `None` means the value came from a *different*
+language runtime, and the command returns a `ConversionError` naming `value.origin()` — the
+cross-language rejection path, for free.
 
 **Serialization.** No `Serialize`/`Deserialize` derive — consistent with `ExtValue`, which derives
 only `Debug + Clone`. Byte serialization goes through `DefaultValueSerializer` and **fails** by
@@ -463,11 +537,14 @@ identifier check is the whole mechanism.
 
 ### `ValueExtension for ExtValue` — extended, not changed
 
-The existing impl (`liquers-lib/src/value/mod.rs:113`) gains one cfg'd arm per method. Behaviour of
-the new variant:
+The existing impl (`liquers-lib/src/value/mod.rs:113`) gains one **unconditional** arm per method,
+each a one-line delegation to the trait — `ExtValue::Foreign { value } => value.identifier()` and so
+on. `liquers-lib` therefore contains no language-specific behaviour at all; the table below is what
+`JsOpaque` returns in `liquers-web`:
 
-| Method | `ExtValue::Js` result |
+| Method | `JsOpaque` result |
 |---|---|
+| `origin()` | `"javascript"` |
 | `identifier()` | `"js"` |
 | `type_name()` | the captured `type_tag` |
 | `default_extension()` | `"json"` |
@@ -475,6 +552,8 @@ the new variant:
 | `default_media_type()` | `"application/json"` |
 | `try_into_string()` | `ConversionError` — JS `String(obj)` coercion is not a faithful text conversion |
 | `try_into_json_value()` | `ConversionError` by default; structural degradation is opt-in (decision 2) |
+
+Delegation is what makes point 2 above true: a new language changes none of these five methods.
 
 ### `DefaultValueSerializer` — deliberate failure
 
@@ -761,9 +840,10 @@ JS → Rust (`to_value`), structural by default:
 | plain object | `Object` (`BTreeMap`) | Recursive; non-string keys → `ConversionError` |
 | `Query`/`Key` wrapper | `Query`/`Key` | Unwrapped, not re-parsed |
 | class instance, `Map`, `Set`, DOM node, function | **`ConversionError` unless opted in** | Decision 2 |
-| `liquers.opaque(x)` | `ExtValue::Js` | The explicit opt-in |
+| `liquers.opaque(x)` | `ExtValue::Foreign(JsOpaque)` | The explicit opt-in |
 
-Rust → JS is the inverse, with `Bytes` → `Uint8Array` and `ExtValue::Js` → the original object.
+Rust → JS is the inverse, with `Bytes` → `Uint8Array` and `ExtValue::Foreign` → the original object
+when it downcasts to `JsOpaque`, and a `ConversionError` naming `origin()` when it does not.
 
 **Cycles** (`VALUE07`): structural conversion is depth-limited and a cycle raises `ConversionError`
 naming the path. It is not silently truncated. Opaque retention has no cycle problem.
@@ -776,7 +856,7 @@ naming the path. It is not silently truncated. Opaque retention has no cycle pro
 | Crate | Change |
 |---|---|
 | `liquers-core` | Two additive inherent methods: `CommandMetadataRegistry::remove_command` and `CommandRegistry::unregister` (see "Unregistration"). No trait changes, so no implementor is affected. |
-| `liquers-lib` | `ValueExtension` bound relaxed to `MaybeSend + MaybeSync + 'static` (decision 1); `ExtValue::Js` variant + cfg'd match arms (Option Y) |
+| `liquers-lib` | `ValueExtension` bound relaxed to `MaybeSend + MaybeSync + 'static` (decision 1); **ungated** `ExtValue::Foreign` variant + `ForeignValue` trait + 14 unconditional match arms (Option Z). **This is the last time `liquers-web` changes `liquers-lib`** |
 | `liquers-store` | Not a dependency in this phase (no `STORE`) |
 | `liquers-web` | New crate |
 | Workspace | New member; **`default-members` excludes it** so the native test loop in `CLAUDE.md` is unaffected |
