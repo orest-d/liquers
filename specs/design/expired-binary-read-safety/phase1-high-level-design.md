@@ -50,6 +50,31 @@ matters most for recovery: `AssetManager::get_any_status` falls back to loading 
 no in-memory asset exists, and that fallback already holds the bytes it deserializes — the binary
 counterpart is the cheaper of the two, not an extra cost.
 
+### Statuses with no valid binary
+
+`Error`, `Cancelled` and `Directory` have no binary representation at all. On the state side they
+return a *metadata-only* `State`; there is no binary equivalent of that, and `Some(empty bytes)`
+would be a lie. The rule is therefore **absence, expressed in whatever the signature allows**:
+
+| Return type | Methods | Result |
+|---|---|---|
+| `Option<_>` | `poll_binary`, `try_poll_binary`, `poll_binary_any_status`, `AssetRef::get_binary_any_status` | `None` |
+| `Result<_, Error>` | `get_binary` | `Err` |
+| `Result<Option<_>, Error>` | `AssetManager::get_binary_any_status` | `Ok(None)` |
+
+This is not an exception to the symmetry rule — it *is* the rule applied honestly. The asymmetry
+lies in the data (a metadata-only value exists; a metadata-only byte string does not), not in the
+interface, and each method still reports it in its own vocabulary. `Expired` is separate and keeps
+the state semantics exactly: hidden from normal reads, returned by the `*_any_status` pair.
+
+Today this territory is accidental rather than defined. `get_binary` on an `Error` asset happens to
+end in `Err` only because it falls through `get()` → `serialize_to_binary` → `State::as_bytes`,
+which checks `value_error()` first (`state.rs:154`). `Cancelled` stores no error, so `value_error()`
+is `None` and the same path serializes a `none` value into *some* byte string. The rule replaces
+both accidents with one stated behaviour — and makes an assumption `liquers-axum` already relies on
+true by construction: its handler treats a successful `get_binary` under `Status::Error` as
+"shouldn't happen" (`handlers.rs:78`).
+
 ## Core Interactions
 
 ### Query System
@@ -92,8 +117,9 @@ trait).
 
 ## Open Questions
 
-*Question 3 of the original draft — the recovery API's shape — is closed by the symmetry rule: the
-full `*_any_status` set is in scope at all three layers.*
+*Two of the original questions are closed. The recovery API's shape follows from the symmetry rule
+(the full `*_any_status` set, at all three layers). The no-valid-binary statuses are settled above:
+`None` where the signature permits it, `Err` where it does not.*
 
 1. Where "analogous" is underdetermined, `get_binary` is the hard case. `get()` errors only when
    expiry is observed *while waiting*; for an already-expired asset it consults `poll_state`, gets
@@ -101,10 +127,9 @@ full `*_any_status` set is in scope at all three layers.*
    defined as a status check *before* waiting, and Phase 2 must say whether the same check is owed
    to `get()` itself — if it is, that is a second (smaller) bug in PR #11's work, not part of this
    one.
-2. Should the gate hide bytes for the other non-value statuses too (`Error`, `Cancelled`,
-   `Directory`), where `poll_state` returns a *metadata-only* state? Strict symmetry says yes, but
-   a metadata-only binary has no natural representation — `None` and `Some(empty bytes)` both
-   misrepresent it. → Phase 2; this is where the symmetry rule needs its one documented exception.
+2. Which error does `get_binary` return for `Error` versus `Cancelled`? For `Error` the natural
+   answer is the asset's own recorded error (what `State::value_error` yields today); `Cancelled`
+   stores no error, so one must be constructed. → Phase 2 picks the constructors.
 3. Does `EXPIRATION-RECOVERY-WEB-API` grow to cover the new manager-level binary recovery read, or
    stay scoped to state? → Affects that issue, not this design's code.
 4. Should the axum handlers surface an expired asset as an error, or re-request from the manager

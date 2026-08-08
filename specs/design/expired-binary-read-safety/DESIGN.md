@@ -34,6 +34,13 @@ counterpart. Recorded as the design's governing principle (Phase 1 §"Read-API s
 widens scope from "add one status check" to "complete and align the binary read family" — five
 methods added, four brought under the state contract — and closes the original open question 3.
 
+**Phase 1 feedback (user), second round:** `Error`/`Cancelled`/`Directory` have no valid binary and
+must report absence in whatever the signature allows — `None` for `Option` returns, `Err` for
+`get_binary`, `Ok(None)` for the manager's `Result<Option<_>>`. Recorded as Phase 1 §"Statuses with
+no valid binary"; closes original open question 2 and replaces today's accidental behaviour (which
+depends on `State::as_bytes` checking `value_error` first, and so differs between `Error` and
+`Cancelled`).
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
