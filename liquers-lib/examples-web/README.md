@@ -1,7 +1,7 @@
 # Liquers web (wasm) examples
 
 Browser examples for the **`webui`** backend of `liquers-lib` — the string-first,
-framework-independent web renderer described in `specs/webui/` and `specs/UI_WEB_DESIGN_NOTES.md`.
+framework-independent web renderer described in `specs/design/webui/` and `specs/archive/2026-03-02-ui-web-design-notes.md`.
 
 Each example compiles `liquers-lib` (and `liquers-core`) to `wasm32-unknown-unknown` and runs the
 **whole Liquers evaluation engine inside the browser**: queries are parsed, commands are executed
@@ -40,7 +40,7 @@ avoiding the subject:
 - **W2** — the submitted query never reaches the element, so the input reverts to the previous
   query after a submit, and volatile/expired refreshes re-run the stale one.
 
-Both are designed in [`specs/ui-events/`](../../specs/ui-events/). `tests/ui_query_console_app.spec.ts`
+Both are designed in [`specs/design/ui-events/`](../../specs/design/ui-events/). `tests/ui_query_console_app.spec.ts`
 contains a `known gaps` block asserting the *current* broken behaviour — when `ui-events` lands
 those tests will start failing, which is the signal to rewrite them as the desired behaviour.
 
@@ -186,8 +186,8 @@ when `AppRunner` installs an element — a hand-built root with `init` queries m
 
 ## References
 
-- `specs/webui/` — design of the web backend (Phases 1–4)
-- `specs/webui-fixes/` — rendering and invalidation (why the DOM follows model changes)
-- `specs/ui-events/` — the interaction half, including the query console's known gaps
-- `specs/async-wasm-refactor/` — what made the engine run on wasm (`ImmediateAssetManager`)
+- `specs/design/webui/` — design of the web backend (Phases 1–4)
+- `specs/design/webui-fixes/` — rendering and invalidation (why the DOM follows model changes)
+- `specs/design/ui-events/` — the interaction half, including the query console's known gaps
+- `specs/design/async-wasm-refactor/` — what made the engine run on wasm (`ImmediateAssetManager`)
 - `liquers-lib/tests/webui_ssr.rs` — native SSR tests for the same renderer

@@ -9,6 +9,8 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = ["egui", "image-support", "polars"]
+# Command-line tools. Not in `default` — see the same note in liquers-core.
+cli = ["dep:clap"]
 image-support = ["imageproc"]
 # egui reference backend (optional so a webui-only build compiles no egui)
 egui = ["dep:egui", "dep:eframe", "dep:egui_plot", "dep:egui_extras", "dep:egui_commonmark"]
@@ -21,6 +23,7 @@ polars = ["dep:polars"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
+clap = { version = "4", features = ["derive"], optional = true }
 liquers-macro={path="../liquers-macro"}
 serde = "1.0.181"
 serde_derive = "1.0.181"
@@ -65,6 +68,13 @@ tokio = { version = "1.47.1", features = ["sync", "rt", "macros", "time"] }
 [dev-dependencies]
 liquers-store = { path = "../liquers-store" }
 opendal = { version = "0.55", features = ["services-fs"] }
+
+# Exports the registered command metadata as JSON/YAML for `liquers-validate`.
+# See specs/design/query-validation/. Explicit [[bin]] for `required-features`.
+[[bin]]
+name = "export-command-registry"
+path = "src/bin/export_command_registry.rs"
+required-features = ["cli"]
 
 # egui-based examples: only build when the `egui` feature is enabled, so a
 # webui-only / no-default-features build skips them instead of failing.

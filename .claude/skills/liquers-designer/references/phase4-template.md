@@ -626,7 +626,7 @@ git diff liquers-lib/src/commands.rs
 **Agent Specification:**
 - **Model:** haiku
 - **Skills:** rust-best-practices
-- **Knowledge:** `liquers-lib/src/commands.rs`, `specs/REGISTER_COMMAND_FSD.md`
+- **Knowledge:** `liquers-lib/src/commands.rs`, `specs/reference/REGISTER_COMMAND_FSD.md`
 - **Rationale:** Registration follows established register_command! pattern
 
 ---

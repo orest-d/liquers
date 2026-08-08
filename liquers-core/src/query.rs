@@ -533,10 +533,30 @@ pub fn encode_token<S: AsRef<str>>(text: S) -> String {
 pub enum ActionParameter {
     /// A decoded string parameter value and its source position.
     String(String, Position),
-    /// A programmatically constructed nested query and its source position.
+    /// A nested query and its source position.
     ///
-    /// Encoding is implemented, but a known parser bug currently prevents parsing
-    /// the encoded form; see the module-level link-parser note.
+    /// Encodes as `~X~<query>~E` and parses back from that form. The linked query is
+    /// evaluated and its result supplied as the argument value.
+    ///
+    /// The resource/transform shorthand is **not** accepted inside a link — write the
+    /// explicit `-R/` form. See [`crate::parse`] for the full syntax and the reason.
+    ///
+    /// ```
+    /// use liquers_core::parse::parse_query;
+    /// use liquers_core::query::ActionParameter;
+    ///
+    /// let parsed = &parse_query("greet-~X~greeting~E")?
+    ///     .action()
+    ///     .expect("action")
+    ///     .parameters[0];
+    /// assert!(parsed.is_link());
+    ///
+    /// // A parsed link equals the equivalent programmatically built one.
+    /// let built = ActionParameter::new_link(parse_query("greeting")?);
+    /// assert_eq!(*parsed, built);
+    /// assert_eq!(built.encode(), "~X~greeting~E");
+    /// # Ok::<(), liquers_core::error::Error>(())
+    /// ```
     Link(Query, Position),
 }
 
@@ -2368,7 +2388,7 @@ impl Query {
         let mut buff: Option<Query>;
         while qp.is_some() {
             /*
-            println!(
+            eprintln!(
                 "qp/qr: {}  {}",
                 qp.unwrap().encode(),
                 qr.as_ref().map_or("None".to_owned(), |x| x.encode())
@@ -2922,13 +2942,13 @@ mod tests {
         );
         let q = parse_query("-Rname-key/xxx/yyy/-/hello-abc-123/xxx-yyy/world.txt")?;
         let position = q[1].position();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         let position = q[1].transform_query_segment().unwrap().query[0]
             .position
             .clone();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         let position = q[1].transform_query_segment().unwrap().query[0].parameters[1].position();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         let position = q[1]
             .transform_query_segment()
             .unwrap()
@@ -2937,7 +2957,7 @@ mod tests {
             .unwrap()
             .position
             .clone();
-        println!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
+        eprintln!("Colored: {}", q.render(&DarkAnsiQueryRenderStyle(position)));
         Ok(())
     }
 }

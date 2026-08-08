@@ -13,7 +13,7 @@ Checks:
 
 Example:
     python3 validate_phase.py parquet-support 1
-    # Validates specs/parquet-support/phase1-high-level-design.md
+    # Validates specs/design/parquet-support/phase1-high-level-design.md
 """
 
 import sys
@@ -81,7 +81,7 @@ def validate_phase(feature_name, phase_num):
         return False
 
     # Construct phase file path
-    feature_dir = specs_dir / feature_name
+    feature_dir = specs_dir / "design" / feature_name
     if not feature_dir.is_dir():
         print(f"❌ Error: Feature directory not found: {feature_dir}")
         print(f"   Did you run init_feature.py first?")
@@ -189,7 +189,7 @@ def main():
         print("\nExample:")
         print("  python3 validate_phase.py parquet-support 1")
         print("\nValidates:")
-        print("  specs/<feature-name>/phase<phase-number>-*.md")
+        print("  specs/design/<feature-name>/phase<phase-number>-*.md")
         sys.exit(1)
 
     feature_name = sys.argv[1]

@@ -57,7 +57,9 @@ pub enum UpdateResponse {
 /// (windows, panels, display wrappers, asset status indicators, etc.).
 /// Stored in AppState as `Box<dyn UIElement>`.
 #[typetag::serde]
-pub trait UIElement: Send + Sync + std::fmt::Debug {
+pub trait UIElement:
+    liquers_core::maybe_send::MaybeSend + liquers_core::maybe_send::MaybeSync + std::fmt::Debug
+{
     /// Returns the type name identifying this element kind.
     fn type_name(&self) -> &'static str;
 
@@ -125,7 +127,7 @@ pub trait UIElement: Send + Sync + std::fmt::Debug {
         _ctx: &UIContext,
         _app_state: &mut dyn super::app_state::AppState,
     ) -> egui::Response {
-        println!("Showing element: {} - UNDEFINED show_in_egui", self.title());
+        eprintln!("Showing element: {} - UNDEFINED show_in_egui", self.title());
         ui.label(self.title())
     }
 

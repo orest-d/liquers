@@ -1,4 +1,4 @@
-//! Integration tests for the menu/pane-layout feature (`specs/menu-pane-layout/`).
+//! Integration tests for the menu/pane-layout feature (`specs/design/menu-pane-layout/`).
 //!
 //! `ui_spec_integration.rs` covers YAML parsing and element construction in isolation; this file
 //! covers the *runtime* half that the Phase 3 test plan specified but never got written:

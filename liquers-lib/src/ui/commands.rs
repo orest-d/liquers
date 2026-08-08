@@ -397,6 +397,7 @@ macro_rules! register_lui_commands {
             label: "Add element"
             doc: "Add a new element to the UI tree"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -405,6 +406,7 @@ macro_rules! register_lui_commands {
             label: "Remove element"
             doc: "Remove an element from the UI tree"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -413,6 +415,7 @@ macro_rules! register_lui_commands {
             label: "Children"
             doc: "Get children handles of target element"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -421,6 +424,7 @@ macro_rules! register_lui_commands {
             label: "First child"
             doc: "Navigate to first child of target"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -429,6 +433,7 @@ macro_rules! register_lui_commands {
             label: "Last child"
             doc: "Navigate to last child of target"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -437,6 +442,7 @@ macro_rules! register_lui_commands {
             label: "Parent"
             doc: "Navigate to parent of target"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -445,6 +451,7 @@ macro_rules! register_lui_commands {
             label: "Next sibling"
             doc: "Navigate to next sibling of target"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -453,6 +460,7 @@ macro_rules! register_lui_commands {
             label: "Previous sibling"
             doc: "Navigate to previous sibling of target"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -461,6 +469,7 @@ macro_rules! register_lui_commands {
             label: "Roots"
             doc: "Get all root element handles"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -469,6 +478,7 @@ macro_rules! register_lui_commands {
             label: "Activate"
             doc: "Set the active element"
 
+            payload: required
         version: auto
         )?;
         register_command!($cr,
@@ -501,6 +511,7 @@ macro_rules! register_lui_commands {
             label: "Submit"
             doc: "Interpret the input state as a query string and submit it for the current element"
 
+            payload: required
         version: auto
         )?;
         Ok::<(), liquers_core::error::Error>(())

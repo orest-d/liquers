@@ -11,7 +11,7 @@ const watchErrors = (page: any, errors: string[]) => {
 const elements = (page: any) => page.locator('[id^="ui-element-"]');
 
 // The query console in the browser. NOTE: two of its interactions are known-broken and are the
-// subject of specs/ui-events/ — W1 (Enter in the input does nothing) and W2 (the submitted query
+// subject of specs/design/ui-events/ — W1 (Enter in the input does nothing) and W2 (the submitted query
 // never reaches the element, so the input reverts). This spec drives what works today, and the
 // last test documents the gap by asserting the *current* behaviour rather than the desired one.
 test('the menu opens a query console showing its result', async ({ page }) => {
@@ -54,10 +54,10 @@ test('clicking Go re-submits the query in the input', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-// Regression guard for the *known defects* W1 and W2 (specs/ui-events/). These assert today's
+// Regression guard for the *known defects* W1 and W2 (specs/design/ui-events/). These assert today's
 // broken behaviour deliberately: when ui-events lands, they should start failing, which is the
 // signal to rewrite them as the desired behaviour rather than to loosen them.
-test.describe('known gaps — see specs/ui-events/', () => {
+test.describe('known gaps — see specs/design/ui-events/', () => {
   test('W2: the input reverts to the previous query after submitting', async ({ page }) => {
     await page.goto('/');
     await page.locator('.lq-menubar').getByText('New Console').click();

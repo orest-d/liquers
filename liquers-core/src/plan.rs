@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::command_metadata::{
     self, ArgumentInfo, ArgumentType, CommandKey, CommandMetadata, CommandMetadataRegistry,
-    CommandParameterValue, EnumArgumentType,
+    CommandParameterValue, EnumArgumentType, PayloadRequirement,
 };
 use crate::context::{EnvRef, Environment};
 use crate::dependencies::{DependencyRelation, PlanDependency};
@@ -887,6 +887,11 @@ pub struct PlanBuilder<'c> {
     /// Track volatility during plan building
     is_volatile: bool,
 
+    /// Track payload requirement during plan building.
+    /// Mirrors `is_volatile`; a `Required` outcome also forces volatility, since the
+    /// commands that set it are registered with `volatile` already set.
+    payload_required: PayloadRequirement,
+
     /// Track expiration during plan building (minimum of all command expirations)
     expires: Expires,
 }
@@ -903,6 +908,7 @@ impl<'c> PlanBuilder<'c> {
             allow_placeholders: false,
             expand_predecessors: true, // TODO: expand_predecessors should be false by default
             is_volatile: false,
+            payload_required: PayloadRequirement::None,
             expires: Expires::Never,
         }
     }
@@ -936,6 +942,27 @@ impl<'c> PlanBuilder<'c> {
         }
     }
 
+    /// Mark plan as requiring an evaluation payload and add an explanatory Step::Info.
+    ///
+    /// Mirrors [`Self::mark_volatile`], including its transition guard: the message is
+    /// recorded once, on the first command that causes the requirement, and not at all for
+    /// a plan that needs no payload.
+    fn mark_payload_required(&mut self, reason: &str) {
+        if !self.payload_required.is_required() {
+            self.payload_required = PayloadRequirement::Required;
+            self.plan.init_info(reason.to_string());
+        }
+    }
+
+    /// Helper: read the payload requirement of an action command via CommandMetadata
+    fn action_payload_requirement(&self, command_key: &CommandKey) -> PayloadRequirement {
+        if let Some(metadata) = self.command_registry.get(command_key.clone()) {
+            metadata.payload_required
+        } else {
+            PayloadRequirement::None
+        }
+    }
+
     /// Update plan expiration by combining command expiration constraints.
     fn update_expiration(&mut self, command_expires: &Expires) {
         let previous = self.expires.clone();
@@ -960,7 +987,7 @@ impl<'c> PlanBuilder<'c> {
         }
     }
 
-    /// Helper: check if parameters contain links to volatile queries
+    /// Helper: check if parameters contain links to volatile or payload-requiring queries
     fn check_parameters_for_volatile_links(
         &mut self,
         params: &ResolvedParameterValues,
@@ -971,7 +998,9 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
-    /// Helper: recursively check a single parameter for volatile links
+    /// Helper: recursively check a single parameter for volatile or payload-requiring links.
+    ///
+    /// Both properties are read from the same sub-plan, so a link is only built once.
     fn check_parameter_for_volatile_links(&mut self, param: &ParameterValue) -> Result<(), Error> {
         match param {
             ParameterValue::DefaultLink(_, query)
@@ -987,6 +1016,12 @@ impl<'c> PlanBuilder<'c> {
                         query
                     ));
                 }
+                if link_plan.payload_required.is_required() {
+                    self.mark_payload_required(&format!(
+                        "Payload required due to link parameter to payload-requiring query: {}",
+                        query
+                    ));
+                }
             }
             ParameterValue::MultipleParameters(params) => {
                 // Recursively check nested parameters
@@ -995,7 +1030,7 @@ impl<'c> PlanBuilder<'c> {
                 }
             }
             _ => {
-                // Other parameter types don't affect volatility
+                // Other parameter types don't affect volatility or payload requirement
             }
         }
         Ok(())
@@ -1008,6 +1043,9 @@ impl<'c> PlanBuilder<'c> {
 
         // Set is_volatile field from builder state
         self.plan.is_volatile = self.is_volatile;
+
+        // Set payload_required field from builder state
+        self.plan.payload_required = self.payload_required;
 
         // Set expires field from builder state (first-pass estimate)
         self.plan.expires = self.expires.clone();
@@ -1139,6 +1177,14 @@ impl<'c> PlanBuilder<'c> {
             ));
         }
 
+        // Check if command requires an evaluation payload
+        if self.action_payload_requirement(&command_key).is_required() {
+            self.mark_payload_required(&format!(
+                "Payload required due to command '{}/{}/{}'",
+                command_metadata.realm, command_metadata.namespace, command_metadata.name
+            ));
+        }
+
         // Check if command has expiration specification
         let action_expires = self.get_action_expiration(&command_key);
         if !action_expires.is_never() {
@@ -1223,7 +1269,7 @@ impl<'c> PlanBuilder<'c> {
     }
 
     fn process_query(&mut self, query: &Query) -> Result<(), Error> {
-        //println!("process query {}", query);
+        //eprintln!("process query {}", query);
         if query.is_empty() || query.is_ns() {
             return Ok(());
         }
@@ -1269,12 +1315,12 @@ impl<'c> PlanBuilder<'c> {
         }
 
         if let Some(rq) = query.resource_query() {
-            //println!("RESOURCE {}", rq);
+            //eprintln!("RESOURCE {}", rq);
             self.process_resource_query(&rq)?;
             return Ok(());
         }
         if let Some(transform) = query.transform_query() {
-            //println!("TRANSFORM {}", &transform);
+            //eprintln!("TRANSFORM {}", &transform);
             if let Some(action) = transform.action() {
                 let mut query = query.clone();
                 query.segments = Vec::new();
@@ -1282,7 +1328,7 @@ impl<'c> PlanBuilder<'c> {
                 return Ok(());
             }
             if transform.is_filename() {
-                //println!("FILENAME {}", &transform);
+                //eprintln!("FILENAME {}", &transform);
                 self.plan
                     .steps
                     .push(Step::Filename(transform.filename.unwrap().clone()));
@@ -1291,8 +1337,8 @@ impl<'c> PlanBuilder<'c> {
         }
 
         let (p, q) = query.predecessor();
-        //println!("PREDECESOR: {:?}", &p);
-        //println!("REMAINDER:  {:?}", &q);
+        //eprintln!("PREDECESOR: {:?}", &p);
+        //eprintln!("REMAINDER:  {:?}", &q);
 
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
@@ -1365,6 +1411,14 @@ pub struct Plan {
     /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
     pub is_volatile: bool,
 
+    /// Whether this plan needs an evaluation payload to run.
+    /// Computed during plan building, mirroring [`Self::is_volatile`].
+    ///
+    /// NOTE: unlike `is_volatile` this field DOES have `#[serde(default)]` — plans
+    /// serialized before the field existed must still deserialize.
+    #[serde(default)]
+    pub payload_required: PayloadRequirement,
+
     /// Expiration specification inferred from command metadata during plan building.
     /// This is a first-pass estimate; authoritative expiration is computed at finalization.
     #[serde(default)]
@@ -1392,6 +1446,7 @@ impl Plan {
             init_steps: Vec::new(),
             steps: Vec::new(),
             is_volatile: false,
+            payload_required: PayloadRequirement::None,
             expires: Expires::Never,
             error: None,
             dependencies: Vec::new(),
@@ -1454,6 +1509,7 @@ impl Plan {
         mr.status = Status::Submitted;
         mr.query = self.query.clone();
         mr.is_volatile = self.is_volatile;
+        mr.payload_required = self.payload_required;
         mr.expires = self.expires.clone();
         if let Some(error) = &self.error {
             mr.with_error(error.clone());
@@ -1494,6 +1550,7 @@ impl Plan {
     pub fn update_metadata_record(&self, mr: &mut MetadataRecord) {
         mr.query = self.query.clone();
         mr.is_volatile = self.is_volatile;
+        mr.payload_required = self.payload_required;
         mr.expires = self.expires.clone();
         if let Some(error) = &self.error {
             mr.with_error(error.clone());
@@ -1597,6 +1654,7 @@ impl Plan {
         first_plan.init_steps = self.init_steps.clone();
         first_plan.steps = self.steps[..split_index].to_vec();
         first_plan.is_volatile = self.is_volatile;
+        first_plan.payload_required = self.payload_required;
         first_plan.expires = self.expires.clone();
         first_plan.error = self.error.clone();
         first_plan.dependencies = self.dependencies.clone();
@@ -1605,6 +1663,7 @@ impl Plan {
         second_plan.init_steps = self.init_steps.clone();
         second_plan.steps = self.steps[split_index..].to_vec();
         second_plan.is_volatile = self.is_volatile;
+        second_plan.payload_required = self.payload_required;
         second_plan.expires = self.expires.clone();
         second_plan.error = self.error.clone();
         second_plan.dependencies = self.dependencies.clone();
@@ -2088,18 +2147,18 @@ mod tests {
         let plan = PlanBuilder::new(parse_query("a-1").unwrap(), &cr)
             .build()
             .unwrap();
-        println!("plan: {:?}", plan);
+        eprintln!("plan: {:?}", plan);
         print!("");
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.yaml:\n{}",
             serde_yaml::to_string(&cr).unwrap()
         );
         print!("");
-        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        eprintln!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.json:\n{}",
             serde_json::to_string(&cr).unwrap()
         );
@@ -2115,19 +2174,19 @@ mod tests {
             .unwrap();
         assert!(plan.override_value("b", Value::String("test".to_string())));
         assert!(!plan.override_value("c", Value::String("test".to_string())));
-        println!("plan: {:?}", plan);
+        eprintln!("plan: {:?}", plan);
         print!("");
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
-        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.yaml:\n{}",
             serde_yaml::to_string(&cr).unwrap()
         );
         print!("");
-        println!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
+        eprintln!("plan.json:\n{}", serde_json::to_string(&plan).unwrap());
         print!("");
-        println!(
+        eprintln!(
             "command_registry.json:\n{}",
             serde_json::to_string(&cr).unwrap()
         );
@@ -2152,7 +2211,7 @@ mod tests {
             .with_placeholders_allowed()
             .build()
             .unwrap();
-        println!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
+        eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         assert!(plan.len() == 1);
         if let Step::Action {
             action_name,
@@ -2360,6 +2419,7 @@ mod tests {
         // Plan with no actions: should return 0
         let plan = Plan {
             query: Default::default(),
+            payload_required: PayloadRequirement::None,
             init_steps: vec![],
             steps: vec![
                 Step::Info("info".to_string()),
@@ -2379,6 +2439,7 @@ mod tests {
         // Plan with one action at the start
         let plan = Plan {
             query: Default::default(),
+            payload_required: PayloadRequirement::None,
             init_steps: vec![],
             steps: vec![
                 Step::Action {
@@ -2403,6 +2464,7 @@ mod tests {
         // Plan with context modifiers before and after an action
         let plan = Plan {
             query: Default::default(),
+            payload_required: PayloadRequirement::None,
             init_steps: vec![],
             steps: vec![
                 Step::Info("info".to_string()),
@@ -2430,6 +2492,7 @@ mod tests {
         // Plan with a non-context-modifier before the action
         let plan = Plan {
             query: Default::default(),
+            payload_required: PayloadRequirement::None,
             init_steps: vec![],
             steps: vec![
                 Step::GetAsset(Key::new()),
@@ -2457,9 +2520,10 @@ mod tests {
         assert!(p2[2].is_context_modifier());
 
         // Plan with two actions
-        println!("### Testing plan with two actions");
+        eprintln!("### Testing plan with two actions");
         let plan = Plan {
             query: Default::default(),
+            payload_required: PayloadRequirement::None,
             init_steps: vec![],
             steps: vec![
                 Step::GetAsset(Key::new()),
@@ -2494,6 +2558,7 @@ mod tests {
 
         let plan = Plan {
             query: Default::default(),
+            payload_required: PayloadRequirement::None,
             init_steps: vec![],
             steps: vec![Step::Evaluate(Default::default())],
             is_volatile: false,
@@ -2912,4 +2977,309 @@ mod tests {
         let plan2: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(plan2.expires, plan.expires);
     }
+
+    // ---- Payload requirement: PlanBuilder local detection (U3) ----
+
+    #[test]
+    fn test_action_payload_requirement() {
+        let mut cr = CommandMetadataRegistry::new();
+
+        let mut payload_cmd = CommandMetadata::new("payload_cmd");
+        payload_cmd.payload_required = PayloadRequirement::Required;
+        cr.add_command(&payload_cmd);
+
+        let normal_cmd = CommandMetadata::new("normal_cmd");
+        cr.add_command(&normal_cmd);
+
+        let query = parse_query("").unwrap();
+        let builder = PlanBuilder::new(query, &cr);
+
+        assert_eq!(
+            builder.action_payload_requirement(&CommandKey::new("", "root", "payload_cmd")),
+            PayloadRequirement::Required
+        );
+        assert_eq!(
+            builder.action_payload_requirement(&CommandKey::new("", "root", "normal_cmd")),
+            PayloadRequirement::None
+        );
+        // Unknown command must not claim a payload requirement.
+        assert_eq!(
+            builder.action_payload_requirement(&CommandKey::new("", "root", "unknown_cmd")),
+            PayloadRequirement::None
+        );
+    }
+
+    #[test]
+    fn test_plan_payload_required_from_command() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cr = CommandMetadataRegistry::new();
+        let mut payload_cmd = CommandMetadata::new("payload_cmd");
+        payload_cmd.payload_required = PayloadRequirement::Required;
+        // register_command! sets volatile alongside payload_required; mirror that here.
+        payload_cmd.volatile = true;
+        cr.add_command(&payload_cmd);
+
+        let plan = PlanBuilder::new(parse_query("payload_cmd")?, &cr).build()?;
+        assert_eq!(plan.payload_required, PayloadRequirement::Required);
+        // A payload requirement always travels with volatility.
+        assert!(plan.is_volatile);
+        Ok(())
+    }
+
+    #[test]
+    fn test_plan_payload_none_by_default() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(&CommandMetadata::new("normal_cmd"));
+
+        let plan = PlanBuilder::new(parse_query("normal_cmd")?, &cr).build()?;
+        assert_eq!(plan.payload_required, PayloadRequirement::None);
+        Ok(())
+    }
+
+    // ---- init_steps reasoning (U7) ----
+
+    #[test]
+    fn test_mark_payload_required_is_recorded_once() {
+        let cr = CommandMetadataRegistry::new();
+        let query = parse_query("").unwrap();
+        let mut builder = PlanBuilder::new(query, &cr);
+
+        assert_eq!(builder.payload_required, PayloadRequirement::None);
+        assert_eq!(builder.plan.init_steps.len(), 0);
+
+        builder.mark_payload_required("Test reason");
+        assert_eq!(builder.payload_required, PayloadRequirement::Required);
+        assert_eq!(builder.plan.init_steps.len(), 1);
+        match &builder.plan.init_steps[0] {
+            Step::Info(msg) => assert_eq!(msg, "Test reason"),
+            _ => panic!("Expected Step::Info"),
+        }
+
+        // Transition guard: a second cause must not add a second message.
+        builder.mark_payload_required("Another reason");
+        assert_eq!(builder.plan.init_steps.len(), 1);
+    }
+
+    #[test]
+    fn test_no_info_when_no_payload_command() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(&CommandMetadata::new("normal_cmd"));
+
+        let plan = PlanBuilder::new(parse_query("normal_cmd")?, &cr).build()?;
+        assert!(
+            !plan
+                .init_steps
+                .iter()
+                .any(|s| matches!(s, Step::Info(m) if m.contains("Payload required"))),
+            "no payload message expected, got: {:?}",
+            plan.init_steps
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_info_names_the_triggering_command() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cr = CommandMetadataRegistry::new();
+        let mut payload_cmd = CommandMetadata::new("payload_cmd");
+        payload_cmd.payload_required = PayloadRequirement::Required;
+        cr.add_command(&payload_cmd);
+
+        let plan = PlanBuilder::new(parse_query("payload_cmd")?, &cr).build()?;
+        assert!(
+            plan.init_steps
+                .iter()
+                .any(|s| matches!(s, Step::Info(m)
+                    if m.contains("Payload required") && m.contains("payload_cmd"))),
+            "expected a message naming the command, got: {:?}",
+            plan.init_steps
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_info_added_once_for_two_payload_commands() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cr = CommandMetadataRegistry::new();
+        for name in ["payload_a", "payload_b"] {
+            let mut cmd = CommandMetadata::new(name);
+            cmd.payload_required = PayloadRequirement::Required;
+            cmd.state_argument = Some(ArgumentInfo::any_argument("state"));
+            cr.add_command(&cmd);
+        }
+
+        let plan = PlanBuilder::new(parse_query("payload_a/payload_b")?, &cr).build()?;
+        let count = plan
+            .init_steps
+            .iter()
+            .filter(|s| matches!(s, Step::Info(m) if m.contains("Payload required")))
+            .count();
+        assert_eq!(count, 1, "expected exactly one message, got: {:?}", plan.init_steps);
+        Ok(())
+    }
+
+    // ---- Plan splitting (U4) ----
+
+    #[test]
+    fn test_plan_split_preserves_payload_required() -> Result<(), Box<dyn std::error::Error>> {
+        // Regression guard: splitting copies is_volatile to both halves, and must copy
+        // payload_required too. Missing this is silent until a split plan is evaluated.
+        let mut cr = CommandMetadataRegistry::new();
+        let mut payload_cmd = CommandMetadata::new("payload_cmd");
+        payload_cmd.payload_required = PayloadRequirement::Required;
+        payload_cmd.volatile = true;
+        cr.add_command(&payload_cmd);
+        cr.add_command(&CommandMetadata::new("second_cmd"));
+
+        let plan = PlanBuilder::new(parse_query("payload_cmd/second_cmd")?, &cr).build()?;
+        assert_eq!(plan.payload_required, PayloadRequirement::Required);
+        assert!(
+            plan.split_index() > 0,
+            "test needs a plan that actually splits, got steps: {:?}",
+            plan.steps
+        );
+
+        let (first, second) = plan.split();
+        assert_eq!(first.payload_required, PayloadRequirement::Required);
+        assert_eq!(second.payload_required, PayloadRequirement::Required);
+        // The volatile counterpart must keep working alongside it.
+        assert!(first.is_volatile);
+        assert!(second.is_volatile);
+        Ok(())
+    }
+
+    // ---- Serialization (U2, Plan half) ----
+
+    #[test]
+    fn test_plan_without_payload_field_deserializes() -> Result<(), Box<dyn std::error::Error>> {
+        // Plans serialized before the field existed must still load. This is the reason
+        // Plan::payload_required has serde(default) while is_volatile deliberately does not.
+        let plan = Plan::new();
+        let mut value = serde_json::to_value(&plan)?;
+        if let serde_json::Value::Object(ref mut o) = value {
+            o.remove("payload_required");
+        }
+        let back: Plan = serde_json::from_value(value)?;
+        assert_eq!(back.payload_required, PayloadRequirement::None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_plan_payload_required_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let mut plan = Plan::new();
+        plan.payload_required = PayloadRequirement::Required;
+        let back: Plan = serde_json::from_str(&serde_json::to_string(&plan)?)?;
+        assert_eq!(back.payload_required, PayloadRequirement::Required);
+        Ok(())
+    }
+
+    // ---- Action-parameter links reached from query TEXT (query-link-parser) ----
+    //
+    // ActionParameter::Link and this whole planner path already worked for
+    // programmatically built links; what was impossible was reaching any of it from
+    // query text. These pin the newly-reachable path.
+
+    fn link_registry() -> command_metadata::CommandMetadataRegistry {
+        let mut cr = command_metadata::CommandMetadataRegistry::new();
+        cr.add_command(CommandMetadata::new("greet").with_argument(ArgumentInfo::any_argument("who")));
+        cr.add_command(&CommandMetadata::new("world"));
+        cr
+    }
+
+    fn action_parameters(plan: &Plan) -> ResolvedParameterValues {
+        for step in &plan.steps {
+            if let Step::Action { parameters, .. } = step {
+                return parameters.clone();
+            }
+        }
+        panic!("plan has no action step: {plan:?}");
+    }
+
+    #[test]
+    fn d1_plan_textual_link_is_parameter_link() -> Result<(), Error> {
+        let cr = link_registry();
+        let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+        match &action_parameters(&plan).0[0] {
+            ParameterValue::ParameterLink(name, query, _) => {
+                assert_eq!(name, "who");
+                assert_eq!(query.encode(), "world");
+            }
+            other => panic!("expected a ParameterLink, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn d2_plan_textual_and_programmatic_links_agree() -> Result<(), Error> {
+        let cr = link_registry();
+
+        // From query text.
+        let from_text = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+
+        // The same query built programmatically, the only route available before this fix.
+        let mut built = parse_query("greet-placeholder")?;
+        match &mut built.segments[0] {
+            QuerySegment::Transform(tqs) => {
+                tqs.query[0].parameters[0] = ActionParameter::new_link(parse_query("world")?);
+            }
+            QuerySegment::Resource(_) => panic!("expected a transform segment"),
+        }
+        let from_built = PlanBuilder::new(built, &cr).build()?;
+
+        let (a, b) = (action_parameters(&from_text), action_parameters(&from_built));
+        match (&a.0[0], &b.0[0]) {
+            (
+                ParameterValue::ParameterLink(n1, q1, _),
+                ParameterValue::ParameterLink(n2, q2, _),
+            ) => {
+                assert_eq!(n1, n2);
+                assert_eq!(q1.encode(), q2.encode());
+            }
+            (x, y) => panic!("expected two ParameterLinks, got {x:?} and {y:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn d3_plan_link_position_propagates() -> Result<(), Error> {
+        // The plan must carry the link's real position, not Position::unknown(), so
+        // downstream diagnostics can point back into the query text.
+        let cr = link_registry();
+        let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+        match &action_parameters(&plan).0[0] {
+            ParameterValue::ParameterLink(_, _, position) => {
+                assert!(!position.is_unknown(), "position must survive plan building");
+                assert_eq!(position.offset, "greet-".len());
+            }
+            other => panic!("expected a ParameterLink, got {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn d4_link_becomes_parameter_link_dependency() -> Result<(), Error> {
+        // find_dependencies is pub(crate), so this lives here rather than in
+        // tests/action_parameter_link.rs alongside the other end-to-end checks.
+        use crate::context::{Environment, SimpleEnvironment};
+        use crate::dependencies::DependencyRelation;
+
+        // `Value` in this module is serde_json::Value; the environment needs ours.
+        let env = SimpleEnvironment::<crate::value::Value>::new();
+        let envref = env.to_ref();
+
+        let cr = link_registry();
+        let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
+
+        let mut stack = Vec::new();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, None).await?;
+
+        let links: Vec<_> = dependencies
+            .iter()
+            .filter(|d| matches!(d.relation, DependencyRelation::ParameterLink(_)))
+            .collect();
+        assert_eq!(
+            links.len(),
+            1,
+            "the embedded query must appear as a ParameterLink dependency: {dependencies:?}"
+        );
+        Ok(())
+    }
 }
+

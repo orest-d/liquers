@@ -94,6 +94,15 @@ fn ext_to_html(ext: &ExtValue, app_state: &dyn AppState) -> String {
         ExtValue::Widget { .. } => {
             "<div class=\"lq-egui-only\">egui widget (no web rendering)</div>".to_string()
         }
+        // A value owned by an integrated language runtime. There is no backend-neutral
+        // rendering for it — a language integration that wants one renders it before the
+        // value reaches the element tree.
+        ExtValue::Foreign { value } => format!(
+            "<div class=\"lq-foreign\" data-origin=\"{}\">{} value: {}</div>",
+            escape_html(value.origin()),
+            escape_html(value.origin()),
+            escape_html(value.type_name().as_ref()),
+        ),
     }
 }
 

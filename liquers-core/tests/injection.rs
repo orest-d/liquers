@@ -639,27 +639,25 @@ async fn test_chained_commands_with_payload() -> Result<(), Box<dyn std::error::
 }
 
 #[tokio::test]
-async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn std::error::Error>>
+async fn test_payload_inherited_in_nested_evaluation() -> Result<(), Box<dyn std::error::Error>>
 {
-    // NOTE: Currently payload is NOT inherited in nested evaluations via context.evaluate()
-    // This is a known limitation. Nested queries go through AssetManager which doesn't
-    // have access to the parent's payload.
-    // TODO: Implement payload inheritance for nested evaluations
+    // Payload IS inherited by a nested evaluation whose plan requires one. The child
+    // declares `payload: required`, which makes the requirement visible in its plan; the
+    // parent's payload is then forwarded and the child is evaluated inline.
+    //
+    // This replaces test_payload_not_inherited_in_nested_evaluation, which asserted the
+    // opposite and documented the gap now closed.
+    // See specs/archive/2026-08-08-issues.md: PAYLOAD-NESTED-EVALUATION-INHERITANCE (resolved).
 
     let mut env = TestEnvironment::new();
     let cr = &mut env.command_registry;
 
-    // Parent command that evaluates a nested query
     async fn parent_cmd(
         _state: State<Value>,
         user_id: UserId,
         context: Context<TestEnvironment>,
     ) -> Result<Value, Error> {
-        // Nested evaluation - payload will NOT be available to child
         let nested_query = liquers_core::parse::parse_query("/-/child_cmd")?;
-        // WP-2 terminal-outcome contract: get() returns Ok(state) even for a failed child;
-        // the failure surfaces when a value is requested (value_state()). A failed child is
-        // therefore observed as Ok(error-state) -> value_state() Err -> "None".
         let nested_result = match context.evaluate(&nested_query).await {
             Ok(asset) => match asset.get().await {
                 Ok(state) => match state.value_state() {
@@ -679,7 +677,6 @@ async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn
         )))
     }
 
-    // Child command that requires payload (will fail when called from parent)
     fn child_cmd(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
         Ok(Value::from(format!("window:{}", window_id.0)))
     }
@@ -688,8 +685,12 @@ async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn
         state,
         user_id: UserId injected,
         context
-    ) -> result)?;
-    register_command!(cr, fn child_cmd(state, window_id: WindowId injected) -> result)?;
+    ) -> result
+        payload: required
+    )?;
+    register_command!(cr, fn child_cmd(state, window_id: WindowId injected) -> result
+        payload: required
+    )?;
 
     let envref = env.to_ref();
     let payload = TestPayload::new("laura", 777);
@@ -700,7 +701,72 @@ async fn test_payload_not_inherited_in_nested_evaluation() -> Result<(), Box<dyn
     let state = asset.get().await?;
     let result = state.try_into_string()?;
 
-    // Child command fails because payload is not inherited
-    assert_eq!(result, "parent:laura|child:None");
+    // The child now receives the parent's payload (previously "child:None").
+    assert_eq!(result, "parent:laura|child:window:777");
     Ok(())
 }
+
+#[tokio::test]
+async fn test_unannotated_payload_command_is_payload_free_when_nested(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Regression guard for the accepted migration hazard: a command that reads the payload
+    // but does NOT declare `payload: required` keeps the pre-change behaviour. It works at
+    // top level, where evaluate_immediately installs the payload directly, and silently gets
+    // no payload in nested position, because nothing in its plan says it needs one.
+    //
+    // This documents the hazard as designed behaviour rather than leaving it latent.
+
+    let mut env = TestEnvironment::new();
+    let cr = &mut env.command_registry;
+
+    async fn outer_cmd(
+        _state: State<Value>,
+        user_id: UserId,
+        context: Context<TestEnvironment>,
+    ) -> Result<Value, Error> {
+        let nested_query = liquers_core::parse::parse_query("/-/unannotated_child")?;
+        let nested_result = match context.evaluate(&nested_query).await {
+            Ok(asset) => match asset.get().await {
+                Ok(state) => match state.value_state() {
+                    Ok(value_state) => value_state
+                        .try_into_string()
+                        .unwrap_or_else(|_| "error".to_string()),
+                    Err(_) => "None".to_string(),
+                },
+                Err(_) => "None".to_string(),
+            },
+            Err(_) => "None".to_string(),
+        };
+        Ok(Value::from(format!(
+            "outer:{}|child:{}",
+            user_id.0, nested_result
+        )))
+    }
+
+    fn unannotated_child(_state: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
+        Ok(Value::from(format!("window:{}", window_id.0)))
+    }
+
+    register_command!(cr, async fn outer_cmd(
+        state,
+        user_id: UserId injected,
+        context
+    ) -> result
+        payload: required
+    )?;
+    // Deliberately NOT annotated.
+    register_command!(cr, fn unannotated_child(state, window_id: WindowId injected) -> result)?;
+
+    let envref = env.to_ref();
+    let asset = envref
+        .evaluate_immediately("/-/outer_cmd", TestPayload::new("mallory", 1))
+        .await?;
+    let result = asset.get().await?.try_into_string()?;
+
+    assert_eq!(
+        result, "outer:mallory|child:None",
+        "an un-annotated payload command must keep the pre-change nested behaviour"
+    );
+    Ok(())
+}
+

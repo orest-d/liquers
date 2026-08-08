@@ -1,0 +1,13 @@
+{
+  "name": "liquers_web_e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright end-to-end tests for liquers-web (PACKAGE*, STUBS07).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "typescript": "5.6.3"
+  }
+}

@@ -1,4 +1,4 @@
-//! Integration tests for the Phase 1b evaluation lifecycle (`specs/UI_INTERFACE_PHASE1b.md`
+//! Integration tests for the Phase 1b evaluation lifecycle (`specs/archive/2026-03-02-ui-interface-phase1b.md`
 //! → "Testing Strategy → Integration Tests").
 //!
 //! `ui_runner.rs` covers the headless widget-interaction flow and the single-node happy/error

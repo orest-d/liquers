@@ -9,8 +9,21 @@ use liquers_core::{
 use liquers_core::error::Error;
 use std::{borrow::Cow, convert::TryFrom, result::Result};
 
+/// Extension payload carried by [`CombinedValue::Extended`].
+///
+/// The thread bounds are the target-conditional [`MaybeSend`]/[`MaybeSync`] markers rather
+/// than hard `Send`/`Sync`, matching `liquers_core::value::ValueInterface`. On native they
+/// still resolve to `Send + Sync`, so nothing changes there; on `wasm32` they are vacuous,
+/// which is what allows an extension to hold a non-`Send` foreign-language handle such as
+/// a `JsValue`. See `specs/design/liquers-web/phase1-high-level-design.md` decision 1.
 pub trait ValueExtension:
-    core::fmt::Debug + Clone + Sized + DefaultValueSerializer + Send + Sync + 'static
+    core::fmt::Debug
+    + Clone
+    + Sized
+    + DefaultValueSerializer
+    + liquers_core::maybe_send::MaybeSend
+    + liquers_core::maybe_send::MaybeSync
+    + 'static
 {
     fn try_into_string(&self) -> Result<String, Error> {
         Err(Error::conversion_error(self.identifier(), "string"))
@@ -450,5 +463,28 @@ impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::{ExtValue, Value};
+
+    /// RUNTIME01 — the native adapter still satisfies the required thread bounds.
+    ///
+    /// `ValueExtension` was relaxed from a hard `Send + Sync` to the target-conditional
+    /// `MaybeSend`/`MaybeSync` markers so that a `wasm32` build can carry a non-`Send`
+    /// foreign-language handle. On native those markers must still resolve to `Send + Sync`;
+    /// if the relaxation ever weakens the native build, this stops compiling.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn runtime01_native_adapter_satisfies_thread_bounds() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ExtValue>();
+        assert_send_sync::<Value>();
+        // The trait object behind ExtValue::Foreign must carry the bounds too, via
+        // supertrait transitivity — this is what lets the variant be ungated.
+        assert_send_sync::<std::sync::Arc<dyn crate::value::foreign::ForeignValue>>();
     }
 }

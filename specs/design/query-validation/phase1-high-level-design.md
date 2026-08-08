@@ -1,0 +1,138 @@
+# Phase 1: High-Level Design - Query Validation Utility
+
+## Feature Name
+
+Query Validation Utility — `liquers_core::validate` module + `liquers-validate` CLI,
+with a companion `export-command-registry` CLI in `liquers-lib`.
+
+## Purpose
+
+Give coding agents and developers a fast, offline way to check that a Liquers query — or a whole
+recipe list — is well-formed *before* it is committed into an example, a doc snippet or a unit
+test. Level 1 validates parsing only and reports the `Query` as JSON; level 2 additionally builds
+the execution plan against a command registry and reports the `Plan` as JSON, catching unknown
+commands and bad argument counts that parsing alone cannot detect.
+
+## Core Interactions
+
+### Query System
+Consumes `liquers_core::parse::parse_query`. Read-only: no new syntax, no encoding changes.
+Serializes the resulting `Query` via its existing `Serialize` derive.
+
+### Store System
+None. Validation is purely static — no store is opened, so resource queries (`-R/...`) and recipe
+`cwd` keys are checked structurally only, never for key existence.
+
+### Command System
+No new liquers commands. The validator *consumes* a `CommandMetadataRegistry` assembled from an
+empty base plus two overrides: a YAML/JSON registry file merged in, and permissive command names
+given on the command line (one `Any` + `multiple` argument each, so any argument list validates).
+Metadata is **data, not linked code** — `export-command-registry` in liquers-lib serializes its
+registered commands to JSON/YAML, with selectable command groups and namespaces
+(`root`, `pl`, `lui`, `dep`), so the validator never links egui/polars/image.
+
+### Asset System
+None. No assets are created, evaluated or cached. Recipes are validated as *specifications*
+(`Recipe::to_plan`), never instantiated as assets.
+
+### Value Types
+None. No `ExtValue` variant is added; the validator never instantiates a rich `Value`.
+
+### Web/API
+None.
+
+### UI
+None (CLI only; JSON envelope on stdout, human-readable `WARNING …` lines on stderr, exit codes
+for pass/fail).
+
+## Crate Placement
+
+**`liquers-core`** — `src/validate.rs` (pure library API, no new dependencies) plus a
+`[[bin]] liquers-validate` gated behind a non-default `cli` feature with `clap` as an optional
+dependency. Everything the validator needs already lives here: `parse_query`, `PlanBuilder`,
+`CommandMetadataRegistry`, `Recipe::to_plan`, `RecipeList`, and a `Serialize` `Error` carrying
+`position`. The feature gate keeps the "liquers-core stays minimal" rule intact: default builds
+(liquers-py, wasm) pull in neither clap nor the binary.
+
+**`liquers-lib`** — `[[bin]] export-command-registry` only. Builds the environment, registers the
+selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
+
+## Resolved Design Decisions
+
+1. **Registry as exported data.** A `build.rs` inside liquers-lib cannot produce it — a build
+   script cannot use the crate it is building, and the metadata comes from `register_command!` in
+   that crate's own code. An exporter binary is the equivalent that works.
+2. **Two binaries, two crates.** The validator needs nothing outside liquers-core; only the
+   exporter needs liquers-lib's heavy optional features.
+3. **`clap`** for argument parsing, optional dependency behind the `cli` feature.
+4. **Duplicate `CommandKey` on merge is an error** by default; `--allow-overwrite` permits it.
+5. **Output is a diagnostic envelope**, not a bare `Query`/`Plan`: status, the serialized `Query`
+   and `Plan`, the serialized `Error` (already carrying `position` line/column/offset and the
+   offending query), and registry provenance. Serialized `Plan` is the floor, not the cap.
+6. **A `Plan` carrying `error` or `Step::Error` is a successful validation, reported as a
+   warning.** Planning succeeded, and the caller inspects the serialized plan to judge whether it
+   encodes the intended behaviour. The envelope carries a `warnings` list and the CLI prints
+   `WARNING  Plan contains error: …` (from `Plan::error`, `Step::Error`, `Step::Warning`, and
+   `init_steps`, using the existing `Step::is_error`/`is_warning` helpers). Only parse failure and
+   plan-*construction* failure are non-zero exits.
+7. **Recipes and recipe lists are first-class inputs.** `Recipe::to_plan(&cmr)` already exists in
+   `liquers-core/src/recipes.rs` and validates more than a bare query: it also checks that every
+   `arguments` and `links` override names something present in the plan's last action. A
+   `RecipeList` (the `recipes.yaml` format) supplies batch mode naturally.
+8. **A committed registry artifact at `specs/command_registry.yaml`**, maintained under a policy
+   documented in `CLAUDE.md`. YAML rather than JSON so the file can carry a comment header
+   recording its origin (exporter version, groups, cargo features, command count, date) and a
+   changelog. The validator finds it automatically, so level 2 works in a fresh checkout with no
+   build step — without it, "export once" costs a full liquers-lib build with polars+egui+image
+   (~3 min, ~4.2 GB per `CLAUDE.md`), which nobody validating a single doc example will pay, and
+   level 2 would go unused. A freshness test keeps the artifact from rotting.
+9. **Input kind comes from explicit CLI parameters, never inference.** A bare positional argument
+   is a query — the shortest, most scriptable form and the primary path for an agent. Recipes come
+   from a file or stdin via `--recipes` (named for the `recipes.yaml` convention that
+   `DefaultRecipeProvider` reads), with `-` meaning stdin; a query may optionally be read the same
+   way. There is no separate single-recipe option: a one-element `RecipeList` covers that case.
+   Nothing sniffs file extensions or content shape.
+10. **Recipe `cwd` is supplied on the command line** (`--cwd`), mirroring what
+    `DefaultRecipeProvider` does with the containing folder key, and applied through the existing
+    `RecipeList::set_cwd`. That keeps production semantics exactly — including its refusal when a
+    recipe carries its own `cwd`, which is a genuine finding, since such a `recipes.yaml` would
+    fail in production too. Note that `cwd` does *not* affect the plan — `Recipe::to_plan` never
+    consults it. It affects `Recipe::key()` and `store_to_key()`, i.e. the resolved absolute
+    target key, which the envelope reports as a diagnostic. An unparseable `--cwd` is itself a
+    validation error.
+11. **JSON and YAML are interchangeable on both sides.** Inputs (recipes, command registry files)
+    are parsed as JSON first and YAML second, with both diagnostics reported if both fail — so no
+    format flag is needed and the `recipes.yaml` convention works unchanged. Output format is one
+    `--format json|yaml` flag (default `json`) covering the whole envelope — `Query`, `Plan`,
+    `Error`, warnings — and likewise the exporter's registry output. Every one of those types
+    already derives `Serialize`/`Deserialize`, and both crates already depend on `serde_yaml`.
+
+12. **Stdout belongs to the binary; libraries use `eprintln!`.** Any stray `println!` in a linked
+    library corrupts the JSON/YAML envelope. This is now a codebase rule in `CLAUDE.md` and has
+    been applied ahead of implementation: all 136 `println!` in `liquers-core/src` and the 9 in
+    `liquers-lib/src` (including the one on `RecipeList::set_cwd`'s error path) are converted.
+
+## Open Questions
+
+1. Does the validator need a zero-setup path to the liquers-lib registry (a conventional file
+   path or `LIQUERS_COMMAND_REGISTRY` env var), or is passing `--registry-file` explicitly on
+   every call good enough for an agent? → Phase 2.
+2. Exporter selection granularity: cargo features are compile-time (`--features polars,egui`)
+   while namespace filtering is runtime. Does one flag surface cover both, or are they separate?
+   → Phase 2.
+3. Does `--cwd` also apply when validating a bare query, or is it recipe-only? Queries can contain
+   relative keys too, but nothing in the plan path consumes a cwd. → Phase 2.
+4. `liquers-store` (12), `liquers-macro` (7) and `liquers-py` (1) still contain `println!`. They
+   are outside this feature's stdout path, and the macro/py ones may be deliberate, so they were
+   left alone rather than swept blindly. Convert them too? → Phase 2 or a separate cleanup.
+
+## References
+
+- `liquers-core/src/parse.rs` (`parse_query`), `liquers-core/src/plan.rs` (`PlanBuilder`, `Plan`)
+- `liquers-core/src/recipes.rs` (`Recipe::to_plan`, `RecipeList`, `Recipe::get_cwd`)
+- `liquers-core/src/command_metadata.rs` (`CommandMetadataRegistry`,
+  `ArgumentInfo::any_argument`, `set_multiple`)
+- `liquers-core/src/commands.rs` (`CommandRegistry::command_metadata_registry`, public)
+- `liquers-lib/src/commands.rs` (`register_all_commands!`), `liquers-lib/src/ui/payload.rs`
+  (`SimpleUIPayload`, needed for the `lui` group)
+- `specs/reference/PROJECT_OVERVIEW.md`, `specs/reference/REGISTER_COMMAND_FSD.md`

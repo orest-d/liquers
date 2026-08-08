@@ -3,7 +3,7 @@
 
 use serde_json::{self, Value};
 
-use crate::command_metadata::CommandKey;
+use crate::command_metadata::{CommandKey, PayloadRequirement};
 use crate::error::Error;
 use crate::expiration::{ExpirationTime, Expires};
 use crate::icons::DEFAULT_ICON;
@@ -655,6 +655,13 @@ pub struct AssetInfo {
     #[serde(default)] // Legacy support: old AssetInfo without this field defaults to false
     pub is_volatile: bool,
 
+    /// Whether producing this asset needed an evaluation payload.
+    ///
+    /// Diagnostic only: the operational consequence (never cached, never shared) is already
+    /// carried by [`Self::is_volatile`], which a payload requirement always implies.
+    #[serde(default)] // Legacy support: old AssetInfo without this field defaults to None
+    pub payload_required: PayloadRequirement,
+
     /// Expiration specification (human-readable, e.g. "in 5 min", "never")
     #[serde(default)]
     pub expires: Expires,
@@ -744,6 +751,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.updated = asset_info.updated;
         metadata.error_data = asset_info.error_data;
         metadata.is_volatile = asset_info.is_volatile;
+        metadata.payload_required = asset_info.payload_required;
         metadata.expires = asset_info.expires;
         metadata.expiration_time = asset_info.expiration_time;
         metadata
@@ -818,6 +826,17 @@ pub struct MetadataRecord {
     /// value will be volatile when ready.
     /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
     pub is_volatile: bool,
+
+    /// Whether producing this value needed an evaluation payload.
+    ///
+    /// Diagnostic only: the operational consequence is already carried by
+    /// [`Self::is_volatile`], which a payload requirement always implies. Unlike
+    /// `is_volatile` this field DOES have `#[serde(default)]` — records written before the
+    /// field existed must still load — and is skipped when `None` so that metadata of
+    /// payload-free assets serializes unchanged.
+    #[serde(skip_serializing_if = "PayloadRequirement::is_none")]
+    #[serde(default)]
+    pub payload_required: PayloadRequirement,
 
     /// Expiration specification (human-readable, e.g. "in 5 min", "never")
     #[serde(default)]
@@ -990,6 +1009,7 @@ impl MetadataRecord {
             updated: self.updated.clone(),
             error_data: self.error_data.clone(),
             is_volatile: self.is_volatile,
+            payload_required: self.payload_required,
             expires: self.expires.clone(),
             expiration_time: self.expiration_time.clone(),
         }
@@ -1248,6 +1268,23 @@ impl MetadataRecord {
         self.is_volatile || self.status == Status::Volatile
     }
 
+    /// Returns whether producing this value needed an evaluation payload.
+    ///
+    /// Note the deliberate asymmetry with [`Self::is_volatile`]: that method also consults
+    /// `Status::Volatile`, because volatility is a lifecycle fact a value can reach. A
+    /// payload requirement is a property of the plan, known before evaluation, so there is
+    /// no corresponding status and this is a plain field read.
+    pub fn payload_required(&self) -> PayloadRequirement {
+        self.payload_required
+    }
+
+    /// Mark metadata as having required an evaluation payload.
+    pub fn set_payload_required(&mut self) -> &mut Self {
+        self.payload_required = PayloadRequirement::Required;
+        self.set_updated_now();
+        self
+    }
+
     /// Returns true if this asset has a non-Never expiration time
     pub fn has_expiration(&self) -> bool {
         !self.expiration_time.is_never()
@@ -1351,6 +1388,11 @@ impl Metadata {
                 } else {
                     false
                 };
+                // Try to extract payload_required from JSON, default to None if not present
+                m.payload_required = o
+                    .get("payload_required")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or(PayloadRequirement::None);
                 // Try to extract expires from JSON, default to Never
                 if let Some(expires_val) = o.get("expires") {
                     if let Some(s) = expires_val.as_str() {
@@ -2102,6 +2144,22 @@ impl Metadata {
         }
     }
 
+    /// Returns whether producing this value needed an evaluation payload.
+    ///
+    /// Legacy metadata without the field defaults to [`PayloadRequirement::None`], mirroring
+    /// the treatment of `is_volatile`. Unlike `is_volatile` there is no status fallback: a
+    /// payload requirement is a property of the plan rather than a state an asset reaches.
+    pub fn payload_required(&self) -> PayloadRequirement {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.payload_required,
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => o
+                .get("payload_required")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or(PayloadRequirement::None),
+            Metadata::LegacyMetadata(_) => PayloadRequirement::None,
+        }
+    }
+
     /// Get the expiration specification
     pub fn expires(&self) -> Expires {
         match self {
@@ -2481,5 +2539,96 @@ mod tests {
         let dep2 = DependencyRecord::new(DependencyKey::new("dep-b"), Version::new(2));
         assert!(m2.add_dependency(dep2).is_err());
         assert!(m2.get_dependencies().is_empty());
+    }
+
+    // ---- Payload requirement diagnostic surface (U6) ----
+
+    #[test]
+    fn test_metadata_record_payload_required_helper() {
+        let mut mr = MetadataRecord::new();
+        assert_eq!(mr.payload_required(), PayloadRequirement::None);
+        mr.set_payload_required();
+        assert_eq!(mr.payload_required(), PayloadRequirement::Required);
+    }
+
+    #[test]
+    fn test_volatile_status_does_not_imply_payload_required() {
+        // is_volatile() consults Status::Volatile; payload_required() must NOT. The two
+        // concepts are related by implication in one direction only and must not be
+        // conflated.
+        let mut mr = MetadataRecord::new();
+        mr.set_volatile();
+        assert!(mr.is_volatile());
+        assert_eq!(mr.payload_required(), PayloadRequirement::None);
+    }
+
+    #[test]
+    fn test_asset_info_round_trip_preserves_payload_required() {
+        // Guards the two copy sites: get_asset_info() and From<AssetInfo> for MetadataRecord.
+        let mut mr = MetadataRecord::new();
+        mr.set_payload_required();
+        let asset_info = mr.get_asset_info();
+        assert_eq!(asset_info.payload_required, PayloadRequirement::Required);
+        let back: MetadataRecord = asset_info.into();
+        assert_eq!(back.payload_required(), PayloadRequirement::Required);
+    }
+
+    #[test]
+    fn test_metadata_record_payload_required_serialization(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mr = MetadataRecord::new();
+        let json = serde_json::to_string(&mr)?;
+        assert!(
+            !json.contains("payload_required"),
+            "None must be skipped, got: {}",
+            json
+        );
+
+        let mut mr = MetadataRecord::new();
+        mr.set_payload_required();
+        let json = serde_json::to_string(&mr)?;
+        let back: MetadataRecord = serde_json::from_str(&json)?;
+        assert_eq!(back.payload_required(), PayloadRequirement::Required);
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_record_without_payload_field_deserializes(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // A record serialized before this field existed must still load.
+        let mut mr = MetadataRecord::new();
+        let mut value = serde_json::to_value(&mr)?;
+        if let serde_json::Value::Object(ref mut o) = value {
+            o.remove("payload_required");
+        }
+        let back: MetadataRecord = serde_json::from_value(value)?;
+        assert_eq!(back.payload_required(), PayloadRequirement::None);
+        mr.set_payload_required();
+        Ok(())
+    }
+
+    #[test]
+    fn test_legacy_metadata_payload_required_defaults_to_none() {
+        // Legacy JSON object with no payload_required key.
+        let m = Metadata::LegacyMetadata(serde_json::json!({"status": "ready"}));
+        assert_eq!(m.payload_required(), PayloadRequirement::None);
+
+        // Non-object legacy metadata.
+        let m = Metadata::LegacyMetadata(serde_json::json!("something"));
+        assert_eq!(m.payload_required(), PayloadRequirement::None);
+    }
+
+    #[test]
+    fn test_legacy_metadata_payload_required_is_read_when_present() {
+        let m = Metadata::LegacyMetadata(serde_json::json!({"payload_required": "Required"}));
+        assert_eq!(m.payload_required(), PayloadRequirement::Required);
+    }
+
+    #[test]
+    fn test_metadata_enum_payload_required_from_record() {
+        let mut mr = MetadataRecord::new();
+        mr.set_payload_required();
+        let m = Metadata::MetadataRecord(mr);
+        assert_eq!(m.payload_required(), PayloadRequirement::Required);
     }
 }

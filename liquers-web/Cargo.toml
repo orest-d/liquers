@@ -1,0 +1,48 @@
+[package]
+name = "liquers-web"
+version = "0.1.0"
+edition = "2021"
+description = "Browser/JavaScript integration of Liquers, compiled to WebAssembly."
+
+# cdylib for the wasm artifact; rlib so a downstream crate can reuse the generic bridge
+# (the Tier-2 extension path — see specs/design/liquers-web/phase2-architecture.md, "Extensibility").
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+liquers-core = { path = "../liquers-core" }
+# `webui` (not `egui`, not `polars`) — those are not wasm targets.
+liquers-lib = { path = "../liquers-lib", default-features = false, features = ["webui"] }
+# Linked because `register_core_commands!` expands into this crate and names `liquers_macro`.
+liquers-macro = { path = "../liquers-macro" }
+
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Named by the `register_core_commands!` expansion.
+futures = "0.3"
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["console", "Window"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+# `select`/`pin_mut` for the RUNTIME04 timeouts — a deadlock must fail with a name, not hang.
+futures = "0.3"
+
+[features]
+default = []
+# Forwarded so that `#[cfg(feature = "...")]` in this crate agrees with which ExtValue variants
+# actually exist. Without forwarding, these cfgs are evaluated against *this* crate's feature set,
+# are therefore always false, and a match on ExtValue would silently omit arms that a
+# feature-unified build does have.
+polars = ["liquers-lib/polars"]
+egui = ["liquers-lib/egui"]
+# Exposes a live count of retained JS handles so RUNTIME05 can assert handle release
+# deterministically, rather than depending on GC timing. Test-only.
+debug-handles = []

@@ -454,7 +454,7 @@ Tests follow liquers patterns from `CLAUDE.md`:
 
 ## References
 
-- **Architecture Spec:** `specs/web-api-library/phase2-architecture.md`
+- **Architecture Spec:** `specs/design/web-api-library/phase2-architecture.md`
 - **Project Conventions:** `CLAUDE.md`
 - **Error Types:** `liquers-core/src/error.rs`
 - **Store Trait:** `liquers-core/src/store.rs`

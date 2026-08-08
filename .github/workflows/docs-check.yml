@@ -1,0 +1,26 @@
+name: docs
+
+# Validates the structure contract in specs/DOCS_STRUCTURE_GUIDE.md.
+#
+# Offline only: no token, no network, no dependencies. The checks that need the GitHub API
+# (--sync, imported-body hashes, PR merge dates) are not implemented yet and are not run here —
+# see the guide §7.2. That keeps this job runnable in a fork and in a sandbox.
+
+on:
+  pull_request:
+    paths: ['specs/**', 'scripts/docs_index.py', '.github/workflows/docs-check.yml']
+  push:
+    branches: [main]
+    paths: ['specs/**', 'scripts/docs_index.py']
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate specs/ and check that index.csv is current
+        run: python3 scripts/docs_index.py --check

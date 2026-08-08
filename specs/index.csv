@@ -1,0 +1,89 @@
+id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
+ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,draft,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
+CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,draft,local,,P1,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
+CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,draft,local,,P1,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
+CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,draft,local,,P1,M,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
+PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,draft,local,,P1,M,core/query,,,,,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
+QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
+STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,draft,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
+VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
+CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,draft,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
+CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,draft,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
+CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,draft,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
+COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,draft,local,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
+COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a workaround",draft,local,,P2,M,core/commands;macro,,,,context-param-order,,2026-08-08,specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md
+CORE-PLAN-POLICY-AND-DEFAULTS,issue,Plan builder has no configuration and questionable defaults,draft,local,,P2,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-POLICY-AND-DEFAULTS.md
+CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,draft,local,,P2,M,core/error;build,,,,,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
+EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,draft,local,,P2,M,lib/egui,,,,,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
+EXPIRATION-RECOVERY-WEB-API,issue,Expiration recovery has no web API surface,draft,local,,P2,M,axum;core/assets,,,,,,2026-08-08,specs/issues/EXPIRATION-RECOVERY-WEB-API.md
+PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,draft,local,,P2,M,core/plan,,,,,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
+WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT,issue,Enter key does not submit in the browser query console,draft,local,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md
+WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preserved in the browser,draft,local,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md
+ASSETS-FIX1,feature,Unresolved TODO and FIXME markers in the asset lifecycle,draft,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/ASSETS-FIX1.md
+ASSETS-IMPROVEMENTS,feature,"Asset persistence, eviction safety and upload limits",draft,local,,P2,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/ASSETS-IMPROVEMENTS.md
+COMBINED-EXPIRES,feature,No algebra for combining expiration across dependencies,draft,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/COMBINED-EXPIRES.md
+COMMAND-METADATA-ENHANCEMENTS,feature,"Command metadata lacks enums, specialization and IO typing",draft,local,,P2,L,core/commands;macro,,,,,,2026-08-08,specs/issues/COMMAND-METADATA-ENHANCEMENTS.md
+CORE-SESSION-AND-KEY-ACL,issue,"No session model, and no way to authorize writes per key",draft,local,,P2,L,core/context;core/store;axum,,,,,,2026-08-08,specs/issues/CORE-SESSION-AND-KEY-ACL.md
+CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilities every implementor must provide,draft,local,,P2,L,core/value;lib/value;py,,,,,,2026-08-08,specs/issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md
+EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,draft,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
+QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,draft,local,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
+DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,draft,local,,P3,S,docs,,,,,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
+REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,draft,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
+AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,draft,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
+BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,draft,local,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
+CORE-STATE-LOCK-API-CLEANUP,issue,`State` holds an `RwLock` that may not be needed,draft,local,,P3,M,core/value,,,,,,2026-08-08,specs/issues/CORE-STATE-LOCK-API-CLEANUP.md
+CORE-STORE-OPENBIN-MISSING,issue,`openbin` is unimplemented in every store,draft,local,,P3,M,core/store;store/backends,,,,,,2026-08-08,specs/issues/CORE-STORE-OPENBIN-MISSING.md
+LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT,issue,Language exception class and stack are lost in transport,draft,local,,P3,M,core/error;web;py,,,,,,2026-08-08,specs/issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md
+MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate queries or implement hints,draft,local,,P3,M,macro,,,,,,2026-08-08,specs/issues/MACRO-QUERY-VALIDATION-AND-HINTS.md
+POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,draft,local,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
+VALUE-DESCRIPTION,feature,Value types have no auto-generated description,draft,local,,P3,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/VALUE-DESCRIPTION.md
+WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,draft,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
+CORE-ASSET-GC,issue,Assets are never garbage collected,draft,local,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
+WEB-NATIVE-IO-TIER2,issue,No browser-native store or command backend,draft,local,,P3,L,web,,,,,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
+CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,draft,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
+CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,draft,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
+CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
+METADATA-CONSISTENCY,design,Metadata format and type consistency,draft,local,architecture,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
+REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
+UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
+VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
+VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,overdue,local,,,,core/commands;macro,,,,,2026-03-02,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands,,,,,2026-08-08,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
+POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,overdue,local,,,,lib/polars,,,,,2026-03-02,,specs/reference/POLARS_COMMAND_LIBRARY.md
+REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,overdue,local,,,,store/config,,,,,2026-03-02,,specs/reference/STORE_CONFIG_FSD.md
+UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,overdue,local,,,,axum;web,,,,,2026-03-02,,specs/reference/WEB_API_SPECIFICATION.md
+doc-01-architecture-reference,reference,Architecture Reference,overdue,local,,,,core/query;core/plan;core/assets,,,,,2026-03-02,,specs/reference/api/doc-01-architecture-reference.md
+doc-02-query-language-reference,reference,Query Language Reference,overdue,local,,,,core/query,,,,,2026-03-02,,specs/reference/api/doc-02-query-language-reference.md
+doc-03-assets-execution-lifecycle,reference,Assets and Execution Lifecycle Reference,overdue,local,,,,core/assets,,,,,2026-03-02,,specs/reference/api/doc-03-assets-execution-lifecycle.md
+doc-04-environment-context-evaluation,reference,"Environment, Context and Evaluation Reference",overdue,local,,,,core/context;core/plan,,,,,2026-03-02,,specs/reference/api/doc-04-environment-context-evaluation.md
+ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-07-17,,specs/reference/ASSETS.md
+ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-07-07,,specs/reference/ASSET_LIFECYCLE.md
+ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSET_SET_OPERATION.md
+DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-07-15,,specs/reference/DEPENDENCIES_STATUS.md
+PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-08,,specs/reference/PROJECT_OVERVIEW.md
+ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
+AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
+DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
+DEPENDENCY-SCHEDULING,design,Non-blocking dependency scheduling with atomic run claims,complete,local,,,,core/assets,,6,,dependency-scheduling,,2026-03-02,specs/design/dependency-scheduling/DESIGN.md
+EXPIRATION-MECHANISM,design,Asset expiration mechanism,complete,local,,,,core/assets,,,,expiration-mechanism,,2026-03-02,specs/design/expiration-mechanism/DESIGN.md
+EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,complete,local,,,,core/assets,,9;11,,expiration-monitor-assetref,,2026-03-02,specs/design/expiration-monitor-assetref/DESIGN.md
+EXPIRATION-SAFETY,design,Timing and race safety in asset expiration,complete,local,,,,core/assets,,11,,expiration-safety,,2026-03-02,specs/design/expiration-safety/DESIGN.md
+KEYBOARD-SHORTCUTS,design,Keyboard shortcuts in UISpec,complete,local,,,,lib/ui,,,,keyboard-shortcuts,,2026-03-02,specs/design/keyboard-shortcuts/DESIGN.md
+LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
+MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
+PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
+PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
+QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
+QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
+QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
+VOLATILITY-SYSTEM,design,Volatility tracking across the asset graph,complete,local,,,,core/assets,,,,volatility-system,,2026-03-02,specs/design/volatility-system/DESIGN.md
+WEB-API-LIBRARY,design,Web API library,complete,local,,,,axum,,,,web-api-library,,2026-03-02,specs/design/web-api-library/DESIGN.md
+WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
+WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
+WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md

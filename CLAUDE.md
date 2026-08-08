@@ -8,15 +8,45 @@ liquers-macro/    # register_command! function-like proc-macro
 liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
 liquers-axum/     # HTTP REST API server
+liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
-specs/            # Specifications and design documents
+specs/            # Internal documentation — see specs/README.md
+  reference/      #   how the system is; must be true at HEAD
+  guides/         #   how to work on it
+  design/<slug>/  #   why each change was made
+  issues/         #   what is wrong or missing
+  archive/        #   what was true on a date; never edited
 ```
 
-**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum`
+**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`
 
-**Key specs**: See `specs/PROJECT_OVERVIEW.md` for architecture, `specs/REGISTER_COMMAND_FSD.md` for macro details, `specs/ASSETS.md` for asset lifecycle.
+**Key specs**: See `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
-**Known issues** are tracked in `specs/ISSUES.md`.
+## Documentation
+
+Map: `specs/README.md` · Rules: `specs/DOCS_STRUCTURE_GUIDE.md` · Index: `specs/index.csv`
+
+**If you find a defect, gap or limitation you are not fixing, file it before you finish the task.**
+This applies to anything you notice in passing — a wrong result, a TODO you had to work around, an
+API that cannot express what you needed. Mentioning it only in your reply does not record it, and
+it is lost the moment the session ends.
+
+Create `specs/issues/<ID>.md`, where `<ID>` is `SCREAMING-KEBAB` naming the problem rather than the
+fix, with `status: draft` and `priority` / `complexity` / `area` filled — guess rather than leave
+blank, since review corrects a wrong guess and nothing corrects an empty field. Search
+`specs/index.csv` first so you do not file a duplicate.
+
+**Do not open a GitHub issue.** That happens when work starts, not when a problem is recorded.
+
+Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE.md` §4.8. Filing
+needs no network, no account and no permission — record what you found and carry on.
+
+Also:
+- Never edit a file under `specs/archive/`, and never change the status of an issue that has a
+  `github:` number.
+- A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
+- A change to a `reference/` or `guides/` document adds a `## History` row and bumps `reviewed:`
+  in the same commit (§9.2).
 
 ## Architecture Rules
 
@@ -28,7 +58,7 @@ specs/            # Specifications and design documents
 - New value types (DataFrames, images): `liquers-lib/src/value/`
 - New storage backends: `liquers-store/src/`
 - New commands: `liquers-lib/src/commands.rs`
-- Polars DataFrame operations: `liquers-lib/src/polars/` (see `specs/POLARS_COMMAND_LIBRARY.md`)
+- Polars DataFrame operations: `liquers-lib/src/polars/` (see `specs/reference/POLARS_COMMAND_LIBRARY.md`)
 
 ### Key Types
 - `Query`, `Key`, `ActionRequest` - query DSL (`liquers-core/src/query.rs`)
@@ -56,6 +86,24 @@ Error::from_error(ErrorType::General, external_error)
 // DON'T: Use Error::new directly
 // Error::new(ErrorType::ParseError, "...")  // Avoid this
 ```
+
+### Diagnostic Output
+
+Library code must never write to **stdout**. Use `eprintln!`, never `println!`:
+
+```rust
+// DO: diagnostics go to stderr
+eprintln!("Recipe already has CWD set to {:?}", recipe.cwd);
+
+// DON'T: this corrupts machine-readable stdout
+// println!("Recipe already has CWD set to {:?}", recipe.cwd);
+```
+
+Stdout is reserved for a binary's *intended* output — CLI tools serialize JSON/YAML there, and a
+stray `println!` anywhere in the libraries they link makes that output unparseable. The rule is
+blanket (it applies inside `#[cfg(test)]` modules too) so nobody has to reason about whether a
+given line sits in a code path some future binary will call. Only `[[bin]]` targets, examples and
+doc-comment examples print to stdout.
 
 ### Async Patterns
 - Default to async (`AsyncStore`, `AsyncStoreRouter`)
@@ -119,6 +167,28 @@ cd liquers-lib/examples-web/ui_spec_demo && trunk build && npx playwright test
 Avoid `cargo test --workspace` in a constrained environment: it also builds the examples and every
 crate's test binaries at once, which is what exhausts the allowance.
 
+### liquers-web
+
+`liquers-web` is **wasm32-only** and is excluded from `default-members`, so the commands above
+never build it. It has three test loops, because three different things are being tested — run
+them after `cargo clean`, separately from the native loop:
+
+```bash
+# Conformance suites, under Node. No browser needed; this is the routine loop.
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+
+# Declarations and artifact structure.
+./liquers-web/examples-web/quickstart/build.sh
+./liquers-web/scripts/check-stubs.sh
+
+# The delivery form, in a real browser.
+cd liquers-web/tests/e2e && npm install && npx playwright test
+```
+
+`--features debug-handles` is test-only: it exposes a live count of retained JavaScript function
+handles so `RUNTIME05` can assert handle release deterministically instead of depending on GC
+timing. See `liquers-web/README.md`.
+
 ### Applied measures, in order of effect
 
 Measured on a cold `cargo test -p liquers-lib --lib --tests` (`cargo clean` before each,
@@ -168,11 +238,12 @@ is broken.
 
 ### Do NOT
 - Use `unwrap()` or `expect()` in library code (only in tests)
+- Use `println!` in library code (use `eprintln!` — stdout belongs to the binary's output)
 - Create new error types outside `liquers_core::error`
 - Use `Error::new` directly
 - Use blocking I/O in async contexts
 - Add sync Store implementations (async only, sync via wrapper)
-- Modify Query/Key encoding without updating `specs/PROJECT_OVERVIEW.md`
+- Modify Query/Key encoding without updating `specs/reference/PROJECT_OVERVIEW.md`
 
 ### Performance-Sensitive Areas
 - Query parsing (`liquers-core/src/parse.rs`) - used on every request
@@ -184,7 +255,7 @@ is broken.
 ### Before Changing APIs
 1. Check if type is used in `liquers-py` (Python bindings break easily)
 2. Check `register_command!` macro usage in `liquers-lib`
-3. Update `specs/PROJECT_OVERVIEW.md` if core concepts change
+3. Update `specs/reference/PROJECT_OVERVIEW.md` if core concepts change
 
 ### Refactoring Guidelines
 - Prefer extending traits over modifying them
@@ -198,13 +269,13 @@ is broken.
 The `register_command!` macro is a **function-like macro** (not an attribute macro) with a custom DSL.
 The actual function must be defined SEPARATELY, then registered via the macro.
 
-**See `specs/COMMAND_REGISTRATION_GUIDE.md` for comprehensive guidelines** covering:
+**See `specs/guides/COMMAND_REGISTRATION_GUIDE.md` for comprehensive guidelines** covering:
 - Using the `register_command!` macro (recommended)
 - Manual registration (fine-grained control)
 - Generic Environment commands (library reusability)
 - Best practices and examples
 
-For macro syntax details, see `specs/REGISTER_COMMAND_FSD.md`.
+For macro syntax details, see `specs/reference/REGISTER_COMMAND_FSD.md`.
 
 ```rust
 use liquers_macro::register_command;
@@ -242,11 +313,74 @@ register_command!(cr,
 
 See examples in `liquers-lib/src/commands.rs` and `liquers-core/tests/async_hellow_world.rs`.
 
+### Validating queries
+
+Before putting a query into an example, a doc snippet or a test, check it with `liquers-validate`.
+It parses the query and builds its plan without evaluating anything — no store is opened, no
+command runs.
+
+The `liquers-validate` skill (`.claude/skills/liquers-validate/`) wraps this: it bundles a digest
+front-end that renders the resolved plan compactly, plus references for the output envelope,
+recipe validation and registry overlays.
+
+```bash
+cargo run -p liquers-core --features cli --bin liquers-validate -- -- '<query>'
+```
+
+The `--` before the query is not optional in practice: Liquers resource queries begin with `-`
+(`-R/data/x.csv`), which otherwise looks like a flag. The tool has no short flags for this reason.
+
+It finds `specs/command_registry.yaml` by walking up from the working directory, so it validates
+against the real command set with no setup. Useful variations:
+
+| Need | Flag |
+|---|---|
+| Parse only, ignore the registry | `--no-registry` |
+| A command that does not exist yet | `--command my_new_command` (accepts any arguments) |
+| A design that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file <proposal>.yaml --allow-overwrite` |
+| A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
+| Many queries | positional list, or `--query-file -` (one per line, `#` comments skipped) |
+| Less output | `--detail summary` |
+
+Exit codes: **0** ok or warning · **1** a query failed · **2** the tool was invoked wrongly
+(stdout is empty; read stderr).
+
+**A clean result tells you what your query *means*, not that it is correct.** Both of these
+validate:
+
+```
+-R/data/report.txt/-/to_text     ->  GetAsset[data, report.txt], Action{to_text}
+-R/data/report.txt/to_text       ->  GetAsset[data, report.txt, to_text]
+```
+
+The second fetches a file *named* `to_text`: `-R/` consumes the rest of the string as a key
+unless `/-/` starts a new segment. Compare the `encoded` field (or the plan's steps) against what
+you meant. `encoded` works at parse level, with no registry.
+
+### Maintaining `specs/command_registry.yaml`
+
+The file is **generated — never edit it by hand**. It exists so query validation does not have to
+link liquers-lib and its optional dependencies.
+
+Regenerate whenever a `register_command!` signature changes, or a command is added or removed:
+
+```bash
+cargo run -p liquers-lib --features cli --bin export-command-registry -- \
+  --format yaml -o specs/command_registry.yaml
+```
+
+Then add a dated line inside the `# CHANGELOG-BEGIN` / `# CHANGELOG-END` markers — the exporter
+carries that block over verbatim, and it is the only hand-maintained part of the file.
+
+`cargo test -p liquers-lib --test registry_export` enforces this: it fails when the file no
+longer matches the registered commands, comparing signatures rather than file bytes, so
+reformatting is not a failure but a changed argument list is.
+
 ### Adding a Store Backend
 1. Implement `AsyncStore` trait in `liquers-store/src/`
 2. Add config support in `liquers-store/src/config.rs` and `liquers-store/src/store_builder.rs`
 3. Update `OPENDAL_STORE_TYPES` in `liquers-store/src/config.rs` if OpenDAL-based
-4. See `specs/STORE_CONFIG_FSD.md` for configuration format
+4. See `specs/reference/STORE_CONFIG_FSD.md` for configuration format
 
 ### Adding a Value Type
 1. Extend `ExtValue` enum in `liquers-lib/src/value/mod.rs`

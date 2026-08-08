@@ -1,0 +1,34 @@
+---
+id: PAYLOAD-NESTED-EVALUATION-INHERITANCE
+kind: design
+title: Payload inheritance in nested evaluation
+status: complete
+area: [core/plan, core/assets]
+gh_pr: [14]
+issues: []
+created: 2026-03-02
+superseded_by:
+---
+# payload-nested-evaluation-inheritance Design Tracking
+
+**Created:** 2026-07-27
+
+
+## Phase Status
+
+- [ ] Phase 1: High-Level Design
+- [ ] Phase 2: Solution & Architecture
+- [ ] Phase 3: Examples & Testing
+- [ ] Phase 4: Implementation Plan
+- [ ] Implementation Complete
+
+## Notes
+
+(Add notes as you progress through phases)
+
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
