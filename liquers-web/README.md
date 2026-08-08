@@ -107,4 +107,35 @@ Two tiers, both supported:
   rather than converting it. Explicit by design, so opacity is never accidental.
 - **Tier 2 — your own value type.** Everything in `bridge`, `eval`, `asset` and `command` is
   generic over the value type; only [`src/default_value.rs`](src/default_value.rs) names a concrete
-  one. Implement `JsValueBridge` for your type and the generic surface is yours.
+  one. Implement **`JsExtensionBridge` for your own extension type** — not `JsValueBridge` for the
+  combined value — and a blanket impl carries it up to the whole value type.
+
+  The distinction is the orphan rule, not taste: `impl JsValueBridge for CombinedValue<SimpleValue,
+  MyExt>` is `error[E0117]` from a downstream crate, because both the trait and `CombinedValue` are
+  foreign there. `MyExt` is yours, so a foreign trait on it is always allowed. This crate takes the
+  same route — `default_value.rs` implements `JsExtensionBridge for ExtValue` — so the documented
+  path is the one that gets exercised.
+
+  Worked example: [`tests/second_value_type.rs`](tests/second_value_type.rs).
+
+## Boundary cost
+
+Median round trip (JavaScript → `Value` → JavaScript), `--release`, under Node:
+
+| Input | Structural | Opaque |
+|---|---|---|
+| object, 10 properties | 0.078 ms | 0.006 ms |
+| object, 1 000 properties | 5.23 ms | 0.005 ms |
+| object, 10 000 properties | 58.5 ms | 0.008 ms |
+| `Uint8Array`, 1 MB | 0.868 ms | 0.006 ms |
+
+Opaque retention is flat; structural conversion is linear. **Reach for `opaque()` because you want
+the same object back, not because you want speed** — at realistic sizes the conversion is
+invisible, and it only costs a frame at ten thousand properties.
+
+Reproduce with:
+
+```bash
+cargo test -p liquers-web --target wasm32-unknown-unknown --release \
+    --test boundary_benchmark -- --nocapture
+```

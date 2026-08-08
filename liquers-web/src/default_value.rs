@@ -5,11 +5,11 @@
 //! what makes `liquers-web`'s own exported surface concrete.
 
 use liquers_core::error::{Error, ErrorType};
-use liquers_lib::value::{ExtValue, Value};
+use liquers_lib::value::ExtValue;
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 
-use crate::bridge::JsValueBridge;
+use crate::bridge::JsExtensionBridge;
 use crate::value::JsOpaque;
 
 /// The value type this crate's exported surface is built on.
@@ -20,7 +20,11 @@ use crate::value::JsOpaque;
 /// (`PACKAGE05`).
 pub type WebValue = liquers_lib::value::Value;
 
-impl JsValueBridge for Value {
+// Implemented on the *extension*, not on `Value`. `bridge`'s blanket impl carries it up to
+// `CombinedValue<SimpleValue, ExtValue>`, and this is the same path a downstream crate takes —
+// so the documented Tier-2 route is the one this crate itself uses, rather than a second-class
+// alternative to it.
+impl JsExtensionBridge for ExtValue {
     fn from_js_custom(_js: &JsValue) -> Result<Option<Self>, Error> {
         // The default value type has no JavaScript-specific structural cases beyond the standard
         // mapping, so it always falls through.
@@ -32,34 +36,31 @@ impl JsValueBridge for Value {
     }
 
     fn from_js_opaque(_js: JsValue, opaque: JsOpaque) -> Result<Self, Error> {
-        Ok(Value::Extended(ExtValue::Foreign {
+        Ok(ExtValue::Foreign {
             value: Arc::new(opaque),
-        }))
+        })
     }
 
     fn as_js_opaque(&self) -> Result<Option<&JsOpaque>, Error> {
         match self {
-            Value::Extended(ExtValue::Foreign { value }) => {
-                match value.as_any().downcast_ref::<JsOpaque>() {
-                    Some(js) => Ok(Some(js)),
-                    // The value *is* opaque, but belongs to another language runtime. Naming the
-                    // origin is what turns a cross-language mistake into a diagnosable one.
-                    None => Err(Error::conversion_error(
-                        value.origin(),
-                        "a JavaScript value (it belongs to a different language runtime)",
-                    )),
-                }
-            }
+            ExtValue::Foreign { value } => match value.as_any().downcast_ref::<JsOpaque>() {
+                Some(js) => Ok(Some(js)),
+                // The value *is* opaque, but belongs to another language runtime. Naming the
+                // origin is what turns a cross-language mistake into a diagnosable one.
+                None => Err(Error::conversion_error(
+                    value.origin(),
+                    "a JavaScript value (it belongs to a different language runtime)",
+                )),
+            },
             // Not an opaque value at all — not an error, just nothing to recover.
-            Value::Base(_) => Ok(None),
-            Value::Extended(ExtValue::Image { .. }) => Ok(None),
+            ExtValue::Image { .. } => Ok(None),
             #[cfg(feature = "polars")]
-            Value::Extended(ExtValue::PolarsDataFrame { .. }) => Ok(None),
+            ExtValue::PolarsDataFrame { .. } => Ok(None),
             #[cfg(feature = "egui")]
-            Value::Extended(ExtValue::UiCommand { .. }) => Ok(None),
+            ExtValue::UiCommand { .. } => Ok(None),
             #[cfg(feature = "egui")]
-            Value::Extended(ExtValue::Widget { .. }) => Ok(None),
-            Value::Extended(ExtValue::UIElement { .. }) => Ok(None),
+            ExtValue::Widget { .. } => Ok(None),
+            ExtValue::UIElement { .. } => Ok(None),
         }
     }
 }

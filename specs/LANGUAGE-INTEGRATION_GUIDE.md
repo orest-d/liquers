@@ -143,6 +143,17 @@ The tests listed below are the default conformance inventory. An *integration* d
 
 **A selected feature with many `NA` tests is a warning.** Its tests define what the feature *is*; excusing most of them usually means the feature should not have been selected, or the design does not implement the contract it claims. Two or three `NA`s across a whole *integration* is ordinary. A feature where half the inventory is excused deserves a second look before the design is approved, not after.
 
+### Conformance tests that pass whatever the code does
+
+A prescribed test names a claim; it is the *assertion* that decides whether the claim is checked. Two shapes pass regardless of what the implementation does, and both look reasonable while being written:
+
+- **The two-branch match.** "Either it was cancelled, or it had already finished." In `specs/liquers-web/`, all three cancellation tests were written this way and all three passed — while the cancellation path was in fact unreachable and `cancel()` did nothing. The same assertion would have kept passing if `cancel()` had begun throwing or hanging. When a test accommodates two outcomes, find out which one actually occurs; if it is always the same one, assert *that*, and the test becomes a tripwire for the day the other becomes possible.
+- **The existence check on something that was never absent.** Asserting that a forbidden name is missing from a namespace it was never in proves nothing. Assert the property instead — for a "does not block" claim, that the call *returns* before the work runs, timed.
+
+Neither is caught by review of the test list, because the ID is present and the test is green. The check is to ask, of each assertion: *what implementation change would make this fail?* If the answer is "none that anyone would plausibly make", the test is decorative.
+
+This risk concentrates where a section did **not** warn about difficulty. The three tests `specs/liquers-web/` singled out as hard to assert were all fine, because they had specified mechanisms; the vacuous ones were in the group nobody had flagged.
+
 ## 4. Feature Overview
 
 | ID | Feature | Level | Depends on |
@@ -665,6 +676,13 @@ Module caches are a staleness hazard: `sys.modules` will happily retain a module
 
 Expose async APIs as Promises and bytes as `Uint8Array`; check `BigInt`/`i64` conversions. Keep `JsValue`, DOM handles, closures, and `JsFuture` on the wasm thread. Use the wasm-selected inline asset manager and the core `MaybeSend` model. Test in an actual browser with `wasm-bindgen-test`, including rejected Promises and disposal of JS closures.
 
+Four things cost real time in `specs/liquers-web/` and are worth knowing in advance:
+
+- **`serde_wasm_bindgen::to_value` serializes maps as JavaScript `Map`s, not objects.** Every `serde_json::Value::Object` and every `HashMap` goes through `serialize_map`, so a page reading `result.a`, `Object.keys(result)` or `JSON.stringify(result)` sees nothing. Rust *structs* serialize as objects either way, which is what makes this survive review: the affected values are the ones that came *from* JavaScript as objects. Use `Serializer::new().serialize_maps_as_objects(true)` everywhere, from one wrapper.
+- **Let `wasm-bindgen` generate the `.d.ts`; do not hand-write one.** A hand-written declaration file is a second source of truth defended only by a freshness check somebody has to run, and a stale declaration is worse than none — a type checker confidently accepts code that fails at runtime. What the generator cannot do is see inside a `JsValue`, so a `JsValue` parameter emits as `any` and type-checks anything. Fix that at the source with `typescript_custom_section` plus `typescript_type`-annotated extern types, and the generated file carries real types with no drift possible.
+- **`#[serde(skip_serializing_if)]` is right for a config file and wrong for an API.** `CommandMetadata` skips empty vectors, so `describeCommand(n).arguments` was `undefined` for a zero-argument command — working for every command except the ones the caller was least likely to special-case. Normalize the shape at the boundary.
+- **Structural conversion is cheaper than it sounds.** Measured round trip, `--release`: an object with 10 properties costs 78 µs, 1 000 properties 5.2 ms, and a 1 MB `Uint8Array` 0.87 ms. Opaque retention is flat (~6 µs), so the *ratio* grows without bound and is the wrong number to quote. Justify an opaque path by **identity**, not by speed, unless the *integrated language* genuinely passes very large structures.
+
 ### Starlark
 
 Treat sandboxing and determinism as product requirements. Prefer copied Liquers primitives for ordinary *language values*. `starlark::values::Value<'v>` belongs to a `Heap`; values retained after evaluation must be frozen/owned or converted. Host functions registered through Starlark globals are a natural `COMMAND` adapter. Document whether evaluation budgets, cancellation, filesystem/network access, and async features are intentionally unavailable.
@@ -684,6 +702,7 @@ Every language-specific design should contain:
 1. A feature matrix with level, status, limitations, milestone, and test links.
 2. A disposition for every item in each selected feature's “Objects/API to map or implement” list: mapped, implemented, internal-only, deferred, or `NA`, with the exposed language name.
 3. The exact Rust value and environment types used.
+   - **If the design offers downstream crates a "bring your own value type" path, check it against the orphan rule before promising it.** The natural sketch — `impl MyIntegrationTrait for CombinedValue<SimpleValue, MyExt>` — does *not* compile from a downstream crate: the trait belongs to the integration crate and `CombinedValue` to `liquers-lib`, so both are foreign there, and `CombinedValue` is not `#[fundamental]`, meaning instantiating it with a local type does not make the self type local (E0117). The integration crate itself never notices, because its own trait is local to it. Put the extension point on the *extension* type (`MyExt`, which the downstream crate owns) and provide a blanket impl carrying it up to the value type — then the integration crate uses the same route it documents, rather than a first-class one nobody else can reach.
 4. Ownership diagrams or precise prose for every stored foreign handle.
 5. Sync, async, thread, reentrancy, cancellation, and shutdown policies.
 6. Conversion tables, including loss and serialization behavior.

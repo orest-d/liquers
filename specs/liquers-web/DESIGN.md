@@ -2,7 +2,7 @@
 
 **Created:** 2026-08-06
 
-**Status:** In Progress
+**Status:** Implementation complete — M1-M6 ✅
 
 ## Phase Status
 
@@ -10,7 +10,49 @@
 - [x] Phase 2: Solution & Architecture (reviewed; Option Y decided, awaiting approval)
 - [x] Phase 3: Examples & Testing (reviewed; full 83-test inventory, awaiting approval)
 - [x] Phase 4: Implementation Plan (reviewed; 26 steps in 6 milestones, awaiting approval)
-- [ ] Implementation Complete — **M1 done ✅** (Steps 1-7: groundwork in `liquers-core`/`liquers-lib`)
+- [x] Implementation Complete — **M1-M6 done ✅** (Steps 1-26)
+
+## Implementation status
+
+| Milestone | Scope | Result |
+|---|---|---|
+| M1 | `liquers-core` + `liquers-lib` groundwork | ✅ native suites green; six build configurations green |
+| M2 | Value bridge | ✅ `VALUE*` 13/13 |
+| M3 | Objects, errors, environment | ✅ `OBJECT*`/`ERROR*` 13, `ENVIRON*` 8 |
+| M4 | Commands and evaluation | ✅ `COMMAND*` 17, `EVAL*` 8, `ASYNCQ*` 8, `ASYNCCMD*` 7, `RUNTIME*` 6 |
+| M5 | Delivery: trunk, quick start, stubs | ✅ `STUBS*` 7, `PACKAGE*` 5 (+1 `NA`); quick start green in Chromium with zero console errors |
+| M6 | Extensibility, benchmark, documentation | ✅ second value type 5/5; benchmark recorded |
+
+**89 wasm tests** under Node, **5 Playwright tests** in Chromium, `check-stubs.sh`, and 4 native
+`unregister` tests. Every prescribed conformance ID is satisfied except the two `NA`s
+(`PACKAGE06`, `ASYNCQ07`), each with the condition that reverses it.
+
+## Question 2 revisited: the measurement Phase 1 deferred
+
+Phase 1 called the magnitude of the structural-conversion cost "a Phase 3 measurement, not an
+assumption". `tests/boundary_benchmark.rs` measured it — one full round trip, JavaScript → `Value`
+→ JavaScript, median of N runs, `--release` under Node:
+
+| Input | Structural | Opaque | Ratio |
+|---|---|---|---|
+| object, 10 properties | 0.078 ms | 0.006 ms | 13× |
+| object, 100 properties | 0.502 ms | 0.005 ms | 92× |
+| object, 1 000 properties | 5.23 ms | 0.005 ms | 1 013× |
+| object, 10 000 properties | 58.5 ms | 0.008 ms | 7 564× |
+| `Uint8Array`, 1 MB | 0.868 ms | 0.006 ms | 140× |
+
+**The shape is as predicted; the reading is not.** Opaque retention is flat — it stores a handle —
+and structural conversion is linear, so the ratio grows without bound and is not the useful number.
+The useful number is the absolute cost: **at 10 properties structural conversion costs 78 µs**,
+which no page will notice, and it only reaches a dropped frame (58 ms) at ten thousand properties.
+Bytes are cheap at any realistic size — 1 MB costs 0.87 ms, because the byte path copies a buffer
+rather than walking properties.
+
+So the docs should **stop implying `opaque()` is the performance answer**. Its justification is
+*identity*: the same object comes back, and a value passing between two JavaScript commands need
+not be understood by Rust at all. Performance is a reason only for genuinely large structures, and
+a page that has those knows it. Phase 1's own conclusion — "it does not flip the default" — stands,
+and now stands on evidence.
 
 ## Notes
 

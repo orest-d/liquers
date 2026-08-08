@@ -903,6 +903,70 @@ exactly. Tier is a harness question, not an applicability one.
    contains it. Always true, so the `build.sh` page waited forever for an event nobody would
    dispatch. Fixed by excluding the script by `id`, which is now a load-bearing comment.
 
+## M6 execution record — COMPLETE ✅
+
+Steps 24-26 executed. **89 wasm tests**, 5 Playwright tests, `check-stubs.sh`, 4 native tests.
+
+### Step 24 found that Phase 2's Tier-2 promise did not compile
+
+This is what the step was for, and it earned its place. Phase 2's Example 4 sketched:
+
+```rust
+impl JsValueBridge for MyValue { /* MyValue = CombinedValue<SimpleValue, MyExt> */ }
+```
+
+That is `error[E0117]` from a downstream crate. `JsValueBridge` belongs to `liquers-web` and
+`CombinedValue` to `liquers-lib`, so both are foreign there; `CombinedValue` is not
+`#[fundamental]`, so instantiating it with a local `MyExt` does not make the self type local.
+**`liquers-web` never noticed** because its own trait is local to it — the promise was
+first-class for the crate making it and impossible for anyone else.
+
+Fixed by moving the extension point to a type the downstream crate owns:
+
+- `JsExtensionBridge` — the same four hooks at the *value extension* level. `impl
+  JsExtensionBridge for MyExt` is a foreign trait on a local type, always allowed.
+- A blanket `impl<B, Ext: JsExtensionBridge> JsValueBridge for CombinedValue<B, Ext>` carries it
+  up to the whole value type.
+- `default_value.rs` now implements `JsExtensionBridge for ExtValue` rather than `JsValueBridge for
+  Value`, so **this crate takes the same route it documents**. A path the author does not use is a
+  path that breaks unnoticed.
+
+`tests/second_value_type.rs` then does what the step asked: a `MatrixExt` carrying a third-party
+type, `TestValue = CombinedValue<SimpleValue, MatrixExt>`, a never-called function naming every
+generic entry point at that type (so a regression is a *compile* error), and the reduced
+`VALUE01`/`VALUE04`/`VALUE09` suite plus a full end-to-end evaluation on a downstream environment.
+
+A smaller wart, noted and left: `liquers_lib::value` glob-imports `CombinedValue`, `SimpleValue`
+and `ValueExtension` privately, so a downstream crate must reach into `value::extended` and
+`value::simple`. Fixing it means touching `liquers-lib`, which M1 was meant to be the only
+milestone to do.
+
+### Step 25: the measurement Phase 1 deferred
+
+Median round trip, `--release`, under Node:
+
+| Input | Structural | Opaque | Ratio |
+|---|---|---|---|
+| object, 10 properties | 0.078 ms | 0.006 ms | 13× |
+| object, 100 properties | 0.502 ms | 0.005 ms | 92× |
+| object, 1 000 properties | 5.23 ms | 0.005 ms | 1 013× |
+| object, 10 000 properties | 58.5 ms | 0.008 ms | 7 564× |
+| `Uint8Array`, 1 MB | 0.868 ms | 0.006 ms | 140× |
+
+The shape is as Phase 1 predicted — opaque flat, structural linear — but the reading is not. The
+ratio grows without bound and is the wrong number to quote; the useful one is the absolute cost,
+and **78 µs for a 10-property object is invisible**. It reaches a dropped frame only at ten
+thousand properties. So the docs stop implying `opaque()` is the performance answer: its
+justification is *identity*. Fed back into Phase 1 decision 2 in `DESIGN.md`.
+
+### Step 26: documentation
+
+`README.md` (new), `CLAUDE.md` (the three test loops and why there are three),
+`specs/PROJECT_OVERVIEW.md` (crate structure), `DESIGN.md` (final status and the measurement), and
+`LANGUAGE-INTEGRATION_GUIDE.md` — which gained the two findings that generalize beyond JavaScript:
+the orphan-rule trap in checklist item 3, and "conformance tests that pass whatever the code does"
+in §3.
+
 ## Review record
 
 Both prescribed reviewers found real defects.

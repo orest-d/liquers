@@ -16,6 +16,7 @@
 
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::value::ValueInterface;
+use liquers_lib::value::extended::{CombinedValue, ValueExtension};
 use std::sync::Arc;
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -60,6 +61,83 @@ pub trait JsValueBridge: ValueInterface + Sized {
     /// but belongs to a different language runtime — the error names its origin, which is what
     /// makes a cross-language mistake diagnosable rather than merely failed.
     fn as_js_opaque(&self) -> Result<Option<&JsOpaque>, Error>;
+}
+
+/// The same four hooks, at the level of a *value extension* rather than a whole value type.
+///
+/// # Why this exists: the orphan rule
+///
+/// Phase 2 promises that a downstream crate can bring its own value type and reuse everything
+/// here. Implementing [`JsValueBridge`] directly is how `liquers-web` does it — legal, because the
+/// *trait* is local to this crate. A downstream crate has no such luck:
+///
+/// ```text
+/// impl JsValueBridge for CombinedValue<SimpleValue, MyExt> { … }
+/// //   ^ foreign trait      ^ foreign type
+/// // error[E0117]: only traits defined in the current crate can be implemented for types
+/// //               defined outside of the crate
+/// ```
+///
+/// `CombinedValue` belongs to `liquers-lib` and is not `#[fundamental]`, so instantiating it with
+/// a local type does not make the self type local. The promise, written that way, does not
+/// compile — which the Tier-2 proof (`tests/second_value_type.rs`) discovered by trying it.
+///
+/// The fix is to move the extension point to a type the downstream crate *does* own. `MyExt` is
+/// local there, so `impl JsExtensionBridge for MyExt` is a foreign trait on a local type — always
+/// allowed — and the blanket impl below carries it up to the whole value type.
+///
+/// So: **implement this, not [`JsValueBridge`]**, unless you own the value type outright.
+pub trait JsExtensionBridge: ValueExtension {
+    /// Structural conversion of a JavaScript value this extension understands specially.
+    ///
+    /// `Ok(None)` means "not mine, fall through to the standard mapping".
+    fn from_js_custom(js: &JsValue) -> Result<Option<Self>, Error>;
+
+    /// Inverse of [`Self::from_js_custom`]. `Ok(None)` falls back to the standard mapping.
+    fn to_js_custom(&self) -> Result<Option<JsValue>, Error>;
+
+    /// Wraps an opaque JavaScript value. `Err(NotSupported)` opts out of opaque retention.
+    fn from_js_opaque(js: JsValue, opaque: JsOpaque) -> Result<Self, Error>;
+
+    /// Recovers a retained JavaScript value. See [`JsValueBridge::as_js_opaque`].
+    fn as_js_opaque(&self) -> Result<Option<&JsOpaque>, Error>;
+}
+
+/// Every `CombinedValue` whose extension bridges to JavaScript is itself a bridge.
+///
+/// This is what makes [`JsExtensionBridge`] worth implementing: one impl on a type you own, and
+/// the whole generic surface — conversion, the command adapter, the `Promise` bridge — accepts
+/// your value type.
+///
+/// The base value is never consulted: `SimpleValue` and its kin have no JavaScript-specific
+/// representation, which is exactly why the standard structural mapping handles them.
+impl<B, Ext> JsValueBridge for CombinedValue<B, Ext>
+where
+    B: ValueInterface + Default,
+    Ext: JsExtensionBridge,
+{
+    fn from_js_custom(js: &JsValue) -> Result<Option<Self>, Error> {
+        Ok(Ext::from_js_custom(js)?.map(CombinedValue::Extended))
+    }
+
+    fn to_js_custom(&self) -> Result<Option<JsValue>, Error> {
+        match self {
+            CombinedValue::Extended(ext) => ext.to_js_custom(),
+            CombinedValue::Base(_) => Ok(None),
+        }
+    }
+
+    fn from_js_opaque(js: JsValue, opaque: JsOpaque) -> Result<Self, Error> {
+        Ok(CombinedValue::Extended(Ext::from_js_opaque(js, opaque)?))
+    }
+
+    fn as_js_opaque(&self) -> Result<Option<&JsOpaque>, Error> {
+        match self {
+            CombinedValue::Extended(ext) => ext.as_js_opaque(),
+            // A base value is not opaque — not an error, just nothing to recover.
+            CombinedValue::Base(_) => Ok(None),
+        }
+    }
 }
 
 /// Maximum depth for structural conversion.
