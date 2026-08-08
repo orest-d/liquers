@@ -3488,6 +3488,37 @@ pub trait AssetManager<E: Environment>:
         Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
     }
 
+    /// Recovery-only binary read for a KEYED asset: returns its serialized form regardless of
+    /// status — including `Status::Expired` — without submitting evaluation, without touching the
+    /// dependency manager, and without registering the entry back into the manager's normal
+    /// in-memory cache. `Ok(None)` if the key has no data-bearing content in memory or in store.
+    ///
+    /// The binary twin of [`Self::get_any_status`], and cheaper than it on the store path: the
+    /// bytes are returned as read, with no `deserialize_stored_value` round-trip. That also makes
+    /// it usable for a stored type this build cannot deserialize.
+    async fn get_binary_any_status(
+        &self,
+        key: &Key,
+    ) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            // Serializes on demand, so an in-memory expired asset holding a value but no cached
+            // bytes is recoverable rather than reported absent.
+            return asset_ref.get_binary_any_status().await;
+        }
+        let store = self.get_envref().get_async_store();
+        if !store.contains(key).await? {
+            return Ok(None);
+        }
+        let (binary, metadata) = store.get(key).await?;
+        // `has_data()` is the right question here — this asks whether the store entry holds a
+        // value at all, not whether a reader may see it. That is the distinction from
+        // `ReadExposure`, which gates reads.
+        if !metadata.status().has_data() {
+            return Ok(None);
+        }
+        Ok(Some((Arc::new(binary), Arc::new(metadata))))
+    }
+
     /// Pin a KEYED asset's current value (whatever status it is in — `Ready`, `Expired`, etc.) as
     /// `Status::Override`, preserving the value without recomputation. Avoids double-
     /// serialization: if the value is already correctly persisted, only the metadata's status
