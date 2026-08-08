@@ -285,9 +285,8 @@ plumbing beneath the command system: no `register_command!` invocation, no chang
 `specs/command_registry.yaml`, and no query syntax touched. Nothing to regenerate or validate with
 `liquers-validate`.
 
-*User confirmation requested at the Phase 2 gate: is that the right read, or should a recovery
-command (e.g. an `any_status` fetch usable from a query) be in scope? Phase 1 scoped this to the
-Rust API only.*
+**Confirmed by the user at the Phase 2 gate: no commands are in scope.** A recovery path reachable
+*from a query* (an `any_status` fetch) is deliberately not part of this design.
 
 ## Backward Compatibility
 

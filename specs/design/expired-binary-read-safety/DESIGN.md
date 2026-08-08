@@ -3,7 +3,7 @@ id: EXPIRED-BINARY-READ-SAFETY
 kind: design
 title: Expired-safe binary reads
 status: draft
-phase: architecture
+phase: examples
 area: [core/assets, core/store]
 gh_pr: []
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
@@ -17,8 +17,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [ ] Phase 2: Solution & Architecture (in review)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [ ] Phase 3: Examples & Testing (in progress)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 
@@ -64,6 +64,9 @@ three findings, all verified against source and applied:
 Reviewer B verified clean: signatures, the 15-variant `ReadExposure` table against `poll_state`,
 the `has_data()` unsuitability claim, trait-default feasibility for both implementors, and that
 `liquers-axum` is the only consumer needing changes.
+
+**Phase 2 approved** by the user, who confirmed no commands are in scope — no `register_command!`,
+no `specs/command_registry.yaml` regeneration, and no query-reachable recovery path.
 
 ## Links
 
