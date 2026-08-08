@@ -41,7 +41,7 @@ an `AssetRef`, not a value.
 | `AssetRef` | `get` (`:2325`) | `get_binary` (`:2387`) | exists — **gate missing** |
 | `AssetRef` | `poll_state` (`:2419`) | `poll_binary` (`:2450`) | exists — **gate missing** |
 | `AssetRef` | `poll_state_any_status` (`:2425`) | `poll_binary_any_status` | **missing** |
-| `AssetRef` | `get_any_status` (`:2433`, alias) | `get_binary_any_status` (alias) | **missing** |
+| `AssetRef` | `get_any_status` (`:2433`, alias) | `get_binary_any_status` (**not** an alias — see below) | **missing** |
 | `AssetRef` | `try_poll_state` (`:2441`) | `try_poll_binary` (`:2456`) | exists — **gate missing** |
 | `AssetManager` | `get_any_status` (`:3281`) | `get_binary_any_status` | **missing** |
 
@@ -58,9 +58,9 @@ would be a lie. The rule is therefore **absence, expressed in whatever the signa
 
 | Return type | Methods | Result |
 |---|---|---|
-| `Option<_>` | `poll_binary`, `try_poll_binary`, `poll_binary_any_status`, `AssetRef::get_binary_any_status` | `None` |
+| `Option<_>` | `poll_binary`, `try_poll_binary`, `poll_binary_any_status` | `None` |
 | `Result<_, Error>` | `get_binary` | `Err` |
-| `Result<Option<_>, Error>` | `AssetManager::get_binary_any_status` | `Ok(None)` |
+| `Result<Option<_>, Error>` | `AssetRef::get_binary_any_status`, `AssetManager::get_binary_any_status` | `Ok(None)` |
 
 This is not an exception to the symmetry rule — it *is* the rule applied honestly. The asymmetry
 lies in the data (a metadata-only value exists; a metadata-only byte string does not), not in the
@@ -74,6 +74,27 @@ asset's own recorded failure (what `State::value_error` yields today), while `Ca
 `Expired` is separate and keeps the state semantics exactly: hidden from normal reads, returned by
 the `*_any_status` pair.
 
+### Recovery must not depend on a cached binary
+
+On the state side, `get_any_status` is a plain alias for `poll_state_any_status`, because a retained
+value needs no materialising. **The binary side cannot copy that**, and copying it would produce a
+recovery API weaker than the thing it mirrors: `AssetData::binary` is populated by two sites and
+cleared by roughly ten, so an expired asset very often retains its *value* and no bytes at all —
+anything installed via `set_state`/`set_value`, a keyless query asset, a `NonSerializable` persist.
+A recovery read that returned `None` there would fail in exactly the case the caller most needs it,
+since the escape hatch for a stale-dependency completion is the whole reason the API exists.
+
+So the `get_`/`poll_` distinction, which is vacuous on the state side, is load-bearing on the binary
+side: **`get_binary_any_status` serializes on demand from retained expired data; `poll_binary_any_status`
+does not.** That is the same relationship `get_binary` and `poll_binary` already have for `Value`,
+applied to `Expired` — the symmetry rule taken seriously rather than transcribed. It is also what
+closes the originating issue's verification item 4, which asks for consistency "for both cached
+binary data and binary data produced by serializing an in-memory value".
+
+Because serialization can fail, `AssetRef::get_binary_any_status` returns
+`Result<Option<_>, Error>` rather than `Option<_>` — matching the manager-level signature, and
+distinguishing "nothing retained" from "retained but not serializable".
+
 ### Expiry is an error
 
 Where a binary read cannot hide expiry behind `None` — that is, in the `Result`-returning methods —
@@ -83,6 +104,23 @@ which would block indefinitely because `poll_state` reports `None` for `Expired`
 notification is coming. This matches `get()`'s existing treatment of expiry observed *while
 waiting*, and it is what makes the gate on `poll_binary` safe to add: the stale-bytes bug converts
 into a prompt error rather than a hang.
+
+**`Expired` is treated uniformly, and that is a decision rather than an oversight.** A second,
+unrelated path also produces `Expired`: `finish_run_with_result` relabels a *successfully completed*
+asset when its evaluation consumed a stale dependency, marking a fresh result as not-to-be-cached.
+That rule exists because a long, expensive calculation can outlive the validity of its own inputs;
+restarting risks an unbounded loop, and failing outright can make the result unachievable.
+
+The design nonetheless gives both paths the same reads. Such an asset **is** expired — the only
+difference is that it was never `Ready`. Whether a technically-expired result is acceptable is a
+judgement only the caller can make, so the caller must make it **explicitly**: by promoting the
+asset with `to_override()`, or by reading through the `*_any_status` family. Neither is reachable
+by accident, which is the property that matters.
+
+This has a consequence the design owns rather than hides: a caller that today receives bytes for a
+stale-dependency completion will receive an error instead. That is recorded as an accepted
+regression in Phase 2 §Backward Compatibility and tested, and it is why the recovery API must work
+even when no bytes were ever cached (Phase 2 §"Recovery must not depend on a cached binary").
 
 The same answer governs the HTTP layer: `liquers-axum` surfaces an expired asset as an error
 response. It does **not** re-request from the manager — re-evaluation is a property of *requesting*
@@ -101,7 +139,11 @@ true by construction: its handler treats a successful `get_binary` under `Status
 ## Core Interactions
 
 ### Query System
-No interaction. No query syntax, parsing or planning changes.
+No syntax, parsing or planning changes — **but the query language is a consumer.**
+`Step::GetAssetBinary` (`interpreter.rs:293-299`), emitted by the plan builder (`plan.rs:1102`) for
+a binary resource fetch, calls `AssetRef::get_binary` and is therefore affected by the gate. An
+earlier draft of this design asserted there were no consumers outside `liquers-axum`; that was
+wrong. See Phase 2 §Integration Points.
 
 ### Store System
 `AssetRef::save_to_store` (`:1944`) obtains bytes via `poll_binary()` and falls back to

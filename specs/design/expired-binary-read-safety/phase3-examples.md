@@ -31,6 +31,9 @@ signatures so Phase 4 can land them rather than rewrite them.
 | I2 | End-to-end expiry | Real evaluation → expiry → matrix behaviour | integration, `expiration_integration.rs` |
 | I3 | Manager re-request still rebuilds | `Expired` remains a cache miss at the request boundary | integration, `expiration_integration.rs` |
 | I4 | Fast-track after expiry | An evicted+expired keyed asset does not fast-track stale bytes back | integration, `expiration_integration.rs` |
+| I5 | Stale-dependency completion | The **accepted regression**: a successful evaluation relabelled `Expired` serves no bytes, and `to_override()` / `*_any_status` recover it | integration, `expiration_integration.rs` |
+| I6 | `Step::GetAssetBinary` matches `Step::GetAsset` | The query-language binary fetch does not fail where the state fetch succeeds | integration, `expiration_integration.rs` |
+| U11 | Recovery without cached bytes | `get_binary_any_status` serializes on demand when `binary` is absent but `data` is retained — closes issue verification item 4 | unit, `assets.rs` |
 
 ## Verified Setup Facts
 
@@ -424,6 +427,46 @@ hang the suite rather than fail it.
 serialize through `serialize_to_binary` and return bytes. This guards against over-reading the gate
 as "binary required".
 
+**U11 is U10's `Expired` twin, and the suite's blind spot until now.** Every other test here reaches
+`Expired` through `try_fast_track`, which *always* populates `binary` — so nothing would notice if
+`get_binary_any_status` only ever returned cached bytes. Build the asset the other way: retained
+`data`, `binary = None`, `status = Expired`.
+
+```rust
+#[tokio::test]
+async fn test_binary_recovery_serializes_when_nothing_cached()
+    -> Result<(), Box<dyn std::error::Error>> {
+    let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    let envref = env.to_ref();
+    let key = parse_key("retained_no_bytes.txt")?;
+
+    let mut d = AssetData::<SimpleEnvironment<Value>>::new(9301, key.into(), envref);
+    d.data = Some(Arc::new(Value::from("recoverable")));
+    d.binary = None;                    // never serialized — the common case
+    d.status = Status::Expired;
+    let assetref = d.to_ref();
+
+    // The poll-level recovery honestly reports "no bytes cached".
+    assert!(assetref.poll_binary_any_status().await.is_none());
+
+    // The get-level recovery materialises them.
+    let (bytes, _) = assetref
+        .get_binary_any_status()
+        .await?
+        .ok_or("retained expired data must be recoverable as binary")?;
+    assert_eq!(bytes.as_ref().as_slice(), b"recoverable");
+
+    // And the state twin agrees — the two recovery paths must not disagree
+    // about whether anything is there.
+    assert!(assetref.poll_state_any_status().await.is_some());
+    Ok(())
+}
+```
+
+The last assertion is the point: state recovery and binary recovery must agree on *existence*. A
+design where `get_any_status` returns the value and `get_binary_any_status` returns `None` for the
+same asset is the asymmetry this whole design set out to remove.
+
 ### On test bodies
 
 Phase 3 fixes *what each test pins down* and the setup that makes it reachable; Phase 4 writes the
@@ -444,6 +487,24 @@ still reach the store. Because `set_state` is `pub(crate)`, this is an in-file t
 with a call-counting command: evaluate, expire, request again, assert the count incremented and the
 bytes are fresh. Without this, the fix could silently convert "expired → recompute" into
 "expired → error" at the request boundary, which would be a serious regression.
+
+**I5 — the accepted regression, tested rather than discovered.** Register a command with a short
+`expires:`, make a second asset depend on it, and arrange for the dependency to expire *during* the
+dependent's evaluation. `finish_run_with_result` relabels the dependent `Ready`→`Expired` after
+persistence, so it holds cached bytes. Assert:
+
+1. `poll_binary` / `get_binary` do **not** serve those bytes — the accepted regression.
+2. `get_binary_any_status` **does** — the sanctioned escape hatch works.
+3. `to_override()` promotes it to `Status::Override`, after which the normal reads serve it — the
+   other sanctioned escape hatch, and the one a user reaches for when they judge the result good.
+
+Point 3 is what makes the regression acceptable rather than merely accepted; if it fails, the
+design has taken something away without giving the replacement.
+
+**I6 — the query language agrees with itself.** Evaluate the same expired key through
+`Step::GetAsset` and `Step::GetAssetBinary` and assert they agree: either both yield, or both fail.
+Today the binary step re-reads the asset independently of the dependency resolution it just
+performed, so it can fail where the state step succeeds.
 
 **I4 — fast-track after expiry.** `mark_expired_status` persists `Expired` to the store precisely
 so an evicted asset cannot fast-track stale bytes back (the gap PR #11 found late). Since

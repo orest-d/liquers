@@ -21,19 +21,19 @@ consumers, and one step (Step 3) can regress persistence if its two parts are sp
 additive and change no behaviour; Step 3 is the first behavioural change, and its two parts are one
 commit.
 
-**One honest caveat about "working tree":** between Step 3 and Step 7, the build is green and
+**One honest caveat about "working tree":** between Step 3 and Step 8, the build is green and
 `liquers-core` is correct, but `liquers-axum` is *behaviourally* degraded — its handlers treat the
 now-gated `Expired` as "still processing" and spin to the 30-second timeout instead of returning
 stale bytes. Compiling and passing tests is not the same as behaving correctly here, because the
-handler gap is exactly what no test covers (Step 8). **Do not ship a release cut between Step 3 and
-Step 7.** Land them in one PR.
+handler gap is exactly what no test covers (Step 9). **Do not ship a release cut between Step 3 and
+Step 8.** Land them in one PR.
 
 ---
 
 ## Implementation Steps
 
-Ten steps. Steps 1–6 are `liquers-core`, Step 7 is the `liquers-axum` consumer, Steps 8–10 are
-decision, documentation and close-out.
+Eleven steps. Steps 1–7 are `liquers-core` (Step 7 being its query-language consumer), Step 8 is
+the `liquers-axum` consumer, Steps 9–11 are decision, documentation and close-out.
 
 ### Step 1 — Add `ReadExposure` and `Status::read_exposure()`
 
@@ -210,11 +210,11 @@ cargo check -p liquers-py   # trait change: confirm no downstream implementor br
 
 ---
 
-### Step 5 — Core tests (Examples 1–3, U4–U10, I1)
+### Step 5 — Core tests (Examples 1–3, U4–U11, I1)
 
 **File:** `liquers-core/src/assets.rs` (`mod tests`, `:5472`, `use super::*` at `:5480`)
 
-**Action:** land Examples 1–3 and U4–U10 + I1 from Phase 3. **Read Phase 3 §Verified Setup Facts
+**Action:** land Examples 1–3 and U4–U11 + I1 from Phase 3. **Read Phase 3 §Verified Setup Facts
 first** — it is the binding list, and the drafting pass invented APIs repeatedly. The essentials,
 restated here so this step is self-contained:
 
@@ -250,14 +250,19 @@ model that will check APIs rather than assume them.
 
 ---
 
-### Step 6 — Integration tests (I2–I4)
+### Step 6 — Integration tests (I2–I6)
 
 **File:** `liquers-core/tests/expiration_integration.rs`
 
 **Action:** I2 end-to-end expiry; I3 manager re-request still rebuilds (call-counting command); I4
-fast-track after expiry does not resurrect stale bytes. I3 is the important one — it proves manager
-routing is unchanged and that the fix has not converted "expired → recompute" into "expired →
-error" at the request boundary.
+fast-track after expiry does not resurrect stale bytes; **I5 the accepted stale-dependency
+regression**; **I6 `Step::GetAssetBinary` agrees with `Step::GetAsset`**.
+
+I3 proves manager routing is unchanged — that the fix has not converted "expired → recompute" into
+"expired → error" at the request boundary. **I5 is the one that earns the design its decision**: it
+must show not only that the bytes are withheld, but that `to_override()` and `get_binary_any_status`
+both recover them. A regression is acceptable only if the replacement demonstrably works. I6 must
+land *after* Step 7, which is what makes it pass.
 
 **Validation:**
 ```bash
@@ -272,7 +277,33 @@ cargo test -p liquers-core --test manager_parametric
 
 ---
 
-### Step 7 — `liquers-axum` consumer fix
+### Step 7 — `liquers-core` query-language consumer fix
+
+**File:** `liquers-core/src/interpreter.rs`
+
+**Action:** `Step::GetAssetBinary` (`:293-299`) resolves the dependency, **discards the state
+`wait_for_dependency` returns**, then re-reads via `asset.get_binary()`. Under the gate that second
+read can fail where the neighbouring `Step::GetAsset` (`:288-292`) succeeds on the same key.
+
+Take the bytes from the state already returned (`state.as_bytes()`) instead of issuing a second,
+independently-gated read. Both steps then honour one dependency contract.
+
+This step exists because Phase 2 originally asserted `liquers-axum` was the only consumer in the
+workspace. It was wrong, and this consumer sits in the query language.
+
+**Validation:**
+```bash
+cargo test -p liquers-core --lib --test expiration_integration
+```
+
+**Rollback:** `git checkout liquers-core/src/interpreter.rs`
+
+**Agent:** sonnet · skills: `rust-best-practices` · knowledge: `interpreter.rs:280-305`,
+`wait_for_dependency` (`assets.rs:4020-4090`), Phase 2 §Integration Points.
+
+---
+
+### Step 8 — `liquers-axum` consumer fix
 
 **File:** `liquers-axum/src/query/handlers.rs`
 
@@ -306,7 +337,7 @@ cargo test -p liquers-axum
 
 ---
 
-### Step 8 — The axum test-coverage decision
+### Step 9 — The axum test-coverage decision
 
 **Carried from Phase 3 as an explicit choice, not a default.** `liquers-axum` has no handler test
 scaffolding, and Step 7 sits over the layer where the bug actually bites.
@@ -326,7 +357,7 @@ gain.
 
 ---
 
-### Step 9 — Documentation
+### Step 10 — Documentation
 
 **Files:** `liquers-core/src/assets.rs` module docs (`:100-116`), `specs/reference/ASSETS.md`
 
@@ -339,7 +370,14 @@ gain.
    under `## Status Enum` carrying the Behaviour Matrix and the `ReadExposure` classification.
    `### Status Properties` also tabulates per-status predicates and should gain a `read_exposure`
    column so the two do not disagree.
-3. `ASSETS.md` requires a `## History` row (the table exists at `:751`) and a `reviewed:` bump
+3. **`ASSETS.md` §Terminal Outcome Contract → Accessors (`:676` ff.) must be amended.** It currently
+   states that `AssetRef::get` returns `Ok(state)` for *any* obtained terminal outcome and that
+   "`Err` is reserved for delivery failures". `Expired` is terminal (`is_finished()` is true) and
+   its state *is* obtainable via `poll_state_any_status` — so option A redefines what `Err` means
+   there. Record the new rule explicitly: `Err` now covers delivery failure **or** a status whose
+   data requires explicit opt-in. Leaving this section untouched would ship a reference that
+   contradicts itself.
+4. `ASSETS.md` requires a `## History` row (the table exists at `:751`) and a `reviewed:` bump
    **in the same commit** (`DOCS_STRUCTURE_GUIDE.md` §9.2).
 
 **Validation:**
@@ -351,10 +389,11 @@ python3 scripts/docs_index.py --check
 
 ---
 
-### Step 10 — Close out
+### Step 11 — Close out
 
 **Action:**
-1. `specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md` → `status: complete`, noting that the
+1. `specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md` → `status: closed` (the terminal local value;
+   `complete` is not in the issue vocabulary — `DOCS_STRUCTURE_GUIDE.md` §4.3), noting that the
    "needs verification against PR #11" caveat was resolved (the bug *was* still live) and that the
    fix went wider than the issue described — the gate covers all non-`Value` statuses, not only
    `Expired`.
@@ -380,10 +419,11 @@ not how long it is.
 | 4 | haiku | rust-best-practices | Mirrors `get_any_status` minus one call |
 | 5 | **sonnet** | liquers-unittest, rust-best-practices | Setup is the hard part; the drafting pass got it wrong repeatedly, so this needs a model that verifies APIs rather than assuming them |
 | 6 | sonnet | liquers-unittest | Integration setup with recipes and managers |
-| 7 | sonnet | rust-best-practices | Fifteen explicit arms plus a behaviour decision per status |
-| 8 | sonnet if (a), none if (b) | — | Filing an issue needs no agent |
-| 9 | haiku | — | Mechanical, against a matrix that already exists |
-| 10 | haiku | — | Follows `DOCS_STRUCTURE_GUIDE.md` §4.8/§5.5/§8.1 |
+| 7 | sonnet | rust-best-practices | Must reconcile the binary step with the dependency contract, not just swap a call |
+| 8 | sonnet | rust-best-practices | Fifteen explicit arms plus a behaviour decision per status |
+| 9 | sonnet if (a), none if (b) | — | Filing an issue needs no agent |
+| 10 | haiku | — | Mechanical, against a matrix that already exists |
+| 11 | haiku | — | Follows `DOCS_STRUCTURE_GUIDE.md` §4.8/§5.5/§8.1 |
 
 Every agent needs `CLAUDE.md`'s hard rules in context: no `unwrap`/`expect` in library code, no
 `_ =>` on Liquers enums, typed error constructors only, `eprintln!` never `println!`.
@@ -397,7 +437,8 @@ Every agent needs `CLAUDE.md`'s hard rules in context: no `unwrap`/`expect` in l
 | After Step 4 | `cargo check -p liquers-py` | trait default breaks no downstream implementor |
 | After Step 5 | `cargo test -p liquers-core --lib` | new contract holds |
 | After Step 6 | `cargo test -p liquers-core --lib --test expiration_integration --test manager_parametric` | routing + persistence unchanged, unit tests still green |
-| After Step 7 | `cargo check -p liquers-axum` + `cargo test -p liquers-axum` | consumer compiles; handler behaviour **not** covered (Step 8) |
+| After Step 7 | `cargo test -p liquers-core --lib --test expiration_integration` | I6 passes: the two query steps agree |
+| After Step 8 | `cargo check -p liquers-axum` + `cargo test -p liquers-axum` | consumer compiles; handler behaviour **not** covered (Step 9) |
 | **Final** | **`cargo test -p liquers-core`** | **every test this design adds** |
 | Final, project | `cargo test -p liquers-lib --lib --tests` | the project's default loop (per `CLAUDE.md`) — a regression check on dependents, *not* on this feature |
 
@@ -421,7 +462,7 @@ step selectively.
 
 | Scope | Action |
 |---|---|
-| A step whose file is untouched by later landed steps (1, 2, 6, 7) | `git checkout <file>` |
+| A step whose file is untouched by later landed steps (1, 2, 6, 7, 8) | `git checkout <file>` |
 | Steps 3, 4, 5 (all in `assets.rs`) | `git revert <commit>` for the specific step — **not** `git checkout` |
 | Step 3 | Revert as one commit. Parts A and B cannot be separated; splitting them opens the persistence window described in Part B. |
 | Whole feature | Revert to before Step 1. Steps 1–2 are additive and safe to leave in place if only the behavioural change needs backing out — the classifier is dead code without Step 3. |
@@ -435,17 +476,28 @@ contracts, which is worse than shipping the fix.
 |---|---|---|
 | `poll_state` refactor silently changes state reads | Medium | U4 asserts behaviour class for all 15 statuses; Step 3 gate treats a failing existing test as a defect |
 | Persistence breaks for non-`Value` statuses | Medium | Step 3's parts land as one commit; I1 is the regression test. **Note Part A's own validation would pass while this is broken** — I1 does not exist until Step 5, which is why the parts are not separate steps |
-| Axum handlers hang instead of erroring | High if Step 7 skipped | Step 7 is mandatory, not optional; and no test catches it, so review is the only gate. Do not cut a release between Steps 3 and 7 |
+| Axum handlers hang instead of erroring | High if Step 8 skipped | Step 8 is mandatory, not optional; and no test catches it, so review is the only gate. Do not cut a release between Steps 3 and 8 |
+| Stale-dependency completions start erroring (accepted regression) | **Certain — it is the decision** | I5 proves both escape hatches (`to_override`, `get_binary_any_status`) work. Recorded in Phase 2 §Backward Compatibility, not discovered in production |
+| Recovery unavailable when no bytes were cached | Medium | `get_binary_any_status` serializes on demand; U11 tests the case every other test's setup hides |
 | `Cancelled` error wording diverges from `Error` | Low | U8 asserts error *identity*, not just failure |
 | A future `Status` variant lands in the wrong bucket | Low | U2's exhaustive match makes it a compile error |
 
 ## Open Items Carried Forward
 
-1. **Step 8's decision** — recommendation (b): accept review-only verification and file
+1. **Step 9's decision** — recommendation (b): accept review-only verification and file
    `AXUM-HANDLER-TEST-COVERAGE`. Stated as a recommendation because it trades coverage for scope;
    confirm it at execution time rather than treating it as settled.
-2. `EXPIRATION-RECOVERY-WEB-API` may want to grow to cover `get_binary_any_status`. Affects that
-   issue's scope, not this design's code.
+2. `EXPIRATION-RECOVERY-WEB-API` may want to grow to cover `get_binary_any_status` — now more
+   pressing, since `to_override` / `*_any_status` are the sanctioned recovery for the accepted
+   regression, and neither is reachable over HTTP today. Affects that issue's scope, not this
+   design's code.
+4. **Is `ReadExposure` public API?** Phase 2 specifies `pub`. `pub(crate)` gives the identical
+   compile-time exhaustiveness guarantee without a permanent API commitment made in service of an
+   internal refactor. Decide deliberately at execution time rather than inheriting the default.
+5. `DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE` (P1, filed) is pre-existing and out of scope, but
+   it lives in the code this design builds on and its fix interacts with I5's setup — a dependency
+   that expires mid-flight currently always fails its dependent, which may make I5 harder to
+   construct than it looks.
 3. Phase 3 named two things as untestable — `try_poll_binary` lock contention and the exact
    interleaving of expiry with an in-flight read. Both are pre-existing and unchanged by this work;
    recorded so nobody mistakes their absence for an oversight.

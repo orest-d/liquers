@@ -19,7 +19,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [ ] Phase 4: Implementation Plan (**blocked** — see cross-phase review below)
+- [ ] Phase 4: Implementation Plan (revised after cross-phase review; awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
@@ -108,6 +108,30 @@ never serialized (`binary` is populated by two sites and cleared by ten), so the
 weaker than its state twin — leaving the originating issue's verification item 4 unclosed; and
 `AssetRef::get` returning `Err` for a terminal-but-obtainable status contradicts `ASSETS.md`
 §Terminal Outcome Contract, which reserves `Err` for delivery failures.
+
+### Resolution (user, at the cross-phase gate)
+
+**Option 2 — accept the regression.** Rationale, recorded because it is the load-bearing judgement
+of the whole design: mid-flight dependency expiry ideally causes a restart or an error, but a
+restart can loop unboundedly and an error can make an expensive result unachievable — which is why
+the relabel rule exists at all. A user may well judge such a result acceptable. But that judgement
+is theirs, so they must make it **explicitly**: `to_override()`, or a `*_any_status` read. Absent
+that, the asset is simply expired and no different from any other expired asset; the only
+distinction is that it was never `Ready`.
+
+Revisions applied across all four phases:
+- Phase 1 §"Expiry is an error" gains the uniformity decision and its rationale.
+- Phase 2 §Backward Compatibility states the regression; §Integration Points now names
+  `interpreter.rs`, `liquers-axum/src/assets/handlers.rs` and `liquers-web` (the last two are
+  `get()` consumers that entered scope at the Phase 3 gate, after the original audit).
+- **`get_binary_any_status` is no longer an alias**: it serializes on demand, because the sanctioned
+  escape hatch must work for an expired asset that retains a value but was never serialized — the
+  common case, and the one every Phase 3 setup was blind to. This also closes the originating
+  issue's verification item 4. Its return type becomes `Result<Option<_>, Error>`.
+- Phase 3 adds I5 (the regression, including that `to_override` recovers it), I6 (the two query
+  steps agree) and U11 (recovery with no cached bytes).
+- Phase 4 adds Step 7 for `interpreter.rs` and amends `ASSETS.md` §Terminal Outcome Contract, which
+  option A contradicts.
 
 **Filed separately:** `DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE` (P1) — `wait_for_dependency`'s
 stale-value branch is dead code since PR #11 gated `poll_state`, the same defect class this design

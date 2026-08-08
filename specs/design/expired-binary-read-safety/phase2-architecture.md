@@ -8,8 +8,10 @@ they cannot drift apart again — which is the structural form of Phase 1's symm
 `*_binary` methods are added, four existing ones are brought under the classifier, and
 `AssetRef::get`/`get_binary` gain a pre-wait expiry check.
 
-No new dependencies, no new value types, no query or command changes. All work lands in
-`liquers-core` (`metadata.rs`, `assets.rs`) plus a consumer fix in `liquers-axum`.
+No new dependencies, no new value types, no command changes. Work lands in `liquers-core`
+(`metadata.rs`, `assets.rs`, and a consumer fix in `interpreter.rs`) plus consumer fixes in
+`liquers-axum`. The query *language* is unchanged in syntax but is a consumer, via
+`Step::GetAssetBinary`.
 
 ## Data Structures
 
@@ -137,11 +139,24 @@ impl<E: Environment> AssetRef<E> {
     /// NEW. Twin of `poll_state_any_status`.
     pub async fn poll_binary_any_status(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)>;
 
-    /// NEW. Twin of `get_any_status`; alias for `poll_binary_any_status`,
-    /// matching how `get_any_status` aliases `poll_state_any_status`.
-    pub async fn get_binary_any_status(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)>;
+    /// NEW. Twin of `get_any_status`, but **not** an alias for
+    /// `poll_binary_any_status`: it serializes on demand from retained expired
+    /// data when no binary is cached, exactly as `get_binary` does for `Value`.
+    /// `Ok(None)` means nothing is retained; `Err` means retained but not
+    /// serializable. See Phase 1 §"Recovery must not depend on a cached binary".
+    pub async fn get_binary_any_status(
+        &self,
+    ) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error>;
 }
 ```
+
+**Why `get_binary_any_status` is not an alias.** On the state side `get_any_status` aliases
+`poll_state_any_status`, because a retained value needs no materialising. The binary side has no
+such luxury: `AssetData::binary` is set at two sites (`:679`, `:2017`) and cleared at roughly ten
+(`:617`, `:853`, `:985`, `:1598`, `:1887`, `:2165`, `:2477`, `:2519`, `:2568`, `:3007`, `:4561`), so
+an expired asset commonly retains `data` and no bytes. A strict alias would return `None` there,
+making recovery unavailable in precisely the case that motivates it. The `get_`/`poll_` distinction
+is vacuous on the state side and load-bearing here.
 
 **No `try_poll_binary_any_status`.** The state side has no `try_poll_state_any_status`, and
 symmetry is the rule being applied — adding one would break it in the other direction.
@@ -203,6 +218,7 @@ The contract, stated once. Every cell is derived from `ReadExposure`.
 | `get` | `Ok(value state)` | `Ok(metadata-only)` | **`Err`** | waits |
 | `poll_binary` | `Some(bytes)` if cached | `None` | `None` | `None` |
 | `poll_binary_any_status` | `Some(bytes)` if cached | `None` | `Some(bytes)` if cached | `None` |
+| `get_binary_any_status` | `Ok(Some(bytes))`, serializing if needed | `Ok(None)` | `Ok(Some(bytes))`, **serializing if needed** | `Ok(None)` |
 | `try_poll_binary` | as `poll_binary`, `None` if lock busy | | | |
 | `get_binary` | `Ok(bytes)`, serializing if needed | **`Err`** | **`Err`** | waits, then as `Value` |
 
@@ -271,8 +287,41 @@ Two polling loops (`:61`, `:175`). Each must:
    a 30-second hang instead of stale bytes.
 3. Return an error response for `Expired`, per Phase 1 — not a re-request from the manager.
 
-This is the only consumer change in the workspace. `liquers-py`'s `get_binary` is the unrelated
-`Cache` trait; `liquers-web` does not use these methods.
+### `liquers-core/src/interpreter.rs` — the query-language consumer
+
+`Step::GetAssetBinary` (`:293-299`) calls `AssetRef::get_binary`. An earlier draft of this document
+claimed `liquers-axum` was the only consumer in the workspace; **that was wrong**, and this one is
+more consequential because it sits in the query language itself.
+
+Its current shape is the real problem:
+
+```rust
+Step::GetAssetBinary(key) => {
+    let asset = context.schedule_dependency_asset(&key.into()).await?;
+    context.wait_for_dependency(&asset).await?;   // ← state returned, then DISCARDED
+    let (binary, _metadata) = asset.get_binary().await?;
+```
+
+It resolves the dependency, **throws away the state that resolution returned**, and re-reads the
+asset independently. Its neighbour `Step::GetAsset` (`:288-292`) does not: it uses
+`get_dependency_state`'s result directly. So under the gate `GetAssetBinary` would fail where
+`GetAsset` on the same key succeeds — a fresh asymmetry, introduced by the change meant to remove
+asymmetries.
+
+**Fix:** take the bytes from the state `wait_for_dependency` already returned
+(`state.as_bytes()`), rather than issuing a second, independently-gated read. Both steps then
+honour the same dependency contract, and the binary step inherits whatever staleness policy the
+state step has.
+
+`liquers-py`'s `get_binary` is the unrelated `Cache` trait. `liquers-web` uses `AssetRef::get`
+(`src/asset.rs:172`, `src/eval.rs:46`) — unaffected in signature, but its behaviour changes with
+the `get()` decision, and it is **not built by any command in Phase 4's testing plan** (it is
+wasm32-only and excluded from `default-members`).
+
+### `liquers-axum/src/assets/handlers.rs`
+
+Also calls `AssetRef::get` (`:52`, `:230`). In scope for the `get()` change, which entered this
+design at the Phase 3 gate — after the original consumer audit was done.
 
 ### Documentation
 `specs/reference/ASSETS.md` §"Status and reads" gains the behaviour matrix; the read-method table
@@ -298,8 +347,24 @@ Four behaviour changes are visible to existing callers, all deliberate:
 3. `get` returns `Err` for an already-`Expired` asset rather than blocking forever.
 4. `AssetManager` gains a method — source-compatible for implementors via the default body.
 
-No public type is removed or renamed; no signature changes. `liquers-py` compiles unaffected (it
-implements neither `AssetManager` nor calls these methods).
+No public type is removed or renamed. `liquers-py` compiles unaffected (it implements neither
+`AssetManager` nor calls these methods).
+
+### Accepted regression: stale-dependency completions
+
+`finish_run_with_result` (`:1618-1631`) relabels a **successfully completed** asset from `Ready` to
+`Expired` when its evaluation consumed a stale dependency — after persistence has run, so the asset
+holds cached bytes. Today such an asset serves those bytes through `poll_binary`; after this change
+it does not, and `liquers-axum` returns an error response instead of a 200.
+
+**This is accepted deliberately** (user decision). Such an asset *is* expired; the only difference
+from any other expired asset is that it was never `Ready`. Whether a technically-expired result is
+acceptable is the caller's judgement, and the caller must make it explicitly — via `to_override()`
+or the `*_any_status` family. See Phase 1 §"Expiry is an error".
+
+Two obligations follow, both discharged elsewhere in this design: the recovery API must work when no
+bytes were ever cached (§"Why `get_binary_any_status` is not an alias"), and the regression must be
+tested rather than discovered (Phase 3 I5).
 
 ## Open Questions
 
