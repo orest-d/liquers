@@ -567,9 +567,43 @@ For `kind: reference` and `kind: guide`, `status` carries the review state rathe
 `current` while `reviewed` is within 92 days, `overdue` beyond it. It is computed, never written —
 which is why those documents have no `status` in their front-matter.
 
-Rows are sorted by `id`, ascending, always. Columns are never padded for alignment. Both rules
-exist so that a regeneration touches only the rows that actually changed — otherwise this file
-becomes the merge-conflict magnet that the old single `ISSUES.md` was.
+### 6.1 Row order
+
+**Live work first, finished work last.** GitHub renders this file as a table with no default
+sort, so whatever order it is written in is the order everyone reads. Row 2 should therefore be
+the thing most worth picking up, and the settled record — every `complete` design, every closed
+issue — belongs below it. Finished means `closed`, `closed_not_planned`, `rejected` or
+`duplicate` for an issue and `complete`, `superseded` or `abandoned` for a design; an **empty**
+status is never finished, since on a GitHub-owned row it means "not synced yet".
+
+Within each half, by `kind`: **issues, then designs, then guides, then reference documents** —
+open questions above the answers. `kind: feature` sorts with the issues; it is an issue whose
+problem is an absence.
+
+Then the rank each kind actually has:
+
+| Kind | Ordered by |
+|---|---|
+| `issue`, `feature` | `priority` ascending, then `complexity` **smallest first** — the top of the file is the most urgent thing that is also the least work. A missing value sorts last rather than first, so an unranked issue cannot squat at the top. |
+| `design` | Nothing. Designs carry no `priority` or `complexity` (§5.1). |
+| `guide`, `reference` | `overdue` above `current`, so a document owed a review is the one you see. |
+
+`id` breaks every remaining tie. Columns are never padded for alignment.
+
+Ordering on `id` alone would be more stable, and stability is why it was the original rule: a
+regeneration should touch only the rows that actually changed, rather than making this file the
+merge-conflict magnet the old single `ISSUES.md` was. Sorting on status trades a little of that
+away — closing an issue now moves its row as well as changing it, and a reference document
+crossing the 92-day line moves without anyone editing it. The trade is worth it because the sort
+fields are few and slow-moving, the move is bounded (a row travels within its own kind's block,
+or to the bottom once), and the whole point of the file is to be read top-down. Every field the
+sort reads is derived from front-matter, so two runs over the same tree still produce identical
+bytes — check 7 depends on that and is unaffected.
+
+`scripts/docs_index.py` implements this in `sort_key`, one function, so the order is described in
+exactly two places: there and here.
+
+### 6.2 What the file deliberately lacks
 
 **There is no `synced_at` column.** It would change on every run and dirty the tree on every sync.
 Staleness is already recoverable: `git log -1 --format=%cd specs/index.csv`.
@@ -711,9 +745,12 @@ stage matches the directory the link points into, so the two cannot contradict e
    entries read as its roadmap.
 4. Generated block `issues`: **open P0/P1 issues** attached to live design work — every item that
    is not `closed`, `closed_not_planned`, `rejected` or `duplicate`, has a non-empty `design`, and
-   is `P0` or `P1`. Closed items drop out automatically.
+   is `P0` or `P1`. Closed items drop out automatically. Rows keep §6.1 order — P0 above P1,
+   smallest complexity first — so the table reads as a queue rather than as an alphabet.
 5. Generated block `unplaced`: **not yet placed** (§8.4).
-6. Generated block `guides`: each file in `guides/` with its H1 and first sentence.
+6. Generated block `guides`: each file in `guides/` with its H1 and first sentence, **by name**.
+   This one is a way in, not a queue — §6.1's order would sort it by review debt, which is not
+   how anyone looks for a guide.
 
 Generated blocks are delimited by `<!-- BEGIN generated: <name> -->` and
 `<!-- END generated: <name> -->`. `docs_index.py` rewrites only what is between the markers and
