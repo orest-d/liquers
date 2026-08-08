@@ -106,12 +106,17 @@ impl<E: Environment> AssetData<E> {
 `binary_unchecked` follows the naming precedent of `State::data_unchecked()` — "you are bypassing a
 guard, say so at the call site". Its sole caller is `AssetRef::save_to_store`.
 
-**Why it is needed even though today's call sites are safe.** At every
-`persist_with_status_tracking` call site, `try_to_set_ready()` has already run (`assets.rs:1853`,
-with a comment saying persistence depends on it), so status is `Value`-exposure and the gated
-`poll_binary` would work by luck. The separation is semantic, not defensive: writing bytes to the
-store is not a read of the asset's exposed value, and coupling persistence to the read gate would
-mean a future gate change silently changes what gets persisted.
+**Why it is needed.** The main evaluation path is safe by construction: `try_to_set_ready()` runs
+before `persist_with_status_tracking` (`assets.rs:1853`, with a comment saying persistence depends
+on it), so status is `Value`-exposure there. **But that is not true of every path.**
+`AssetRef::set_state` (`:2506`) persists at `:2548` with whatever status the supplied state
+carries — its own `else` branch logs `"set_state called with non-ready state"` (`:2542`), so a
+non-`Value` status is an anticipated case, and it is reachable in production through
+`Context::set_state` (`context.rs:789`), not only from tests.
+
+So the read gate and the persistence path must be decoupled on correctness grounds, not merely
+tidiness: writing bytes to the store is not a read of the asset's exposed value. Coupling them
+would let a future change to the gate silently change what gets persisted.
 
 ### `AssetRef` (`liquers-core/src/assets.rs`)
 
@@ -176,8 +181,11 @@ and any downstream implementor, for no gain — the default is expressible from 
 counterpart returns after the `store.get` and skips deserialization entirely — no `E::Value`
 round-trip, so it also works for a stored type this build cannot deserialize.
 
-**Object safety** is preserved: no generic method parameters, no `Self` by value. `AssetManager` is
-used as `dyn` via `EnvRef::get_asset_manager`, so this matters.
+**Object safety** is preserved — no generic method parameters, no `Self` by value — though it is
+not currently a binding constraint: `AssetManager` is reached through the associated type
+`Arc<E::AssetManager>` (`context.rs:176`, `:250`), and there is no `dyn AssetManager` anywhere in
+the workspace. The trait carries `#[async_trait]` (`assets.rs:2650`), which boxes the returned
+futures and so keeps object safety *available*; the added method does nothing to forfeit it.
 
 **Implementors:** `DefaultAssetManager` and `ImmediateAssetManager` both inherit the default and
 need no code. Neither overrides `get_any_status` today, so neither has a reason to override its
@@ -257,9 +265,10 @@ checks in `get`/`get_binary`; point `save_to_store` (`:1944`) at `binary_uncheck
 ### `liquers-axum/src/query/handlers.rs`
 Two polling loops (`:61`, `:175`). Each must:
 1. Keep using `poll_binary` — now correctly gated.
-2. Replace the `_ =>` catch-all status arm (`:107`) with explicit arms, per the project's
-   no-default-match-arm rule. The catch-all currently swallows `Expired` as "still processing",
-   which after the gate becomes a 30-second hang instead of stale bytes.
+2. Replace the `_ =>` catch-all status arm — `:109` in the GET loop, `:216` in the POST loop (the
+   latter an empty `_ => {}`) — with explicit arms, per the project's no-default-match-arm rule.
+   The catch-all currently swallows `Expired` as "still processing", which after the gate becomes
+   a 30-second hang instead of stale bytes.
 3. Return an error response for `Expired`, per Phase 1 — not a re-request from the manager.
 
 This is the only consumer change in the workspace. `liquers-py`'s `get_binary` is the unrelated

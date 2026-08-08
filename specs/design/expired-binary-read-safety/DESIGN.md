@@ -49,6 +49,22 @@ error response; it does not re-request from the manager). Recorded as Phase 1 §
 All four original open questions are now closed; the one live question is whether `AssetRef::get()`
 owes itself the same pre-wait check — recommended yes, since it hangs identically today.
 
+**Phase 2 multi-agent review.** Reviewer A (Phase 1 conformity) — clean: all eight rows of the
+symmetry table accounted for, every Phase 1 decision honoured, `ReadExposure` judged an
+implementation of the symmetry rule rather than scope creep. Reviewer B (codebase alignment) —
+three findings, all verified against source and applied:
+1. Axum catch-all arms are at `handlers.rs:109` (GET) and `:216` (POST), not `:107`.
+2. `AssetManager` is reached via the associated type `Arc<E::AssetManager>`; there is no
+   `dyn AssetManager` in the workspace, so the object-safety claim was misjustified (corrected —
+   object safety is preserved but is not a binding constraint).
+3. The "status is always `Value`-exposure at persist time" claim was too strong.
+   `AssetRef::set_state` persists with whatever status the supplied state carries, reachable in
+   production via `Context::set_state`. This upgrades `binary_unchecked` from a semantic nicety to
+   a correctness requirement.
+Reviewer B verified clean: signatures, the 15-variant `ReadExposure` table against `poll_state`,
+the `has_data()` unsuitability claim, trait-default feasibility for both implementors, and that
+`liquers-axum` is the only consumer needing changes.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
