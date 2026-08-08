@@ -2,6 +2,7 @@
 id: DEPENDENCY-SCHEDULING
 kind: design
 title: Non-blocking dependency scheduling with atomic run claims
+status: complete
 area: [core/assets]
 gh_pr: [6]
 issues: []

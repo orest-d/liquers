@@ -63,8 +63,10 @@ Phase 5: Documentation (after merge — review every reference/ and guides/ docu
   maintains it, and `scripts/validate_phase.py` is where that belongs
 - **Status and phase vocabularies are `specs/DOCS_STRUCTURE_GUIDE.md` §5.1–5.2**, not freeform
   text. Do not write a `**Status:**` line into `DESIGN.md`; the front-matter owns it
-- **A design with a `gh_pr` carries no `status` at all** (§5.5) — it is derived from whether those
-  PRs merged
+- **A design with a `gh_pr` carries no *derived* `status`** (§5.5) — `in_implementation` and
+  `implemented` follow from whether those PRs merged, so they are never written down. The terminal
+  three (`complete`, `abandoned`, `superseded`) are conclusions GitHub cannot reach and *are*
+  written, `gh_pr` or not
 
 ## Workflow Decision Tree
 

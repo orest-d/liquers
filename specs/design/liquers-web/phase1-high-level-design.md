@@ -66,7 +66,7 @@ a later `UIUSE`/`UIDEF` milestone.
 New workspace crate **liquers-web**, at the end of the dependency flow parallel to `liquers-axum`,
 depending on `liquers-core` and (for `CombinedValue` and later `webui`) `liquers-lib` with default
 features off. Named `liquers-web` per the request; it supersedes the never-implemented `liquers-wf`
-sketch in [`specs/liquers-wf`](../liquers-wf/phase1-high-level-design.md), whose open questions 1, 2
+sketch (`specs/design/liquers-wf/`, removed 2026-08-08), whose open questions 1, 2
 and 4 are now largely answered by the async-wasm-refactor.
 
 ## Decisions
@@ -226,7 +226,8 @@ rather than as unknowns:
 
 - [LANGUAGE-INTEGRATION_GUIDE.md](../LANGUAGE-INTEGRATION_GUIDE.md) — §4 profiles, §5 feature
   contracts, §6 Browser JavaScript, §7 checklist, Appendix A reference tests
-- [`specs/design/liquers-wf/phase1-high-level-design.md`](../liquers-wf/phase1-high-level-design.md) — older sketch
+- `specs/design/liquers-wf/phase1-high-level-design.md` — older sketch; folder removed 2026-08-08
+  (`DOCS_STRUCTURE_GUIDE.md` §5.1), superseded in full by this design
 - [`specs/design/async-wasm-refactor/DESIGN.md`](../async-wasm-refactor/DESIGN.md) — `MaybeSend`/`MaybeSync`,
   `BoxFuture`, `ImmediateAssetManager`; the wasm foundation this crate stands on
 - [`specs/design/webui/`](../webui/), `liquers-lib/src/ui/web/` — DOM backend for a later UI milestone

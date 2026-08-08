@@ -2,6 +2,7 @@
 id: EXPIRATION-SAFETY
 kind: design
 title: Timing and race safety in asset expiration
+status: complete
 area: [core/assets]
 gh_pr: [11]
 issues: []

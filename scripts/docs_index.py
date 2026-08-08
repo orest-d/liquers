@@ -39,6 +39,9 @@ ISSUE_STATUS = {"draft", "accepted", "rejected", "duplicate",
 DESIGN_STATUS = {"draft", "in_review", "approved", "in_implementation",
                  "implemented", "complete", "superseded", "abandoned"}
 DESIGN_STATUS_NEEDING_PHASE = {"draft", "in_review", "approved", "in_implementation", "implemented"}
+# §5.5: the statuses a human may write on a design that has a gh_pr. "" means "derived — ask
+# GitHub"; the rest are terminal conclusions GitHub cannot draw.
+TERMINAL_STATUS_WITH_PR = {"", "complete", "superseded", "abandoned"}
 PHASES = {"high-level": 1, "architecture": 2, "examples": 3, "implementation": 4,
           "documentation": 5}
 RETIRED_PHASES: set[str] = set()          # §5.3 rule 2: never delete, only mark retired
@@ -121,7 +124,9 @@ def collect() -> list[dict]:
         rows.append({
             "id": f.get("id", slug.upper()), "kind": "design", "title": f.get("title", ""),
             "status": f.get("status", ""),
-            "status_source": "github" if gh_pr else "local",
+            # Who owns the value in the status column, not whether a PR exists (§5.5). A design
+            # that has reached a hand-written terminal status owns it locally, gh_pr or not.
+            "status_source": "github" if gh_pr and not f.get("status") else "local",
             "phase": f.get("phase", ""), "priority": "", "complexity": "",
             "area": ";".join(_list(f, "area")), "gh_issue": "", "gh_pr": ";".join(gh_pr),
             "branch": "", "design": slug, "reviewed": "", "created": f.get("created", ""),
@@ -275,19 +280,24 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
 
         elif r["kind"] == "design":
             gh_pr = _list(f, "gh_pr")
-            # §5.5: gh_pr transfers the *derived* statuses to GitHub, but `abandoned` and
-            # `superseded` are human conclusions GitHub cannot reach — a PR closing unmerged
-            # does not say whether the design was given up or will be retried.
-            if gh_pr and f.get("status") not in ("", None, "abandoned", "superseded"):
-                errors.append(f"{where}: has gh_pr and a derived status '{f['status']}' (§5.5)")
-            if not gh_pr:
-                if f.get("status") not in DESIGN_STATUS:
-                    errors.append(f"{where}: status '{f.get('status')}' not in §5.1")
-                # CHECK 6 — phase present exactly when the status requires it
-                if f.get("status") in DESIGN_STATUS_NEEDING_PHASE and not f.get("phase"):
-                    errors.append(f"{where}: status '{f['status']}' requires a phase (§5.1)")
-                if f.get("status") not in DESIGN_STATUS_NEEDING_PHASE and f.get("phase"):
-                    errors.append(f"{where}: status '{f['status']}' must not carry a phase (§5.1)")
+            status = f.get("status") or ""
+            # §5.5: gh_pr transfers `in_implementation` and `implemented` to GitHub — nothing
+            # else. The terminal statuses stay hand-written: `abandoned` and `superseded` are
+            # conclusions a PR cannot reach, and `complete` turns on whether a phase is still
+            # outstanding, which is a question about this folder rather than about GitHub.
+            if gh_pr:
+                if status not in TERMINAL_STATUS_WITH_PR:
+                    errors.append(f"{where}: has gh_pr and status '{status}' — with a PR linked, "
+                                  f"write nothing (derived) or a terminal status (§5.5)")
+            elif status not in DESIGN_STATUS:
+                errors.append(f"{where}: status '{status}' not in §5.1")
+            # CHECK 6 — phase present exactly when the status requires it. Checked for every
+            # hand-written status; a derived one is empty here and carries its phase untouched.
+            if status:
+                if status in DESIGN_STATUS_NEEDING_PHASE and not f.get("phase"):
+                    errors.append(f"{where}: status '{status}' requires a phase (§5.1)")
+                if status not in DESIGN_STATUS_NEEDING_PHASE and f.get("phase"):
+                    errors.append(f"{where}: status '{status}' must not carry a phase (§5.1)")
             if f.get("phase") and f["phase"] not in PHASES and f["phase"] not in RETIRED_PHASES:
                 errors.append(f"{where}: unknown phase '{f['phase']}' (see guide §5.2)")
             sb = f.get("superseded_by")

@@ -2,6 +2,7 @@
 id: PAYLOAD-NESTED-EVALUATION-INHERITANCE
 kind: design
 title: Payload inheritance in nested evaluation
+status: complete
 area: [core/plan, core/assets]
 gh_pr: [14]
 issues: []

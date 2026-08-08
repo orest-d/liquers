@@ -2,6 +2,7 @@
 id: QUERY-LINK-PARSER
 kind: design
 title: Action-parameter link parsing (~X~~E)
+status: complete
 area: [core/query]
 gh_pr: [17]
 issues: []
