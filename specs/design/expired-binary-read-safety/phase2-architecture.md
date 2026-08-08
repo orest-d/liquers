@@ -303,11 +303,10 @@ implements neither `AssetManager` nor calls these methods).
 
 ## Open Questions
 
-1. **Is `AssetRef::get`'s pre-wait expiry check in scope?** Carried from Phase 1 and assumed
-   **yes** throughout this document (Behaviour Matrix, change 3 above). It is ~5 lines and removes
-   a latent hang identical to the one being fixed on the binary side. If it is scoped out, the
-   matrix's `get`/`Expired` cell reverts to "waits forever" and the divergence must be filed as its
-   own issue.
+1. ~~Is `AssetRef::get`'s pre-wait expiry check in scope?~~ **RESOLVED — yes** (user decision at
+   the Phase 3 gate, option A). `get()` on an already-`Expired` asset returns `Err` rather than
+   waiting for a notification that will never arrive, matching `get_binary`. The Behaviour Matrix's
+   `get`/`Expired` cell stands as written, and test U9 verifies it.
 2. Should `EXPIRATION-RECOVERY-WEB-API` grow to cover `get_binary_any_status`? Affects that issue's
    scope, not this design's code. (Carried from Phase 1.)
 3. Do the axum handlers need the same treatment for `Status::Partial`? It is `Pending`, so the

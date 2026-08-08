@@ -3,7 +3,7 @@ id: EXPIRED-BINARY-READ-SAFETY
 kind: design
 title: Expired-safe binary reads
 status: draft
-phase: examples
+phase: implementation
 area: [core/assets, core/store]
 gh_pr: []
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
@@ -18,8 +18,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [ ] Phase 3: Examples & Testing (in progress)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [ ] Phase 4: Implementation Plan (in progress)
 - [ ] Implementation Complete
 
 ## Notes
@@ -67,6 +67,17 @@ the `has_data()` unsuitability claim, trait-default feasibility for both impleme
 
 **Phase 2 approved** by the user, who confirmed no commands are in scope — no `register_command!`,
 no `specs/command_registry.yaml` regeneration, and no query-reachable recovery path.
+
+**Phase 3 approved.** Examples are runnable tests (user's choice). Three reviewers ran; fixes
+applied include one factual error of my own (`EnvRef::evaluate` does exist), two missing tests
+(U9 `get` on `Expired`, U10 on-demand serialization), `Directory` completed in Example 3, and U2
+made runnable without the nonexistent `Status::all()`. The untestable `liquers-axum` handler is
+recorded as an explicit Phase 4 decision carrying a file-an-issue obligation.
+
+**Open question 1 resolved at the Phase 3 gate (user, option A):** `AssetRef::get` **is** in scope
+and gains the same pre-wait expiry check as `get_binary`. The alternative — binary reads erroring
+while state reads hang on the same asset — would have shipped exactly the asymmetry this design
+exists to remove.
 
 ## Links
 
