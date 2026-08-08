@@ -152,6 +152,8 @@ A prescribed test names a claim; it is the *assertion* that decides whether the 
 
 Neither is caught by review of the test list, because the ID is present and the test is green. The check is to ask, of each assertion: *what implementation change would make this fail?* If the answer is "none that anyone would plausibly make", the test is decorative.
 
+**Five prescribed tests exist because of this.** `OBJECT09`, `ENVIRON07`, `COMMAND12`, `COMMAND13` and `COMMAND14` were added after review of `specs/liquers-web/` found defects that the inventory as it then stood could not have caught — a declaration flag parsed by nobody, a state-passing mode silently degraded to another, a wrapper class with no methods, an accessor that threw in one lifecycle state, and a retained declaration aliasing the caller's mutable object. Four existing tests were also amended rather than left to be re-learned: `VALUE02` now asserts the *outbound* container type, `COMMAND05` includes a zero-argument command, `COMMAND08` requires the positive half of the opaque opt-in, and `ERROR03` must observe the exception on the evaluation path.
+
 This risk concentrates where a section did **not** warn about difficulty. The three tests `specs/liquers-web/` singled out as hard to assert were all fine, because they had specified mechanisms; the vacuous ones were in the group nobody had flagged.
 
 ## 4. Feature Overview
@@ -220,7 +222,7 @@ Recommended minimum profiles:
 
 The **encode direction needs the same discipline and is easier to overlook.** Any *integration* that lets host code supply a string parameter must turn that string into query text, and query text has its own escaping (tilde entities: `~~`, `~_`, `~.`, `~/`, `~h`, `~H`, `~f`, `~P`, and `~<digit>` for a negative number). Percent-encoding is *not* part of the grammar and will not parse. Do not hand-roll an encoder in the *integrated language*: build the `Query` programmatically and call `encode()`, so the escaping comes from Rust. Two open issues bound what is currently possible — `PARAMETER-ESCAPING-INCOMPLETE` (values containing a colon or any non-ASCII character cannot be encoded at all today) and `QUERY-BUILDER-TOOLING` (there is no supported query-construction utility yet) — so an *integration* should raise a typed error for values it cannot represent rather than emit text that will not parse. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
 
-**Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions.
+**Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions; `OBJECT09` a host string that cannot be represented in query text **raises** rather than producing text that will not parse.
 
 ### ERROR — Error bridge
 
@@ -238,7 +240,7 @@ The **encode direction needs the same discipline and is easier to overlook.** An
 
 **Issues and patterns.** String-only conversion loses diagnostics. Use a structured payload and preserve the original language class/stack as context. Default an unmapped command exception to `ExecutionError`; conversion failures should be `ConversionError`, not execution failures. Never allow a foreign exception to unwind through FFI.
 
-**Meaningful tests:** `ERROR01` every `ErrorType` maps; `ERROR02` fields survive Rust-to-language-to-Rust; `ERROR03` language exception includes class and stack; `ERROR04` invalid or non-error throw has a safe fallback; `ERROR05` no panic crosses the boundary.
+**Meaningful tests:** `ERROR01` every `ErrorType` maps; `ERROR02` fields survive Rust-to-language-to-Rust; `ERROR03` language exception includes class and stack **as observed on the evaluation path** — raised by a *language command* and caught by the caller, not by calling the conversion helper directly; `ERROR04` invalid or non-error throw has a safe fallback; `ERROR05` no panic crosses the boundary.
 
 ### RUNTIME — Runtime, ownership, and portability constraints
 
@@ -355,7 +357,7 @@ an array of numbers, while top-level bytes are preserved.
 
 Callable values should normally be registered in a callable registry owned by `COMMAND`, while the *value type* stores only a stable callable ID or an explicitly opaque owned handle. This prevents accidental serialization and makes callable lifetime/replacement visible. Operator overloads on a *wrapper* can be ergonomic, but must define whether they operate on the underlying *language value*, convert through a scalar, or execute a Liquers operation. Operations on *State* must state whether metadata is preserved, combined, or discarded; explicit `.value`/`.to_*()` access is the safe baseline.
 
-**Meaningful tests:** `VALUE01` primitive roundtrip; `VALUE02` nested array/object roundtrip; `VALUE03` integer boundaries; `VALUE04` bytes are not confused with text; `VALUE05` unknown object follows configured policy; `VALUE06` opaque serialization fails or uses its codec explicitly; `VALUE07` cycles/shared references follow policy; `VALUE08` representative `ExtValue` roundtrip; `VALUE09` checked *upcast* and *downcast*; `VALUE10` language-only object retains documented identity/lifetime; `VALUE11` callable retention or rejection follows policy; `VALUE12` scalar operators produce the documented result; `VALUE13` *State* operations preserve or deliberately discard metadata.
+**Meaningful tests:** `VALUE01` primitive roundtrip; `VALUE02` nested array/object roundtrip **in both directions**, ending in the *host-idiomatic* container type; `VALUE03` integer boundaries; `VALUE04` bytes are not confused with text; `VALUE05` unknown object follows configured policy; `VALUE06` opaque serialization fails or uses its codec explicitly; `VALUE07` cycles/shared references follow policy; `VALUE08` representative `ExtValue` roundtrip; `VALUE09` checked *upcast* and *downcast*; `VALUE10` language-only object retains documented identity/lifetime; `VALUE11` callable retention or rejection follows policy; `VALUE12` scalar operators produce the documented result; `VALUE13` *State* operations preserve or deliberately discard metadata.
 
 ```python
 def test_VALUE05_unknown_object_uses_opaque_value():
@@ -388,7 +390,7 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **An environment with an empty registry passes almost every `ENVIRON` test.** `ENVIRON01`'s contract is that a default environment *evaluates a built-in command*, and the other five are about lifecycle, so a design can satisfy five of six while registering no Rust commands at all. Register the host's built-in command set as part of environment construction, and make `ENVIRON01` evaluate one of those commands. This is also what makes composition testable — a *language command* feeding a Rust command in a single query — which is the practical argument for structural conversion over opaque pass-through.
 
-**Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration; `ENVIRON06` shutdown is idempotent.
+**Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration, asserted **through the language-visible API**; `ENVIRON06` shutdown is idempotent; `ENVIRON07` every documented environment operation is callable, in every state the documented lifecycle can be in.
 
 ### EVAL — Query evaluation API
 
@@ -409,7 +411,7 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Before designing a cancellation surface, check that the selected asset manager leaves a window to cancel in.** `ImmediateAssetManager` — the wasm default, and the right choice where no background scheduler exists — evaluates *during* `get_asset`, so the asset has already reached a terminal status by the time the caller holds the handle. A `cancel()` exposed on top of that is inert: it succeeds and does nothing. Exposing it anyway is defensible, since the surface will not change when a deferred manager arrives, but only if the inertness is **documented and asserted**. `EVAL06` and `ASYNCQ04` will otherwise pass vacuously — this is the concrete case behind "the two-branch match" in §3. Measure which status the asset actually has on arrival rather than assuming a race exists.
 
-**Meaningful tests:** `EVAL01` evaluate a built-in query; `EVAL02` string and wrapped query agree; `EVAL03` metadata and logs are available; `EVAL04` invalid query maps through `ERROR`; `EVAL05` payload/context reaches a command; `EVAL06` cancellation has a defined terminal result.
+**Meaningful tests:** `EVAL01` evaluate a built-in query; `EVAL02` string and wrapped query agree; `EVAL03` metadata and logs are available; `EVAL04` invalid query maps through `ERROR`; `EVAL05` payload/context reaches a command; `EVAL06` cancellation has a defined terminal result — the design **names which** result occurs for its asset manager, and the test asserts that one.
 
 ### COMMAND — Language command registration
 
@@ -454,7 +456,7 @@ The rule that works:
 
 **Warn on every replacement, and say what was replaced.** A duplicate registration and an accidental name collision are indistinguishable at the point they happen, and shadowing a Rust built-in stays invisible until a query quietly returns the wrong thing. Distinguish the two cases in the message — replacing a *language command* is routine, replacing a built-in usually is not. Resolve plan arguments before language binding. Release runtime/VM locks around Rust work and reacquire only for the callback. A bridge command plus callable registry is useful when direct generic registration is awkward, but aliases and callable IDs must remain observable and debuggable.
 
-**Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration; `COMMAND06` duplicate/unregister policy; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE`; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`.
+**Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration, **including a command with no arguments**; `COMMAND06` duplicate/unregister policy, and registration **after the environment is already in use** takes effect; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE` — **both** that an un-opted-in value is refused and that an opted-in one survives the round trip; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`; `COMMAND12` a declared flag that changes planner behaviour actually reaches the planner; `COMMAND13` every declared state-passing mode delivers its documented content; `COMMAND14` a retained declaration is unaffected by later mutation of the object the caller passed.
 
 ```python
 def test_COMMAND02_transform_receives_state_and_parameter(env):
@@ -914,6 +916,17 @@ def test_OBJECT08_wrappers_follow_naming_and_ownership_conventions():
     # Largely a review criterion (§3) — mechanise only what is enumerable.
     for name in lq.public_surface():
         assert not name.startswith("_")
+
+def test_OBJECT09_unrepresentable_parameter_raises(env):
+    # The encode direction. A host string that the query grammar cannot express must RAISE,
+    # not produce text that fails to parse somewhere else, later. The core `encode_token`
+    # does the latter today (PARAMETER-ESCAPING-INCOMPLETE), which is what makes this test
+    # worth prescribing rather than assuming.
+    assert lq.parse_query(f"filter-{lq.encode_param('two words')}") is not None
+    for hostile in ["12:30", "a,b", "a?b", "caf\u00e9", "\u65e5\u672c"]:
+        with pytest.raises(lq.Error) as e:
+            lq.encode_param(hostile)
+        assert e.value.error_type == lq.ErrorType.ParameterError
 ```
 
 ### ERROR
@@ -932,6 +945,11 @@ def test_ERROR02_fields_survive_rust_language_rust():
     assert (r.message, r.position, r.query, r.key) == (e.message, e.position, e.query, e.key)
 
 def test_ERROR03_language_exception_includes_class_and_stack(env):
+    # Note `env.evaluate` — the exception must be raised by a command and observed by the
+    # caller. Calling the bridge's conversion helper directly is the easy version of this test
+    # and it can pass while the shipped path drops the fields: an exception travelling through
+    # the planner and asset lifecycle is carried by `liquers_core::Error`, which has no slot
+    # for language context (LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT).
     @env.command
     def boom(state): raise ValueError("inner")
     with pytest.raises(lq.Error) as e:
@@ -1008,7 +1026,14 @@ def test_VALUE01_primitive_roundtrip(v):
 
 def test_VALUE02_nested_array_object_roundtrip():
     v = {"a": [1, 2, {"b": None}], "c": {"d": [True, "x"]}}
-    assert lq.from_value(lq.to_value(v)) == v
+    back = lq.from_value(lq.to_value(v))
+    assert back == v
+    # Assert the OUTBOUND container type too, not only equality of contents. A bridge can
+    # return a type that compares equal but is not what host code expects — serde-wasm-bindgen
+    # maps every map to a JavaScript `Map`, which carries the same data and supports none of
+    # `obj.a`, `Object.keys(obj)` or `JSON.stringify(obj)`. Equality-only assertions pass.
+    assert isinstance(back, dict) and isinstance(back["a"], list)
+    assert isinstance(back["c"], dict)
 
 @pytest.mark.parametrize("n", [0, 2**31, 2**53 - 1, 2**53, 2**63 - 1, -(2**63)])
 def test_VALUE03_integer_boundaries(n):
@@ -1106,6 +1131,32 @@ def test_ENVIRON05_isolated_test_environments_do_not_leak_registration():
 
 def test_ENVIRON06_shutdown_is_idempotent(env):
     env.shutdown(); env.shutdown()                    # second call must not raise
+
+def test_ENVIRON07_documented_operations_callable_in_every_state():
+    # Two failures this catches, both of which leave every other ENVIRON test green.
+    #
+    # 1. A surface that is declared and not implemented. An environment wrapper exposing only
+    #    a constructor is constructible and useless; nothing else here would notice.
+    ops = ["evaluate", "get_asset", "describe_command", "command_names"]
+    e = lq.Environment()
+    for op in ops:
+        assert callable(getattr(e, op, None)), f"{op} is documented but not callable"
+    assert e.evaluate("hello") is not None
+    # An operation the design deliberately does not support must REFUSE, with a message
+    # naming the supported path — not be silently absent, and not silently do nothing.
+    if not lq.SUPPORTS_INSTANCE_REGISTRATION:
+        with pytest.raises(lq.Error) as err:
+            e.register_command("x", lambda: 1)
+        assert "register" in str(err.value)
+
+    # 2. A state the lifecycle reaches in which the accessors do not work. The window between
+    #    "initialized" and "first used" is the one that gets missed, because every test that
+    #    evaluates first walks straight past it.
+    lq.shutdown()
+    lq.init()
+    assert lq.is_initialized()
+    g = lq.Environment.global_()          # must not raise here
+    assert g.evaluate("hello") is not None
 ```
 
 ### EVAL
@@ -1133,11 +1184,20 @@ def test_EVAL05_payload_and_context_reach_a_command(env):
     assert env.evaluate("echo_payload", payload={"k": "v"}) == "v"
 
 def test_EVAL06_cancellation_has_defined_terminal_result(env):
+    # The design must NAME which terminal result its asset manager produces, and this test
+    # asserts that one. Do not write `if cancelled ... else if finished ...`: an asset manager
+    # that evaluates during `get_asset` reaches a terminal status before the caller can cancel,
+    # so cancellation is inert and the accommodating form passes without checking anything
+    # (WEB-CANCELLATION-INERT). Measure which branch actually runs, then assert it.
     h = env.evaluate_async("sleep-60")
     h.cancel()
-    with pytest.raises(lq.Error) as e:
-        h.result()
-    assert e.value.error_type == lq.ErrorType.Cancelled
+    if lq.CANCELLATION_IS_EFFECTIVE:            # deferred asset manager
+        with pytest.raises(lq.Error) as e:
+            h.result()
+        assert e.value.error_type == lq.ErrorType.Cancelled
+    else:                                        # immediate asset manager: inert by design
+        assert h.status() == "ready"             # terminal on arrival, unchanged by cancel
+        assert h.result() is not None            # and an inert cancel damages nothing
 ```
 
 ### COMMAND
@@ -1178,9 +1238,23 @@ def test_COMMAND05_metadata_matches_the_declaration(env):
     assert md.label == "Repeat" and md.doc.startswith("Repeat")
     assert [a.name for a in md.arguments] == ["count"]
     assert md.arguments[0].type == lq.ArgumentType.Integer
+
+    # Include a command with NO arguments. Metadata serializers routinely skip empty
+    # collections — right for a config file, wrong for an API — so `arguments` can be absent
+    # rather than empty, and a caller iterating it breaks on exactly the commands that are
+    # least likely to be special-cased.
+    @env.command
+    def nullary(): ...
+    assert env.commands.metadata("nullary").arguments == []
     assert md.arguments[0].default == 2
 
 def test_COMMAND06_duplicate_and_unregister_policy(env):
+    # Includes registration AFTER the environment is already in use. An environment that is
+    # frozen once shared makes this fail, and it fails only here — every other COMMAND test
+    # registers before evaluating.
+    env.evaluate("hello")
+    env.register_command("late", lambda: "late")
+    assert env.evaluate("late") == "late"
     env.register_command("dup", lambda state: state)
     with pytest.raises(lq.Error) as e:                 # or: assert replacement wins
         env.register_command("dup", lambda state: state)
@@ -1197,9 +1271,20 @@ def test_COMMAND07_context_injection(env):
     assert any("hello from command" in str(m) for m in s.metadata.log)
 
 def test_COMMAND08_returned_opaque_value_follows_value_rules(env):
+    # BOTH halves. A negative-only test — "an un-opted-in object is refused" — passes while
+    # the opt-in itself has never once run, which is how a broken `opaque()` return path can
+    # ship: the wrapper an explicit opt-in produces is itself an unrecognised object, and
+    # structural conversion rejects it.
+    class Unregistered: pass
+    @env.command
+    def unopted(): return Unregistered()
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("unopted")
+    assert e.value.error_type == lq.ErrorType.ConversionError
+
     sentinel = object()
     @env.command
-    def give(): return sentinel                    # source command
+    def give(): return lq.opaque(sentinel)         # source command, explicit opt-in
     assert env.evaluate("give") is sentinel
 
 def test_COMMAND09_minimal_declaration_has_useful_metadata_defaults(env):
@@ -1222,6 +1307,52 @@ def test_COMMAND11_closure_captures_retained_per_runtime_rules(env):
         def add(state: int) -> int: return state + n
     make(5)
     assert env.evaluate("number-1/add5") == 6      # `number` supplies the integer input
+
+def test_COMMAND12_declared_planner_flags_take_effect(env):
+    # COMMAND10 asserts the metadata FIELD holds what was declared. This asserts the planner
+    # acts on it — the two come apart when a declaration property is parsed by nobody, which
+    # leaves every command at the default and is invisible until a nondeterministic command
+    # returns a stale result.
+    calls = []
+    @env.command(volatile=True)
+    def tick():
+        calls.append(1)
+        return len(calls)
+    assert env.commands.metadata("tick").volatile is True
+    assert env.evaluate("tick") == 1
+    assert env.evaluate("tick") == 2, "a volatile command must not be served from cache"
+
+def test_COMMAND13_every_state_mode_delivers_its_content(env):
+    # One case per state-passing mode the design offers. A mode that silently degrades to
+    # another — metadata access falling back to the bare value — is not observable from any
+    # other test, because the command still runs and still returns something.
+    @env.command(state="value")
+    def as_value(v): return type(v).__name__
+    @env.command(state="text")
+    def as_text(t): return t.upper()
+    @env.command(state="state")
+    def as_state(s): return f"{s.value}|{s.status}|{s.metadata is not None}|{len(s.log) >= 0}"
+
+    assert env.evaluate("hello/as_text") == "HELLO"
+    assert env.evaluate("hello/as_value") is not None
+    # The state mode must carry metadata, status and log — not just the value again.
+    assert env.evaluate("hello/as_state").count("|") == 3
+
+def test_COMMAND14_retained_declaration_is_immune_to_caller_mutation(env):
+    # Registration must capture what it was given, not alias it. Where the declaration is a
+    # mutable host object — a dict, an object literal, a builder — retaining a reference means
+    # a caller reusing a template silently rewrites an already-registered command, and any
+    # later internal replay picks up the mutation.
+    #
+    # `NA` for a language whose declaration form is immutable (a Starlark struct); the
+    # reversing condition is a mutable declaration form being accepted.
+    decl = {"name": "snap", "run": lambda: "original"}
+    env.register_command(decl)
+    assert env.evaluate("snap") == "original"
+
+    decl["run"] = lambda: "mutated"
+    env.register_command({"name": "unrelated", "run": lambda: 1})   # may trigger a rebuild
+    assert env.evaluate("snap") == "original"
 ```
 
 ### ASYNCQ

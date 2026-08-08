@@ -246,13 +246,16 @@ fn web_unregister_after_sharing_rebuilds() {
 // Regressions from PR #19 review
 // ---------------------------------------------------------------------------
 
-/// `Environment.global()` works in the window between `init()` and the first evaluation.
+/// ENVIRON07 (part 2 of 2) — the accessors work in every state the lifecycle reaches.
+///
+/// The window between `init()` and the first evaluation is the one that gets missed, because
+/// every test that evaluates first walks straight past it.
 ///
 /// It did not: `init()` populates the *pending* environment and only the first evaluation shares
 /// it, so `global()` threw for the whole normal post-initialization window while `isInitialized()`
 /// reported true.
 #[wasm_bindgen_test]
-async fn web_global_handle_is_usable_immediately_after_init() {
+async fn environ07_accessors_work_immediately_after_init() {
     reset_global();
     init_global().expect("init");
     register_command_on(&decl("g", "return 'from global';")).expect("register");
@@ -267,12 +270,12 @@ async fn web_global_handle_is_usable_immediately_after_init() {
     reset_global();
 }
 
-/// An explicit instance is usable from JavaScript, not merely constructible.
+/// ENVIRON07 (part 1 of 2) — every documented environment operation is callable.
 ///
 /// `ENVIRON05` asserted only that two instances hold distinct `Arc`s — a Rust-level fact that says
 /// nothing about whether JavaScript can do anything with one. The class had no methods at all.
 #[wasm_bindgen_test]
-async fn environ05_explicit_instance_is_usable() {
+async fn environ07_documented_operations_are_callable() {
     reset_global();
     let env = LiquersEnvironment::new().expect("instance");
 

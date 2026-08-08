@@ -126,6 +126,18 @@ fn command05_metadata_matches_the_declaration() {
         .as_string();
     assert_eq!(label.as_deref(), Some("Documented"));
 
+    // A command with NO arguments. `CommandMetadata` skips empty collections when it
+    // serializes — right for a config file, wrong for an API — so `arguments` was absent rather
+    // than empty, and a caller iterating it broke on exactly the commands least likely to be
+    // special-cased.
+    register_command_on(&decl("nullary", "return 1;")).expect("register nullary");
+    let nullary = describe_command_on("nullary").expect("describe nullary");
+    let arguments = js_sys::Reflect::get(&nullary, &"arguments".into()).expect("arguments");
+    assert!(
+        js_sys::Array::is_array(&arguments) && js_sys::Array::from(&arguments).length() == 0,
+        "a zero-argument command must describe `arguments` as an empty array, not omit it"
+    );
+
     // An unregistered command describes as null rather than throwing.
     assert!(describe_command_on("nope").expect("describe absent").is_null());
     reset_global();
@@ -165,6 +177,14 @@ async fn command06_duplicate_and_unregister_policy() {
 
     // Unregistering again is false, not an error.
     assert!(!unregister_command_on("dup").expect("second unregister"));
+
+    // Registration *after* the environment is already in use must take effect. An environment
+    // frozen once shared fails only here — every other COMMAND test registers before evaluating.
+    register_command_on(&decl("late", "return 'late';")).expect("register after use");
+    assert_eq!(
+        eval_to_js("late").await.expect("late eval").as_string().as_deref(),
+        Some("late")
+    );
     reset_global();
 }
 
@@ -435,13 +455,15 @@ fn command06_ns_reserved_namespace_is_refused() {
 // Regressions from PR #19 review
 // ---------------------------------------------------------------------------
 
-/// A declared `volatile: true` reaches the command metadata.
+/// COMMAND12 — a declared flag that changes planner behaviour reaches the planner.
 ///
 /// `COMMAND10` claims to preserve "every supported metadata field" and did not check this one, so
 /// the flag was parsed by nobody and every JavaScript command was registered as cacheable. A
-/// command that reads the clock or a mutable global would have had a stale result reused.
+/// command that reads the clock or a mutable global would have had a stale result reused. The
+/// prescribed test now separates the two claims: `COMMAND10` asserts the metadata field holds the
+/// declaration, this asserts the planner acts on it.
 #[wasm_bindgen_test]
-fn command10_volatile_flag_reaches_metadata() {
+async fn command12_declared_planner_flags_take_effect() {
     fresh();
     register_command_on(&with(
         decl("vol", "return Date.now();"),
@@ -467,10 +489,30 @@ fn command10_volatile_flag_reaches_metadata() {
             .unwrap_or(false),
         false
     );
+
+    // The behavioural half: a volatile command is re-executed rather than served from cache.
+    // Asserting only the metadata field would pass even if the planner ignored it.
+    register_command_on(&with(
+        decl(
+            "counter",
+            "globalThis.__c = (globalThis.__c || 0) + 1; return globalThis.__c;",
+        ),
+        "volatile",
+        JsValue::TRUE,
+    ))
+    .expect("register counter");
+    js_sys::eval("globalThis.__c = 0").expect("reset counter");
+
+    assert_eq!(eval_to_js("counter").await.expect("first").as_f64(), Some(1.0));
+    assert_eq!(
+        eval_to_js("counter").await.expect("second").as_f64(),
+        Some(2.0),
+        "a volatile command must be re-executed, not served from the asset cache"
+    );
     reset_global();
 }
 
-/// A command returning `liquers.opaque(x)` carries `x` through by identity.
+/// COMMAND08 — the *positive* half: a command returning `liquers.opaque(x)` carries `x` by identity.
 ///
 /// `COMMAND08` tested only the *negative* case — an un-opted-in class instance is refused — so the
 /// documented opt-in was never exercised through a command and did not work at all: structural
@@ -493,9 +535,12 @@ async fn command08_returned_opaque_value_is_retained() {
     reset_global();
 }
 
-/// A `state: "state"` command receives metadata, status and logs — not just the value.
+/// COMMAND13 — every declared state-passing mode delivers its documented content.
+///
+/// A mode that silently degrades to another is invisible to every other test: the command still
+/// runs and still returns something. `state: "state"` used to hand over the bare value.
 #[wasm_bindgen_test]
-async fn command02_state_mode_exposes_metadata() {
+async fn command13_every_state_mode_delivers_its_content() {
     fresh();
     register_command_on(&decl("src", "return 'payload';")).expect("register src");
     register_command_on(&with(
@@ -521,9 +566,9 @@ async fn command02_state_mode_exposes_metadata() {
     reset_global();
 }
 
-/// Mutating a declaration after registering it does not change what a rebuild replays.
+/// COMMAND14 — a retained declaration is unaffected by later mutation of the caller's object.
 #[wasm_bindgen_test]
-async fn web_declaration_is_snapshotted_at_registration() {
+async fn command14_retained_declaration_is_immune_to_caller_mutation() {
     fresh();
     let spec = obj();
     set(&spec, "name", &JsValue::from_str("snap"));

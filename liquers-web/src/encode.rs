@@ -136,8 +136,9 @@ mod tests {
         decoded_parameter(&query)
     }
 
+    /// OBJECT09 (accepting half) — everything the encoder accepts parses back unchanged.
     #[wasm_bindgen_test]
-    fn web_encode_param_roundtrip() {
+    fn object09_encode_param_roundtrip() {
         for value in [
             "plain",
             "with_underscore",
@@ -160,8 +161,10 @@ mod tests {
         }
     }
 
+    /// OBJECT09 (refusing half) — an unrepresentable value raises rather than producing text
+    /// that will not parse.
     #[wasm_bindgen_test]
-    fn web_encode_param_refuses_what_it_cannot_represent() {
+    fn object09_encode_param_refuses_what_it_cannot_represent() {
         // Every one of these is a character `encode_token` would pass through verbatim, producing
         // text the parser rejects. Refusing is the whole point.
         for value in ["12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本"] {

@@ -319,6 +319,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | OBJECT06 | `object06_every_enum_variant_roundtrips` | W | all 22 `ErrorType`, all `ArgumentType` |
 | OBJECT07 | `object07_unknown_enum_variant_follows_policy` | W | unknown *string from JS* → `ConversionError` naming it — the forward-compatibility policy |
 | OBJECT08 | `object08_wrappers_follow_naming_and_ownership_conventions` | W | |
+| OBJECT09 | `object09_encode_param_roundtrip` + `object09_encode_param_refuses_what_it_cannot_represent` | W | **Added after the M6 review.** The encode direction: an unrepresentable host string raises rather than emitting text that will not parse |
 | ERROR01 | `error01_every_error_type_maps` | W | all **22** variants |
 | ERROR02 | `error02_fields_survive_rust_language_rust` | W | |
 | ERROR03 | `error03_language_exception_includes_class_and_stack` | W | |
@@ -349,6 +350,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | ENVIRON04 | `environ04_failed_initialization_is_recoverable` | W | (C17) |
 | ENVIRON05 | `environ05_isolated_test_environments_do_not_leak_registration` | W | explicit instances |
 | ENVIRON06 | `environ06_shutdown_is_idempotent` | W | |
+| ENVIRON07 | `environ07_documented_operations_are_callable` + `environ07_accessors_work_immediately_after_init` | W | **Added after the M6 review**, which found the exported `Environment` class had only a constructor, and `global()` throwing in the window between `init()` and the first evaluation |
 | EVAL01 | `eval01_evaluate_builtin_query` | W | |
 | EVAL02 | `eval02_string_and_wrapped_query_agree` | W | |
 | EVAL03 | `eval03_metadata_and_logs_available` | W | |
@@ -366,6 +368,9 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | COMMAND09 | `command09_minimal_declaration_has_useful_metadata_defaults` | W | |
 | COMMAND10 | `command10_complete_declaration_preserves_every_field` | W | every field in Phase 2's spec object |
 | COMMAND11 | `command11_closure_captures_retained_per_runtime_rules` | W | |
+| COMMAND12 | `command12_declared_planner_flags_take_effect` | W | **Added after the M6 review.** `COMMAND10` asserts the metadata field; this asserts the planner acts on it. `volatile` was read by nobody |
+| COMMAND13 | `command13_every_state_mode_delivers_its_content` | W | **Added after the M6 review.** `state: "state"` had silently degraded to `state: "value"` |
+| COMMAND14 | `command14_retained_declaration_is_immune_to_caller_mutation` | W | **Added after the M6 review.** Registration retained the caller's object by reference |
 | ASYNCQ01 | `asyncq01_await_successful_evaluation` | W | |
 | ASYNCQ02 | `asyncq02_failure_rejects_with_structured_error` | W | rejects with `LiquersError`, never a string |
 | ASYNCQ03 | `asyncq03_two_evaluations_make_progress` | W | (C15) |
@@ -395,7 +400,7 @@ Tiers: **N** native Rust · **W** `wasm-bindgen-test` in headless Chromium · **
 | PACKAGE06 | — | — | **`NA`: no optional extras exist in this phase.** `liquers-web` exposes no installable extra Cargo feature — the build is one artefact with one feature set. Becomes required the moment any feature is exposed as an extra (npm packaging, `UIUSE`) |
 | PACKAGE07 | `PACKAGE07 artifact carries declarations license and metadata` | P | `.d.ts` + LICENSE beside the wasm |
 
-**Count:** 83 prescribed · **81 required** · 2 `NA`, each with the condition that reverses it: `PACKAGE06` (no optional Cargo extra exists yet) and `ASYNCQ07` (scoped by Appendix A to languages with no async model).
+**Count:** 88 prescribed · **86 required** · 2 `NA`, each with the condition that reverses it: `PACKAGE06` (no optional Cargo extra exists yet) and `ASYNCQ07` (scoped by Appendix A to languages with no async model).
 
 The five `NA` marks the first draft carried were all of the kinds the guide now names as
 insufficient (§3, "When a prescribed test does not apply"): `STUBS02`/`STUBS06` were excused for
