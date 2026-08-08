@@ -969,6 +969,45 @@ justification is *identity*. Fed back into Phase 1 decision 2 in `DESIGN.md`.
 the orphan-rule trap in checklist item 3, and "conformance tests that pass whatever the code does"
 in §3.
 
+## Code review record — PR #19
+
+An automated reviewer raised seven findings after M6. **All seven were valid**, which is the useful
+fact: none were false positives, and six were things the conformance suite should have caught.
+
+| # | Finding | Disposition |
+|---|---|---|
+| P1 | `Environment` class had no methods — instances were constructible and unusable | Fixed: `evaluate`, `evaluateQuery`, `getAsset`, `describeCommand`, `commandNames`. `registerCommand` on an instance is **refused with a typed error** rather than faked |
+| P2 | `Environment.global()` threw between `init()` and the first evaluation | Fixed: it shares the pending environment, which is the step the first evaluation would have taken anyway |
+| P1 | A declared `volatile: true` was never read | Fixed — one line, and the planner was treating every JavaScript command as cacheable |
+| P1 | A command returning `liquers.opaque(x)` failed outright | Fixed: the conversion layer recognises a `Value` wrapper by a duck-typed marker, so it works for a downstream crate's wrapper too |
+| P2 | `state: "state"` passed only the value | Fixed: a plain object with `value`, `metadata`, `status`, `log`. Plain rather than the exported class because the adapter is generic over the value type |
+| P2 | `jsClass`/`jsStack` are null on the real evaluation path | **Partially fixed.** The duplicated first line of the message is fixed; the structured fields need somewhere to live in `liquers_core::Error` — filed as `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
+| P2 | `JsValue::clone` retained the caller's declaration object, not a copy | Fixed: registration snapshots the declaration and its `arguments` |
+
+### Why the suite missed six of them
+
+Every one is an instance of the pattern §3 of the guide names, and they are worth listing because
+the tests were *green* and *wrong* in four distinguishable ways:
+
+- **`COMMAND08` tested only the negative case.** It asserted that an un-opted-in `Date` is refused
+  and never that an opted-in value is retained — so the documented opt-in had never once run.
+- **`COMMAND10` claimed more than it checked.** "Complete declaration preserves every supported
+  metadata field" checked `doc`, `label` and namespace behaviour, and not `volatile`.
+- **`ERROR03` tested the bridge at the wrong entry point.** `LiquersError::from_thrown` populates
+  `jsClass`/`jsStack`, and the test called it directly; production traffic goes through
+  `js_error_to_liquers` into a `liquers_core::Error`, which has no such fields.
+- **`ENVIRON05` asserted a Rust fact about a JavaScript contract.** It checked that two instances
+  hold distinct `Arc`s — true, and silent about the class having no methods at all.
+
+The generalizable rule, now in the guide: *what implementation change would make this assertion
+fail?* A negative-only test, a test that names more than it checks, and a test that calls a
+convenience constructor instead of the shipped path all answer "none that anyone would make".
+
+**Two of the new tests were wrong before the code was**, which is worth recording as the healthy
+case: the `state: "state"` test asserted status `ready` when a mid-plan input state is `recipe`,
+and the instance test assumed a bare `to_text` fails to plan when it does not. Both were corrected
+to assert what is true rather than what was assumed.
+
 ## Review record
 
 Both prescribed reviewers found real defects.

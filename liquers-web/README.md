@@ -96,8 +96,10 @@ the native one — the disk allowance does not fit both.
 | `Asset.cancel()` is inert: the immediate asset manager evaluates during `getAsset`, so an asset is already terminal when a caller receives it. The issue records what fixing it requires — the obstacle is not the absence of a task spawner | `WEB-CANCELLATION-INERT` |
 | `encodeParam` refuses values containing a lone colon, most punctuation, or any non-ASCII character — the query grammar has no entity for them. Refusing is deliberate; the core encoder emits unparseable text instead | `PARAMETER-ESCAPING-INCOMPLETE` |
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
+| A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
+| `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
 
-All three are in [`specs/ISSUES.md`](../specs/ISSUES.md), each with the condition that reverses it.
+All are in [`specs/ISSUES.md`](../specs/ISSUES.md), each with the condition that reverses it.
 
 ## Extending
 

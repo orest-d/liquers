@@ -175,6 +175,14 @@ fn js_to_value_at<V: JsValueBridge>(
         return Ok(v);
     }
 
+    // A `Value` wrapper handed back from JavaScript — most importantly the result of
+    // `liquers.opaque(x)` returned by a command. Without this, structural conversion sees a class
+    // instance and rejects it, so the documented opaque opt-in could not survive a round trip
+    // through a command at all.
+    if let Some(v) = unwrap_value_wrapper::<V>(js, policy, depth, path)? {
+        return Ok(v);
+    }
+
     // null and undefined both collapse to none. Documented as lossy: JavaScript distinguishes
     // them, Liquers does not.
     if js.is_null() || js.is_undefined() {
@@ -409,6 +417,61 @@ pub fn serialize_to_js<T: serde::Serialize + ?Sized>(
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {
     let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
     value.serialize(&serializer)
+}
+
+/// The property that marks an object as a Liquers `Value` wrapper.
+///
+/// Duck-typed rather than checked with `instanceof`, deliberately: this function is generic over
+/// the value type, so it must also recognise the wrapper class of a *downstream* crate that
+/// brought its own. Any such wrapper opts in by exposing this property together with `isOpaque`
+/// and `toJS()`.
+pub const VALUE_WRAPPER_MARKER: &str = "__liquersValueWrapper";
+
+/// Recovers the value inside a `Value` wrapper, if `js` is one.
+///
+/// An **opaque** wrapper yields its original object retained by identity — the whole point of the
+/// opt-in. A structural wrapper is converted as if its `toJS()` form had been returned directly.
+fn unwrap_value_wrapper<V: JsValueBridge>(
+    js: &JsValue,
+    policy: ConversionPolicy,
+    depth: usize,
+    path: &str,
+) -> Result<Option<V>, Error> {
+    if !js.is_object() {
+        return Ok(None);
+    }
+    let marked = js_sys::Reflect::get(js, &JsValue::from_str(VALUE_WRAPPER_MARKER))
+        .map(|v| v.as_bool() == Some(true))
+        .unwrap_or(false);
+    if !marked {
+        return Ok(None);
+    }
+
+    let to_js = js_sys::Reflect::get(js, &JsValue::from_str("toJS"))
+        .ok()
+        .filter(|f| f.is_function())
+        .ok_or_else(|| {
+            Error::from_error(
+                ErrorType::ConversionError,
+                format!("The Liquers value wrapper at {path} has no toJS() method"),
+            )
+        })?;
+    let to_js: js_sys::Function = to_js.unchecked_into();
+    let inner = to_js.call0(js).map_err(|e| {
+        crate::error::js_error_to_liquers(e, ErrorType::ConversionError)
+    })?;
+
+    let is_opaque = js_sys::Reflect::get(js, &JsValue::from_str("isOpaque"))
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if is_opaque {
+        // Re-wrap by identity. `toJS()` on an opaque value returns the original object, so this
+        // preserves the identity the caller asked for rather than converting it.
+        return opaque_value::<V>(inner).map(Some);
+    }
+    js_to_value_at(&inner, policy, depth + 1, path).map(Some)
 }
 
 /// Wraps a JavaScript value opaquely — the explicit opt-in behind `liquers.opaque(x)`.

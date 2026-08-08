@@ -109,6 +109,34 @@ pub fn metadata_to_js(metadata: &Metadata) -> Result<JsValue, Error> {
     })
 }
 
+/// The log entries a metadata record carries, as a JavaScript array.
+///
+/// Always an array — an absent log is an empty one, not a missing field. A free function rather
+/// than only a `State` method because the generic command adapter needs it too, for the
+/// `state: "state"` mode.
+pub fn log_to_js(metadata: &Metadata) -> Result<JsValue, Error> {
+    let entries = match metadata {
+        Metadata::MetadataRecord(m) => serde_json::to_value(&m.log),
+        // Legacy metadata is untyped JSON; take the `log` array if it has one.
+        Metadata::LegacyMetadata(v) => Ok(v
+            .get("log")
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))),
+    }
+    .map_err(|e| {
+        Error::from_error(
+            ErrorType::SerializationError,
+            format!("Could not read the log: {e}"),
+        )
+    })?;
+    crate::bridge::serialize_to_js(&entries).map_err(|e| {
+        Error::from_error(
+            ErrorType::ConversionError,
+            format!("Could not convert the log: {e}"),
+        )
+    })
+}
+
 /// An asset, visible to JavaScript.
 #[wasm_bindgen(js_name = Asset)]
 pub struct LiquersAsset {
@@ -228,27 +256,7 @@ impl LiquersState {
     /// A separate accessor rather than only a field of `metadata()`, because reading logs after a
     /// failure is the common case and should not require knowing the metadata layout.
     pub fn log(&self) -> Result<JsValue, JsValue> {
-        let entries = match self.inner.metadata.as_ref() {
-            Metadata::MetadataRecord(m) => serde_json::to_value(&m.log),
-            // Legacy metadata is untyped JSON; take the `log` array if it has one, and an empty
-            // array otherwise. An absent log is not an error — most states have none.
-            Metadata::LegacyMetadata(v) => Ok(v
-                .get("log")
-                .cloned()
-                .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))),
-        }
-        .map_err(|e| {
-            liquers_error_to_js(Error::from_error(
-                ErrorType::SerializationError,
-                format!("Could not read the log: {e}"),
-            ))
-        })?;
-        crate::bridge::serialize_to_js(&entries).map_err(|e| {
-            liquers_error_to_js(Error::from_error(
-                ErrorType::ConversionError,
-                format!("Could not convert the log: {e}"),
-            ))
-        })
+        log_to_js(self.inner.metadata.as_ref()).map_err(liquers_error_to_js)
     }
 
     /// The status of this state, as a lowercase string.

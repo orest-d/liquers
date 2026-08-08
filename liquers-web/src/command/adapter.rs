@@ -176,10 +176,29 @@ where
             js_args.push(&JsValue::from_str(&text));
         }
         StateMode::State => {
-            // Until a State wrapper is exported, the state is presented as its value. Stated
-            // rather than silently substituted: a command declaring `state: "state"` gets the
-            // value, not metadata access.
-            js_args.push(&value_to_js(state.data_unchecked().as_ref())?);
+            // A plain object rather than the exported `State` class: this function is generic over
+            // the value type, and the class is concrete, so a downstream crate with its own value
+            // type could not receive one. The object carries what the mode promises — the value,
+            // the metadata, the status and the log.
+            let obj = js_sys::Object::new();
+            let set = |k: &str, v: &JsValue| -> Result<(), Error> {
+                js_sys::Reflect::set(&obj, &JsValue::from_str(k), v)
+                    .map(|_| ())
+                    .map_err(|_| {
+                        Error::from_error(
+                            ErrorType::ConversionError,
+                            format!("Could not set {k:?} on the state argument"),
+                        )
+                    })
+            };
+            set("value", &value_to_js(state.data_unchecked().as_ref())?)?;
+            set("metadata", &crate::asset::metadata_to_js(state.metadata.as_ref())?)?;
+            set(
+                "status",
+                &JsValue::from_str(crate::asset::status_name(state.metadata.status())),
+            )?;
+            set("log", &crate::asset::log_to_js(state.metadata.as_ref())?)?;
+            js_args.push(&obj.into());
         }
     }
 

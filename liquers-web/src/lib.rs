@@ -132,6 +132,18 @@ impl LiquersValue {
         use crate::bridge::JsValueBridge;
         matches!(self.inner.as_js_opaque(), Ok(Some(_)))
     }
+
+    /// Marks this object as a Liquers value wrapper.
+    ///
+    /// Read by the conversion layer when a command *returns* a `Value` — most importantly the
+    /// result of `liquers.opaque(x)`. A wrapper is a class instance, which structural conversion
+    /// would otherwise reject, so without this marker the opaque opt-in could not survive being
+    /// returned from a command. A downstream crate's own wrapper opts in the same way; see
+    /// [`bridge::VALUE_WRAPPER_MARKER`].
+    #[wasm_bindgen(getter, js_name = __liquersValueWrapper)]
+    pub fn is_value_wrapper(&self) -> bool {
+        true
+    }
 }
 
 impl LiquersValue {

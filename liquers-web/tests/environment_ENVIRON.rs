@@ -241,3 +241,79 @@ fn web_unregister_after_sharing_rebuilds() {
 
     reset_global();
 }
+
+// ---------------------------------------------------------------------------
+// Regressions from PR #19 review
+// ---------------------------------------------------------------------------
+
+/// `Environment.global()` works in the window between `init()` and the first evaluation.
+///
+/// It did not: `init()` populates the *pending* environment and only the first evaluation shares
+/// it, so `global()` threw for the whole normal post-initialization window while `isInitialized()`
+/// reported true.
+#[wasm_bindgen_test]
+async fn web_global_handle_is_usable_immediately_after_init() {
+    reset_global();
+    init_global().expect("init");
+    register_command_on(&decl("g", "return 'from global';")).expect("register");
+
+    assert!(liquers_web::is_initialized());
+    let env = LiquersEnvironment::global().expect("global() must work right after init()");
+
+    let value = wasm_bindgen_futures::JsFuture::from(env.evaluate("g"))
+        .await
+        .expect("the global handle must evaluate");
+    assert_eq!(value.as_string().as_deref(), Some("from global"));
+    reset_global();
+}
+
+/// An explicit instance is usable from JavaScript, not merely constructible.
+///
+/// `ENVIRON05` asserted only that two instances hold distinct `Arc`s — a Rust-level fact that says
+/// nothing about whether JavaScript can do anything with one. The class had no methods at all.
+#[wasm_bindgen_test]
+async fn environ05_explicit_instance_is_usable() {
+    reset_global();
+    let env = LiquersEnvironment::new().expect("instance");
+
+    // The built-in Rust command set is present on an instance.
+    let names = env.command_names();
+    assert!(
+        names.iter().any(|n| n.as_string().as_deref() == Some("to_text")),
+        "an instance must carry the built-in commands"
+    );
+    assert!(!env.describe_command("to_text").expect("describe").is_null());
+    assert!(env.describe_command("nope").expect("describe absent").is_null());
+
+    // And it evaluates — against its own environment, with no singleton in play.
+    assert!(!liquers_web::is_initialized());
+    let asset = wasm_bindgen_futures::JsFuture::from(env.get_asset("to_text"))
+        .await
+        .expect("an instance must resolve a query to an asset");
+    assert!(asset.is_object());
+
+    // The planner really consulted *this* instance's registry: an unknown command fails to plan
+    // rather than failing somewhere later.
+    let err = wasm_bindgen_futures::JsFuture::from(env.evaluate("no_such_command"))
+        .await
+        .expect_err("an unknown command must not evaluate");
+    assert_eq!(
+        js_sys::Reflect::get(&err, &"errorType".into()).ok().and_then(|v| v.as_string()).as_deref(),
+        Some("action_not_registered")
+    );
+
+    // Registering on an instance is refused with a typed error that says what to do instead,
+    // rather than being silently ignored.
+    let err = env
+        .register_command(decl("x", "return 1;"))
+        .expect_err("registration on an instance must be refused");
+    let message = js_sys::Reflect::get(&err, &"message".into())
+        .ok()
+        .and_then(|m| m.as_string())
+        .unwrap_or_default();
+    assert!(
+        message.contains("liquers.registerCommand"),
+        "the refusal must point at the supported path: {message}"
+    );
+    reset_global();
+}

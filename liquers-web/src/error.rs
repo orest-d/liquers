@@ -233,7 +233,12 @@ pub fn js_error_to_liquers(thrown: JsValue, fallback: ErrorType) -> Error {
     };
     let mut err = Error::from_error(fallback, detail);
     if let Some(s) = stack {
-        err.message = format!("{}\n{}", err.message, s);
+        // V8 and SpiderMonkey both begin `stack` with the "Name: message" line that `detail`
+        // already is, so appending it verbatim printed the first line twice.
+        let frames = s.strip_prefix(err.message.as_str()).unwrap_or(&s).trim_start_matches('\n');
+        if !frames.is_empty() {
+            err.message = format!("{}\n{}", err.message, frames);
+        }
     }
     err
 }

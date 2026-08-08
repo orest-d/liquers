@@ -166,6 +166,12 @@ impl JsCommandSpec {
         metadata.label = get_string(spec, "label").unwrap_or_else(|| name.clone());
         metadata.doc = get_string(spec, "doc").unwrap_or_default();
         metadata.module = "javascript".to_string();
+        // Declared and previously **ignored**, which left every JavaScript command at the
+        // `CommandMetadata` default of `false`: a command explicitly opting out of caching was
+        // treated as cacheable, and the planner could reuse a stale result. Mirrors what
+        // `register_command!` does for a Rust command — it sets `volatile` and leaves `cache`
+        // alone.
+        metadata.volatile = get_bool(spec, "volatile").unwrap_or(false);
 
         let (arguments, arguments_inferred) = match get(spec, "arguments") {
             Some(declared) => (parse_arguments(&declared, &name)?, false),

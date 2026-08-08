@@ -116,9 +116,45 @@ pub fn register_command_on(spec: &JsValue) -> Result<(), Error> {
         rebuild_with(spec.clone())?;
     }
 
-    REGISTERED_SPECS.with(|cell| cell.borrow_mut().push(spec.clone()));
+    REGISTERED_SPECS.with(|cell| cell.borrow_mut().push(snapshot_declaration(spec)));
     warn_on_replacement(&key.name, replaced);
     Ok(())
+}
+
+/// Copies a declaration so that later mutation by the caller cannot change what a rebuild replays.
+///
+/// `JsValue::clone` clones the *handle*, not the object. Retaining the caller's own object means a
+/// page that reuses or mutates a declaration template — plausible in a framework that builds
+/// specs from a loop — silently changes an already-registered command the next time a rebuild
+/// replays it, or breaks an unrelated registration if a field such as `run` was removed.
+///
+/// A shallow copy plus a copy of the `arguments` array and its entries covers the mutation a
+/// caller can realistically perform. The `run` function is shared by reference, deliberately:
+/// copying a closure is not possible and not wanted — it *is* the command.
+fn snapshot_declaration(spec: &JsValue) -> JsValue {
+    let copy = js_sys::Object::new();
+    if js_sys::Object::assign(&copy, &js_sys::Object::from(spec.clone())).is_falsy() {
+        // `Object.assign` returns its target; a falsy result would mean something is very wrong.
+        return spec.clone();
+    }
+
+    // The `arguments` array and its entries are the part a caller is most likely to reuse.
+    if let Ok(args) = js_sys::Reflect::get(&copy, &JsValue::from_str("arguments")) {
+        if js_sys::Array::is_array(&args) {
+            let copied = js_sys::Array::new();
+            for entry in js_sys::Array::from(&args).iter() {
+                if entry.is_object() && !js_sys::Array::is_array(&entry) {
+                    let e = js_sys::Object::new();
+                    let _ = js_sys::Object::assign(&e, &js_sys::Object::from(entry));
+                    copied.push(&e.into());
+                } else {
+                    copied.push(&entry);
+                }
+            }
+            let _ = js_sys::Reflect::set(&copy, &JsValue::from_str("arguments"), &copied);
+        }
+    }
+    copy.into()
 }
 
 /// What was registered under a key before, if anything.
@@ -269,7 +305,18 @@ pub fn describe_command_on(name: &str) -> Result<JsValue, Error> {
                 })
             })
         });
-    let meta = match json {
+    describe_metadata(json, &key)
+}
+
+/// Renders command metadata for JavaScript, or `null` when there is none.
+///
+/// Shared by the singleton and by [`LiquersEnvironment::describe_command`], so the two cannot
+/// report different shapes for the same command.
+fn describe_metadata(
+    meta: Option<liquers_core::command_metadata::CommandMetadata>,
+    key: &liquers_core::command_metadata::CommandKey,
+) -> Result<JsValue, Error> {
+    let meta = match meta {
         Some(meta) => meta,
         None => return Ok(JsValue::NULL),
     };
@@ -296,7 +343,7 @@ pub fn describe_command_on(name: &str) -> Result<JsValue, Error> {
     set_field(
         &described,
         "argumentsInferred",
-        &JsValue::from_bool(crate::command::adapter::arguments_were_inferred(&key)),
+        &JsValue::from_bool(crate::command::adapter::arguments_were_inferred(key)),
     )?;
 
     Ok(described)
@@ -423,11 +470,96 @@ impl LiquersEnvironment {
     }
 
     /// A handle to the global singleton. Throws when `init()` has not resolved.
+    ///
+    /// Uses [`shared_env`], not [`with_global`]: after `await init()` the environment is still
+    /// *un-shared* — `GLOBAL_ENV` is populated by the first evaluation — so reading the shared
+    /// slot directly threw during the whole normal post-initialization window, while
+    /// `isInitialized()` reported true. Sharing here is the same step the first evaluation would
+    /// have taken; it only means that a `registerCommand` issued afterwards rebuilds, exactly as
+    /// it would after an evaluation.
     #[wasm_bindgen(js_name = global)]
     pub fn global() -> Result<LiquersEnvironment, JsValue> {
-        with_global()
+        shared_env()
             .map(|envref| LiquersEnvironment { envref })
             .map_err(liquers_error_to_js)
+    }
+
+    /// Evaluates a query on **this** environment, returning a `Promise`.
+    pub fn evaluate(&self, query: &str) -> js_sys::Promise {
+        let envref = self.envref.clone();
+        match liquers_core::parse::parse_query(query) {
+            Ok(parsed) => crate::eval::evaluate_to_promise(envref, parsed),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
+    }
+
+    /// Evaluates an already-parsed query on this environment.
+    #[wasm_bindgen(js_name = evaluateQuery)]
+    pub fn evaluate_query(&self, query: &crate::objects::LiquersQuery) -> js_sys::Promise {
+        crate::eval::evaluate_to_promise(self.envref.clone(), query.inner().clone())
+    }
+
+    /// Resolves a query to an `Asset` on this environment.
+    #[wasm_bindgen(js_name = getAsset)]
+    pub fn get_asset(&self, query: &str) -> js_sys::Promise {
+        let envref = self.envref.clone();
+        let parsed = match liquers_core::parse::parse_query(query) {
+            Ok(q) => q,
+            Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),
+        };
+        wasm_bindgen_futures::future_to_promise(async move {
+            match crate::asset::get_asset_for(envref, parsed).await {
+                Ok(a) => Ok(crate::LiquersAsset::from_ref(a).into()),
+                Err(e) => Err(liquers_error_to_js(e)),
+            }
+        })
+    }
+
+    /// The metadata of a command registered on this environment, or `null`.
+    #[wasm_bindgen(js_name = describeCommand)]
+    pub fn describe_command(&self, name: &str) -> Result<JsValue, JsValue> {
+        let key = liquers_core::command_metadata::CommandKey::new("", "", name);
+        let meta = self
+            .envref
+            .0
+            .get_command_metadata_registry()
+            .get(key.clone())
+            .cloned();
+        describe_metadata(meta, &key).map_err(liquers_error_to_js)
+    }
+
+    /// The names of every command registered on this environment.
+    #[wasm_bindgen(js_name = commandNames)]
+    pub fn command_names(&self) -> Vec<JsValue> {
+        self.envref
+            .0
+            .get_command_metadata_registry()
+            .commands
+            .iter()
+            .map(|c| JsValue::from_str(&c.name))
+            .collect()
+    }
+
+    /// Registering on an explicit instance is not supported in this phase.
+    ///
+    /// Not an oversight, and refused rather than silently ignored. Registration needs
+    /// `&mut CommandRegistry`, and this handle holds an `EnvRef` — an `Arc` — so there is no
+    /// mutable path to the environment behind it. The singleton works around that by keeping the
+    /// environment un-shared until first use and rebuilding afterwards (see
+    /// [`register_command_on`]); giving instances the same machinery is a real change and Phase 1
+    /// decision 4 ranked instances below the singleton.
+    ///
+    /// Register through the module-level `registerCommand` and use the singleton, or construct an
+    /// instance only to evaluate against a fixed command set.
+    #[wasm_bindgen(js_name = registerCommand)]
+    pub fn register_command(&self, _spec: JsValue) -> Result<(), JsValue> {
+        Err(liquers_error_to_js(Error::from_error(
+            ErrorType::NotSupported,
+            "Commands cannot be registered on an explicit Environment instance in this phase — \
+             the handle holds a shared environment with no mutable path. Use the module-level \
+             liquers.registerCommand(), which registers on the global singleton."
+                .to_string(),
+        )))
     }
 }
 

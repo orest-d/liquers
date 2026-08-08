@@ -430,3 +430,125 @@ fn command06_ns_reserved_namespace_is_refused() {
     assert!(err.message.contains("reserved"), "unexpected message: {}", err.message);
     reset_global();
 }
+
+// ---------------------------------------------------------------------------
+// Regressions from PR #19 review
+// ---------------------------------------------------------------------------
+
+/// A declared `volatile: true` reaches the command metadata.
+///
+/// `COMMAND10` claims to preserve "every supported metadata field" and did not check this one, so
+/// the flag was parsed by nobody and every JavaScript command was registered as cacheable. A
+/// command that reads the clock or a mutable global would have had a stale result reused.
+#[wasm_bindgen_test]
+fn command10_volatile_flag_reaches_metadata() {
+    fresh();
+    register_command_on(&with(
+        decl("vol", "return Date.now();"),
+        "volatile",
+        JsValue::TRUE,
+    ))
+    .expect("register volatile");
+    register_command_on(&decl("stable", "return 1;")).expect("register stable");
+
+    let volatile = describe_command_on("vol").expect("describe vol");
+    assert_eq!(
+        js_sys::Reflect::get(&volatile, &"volatile".into()).ok().and_then(|v| v.as_bool()),
+        Some(true),
+        "a declared volatile flag must reach the metadata the planner reads"
+    );
+
+    // And the default is still false, so the fix did not simply mark everything volatile.
+    let stable = describe_command_on("stable").expect("describe stable");
+    assert_eq!(
+        js_sys::Reflect::get(&stable, &"volatile".into())
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        false
+    );
+    reset_global();
+}
+
+/// A command returning `liquers.opaque(x)` carries `x` through by identity.
+///
+/// `COMMAND08` tested only the *negative* case — an un-opted-in class instance is refused — so the
+/// documented opt-in was never exercised through a command and did not work at all: structural
+/// conversion saw the `Value` wrapper as an unrecognised class and rejected it.
+#[wasm_bindgen_test]
+async fn command08_returned_opaque_value_is_retained() {
+    fresh();
+    let original = js_sys::Date::new_0();
+    let wrapped = liquers_web::opaque(original.clone().into()).expect("opaque");
+    set(&js_sys::global().unchecked_into(), "__opaqueFixture", &JsValue::from(wrapped));
+
+    register_command_on(&decl("carry", "return globalThis.__opaqueFixture;"))
+        .expect("register");
+
+    let result = eval_to_js("carry").await.expect("an opaque return must evaluate");
+    assert!(
+        result.loose_eq(&original),
+        "the original object must come back by identity, not a copy"
+    );
+    reset_global();
+}
+
+/// A `state: "state"` command receives metadata, status and logs — not just the value.
+#[wasm_bindgen_test]
+async fn command02_state_mode_exposes_metadata() {
+    fresh();
+    register_command_on(&decl("src", "return 'payload';")).expect("register src");
+    register_command_on(&with(
+        decl_with_params(
+            "inspect",
+            &["s"],
+            // The status is asserted only to be a non-empty string: the state handed to a command
+            // is the *input* to this step, so its status reflects a mid-plan position (`recipe`
+            // here), not a finished asset. Asserting `ready` would assert something false.
+            "return s.value + '|' + typeof s.metadata + '|' + Array.isArray(s.log) + '|' \
+             + (typeof s.status === 'string' && s.status.length > 0);",
+        ),
+        "state",
+        JsValue::from_str("state"),
+    ))
+    .expect("register inspect");
+
+    assert_eq!(
+        eval_to_js("src/inspect").await.expect("evaluate").as_string().as_deref(),
+        Some("payload|object|true|true"),
+        "state mode must carry the value, metadata, log and status"
+    );
+    reset_global();
+}
+
+/// Mutating a declaration after registering it does not change what a rebuild replays.
+#[wasm_bindgen_test]
+async fn web_declaration_is_snapshotted_at_registration() {
+    fresh();
+    let spec = obj();
+    set(&spec, "name", &JsValue::from_str("snap"));
+    set(&spec, "run", &js_sys::Function::new_no_args("return 'original';"));
+    let spec: JsValue = spec.into();
+    register_command_on(&spec).expect("register");
+
+    // Share the environment, so the next registration rebuilds and replays `snap`.
+    assert_eq!(
+        eval_to_js("snap").await.expect("first").as_string().as_deref(),
+        Some("original")
+    );
+
+    // The caller mutates the object it handed over — a framework reusing a template would.
+    set(
+        &spec.clone().unchecked_into(),
+        "run",
+        &js_sys::Function::new_no_args("return 'mutated';"),
+    );
+    register_command_on(&decl("other", "return 1;")).expect("register other, forcing a rebuild");
+
+    assert_eq!(
+        eval_to_js("snap").await.expect("after rebuild").as_string().as_deref(),
+        Some("original"),
+        "a rebuild must replay the declaration as it was at registration"
+    );
+    reset_global();
+}

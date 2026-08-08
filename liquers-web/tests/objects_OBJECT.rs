@@ -253,3 +253,39 @@ fn error05_no_panic_crosses_the_boundary() {
     assert!(LiquersKey::parse("\u{0}").is_err() || LiquersKey::parse("\u{0}").is_ok());
     // Reaching here at all is the assertion: none of the above aborted the module.
 }
+
+/// A thrown `Error`'s class and stack reach the caller, and the first line is not duplicated.
+///
+/// `ERROR03` tested the error bridge in isolation, where `LiquersError::from_thrown` populates
+/// `jsClass`/`jsStack`. The *evaluation* path does not use it: a command exception is converted to
+/// a `liquers_core::Error`, which has no fields for them, so on the real path the class and stack
+/// survive only inside the message. This test pins what that path actually delivers.
+///
+/// Restoring the structured fields needs somewhere to put them — `liquers_core::Error` would have
+/// to carry language-specific context — so it is a core change, recorded rather than faked here.
+#[wasm_bindgen_test]
+fn error03_thrown_error_class_and_stack_reach_the_message() {
+    let thrown = js_sys::eval("(() => { try { null.x; } catch (e) { return e; } })()")
+        .expect("produce a real TypeError with a stack");
+    let err = liquers_web::error::js_error_to_liquers(
+        thrown,
+        liquers_core::error::ErrorType::ExecutionError,
+    );
+
+    assert!(err.message.contains("TypeError"), "the class must survive: {}", err.message);
+
+    // The stack's first line is "Name: message", which the message already is. Appending it
+    // verbatim printed that line twice.
+    let first = err.message.lines().next().unwrap_or_default();
+    let repeats = err.message.lines().filter(|l| *l == first).count();
+    assert_eq!(
+        repeats, 1,
+        "the leading \"Name: message\" line must not be repeated by the appended stack:\n{}",
+        err.message
+    );
+    assert!(
+        err.message.lines().count() > 1,
+        "the stack frames must still be present: {}",
+        err.message
+    );
+}
