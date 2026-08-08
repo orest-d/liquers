@@ -64,8 +64,31 @@ would be a lie. The rule is therefore **absence, expressed in whatever the signa
 
 This is not an exception to the symmetry rule — it *is* the rule applied honestly. The asymmetry
 lies in the data (a metadata-only value exists; a metadata-only byte string does not), not in the
-interface, and each method still reports it in its own vocabulary. `Expired` is separate and keeps
-the state semantics exactly: hidden from normal reads, returned by the `*_any_status` pair.
+interface, and each method still reports it in its own vocabulary.
+
+For the `Result`-returning methods the error is **constructed, not scavenged**: `Error` carries the
+asset's own recorded failure (what `State::value_error` yields today), while `Cancelled` and
+`Directory` record no error and so need one built for the occasion, via a typed
+`liquers_core::error` constructor. Phase 2 picks them.
+
+`Expired` is separate and keeps the state semantics exactly: hidden from normal reads, returned by
+the `*_any_status` pair.
+
+### Expiry is an error
+
+Where a binary read cannot hide expiry behind `None` — that is, in the `Result`-returning methods —
+**expiry is an error condition, reported immediately**. `AssetRef::get_binary` on an
+already-`Expired` asset returns `Err` rather than waiting; it must not fall through to `get()`,
+which would block indefinitely because `poll_state` reports `None` for `Expired` and no further
+notification is coming. This matches `get()`'s existing treatment of expiry observed *while
+waiting*, and it is what makes the gate on `poll_binary` safe to add: the stale-bytes bug converts
+into a prompt error rather than a hang.
+
+The same answer governs the HTTP layer: `liquers-axum` surfaces an expired asset as an error
+response. It does **not** re-request from the manager — re-evaluation is a property of *requesting*
+an asset (`get_asset`/`get(key)`), and a handler already holding an `AssetRef` is past that
+boundary. Silently recomputing there would hide expiry from the caller, which is the failure mode
+this design exists to remove.
 
 Today this territory is accidental rather than defined. `get_binary` on an `Error` asset happens to
 end in `Err` only because it falls through `get()` → `serialize_to_binary` → `State::as_bytes`,
@@ -117,23 +140,19 @@ trait).
 
 ## Open Questions
 
-*Two of the original questions are closed. The recovery API's shape follows from the symmetry rule
-(the full `*_any_status` set, at all three layers). The no-valid-binary statuses are settled above:
-`None` where the signature permits it, `Err` where it does not.*
+*All four of the original questions are now closed — the recovery API's shape by the symmetry rule,
+the no-valid-binary statuses and their constructed errors by §"Statuses with no valid binary", and
+the expiry/HTTP behaviour by §"Expiry is an error". Two consequential questions replace them.*
 
-1. Where "analogous" is underdetermined, `get_binary` is the hard case. `get()` errors only when
-   expiry is observed *while waiting*; for an already-expired asset it consults `poll_state`, gets
-   `None`, and waits. `get_binary`'s current short-circuit hides that. Analogous behaviour must be
-   defined as a status check *before* waiting, and Phase 2 must say whether the same check is owed
-   to `get()` itself — if it is, that is a second (smaller) bug in PR #11's work, not part of this
-   one.
-2. Which error does `get_binary` return for `Error` versus `Cancelled`? For `Error` the natural
-   answer is the asset's own recorded error (what `State::value_error` yields today); `Cancelled`
-   stores no error, so one must be constructed. → Phase 2 picks the constructors.
-3. Does `EXPIRATION-RECOVERY-WEB-API` grow to cover the new manager-level binary recovery read, or
+1. **Does `AssetRef::get()` owe itself the same pre-wait check?** Symmetry plus "expiry is an error"
+   says yes: `get()` on an already-`Expired` asset today consults `poll_state`, gets `None`, and
+   waits for a notification that will not arrive. That is the identical hang `get_binary` is being
+   fixed for, on the state side. → **Recommendation: fix it here.** Leaving `get()` hanging while
+   `get_binary` errors would break the very symmetry this design is establishing, and it is a
+   handful of lines. If instead it is scoped out, it must be filed as a separate issue rather than
+   noted only in review — it is a latent P0-shaped hang in PR #11's work.
+2. Does `EXPIRATION-RECOVERY-WEB-API` grow to cover the new manager-level binary recovery read, or
    stay scoped to state? → Affects that issue, not this design's code.
-4. Should the axum handlers surface an expired asset as an error, or re-request from the manager
-   (which re-evaluates)? → Affects whether this design touches HTTP behaviour or only fixes a hang.
 
 ## References
 

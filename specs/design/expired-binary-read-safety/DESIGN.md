@@ -41,6 +41,14 @@ no valid binary"; closes original open question 2 and replaces today's accidenta
 depends on `State::as_bytes` checking `value_error` first, and so differs between `Error` and
 `Cancelled`).
 
+**Phase 1 feedback (user), third round:** (a) construct a suitable error where none is recorded —
+`Error` reuses the asset's own failure, `Cancelled`/`Directory` get a purpose-built one; (b) expiry
+is an error. (b) settles both the `get_binary` hard case (already-`Expired` returns `Err` rather
+than falling through to `get()` and hanging) and the HTTP question (axum surfaces expiry as an
+error response; it does not re-request from the manager). Recorded as Phase 1 §"Expiry is an error".
+All four original open questions are now closed; the one live question is whether `AssetRef::get()`
+owes itself the same pre-wait check — recommended yes, since it hangs identically today.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
