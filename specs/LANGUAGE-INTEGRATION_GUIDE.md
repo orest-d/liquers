@@ -380,6 +380,14 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Issues and patterns.** Avoid hidden creation of multiple incompatible environments. Builders are preferable before publication; after publication, either reject mutation or define atomic replacement. A global Python environment may be ergonomic, while embedders and tests still need explicit instances. Browser startup should return a `Promise`; do not expose a blocking initializer.
 
+**Registration after publication is the shape of the problem, and it is not a core limitation.** Rust code builds the registry, then the environment, then calls `to_ref` — but `Environment::to_ref` *consumes* the environment into an `Arc`, registration needs `&mut CommandRegistry`, and `get_command_executor` hands back a reference, so the executor cannot live behind a lock either. Once the environment is shared there is no mutable path to it. An *integration* whose host registers commands *at runtime* therefore cannot simply hold an `EnvRef` from the start, and it is easy to misdiagnose this as a missing core capability. It is not: the resolution is to do what Rust does, twice.
+
+- Keep the environment **un-shared and mutable** until something actually needs to share it, and create the `EnvRef` lazily on first evaluation. Registering everything before the first evaluation then costs nothing, which is the path to document.
+- For registration *after* sharing, **retain the original declarations** and replay them into a fresh environment along with the new one, then swap the handle atomically. Retain the host-language declarations rather than the parsed results, and replay through the same registration function used the first time — one code path, so first registration and replay cannot drift.
+- State the cost, because it is real: the rebuilt environment has an **empty asset cache**, and an evaluation already in flight keeps the old `EnvRef` and completes against it, so it does not see the new command. Neither is a bug; both are surprises if undocumented.
+
+**An environment with an empty registry passes almost every `ENVIRON` test.** `ENVIRON01`'s contract is that a default environment *evaluates a built-in command*, and the other five are about lifecycle, so a design can satisfy five of six while registering no Rust commands at all. Register the host's built-in command set as part of environment construction, and make `ENVIRON01` evaluate one of those commands. This is also what makes composition testable — a *language command* feeding a Rust command in a single query — which is the practical argument for structural conversion over opaque pass-through.
+
 **Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration; `ENVIRON06` shutdown is idempotent.
 
 ### EVAL — Query evaluation API
@@ -398,6 +406,8 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 **The design must answer:** What is the simplest entry point? How are payload/session/context supplied? When is evaluation considered complete? How are logs, progress, cancellation, asset status, and nested evaluation exposed? Does a sync API block, run inline, or reject use from an active event loop?
 
 **Issues and patterns.** Do not bypass the environment, planner, or asset lifecycle merely to simplify the *wrapper*. Keep a low-level asset/*State* API and a convenience *language value* API. A browser must not simulate synchronous evaluation. Nested evaluation from a *language command* needs the `RUNTIME` reentrancy policy.
+
+**Before designing a cancellation surface, check that the selected asset manager leaves a window to cancel in.** `ImmediateAssetManager` — the wasm default, and the right choice where no background scheduler exists — evaluates *during* `get_asset`, so the asset has already reached a terminal status by the time the caller holds the handle. A `cancel()` exposed on top of that is inert: it succeeds and does nothing. Exposing it anyway is defensible, since the surface will not change when a deferred manager arrives, but only if the inertness is **documented and asserted**. `EVAL06` and `ASYNCQ04` will otherwise pass vacuously — this is the concrete case behind "the two-branch match" in §3. Measure which status the asset actually has on arrival rather than assuming a race exists.
 
 **Meaningful tests:** `EVAL01` evaluate a built-in query; `EVAL02` string and wrapped query agree; `EVAL03` metadata and logs are available; `EVAL04` invalid query maps through `ERROR`; `EVAL05` payload/context reaches a command; `EVAL06` cancellation has a defined terminal result.
 
@@ -431,7 +441,18 @@ liquers.registerCommand({
 });
 ```
 
-Starlark may use a host function such as `command(name="repeat", fn=repeat, ...)`. Metadata is the planning contract; do not infer silently when the *integrated language* lacks enough type information. Allow explicit overrides and provide metadata inspection after registration. Resolve plan arguments before language binding. Release runtime/VM locks around Rust work and reacquire only for the callback. A bridge command plus callable registry is useful when direct generic registration is awkward, but aliases and callable IDs must remain observable and debuggable.
+Starlark may use a host function such as `command(name="repeat", fn=repeat, ...)`. Metadata is the planning contract; do not infer silently when the *integrated language* lacks enough type information. Allow explicit overrides and provide metadata inspection after registration.
+
+**Where inference is possible at all, restrict it to a subset where the parse is provably exact, and refuse the rest.** Introspection quality varies sharply — Python's `inspect.signature` and Starlark's parameter lists are exact, while JavaScript offers only `Function.prototype.toString` and `Function.length`. The failure mode of a permissive inferencer is not an error but a *silent misbinding*, because Liquers binds arguments positionally: guess the wrong parameter list and the command runs, with arguments shifted.
+
+The rule that works:
+
+- Accept only the shapes the parse handles exactly — for JavaScript, every parameter a plain identifier — and **refuse anything else with an error naming the offending parameter**, rather than mangling it into metadata. A default, rest, or destructured parameter is a refusal, not a best effort.
+- **Cross-check against a second signal, and refuse on disagreement.** `Function.length` counts parameters *before the first default or rest parameter*, so a naive "regex plus arity check" agrees with itself on exactly the inputs it gets wrong. Where the two disagree, the parse is unreliable; do not pick a winner.
+- **Report through metadata inspection whether the arguments were inferred or declared.** Some corruption is undetectable — a minified build yields correct arity with meaningless names — and since binding is positional that degrades labels rather than behaviour. The only way an author notices is by being told which names were guessed.
+- Keep the explicit declaration as the documented reliable path, and let it win outright when both are present.
+
+**Warn on every replacement, and say what was replaced.** A duplicate registration and an accidental name collision are indistinguishable at the point they happen, and shadowing a Rust built-in stays invisible until a query quietly returns the wrong thing. Distinguish the two cases in the message — replacing a *language command* is routine, replacing a built-in usually is not. Resolve plan arguments before language binding. Release runtime/VM locks around Rust work and reacquire only for the callback. A bridge command plus callable registry is useful when direct generic registration is awkward, but aliases and callable IDs must remain observable and debuggable.
 
 **Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration; `COMMAND06` duplicate/unregister policy; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE`; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`.
 
