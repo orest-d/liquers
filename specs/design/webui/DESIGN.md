@@ -2,6 +2,7 @@
 id: WEBUI
 kind: design
 title: Web-framework-independent rendering with SSR and wasm
+status: complete
 area: [lib/ui]
 gh_pr: [10]
 issues: []

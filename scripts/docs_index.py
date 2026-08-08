@@ -39,12 +39,27 @@ ISSUE_STATUS = {"draft", "accepted", "rejected", "duplicate",
 DESIGN_STATUS = {"draft", "in_review", "approved", "in_implementation",
                  "implemented", "complete", "superseded", "abandoned"}
 DESIGN_STATUS_NEEDING_PHASE = {"draft", "in_review", "approved", "in_implementation", "implemented"}
+# §5.5: the statuses a human may write on a design that has a gh_pr. "" means "derived — ask
+# GitHub"; the rest are terminal conclusions GitHub cannot draw.
+TERMINAL_STATUS_WITH_PR = {"", "complete", "superseded", "abandoned"}
+# §6: the statuses that mean "no longer work in front of anyone". They sink to the bottom of
+# index.csv and drop out of the README's issues table. An empty status is never finished —
+# for an issue or design owned by GitHub it means "not yet synced", not "done".
+FINISHED_ISSUE_STATUS = {"closed", "closed_not_planned", "rejected", "duplicate"}
+FINISHED_DESIGN_STATUS = {"complete", "superseded", "abandoned"}
 PHASES = {"high-level": 1, "architecture": 2, "examples": 3, "implementation": 4,
           "documentation": 5}
 RETIRED_PHASES: set[str] = set()          # §5.3 rule 2: never delete, only mark retired
-PRIORITIES = {"P0", "P1", "P2", "P3"}
-COMPLEXITIES = {"S", "M", "L", "XL"}
+# Ordered, because §6 sorts on them: most urgent and smallest first. The vocabularies §4.4 and
+# §4.5 validate against are the keys, so a value can never be rankable but unlisted.
+PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+COMPLEXITY_ORDER = {"S": 0, "M": 1, "L": 2, "XL": 3}
+PRIORITIES = set(PRIORITY_ORDER)
+COMPLEXITIES = set(COMPLEXITY_ORDER)
 NEEDS_DESIGN = {"L", "XL"}
+# §6: issues before designs before guides before reference documents — open questions above the
+# answers. `feature` shares the issues block; it is an issue whose problem is an absence.
+KIND_ORDER = {"issue": 0, "feature": 0, "design": 1, "guide": 2, "reference": 3}
 AUDIENCES = {"internal", "user", "both"}
 REVIEW_DAYS = 92                          # §9.4
 
@@ -96,8 +111,47 @@ def _list(fields: dict, key: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------- collection
+def finished(row: dict) -> bool:
+    """Is this row's work over? Reference documents and guides never are (§6).
+
+    A reference document has no lifecycle to finish: `current` and `overdue` describe how
+    recently someone checked it, and the moment it stops being maintained it stops being true.
+    """
+    if row["kind"] in ("issue", "feature"):
+        return row["status"] in FINISHED_ISSUE_STATUS
+    if row["kind"] == "design":
+        return row["status"] in FINISHED_DESIGN_STATUS
+    return False
+
+
+def sort_key(row: dict) -> tuple:
+    """Order for index.csv (§6): live work on top, finished work at the bottom.
+
+    Within each half, issues come before designs before guides before reference documents.
+    Then the rank that the kind actually has:
+
+    * issues — `priority` ascending, then `complexity` smallest first. The top of the file is
+      what to pick up next: the most urgent thing that is also the least work.
+    * designs — nothing to rank by; designs carry no priority or complexity (§5.1).
+    * guides and reference — `overdue` above `current`, so a document owed a review is the one
+      you see.
+
+    `id` breaks every remaining tie, which is what keeps the file stable: two runs over the same
+    tree produce the same bytes, and a row moves only when a field it sorts on changed.
+    """
+    kind = row["kind"]
+    if kind in ("issue", "feature"):
+        rank = (PRIORITY_ORDER.get(row["priority"], len(PRIORITY_ORDER)),
+                COMPLEXITY_ORDER.get(row["complexity"], len(COMPLEXITY_ORDER)))
+    elif kind == "design":
+        rank = (0, 0)
+    else:
+        rank = (0 if row["status"] == "overdue" else 1, 0)
+    return (finished(row), KIND_ORDER.get(kind, len(KIND_ORDER)), rank, row["id"])
+
+
 def collect() -> list[dict]:
-    """One row per tracked document. Sorted by id, always (§6)."""
+    """One row per tracked document, in the order §6 specifies — see `sort_key`."""
     rows: list[dict] = []
 
     for path in sorted((SPECS / "issues").glob("*.md")):
@@ -121,7 +175,9 @@ def collect() -> list[dict]:
         rows.append({
             "id": f.get("id", slug.upper()), "kind": "design", "title": f.get("title", ""),
             "status": f.get("status", ""),
-            "status_source": "github" if gh_pr else "local",
+            # Who owns the value in the status column, not whether a PR exists (§5.5). A design
+            # that has reached a hand-written terminal status owns it locally, gh_pr or not.
+            "status_source": "github" if gh_pr and not f.get("status") else "local",
             "phase": f.get("phase", ""), "priority": "", "complexity": "",
             "area": ";".join(_list(f, "area")), "gh_issue": "", "gh_pr": ";".join(gh_pr),
             "branch": "", "design": slug, "reviewed": "", "created": f.get("created", ""),
@@ -149,7 +205,7 @@ def collect() -> list[dict]:
                 "_fm": f, "_path": path,
             })
 
-    rows.sort(key=lambda r: r["id"])
+    rows.sort(key=sort_key)
     return rows
 
 
@@ -173,10 +229,9 @@ def replace_block(text: str, name: str, body: str) -> str:
 
 
 def render_readme_blocks(rows: list[dict], readme: str) -> str:
-    live = {"closed", "closed_not_planned", "rejected", "duplicate"}
-
+    # `rows` arrives in §6 order, so the table inherits it: P0 above P1, smallest first.
     issues = [r for r in rows if r["kind"] in ("issue", "feature")
-              and r["status"] not in live and r["design"] and r["priority"] in ("P0", "P1")]
+              and not finished(r) and r["design"] and r["priority"] in ("P0", "P1")]
     if issues:
         body = ["| Issue | Pri | Cx | Design |", "|---|---|---|---|"] + [
             f"| [`{r['id']}`]({Path(r['file']).relative_to('specs').as_posix()}) "
@@ -199,15 +254,17 @@ def render_readme_blocks(rows: list[dict], readme: str) -> str:
             rel = Path(r["file"]).relative_to("specs").as_posix()
             if rel not in referenced:
                 unplaced.append(f"- `{rel}`")
-        elif r["kind"] == "feature" and r["status"] not in live:
+        elif r["kind"] == "feature" and not finished(r):
             if r["id"] not in referenced:
                 unplaced.append(f"- feature `{r['id']}`")
     body = ("\n".join(sorted(unplaced)) if unplaced else
             "*Everything is placed in the capability map.*")
     readme = replace_block(readme, "unplaced", body)
 
+    # By name, not in §6 order: this block is how a reader finds a guide, and someone looking
+    # for the testing guide scans for its name rather than for how overdue it is (§8.2).
     guides = []
-    for r in rows:
+    for r in sorted(rows, key=lambda r: r["id"]):
         if r["kind"] != "guide":
             continue
         _, text = parse_front_matter((REPO / r["file"]).read_text(encoding="utf-8"))
@@ -275,19 +332,24 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
 
         elif r["kind"] == "design":
             gh_pr = _list(f, "gh_pr")
-            # §5.5: gh_pr transfers the *derived* statuses to GitHub, but `abandoned` and
-            # `superseded` are human conclusions GitHub cannot reach — a PR closing unmerged
-            # does not say whether the design was given up or will be retried.
-            if gh_pr and f.get("status") not in ("", None, "abandoned", "superseded"):
-                errors.append(f"{where}: has gh_pr and a derived status '{f['status']}' (§5.5)")
-            if not gh_pr:
-                if f.get("status") not in DESIGN_STATUS:
-                    errors.append(f"{where}: status '{f.get('status')}' not in §5.1")
-                # CHECK 6 — phase present exactly when the status requires it
-                if f.get("status") in DESIGN_STATUS_NEEDING_PHASE and not f.get("phase"):
-                    errors.append(f"{where}: status '{f['status']}' requires a phase (§5.1)")
-                if f.get("status") not in DESIGN_STATUS_NEEDING_PHASE and f.get("phase"):
-                    errors.append(f"{where}: status '{f['status']}' must not carry a phase (§5.1)")
+            status = f.get("status") or ""
+            # §5.5: gh_pr transfers `in_implementation` and `implemented` to GitHub — nothing
+            # else. The terminal statuses stay hand-written: `abandoned` and `superseded` are
+            # conclusions a PR cannot reach, and `complete` turns on whether a phase is still
+            # outstanding, which is a question about this folder rather than about GitHub.
+            if gh_pr:
+                if status not in TERMINAL_STATUS_WITH_PR:
+                    errors.append(f"{where}: has gh_pr and status '{status}' — with a PR linked, "
+                                  f"write nothing (derived) or a terminal status (§5.5)")
+            elif status not in DESIGN_STATUS:
+                errors.append(f"{where}: status '{status}' not in §5.1")
+            # CHECK 6 — phase present exactly when the status requires it. Checked for every
+            # hand-written status; a derived one is empty here and carries its phase untouched.
+            if status:
+                if status in DESIGN_STATUS_NEEDING_PHASE and not f.get("phase"):
+                    errors.append(f"{where}: status '{status}' requires a phase (§5.1)")
+                if status not in DESIGN_STATUS_NEEDING_PHASE and f.get("phase"):
+                    errors.append(f"{where}: status '{status}' must not carry a phase (§5.1)")
             if f.get("phase") and f["phase"] not in PHASES and f["phase"] not in RETIRED_PHASES:
                 errors.append(f"{where}: unknown phase '{f['phase']}' (see guide §5.2)")
             sb = f.get("superseded_by")

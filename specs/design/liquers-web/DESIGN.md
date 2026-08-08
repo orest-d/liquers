@@ -2,6 +2,7 @@
 id: LIQUERS-WEB
 kind: design
 title: Browser and JavaScript integration via WebAssembly
+status: complete
 area: [web]
 gh_pr: [19]
 issues: []

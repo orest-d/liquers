@@ -2,6 +2,7 @@
 id: WP2-TERMINAL-OUTCOME
 kind: design
 title: Asset terminal outcome contract
+status: complete
 area: [core/assets]
 gh_pr: [7]
 issues: []

@@ -2,6 +2,7 @@
 id: QUERY-VALIDATION
 kind: design
 title: Offline query and recipe validation
+status: complete
 area: [core/validate]
 gh_pr: [15]
 issues: []
