@@ -251,6 +251,11 @@ defects go unrecorded, which is worse than a backlog with some noise in it.
 
 #### 4.8.1 Steps
 
+> **Fast path.** `python3 scripts/docs_index.py new "<title>" --area <area>` performs steps 1–3
+> and 6 (§7.1), including a better duplicate search than a `grep` can manage. The steps below
+> remain the definition — filing must work with no tooling at all — but use the helper when it is
+> available.
+
 1. **Search first.** `grep -i '<keyword>' specs/index.csv` against the symptom, the module, and the
    area. Duplicate filing is the one failure mode that makes cheap capture worthless. If you find a
    match, add to that issue's body instead of creating a new file.
@@ -539,15 +544,39 @@ parallel markdown table is generated.
 
 ## 7. `scripts/docs_index.py`
 
-Three modes.
+Four modes.
 
 | Mode | Does | Network |
 |---|---|---|
 | *(default)* | Regenerates `index.csv` from front-matter, preserving the GitHub-derived columns already present. | No |
+| `new` | Scaffolds an issue file (§7.1). | No |
 | `--sync` | Additionally refreshes `status`, `gh_pr`, `branch` from the GitHub API for every row with a `gh_issue`; imports GitHub issues not yet present locally (§4.7); re-hashes imported bodies. | Yes |
 | `--check` | Validates and exits non-zero on failure. Never writes. | Optional |
 
-### What `--check` validates
+### 7.1 `new` — scaffolding an issue
+
+```bash
+python3 scripts/docs_index.py new "Expired asset returns stale cached binary" \
+    --area core/assets --priority P0 --complexity M
+```
+
+1. **Searches for near-duplicates** across every row's `title` and `area`, matching on individual
+   significant words rather than the whole string, and prints candidates for the author to rule
+   out. This is the step that most needs mechanising: §4.8.1 otherwise asks for a `grep`, which
+   misses anything phrased differently, and a duplicate filed is worse than an issue not filed.
+2. **Proposes an ID** from the title in `SCREAMING-KEBAB`, checks it is unused, and lets the author
+   override it.
+3. **Writes `specs/issues/<ID>.md`** from the §4.8.2 template with the given fields filled and the
+   body headings stubbed.
+4. **Regenerates `index.csv`.**
+
+It never opens a GitHub issue, and it always writes `status: draft` — those are not options.
+
+The mode exists to make the common path fast, **not to become the only path.** Filing by hand
+stays fully supported and §4.8.1 remains the definition: cheap capture means an agent with no
+tooling, no network and no Python can still record what it found.
+
+### 7.2 What `--check` validates
 
 1. Front-matter parses; required fields present; every enum value is in this document.
 2. IDs are unique and match the filename.
@@ -578,7 +607,7 @@ Checks 8 and 9, with the coverage block of §8.4, are what stop the capability m
 the old `FEATURES.md` did — it listed five files that did not exist and omitted two that did. The
 prose cannot be validated; the links, the stages and the omissions can.
 
-### When sync runs
+### 7.3 When sync runs
 
 1. **Before acting.** An agent about to work on, close or reopen a tracked item syncs first. This
    is the trigger that matters: the data is refreshed exactly when it is about to inform a

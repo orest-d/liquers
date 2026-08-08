@@ -561,24 +561,38 @@ become a second copy of a vocabulary:
 >
 > Map: `specs/README.md` · Rules: `specs/DOCS_STRUCTURE_GUIDE.md` · Index: `specs/index.csv`
 >
-> **Filing an issue.** One file per issue at `specs/issues/<ID>.md`, where `<ID>` is
-> `SCREAMING-KEBAB` naming the problem, not the fix.
+> **If you find a defect, gap or limitation you are not fixing, file it before you finish the
+> task.** This applies to anything you notice in passing — a wrong result, a TODO you had to work
+> around, an API that cannot express what you needed. Mentioning it only in your reply does not
+> record it, and it is lost the moment the session ends.
 >
-> 1. `grep -i '<keyword>' specs/index.csv` first — do not file a duplicate.
-> 2. Create the file with `status: draft` and fill `priority`, `complexity` and `area`. Guess
->    rather than leave blank; review corrects a wrong guess, nothing corrects an empty field.
-> 3. Run `python3 scripts/docs_index.py` and commit both files.
-> 4. **Do not open a GitHub issue.** That happens when work starts.
+> ```bash
+> python3 scripts/docs_index.py new "<one-line problem>" --area <area>
+> ```
+>
+> That searches for duplicates, assigns an ID, writes the file and updates the index. To do it by
+> hand: create `specs/issues/<ID>.md` with `<ID>` in `SCREAMING-KEBAB` naming the problem rather
+> than the fix, `status: draft`, and `priority` / `complexity` / `area` filled — guess rather than
+> leave blank, since review corrects a wrong guess and nothing corrects an empty field. Then run
+> `python3 scripts/docs_index.py` and commit both files.
+>
+> **Do not open a GitHub issue.** That happens when work starts, not when a problem is recorded.
 >
 > Template, field vocabularies and the full procedure:
-> [`specs/DOCS_STRUCTURE_GUIDE.md` §4.8](specs/DOCS_STRUCTURE_GUIDE.md). Filing is deliberately
-> cheap — no network, no account, no permission. Record what you found and carry on.
+> [`specs/DOCS_STRUCTURE_GUIDE.md` §4.8](specs/DOCS_STRUCTURE_GUIDE.md). Filing needs no network,
+> no account and no permission — record what you found and carry on.
 >
 > **Also:**
 > - Never edit a file under `specs/archive/`, and never change the status of an issue that has a
 >   `github:` number.
 > - A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
 > - `specs/index.csv` is generated — run `scripts/docs_index.py`, do not hand-edit.
+
+The opening sentence is phrased as an obligation, not an invitation. An earlier draft read "Found a
+problem? File…", which describes a capability an agent may use; the failure mode here is not *not
+knowing how* but *not thinking to*, and a capability is easy to read past mid-task. Neither
+mechanism guarantees the habit, but an obligation tied to finishing the task is the stronger of the
+two — and it is why this is a wording choice rather than a tooling one (§8.1b).
 
 ### 8.1a Issue-creation guidance exists in exactly one other place
 
@@ -605,18 +619,37 @@ Two places to watch, because both are natural homes for a future duplicate:
   the repository rather than on GitHub.
 - **`CONTRIBUTING.md`**, if one is ever written. Same rule.
 
-### 8.1b Skills stay pointers, for now
+### 8.1b Decision: no issue-filing skill
 
-Filing is four steps and a template, so no skill is needed to do it, and adding one now would put a
-second copy of the procedure into a file that is loaded selectively. The skills are updated in §8.3
-only to fix stale paths.
+**A pointer plus a script, not a skill.** The skills are updated in §8.3 only to fix stale paths.
 
-A future skill could reasonably automate the mechanical parts — proposing an ID from the symptom,
-searching `index.csv` for near-duplicates, filling front-matter, running `docs_index.py` — and that
-would be a real improvement, since duplicate-detection by `grep` is the weakest step in §4.8.1.
-When it is written, it must **invoke** the procedure in guide §4.8 rather than embed a copy of it,
-exactly as `CLAUDE.md` does. The same applies to `liquers-designer`, which will want to file the
-remainder issues that guide §5.6 requires when a design ships in part.
+The reasoning, recorded because the question will be asked again:
+
+- **Most of the value is a script.** The mechanical steps — near-duplicate search, ID assignment
+  and uniqueness, scaffolding front-matter, regenerating the index — need to run code, and
+  `scripts/docs_index.py` already parses `index.csv` and validates front-matter. They belong there,
+  as guide §7.1's `new` mode. A script is testable, usable outside Claude, and costs no context.
+- **A skill would wrap that subcommand.** Guide §4.8.4 requires it to invoke the procedure rather
+  than embed it, so the skill file would be a pointer to the guide — which is what `CLAUDE.md`
+  already is. A third copy of a pointer.
+- **It does not match what skills do in this repository.** All four encode substantial domain
+  knowledge: a phased design workflow with review gates, a test-pattern catalogue, query semantics,
+  Rust conventions. None is a form-filler, and filing has exactly one judgement call — is this a
+  duplicate — with priority and complexity explicitly guessable.
+- **Context cost is a wash.** A skill loads on demand and so does the guide.
+
+The strongest argument *for* a skill is recall: a description matching "a defect was discovered
+mid-task" might fire at the moment filing gets skipped. Rejected because skill triggering has the
+same weakness as a `CLAUDE.md` line — the agent must still recognise the moment. What helps more is
+phrasing the rule as an obligation tied to finishing the task, which §8.1 now does.
+
+**Revisit when either of these appears**, not on a schedule:
+
+1. The backlog accumulates near-duplicates, or drafts arrive with fields the `new` mode would have
+   filled — evidence the script is not being reached for.
+2. A **second caller** needs to file programmatically. `liquers-designer` is the likely one: guide
+   §5.6 requires it to file remainder issues when a design ships in part, and §9.3 has it working
+   from a candidate list at phase 5. Two callers is a far better reason to build a skill than one.
 
 ### 8.2 `README.md`
 
@@ -709,9 +742,15 @@ documents the skills superseded (§8.5).
 
 ## 9. Step 7 — Tooling and enforcement
 
-- `scripts/docs_index.py` per guide §7 — generate, `--sync`, `--check`.
+- `scripts/docs_index.py` per guide §7 — generate, `new`, `--sync`, `--check`.
 - Wire `--check` into CI on every PR (offline validations only, no token required).
 - Add the post-merge `--sync` job and the weekly scheduled run.
+
+**Build `new` before the other modes.** It is what `CLAUDE.md` tells every session to run (§8.1),
+and it is the reason no filing skill is needed (§8.1b) — until it exists, the fast path in guide
+§4.8.1 points at a command that is not there. It is also the least coupled: scaffolding a file and
+searching titles needs no GitHub token and no CI wiring. Its duplicate search is the part worth
+spending effort on; the rest is a template and a `mkdir`.
 
 Then **write `specs/README.md`** — the capability map (guide §8), which is the largest single piece
 of writing in the migration and the one that cannot be mechanised. Build it in this order, because
