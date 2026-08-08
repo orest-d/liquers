@@ -25,6 +25,8 @@ signatures so Phase 4 can land them rather than rewrite them.
 | U6 | `poll_binary_any_status` | `Some` for `Value` and `Expired`; `None` otherwise | unit, `assets.rs` |
 | U7 | `binary_unchecked` is status-blind | Returns bytes for **every** status — its contract | unit, `assets.rs` |
 | U8 | `get_binary` error identity | `Error` reuses recorded error; `Cancelled`/`Directory` constructed | unit, `assets.rs` |
+| U9 | `get` pre-wait expiry check | `get` on an already-`Expired` asset returns `Err` instead of blocking — the state-side twin of the `get_binary` fix | unit, `assets.rs` |
+| U10 | `get_binary` serializes on demand | `Value` exposure with **no** cached bytes still yields bytes — the gate is not "binary required" | unit, `assets.rs` |
 | I1 | Persistence does not regress | Bytes reach the store when status is not `Value`-exposure | integration, `assets.rs` (see §Access) |
 | I2 | End-to-end expiry | Real evaluation → expiry → matrix behaviour | integration, `expiration_integration.rs` |
 | I3 | Manager re-request still rebuilds | `Expired` remains a cache miss at the request boundary | integration, `expiration_integration.rs` |
@@ -39,9 +41,16 @@ against the source; Phase 4 should treat this list as binding.
 |---|---|
 | `AssetRef::set_binary(...)` | **Does not exist.** `set_binary` is an `AssetManager` method (`assets.rs:2802`, `:4302`), not on `AssetRef`. |
 | `State::new_with_value(v)` | **Does not exist.** Use `State::from_parts(Arc<V>, Arc<Metadata>)` or `State::from_value_and_metadata(v, meta)`. |
-| `envref.evaluate("...")` | **Does not exist** on `EnvRef`. Evaluation goes through the asset manager (`get_asset`/`get`) or `Context::evaluate` (`context.rs:278`). |
+| `envref.evaluate("...")` | **Exists** — `EnvRef::evaluate<Q: TryToQuery>` (`context.rs:278`). An earlier draft of this table wrongly said otherwise. It returns `AssetRef` after submission, *not* after evaluation: with a queued manager you must still `get()` to wait for a value. |
 | `try_poll_binary` is new | **Already exists** (`assets.rs:2456`). It is gated, not added. |
 | `Recipe::new(a, b, c)` | Check `recipes.rs:62` before use; the drafted 3-argument form was not verified. |
+
+**Test module locations** (verified, for Phase 4): `metadata.rs` already has `#[cfg(test)] mod tests`
+at `:2314`; `assets.rs` at `:5472`, with `use super::*;` at `:5480` — so U4–U8 and I1 can reach
+private fields and `pub(crate)` methods without new plumbing.
+
+**These facts were double-checked** by an independent reviewer against the source, not taken on
+trust from the drafting pass.
 
 **How to get an asset that is `Expired` *and* still holds cached bytes** — the crux of the whole
 suite. Only two sites populate `AssetData::binary`:
@@ -209,30 +218,63 @@ differ *by accident*: `State::as_bytes` checks `value_error()` first, which is `
 and `None` for `Cancelled`, so cancellation currently serializes a `none` value into some byte
 string instead of failing.
 
+All three no-valid-binary statuses are covered. The setup assigns `status` and `binary` directly,
+which the in-file `mod tests` can do (`assets.rs:5480` has `use super::*;`) — this keeps the test
+about the gate rather than about how each status is reached.
+
 ```rust
+/// Build an AssetData holding cached bytes, parked in `status`.
+fn asset_with_binary(
+    id: u64,
+    status: Status,
+    envref: EnvRef<SimpleEnvironment<Value>>,
+) -> AssetData<SimpleEnvironment<Value>> {
+    let key = parse_key("no_valid_binary.txt").expect("test key");
+    let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.into(), envref);
+    d.binary = Some(Arc::new(b"bytes that must not escape".to_vec()));
+    d.status = status;
+    d
+}
+
 #[tokio::test]
 async fn test_get_binary_error_identity() -> Result<(), Box<dyn std::error::Error>> {
-    // Error: the returned error is the asset's OWN recorded failure.
-    let assetref = /* ... asset driven to Status::Error via fail_asset ... */;
-    let err = assetref.get_binary().await.expect_err("Error status must not yield bytes");
+    let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    let envref = env.to_ref();
+
+    // --- Error: the returned error is the asset's OWN recorded failure. ---
+    let failed = asset_with_binary(9101, Status::Ready, envref.clone()).to_ref();
+    failed.fail_asset(Error::general_error("recipe blew up".to_owned())).await?;
+    assert_eq!(failed.status().await, Status::Error);
+
+    let err = failed.get_binary().await.expect_err("Error must not yield bytes");
     assert!(
         err.to_string().contains("recipe blew up"),
         "must reuse the recorded failure, not a generic message: {}", err
     );
-    assert!(assetref.poll_binary().await.is_none());
-    // poll_state still returns a metadata-only state — unchanged.
-    assert!(assetref.poll_state().await.is_some());
+    assert!(failed.poll_binary().await.is_none());
+    assert!(failed.poll_state().await.is_some(), "poll_state unchanged: metadata-only state");
 
-    // Cancelled: no error is recorded, so one is constructed.
-    let cancelled = /* ... asset driven to Status::Cancelled ... */;
+    // --- Cancelled: no error is recorded, so one is constructed. ---
+    let cancelled = asset_with_binary(9102, Status::Cancelled, envref.clone()).to_ref();
     let err = cancelled.get_binary().await.expect_err("Cancelled must not yield bytes");
     assert!(err.to_string().to_lowercase().contains("cancel"));
     assert!(cancelled.poll_binary().await.is_none());
     assert!(cancelled.poll_state().await.is_some());
 
+    // --- Directory: likewise constructed. ---
+    let dir = asset_with_binary(9103, Status::Directory, envref).to_ref();
+    let err = dir.get_binary().await.expect_err("Directory must not yield bytes");
+    assert!(err.to_string().to_lowercase().contains("director"));
+    assert!(dir.poll_binary().await.is_none());
+    assert!(dir.poll_state().await.is_some());
+
     Ok(())
 }
 ```
+
+The three arms differ in exactly one respect — where the error comes from — which is the whole
+content of Phase 1's decision, and the reason `Error` and `Cancelled` are separate match arms in
+`get_binary` despite sharing a `ReadExposure`.
 
 **`Pending` waits, it does not error.** `get_binary` on a `Processing` asset must block until the
 asset finishes, then reflect the outcome. Test it by driving completion from a second task under
@@ -306,19 +348,88 @@ fn test_read_exposure_guard_is_exhaustive() {
             | Status::Processing | Status::Partial | Status::Storing => ReadExposure::Pending,
         }
     }
-    for s in Status::all() {           // see note below
+    // `Status::all()` does NOT exist (verified), so the fifteen literals are listed here.
+    // The compile-time guarantee comes from `expected`'s match, not from this list.
+    for s in [
+        Status::None, Status::Directory, Status::Recipe, Status::Submitted,
+        Status::Dependencies, Status::Processing, Status::Partial, Status::Error,
+        Status::Storing, Status::Expired, Status::Cancelled, Status::Ready,
+        Status::Source, Status::Override, Status::Volatile,
+    ] {
         assert_eq!(s.read_exposure(), expected(s), "wrong bucket for {:?}", s);
     }
 }
 ```
 
-This needs a way to enumerate statuses. **`Status::all()` does not exist** — verified — so Phase 4
-must either add it or list the fifteen literals in the loop. Either way the compile-time guarantee
-comes from `expected`'s match, not from the enumeration.
+Adding a `Status` variant makes `expected`'s match non-exhaustive — a compile error. It does *not*
+make the array literal fail, so the array alone would be no guard at all; that is why the match is
+written out rather than looping over a helper.
 
-U4–U8 live in `assets.rs`'s `mod tests`, which can set `asset_data.status` and `.binary` directly.
+U4–U10 live in `assets.rs`'s `mod tests`, which can set `asset_data.status` and `.binary` directly.
 U7 is the contract test for `binary_unchecked`: **bytes for every one of the fifteen statuses**,
 because it is the persistence accessor and must not consult the gate.
+
+U4 deserves spelling out, since it is what proves Phase 2's claim that extracting the classifier
+changes no state-read behaviour. It is not "assert `poll_state` returns something" — it must assert
+the *behaviour class* for each of the fifteen statuses:
+
+```rust
+#[tokio::test]
+async fn test_poll_state_agrees_with_read_exposure()
+    -> Result<(), Box<dyn std::error::Error>> {
+    let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    let envref = env.to_ref();
+
+    for (i, status) in [/* the fifteen literals */].into_iter().enumerate() {
+        let mut d = asset_with_binary(9200 + i as u64, status, envref.clone());
+        d.data = Some(Arc::new(Value::from("v")));
+        match status.read_exposure() {
+            ReadExposure::Value => {
+                let st = d.poll_state().ok_or("Value exposure must yield a state")?;
+                assert!(!st.is_none(), "{:?} must carry a value", status);
+            }
+            ReadExposure::MetadataOnly => {
+                let st = d.poll_state().ok_or("MetadataOnly must yield a state")?;
+                assert!(st.is_none(), "{:?} must carry no value", status);
+            }
+            ReadExposure::Expired | ReadExposure::Pending => {
+                assert!(d.poll_state().is_none(), "{:?} must be hidden", status);
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+**U9 — the state-side twin of the `get_binary` fix.** Without it, Phase 2's `get`/`Expired` matrix
+cell is unverified:
+
+```rust
+#[tokio::test]
+async fn test_get_on_expired_errors_instead_of_blocking()
+    -> Result<(), Box<dyn std::error::Error>> {
+    // ... fast-track setup as Example 1, then expire ...
+    let result = tokio::time::timeout(Duration::from_secs(2), assetref.get()).await;
+    let inner = result.map_err(|_| "get() blocked on an expired asset instead of erroring")?;
+    assert!(inner.is_err(), "get() on Expired must return Err");
+    Ok(())
+}
+```
+
+The `timeout` is the assertion: today this test fails by timing out, which is precisely the latent
+hang. It must not be written as a bare `assert!(assetref.get().await.is_err())`, because that would
+hang the suite rather than fail it.
+
+**U10** covers the corner case where exposure is `Value` but no bytes are cached: `get_binary` must
+serialize through `serialize_to_binary` and return bytes. This guards against over-reading the gate
+as "binary required".
+
+### On test bodies
+
+Phase 3 fixes *what each test pins down* and the setup that makes it reachable; Phase 4 writes the
+remaining bodies. Where a body appears above, it is because the test is easy to get subtly wrong —
+U2's guard, U4's behaviour classes, U9's timeout, the store-fallback test — not because the others
+are optional.
 
 ### Integration Tests (I1–I4)
 
@@ -342,10 +453,15 @@ so an evicted asset cannot fast-track stale bytes back (the gap PR #11 found lat
 
 Stated plainly rather than covered by a flaky test:
 
-1. **`liquers-axum` handler behaviour.** The crate has no handler test scaffolding — no test router,
-   no request helper. A real test needs roughly that much new infrastructure. Phase 4 should either
-   build it or record explicitly that the handler fix is verified by review plus a manual request.
-   **This is a gap worth naming, not hiding:** the axum loops are where the bug actually bites.
+1. **`liquers-axum` handler behaviour — a decision Phase 4 must make, not inherit.** The crate has
+   no handler test scaffolding: no test router, no request helper. Both Phase 3 reviewers flagged
+   this independently, and both observed that the axum loops are where the bug actually bites, so
+   the gap sits over the most load-bearing part of the change. Phase 4 must pick one, explicitly:
+   **(a)** build the scaffolding (a test `Router` plus a request helper — an estimated ~80 lines,
+   reusable by every future handler test), or **(b)** accept review-plus-manual-request
+   verification and **file an issue** for the missing coverage, per `CLAUDE.md`'s rule that a
+   known gap is recorded rather than mentioned. Silently shipping (b) without the issue is not an
+   option.
 2. **`try_poll_binary` under lock contention.** Returning `None` because `try_read()` failed is a
    scheduler-timing outcome; there is no public API that holds the write lock for a controllable
    interval. A "spawn many and hope one contends" test is probabilistic and would be flaky in CI.
