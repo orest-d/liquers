@@ -20,7 +20,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
-- [ ] Implementation Complete
+- [x] Implementation Complete
 
 ## Notes
 
@@ -143,6 +143,27 @@ Two decisions deliberately left for execution time, with recommended defaults:
 - Step 9's axum test coverage — build the scaffolding, or accept review-only verification and file
   `AXUM-HANDLER-TEST-COVERAGE`. **Recommend the latter**, to keep a P0 read-contract fix from
   growing a test-infrastructure project.
+
+### Implementation
+
+Landed on this branch across ten commits following the Phase 4 step order. Verification:
+`liquers-core` — 445 lib tests, 31 `expiration_integration` (was 27), whole-crate suite green;
+`cargo check -p liquers-py` clean; `liquers-axum` compiles.
+
+Deviations from the plan, all recorded rather than silent:
+- `ReadExposure` is `pub(crate)`, not `pub` — the same compile-time exhaustiveness guarantee
+  without a permanent public API commitment for an internal refactor.
+- Step 9 taken as option (b): `AXUM-HANDLER-TEST-COVERAGE` filed rather than building handler
+  scaffolding inside a P0 fix. `cargo test -p liquers-axum` runs zero tests, which is the gap.
+- The four `AssetData`-level sweep tests are `#[tokio::test]` rather than `#[test]`: constructing an
+  `EnvRef` spawns a task, so they need a runtime even though they await nothing.
+
+Two things the work surfaced that the plan did not predict:
+- Making the axum status matches exhaustive immediately revealed that the **POST loop had no
+  `Status::Ready` arm at all** — the catch-all had hidden it. That is the no-default-match-arm rule
+  paying for itself on the first use.
+- `Status::Directory` needed its own explicit handler arm: `poll_binary` never yields for it, so
+  before this it would have spun to the 30-second timeout.
 
 **Filed separately:** `DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE` (P1) — `wait_for_dependency`'s
 stale-value branch is dead code since PR #11 gated `poll_state`, the same defect class this design
