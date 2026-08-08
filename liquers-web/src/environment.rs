@@ -57,10 +57,19 @@ thread_local! {
     static REGISTERED_SPECS: RefCell<Vec<JsValue>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Builds a fresh environment with the standard command set registered.
+/// Builds a fresh, un-shared environment with the built-in Rust command set registered.
+///
+/// Kept separate from `to_ref` so that JavaScript commands can be registered into it before it is
+/// shared — the ordinary Rust ordering, and the one that avoids a rebuild.
+pub fn new_environment() -> Result<WebEnvironment, Error> {
+    let mut env = WebEnvironment::new();
+    crate::builtins::register_builtin_commands(&mut env)?;
+    Ok(env)
+}
+
+/// Builds a fresh environment and shares it immediately.
 pub fn build_environment() -> Result<EnvRef<WebEnvironment>, Error> {
-    let env = WebEnvironment::new();
-    Ok(env.to_ref())
+    Ok(new_environment()?.to_ref())
 }
 
 /// Registers a JavaScript command declaration on the global environment.
@@ -163,7 +172,7 @@ fn warn_on_replacement(name: &str, replaced: Replaced) {
 ///
 /// Used when a command is registered after the environment has been shared.
 fn rebuild_with(additional: JsValue) -> Result<(), Error> {
-    let mut env = WebEnvironment::new();
+    let mut env = new_environment()?;
 
     let specs = REGISTERED_SPECS.with(|cell| cell.borrow().clone());
     for spec in specs.iter().chain(std::iter::once(&additional)) {
@@ -219,7 +228,7 @@ pub fn unregister_command_on(name: &str) -> Result<bool, Error> {
 
 /// Rebuilds the shared environment from the retained declarations as they now stand.
 fn rebuild_without() -> Result<(), Error> {
-    let mut env = WebEnvironment::new();
+    let mut env = new_environment()?;
     let specs = REGISTERED_SPECS.with(|cell| cell.borrow().clone());
     for spec in specs.iter() {
         let parsed = crate::command::JsCommandSpec::parse(spec)?;
@@ -362,8 +371,11 @@ pub fn init_global() -> Result<(), Error> {
     if is_initialized() {
         return Ok(());
     }
+    // Built before the borrow is taken: `new_environment` can fail, and a `?` inside the closure
+    // would abandon the borrow half-written.
+    let env = new_environment()?;
     PENDING_ENV.with(|cell| {
-        *cell.borrow_mut() = Some(WebEnvironment::new());
+        *cell.borrow_mut() = Some(env);
     });
     Ok(())
 }

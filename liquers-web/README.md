@@ -1,0 +1,110 @@
+# liquers-web
+
+Browser/JavaScript integration of Liquers, compiled to WebAssembly.
+
+A page constructs an environment, evaluates queries as `Promise`s, and registers commands written
+in JavaScript. Those commands compose with the built-in Rust ones in a single query — a JavaScript
+command's result is converted structurally, so `myCommand/to_text` works.
+
+Design documents: [`specs/liquers-web/`](../specs/liquers-web/). The integration follows
+[`specs/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/LANGUAGE-INTEGRATION_GUIDE.md).
+
+## Quick start
+
+```html
+<script type="module">
+  import init, * as liquers from "./liquers_web.js";
+
+  await init();            // load the wasm module
+  await liquers.init();    // create the environment — a Promise, never a blocking initializer
+
+  liquers.registerCommand({
+    name: "hello",
+    run: () => "Hello, world!",          // no state → a source command
+  });
+
+  liquers.registerCommand({
+    name: "shout",
+    state: "text",
+    run: (text) => text.toUpperCase(),   // arguments inferred: none beyond the state
+  });
+
+  liquers.registerCommand({
+    name: "repeat",
+    state: "text",
+    arguments: [{ name: "count", type: "int", default: 2 }],   // explicit: the reliable path
+    run: (text, count) => text.repeat(count),
+  });
+
+  await liquers.evaluate("hello/shout");        // "HELLO, WORLD!"
+  await liquers.evaluate("hello/repeat-3");     // "Hello, world!" ×3
+  await liquers.evaluate("hello/to_text");      // a built-in Rust command reading a JS result
+</script>
+```
+
+A runnable version is in [`examples-web/quickstart/`](examples-web/quickstart/).
+
+## Building
+
+`liquers-web` is **wasm32-only**. `JsValue` is `!Send`/`!Sync` on every target, and on native the
+`MaybeSend`/`MaybeSync` markers resolve to `Send`/`Sync`, so the bridge types cannot exist there.
+The crate body is `wasm32`-gated — a native build produces an intentionally empty crate — and the
+workspace's `default-members` excludes it, so the native test loop never builds it.
+
+```bash
+cargo check -p liquers-web --target wasm32-unknown-unknown
+```
+
+### The quick-start page
+
+```bash
+./examples-web/quickstart/build.sh          # or --release
+python3 -m http.server 8090 --directory examples-web/quickstart/dist
+```
+
+`build.sh` does what `trunk build` does — build the cdylib for wasm32, run `wasm-bindgen` over it,
+copy the page next to the output — without requiring trunk to be installed. If you have trunk,
+`cd examples-web/quickstart && trunk serve` works too and serves on the same port.
+
+## Testing
+
+Three harnesses, because three different things are being tested.
+
+```bash
+# 1. Conformance suites, under Node. The bulk of the tests; no browser needed.
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+
+# 2. Declarations and artifact structure.
+./examples-web/quickstart/build.sh
+./scripts/check-stubs.sh
+
+# 3. The delivery form, in a real browser.
+cd tests/e2e && npm install && npx playwright test
+```
+
+`--features debug-handles` exposes a live count of retained JavaScript function handles, which is
+how `RUNTIME05` asserts that unregistering a command releases its closure deterministically rather
+than depending on GC timing. Without the feature that one test is compiled out.
+
+Per [`CLAUDE.md`](../CLAUDE.md), run the browser loop **after `cargo clean`** and separately from
+the native one — the disk allowance does not fit both.
+
+## Known limitations
+
+| Limitation | Tracked as |
+|---|---|
+| `Asset.cancel()` is inert: the immediate asset manager evaluates during `getAsset`, so an asset is already terminal when a caller receives it | `WEB-CANCELLATION-INERT` |
+| `encodeParam` refuses values containing a lone colon, most punctuation, or any non-ASCII character — the query grammar has no entity for them. Refusing is deliberate; the core encoder emits unparseable text instead | `PARAMETER-ESCAPING-INCOMPLETE` |
+| Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
+
+All three are in [`specs/ISSUES.md`](../specs/ISSUES.md), each with the condition that reverses it.
+
+## Extending
+
+Two tiers, both supported:
+
+- **Tier 1 — retain a JavaScript value opaquely.** `liquers.opaque(x)` carries `x` by identity
+  rather than converting it. Explicit by design, so opacity is never accidental.
+- **Tier 2 — your own value type.** Everything in `bridge`, `eval`, `asset` and `command` is
+  generic over the value type; only [`src/default_value.rs`](src/default_value.rs) names a concrete
+  one. Implement `JsValueBridge` for your type and the generic surface is yours.

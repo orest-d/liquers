@@ -1,0 +1,7 @@
+# Build output of examples-web/quickstart/build.sh (and of `trunk build`).
+examples-web/*/dist/
+# Playwright and TypeScript, installed by `npm install` in tests/e2e.
+tests/e2e/node_modules/
+tests/e2e/package-lock.json
+tests/e2e/test-results/
+tests/e2e/playwright-report/

@@ -25,18 +25,29 @@ async fn environ01_default_environment_evaluates_builtin() {
     let envref = build_environment().expect("build a default environment");
     let _ = envref.0.get_command_metadata_registry().commands.len();
 
-    // And the environment evaluates. There are no Rust built-ins registered on the wasm
-    // environment yet, so the command under test is a registered one — which exercises the same
-    // planner, interpreter and asset lifecycle a built-in would.
+    // The built-in Rust command set is present. Asserted on *this* environment's registry rather
+    // than through `has_command`, which inspects the singleton — a different environment.
+    assert!(
+        envref
+            .0
+            .get_command_metadata_registry()
+            .get(liquers_core::command_metadata::CommandKey::new("", "", "to_text"))
+            .is_some(),
+        "a default environment must carry the built-in Rust commands"
+    );
+
+    // And it evaluates one. Every Liquers query segment is a command, so a *source* is needed to
+    // produce the input — `to_text` is the built-in under test, and the JavaScript command ahead of
+    // it only supplies its state.
     reset_global();
     init_global().expect("init");
     register_command_on(&decl("env01cmd", "return 'evaluated';")).expect("register");
 
     let envref = shared_env().expect("share");
-    let query = liquers_core::parse::parse_query("env01cmd").expect("parse");
+    let query = liquers_core::parse::parse_query("env01cmd/to_text").expect("parse");
     let value = liquers_web::eval::evaluate_query(envref, query)
         .await
-        .expect("the environment must evaluate a query end to end");
+        .expect("the environment must evaluate a built-in end to end");
     assert_eq!(value.as_string().as_deref(), Some("evaluated"));
 
     reset_global();

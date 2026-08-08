@@ -130,7 +130,7 @@ async fn asyncq04_cancellation_propagates() {
     fresh();
     register_fixture_commands();
 
-    let asset = settle(liquers_web::get_asset("hello"))
+    let asset = settle(liquers_web::get_asset("hello").unchecked_into())
         .await
         .expect("getAsset must resolve");
     assert!(asset.is_object(), "getAsset resolves with an Asset object");
@@ -342,13 +342,13 @@ async fn web_evaluation_returns_before_the_work_runs() {
 
     // The same for the asset entry point.
     let before = millis();
-    let asset = liquers_web::get_asset("slow");
+    let asset: JsValue = liquers_web::get_asset("slow").into();
     let elapsed = millis() - before;
     assert!(asset.is_instance_of::<js_sys::Promise>());
     assert!(elapsed < 25.0, "getAsset must not block either ({elapsed} ms)");
 
     // Drain both so the test does not leave work outstanding for the next one.
     let _ = with_timeout(2000, "slow evaluation", settle(pending)).await;
-    let _ = with_timeout(2000, "slow asset", settle(asset)).await;
+    let _ = with_timeout(2000, "slow asset", settle(asset.unchecked_into())).await;
     reset_global();
 }

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Liquers — quick start</title>
+
+    <!--
+      Trunk builds `liquers-web` itself. There is no wrapper crate: `liquers-web` is already a
+      cdylib whose `#[wasm_bindgen]` items are the entire public surface, so pointing trunk at its
+      manifest produces exactly the module a page imports.
+    -->
+    <link data-trunk rel="rust" href="../../Cargo.toml" data-wasm-opt="0" />
+
+    <style>
+      body {
+        font: 15px/1.5 system-ui, sans-serif;
+        max-width: 46rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+      }
+      h1 { font-size: 1.4rem; }
+      table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+      th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
+      th { font-weight: 600; }
+      code { font-family: ui-monospace, monospace; }
+      td.result { font-family: ui-monospace, monospace; }
+      .err { color: #b00; }
+      #status { margin-top: 1.5rem; font-weight: 600; }
+    </style>
+  </head>
+
+  <body>
+    <h1>Liquers — quick start</h1>
+    <p>
+      Liquers added to a plain page: no bundler, no build step for the page itself, one
+      <code>&lt;script type="module"&gt;</code>. Commands are declared in JavaScript and composed
+      with the built-in Rust ones in a single query.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Query</th><th>Result</th></tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+
+    <p id="status">Loading…</p>
+
+    <script type="module" id="quickstart">
+      // Two ways to load the module, because there are two ways to build this page.
+      //
+      // `build.sh` emits `liquers_web.js` next to the page, and the import below is the plain
+      // no-bundler form a real page would use — this is the shape the documentation shows.
+      //
+      // Trunk works differently: it emits a *content-hashed* filename, injects its own loader, and
+      // publishes the module as `window.wasmBindings`. It does **not** rewrite imports, so the
+      // named import 404s under trunk. Nor can the bindings simply be read here — trunk's loader
+      // is a separate module script whose top-level await has not necessarily resolved by the time
+      // this one runs, so it announces itself with an event instead.
+      //
+      // Trunk is detected from the loader it injected, rather than by attempting the import and
+      // catching the failure: a failed import logs a 404, and this page asserts it produces no
+      // console errors at all (PACKAGE03).
+      //
+      // The `id` filter is load-bearing. This script's own source contains the marker string, so
+      // without excluding itself the check is always true, and the page waits forever for an event
+      // nobody will dispatch.
+      const builtByTrunk = [...document.querySelectorAll("script[type=module]")]
+        .filter((s) => s.id !== "quickstart")
+        .some((s) => s.textContent.includes("TrunkApplicationStarted"));
+
+      const liquers = await (async () => {
+        if (!builtByTrunk) {
+          const module = await import("./liquers_web.js");
+          await module.default();
+          return module;
+        }
+        // Trunk's loader sets `wasmBindings` and *then* dispatches, so absent bindings mean the
+        // event has not fired yet — never that it fired and was missed.
+        if (globalThis.wasmBindings) return globalThis.wasmBindings;
+        await new Promise((resolve) =>
+          addEventListener("TrunkApplicationStarted", resolve, { once: true }),
+        );
+        return globalThis.wasmBindings;
+      })();
+
+      // ENVIRON: a Promise, never a blocking initializer.
+      await liquers.init();
+
+      // A source command: no state, so it produces a value rather than transforming one.
+      liquers.registerCommand({
+        name: "hello",
+        run: () => "Hello, world!",
+      });
+
+      // Arguments inferred: the parameter list is `(text)`, the state token is dropped, and what
+      // remains is zero arguments. Inference only accepts plain identifiers — see `repeat`.
+      liquers.registerCommand({
+        name: "shout",
+        state: "text",
+        run: (text) => text.toUpperCase(),
+      });
+
+      // Declared explicitly, and it has to be: the JavaScript default `count = 2` is not a plain
+      // identifier, so inference refuses it rather than guessing. This is the ergonomic/reliable
+      // split in one screen — the declaration is the reliable path and always wins.
+      liquers.registerCommand({
+        name: "repeat",
+        state: "text",
+        arguments: [{ name: "count", type: "int", default: 2 }],
+        run: (text, count) => text.repeat(count),
+      });
+
+      // An async command. Returning a Promise is enough — `async: true` is optional, since a
+      // returned thenable is awaited either way. Declare it when you want the mistake caught: a
+      // command declared synchronous that returns a Promise is refused rather than silently
+      // yielding an un-awaited Promise as its value.
+      liquers.registerCommand({
+        name: "delayed",
+        async: true,
+        run: () => new Promise((r) => setTimeout(() => r("after a tick"), 50)),
+      });
+
+      const queries = [
+        "hello",
+        "hello/shout",
+        "hello/repeat-3",
+        "hello/repeat",          // the declared default: 2
+        "hello/to_text",         // a built-in Rust command reading a JavaScript result
+        "hello/repeat-2/shout",
+        "delayed",
+        "hello/no_such_command", // fails to plan — shown so the error path is visible too
+      ];
+
+      const tbody = document.getElementById("results");
+      let failures = 0;
+
+      for (const query of queries) {
+        const row = document.createElement("tr");
+        const q = document.createElement("td");
+        q.innerHTML = `<code>${query}</code>`;
+        const r = document.createElement("td");
+        r.className = "result";
+
+        try {
+          r.textContent = JSON.stringify(await liquers.evaluate(query));
+        } catch (e) {
+          // A rejection is always a structured LiquersError, never a bare string: the type,
+          // message, query and position all survive the boundary.
+          r.className = "result err";
+          r.textContent = `${e.errorType}: ${e.message}`;
+          if (query !== "hello/no_such_command") failures += 1;
+        }
+
+        row.append(q, r);
+        tbody.append(row);
+      }
+
+      // `encodeParam` builds a query safely from user input. It throws rather than emitting text
+      // that fails to parse later — try "12:30" to see it refuse.
+      const encoded = liquers.encodeParam("two words");
+      const row = document.createElement("tr");
+      row.innerHTML =
+        `<td><code>encodeParam("two words")</code></td>` +
+        `<td class="result">${encoded}</td>`;
+      tbody.append(row);
+
+      const status = document.getElementById("status");
+      status.textContent = failures === 0
+        ? `Ready — Liquers ${liquers.version()}, ${queries.length} queries evaluated.`
+        : `${failures} unexpected failure(s).`;
+      status.className = failures === 0 ? "" : "err";
+
+      // Read by the Playwright spec (PACKAGE03), which also asserts zero console errors.
+      globalThis.__liquersQuickstart = { failures, ready: true };
+    </script>
+  </body>
+</html>

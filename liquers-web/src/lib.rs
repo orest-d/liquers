@@ -35,22 +35,27 @@
 
 pub mod asset;
 pub mod bridge;
+pub mod builtins;
+pub mod encode;
 pub mod error;
 pub mod environment;
 pub mod eval;
 pub mod objects;
+pub mod typescript;
 pub mod command;
 pub mod default_value;
 pub mod value;
 
 pub use asset::{LiquersAsset, LiquersState};
 pub use bridge::{ConversionPolicy, JsValueBridge};
+pub use encode::encode_param;
 pub use environment::{version, LiquersEnvironment, WebEnvironment};
 pub use error::LiquersError;
 pub use objects::{LiquersKey, LiquersQuery};
 pub use value::{JsOpaque, ORIGIN_JAVASCRIPT};
 
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 /// Initializes the global environment.
 ///
@@ -160,14 +165,15 @@ pub fn evaluate(query: &str) -> js_sys::Promise {
 /// This is the low-level counterpart of [`evaluate`]: it gives access to status, metadata, logs
 /// and — the reason it exists — cancellation, which a `Promise` cannot express.
 #[wasm_bindgen(js_name = getAsset)]
-pub fn get_asset(query: &str) -> js_sys::Promise {
+pub fn get_asset(query: &str) -> typescript::AssetPromise {
+    let reject = |e| js_sys::Promise::reject(&error::liquers_error_to_js(e)).unchecked_into();
     let envref = match environment::shared_env() {
         Ok(e) => e,
-        Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+        Err(e) => return reject(e),
     };
     let parsed = match liquers_core::parse::parse_query(query) {
         Ok(q) => q,
-        Err(e) => return js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+        Err(e) => return reject(e),
     };
     wasm_bindgen_futures::future_to_promise(async move {
         match asset::get_asset_for(envref, parsed).await {
@@ -175,6 +181,22 @@ pub fn get_asset(query: &str) -> js_sys::Promise {
             Err(e) => Err(error::liquers_error_to_js(e)),
         }
     })
+    .unchecked_into()
+}
+
+/// Encodes a string for use as a query parameter.
+///
+/// Throws a `LiquersError` when the value contains a character the query grammar cannot represent
+/// — a lone colon, most punctuation, or any non-ASCII character. **Throwing is deliberate**: the
+/// core encoder passes those through unchanged and produces text that fails to parse later,
+/// somewhere else. See [`encode`] for the full limitation and the issue tracking its removal.
+///
+/// ```javascript
+/// const q = `data/filter-${liquers.encodeParam(userInput)}`;
+/// ```
+#[wasm_bindgen(js_name = encodeParam)]
+pub fn encode_param_js(text: &str) -> Result<String, JsValue> {
+    encode::encode_param(text).map_err(error::liquers_error_to_js)
 }
 
 /// Registers a JavaScript command on the global environment.
@@ -183,8 +205,8 @@ pub fn get_asset(query: &str) -> js_sys::Promise {
 /// name collision are indistinguishable at the point they happen, and a shadowed built-in stays
 /// invisible until a query quietly returns the wrong thing.
 #[wasm_bindgen(js_name = registerCommand)]
-pub fn register_command(spec: JsValue) -> Result<(), JsValue> {
-    environment::register_command_on(&spec).map_err(error::liquers_error_to_js)
+pub fn register_command(spec: typescript::JsCommandSpecObject) -> Result<(), JsValue> {
+    environment::register_command_on(spec.as_ref()).map_err(error::liquers_error_to_js)
 }
 
 /// Removes a command from the global environment.
@@ -198,6 +220,8 @@ pub fn unregister_command(name: &str) -> Result<bool, JsValue> {
 
 /// Returns the registered metadata for a command, or `null` when it is not registered.
 #[wasm_bindgen(js_name = describeCommand)]
-pub fn describe_command(name: &str) -> Result<JsValue, JsValue> {
-    environment::describe_command_on(name).map_err(error::liquers_error_to_js)
+pub fn describe_command(name: &str) -> Result<typescript::JsCommandInfo, JsValue> {
+    environment::describe_command_on(name)
+        .map(JsCast::unchecked_into)
+        .map_err(error::liquers_error_to_js)
 }

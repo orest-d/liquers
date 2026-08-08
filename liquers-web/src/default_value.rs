@@ -12,6 +12,14 @@ use wasm_bindgen::JsValue;
 use crate::bridge::JsValueBridge;
 use crate::value::JsOpaque;
 
+/// The value type this crate's exported surface is built on.
+///
+/// `liquers_lib::value::Value` is `CombinedValue<SimpleValue, ExtValue>`, selected by linking
+/// `liquers-lib` with `default-features = false, features = ["webui"]` — `polars` and `egui` are
+/// not wasm targets. Named here so the choice has one place to be stated, asserted and changed
+/// (`PACKAGE05`).
+pub type WebValue = liquers_lib::value::Value;
+
 impl JsValueBridge for Value {
     fn from_js_custom(_js: &JsValue) -> Result<Option<Self>, Error> {
         // The default value type has no JavaScript-specific structural cases beyond the standard

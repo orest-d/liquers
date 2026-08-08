@@ -825,6 +825,84 @@ fix is to determine which branch is real and assert it.
 All three are now deterministic assertions of the inert behaviour, so they fail the day a deferred
 asset manager lands.
 
+## M5 execution record — COMPLETE ✅
+
+Steps 20-23 executed. **84 wasm tests** under Node, **5 Playwright tests** in Chromium, and
+`check-stubs.sh` covering the rest. Every `STUBS*` and `PACKAGE*` ID is satisfied except
+`PACKAGE06`, which stays `NA`.
+
+**M5 gate met:** the quick-start page evaluates eight queries end to end in a real browser with
+**zero console errors**, under both delivery paths.
+
+| Step | Outcome |
+|---|---|
+| 20 `encodeParam` | Recommendation (b) taken — written against the *parser's* accepted set, not mirrored from `encode_token`, and refusing what it cannot represent |
+| 21 trunk quick start | `examples-web/quickstart/`, plus a `build.sh` that does the same job without trunk |
+| 22 `.d.ts` | **Deviation, see below** — generated with real types rather than hand-written |
+| 23 `STUBS*`/`PACKAGE*` | `scripts/check-stubs.sh` (no browser) + `tests/e2e/package.spec.ts` (Playwright) |
+
+### Deviation: the declarations are generated, not hand-written
+
+Step 22 specified a hand-written `js/liquers-web.d.ts` plus a freshness check that diffs it against
+the generated file. That is a worse design than it looks: it creates a second source of truth whose
+only defence against drift is a check someone has to run, and a stale declaration file is *worse*
+than none — a type checker confidently accepts code that fails at runtime.
+
+wasm-bindgen already generates `liquers_web.d.ts` from the exported surface, and it cannot drift.
+What it could not do is see inside a `JsValue`, so `registerCommand(spec: JsValue)` generated as
+`spec: any` — which type-checks a declaration with a misspelled field or a missing `run`, making
+`STUBS02`/`STUBS06` untestable.
+
+`src/typescript.rs` fixes that at the source: a `typescript_custom_section` carrying
+`LiquersCommandSpec`, `LiquersArgument`, `LiquersArgumentType`, `LiquersStateMode` and
+`LiquersCommandInfo`, plus `typescript_type`-annotated extern types so the exported signatures
+reference them. The generated file now reads:
+
+```typescript
+export function registerCommand(spec: LiquersCommandSpec): void;
+export function describeCommand(name: string): LiquersCommandInfo | null;
+export function getAsset(query: string): Promise<Asset>;
+```
+
+One generated file, real types, no freshness check needed — the drift the check existed to detect
+is now impossible. `STUBS06` asserts an exact **error count** (6), so a declaration change that
+legalizes any single mistake fails, not merely one that legalizes them all.
+
+### Additions beyond the plan
+
+- **The built-in Rust command set is registered** (`src/builtins.rs`). It was not, and `ENVIRON01`'s
+  contract is literally "evaluates a built-in command" — the M3 record had deferred that to M4, and
+  M4 satisfied it with a JavaScript command instead. `register_core_commands!` gives `to_text`,
+  `to_metadata`, `commands_doc` and the `dep` introspection commands. This also makes the argument
+  for structural conversion demonstrable rather than asserted: `hello/to_text` composes a
+  JavaScript command with a Rust one in a single query, which an opaque value could not do. Its
+  own module because the macro expands into the calling crate and names `futures`, `Context` and
+  `liquers_macro` as if they were the caller's imports.
+- **`WebValue`** in `default_value.rs` — the module claimed to be the only one naming a concrete
+  value type but never named it. `PACKAGE05` now has something to assert.
+- **`build.sh`** beside `Trunk.toml`. Both were run and both verified in a browser.
+
+### PACKAGE04 moved from tier C to tier P
+
+Phase 3 assigned it to the build-step tier, checking the version "against `Cargo.toml`". Written
+that way it greps the artifact for a version string, which proves the bytes are present — not that
+`version()` returns them, and it would pass for a hard-coded literal that had drifted from the
+manifest. It now runs in Playwright, calls `version()`, and compares against both manifests
+exactly. Tier is a harness question, not an applicability one.
+
+### Two bugs found by running it
+
+1. **The trunk and `build.sh` delivery paths load differently.** Trunk emits a *content-hashed*
+   filename, injects its own loader, and publishes the module as `window.wasmBindings`; it does
+   **not** rewrite imports. The page's `import "./liquers_web.js"` 404s under trunk. The page now
+   detects which loader is present. Found by building with trunk and opening the result — the
+   original comment in the page ("Trunk rewrites this to the hashed build artifact") was simply
+   wrong, and no test would have caught it because the tests run against `build.sh`'s output.
+2. **A self-referential feature detection.** The trunk check searched every module script for the
+   string `TrunkApplicationStarted` — including the script doing the searching, whose own source
+   contains it. Always true, so the `build.sh` page waited forever for an event nobody would
+   dispatch. Fixed by excluding the script by `id`, which is now a load-bearing comment.
+
 ## Review record
 
 Both prescribed reviewers found real defects.

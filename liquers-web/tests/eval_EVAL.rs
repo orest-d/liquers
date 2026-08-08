@@ -237,6 +237,39 @@ async fn eval06_cancellation_has_defined_terminal_result() {
     reset_global();
 }
 
+/// A built-in Rust command consumes a JavaScript command's result.
+///
+/// Not a prescribed conformance test, but it is *the* justification for Phase 1 decision 2 —
+/// structural conversion as the default rather than opaque pass-through. If a JavaScript command's
+/// result were carried opaquely, `to_text` would have nothing it could read and the two halves of
+/// the command set could not be composed in one query. That is the whole argument, so it gets a
+/// test.
+#[wasm_bindgen_test]
+async fn web_builtin_rust_command_consumes_a_javascript_result() {
+    fresh();
+    register_fixture_commands();
+
+    assert_eq!(
+        eval_to_js("hello/to_text")
+            .await
+            .expect("a Rust built-in must be able to read a JavaScript result")
+            .as_string()
+            .as_deref(),
+        Some("Hello, world!")
+    );
+
+    // And the other direction: a JavaScript command reading what a Rust built-in produced.
+    assert_eq!(
+        eval_to_js("hello/to_text/shout")
+            .await
+            .expect("a JavaScript command must be able to read a Rust result")
+            .as_string()
+            .as_deref(),
+        Some("HELLO, WORLD!")
+    );
+    reset_global();
+}
+
 /// Evaluation of a command that returns a structured object, so `EVAL01`'s conversion is not only
 /// tested on scalars. Not a prescribed conformance test.
 #[wasm_bindgen_test]
