@@ -105,13 +105,32 @@
 //! | [`AssetRef::poll_state`] | No | Hidden | Async read lock |
 //! | [`AssetRef::poll_state_any_status`] / [`AssetRef::get_any_status`] | No | Returned when retained | Async read lock |
 //! | [`AssetRef::try_poll_state`] | No | Hidden | Returns `None` if the lock is unavailable |
-//! | [`AssetRef::get_binary`] | May wait and serialize | A cached binary may be returned | Async locks |
-//! | [`AssetRef::poll_binary`] | No | A cached binary may be returned | Async read lock |
+//! | [`AssetRef::get_binary`] | May wait and serialize | Returns an error | Async locks |
+//! | [`AssetRef::poll_binary`] | No | Hidden | Async read lock |
+//! | [`AssetRef::poll_binary_any_status`] | No | Returned when cached | Async read lock |
+//! | [`AssetRef::get_binary_any_status`] | No, but may serialize | Returned, serializing if needed | Async locks |
+//! | [`AssetRef::try_poll_binary`] | No | Hidden | Returns `None` if the lock is unavailable |
 //!
-//! `poll_state` returns an actual value for `Ready`, `Source`, `Override`, and
-//! `Volatile`. It returns a no-value state carrying metadata for `Directory`,
-//! `Error`, and `Cancelled`; it returns `None` for the other statuses, including
-//! `Partial` and `Expired`. Intermediate reads for `Partial` are not yet supported.
+//! Both families derive from one classifier, `Status::read_exposure()`, so they cannot drift
+//! apart: `Value` (`Ready`, `Source`, `Override`, `Volatile`), `MetadataOnly` (`Directory`,
+//! `Error`, `Cancelled`), `Expired`, and `Pending` (everything else, including `Partial`).
+//!
+//! `poll_state` returns an actual value for `Value`, a no-value state carrying metadata for
+//! `MetadataOnly`, and `None` for `Expired` and `Pending`. Intermediate reads for `Partial` are
+//! not yet supported.
+//!
+//! The binary family renders the same classification in its own terms. `MetadataOnly` has no
+//! binary counterpart — a metadata-only *value* exists, a metadata-only *byte string* does not —
+//! so binary reads report absence: `None` where the signature allows it, `Err` from `get_binary`.
+//! `Err` carries the asset's own recorded failure for `Error`, and a constructed one for
+//! `Cancelled` and `Directory`, which record none.
+//!
+//! `Expired` is a cache miss for every normal read of either family, including when serialized
+//! bytes are still cached. Retained data is reachable only by explicit opt-in: the `*_any_status`
+//! reads, or `to_override` to accept it. This applies uniformly, including to an asset labelled
+//! `Expired` by `finish_run_with_result` because its evaluation consumed a stale dependency —
+//! such a result is fresh but uncacheable, and whether it is acceptable is the caller's judgement
+//! to make explicitly.
 //! Consequently, a finalized evaluation failure observed through an existing
 //! `AssetRef::get` can be represented by `Ok(State)` whose metadata contains the
 //! error, rather than by `Err`.

@@ -11,6 +11,7 @@ VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to i
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,draft,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,draft,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,draft,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
+AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",draft,local,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,draft,local,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
 COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a workaround",draft,local,,P2,M,core/commands;macro,,,,context-param-order,,2026-08-08,specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md
 CORE-PLAN-POLICY-AND-DEFAULTS,issue,Plan builder has no configuration and questionable defaults,draft,local,,P2,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-POLICY-AND-DEFAULTS.md
@@ -63,7 +64,7 @@ doc-01-architecture-reference,reference,Architecture Reference,overdue,local,,,,
 doc-02-query-language-reference,reference,Query Language Reference,overdue,local,,,,core/query,,,,,2026-03-02,,specs/reference/api/doc-02-query-language-reference.md
 doc-03-assets-execution-lifecycle,reference,Assets and Execution Lifecycle Reference,overdue,local,,,,core/assets,,,,,2026-03-02,,specs/reference/api/doc-03-assets-execution-lifecycle.md
 doc-04-environment-context-evaluation,reference,"Environment, Context and Evaluation Reference",overdue,local,,,,core/context;core/plan,,,,,2026-03-02,,specs/reference/api/doc-04-environment-context-evaluation.md
-ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-07-17,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-07-07,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSET_SET_OPERATION.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-07-15,,specs/reference/DEPENDENCIES_STATUS.md

@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-07-17
+reviewed: 2026-08-08
 ---
 # Assets Specification
 
@@ -144,22 +144,68 @@ pub enum Status {
 
 ### Status Properties
 
-| Status       | has_data | is_finished | is_processing | can_have_deps |
-|--------------|----------|-------------|---------------|---------------|
-| None         | false    | false       | false         | false         |
-| Directory    | false    | true        | false         | false         |
-| Recipe       | false    | false       | false         | false         |
-| Submitted    | false    | false       | false         | false         |
-| Dependencies | false    | false       | false         | false         |
-| Processing   | false    | false       | true          | false         |
-| Partial      | true     | false       | true          | true          |
-| Error        | false    | true        | false         | false         |
-| Storing      | false    | false       | false         | true          |
-| Ready        | true     | true        | false         | true          |
-| Expired      | true     | true        | false         | false         |
-| Cancelled    | false    | true        | false         | false         |
-| Source       | true     | true        | false         | false         |
-| Override     | true     | true        | false         | false         |
+| Status       | has_data | is_finished | is_processing | can_have_deps | read_exposure |
+|--------------|----------|-------------|---------------|---------------|---------------|
+| None         | false    | false       | false         | false         | Pending       |
+| Directory    | false    | true        | false         | false         | MetadataOnly  |
+| Recipe       | false    | false       | false         | false         | Pending       |
+| Submitted    | false    | false       | false         | false         | Pending       |
+| Dependencies | false    | false       | false         | false         | Pending       |
+| Processing   | false    | false       | true          | false         | Pending       |
+| Partial      | true     | false       | true          | true          | Pending       |
+| Error        | false    | true        | false         | false         | MetadataOnly  |
+| Storing      | false    | false       | false         | true          | Pending       |
+| Ready        | true     | true        | false         | true          | Value         |
+| Expired      | true     | true        | false         | false         | Expired       |
+| Cancelled    | false    | true        | false         | false         | MetadataOnly  |
+| Source       | true     | true        | false         | false         | Value         |
+| Override     | true     | true        | false         | false         | Value         |
+
+### Status and reads
+
+`Status::read_exposure()` is the single decision point for what any read may expose. Both the
+state-read family and the binary-read family derive from it, so they cannot drift apart.
+
+| `ReadExposure` | Statuses |
+|---|---|
+| `Value` | `Ready`, `Source`, `Override`, `Volatile` |
+| `MetadataOnly` | `Directory`, `Error`, `Cancelled` |
+| `Expired` | `Expired` |
+| `Pending` | `None`, `Recipe`, `Submitted`, `Dependencies`, `Processing`, `Partial`, `Storing` |
+
+Note this is **not** `has_data()`, which is `true` for `Expired` and `Partial` — it answers "is
+there a value in there", the right question for a store fallback and the wrong one for a read gate.
+
+| Method | `Value` | `MetadataOnly` | `Expired` | `Pending` |
+|---|---|---|---|---|
+| `poll_state` | value state | metadata-only state | `None` | `None` |
+| `poll_state_any_status` / `get_any_status` | value state | metadata-only state | value state | `None` |
+| `try_poll_state` | as `poll_state`; `None` if the lock is unavailable | | | |
+| `get` | `Ok(value state)` | `Ok(metadata-only)` | `Err` | waits |
+| `poll_binary` | cached bytes | `None` | `None` | `None` |
+| `poll_binary_any_status` | cached bytes | `None` | cached bytes | `None` |
+| `try_poll_binary` | as `poll_binary`; `None` if the lock is unavailable | | | |
+| `get_binary` | bytes, serializing if needed | `Err` | `Err` | waits, then as `Value` |
+| `get_binary_any_status` | `Ok(Some)`, serializing if needed | `Ok(None)` | `Ok(Some)`, serializing if needed | `Ok(None)` |
+
+**`MetadataOnly` has no binary counterpart.** A metadata-only *value* exists; a metadata-only *byte
+string* does not, and `Some(empty)` would be a lie. Binary reads therefore report absence in
+whatever the signature allows: `None`, or `Err` from `get_binary`. That error reuses the asset's own
+recorded failure for `Error`, and is constructed for `Cancelled` and `Directory`, which record none.
+
+**`get_binary_any_status` is not an alias for `poll_binary_any_status`**, though `get_any_status` is
+one for `poll_state_any_status`. A retained value needs no materialising; bytes do. `AssetData::binary`
+is populated at two sites and cleared at roughly ten, so an expired asset commonly retains its value
+and no bytes — precisely when recovery is wanted — so the `get_` form serializes on demand.
+
+**Expiry is uniform, and opting out of it is explicit.** `Expired` is a cache miss for every normal
+read of either family, even when serialized bytes are still cached. This includes an asset labelled
+`Expired` by `finish_run_with_result` because its evaluation consumed a stale dependency: that
+result is fresh but uncacheable, and whether it is acceptable is the caller's judgement. The caller
+makes it explicitly, through the `*_any_status` reads or `to_override`.
+
+`AssetRef::save_to_store` deliberately bypasses this gate via `AssetData::binary_unchecked`:
+persisting is not a read of the exposed value, and `set_state` persists at statuses the gate hides.
 
 ## State Machine Diagram
 
@@ -692,10 +738,16 @@ status is legitimate; only *requesting a value* from it is an error:
 - `AssetRef::poll_state() -> Option<State>`: `None` iff not finished; otherwise the terminal
   `State` (value- or error/cancelled-bearing).
 - `AssetRef::get() -> Result<State, Error>`: waits, then returns `Ok(state)` for **any** obtained
-  terminal outcome (including an error/cancelled state). `Err` is reserved for **delivery**
-  failures — the terminal state could not be produced/obtained (store I/O, closed channel,
-  finished-but-no-state anomaly). It consults status (`poll_state`), not notification *content*,
-  so an overwritten `ErrorOccurred` notification cannot lose the error.
+  terminal outcome (including an error/cancelled state). `Err` covers two cases: a **delivery**
+  failure — the terminal state could not be produced/obtained (store I/O, closed channel,
+  finished-but-no-state anomaly) — **or `Status::Expired`**, whose data requires explicit opt-in.
+  It consults status (`poll_state`), not notification *content*, so an overwritten `ErrorOccurred`
+  notification cannot lose the error.
+
+  The `Expired` case is checked **before** waiting. `poll_state` hides expired data, so without
+  that check an already-expired asset would subscribe and block on a notification that has already
+  been sent and will not repeat. `get_binary` behaves identically, and both name the recovery
+  route (`*_any_status`, `to_override`) in the error. See §Status and reads.
 - `State::value_state(self) -> Result<State, Error>` and the guarded extractors
   (`value`, `try_into_string`, `as_bytes`) return the failure error via `State::value_error()`.
   The ergonomic value path is `asset.get().await?.value_state()?`. `State.data` is private; use
@@ -752,4 +804,5 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-08 | Added §Status and reads with the `ReadExposure` classification and the read behaviour matrix; added a `read_exposure` column to §Status Properties; amended §Terminal Outcome Contract → Accessors for `get`'s pre-wait expiry check. | `design/expired-binary-read-safety` |
 | 2026-07-17 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
