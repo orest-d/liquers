@@ -1,7 +1,7 @@
 //! `OBJECT*` and `ERROR*` conformance tests.
 //!
 //! Pure value/parse semantics — no DOM — so these run under Node. See
-//! `specs/liquers-web/phase3-examples.md` for the inventory.
+//! `specs/design/liquers-web/phase3-examples.md` for the inventory.
 
 #![cfg(target_arch = "wasm32")]
 

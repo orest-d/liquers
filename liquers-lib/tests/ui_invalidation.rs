@@ -1,4 +1,4 @@
-//! Integration tests for change recording through the runner (`specs/webui-fixes/`, W3).
+//! Integration tests for change recording through the runner (`specs/design/webui-fixes/`, W3).
 //!
 //! `app_state.rs`'s unit tests pin what each mutating method records. These tests pin the same
 //! property one level up, where it actually matters: after `AppRunner::run` has processed a

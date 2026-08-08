@@ -154,14 +154,14 @@ The tests listed below are the default conformance inventory. An *integration* d
 
 A prescribed test names a claim; it is the *assertion* that decides whether the claim is checked. Two shapes pass regardless of what the implementation does, and both look reasonable while being written:
 
-- **The two-branch match.** "Either it was cancelled, or it had already finished." In `specs/liquers-web/`, all three cancellation tests were written this way and all three passed — while the cancellation path was in fact unreachable and `cancel()` did nothing. The same assertion would have kept passing if `cancel()` had begun throwing or hanging. When a test accommodates two outcomes, find out which one actually occurs; if it is always the same one, assert *that*, and the test becomes a tripwire for the day the other becomes possible.
+- **The two-branch match.** "Either it was cancelled, or it had already finished." In `specs/design/liquers-web/`, all three cancellation tests were written this way and all three passed — while the cancellation path was in fact unreachable and `cancel()` did nothing. The same assertion would have kept passing if `cancel()` had begun throwing or hanging. When a test accommodates two outcomes, find out which one actually occurs; if it is always the same one, assert *that*, and the test becomes a tripwire for the day the other becomes possible.
 - **The existence check on something that was never absent.** Asserting that a forbidden name is missing from a namespace it was never in proves nothing. Assert the property instead — for a "does not block" claim, that the call *returns* before the work runs, timed.
 
 Neither is caught by review of the test list, because the ID is present and the test is green. The check is to ask, of each assertion: *what implementation change would make this fail?* If the answer is "none that anyone would plausibly make", the test is decorative.
 
-**Five prescribed tests exist because of this.** `OBJECT09`, `ENVIRON07`, `COMMAND12`, `COMMAND13` and `COMMAND14` were added after review of `specs/liquers-web/` found defects that the inventory as it then stood could not have caught — a declaration flag parsed by nobody, a state-passing mode silently degraded to another, a wrapper class with no methods, an accessor that threw in one lifecycle state, and a retained declaration aliasing the caller's mutable object. Four existing tests were also amended rather than left to be re-learned: `VALUE02` now asserts the *outbound* container type, `COMMAND05` includes a zero-argument command, `COMMAND08` requires the positive half of the opaque opt-in, and `ERROR03` must observe the exception on the evaluation path.
+**Five prescribed tests exist because of this.** `OBJECT09`, `ENVIRON07`, `COMMAND12`, `COMMAND13` and `COMMAND14` were added after review of `specs/design/liquers-web/` found defects that the inventory as it then stood could not have caught — a declaration flag parsed by nobody, a state-passing mode silently degraded to another, a wrapper class with no methods, an accessor that threw in one lifecycle state, and a retained declaration aliasing the caller's mutable object. Four existing tests were also amended rather than left to be re-learned: `VALUE02` now asserts the *outbound* container type, `COMMAND05` includes a zero-argument command, `COMMAND08` requires the positive half of the opaque opt-in, and `ERROR03` must observe the exception on the evaluation path.
 
-This risk concentrates where a section did **not** warn about difficulty. The three tests `specs/liquers-web/` singled out as hard to assert were all fine, because they had specified mechanisms; the vacuous ones were in the group nobody had flagged.
+This risk concentrates where a section did **not** warn about difficulty. The three tests `specs/design/liquers-web/` singled out as hard to assert were all fine, because they had specified mechanisms; the vacuous ones were in the group nobody had flagged.
 
 ## 4. Feature Overview
 
@@ -706,7 +706,7 @@ Module caches are a staleness hazard: `sys.modules` will happily retain a module
 
 Expose async APIs as Promises and bytes as `Uint8Array`; check `BigInt`/`i64` conversions. Keep `JsValue`, DOM handles, closures, and `JsFuture` on the wasm thread. Use the wasm-selected inline asset manager and the core `MaybeSend` model. Test in an actual browser with `wasm-bindgen-test`, including rejected Promises and disposal of JS closures.
 
-Four things cost real time in `specs/liquers-web/` and are worth knowing in advance:
+Four things cost real time in `specs/design/liquers-web/` and are worth knowing in advance:
 
 - **`serde_wasm_bindgen::to_value` serializes maps as JavaScript `Map`s, not objects.** Every `serde_json::Value::Object` and every `HashMap` goes through `serialize_map`, so a page reading `result.a`, `Object.keys(result)` or `JSON.stringify(result)` sees nothing. Rust *structs* serialize as objects either way, which is what makes this survive review: the affected values are the ones that came *from* JavaScript as objects. Use `Serializer::new().serialize_maps_as_objects(true)` everywhere, from one wrapper.
 - **Let `wasm-bindgen` generate the `.d.ts`; do not hand-write one.** A hand-written declaration file is a second source of truth defended only by a freshness check somebody has to run, and a stale declaration is worse than none — a type checker confidently accepts code that fails at runtime. What the generator cannot do is see inside a `JsValue`, so a `JsValue` parameter emits as `any` and type-checks anything. Fix that at the source with `typescript_custom_section` plus `typescript_type`-annotated extern types, and the generated file carries real types with no drift possible.
@@ -723,7 +723,7 @@ Modernize `liquers-py` rather than treating its current behavior as normative. P
 
 ## 7. Design and Review Checklist
 
-This guide does not define the shape or location of a design document. An *integration* is a substantial feature, so its design follows the standard Liquers design workflow (the `liquers-designer` skill), which creates `specs/<integration-name>/` and the phase documents within it. `specs/async-wasm-refactor/` is an existing example of that layout.
+This guide does not define the shape or location of a design document. An *integration* is a substantial feature, so its design follows the standard Liquers design workflow (the `liquers-designer` skill), which creates `specs/<integration-name>/` and the phase documents within it. `specs/design/async-wasm-refactor/` is an existing example of that layout.
 
 The checklist below is therefore not a document outline but the *integration*-specific content that must appear somewhere in those phase documents. It maps naturally onto them: scope and selection (items 1 and 9) belong in the high-level design; the architecture items (2 through 7) in the architecture phase; the test items (8 and 10) in the examples and test-plan phase; and milestone sequencing in the implementation plan.
 
@@ -746,7 +746,7 @@ Every language-specific design should contain:
 - Liquers core integration boundaries: `liquers-core/src/value.rs`, `error.rs`, `context.rs`, `commands.rs`, `store.rs`, `recipes.rs`, `assets.rs`, and `maybe_send.rs`
 - Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
 - Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
-- A worked *integration* design following this guide: [`specs/liquers-web/`](liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
+- A worked *integration* design following this guide: [`specs/design/liquers-web/`](liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
 - [Async/Wasm Refactor Design](async-wasm-refactor/DESIGN.md)
 - [Liquers Web API Specification](WEB_API_SPECIFICATION.md)

@@ -271,7 +271,7 @@ fn js_default_to_json(v: &JsValue) -> Option<serde_json::Value> {
 
 /// Infers argument names from the function, over the subset where the parse is provably exact.
 ///
-/// See `specs/liquers-web/phase2-architecture.md`. The rule: every parameter must be a plain
+/// See `specs/design/liquers-web/phase2-architecture.md`. The rule: every parameter must be a plain
 /// identifier, and the token count must equal `Function.length`. Anything else — a default, a rest
 /// parameter, destructuring, a bound or native function — is **refused** with a specific error
 /// rather than mangled into metadata, because the regex silently produces garbage for those.

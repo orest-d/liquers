@@ -11,7 +11,7 @@
 #     absorbed silently. That arm is gone, but the site is worth keeping under a matrix.
 #
 # Usage: bash scripts/check-build-matrix.sh
-# See specs/liquers-web/phase4-implementation.md, Step 7.
+# See specs/design/liquers-web/phase4-implementation.md, Step 7.
 set -uo pipefail
 
 CONFIGS=(

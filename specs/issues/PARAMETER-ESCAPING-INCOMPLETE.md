@@ -137,7 +137,7 @@ Item 1 and item 3 are grammar changes and affect the encoding description in
 
 ## Discovery
 
-Found while validating a query for an example in `specs/liquers-web/phase3-examples.md`. The example
+Found while validating a query for an example in `specs/design/liquers-web/phase3-examples.md`. The example
 had assumed percent-encoding, which the grammar does not support in any form; checking the real
 mechanism surfaced the encoder defect, and probing its boundaries surfaced the missing Unicode
 escapes and the truncation bug. Originally filed as `ENCODE-TOKEN-COLON`, renamed once the colon

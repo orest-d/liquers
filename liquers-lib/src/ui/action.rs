@@ -4,7 +4,7 @@
 //! backend's `data-lq-action` attributes, and egui buttons all interpret the same value.
 //! Actions are portable *data* (not Rust closures), which is what lets them work uniformly
 //! for SSR (emit as an attribute), the live browser (a delegated listener dispatches them),
-//! and egui (a click handler runs them). See `specs/webui/phase2-architecture.md`.
+//! and egui (a click handler runs them). See `specs/design/webui/phase2-architecture.md`.
 
 use serde::de::{self, Deserializer};
 use serde::ser::Serializer;

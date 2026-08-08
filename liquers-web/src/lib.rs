@@ -29,7 +29,7 @@
 //! whose closure owns a `js_sys::Function`. This crate contributes a value bridge, a
 //! `#[wasm_bindgen]` object/eval/command surface, and a `Promise` bridge.
 //!
-//! See `specs/liquers-web/` for the full design.
+//! See `specs/design/liquers-web/` for the full design.
 
 #![cfg(target_arch = "wasm32")]
 

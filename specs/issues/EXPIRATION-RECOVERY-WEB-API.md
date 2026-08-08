@@ -10,7 +10,7 @@ design:
 created: 2026-08-08
 github:
 ---
-Source: WP-3 `expiration-safety` (see `specs/expiration-safety/`) — deferred follow-up.
+Source: WP-3 `expiration-safety` (see `specs/design/expiration-safety/`) — deferred follow-up.
 
 ## Problem
 WP-3 added two keyed-asset recovery operations as shared default methods on the `AssetManager<E>`

@@ -11,7 +11,6 @@ superseded_by:
 
 # Python Wrapper Design Tracking
 
-**Status:** Complete — implemented as `liquers-py`.
 
 This design predates the `liquers-designer` folder convention. It arrived as two top-level
 documents, `PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md` and `PYTHON-WRAPPER-ARCHITECTURE.md`, which map

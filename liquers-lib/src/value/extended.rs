@@ -15,7 +15,7 @@ use std::{borrow::Cow, convert::TryFrom, result::Result};
 /// than hard `Send`/`Sync`, matching `liquers_core::value::ValueInterface`. On native they
 /// still resolve to `Send + Sync`, so nothing changes there; on `wasm32` they are vacuous,
 /// which is what allows an extension to hold a non-`Send` foreign-language handle such as
-/// a `JsValue`. See `specs/liquers-web/phase1-high-level-design.md` decision 1.
+/// a `JsValue`. See `specs/design/liquers-web/phase1-high-level-design.md` decision 1.
 pub trait ValueExtension:
     core::fmt::Debug
     + Clone

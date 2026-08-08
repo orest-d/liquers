@@ -18,7 +18,7 @@ describes. They are set independently and can drift apart.
 ## Impact
 
 Silent corruption: a value serialized under a format its metadata does not name deserializes as the
-wrong type, or fails far from the cause. `specs/metadata-consistency/FINDINGS.md` catalogues the
+wrong type, or fails far from the cause. `specs/design/metadata-consistency/FINDINGS.md` catalogues the
 candidate invariants.
 
 ## Expected behaviour
@@ -28,4 +28,4 @@ and a typed error where a caller can act on it.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-4, with `specs/metadata-consistency/`. Verified against HEAD: no counterpart in the TODO audit; the findings document stands. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-4, with `specs/design/metadata-consistency/`. Verified against HEAD: no counterpart in the TODO audit; the findings document stands. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.

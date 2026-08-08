@@ -39,8 +39,8 @@ Supplementary specifications:
 
 - [`specs/reference/PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md)
 - [`specs/guides/COMMAND_REGISTRATION_GUIDE.md`](../COMMAND_REGISTRATION_GUIDE.md)
-- [`specs/volatility-system/DESIGN.md`](../volatility-system/DESIGN.md)
-- [`specs/volatility-system/phase4-implementation.md`](../volatility-system/phase4-implementation.md)
+- [`specs/design/volatility-system/DESIGN.md`](../volatility-system/DESIGN.md)
+- [`specs/design/volatility-system/phase4-implementation.md`](../volatility-system/phase4-implementation.md)
 - [`specs/reference/IMAGE_COMMAND_LIBRARY.md`](../IMAGE_COMMAND_LIBRARY.md)
 - [`specs/reference/POLARS_COMMAND_LIBRARY.md`](../POLARS_COMMAND_LIBRARY.md)
 

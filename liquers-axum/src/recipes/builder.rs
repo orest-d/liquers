@@ -1,7 +1,7 @@
 //! Recipes API Builder - Configurable router builder for Recipes API endpoints
 //!
 //! Part of the Recipes API implementation.
-//! See specs/axum-assets-recipes-api/phase2-architecture.md for specifications.
+//! See specs/design/axum-assets-recipes-api/phase2-architecture.md for specifications.
 
 use axum::{routing::get, Router};
 use liquers_core::context::{EnvRef, Environment};

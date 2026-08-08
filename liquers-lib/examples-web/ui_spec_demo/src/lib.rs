@@ -4,7 +4,7 @@
 //! The two menu entries exercise the two shapes of action. *Add Dashboard* evaluates a query that
 //! leaves a pending node, so async work is in flight for a moment. *Remove Last Panel* resolves
 //! fully inline and leaves nothing pending — the case that used to leave the page stale until
-//! something unrelated happened (`specs/webui-fixes/`, W3).
+//! something unrelated happened (`specs/design/webui-fixes/`, W3).
 
 use std::sync::Arc;
 

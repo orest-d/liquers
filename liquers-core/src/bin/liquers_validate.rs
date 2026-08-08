@@ -1,7 +1,7 @@
 //! `liquers-validate` — check that Liquers queries and recipes are well-formed.
 //!
 //! Intended for coding agents and developers writing examples, doc snippets and unit tests.
-//! See `specs/query-validation/` for the design.
+//! See `specs/design/query-validation/` for the design.
 //!
 //! **A green result means "here is exactly what your query means", not "your query is right".**
 //! `-R/data/report.txt/to_text` and `-R/data/report.txt/-/to_text` both validate cleanly; the

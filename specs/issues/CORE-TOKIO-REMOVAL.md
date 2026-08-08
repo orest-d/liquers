@@ -25,7 +25,7 @@ the embedded angle. Nothing is broken today; this is a constraint on where Lique
 
 Replace the tokio primitives with framework-neutral ones (`async-lock`, `async-channel`,
 `event-listener`, `async-once-cell`) so the core is executor-agnostic. See
-`specs/async-wasm-refactor/phase2-architecture.md` → "Tokio Dependency Reduction".
+`specs/design/async-wasm-refactor/phase2-architecture.md` → "Tokio Dependency Reduction".
 
 Wants a design: it touches every await point in the asset lifecycle.
 

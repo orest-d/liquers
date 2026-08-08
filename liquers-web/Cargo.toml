@@ -5,7 +5,7 @@ edition = "2021"
 description = "Browser/JavaScript integration of Liquers, compiled to WebAssembly."
 
 # cdylib for the wasm artifact; rlib so a downstream crate can reuse the generic bridge
-# (the Tier-2 extension path — see specs/liquers-web/phase2-architecture.md, "Extensibility").
+# (the Tier-2 extension path — see specs/design/liquers-web/phase2-architecture.md, "Extensibility").
 [lib]
 crate-type = ["cdylib", "rlib"]
 

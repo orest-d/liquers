@@ -15,7 +15,7 @@ tokio_exec=["futures", "async-trait", "async_store"]
 # library consumer (liquers-py, wasm builds) while still shipping the validator.
 cli=["dep:clap"]
 
-# The `liquers-validate` query validation utility. See specs/query-validation/.
+# The `liquers-validate` query validation utility. See specs/design/query-validation/.
 # An explicit [[bin]] block is required: auto-discovered binaries in src/bin/
 # cannot carry `required-features`, so without this the crate would try to build
 # the binary — and fail on the missing clap — whenever `cli` is off.

@@ -19,7 +19,7 @@
 //! Supertrait transitivity carries those bounds to the trait object, so `Arc<dyn ForeignValue>` is
 //! `Send + Sync` on native and the variant needs no target gate.
 //!
-//! See `specs/liquers-web/phase2-architecture.md`, "Where the foreign value lives".
+//! See `specs/design/liquers-web/phase2-architecture.md`, "Where the foreign value lives".
 
 use liquers_core::error::{Error, ErrorType};
 use std::borrow::Cow;

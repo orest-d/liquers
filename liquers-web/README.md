@@ -6,7 +6,7 @@ A page constructs an environment, evaluates queries as `Promise`s, and registers
 in JavaScript. Those commands compose with the built-in Rust ones in a single query — a JavaScript
 command's result is converted structurally, so `myCommand/to_text` works.
 
-Design documents: [`specs/liquers-web/`](../specs/liquers-web/). The integration follows
+Design documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). The integration follows
 [`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md).
 
 ## Quick start

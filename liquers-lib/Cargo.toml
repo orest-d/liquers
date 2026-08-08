@@ -70,7 +70,7 @@ liquers-store = { path = "../liquers-store" }
 opendal = { version = "0.55", features = ["services-fs"] }
 
 # Exports the registered command metadata as JSON/YAML for `liquers-validate`.
-# See specs/query-validation/. Explicit [[bin]] for `required-features`.
+# See specs/design/query-validation/. Explicit [[bin]] for `required-features`.
 [[bin]]
 name = "export-command-registry"
 path = "src/bin/export_command_registry.rs"

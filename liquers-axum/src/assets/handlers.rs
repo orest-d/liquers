@@ -1,7 +1,7 @@
 //! Assets API Handlers - HTTP request handlers for asset operations
 //!
 //! Part of the Assets API implementation.
-//! See specs/axum-assets-recipes-api/phase2-architecture.md for specifications.
+//! See specs/design/axum-assets-recipes-api/phase2-architecture.md for specifications.
 
 use axum::{
     body::Bytes,

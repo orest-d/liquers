@@ -264,7 +264,7 @@ Environment (global, shared across all queries)
   `ImmediateAssetManager` (inline evaluation, no `tokio::spawn`/timers) for single-threaded targets.
   `liquers-core` compiles to `wasm32-unknown-unknown` and runs in the browser via
   `ImmediateAssetManager` + target-gated conditional-`Send` (`MaybeSend`/`MaybeSync` markers +
-  `#[async_trait(?Send)]` on wasm); see `specs/async-wasm-refactor/`.
+  `#[async_trait(?Send)]` on wasm); see `specs/design/async-wasm-refactor/`.
 
 **Context** - Per-action execution context, created for each command in a pipeline:
 ```

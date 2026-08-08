@@ -3,7 +3,7 @@
 //! String-first: elements define `UIElement::render_web(&self) -> String` (the shared
 //! source of truth for SSR and browser). The browser `show_in_web` default writes that
 //! string into the live DOM. Interactivity is a serializable `UiAction` in `data-lq-action`
-//! attributes dispatched by a single delegated listener. See `specs/webui/`.
+//! attributes dispatched by a single delegated listener. See `specs/design/webui/`.
 
 pub mod app;
 #[cfg(feature = "polars")]

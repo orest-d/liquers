@@ -663,7 +663,7 @@ cargo test -p liquers-axum test_large_value_serialization_1mb -- --nocapture
 
 ## References
 
-- `specs/web-api-library/phase2-architecture.md` - Phase 2 architecture
+- `specs/design/web-api-library/phase2-architecture.md` - Phase 2 architecture
 - `liquers-core/src/error.rs` - Error types and constructors
 - `liquers-core/src/metadata.rs` - Metadata structure
 - `CLAUDE.md` - Project conventions (async, error handling, match statements)

@@ -480,7 +480,7 @@ not going to happen in the same effort, **the remainder becomes an issue** linke
 the design takes the status its PRs earned.
 
 Partial states are how a tracker stops being queryable — the same reason §4.3 has no partial issue
-status. `specs/wp2-terminal-outcome/` is exactly this case today: its `DESIGN.md` says "In
+status. `specs/design/wp2-terminal-outcome/` is exactly this case today: its `DESIGN.md` says "In
 Progress" while `ISSUES.md` says "Partially Resolved (WP-2)", and neither answers what is left.
 Split, it becomes one `complete` design and one issue that says precisely what remains.
 

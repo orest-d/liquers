@@ -288,7 +288,7 @@ every other entry is `### Issue:`.
 `.claude/skills/rust-best-practices/references/anti-patterns.md:228` and
 `.claude/skills/liquers-designer/references/liquers-patterns.md:166` both point at
 `specs/ISSUES.md` for the *context-parameter-last* requirement — **which is not in `ISSUES.md`.**
-The material lives in `specs/context-param-order/{FINDINGS,SOLUTION}.md`.
+The material lives in `specs/design/context-param-order/{FINDINGS,SOLUTION}.md`.
 
 Create `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md` from that folder's findings, and point both
 skill references at it. Status and priority to be set at review; the folder stays as a design.
@@ -503,7 +503,7 @@ git grep -l 'specs/' -- '*.rs' '*.ts' '*.md' '*.sh' '*.py' \
   | xargs sed -i -E 's#specs/(async-wasm-refactor|axum-assets-recipes-api|context-param-order|dependency-management|dependency-scheduling|expiration-mechanism|expiration-monitor-assetref|expiration-safety|keyboard-shortcuts|liquers-web|liquers-wf|menu-pane-layout|metadata-consistency|payload-nested-evaluation-inheritance|query-console-element|query-link-parser|query-validation|register_command_enum|ui-events|value-accessor|value-list-support|volatility-system|web-api-library|webui|webui-fixes|wp2-terminal-outcome)/#specs/design/\1/#g'
 ```
 
-Note `specs/liquers-web/` (a design folder) versus the `liquers-web` crate — the pattern anchors on
+Note `specs/design/liquers-web/` (a design folder) versus the `liquers-web` crate — the pattern anchors on
 `specs/`, so crate paths are untouched. `scripts/check-build-matrix.sh` and
 `liquers-lib/examples-web/tests/*.spec.ts` are among the files affected; both are executed, so a
 mistake here surfaces immediately.
@@ -584,7 +584,7 @@ path. Moving it buys nothing.
 | `CLAUDE.md` | **Stays.** Update references (§8.1) |
 | `ISSUES.md` | **Delete** — a stub redirect to a file that no longer exists |
 | `specs/guides/UNITTEST_GUIDE.md` | → `specs/guides/UNITTEST_GUIDE.md`, `audience: internal` |
-| `EXAMPLE_SCENARIO_1_SUMMARY.md` | → `specs/archive/2026-02-20-example-scenario-1-summary.md`. A near-copy exists at `specs/axum-assets-recipes-api/EXAMPLE_SCENARIO_1_SUMMARY.md` and the two **differ** — diff them, keep one, delete the other |
+| `EXAMPLE_SCENARIO_1_SUMMARY.md` | → `specs/archive/2026-02-20-example-scenario-1-summary.md`. A near-copy exists at `specs/design/axum-assets-recipes-api/EXAMPLE_SCENARIO_1_SUMMARY.md` and the two **differ** — diff them, keep one, delete the other |
 | `plan20260707.md` | → `specs/archive/2026-07-07-implementation-plan.md` — *triaged and archived in Step 2 (§4.4)* |
 | `review20260707.md` | → `specs/archive/2026-07-07-project-review.md` — *Step 2 (§4.4)* |
 | `liquers-designer.skill` | **Delete** — see §8.4 |

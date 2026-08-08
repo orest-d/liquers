@@ -2,7 +2,7 @@
 //!
 //! A YAML `UISpec` whose menu opens query consoles. The console is the widget with the most
 //! browser-specific behaviour, and two of its interactions are **known to be broken in the
-//! browser today** — see `specs/ui-events/` (W1: Enter does not submit; W2: the submitted query
+//! browser today** — see `specs/design/ui-events/` (W1: Enter does not submit; W2: the submitted query
 //! does not reach the element). Clicking **Go** works, which is what the e2e test drives.
 //!
 //! Build & serve with `trunk serve` (port 8086).

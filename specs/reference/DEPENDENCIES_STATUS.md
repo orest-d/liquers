@@ -219,7 +219,7 @@ This path handles dependencies known before command execution.
 ## Non-blocking dependency scheduling (2026-07-15)
 
 Dependency evaluation is now non-blocking and deadlock-free (see
-`specs/dependency-scheduling/`). Key points for status semantics:
+`specs/design/dependency-scheduling/`). Key points for status semantics:
 
 - A parent waiting for a dependency follows the truthful flow
   `Processing → Dependencies → Processing`: it enters `Status::Dependencies` only at

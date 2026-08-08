@@ -341,7 +341,7 @@ For the example to work, the following dev-dependencies were added:
 
 ## References
 
-- **Phase 2 Architecture**: See `specs/axum-assets-recipes-api/phase2-architecture.md`
+- **Phase 2 Architecture**: See `specs/design/axum-assets-recipes-api/phase2-architecture.md`
 - **WebSocket Specification**: See `specs/reference/WEB_API_SPECIFICATION.md` section 5.2
 - **Asset Lifecycle**: See `specs/reference/PROJECT_OVERVIEW.md` asset status states
 - **Format Negotiation**: See `specs/reference/WEB_API_SPECIFICATION.md` section 4.1.13
