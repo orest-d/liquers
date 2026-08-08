@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Initialize a feature folder in specs/ for liquers-designer workflow.
+Initialize a design folder in specs/design/ for the liquers-designer workflow.
 
 Usage:
     init_feature.py <feature-name>
 
 Creates:
-    specs/<feature-name>/
+    specs/design/<feature-name>/
     ├── DESIGN.md              # Phase tracking
     ├── phase1-high-level-design.md
     ├── phase2-architecture.md
@@ -15,7 +15,7 @@ Creates:
 
 Example:
     python3 init_feature.py parquet-support
-    # Creates specs/parquet-support/ with all phase documents
+    # Creates specs/design/parquet-support/ with all phase documents
 """
 
 import sys
@@ -23,11 +23,21 @@ from pathlib import Path
 from datetime import datetime
 
 # Template for DESIGN.md (phase tracking)
-DESIGN_MD_TEMPLATE = """# {feature_name} Design Tracking
+DESIGN_MD_TEMPLATE = """---
+id: {feature_upper}
+kind: design
+title: {feature_name}
+status: draft
+phase: high-level
+area: []
+gh_pr: []
+issues: []
+created: {date}
+superseded_by:
+---
+# {feature_name} Design Tracking
 
 **Created:** {date}
-
-**Status:** In Progress
 
 ## Phase Status
 
@@ -344,7 +354,7 @@ def init_feature(feature_name):
         specs_dir.mkdir(exist_ok=True)
         print(f"⚠️  No existing specs/ directory found. Creating: {specs_dir}")
 
-    feature_dir = specs_dir / feature_name
+    feature_dir = specs_dir / "design" / feature_name
 
     if feature_dir.exists():
         print(f"❌ Feature directory already exists: {feature_dir}")
@@ -358,6 +368,7 @@ def init_feature(feature_name):
     design_md = feature_dir / "DESIGN.md"
     design_content = DESIGN_MD_TEMPLATE.format(
         feature_name=feature_name,
+        feature_upper=feature_name.upper().replace("_", "-"),
         date=datetime.now().strftime("%Y-%m-%d")
     )
     design_md.write_text(design_content)

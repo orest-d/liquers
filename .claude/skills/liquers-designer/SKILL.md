@@ -46,6 +46,9 @@ Phase 3: Examples & Use-cases (2-3 examples, corner cases, test plan)
     ↓ [Auto-invoke: liquers-unittest]
     ↓ [Multi-Agent Review: 3 haiku reviewers ∥ → sonnet fixer → User Approval]
 Phase 4: Implementation Plan (step-by-step execution plan)
+
+Phase 5: Documentation (after merge — review every reference/ and guides/ document
+         the change affected). NOT YET ACTIVE; see references/phase5-documentation.md
     ↓ [Auto-invoke: rust-best-practices → Specify Agent Assignments]
     ↓ [Multi-Agent Review: 4 haiku reviewers ∥ → opus final reviewer → User Approval]
     ↓ [Offer Execution]
@@ -55,7 +58,13 @@ Phase 4: Implementation Plan (step-by-step execution plan)
 - **MANDATORY APPROVAL GATE:** NEVER start the next phase until the user explicitly says "proceed" or "Proceed to next phase". No other response (including "looks good", "approved", "ok", "yes", "LGTM", or silence) counts as approval. If the user provides feedback or asks questions, address them and WAIT for the explicit "proceed" keyword before moving on. This is the MOST IMPORTANT rule of this workflow.
 - **Auto-invoke related skills** (rust-best-practices, liquers-unittest) as appropriate
 - **Validate completeness** using phase-specific checklists before approval
-- **Create feature folder** in `specs/<feature-name>/` to organize all phase documents
+- **Create design folder** in `specs/design/<feature-name>/` to organize all phase documents
+- **Every phase transition updates `phase:` in `DESIGN.md`** — the field is only true if something
+  maintains it, and `scripts/validate_phase.py` is where that belongs
+- **Status and phase vocabularies are `specs/DOCS_STRUCTURE_GUIDE.md` §5.1–5.2**, not freeform
+  text. Do not write a `**Status:**` line into `DESIGN.md`; the front-matter owns it
+- **A design with a `gh_pr` carries no `status` at all** (§5.5) — it is derived from whether those
+  PRs merged
 
 ## Workflow Decision Tree
 
@@ -148,7 +157,7 @@ Phase 4: Implementation Plan
 4. Perform critical review using Phase 1 checklist
 5. Present to user with clear approval gate
 
-**Output:** `specs/<feature-name>/phase1-high-level-design.md`
+**Output:** `specs/design/<feature-name>/phase1-high-level-design.md`
 
 **Approval gate:** Present the Phase 1 document to the user. Then STOP and WAIT. Do NOT start Phase 2 until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved".
 
@@ -181,7 +190,7 @@ Phase 4: Implementation Plan
    - **If issues found:** Launch **1 sonnet agent** to fix all fixable issues in the Phase 2 document, ask user only for genuine design decisions that can't be resolved from context. Produce summary with list of fixes made + remaining questions.
 8. Present to user with clear approval gate
 
-**Output:** `specs/<feature-name>/phase2-architecture.md`
+**Output:** `specs/design/<feature-name>/phase2-architecture.md`
 
 **Approval gate:** Present the Phase 2 document to the user. Then STOP and WAIT. Do NOT start Phase 3 until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback (corrections, questions, design changes), incorporate them and WAIT again. Any response other than "proceed" means "not yet approved".
 
@@ -216,7 +225,7 @@ Phase 4: Implementation Plan
    - **1 sonnet agent** (with rust-best-practices, liquers-unittest, knowledge of PROJECT_OVERVIEW.md + Phase 1, 2, 3 documents) processes review output, fixes all fixable issues, provides list of potential problems, asks user only for genuine design decisions.
 7. Present to user with clear approval gate
 
-**Output:** `specs/<feature-name>/phase3-examples.md`
+**Output:** `specs/design/<feature-name>/phase3-examples.md`
 
 **Approval gate:** Present the Phase 3 document to the user. Then STOP and WAIT. Do NOT start Phase 4 until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved".
 
@@ -247,7 +256,7 @@ Phase 4: Implementation Plan
    - **1 opus agent** (with rust-best-practices, liquers-unittest, knowledge of PROJECT_OVERVIEW.md + all Phase 1-4 documents) critically reviews ALL documents, fixes problems or raises issues and asks questions.
 9. Present to user with clear approval gate
 
-**Output:** `specs/<feature-name>/phase4-implementation.md`
+**Output:** `specs/design/<feature-name>/phase4-implementation.md`
 
 **Approval gate:** Present the Phase 4 document to the user. Then STOP and WAIT. Do NOT offer execution until the user explicitly says "proceed" or "Proceed to next phase". If the user gives feedback, incorporate it and WAIT again. Any response other than "proceed" means "not yet approved".
 
@@ -314,7 +323,7 @@ python3 scripts/init_feature.py <feature-name>
 
 **Creates:**
 ```
-specs/<feature-name>/
+specs/design/<feature-name>/
 ├── DESIGN.md                    # Phase status tracking
 ├── phase1-high-level-design.md  # Phase 1 document (from template)
 ├── phase2-architecture.md       # Phase 2 document (from template)
@@ -542,3 +551,21 @@ This is **liquers-designer v2.0** - multi-agent review architecture.
   - Added Agent Orchestration section (model selection, skills/knowledge, orchestration pattern)
   - Updated workflow diagram, critical review process, and all phase templates
 - v1.0 (2026-02-13): Initial 4-phase workflow with auto-invoke support
+
+
+## After a design ships
+
+Two obligations that are easy to skip because they fall outside the four phases:
+
+1. **Review the documentation the change affected.** See `references/phase5-documentation.md`. Not
+   yet wired into the workflow, so run it by hand: a shipped change is the moment a `reference/`
+   document becomes wrong, and the moment someone still has the context to fix it.
+2. **Update the capability map** in `specs/README.md`. A design reaching `complete` moves its
+   capability up a maturity stage, and a capability that gains a `reference/` document should link
+   that instead of the design folder (`specs/DOCS_STRUCTURE_GUIDE.md` §8.1).
+
+## Filing issues from a design
+
+When a design ships in part, the remainder becomes an issue — there is no partial design status
+(§5.6). When an issue is `complexity: L` or `XL`, it requires a design folder (§4.5). Both
+directions use the procedure in `specs/DOCS_STRUCTURE_GUIDE.md` §4.8; do not restate it here.

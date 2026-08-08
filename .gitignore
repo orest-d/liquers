@@ -19,3 +19,5 @@ liquers-axum/xxx/*
 
 # packaged skill bundles are generated from .claude/skills/
 *.skill
+__pycache__/
+*.pyc
