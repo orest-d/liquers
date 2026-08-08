@@ -317,6 +317,29 @@ mistake here surfaces immediately.
 `COMMAND_REGISTRATION_GUIDE.md`, `LANGUAGE-INTEGRATION_GUIDE.md`, `PAYLOAD_GUIDE.md`
 — plus `UNITTEST_GUIDE.md` arriving from the repo root (§7.2).
 
+### 7.1a Seeding `reviewed:` and History
+
+Every document landing in `reference/` or `guides/` needs `reviewed:`, an `area:`, and a `##
+History` section (guide §9). **This is the one place the migration cannot be mechanical**, and
+getting it wrong quietly defeats the guardrail:
+
+- **Do not seed `reviewed:` with today's date.** That would assert all fifteen documents were
+  verified against the code on migration day, which is false, and it would push the first real
+  review out by three months.
+- **Seed each with the date it was last substantively edited** — `git log -1 --format=%ad`.
+  Documents older than 92 days then land *already overdue*, which is the truth and puts them
+  straight onto the standing review issue.
+- **Seed History with one row per document**: the seed date, "Migrated from `specs/`; content
+  unchanged.", source `migration`. Earlier history stays recoverable from git; back-filling it from
+  commit messages would be invention.
+- Expect most of the set to be overdue on day one. `WEB_API_SPECIFICATION.md` is dated 2026-01-19
+  in its own header; `ASSETS.md` and `ASSET_LIFECYCLE.md` have not been touched since before the
+  asset-lifecycle work landed. That backlog is not created by the migration — it is made visible by
+  it, which is the point.
+
+The first quarterly sweep is therefore real work, not a formality. Sequence it after the migration
+lands rather than inside it.
+
 **→ `archive/`** (date-prefixed; the date is when the content was true)
 
 | File | Archive name |
@@ -368,7 +391,7 @@ issue.
 |---|---|---|
 | 13 | `specs/  # Specifications and design documents` | Expand to the six-directory layout from the guide |
 | 18 | `specs/PROJECT_OVERVIEW.md`, `specs/REGISTER_COMMAND_FSD.md`, `specs/ASSETS.md` | `specs/reference/…` |
-| 20 | `**Known issues** are tracked in specs/ISSUES.md` | `specs/issues/` — index at `specs/issues/index.csv`; filing rules in `specs/DOCS_STRUCTURE_GUIDE.md` §4.8 |
+| 20 | `**Known issues** are tracked in specs/ISSUES.md` | `specs/issues/` — index at `specs/index.csv`; filing rules in `specs/DOCS_STRUCTURE_GUIDE.md` §4.8 |
 | 32 | `specs/POLARS_COMMAND_LIBRARY.md` | `specs/reference/POLARS_COMMAND_LIBRARY.md` |
 | 217, 229 | `specs/PROJECT_OVERVIEW.md` | `specs/reference/PROJECT_OVERVIEW.md` |
 | 243, 249 | `specs/COMMAND_REGISTRATION_GUIDE.md`, `specs/REGISTER_COMMAND_FSD.md` | `specs/guides/…`, `specs/reference/…` |
@@ -378,12 +401,12 @@ issue.
 **New section, ~12 lines**, placed near the top since it governs every session:
 
 > **Documentation.** Map: `specs/README.md`. Rules: `specs/DOCS_STRUCTURE_GUIDE.md`. Issue index:
-> `specs/issues/index.csv`.
+> `specs/index.csv`.
 > - Found a problem? File `specs/issues/<ID>.md` with `status: draft`. Search `index.csv` first.
 > - Never edit a file under `specs/archive/`, and never change the status of an issue that has a
 >   `github:` number.
 > - A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
-> - `specs/issues/index.csv` is generated — run `scripts/docs_index.py`, do not hand-edit.
+> - `specs/index.csv` is generated — run `scripts/docs_index.py`, do not hand-edit.
 
 ### 8.2 `README.md`
 
@@ -401,7 +424,8 @@ could not distinguish the two. After the migration the path answers it: `referen
 |---|---|
 | `liquers-designer/scripts/init_feature.py` | Create under `specs/design/<slug>/`; emit `DESIGN.md` front-matter per guide §5, with `status: draft` and `phase: high-level`; drop the freeform `**Status:** In Progress` line; print a reminder to run `scripts/docs_index.py` |
 | `liquers-designer/scripts/validate_phase.py` | Path `specs/parquet-support/…` → `specs/design/…`; add front-matter validation; **advance `phase:` when a phase is approved** — the field is only true if something maintains it, and this script is the one place that already knows a phase just passed |
-| `liquers-designer/SKILL.md` | Design folders live under `specs/design/`; the status and phase vocabularies are guide §5.1–5.2; each phase transition updates `phase:` in `DESIGN.md`; **a landing design updates `specs/README.md`**; an `L`/`XL` issue requires a design folder |
+| `liquers-designer/SKILL.md` | Design folders live under `specs/design/`; the status and phase vocabularies are guide §5.1–5.2; each phase transition updates `phase:` in `DESIGN.md`; **a landing design updates `specs/README.md`**; an `L`/`XL` issue requires a design folder; **add the `documentation` phase** (§8.3a) |
+| `liquers-designer/references/phase5-documentation.md` | **New.** The phase-5 template and checklist (§8.3a) |
 | `liquers-designer/references/liquers-patterns.md:166` | `see ISSUES.md` → `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md` |
 | `liquers-designer/references/phase*-template.md` | No change — phase files carry no front-matter |
 | `liquers-validate/SKILL.md:117` | → `specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md` |
@@ -409,6 +433,40 @@ could not distinguish the two. After the migration the path answers it: `referen
 | `liquers-validate/references/recipes-and-overlays.md` | Example path `specs/my-feature/proposed_commands.yaml` → `specs/design/my-feature/…` |
 | `rust-best-practices/references/anti-patterns.md:228` | → `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md` |
 | `liquers-unittest/SKILL.md` | Reference `specs/guides/UNITTEST_GUIDE.md` rather than restating it (§8.5) |
+
+### 8.3a The `documentation` phase (phase 5)
+
+Guide §9.3 puts the primary review trigger on the designer: a change that ships is the moment a
+reference becomes wrong, and also the moment someone still has the context to fix it. That
+obligation needs a place to live in the workflow, and it does not have one yet — the skill runs
+four phases and stops at the implementation plan.
+
+**Adding it is a change to the skill, not to this migration**, and it is the only piece of this
+plan that changes how design work is done. It can land before, during or after the document moves;
+the guide marks the phase *not yet active* until it does, so nothing is blocked in the meantime.
+
+What phase 5 must do, once the implementation PRs are merged:
+
+1. **Propose the affected set.** List every `reference/` and `guides/` document sharing an `area`
+   with the design. This is the candidate list, generated so nothing is missed by forgetting; the
+   designer keeps or discards each entry.
+2. **Record the decision** as `affects_docs:` in `DESIGN.md`. Discarded candidates are simply
+   absent — but a one-line note saying why is worth more than a silent omission when someone
+   revisits the design later.
+3. **Review each kept document against what actually shipped**, not against the design. The design
+   says what was intended; the four `query-validation` "Implementation Notes" show how routinely
+   those differ.
+4. **Update the document, add a History row, and bump `reviewed:`** — in the same commit, because
+   guide check 11 reads the diff and rejects a bumped date with no matching row.
+5. **Only then may the design move to `complete`.** Guide check 12 enforces it: a design cannot
+   close while a document it named has a `reviewed:` older than its last merged PR.
+
+Step 3 is the part that cannot be delegated to a checklist, and it is where the value is. Steps 1,
+2, 4 and 5 are mechanical enough that the skill should do them without being asked.
+
+A note on ordering: phase 5 runs *after* merge, so a design sits at `implemented` between the PR
+landing and the documentation being written. That is the state guide §5.1 introduced `implemented`
+for, and it becomes reachable for the first time when this phase activates.
 
 ### 8.4 Skills — removals
 
@@ -501,6 +559,13 @@ Nothing in this plan should be executed on a guess. These need an answer first:
 13. **`gh_pr` for each shipped design** — recoverable from branch names, but confirm the mapping
     for `dependency-management` and `dependency-scheduling`, which sit near PRs #5 and #6 and could
     be transposed.
+14. **Is 92 days the right review interval?** Guide §9.4 sets it because you asked for no more than
+    three months. Fifteen documents at that cadence is roughly one review per week, sustained
+    indefinitely — cheap when a document is current, not cheap across a set that starts overdue.
+    Halving the set (moving the `*_COMMAND_LIBRARY` specs to `docs/`) or splitting the cadence by
+    `audience` are both ways to cut it, if the first sweep shows the pace does not hold.
+15. **When does the `documentation` phase activate?** (§8.3a) Until it does, the §9.3 interlock is
+    honoured by hand.
 
 ---
 
