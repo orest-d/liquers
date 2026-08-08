@@ -1,8 +1,9 @@
 # Documentation Structure Guide
 
 The contract for everything under `specs/`. It defines where a document goes, what metadata it
-carries, and who owns each fact. It is normative and describes the target state — for how the
-pre-existing documents get there, see `DOCS_MIGRATION_PLAN.md`.
+carries, and who owns each fact. It is normative: it describes the structure as it is. How the
+pre-existing documents got here is recorded in
+[`archive/2026-08-08-docs-migration-plan.md`](archive/2026-08-08-docs-migration-plan.md).
 
 Read this when you are **writing or filing** a document. To find out what exists, read
 `specs/README.md` (the live map) or query `specs/index.csv`.
@@ -461,10 +462,21 @@ moment `scripts/docs_index.py --sync` derives the status:
 | all merged, no phase outstanding | `complete` |
 | all closed unmerged | **needs a human** — `--check` reports it rather than guessing between `abandoned`, `superseded` and a retry |
 
-**Once `gh_pr` is set, `DESIGN.md` carries no `status:` field**, exactly as an issue with a
-`github:` number carries none. The cached value lives in `index.csv` and is informational there.
-Before `gh_pr` is set, status is local and hand-written: `draft`, `in_review`, `approved`,
-`superseded` and `abandoned` all describe a design that no PR has touched yet.
+**Once `gh_pr` is set, `DESIGN.md` carries no *derived* `status:`** — not
+`in_implementation`, `implemented` or `complete`. Those three are GitHub's to determine, the cached
+value lives in `index.csv`, and a hand-written copy could only drift. Before `gh_pr` is set, all of
+`draft`, `in_review` and `approved` are local and hand-written.
+
+**The two terminal decisions are the exception: `abandoned` and `superseded` may be written even
+when `gh_pr` is set.** They are not derivable. GitHub knows that a PR closed unmerged; it cannot
+know whether the design was given up, replaced by a successor, or is waiting for a second attempt —
+that is the "needs a human" row above, and the human's answer needs somewhere to live. Writing one
+of them is what closes that row.
+
+The line is *who can determine the value*, not *whether a PR exists*: GitHub owns "did these PRs
+merge", the repository owns "and what do we conclude". A design that reads `gh_pr: [23]` with
+`status: abandoned` is saying exactly that — the attempt is on record, and it will not be
+resumed.
 
 `gh_pr` is a **list**. One PR per design has held so far, and it is the common case — but it is an
 observation about how work has happened, not a constraint worth enforcing. An `XL` design landing

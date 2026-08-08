@@ -273,8 +273,11 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
 
         elif r["kind"] == "design":
             gh_pr = _list(f, "gh_pr")
-            if gh_pr and f.get("status"):
-                errors.append(f"{where}: has gh_pr and a status field (§5.5)")
+            # §5.5: gh_pr transfers the *derived* statuses to GitHub, but `abandoned` and
+            # `superseded` are human conclusions GitHub cannot reach — a PR closing unmerged
+            # does not say whether the design was given up or will be retried.
+            if gh_pr and f.get("status") not in ("", None, "abandoned", "superseded"):
+                errors.append(f"{where}: has gh_pr and a derived status '{f['status']}' (§5.5)")
             if not gh_pr:
                 if f.get("status") not in DESIGN_STATUS:
                     errors.append(f"{where}: status '{f.get('status')}' not in §5.1")
