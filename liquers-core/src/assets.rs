@@ -197,7 +197,8 @@ type PsmJoinError = tokio::task::JoinError;
 #[cfg(target_arch = "wasm32")]
 type PsmJoinError = std::convert::Infallible;
 use crate::metadata::{
-    AssetInfo, DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version,
+    AssetInfo, DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry,
+    ReadExposure, Version,
 };
 use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
@@ -767,62 +768,73 @@ impl<E: Environment> AssetData<E> {
     /// Poll the current state without any async operations.
     /// Returns None if data or metadata is not available.
     pub fn poll_state(&self) -> Option<State<E::Value>> {
-        match self.status {
-            Status::None => None,
-            Status::Directory => {
-                let mut metadata = self.metadata.clone();
-                metadata.with_type_identifier("dir".to_string());
-                Some(State::from_parts(
-                    Arc::new(E::Value::none()),
-                    Arc::new(metadata),
-                ))
-            }
-            Status::Recipe => None,
-            Status::Submitted => None,
-            Status::Dependencies => None,
-            Status::Processing => None,
-            Status::Partial => None,
-            Status::Error | Status::Cancelled => {
-                let metadata = self.metadata.clone();
-                Some(State::from_parts(
-                    Arc::new(E::Value::none()),
-                    Arc::new(metadata),
-                ))
-            }
-            Status::Storing => None,
+        match self.status.read_exposure() {
+            ReadExposure::Value => self.exposed_value_state(),
+            ReadExposure::MetadataOnly => self.metadata_only_state(),
             // Expired is a cache miss for normal reads — see `poll_state_any_status` for the
             // explicit recovery read that still returns this data.
-            Status::Expired => None,
-            Status::Ready | Status::Source | Status::Override | Status::Volatile => {
-                if let Some(data) = &self.data {
-                    let mut metadata = self.metadata.clone();
-                    metadata.with_type_identifier(data.identifier().to_string());
-                    metadata.with_type_name(data.type_name().to_string());
+            ReadExposure::Expired => None,
+            ReadExposure::Pending => None,
+        }
+    }
 
-                    Some(State::from_parts(data.clone(), Arc::new(metadata)))
-                } else {
-                    None
-                }
+    /// The state exposed when a real value is available. `None` if the value is absent.
+    fn exposed_value_state(&self) -> Option<State<E::Value>> {
+        if let Some(data) = &self.data {
+            let mut metadata = self.metadata.clone();
+            metadata.with_type_identifier(data.identifier().to_string());
+            metadata.with_type_name(data.type_name().to_string());
+
+            Some(State::from_parts(data.clone(), Arc::new(metadata)))
+        } else {
+            None
+        }
+    }
+
+    /// The no-value state carrying meaningful metadata, for `ReadExposure::MetadataOnly`.
+    ///
+    /// `Directory` stamps a `dir` type identifier; `Error` and `Cancelled` do not. That
+    /// distinction predates the classifier and is preserved here deliberately — the inner match
+    /// is why `MetadataOnly` cannot be collapsed into a single flat arm.
+    fn metadata_only_state(&self) -> Option<State<E::Value>> {
+        let mut metadata = self.metadata.clone();
+        match self.status {
+            Status::Directory => {
+                metadata.with_type_identifier("dir".to_string());
+            }
+            Status::Error | Status::Cancelled => {}
+            Status::None
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Expired
+            | Status::Ready
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
+                // Not MetadataOnly; unreachable via `poll_state`. Returning None keeps this
+                // total without inventing a state for a status that has no metadata-only form.
+                return None;
             }
         }
+        Some(State::from_parts(
+            Arc::new(E::Value::none()),
+            Arc::new(metadata),
+        ))
     }
 
     /// Like `poll_state()`, but also returns data for `Status::Expired` — the explicit
     /// "I know it's expired, give it to me anyway" recovery read. Not gated to keyed assets;
     /// the keyed-only restriction lives in the manager-level `AssetManager::get_any_status`.
     pub fn poll_state_any_status(&self) -> Option<State<E::Value>> {
-        match self.status {
-            Status::Expired => {
-                if let Some(data) = &self.data {
-                    let mut metadata = self.metadata.clone();
-                    metadata.with_type_identifier(data.identifier().to_string());
-                    metadata.with_type_name(data.type_name().to_string());
-                    Some(State::from_parts(data.clone(), Arc::new(metadata)))
-                } else {
-                    None
-                }
+        match self.status.read_exposure() {
+            ReadExposure::Expired => self.exposed_value_state(),
+            ReadExposure::Value | ReadExposure::MetadataOnly | ReadExposure::Pending => {
+                self.poll_state()
             }
-            _ => self.poll_state(),
         }
     }
 
@@ -836,9 +848,48 @@ impl<E: Environment> AssetData<E> {
         self.cancelled = cancelled;
     }
 
-    /// Poll the current binary data and metadata without any async operations.
-    /// Returns None if binary or metadata is not available.
+    /// Poll the cached binary data and metadata without any async operations.
+    ///
+    /// Subject to the same expiration contract as [`Self::poll_state`]: bytes are exposed only
+    /// when the status classifies as [`ReadExposure::Value`]. Retained expired bytes are reachable
+    /// through [`Self::poll_binary_any_status`], and the persistence path uses
+    /// [`Self::binary_unchecked`].
+    ///
+    /// Returns `None` if no binary is cached, or if the status does not permit exposing it.
     pub fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        match self.status.read_exposure() {
+            ReadExposure::Value => self.binary_unchecked(),
+            // A metadata-only state has no binary counterpart; expired bytes need the explicit
+            // recovery read; pending statuses have nothing to expose yet.
+            ReadExposure::MetadataOnly => None,
+            ReadExposure::Expired => None,
+            ReadExposure::Pending => None,
+        }
+    }
+
+    /// Like [`Self::poll_binary`], but also returns retained bytes for `Status::Expired` — the
+    /// explicit "I know it is expired, give it to me anyway" recovery read, and the binary twin of
+    /// [`Self::poll_state_any_status`].
+    ///
+    /// This does **not** serialize: it reports what is cached. `AssetRef::get_binary_any_status`
+    /// is the variant that materialises bytes from a retained value.
+    pub fn poll_binary_any_status(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        match self.status.read_exposure() {
+            ReadExposure::Expired => self.binary_unchecked(),
+            ReadExposure::Value | ReadExposure::MetadataOnly | ReadExposure::Pending => {
+                self.poll_binary()
+            }
+        }
+    }
+
+    /// Status-blind access to the cached binary, for the persistence path.
+    ///
+    /// This is **not** a read of the asset's exposed value, so it deliberately does not consult
+    /// [`ReadExposure`]: writing bytes to the store must not depend on whether a reader would be
+    /// allowed to see them. `AssetRef::set_state` persists with whatever status the caller
+    /// supplies, so those two concerns genuinely come apart. Named after the precedent set by
+    /// [`State::data_unchecked`] — bypassing a guard should be visible at the call site.
+    pub(crate) fn binary_unchecked(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         let mut metadata = self.metadata.clone();
         if let Some(data) = self.data.as_ref() {
             metadata.with_type_identifier(data.identifier().to_string());
@@ -1941,7 +1992,14 @@ impl<E: Environment> AssetRef<E> {
             return Ok(());
         }
 
-        let mut x = self.poll_binary().await;
+        // `binary_unchecked`, not `poll_binary`: persisting is not a read of the asset's exposed
+        // value, and this path runs at statuses the read gate hides. `AssetRef::set_state`
+        // persists with whatever status the caller supplied — reachable from `Context::set_state`
+        // — so consulting the gate here would turn a successful persist into an error.
+        let mut x = {
+            let lock = self.data.read().await;
+            lock.binary_unchecked()
+        };
         if x.is_none() {
             x = self.serialize_to_binary().await?;
         }
@@ -2327,6 +2385,15 @@ impl<E: Environment> AssetRef<E> {
             return Ok(state);
         }
 
+        // Pre-wait expiry check. `poll_state` hides expired data, so without this an
+        // already-expired asset would subscribe below and wait for a notification that has
+        // already been sent and will not come again. This mirrors `get_binary`, and matches the
+        // error this method already returns when expiry is observed *while* waiting.
+        let status = self.status().await;
+        if status.read_exposure() == ReadExposure::Expired {
+            return Err(self.expired_read_error(status).await);
+        }
+
         // Subscribe to notifications before starting evaluation
         let mut rx = self.subscribe_to_notifications().await;
 
@@ -2385,10 +2452,30 @@ impl<E: Environment> AssetRef<E> {
     /// [`Self::get`] and serializes the value. The binary and metadata are returned
     /// together to preserve their association.
     pub async fn get_binary(&self) -> Result<(Arc<Vec<u8>>, Arc<Metadata>), Error> {
+        // Consult the status BEFORE short-circuiting on cached bytes. Without this, an expired
+        // asset returns stale bytes; and with the gate but without the check, it would fall
+        // through to `get()` and block on a notification that is never coming.
+        let (exposure, status) = {
+            let lock = self.data.read().await;
+            (lock.status.read_exposure(), lock.status)
+        };
+        match exposure {
+            ReadExposure::Expired => return Err(self.expired_read_error(status).await),
+            ReadExposure::MetadataOnly => return Err(self.no_binary_error(status).await),
+            ReadExposure::Value | ReadExposure::Pending => {}
+        }
+
         if let Some(b) = self.poll_binary().await {
             return Ok(b);
         }
         self.get().await?;
+        // The wait may have finished into a status with no binary — re-derive rather than assume.
+        let status = self.status().await;
+        match status.read_exposure() {
+            ReadExposure::Expired => return Err(self.expired_read_error(status).await),
+            ReadExposure::MetadataOnly => return Err(self.no_binary_error(status).await),
+            ReadExposure::Value | ReadExposure::Pending => {}
+        }
         if let Some(b) = self.poll_binary().await {
             Ok(b)
         } else {
@@ -2397,6 +2484,64 @@ impl<E: Environment> AssetRef<E> {
             } else {
                 Err(Error::unexpected_error("Failed to get binary".to_owned()))
             }
+        }
+    }
+
+    /// The error reported when a normal read meets `Status::Expired`.
+    ///
+    /// Shared by [`Self::get`] and [`Self::get_binary`] so the two report the identical condition
+    /// identically — the symmetry rule as a caller experiences it.
+    async fn expired_read_error(&self, status: Status) -> Error {
+        let _ = status;
+        Error::general_error(format!(
+            "Asset {} is expired; use get_any_status or get_binary_any_status to read retained \
+             data, or to_override to accept it",
+            self.asset_reference().await
+        ))
+    }
+
+    /// The error reported when a binary read meets a status that has no binary representation.
+    ///
+    /// `Error` reuses the asset's own recorded failure so the traceback survives; `Cancelled` and
+    /// `Directory` record none, so one is constructed. They are separate arms despite sharing a
+    /// `ReadExposure` precisely because of that difference.
+    async fn no_binary_error(&self, status: Status) -> Error {
+        match status {
+            Status::Error => {
+                let state = self.poll_state().await;
+                match state.and_then(|s| s.value_error()) {
+                    Some(e) => e,
+                    None => Error::general_error(format!(
+                        "Asset {} failed; no binary representation",
+                        self.asset_reference().await
+                    )),
+                }
+            }
+            Status::Cancelled => Error::general_error(format!(
+                "Asset {} was cancelled; no binary representation",
+                self.asset_reference().await
+            )),
+            Status::Directory => Error::general_error(format!(
+                "Asset {} is a directory; no binary representation",
+                self.asset_reference().await
+            )),
+            Status::None
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Expired
+            | Status::Ready
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => Error::unexpected_error(format!(
+                "Asset {} has status {:?}, which has a binary representation; \
+                 no_binary_error should not have been called",
+                self.asset_reference().await,
+                status
+            )),
         }
     }
 
@@ -2447,12 +2592,59 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Returns cached binary data and its metadata without waiting.
+    ///
+    /// Expired data is intentionally hidden, exactly as in [`Self::poll_state`]; use
+    /// [`Self::poll_binary_any_status`] or [`Self::get_binary_any_status`] for explicit recovery.
     pub async fn poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         let lock = self.data.read().await;
         lock.poll_binary()
     }
 
+    /// Polls cached binary while also allowing retained `Expired` data.
+    ///
+    /// Reports only what is cached — see [`Self::get_binary_any_status`] to materialise bytes from
+    /// a retained value.
+    pub async fn poll_binary_any_status(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
+        let lock = self.data.read().await;
+        lock.poll_binary_any_status()
+    }
+
+    /// Recovery read for binary data: returns retained bytes regardless of status, serializing
+    /// from the retained value when nothing is cached.
+    ///
+    /// This is the binary twin of [`Self::get_any_status`], but **not** a mere alias for
+    /// [`Self::poll_binary_any_status`] the way `get_any_status` aliases `poll_state_any_status`.
+    /// A retained value needs no materialising, so the state side can alias; bytes do. Since
+    /// `AssetData::binary` is populated at two sites and cleared at roughly ten, an expired asset
+    /// commonly retains its value and no bytes at all — and that is precisely when a caller needs
+    /// recovery, so returning `None` there would make the escape hatch useless.
+    ///
+    /// `Ok(None)` means nothing is retained; `Err` means retained but not serializable.
+    pub async fn get_binary_any_status(
+        &self,
+    ) -> Result<Option<(Arc<Vec<u8>>, Arc<Metadata>)>, Error> {
+        if let Some(binary) = self.poll_binary_any_status().await {
+            return Ok(Some(binary));
+        }
+        let state = {
+            let lock = self.data.read().await;
+            lock.poll_state_any_status()
+        };
+        let Some(state) = state else {
+            return Ok(None);
+        };
+        let binary = Arc::new(state.as_bytes()?);
+        {
+            let mut lock = self.data.write().await;
+            lock.binary = Some(binary.clone());
+        }
+        Ok(Some((binary, state.metadata.clone())))
+    }
+
     /// Attempts to poll cached binary data without waiting for the asset lock.
+    ///
+    /// Returns `None` if the lock cannot be acquired immediately, or if the status does not permit
+    /// exposing the bytes. Expired data remains hidden.
     pub fn try_poll_binary(&self) -> Option<(Arc<Vec<u8>>, Arc<Metadata>)> {
         if let Ok(lock) = self.data.try_read() {
             lock.poll_binary()
