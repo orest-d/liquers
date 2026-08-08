@@ -2,8 +2,8 @@
 id: EXPIRED-BINARY-READ-SAFETY
 kind: design
 title: Expired-safe binary reads
-status: in_review
-phase: high-level
+status: draft
+phase: architecture
 area: [core/assets, core/store]
 gh_pr: []
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
@@ -16,8 +16,8 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design (in review)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved)
+- [ ] Phase 2: Solution & Architecture (in review)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
