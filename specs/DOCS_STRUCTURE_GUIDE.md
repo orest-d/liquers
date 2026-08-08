@@ -238,15 +238,96 @@ After import the local file is canonical for prose. The GitHub issue body is lef
 matches, so the snapshot can never silently misrepresent the issue. Re-importing is a human
 decision.
 
-### 4.8 Filing rules for agents
+### 4.8 Creating an issue
 
-1. **Search `specs/index.csv` first.** Duplicate filing is the failure mode that makes cheap
-   capture worthless.
-2. File as `status: draft`. Do not create a GitHub issue.
-3. Fill every required field. Guess `priority` and `complexity` — a wrong guess is corrected at
-   review; an empty field is not.
-4. Do not change the status of anything you did not just file, and never touch a file that has a
-   `github:` number.
+**This section is authoritative.** It is the only place the procedure is written down. `CLAUDE.md`
+carries a pointer here plus the three facts an agent needs before following it (§4.8.4); skills link
+here; nothing anywhere restates the steps. A second copy would be a second thing to keep correct,
+and the vocabularies below change more often than a procedure gets re-read.
+
+Filing must stay cheap. It needs **no network, no GitHub account, and no permission** — an agent
+that finds a defect mid-task can record it and carry on. Anything that raises that cost means
+defects go unrecorded, which is worse than a backlog with some noise in it.
+
+#### 4.8.1 Steps
+
+1. **Search first.** `grep -i '<keyword>' specs/index.csv` against the symptom, the module, and the
+   area. Duplicate filing is the one failure mode that makes cheap capture worthless. If you find a
+   match, add to that issue's body instead of creating a new file.
+2. **Choose an ID** (§4.1): `[A-Z0-9-]+`, ≤ 60 characters, naming the *problem* rather than the fix.
+   `ASSET-EXPIRED-CACHED-BINARY-READ`, not `FIX-ASSET-READ`. Confirm it is unused in `index.csv`.
+3. **Create `specs/issues/<ID>.md`** from the template below.
+4. **Fill every required field.** Guess `priority` and `complexity` rather than leaving them empty —
+   a wrong guess is corrected in review, an empty field silently drops the issue out of every
+   query that matters.
+5. **Write the body.** Four headings, in this order: **Problem**, **Impact**, **Expected
+   behaviour**, **Discovery**. The last one records how you found it; it is what lets a reader
+   judge whether the issue is still real months later.
+6. **Regenerate the index**: `python3 scripts/docs_index.py`. Commit the issue file and `index.csv`
+   together.
+7. **Do not create a GitHub issue.** That happens when work starts (§4.3), and doing it at filing
+   time is what buries a live backlog under items nobody is working on.
+
+#### 4.8.2 Template
+
+```markdown
+---
+id: SHORT-PROBLEM-NAME
+kind: issue                 # or `feature` for something that does not exist yet
+title: One line, present tense, states the problem
+status: draft
+priority: P2                # P0 blocker · P1 important · P2 normal · P3 nice-to-have (§4.4)
+complexity: M               # S one file · M one crate · L cross-crate/API · XL subsystem (§4.5)
+area: [core/assets]         # closed vocabulary — §3
+design:                     # required when complexity is L or XL
+created: 2026-08-08
+github:                     # leave empty; set only when work starts
+---
+
+## Problem
+
+What is wrong, with the code locations that show it.
+
+## Impact
+
+Who or what this affects, and how badly. If there is a workaround, say so — it is the
+difference between P0 and P1.
+
+## Expected behaviour
+
+What should happen instead. If you know of more than one way to get there, list them; do not
+pick one on the issue's behalf.
+
+## Discovery
+
+How this surfaced. A failing test, a review, a user report, an audit.
+```
+
+#### 4.8.3 Rules
+
+- **Everything an agent files is `draft`.** Not `accepted` — that is a human's judgement that the
+  problem is real and in scope, and it is the whole reason `draft` exists.
+- **Never change the status of an issue you did not just file**, and never edit a file carrying a
+  `github:` number (§4.3).
+- **`complexity: L` or `XL` requires a `design`** (§4.5). If no design folder exists yet, file the
+  issue anyway with `design:` empty and say in the body that one is needed — `--check` will flag
+  it, which is the correct outcome, not a reason to understate the complexity.
+- **One problem per file.** If the symptom has two independent causes, that is two issues.
+- **A partial finding is still worth filing.** "This looks wrong, I did not verify it" belongs in
+  `draft` with that sentence in the body. Triage is cheaper than rediscovery.
+
+#### 4.8.4 What may be said elsewhere
+
+`CLAUDE.md` is read at the start of every session and this guide is not, so `CLAUDE.md` needs
+enough to act on without following the link. It may state exactly these, and nothing further:
+
+1. Issues live in `specs/issues/<ID>.md`, one file each.
+2. New issues are `status: draft`; do not open a GitHub issue.
+3. Search `specs/index.csv` before filing.
+4. Full procedure: this section.
+
+It must **not** restate the priority or complexity scales, the area vocabulary, the template, or
+the status machine. Those are the parts that change.
 
 ---
 
@@ -765,8 +846,8 @@ which makes a stale claim there worse, not better.
 
 | You are writing… | Put it in | Front-matter |
 |---|---|---|
-| A problem you found | `issues/<ID>.md`, `status: draft` | §4.6 |
-| A capability that should exist | `issues/<ID>.md`, `kind: feature` | §4.6 |
+| A problem you found | `issues/<ID>.md`, `status: draft` | **§4.8 — the procedure** |
+| A capability that should exist | `issues/<ID>.md`, `kind: feature` | **§4.8** |
 | The reasoning for a change you are about to make | `design/<slug>/` | §5 |
 | A description of how the system works now | `reference/` | §9.1 — and a `## History` |
 | Instructions for doing a task in this repo | `guides/` | §9.1 — and a `## History` |

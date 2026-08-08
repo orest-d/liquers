@@ -553,15 +553,70 @@ by an issue. `review20260707.md` is archived without triage, superseded by the p
 | 354 | `specs/STORE_CONFIG_FSD.md` | `specs/reference/STORE_CONFIG_FSD.md` |
 | 304, 311, 331, 340 | `specs/command_registry.yaml` | unchanged |
 
-**New section, ~12 lines**, placed near the top since it governs every session:
+**New section**, placed near the top since it governs every session. Guide §4.8.4 fixes exactly what
+this may contain — enough to file an issue without following the link, and nothing that would
+become a second copy of a vocabulary:
 
-> **Documentation.** Map: `specs/README.md`. Rules: `specs/DOCS_STRUCTURE_GUIDE.md`. Issue index:
-> `specs/index.csv`.
-> - Found a problem? File `specs/issues/<ID>.md` with `status: draft`. Search `index.csv` first.
+> ## Documentation
+>
+> Map: `specs/README.md` · Rules: `specs/DOCS_STRUCTURE_GUIDE.md` · Index: `specs/index.csv`
+>
+> **Filing an issue.** One file per issue at `specs/issues/<ID>.md`, where `<ID>` is
+> `SCREAMING-KEBAB` naming the problem, not the fix.
+>
+> 1. `grep -i '<keyword>' specs/index.csv` first — do not file a duplicate.
+> 2. Create the file with `status: draft` and fill `priority`, `complexity` and `area`. Guess
+>    rather than leave blank; review corrects a wrong guess, nothing corrects an empty field.
+> 3. Run `python3 scripts/docs_index.py` and commit both files.
+> 4. **Do not open a GitHub issue.** That happens when work starts.
+>
+> Template, field vocabularies and the full procedure:
+> [`specs/DOCS_STRUCTURE_GUIDE.md` §4.8](specs/DOCS_STRUCTURE_GUIDE.md). Filing is deliberately
+> cheap — no network, no account, no permission. Record what you found and carry on.
+>
+> **Also:**
 > - Never edit a file under `specs/archive/`, and never change the status of an issue that has a
 >   `github:` number.
 > - A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
 > - `specs/index.csv` is generated — run `scripts/docs_index.py`, do not hand-edit.
+
+### 8.1a Issue-creation guidance exists in exactly one other place
+
+Checked before writing the above, because the value of an authoritative section is lost the moment
+a second copy appears:
+
+| Location | Found |
+|---|---|
+| `.github/` (issue templates, `CONTRIBUTING.md`) | **does not exist** |
+| Root `README.md` | no mention of issues, bugs or contributing |
+| Crate READMEs (`liquers-axum`, `liquers-web`, `liquers-lib/examples-web`) | none |
+| `.claude/skills/**` | one hit — `liquers-validate/SKILL.md:117` *references* an existing issue ID; it does not explain how to file one |
+| Rust, TypeScript, Python, shell sources | no "file an issue" / "open an issue" / "report a bug" phrasing anywhere |
+| `CLAUDE.md:20` | a pointer to where issues are tracked, not a procedure |
+
+So **no procedure for creating an issue exists anywhere today.** Guide §4.8 does not consolidate
+scattered guidance; it writes down for the first time something that has so far been improvised,
+which is itself part of why `ISSUES.md` drifted into four inconsistent shapes.
+
+Two places to watch, because both are natural homes for a future duplicate:
+
+- **`.github/ISSUE_TEMPLATE/`**, if one is ever added when GitHub issues are turned on (Step 8). It
+  must link to guide §4.8, not restate it — and it should say plainly that most issues belong in
+  the repository rather than on GitHub.
+- **`CONTRIBUTING.md`**, if one is ever written. Same rule.
+
+### 8.1b Skills stay pointers, for now
+
+Filing is four steps and a template, so no skill is needed to do it, and adding one now would put a
+second copy of the procedure into a file that is loaded selectively. The skills are updated in §8.3
+only to fix stale paths.
+
+A future skill could reasonably automate the mechanical parts — proposing an ID from the symptom,
+searching `index.csv` for near-duplicates, filling front-matter, running `docs_index.py` — and that
+would be a real improvement, since duplicate-detection by `grep` is the weakest step in §4.8.1.
+When it is written, it must **invoke** the procedure in guide §4.8 rather than embed a copy of it,
+exactly as `CLAUDE.md` does. The same applies to `liquers-designer`, which will want to file the
+remainder issues that guide §5.6 requires when a design ships in part.
 
 ### 8.2 `README.md`
 
