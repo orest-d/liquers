@@ -7519,4 +7519,338 @@ mod tests {
         let (data, _) = store.get(&store_key).await.unwrap();
         assert_eq!(data, b"Persist me");
     }
+
+    // ==================================================================================
+    // expired-binary-read-safety: the read contract for binary data.
+    // Examples 1-3 and U4-U11, I1 from specs/design/expired-binary-read-safety/.
+    // ==================================================================================
+
+    /// All fifteen statuses, for the tests that sweep them.
+    const ALL_STATUSES: [Status; 15] = [
+        Status::None,
+        Status::Directory,
+        Status::Recipe,
+        Status::Submitted,
+        Status::Dependencies,
+        Status::Processing,
+        Status::Partial,
+        Status::Error,
+        Status::Storing,
+        Status::Expired,
+        Status::Cancelled,
+        Status::Ready,
+        Status::Source,
+        Status::Override,
+        Status::Volatile,
+    ];
+
+    /// An AssetData parked in `status`, holding cached bytes (and optionally a value).
+    ///
+    /// Assigning the fields directly keeps these tests about the gate rather than about how each
+    /// status is reached; the in-file test module can do this, integration tests cannot.
+    fn asset_with_binary(
+        id: u64,
+        status: Status,
+        with_value: bool,
+        envref: EnvRef<SimpleEnvironment<Value>>,
+    ) -> AssetData<SimpleEnvironment<Value>> {
+        let key = parse_key("gate/subject.txt").expect("test key");
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.into(), envref);
+        d.binary = Some(Arc::new(b"bytes that must not escape".to_vec()));
+        if with_value {
+            d.data = Some(Arc::new(Value::from("v")));
+        }
+        d.status = status;
+        d
+    }
+
+    fn test_envref() -> EnvRef<SimpleEnvironment<Value>> {
+        SimpleEnvironment::<Value>::new().to_ref()
+    }
+
+    /// U4 — the claim that extracting the classifier changes no state-read behaviour.
+    /// Asserts the behaviour *class* for every status, not merely that something is returned.
+    #[tokio::test]
+    async fn test_poll_state_agrees_with_read_exposure() {
+        let envref = test_envref();
+        for (i, status) in ALL_STATUSES.into_iter().enumerate() {
+            let d = asset_with_binary(9200 + i as u64, status, true, envref.clone());
+            match status.read_exposure() {
+                ReadExposure::Value => {
+                    let st = d.poll_state().expect("Value exposure must yield a state");
+                    assert!(!st.is_none(), "{:?} must carry a value", status);
+                }
+                ReadExposure::MetadataOnly => {
+                    let st = d.poll_state().expect("MetadataOnly must yield a state");
+                    assert!(st.is_none(), "{:?} must carry no value", status);
+                }
+                ReadExposure::Expired | ReadExposure::Pending => {
+                    assert!(d.poll_state().is_none(), "{:?} must be hidden", status);
+                }
+            }
+        }
+    }
+
+    /// Directory's "dir" type identifier survives the MetadataOnly arm's inner match.
+    #[tokio::test]
+    async fn test_poll_state_directory_keeps_dir_type_identifier() {
+        let envref = test_envref();
+        let d = asset_with_binary(9210, Status::Directory, false, envref.clone());
+        let st = d.poll_state().expect("Directory yields a metadata-only state");
+        // The identifier is stamped on the METADATA; `State::type_identifier` reports the value's,
+        // which is `none` for every metadata-only state.
+        assert_eq!(
+            st.metadata.type_identifier().unwrap_or_default(),
+            "dir",
+            "Directory must keep its type identifier through the MetadataOnly arm"
+        );
+
+        // Error and Cancelled deliberately do not stamp one.
+        let e = asset_with_binary(9211, Status::Error, false, envref);
+        let st = e.poll_state().expect("Error yields a metadata-only state");
+        assert_ne!(st.metadata.type_identifier().unwrap_or_default(), "dir");
+    }
+
+    /// U5 — poll_binary exposes bytes only for Value exposure. This is the bug fix.
+    #[tokio::test]
+    async fn test_poll_binary_is_gated_by_status() {
+        let envref = test_envref();
+        for (i, status) in ALL_STATUSES.into_iter().enumerate() {
+            let d = asset_with_binary(9220 + i as u64, status, true, envref.clone());
+            match status.read_exposure() {
+                ReadExposure::Value => assert!(
+                    d.poll_binary().is_some(),
+                    "{:?} must expose cached bytes",
+                    status
+                ),
+                ReadExposure::MetadataOnly | ReadExposure::Expired | ReadExposure::Pending => {
+                    assert!(
+                        d.poll_binary().is_none(),
+                        "{:?} must not expose cached bytes",
+                        status
+                    )
+                }
+            }
+        }
+    }
+
+    /// U6 — poll_binary_any_status adds Expired and nothing else.
+    #[tokio::test]
+    async fn test_poll_binary_any_status_adds_only_expired() {
+        let envref = test_envref();
+        for (i, status) in ALL_STATUSES.into_iter().enumerate() {
+            let d = asset_with_binary(9240 + i as u64, status, true, envref.clone());
+            match status.read_exposure() {
+                ReadExposure::Value | ReadExposure::Expired => assert!(
+                    d.poll_binary_any_status().is_some(),
+                    "{:?} must be recoverable",
+                    status
+                ),
+                ReadExposure::MetadataOnly | ReadExposure::Pending => assert!(
+                    d.poll_binary_any_status().is_none(),
+                    "{:?} has nothing to recover",
+                    status
+                ),
+            }
+        }
+    }
+
+    /// U7 — binary_unchecked is status-blind. This is its whole contract, and what keeps
+    /// persistence independent of the read gate.
+    #[tokio::test]
+    async fn test_binary_unchecked_is_status_blind() {
+        let envref = test_envref();
+        for (i, status) in ALL_STATUSES.into_iter().enumerate() {
+            let d = asset_with_binary(9260 + i as u64, status, true, envref.clone());
+            let (bytes, _) = d
+                .binary_unchecked()
+                .unwrap_or_else(|| panic!("binary_unchecked must yield bytes for {:?}", status));
+            assert_eq!(bytes.as_ref().as_slice(), b"bytes that must not escape");
+        }
+    }
+
+    /// Example 1 — an expired asset with cached bytes hides them from every normal read,
+    /// while the bytes remain recoverable.
+    #[tokio::test]
+    async fn test_expired_asset_hides_cached_binary() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = test_envref();
+        let assetref = asset_with_binary(9280, Status::Ready, true, envref).to_ref();
+        assert!(
+            assetref.poll_binary().await.is_some(),
+            "precondition: bytes are cached and visible while Ready"
+        );
+
+        assetref.expire().await?;
+        assert_eq!(assetref.status().await, Status::Expired);
+
+        assert!(
+            assetref.poll_binary().await.is_none(),
+            "poll_binary must hide expired bytes"
+        );
+        assert!(
+            assetref.try_poll_binary().is_none(),
+            "try_poll_binary must hide expired bytes"
+        );
+        assert!(
+            assetref.poll_state().await.is_none(),
+            "state reads unchanged: still hidden"
+        );
+
+        let err = assetref
+            .get_binary()
+            .await
+            .expect_err("get_binary must fail when expired");
+        assert!(err.to_string().to_lowercase().contains("expired"));
+
+        // Hidden, not dropped.
+        let (recovered, _) = assetref
+            .poll_binary_any_status()
+            .await
+            .ok_or("retained bytes must remain reachable")?;
+        assert_eq!(recovered.as_ref().as_slice(), b"bytes that must not escape");
+        Ok(())
+    }
+
+    /// U9 — `get` gets the same pre-wait check, so it errors instead of blocking forever.
+    /// The timeout is the assertion: before this change the test hangs rather than fails.
+    #[tokio::test]
+    async fn test_get_on_expired_errors_instead_of_blocking()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let envref = test_envref();
+        let assetref = asset_with_binary(9290, Status::Ready, true, envref).to_ref();
+        assetref.expire().await?;
+
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), assetref.get()).await;
+        let result = outcome.map_err(|_| "get() blocked on an expired asset instead of erroring")?;
+        assert!(result.is_err(), "get() on Expired must return Err");
+        Ok(())
+    }
+
+    /// Example 2 / U11 — recovery works whether or not bytes were ever cached.
+    /// Every other test here reaches Expired via a populated `binary`; this one does not,
+    /// which is the case a strict alias implementation would have failed.
+    #[tokio::test]
+    async fn test_binary_recovery_serializes_when_nothing_cached()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let envref = test_envref();
+        let key = parse_key("gate/retained_no_bytes.txt")?;
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.into(), envref);
+        d.data = Some(Arc::new(Value::from("recoverable")));
+        d.binary = None; // never serialized — the common case
+        d.status = Status::Expired;
+        let assetref = d.to_ref();
+
+        // The poll-level recovery honestly reports "nothing cached".
+        assert!(assetref.poll_binary_any_status().await.is_none());
+
+        // The get-level recovery materialises it.
+        let (bytes, _) = assetref
+            .get_binary_any_status()
+            .await?
+            .ok_or("retained expired data must be recoverable as binary")?;
+        assert_eq!(bytes.as_ref().as_slice(), b"recoverable");
+
+        // State and binary recovery must agree about whether anything is there.
+        assert!(assetref.poll_state_any_status().await.is_some());
+        Ok(())
+    }
+
+    /// U8 / Example 3 — the statuses with no valid binary, and where their error comes from.
+    #[tokio::test]
+    async fn test_get_binary_error_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let envref = test_envref();
+
+        // Error: reuses the asset's own recorded failure.
+        let failed = asset_with_binary(9310, Status::Ready, true, envref.clone()).to_ref();
+        failed
+            .fail_asset(Error::general_error("recipe blew up".to_owned()))
+            .await?;
+        assert_eq!(failed.status().await, Status::Error);
+        let err = failed
+            .get_binary()
+            .await
+            .expect_err("Error must not yield bytes");
+        assert!(
+            err.to_string().contains("recipe blew up"),
+            "must reuse the recorded failure, got: {}",
+            err
+        );
+        assert!(failed.poll_binary().await.is_none());
+        assert!(
+            failed.poll_state().await.is_some(),
+            "poll_state unchanged: metadata-only state"
+        );
+
+        // Cancelled: records no error, so one is constructed.
+        let cancelled = asset_with_binary(9311, Status::Cancelled, true, envref.clone()).to_ref();
+        let err = cancelled
+            .get_binary()
+            .await
+            .expect_err("Cancelled must not yield bytes");
+        assert!(err.to_string().to_lowercase().contains("cancel"));
+        assert!(cancelled.poll_binary().await.is_none());
+        assert!(cancelled.poll_state().await.is_some());
+
+        // Directory: likewise constructed.
+        let dir = asset_with_binary(9312, Status::Directory, false, envref).to_ref();
+        let err = dir
+            .get_binary()
+            .await
+            .expect_err("Directory must not yield bytes");
+        assert!(err.to_string().to_lowercase().contains("director"));
+        assert!(dir.poll_binary().await.is_none());
+        assert!(dir.poll_state().await.is_some());
+        Ok(())
+    }
+
+    /// U10 — the gate is not "binary required": a Value-exposure asset with no cached bytes
+    /// still yields bytes, by serializing on demand.
+    #[tokio::test]
+    async fn test_get_binary_serializes_when_nothing_cached()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let envref = test_envref();
+        let key = parse_key("gate/value_no_bytes.txt")?;
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.into(), envref);
+        d.data = Some(Arc::new(Value::from("serialize me")));
+        d.binary = None;
+        d.status = Status::Ready;
+        let assetref = d.to_ref();
+
+        assert!(assetref.poll_binary().await.is_none());
+        let (bytes, _) = assetref.get_binary().await?;
+        assert_eq!(bytes.as_ref().as_slice(), b"serialize me");
+        Ok(())
+    }
+
+    /// I1 — persistence must not regress. `save_to_store` runs at statuses the read gate hides
+    /// (`AssetRef::set_state` persists with whatever status the caller supplied), so it must use
+    /// the status-blind accessor. Before Part B of Step 3 this test fails with
+    /// "Failed to obtain binary value for storing".
+    #[tokio::test]
+    async fn test_persistence_works_at_non_value_status()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/persist_at_storing.txt")?;
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let store = envref.get_async_store();
+
+        let mut d =
+            AssetData::<SimpleEnvironment<Value>>::new(9330, key.clone().into(), envref.clone());
+        d.binary = Some(Arc::new(b"persist me anyway".to_vec()));
+        d.status = Status::Storing; // Pending exposure: hidden from every normal read
+        let assetref = d.to_ref();
+
+        assert!(
+            assetref.poll_binary().await.is_none(),
+            "precondition: the read gate hides these bytes"
+        );
+
+        assetref.save_to_store().await?;
+
+        assert!(store.contains(&key).await?);
+        let (stored, _) = store.get(&key).await?;
+        assert_eq!(stored, b"persist me anyway");
+        Ok(())
+    }
 }
