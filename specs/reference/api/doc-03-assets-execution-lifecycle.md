@@ -1,3 +1,10 @@
+---
+title: Assets and Execution Lifecycle Reference
+kind: reference
+audience: internal
+area: [core/assets]
+reviewed: 2026-03-02
+---
 # DOC-03: Assets and Execution Lifecycle
 
 Status: Complete
@@ -332,3 +339,9 @@ Final verification:
 The test build still reports the existing `private_interfaces` warning for
 `AssetManager::dependency_manager`; that verified warning is recorded above as an
 API-surface gap.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

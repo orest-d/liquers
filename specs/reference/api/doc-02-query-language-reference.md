@@ -1,3 +1,10 @@
+---
+title: Query Language Reference
+kind: reference
+audience: internal
+area: [core/query]
+reviewed: 2026-03-02
+---
 # DOC-02: Query Language, Keys, and Actions
 
 Status: Complete  
@@ -386,3 +393,9 @@ Completed on 2026-07-26:
 - Ran `cargo doc -p liquers-core --no-deps`: documentation generated successfully.
 - Rustdoc emitted no broken-link or documentation warnings. Existing compiler
   warnings outside DOC-02 remain.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

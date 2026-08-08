@@ -189,9 +189,11 @@ An estimate of the change, not of the symptom. It is what turns a priority list 
 | `L` | Crosses crates, or changes a public or trait API. | **Required** |
 | `XL` | New subsystem, new crate, or a breaking change reaching the bindings. | **Required**, with phase review |
 
-An item with `complexity: L` or `XL` and an empty `design` field is a validation error. This is the
-only structural link between the issue tracker and the design tracker, and it replaces the ad-hoc
-overlap that existed before.
+An item with `complexity: L` or `XL` and an empty `design` field raises a **warning** — work owed,
+not a malformed document. It is deliberately not an error: §4.8.3 tells a filer to record `L`/`XL`
+without a design rather than understate the complexity, and making that path fail the build would
+make understating it the easy way out. This is the only structural link between the issue tracker
+and the design tracker, and it replaces the ad-hoc overlap that existed before.
 
 ### 4.6 Front-matter
 
@@ -581,8 +583,8 @@ tooling, no network and no Python can still record what it found.
 
 1. Front-matter parses; required fields present; every enum value is in this document.
 2. IDs are unique and match the filename.
-3. `complexity` in `L`/`XL` implies a non-empty `design`, and that design folder exists.
-4. `design`, `duplicate_of` and `superseded_by` resolve to something that exists.
+3. `design`, `duplicate_of` and `superseded_by` resolve to something that exists.
+4. `complexity` in `L`/`XL` has a `design` — **warning**, per §4.5.
 5. A file with `github:` (issue) or `gh_pr:` (design) has no `status:` field.
 6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
    phase name is accepted on a file that already carried it and rejected on a new one — so the
@@ -596,9 +598,12 @@ tooling, no network and no Python can still record what it found.
     one reads the diff, not just the tree.
 12. No design is `complete` while a document in its `affects_docs` has `reviewed:` earlier than the
     merge date of the design's last PR (§9.3).
-13. **Warning, never an error:** documents whose `reviewed:` is more than 92 days old (§9.4).
+13. **Warning:** documents whose `reviewed:` is more than 92 days old (§9.4).
 14. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
     are all closed unmerged is reported for a human decision (§5.5).
+
+Checks 11, 12 and 14 are **not implemented yet** — 11 and 12 need git-diff and PR-merge dates, and
+14 needs the API. `--sync` is likewise unbuilt. Everything else runs offline with no token.
 
 Checks 10–12 are the review guardrail. None of them can tell whether a document is *right* — they
 enforce that a judgement was recorded, dated and attributable, and that a landing design cannot

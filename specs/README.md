@@ -35,14 +35,73 @@ the highest-stage document it has reached.)*
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`ASSET-EXPIRED-CACHED-BINARY-READ`](issues/ASSET-EXPIRED-CACHED-BINARY-READ.md) | P0 | M | `expiration-safety` |
+| [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P1 | M | `metadata-consistency` |
 <!-- END generated: issues -->
 
 ## Not yet placed
 
 <!-- BEGIN generated: unplaced -->
+- `guides/LANGUAGE-INTEGRATION_GUIDE.md`
+- `reference/ASSETS.md`
+- `reference/ASSET_LIFECYCLE.md`
+- `reference/ASSET_SET_OPERATION.md`
+- `reference/DEPENDENCIES_STATUS.md`
+- `reference/IMAGE_COMMAND_LIBRARY.md`
+- `reference/PAYLOAD_GUIDE.md`
+- `reference/POLARS_COMMAND_LIBRARY.md`
+- `reference/REGISTER_COMMAND_FSD.md`
+- `reference/STORE_CONFIG_FSD.md`
+- `reference/UI_INTERFACE_FSD.md`
+- `reference/WEB_API_SPECIFICATION.md`
+- `reference/api/doc-01-architecture-reference.md`
+- `reference/api/doc-02-query-language-reference.md`
+- `reference/api/doc-03-assets-execution-lifecycle.md`
+- `reference/api/doc-04-environment-context-evaluation.md`
+- design `async-wasm-refactor`
+- design `axum-assets-recipes-api`
+- design `context-param-order`
+- design `dependency-management`
+- design `dependency-scheduling`
+- design `expiration-mechanism`
+- design `expiration-monitor-assetref`
+- design `expiration-safety`
+- design `keyboard-shortcuts`
+- design `liquers-web`
+- design `liquers-wf`
+- design `menu-pane-layout`
+- design `metadata-consistency`
+- design `payload-nested-evaluation-inheritance`
+- design `python-wrapper`
+- design `query-console-element`
+- design `query-link-parser`
+- design `query-validation`
+- design `register-command-enum`
+- design `ui-events`
+- design `value-accessor`
+- design `value-list-support`
+- design `volatility-system`
+- design `web-api-library`
+- design `webui-fixes`
+- design `webui`
+- design `wp2-terminal-outcome`
+- feature `ASSETS-FIX1`
+- feature `ASSETS-IMPROVEMENTS`
+- feature `BENCHMARK-SUITE`
+- feature `COMBINED-EXPIRES`
+- feature `COMBINED-VALUE-DISCRIMINATION`
+- feature `COMMAND-METADATA-ENHANCEMENTS`
+- feature `EGUI-ASSET-MANAGER-INTEGRATION`
+- feature `EXTENDED-FAST-TRACK`
+- feature `VALUE-DESCRIPTION`
 <!-- END generated: unplaced -->
 
 ## Guides
 
 <!-- BEGIN generated: guides -->
+- [`COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md) — This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
+- [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
+- [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 <!-- END generated: guides -->

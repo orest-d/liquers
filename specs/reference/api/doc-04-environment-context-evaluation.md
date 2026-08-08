@@ -1,3 +1,10 @@
+---
+title: Environment, Context and Evaluation Reference
+kind: reference
+audience: internal
+area: [core/context, core/plan]
+reviewed: 2026-03-02
+---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
 Status: Complete
@@ -318,3 +325,9 @@ Final verification:
 The test build still reports existing compiler warnings, including the public
 `AssetManager::dependency_manager`/private `DependencyManager` mismatch already
 tracked by DOC-03. No new compiler warning was introduced by DOC-04.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

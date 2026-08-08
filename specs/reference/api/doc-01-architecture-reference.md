@@ -1,3 +1,10 @@
+---
+title: Architecture Reference
+kind: reference
+audience: internal
+area: [core/query, core/plan, core/assets]
+reviewed: 2026-03-02
+---
 # DOC-01: Architecture and API Reference Entry Point
 
 Status: Complete  
@@ -210,3 +217,9 @@ application should not be added to DOC-01.
 - Published rustdoc links can be added when hosted documentation exists.
 - The future user guide should use the reference as its source of truth and reuse
   tested examples where appropriate.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
