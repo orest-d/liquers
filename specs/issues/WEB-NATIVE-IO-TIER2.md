@@ -29,4 +29,4 @@ read-only store, plus a command backend accepting JavaScript closures.
 ## Discovery
 
 Migration triage, 2026-08-08. Source: the *async-wasm-refactor follow-ups* section of `specs/archive/2026-08-08-issues.md`. Verified against HEAD — see
-`specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+`specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

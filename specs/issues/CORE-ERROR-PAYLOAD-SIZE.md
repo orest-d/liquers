@@ -28,4 +28,4 @@ confirm the count before and after; the number is the acceptance criterion.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-9. Verified against HEAD: not re-measured during triage — confirm the clippy count before scheduling. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-9. Verified against HEAD: not re-measured during triage — confirm the clippy count before scheduling. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

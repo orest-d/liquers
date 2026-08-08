@@ -32,4 +32,4 @@ design was approved* is done, and at that time there was no phase set at all.
 
 `PYTHON-BASIC-OBJECTS` — the feature brief covering the `query`, `metadata`, `plan`, `expiration`,
 `dependencies` and `recipes` wrappers — was verified implemented during the migration triage and
-is **not** in the issue set. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+is **not** in the issue set. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

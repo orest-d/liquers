@@ -32,4 +32,4 @@ Wants a design: it is a breaking change reaching both bindings.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #9, work package WP-11. Verified against HEAD: markers present at `value.rs:40`, `:192`, `:197`. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #9, work package WP-11. Verified against HEAD: markers present at `value.rs:40`, `:192`, `:197`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

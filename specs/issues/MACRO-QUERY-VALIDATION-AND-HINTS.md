@@ -28,4 +28,4 @@ The macro validates query literals at expansion time and either implements hints
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #16, work package WP-15. Verified against HEAD: markers present — but **moved** from `lib.rs` to `registration.rs`, so the audit path is stale while the issue is live. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #16, work package WP-15. Verified against HEAD: markers present — but **moved** from `lib.rs` to `registration.rs`, so the audit path is stale while the issue is live. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

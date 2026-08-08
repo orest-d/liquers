@@ -30,4 +30,4 @@ should be verified rather than assumed.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-6. Verified against HEAD: the stdout half is done; the tracing half is not started. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-6. Verified against HEAD: the stdout half is done; the tracing half is not started. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

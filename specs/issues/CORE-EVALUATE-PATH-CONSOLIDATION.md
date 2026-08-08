@@ -31,4 +31,4 @@ Wants a design: it is the largest structural change in the backlog.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-8, with the `ASSETS-FIX1` brief. Verified against HEAD: the immediate path and `apply` are still distinct. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-8, with the `ASSETS-FIX1` brief. Verified against HEAD: the immediate path and `apply` are still distinct. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

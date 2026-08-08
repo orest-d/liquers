@@ -27,4 +27,4 @@ prerequisite.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #13. Verified against HEAD: marker present at `state.rs:15`. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #13. Verified against HEAD: marker present at `state.rs:15`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

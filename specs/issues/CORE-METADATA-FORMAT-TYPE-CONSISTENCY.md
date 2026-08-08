@@ -28,4 +28,4 @@ and a typed error where a caller can act on it.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-4, with `specs/design/metadata-consistency/`. Verified against HEAD: no counterpart in the TODO audit; the findings document stands. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-4, with `specs/design/metadata-consistency/`. Verified against HEAD: no counterpart in the TODO audit; the findings document stands. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

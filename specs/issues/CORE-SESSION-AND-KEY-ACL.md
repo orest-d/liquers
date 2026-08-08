@@ -35,4 +35,4 @@ write. WP-12 says design first, and that is right.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #10, work package WP-12, and the `KEY-LEVEL-ACL` feature brief. Verified against HEAD: the context.rs statement is current. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #10, work package WP-12, and the `KEY-LEVEL-ACL` feature brief. Verified against HEAD: the context.rs statement is current. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

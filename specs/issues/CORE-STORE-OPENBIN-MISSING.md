@@ -29,4 +29,4 @@ depends on the OpenDAL path work.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #5, work package WP-14. Verified against HEAD: four markers still present. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #5, work package WP-14. Verified against HEAD: four markers still present. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

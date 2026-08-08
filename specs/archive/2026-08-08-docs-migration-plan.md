@@ -10,8 +10,9 @@ work are consolidated, de-duplicated and verified against `HEAD`, and only what 
 is carried into the new structure. Everything else — the file moves, the path rewrites, the skill
 edits — is mechanical by comparison.
 
-**This document is transitional.** When the last step lands it moves to
-`specs/archive/2026-08-08-docs-migration-plan.md` and stops being maintained.
+> *Executed 2026-08-08 and archived. Steps 1–7 are complete; step 8 (GitHub issues for new work)
+> was left as an open choice. Where execution corrected the plan, the correction is recorded inline
+> — see §2 on the reference count and §4.0c on the verification results. No longer maintained.*
 
 ---
 

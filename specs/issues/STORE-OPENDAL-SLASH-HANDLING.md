@@ -29,4 +29,4 @@ rewrites in the store tests.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #6, work package WP-5. Verified against HEAD: the FIXME is still at `opendal_store.rs:335`. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #6, work package WP-5. Verified against HEAD: the FIXME is still at `opendal_store.rs:335`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

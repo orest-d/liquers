@@ -30,4 +30,4 @@ Stated limits, enforced, with tests for the disconnect-mid-evaluation case.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-16. Verified against HEAD: the listdir half is implemented; the hardening half is unscoped. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-16. Verified against HEAD: the listdir half is implemented; the hardening half is unscoped. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

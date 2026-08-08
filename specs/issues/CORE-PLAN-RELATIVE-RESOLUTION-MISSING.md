@@ -29,4 +29,4 @@ equivalent, with `SetCwd` affecting both consistently.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #7, work package WP-7. Verified against HEAD: marker present at `plan.rs:1857`. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #7, work package WP-7. Verified against HEAD: marker present at `plan.rs:1857`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

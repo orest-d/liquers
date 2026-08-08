@@ -30,4 +30,4 @@ design serves both.
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: `todo20260219.md` #14, work package WP-2. Verified against HEAD: marker present at `metadata.rs:473`. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: `todo20260219.md` #14, work package WP-2. Verified against HEAD: marker present at `metadata.rs:473`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

@@ -26,4 +26,4 @@ Each module is either used, or deleted, or carries a comment saying what it is f
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work package WP-13. Verified against HEAD: **not re-verified** — check whether `entities.rs` and `cache.rs` have acquired callers before acting. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work package WP-13. Verified against HEAD: **not re-verified** — check whether `entities.rs` and `cache.rs` have acquired callers before acting. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.

@@ -28,4 +28,4 @@ Wants a design, and it should follow the evaluation-path consolidation rather th
 
 ## Discovery
 
-Migration triage, 2026-08-08. Source: work packages WP-18/19. Verified against HEAD: marker present at `plan.rs:1081`. See `specs/DOCS_MIGRATION_PLAN.md` §4.0c.
+Migration triage, 2026-08-08. Source: work packages WP-18/19. Verified against HEAD: marker present at `plan.rs:1081`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
