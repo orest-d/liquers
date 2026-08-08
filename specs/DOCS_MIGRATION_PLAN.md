@@ -176,6 +176,49 @@ judgement about intent — only about current code.
 | `specs/ISSUES.md` | Re-read the "Problem" section against the cited source locations |
 | `specs/FEATURES/` | Check whether the described gap still exists in the named module |
 
+### 4.0c Verification results (run 2026-08-08)
+
+The §4.0b methods applied to the `todo20260219.md` audit. Line numbers below are current, not the
+February ones.
+
+| # | Problem | Verdict | Evidence |
+|---|---|---|---|
+| 3 | Recipe delegation deadlock | **resolved** | No delegation `FIXME` remains in `assets.rs`; line 1640 records "resolves the *meaningless send* FIXME. Only the notification wake-up remains." The surviving markers there are about quick plans and fast-track — a different problem |
+| 5 | `openbin` missing | open | `store.rs:207`, `:450`, `:1983`, `opendal_store.rs:498` |
+| 6 | OpenDAL slash handling | open | `opendal_store.rs:335` — "FIXME: This currently does not work due to some bug with handling '/'" |
+| 7 | Plan relative resolution | open | `plan.rs:1857` — "TODO: Implement `query.resolve_relative(cwd)` or similar" |
+| 8 | Plan policy and defaults | open | `plan.rs:899-901`, `:909` |
+| 9 | `ValueInterface` architecture debt | open | `value.rs:40`, `:192`, `:197` |
+| 10 | Session model | open | Now stated as fact rather than marked: `context.rs:26-28` — "`Context` does not currently contain or expose a session or user" |
+| 13 | `State` lock API cleanup | open | `state.rs:15` |
+| 14 | Metadata traceback | open | `metadata.rs:473` — "TODO: Set/support traceback somehow" |
+| 15 | `expand_predecessors` crash | open | `recipes.rs:157` |
+| 16 | Macro validation and hints | open | **Moved file** — `registration.rs:36`, `:1002`, `:1610`, not `lib.rs`. A grep of the audit's cited path alone would have wrongly closed this |
+| 17 | Axum listdir routes | **resolved** (listdir half) | `listdir_keys` in use at `store/handlers.rs:246`, `:347`, `:349`. WebSocket hardening not separately verified |
+
+**Ten open, two resolved.** Row 16 is the cautionary one: the audit's line references were not just
+stale, the code had moved between files, so verifying by path would have closed a live issue.
+
+Design implementation evidence, for the rows §6.1 flagged:
+
+| Design | Verdict | Evidence |
+|---|---|---|
+| `axum-assets-recipes-api` | `complete` | `liquers-axum/src/{assets,recipes}/` both present with builder, handlers, tests |
+| `dependency-management`, `dependency-scheduling` | `complete` | `dependencies.rs`; atomic run claims at `assets.rs:4929`, `:4962`, `:5084` |
+| `expiration-mechanism` | `complete` | `expiration.rs` present |
+| `expiration-monitor-assetref` | `complete` | `WeakAssetRef` at `assets.rs:921`, documented at `:15` |
+| `volatility-system` | `complete` | volatility threaded through `assets`, `metadata`, `context`, `recipes`, `expiration` |
+| `query-console-element` | `complete` | `lib/ui/widgets/query_console_element.rs` |
+| `wp2-terminal-outcome` | `complete`, remainder unknown | Terminal-outcome contract documented at `assets.rs:57-96` with `Status::is_finished`. What `ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS` still refers to was **not** determined — see §11 |
+| `menu-pane-layout` | **unresolved** | No `Menu` or `Pane` type in `lib/ui/element.rs`. Either it lives elsewhere or the design was not implemented. Needs a human look |
+
+Feature briefs:
+
+| Brief | Verdict | Evidence |
+|---|---|---|
+| `PYTHON-BASIC-OBJECTS` | **not ported** — implemented | `liquers-py/src/` carries `query`, `metadata`, `plan`, `expiration`, `dependencies`, `recipes` — the brief's entire scope |
+| `POLARS-FEATURE-GAPS` | **not ported** — both named gaps closed | Separator variants at `polars/io.rs:15-21`; `PolarsDataFormat::Parquet` with `ParquetReader`/`ParquetWriter` at `polars/serde.rs:9,29,70,110`. The brief's wider "csv, parquet, xlsx" ambition is not verified — if xlsx matters, that is a **new** issue, not this brief |
+
 ### 4.1 Formal issues from `specs/ISSUES.md`
 
 Priorities come from the file. **Complexity is proposed here and must be confirmed** — it has never
@@ -797,10 +840,11 @@ the numbered items below are what remains once it is settled.
 1. **Every `complexity` value in §4.1 and §5.** Never previously recorded; all are estimates.
 2. **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — bare `High` mapped to P1. Confirm, and state what
    PR #7 left undone.
-3. **Six design folders** flagged **yes** in §6.1 — is the work shipped, and if not, which phase
-   is each one on?
-4. **`POLARS-FEATURE-GAPS`** — which separator/parquet gaps remain, if any.
-5. **`PYTHON-BASIC-OBJECTS`** — which wrappers PR #2 left unimplemented, if any.
+3. **`menu-pane-layout`** — the one design §4.0c could not resolve. No `Menu`/`Pane` type in
+   `lib/ui/element.rs`: implemented elsewhere, or never built? Every other flagged design verified
+   as `complete`.
+4. ~~`POLARS-FEATURE-GAPS`~~ — **resolved by verification** (§4.0c): both gaps closed, not ported.
+5. ~~`PYTHON-BASIC-OBJECTS`~~ — **resolved by verification** (§4.0c): implemented, not ported.
 5a. **`ASSET-EXPIRED-CACHED-BINARY-READ`** — did this P0 survive PR #11? If so, what does it mean
    now that `expiration-safety` is complete?
 5b. **`ASSETS-FIX1`** — one XL issue, or two or three narrower ones? (§5)
