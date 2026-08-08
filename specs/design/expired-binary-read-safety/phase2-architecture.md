@@ -141,7 +141,13 @@ impl<E: Environment> AssetRef<E> {
 **No `try_poll_binary_any_status`.** The state side has no `try_poll_state_any_status`, and
 symmetry is the rule being applied — adding one would break it in the other direction.
 
-### `AssetManager` trait (`liquers-core/src/assets.rs`)
+## Trait Implementations
+
+No new traits are defined and no new trait is implemented for any type. `ReadExposure` derives its
+traits (§Data Structures) and implements nothing by hand. The only trait *change* is one added
+method with a default body on the existing `AssetManager` trait.
+
+### Trait: `AssetManager<E>` (`liquers-core/src/assets.rs`)
 
 ```rust
 #[async_trait]
@@ -172,6 +178,10 @@ round-trip, so it also works for a stored type this build cannot deserialize.
 
 **Object safety** is preserved: no generic method parameters, no `Self` by value. `AssetManager` is
 used as `dyn` via `EnvRef::get_asset_manager`, so this matters.
+
+**Implementors:** `DefaultAssetManager` and `ImmediateAssetManager` both inherit the default and
+need no code. Neither overrides `get_any_status` today, so neither has a reason to override its
+binary twin.
 
 ## Behaviour Matrix
 
