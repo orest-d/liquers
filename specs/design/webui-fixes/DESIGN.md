@@ -2,6 +2,7 @@
 id: WEBUI-FIXES
 kind: design
 title: Invalidation tracking for retained-mode rendering
+status: complete
 area: [lib/ui]
 gh_pr: [12]
 issues: []

@@ -2,6 +2,7 @@
 id: DEPENDENCY-MANAGEMENT
 kind: design
 title: Dependency-wait lifecycle and deadlock-safe delegation
+status: complete
 area: [core/assets]
 gh_pr: [5]
 issues: []

@@ -1,7 +1,7 @@
 # API Documentation Analysis
 
-Status: DOC-01 through DOC-04 complete
-Last reviewed: 2026-07-26
+Status: DOC-01 through DOC-04 and DOC-08 complete
+Last reviewed: 2026-07-29
 
 This folder tracks the analysis and improvement of the Liquers API documentation.
 This document is the initial concept inventory, gap assessment, and prioritized
@@ -368,6 +368,10 @@ in [`config.rs`](../../liquers-store/src/config.rs). The underlying `Store` and
 
 ### 8. Recipes and plans
 
+The completed [DOC-08 analysis](doc-08-recipes-plans.md) records the verified
+recipe schema, provider lookup rules, planning policies, execution flow, and
+remaining implementation-level gaps.
+
 The relationship between query, recipe, plan, and asset is not documented
 operationally enough. The `Recipe` example in the project overview is also
 incomplete relative to the current [`Recipe`](../../liquers-core/src/recipes.rs),
@@ -628,7 +632,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 | DOC-05 | Commands and registration | P0 | Baseline complete | Not started | Not started |
 | DOC-06 | Values, state, metadata, serialization | P1 | Baseline complete | Not started | Not started |
 | DOC-07 | Stores and persistence | P1 | Baseline complete | Not started | Not started |
-| DOC-08 | Recipes and plans | P1 | Baseline complete | Not started | Not started |
+| DOC-08 | Recipes and plans | P1 | [Detailed analysis](doc-08-recipes-plans.md) | Complete | 38 focused tests passed; links checked |
 | DOC-09 | Dependencies, expiration, volatility | P1 | Baseline complete | Not started | Not started |
 | DOC-10 | HTTP and WebSocket APIs | P1 | Baseline complete | Not started | Not started |
 | DOC-11 | Errors and diagnostics | P2 | Baseline complete | Not started | Not started |

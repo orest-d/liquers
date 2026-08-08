@@ -392,6 +392,15 @@ Designs have no `priority` or `complexity`; those live on the issue that motivat
 Designs are never deleted and never move out of `design/` — every terminal status is a readable
 state, and the status field is what separates them.
 
+**One exception: a folder that never described real work.** A stub created in error, or a folder
+whose documents describe a different design than its own front-matter, has no reasoning to
+preserve, and `abandoned` would only keep an empty shelf that every reader has to rule out.
+Delete it. `design/liquers-wf/` was removed on this basis on 2026-08-08: its `DESIGN.md` claimed a
+workflow layer for `core/plan`, its only other document specified the browser integration that
+shipped as `design/liquers-web/`, and no workflow layer was ever designed or built. The test is
+"is there a decision recorded here", not "was this effort completed" — an abandoned effort that
+reasoned about something keeps its folder.
+
 ### 5.2 Phases
 
 **Phases are identified by name, never by number.** The ordinal below exists only for ordering and
@@ -459,19 +468,29 @@ moment `scripts/docs_index.py --sync` derives the status:
 |---|---|
 | any open | `in_implementation` |
 | all merged, a phase still outstanding | `implemented` |
-| all merged, no phase outstanding | `complete` |
+| all merged, no phase outstanding | `complete` — *proposed*; confirming it is the human's (see below) |
 | all closed unmerged | **needs a human** — `--check` reports it rather than guessing between `abandoned`, `superseded` and a retry |
 
-**Once `gh_pr` is set, `DESIGN.md` carries no *derived* `status:`** — not
-`in_implementation`, `implemented` or `complete`. Those three are GitHub's to determine, the cached
-value lives in `index.csv`, and a hand-written copy could only drift. Before `gh_pr` is set, all of
-`draft`, `in_review` and `approved` are local and hand-written.
+**Once `gh_pr` is set, `DESIGN.md` carries no *derived* `status:`** — not `in_implementation` and
+not `implemented`. Those two are GitHub's to determine, the cached value lives in `index.csv`, and
+a hand-written copy could only drift. Before `gh_pr` is set, all of `draft`, `in_review` and
+`approved` are local and hand-written.
 
-**The two terminal decisions are the exception: `abandoned` and `superseded` may be written even
-when `gh_pr` is set.** They are not derivable. GitHub knows that a PR closed unmerged; it cannot
-know whether the design was given up, replaced by a successor, or is waiting for a second attempt —
-that is the "needs a human" row above, and the human's answer needs somewhere to live. Writing one
-of them is what closes that row.
+**The three terminal statuses are the exception: `complete`, `abandoned` and `superseded` may be
+written even when `gh_pr` is set.** None of them is derivable from GitHub alone:
+
+- `abandoned` and `superseded` answer the "needs a human" row. GitHub knows that a PR closed
+  unmerged; it cannot know whether the design was given up, replaced by a successor, or is waiting
+  for a second attempt.
+- `complete` asks *"is any phase this design owed still outstanding?"* — a question about this
+  folder, not about the PRs. `--sync` proposes it from all-merged, and it freezes the folder
+  (§5.1), so it is written down rather than recomputed on every run. It also covers the case
+  `--sync` cannot see: a design whose own PR closed unmerged but whose content shipped inside
+  someone else's. `design/expiration-monitor-assetref/` is exactly that — PR #9 closed unmerged,
+  the weak-reference change landed in PR #11, and the folder reads `gh_pr: [9, 11]` with
+  `status: complete` and a note saying so.
+
+Writing one of the three is what closes the "needs a human" row.
 
 The line is *who can determine the value*, not *whether a PR exists*: GitHub owns "did these PRs
 merge", the repository owns "and what do we conclude". A design that reads `gh_pr: [23]` with
@@ -532,7 +551,7 @@ id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr
 |---|---|
 | `id`, `kind`, `title` | From front-matter. |
 | `status` | Front-matter for local items; GitHub for tracked ones. |
-| `status_source` | `local` or `github`. Makes the ownership rule visible in the data. |
+| `status_source` | `local` or `github`. Makes the ownership rule visible in the data. It tracks *who determined this status*, not whether the item is linked to GitHub: a design that has reached a hand-written terminal status (§5.5) reads `local` while still carrying its `gh_pr`. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `priority`, `complexity` | Empty for `kind: design`. |
 | `area` | `;`-separated. |
@@ -548,9 +567,43 @@ For `kind: reference` and `kind: guide`, `status` carries the review state rathe
 `current` while `reviewed` is within 92 days, `overdue` beyond it. It is computed, never written —
 which is why those documents have no `status` in their front-matter.
 
-Rows are sorted by `id`, ascending, always. Columns are never padded for alignment. Both rules
-exist so that a regeneration touches only the rows that actually changed — otherwise this file
-becomes the merge-conflict magnet that the old single `ISSUES.md` was.
+### 6.1 Row order
+
+**Live work first, finished work last.** GitHub renders this file as a table with no default
+sort, so whatever order it is written in is the order everyone reads. Row 2 should therefore be
+the thing most worth picking up, and the settled record — every `complete` design, every closed
+issue — belongs below it. Finished means `closed`, `closed_not_planned`, `rejected` or
+`duplicate` for an issue and `complete`, `superseded` or `abandoned` for a design; an **empty**
+status is never finished, since on a GitHub-owned row it means "not synced yet".
+
+Within each half, by `kind`: **issues, then designs, then guides, then reference documents** —
+open questions above the answers. `kind: feature` sorts with the issues; it is an issue whose
+problem is an absence.
+
+Then the rank each kind actually has:
+
+| Kind | Ordered by |
+|---|---|
+| `issue`, `feature` | `priority` ascending, then `complexity` **smallest first** — the top of the file is the most urgent thing that is also the least work. A missing value sorts last rather than first, so an unranked issue cannot squat at the top. |
+| `design` | Nothing. Designs carry no `priority` or `complexity` (§5.1). |
+| `guide`, `reference` | `overdue` above `current`, so a document owed a review is the one you see. |
+
+`id` breaks every remaining tie. Columns are never padded for alignment.
+
+Ordering on `id` alone would be more stable, and stability is why it was the original rule: a
+regeneration should touch only the rows that actually changed, rather than making this file the
+merge-conflict magnet the old single `ISSUES.md` was. Sorting on status trades a little of that
+away — closing an issue now moves its row as well as changing it, and a reference document
+crossing the 92-day line moves without anyone editing it. The trade is worth it because the sort
+fields are few and slow-moving, the move is bounded (a row travels within its own kind's block,
+or to the bottom once), and the whole point of the file is to be read top-down. Every field the
+sort reads is derived from front-matter, so two runs over the same tree still produce identical
+bytes — check 7 depends on that and is unaffected.
+
+`scripts/docs_index.py` implements this in `sort_key`, one function, so the order is described in
+exactly two places: there and here.
+
+### 6.2 What the file deliberately lacks
 
 **There is no `synced_at` column.** It would change on every run and dirty the tree on every sync.
 Staleness is already recoverable: `git log -1 --format=%cd specs/index.csv`.
@@ -600,7 +653,9 @@ tooling, no network and no Python can still record what it found.
 2. IDs are unique and match the filename.
 3. `design`, `duplicate_of` and `superseded_by` resolve to something that exists.
 4. `complexity` in `L`/`XL` has a `design` — **warning**, per §4.5.
-5. A file with `github:` (issue) or `gh_pr:` (design) has no `status:` field.
+5. A file with `github:` (issue) has no `status:` field. A design with `gh_pr:` carries no
+   *derived* status — `in_implementation` or `implemented` — but may carry one of the three
+   terminal ones, `complete`, `abandoned` or `superseded` (§5.5).
 6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
    phase name is accepted on a file that already carried it and rejected on a new one — so the
    check must compare against `HEAD`, not just the working tree.
@@ -690,9 +745,12 @@ stage matches the directory the link points into, so the two cannot contradict e
    entries read as its roadmap.
 4. Generated block `issues`: **open P0/P1 issues** attached to live design work — every item that
    is not `closed`, `closed_not_planned`, `rejected` or `duplicate`, has a non-empty `design`, and
-   is `P0` or `P1`. Closed items drop out automatically.
+   is `P0` or `P1`. Closed items drop out automatically. Rows keep §6.1 order — P0 above P1,
+   smallest complexity first — so the table reads as a queue rather than as an alphabet.
 5. Generated block `unplaced`: **not yet placed** (§8.4).
-6. Generated block `guides`: each file in `guides/` with its H1 and first sentence.
+6. Generated block `guides`: each file in `guides/` with its H1 and first sentence, **by name**.
+   This one is a way in, not a queue — §6.1's order would sort it by review debt, which is not
+   how anyone looks for a guide.
 
 Generated blocks are delimited by `<!-- BEGIN generated: <name> -->` and
 `<!-- END generated: <name> -->`. `docs_index.py` rewrites only what is between the markers and
@@ -827,7 +885,7 @@ affects_docs: [reference/ASSETS.md, guides/COMMAND_REGISTRATION_GUIDE.md]
   every `reference/` and `guides/` document sharing an `area` with the design, so nothing is missed
   through forgetting. The designer keeps or discards each.
 - **A design may not reach `complete` while any document in `affects_docs` has a `reviewed:`
-  earlier than the merge date of its last PR.** This is check 11 in §7, and it is the interlock
+  earlier than the merge date of its last PR.** This is check 12 in §7, and it is the interlock
   that makes the obligation real rather than aspirational.
 
 Until the `documentation` phase is active (§5.2), `affects_docs` may be filled in and the review
