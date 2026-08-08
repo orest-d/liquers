@@ -5,6 +5,11 @@ How the documentation that exists today reaches the structure defined in
 required to `CLAUDE.md`, `README.md`, the skills, and the ~50 source files that reference spec
 paths.
 
+At its centre is a **backlog triage** (§4): the five documents that currently track outstanding
+work are consolidated, de-duplicated and verified against `HEAD`, and only what still needs doing
+is carried into the new structure. Everything else — the file moves, the path rewrites, the skill
+edits — is mechanical by comparison.
+
 **This document is transitional.** When the last step lands it moves to
 `specs/archive/2026-08-08-docs-migration-plan.md` and stops being maintained.
 
@@ -72,14 +77,98 @@ directories yet.
 
 ---
 
-## 4. Step 2 — Issues
+## 4. Step 2 — Triage and port the backlog
 
-`specs/ISSUES.md` (1,033 lines) becomes one file per issue under `specs/issues/`.
+Four documents record outstanding work, and they overlap. Every one is a source for this step:
 
-### 4.1 Dispositions
+| Source | Holds | Entries |
+|---|---|---|
+| `specs/ISSUES.md` | Formal issues | 16 + 2 unindexed sections |
+| `specs/todo20260219.md` | A TODO/FIXME audit with its own status and complexity columns | 13 open of 17 |
+| `review20260707.md` §6 | 20 findings with area, type, priority, effort and evidence | 20 |
+| `plan20260707.md` | 19 work packages, each with acceptance criteria | WP-1…WP-19 |
+| `specs/FEATURES/` | Feature briefs (§5) | 20 |
+
+### 4.0 The porting rule
+
+**Only work that still needs doing is ported.** Every candidate is verified against `HEAD` before
+it becomes an issue file, and the outcome is one of three:
+
+| Verdict | Action |
+|---|---|
+| Still needs work | Port as `specs/issues/<ID>.md`, `status: draft` |
+| Done, or no longer relevant | **Not ported.** It stays in the archived source document |
+| Partly done | Port, **restated to describe only what remains** — never the original problem statement with a "partially" note |
+
+The third row is the one that takes real effort and it is the one that matters. `wp2-terminal-outcome`
+and `POLARS-FEATURE-GAPS` both currently say "partially" and neither says what is left; carrying
+that phrasing across would move the ambiguity rather than resolve it. Guide §4.3 has no partial
+status, deliberately — an issue states what is *to be done*, in the present tense, or it is closed.
+
+**This is not a mechanical step.** It is a backlog review with a document migration attached, and
+it is the largest piece of judgement in the plan. Budget accordingly: roughly 20 distinct problems
+survive de-duplication, each needing a verification against current code.
+
+> **Consequence for the sources.** Because unported entries are not carried forward, the source
+> documents must be **archived, not deleted** — they become the only record of what was decided
+> against. This changes §4.4 and §5 from an earlier draft of this plan, which deleted
+> `specs/ISSUES.md` and `FEATURES/FEATURES.md` outright.
+
+### 4.0a De-duplicate first
+
+The same problem appears in up to five places. Porting per-source would create five issues for one
+defect, so **build the consolidated table first and port from it**, one issue per problem.
+
+| Problem | ISSUES.md | todo | review | WP | FEATURES | Likely state |
+|---|---|---|---|---|---|---|
+| Delegation deadlock / scheduler rework | — | #3 | 1 | WP-1 | ASSETS-FIX1, SCHEDULER-IMPROVEMENTS | shipped? PRs #4–6 |
+| Asset failure & message contract | ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS | — | 2, 3 | WP-2 | — | **partial** (PR #7) |
+| Expiration safety / stale reads | ASSET-EXPIRED-CACHED-BINARY-READ | — | 4 | WP-3 | EXPIRATION-SAFETY | **partial** — design complete (PR #11), P0 still open |
+| Metadata format/type consistency | — | — | 5 | WP-4 | — | open |
+| OpenDAL slash normalization | — | #6 | 6 | WP-5 | — | open |
+| Plan: `expand_predecessors`, config, relative resolution | — | #7, #8, #15 | 7 | WP-7 | — | open |
+| Evaluate-path consolidation | — | — | 8 | WP-8 | ASSETS-FIX1 | open |
+| `tracing` instead of `println`; no unwrap in lib | — | — | 9 | WP-6 | — | **partial** — `println!`→`eprintln!` landed with `query-validation`; `tracing` not adopted |
+| Box the `Error` payload | — | — | 10 | WP-9 | — | open |
+| Benchmarks → `Arc<Box<…>>` debt | — | — | 11 | WP-10 | BENCHMARK-SUITE, TECHNICAL-DEBT-1 | open |
+| `ValueInterface` capability split | — | #9 | 12 | WP-11 | — | open |
+| Session model + key-level ACL | — | #10 | 13 | WP-12 | KEY-LEVEL-ACL | open |
+| Dead code / repo hygiene | — | — | 14 | WP-13 | — | verify — may be stale |
+| `openbin` streaming | — | #5 | 15 | WP-14 | — | open |
+| Macro validation + hints | — | #16 | 16 | WP-15 | — | open |
+| Axum listdir routes + WebSocket hardening | — | #17 | 17 | WP-16 | — | partial |
+| `COMBINED-EXPIRES`, `EXTENDED-FAST-TRACK` | — | — | 18 | WP-17 | both | open |
+| Library/UI planned features | — | — | 19 | — | VALUE-DESCRIPTION, COMMAND-METADATA-ENHANCEMENTS, COMBINED-VALUE-DISCRIMINATION, EGUI-ASSET-MANAGER-INTEGRATION | open |
+| Multi-realm, asset GC, user docs | — | — | 20 | WP-18–19 | — | open |
+| Metadata traceback field | — | #14 | 3 | WP-2 | — | verify |
+| `State` lock API cleanup | — | #13 | — | — | — | open |
+
+Twenty-one rows against roughly sixty source entries. The remaining `ISSUES.md` items (§4.1) do not
+appear above because they have no counterpart elsewhere; port those directly.
+
+> **Numbering hazard.** The `F-n` references in `plan20260707.md`'s WP headings do **not** align
+> with the `#n` numbering of `review20260707.md` §6 — WP-1 is headed `(F-1, F-7)` but §6 #7 is the
+> plan-builder finding. Map between the two documents **by title, never by number.**
+
+### 4.0b How to verify each candidate
+
+Each source carries its own evidence, which is also its verification method. None of this requires
+judgement about intent — only about current code.
+
+| Source | Verify by |
+|---|---|
+| `todo20260219.md` | `git grep` for the `TODO`/`FIXME`/`todo!` marker. Line numbers in that document are from February and have drifted — grep the symbol or surrounding text, not the line |
+| `review20260707.md` | Re-run the evidence its "Status today" column names: recount the `println!` occurrences, re-run clippy for the `Error`-size warnings, re-read the cited `FIXME` |
+| `plan20260707.md` | **Each WP has an `### Acceptance` section.** Check those criteria directly — the plan wrote its own tests for doneness |
+| `specs/ISSUES.md` | Re-read the "Problem" section against the cited source locations |
+| `specs/FEATURES/` | Check whether the described gap still exists in the named module |
+
+### 4.1 Formal issues from `specs/ISSUES.md`
 
 Priorities come from the file. **Complexity is proposed here and must be confirmed** — it has never
-been recorded, so every value below is an estimate from the issue text, not a measurement.
+been recorded, so every value below is an estimate from the issue text, not a measurement. The
+three items that are already resolved are **not ported**, and are listed only so the triage is
+demonstrably complete.
 
 | Issue ID (unchanged) | Status | Pri | Cx (proposed) | Area | Design |
 |---|---|---|---|---|---|
@@ -96,15 +185,21 @@ been recorded, so every value below is an estimate from the issue text, not a me
 | `POST-INIT-COMMAND-REGISTRATION` | `accepted` | P3 | M | `core/commands;web` | — |
 | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` | `accepted` | P3 | M | `core/error;web;py` | — |
 | `WEB-CANCELLATION-INERT` | `accepted` | P3 | M | `web` | — |
-| `QUERY-ACTION-PARAMETER-LINK-PARSER` | `closed` | P0 | M | `core/query` | `query-link-parser` |
-| `PAYLOAD-NESTED-EVALUATION-INHERITANCE` | `closed` | P0 | L | `core/plan;core/assets` | `payload-nested-evaluation-inheritance` |
-| `WEBUI-REPAINT-AFTER-SYNC-MUTATION` | `closed` | P2 | M | `lib/ui` | `webui-fixes` |
+| `QUERY-ACTION-PARAMETER-LINK-PARSER` | **not ported** — resolved 2026-08-06, PR #17 | | | | |
+| `PAYLOAD-NESTED-EVALUATION-INHERITANCE` | **not ported** — resolved, PR #14 | | | | |
+| `WEBUI-REPAINT-AFTER-SYNC-MUTATION` | **not ported** — resolved 2026-07-25, PR #12 | | | | |
 
-`status_source` is `local` for all sixteen; none has ever had a GitHub issue. The three `closed`
-rows carry `gh_pr` recovered from git history (#17, #14, #12 respectively).
+Thirteen ported, three not. `status_source` is `local` for all thirteen; none has ever had a GitHub
+issue, and all arrive as `draft` pending the review that confirms the estimates above.
 
-`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS` currently reads `Priority: High` with no P-number, the one
-entry outside the scale. Mapped to **P1**; confirm.
+Two need restating rather than copying (§4.0 row three):
+
+- **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — reads "Partially Resolved (WP-2)". Rewrite as what
+  remains after PR #7, checked against WP-2's `### Acceptance` criteria. Its `Priority: High` is
+  also the one entry outside the P-scale; mapped to **P1**, confirm.
+- **`ASSET-EXPIRED-CACHED-BINARY-READ`** — P0, and the `expiration-safety` design is complete with
+  PR #11 merged. Either the P0 survived that work or it did not; if it survived, the issue must say
+  what PR #11 left undone rather than restating the original symptom.
 
 ### 4.2 The two entries that are not issues
 
@@ -113,8 +208,8 @@ every other entry is `### Issue:`.
 
 | Current | Becomes |
 |---|---|
-| `## webui: async evaluation engine does not run on wasm (browser)` (Resolved) | `specs/issues/WEBUI-ASYNC-ENGINE-WASM.md` — `closed`, P0, XL, `core/assets;web`, design `async-wasm-refactor` |
-| `## async-wasm-refactor follow-ups (out of scope, tracked)` | **Split into two.** `CORE-TOKIO-REMOVAL` (`accepted`, P3, XL, `core/assets`, design needed) and `WEB-NATIVE-IO-TIER2` (`accepted`, P3, L, `web`, design needed). The trailing note about `ui-events` folds into the two `WEBUI-*` issues that already reference it. |
+| `## webui: async evaluation engine does not run on wasm (browser)` (Resolved) | **Not ported** — resolved 2026-07-23 by `async-wasm-refactor`, re-verified 2026-07-25 |
+| `## async-wasm-refactor follow-ups (out of scope, tracked)` | **Split into two, both ported.** `CORE-TOKIO-REMOVAL` (P3, XL, `core/assets`, design needed) and `WEB-NATIVE-IO-TIER2` (P3, L, `web`, design needed). The trailing note about `ui-events` folds into the two `WEBUI-*` issues that already reference it. |
 
 ### 4.3 One issue that exists only in a folder
 
@@ -126,11 +221,28 @@ The material lives in `specs/context-param-order/{FINDINGS,SOLUTION}.md`.
 Create `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md` from that folder's findings, and point both
 skill references at it. Status and priority to be set at review; the folder stays as a design.
 
-### 4.4 Retiring the old file
+### 4.4 Retiring the sources
 
-- `specs/ISSUES.md` → **deleted.** Its content is now sixteen-plus files; a stub redirect would be
-  a third thing to keep honest, and the root `ISSUES.md` stub is the cautionary example.
-- Root `ISSUES.md` (a stub pointing at `specs/ISSUES.md`) → **deleted.**
+Because unported entries are not carried forward (§4.0), these documents are the **only** surviving
+record of what was triaged out. All four are archived, not deleted:
+
+| Source | Becomes |
+|---|---|
+| `specs/ISSUES.md` | `specs/archive/2026-08-08-issues.md` |
+| `specs/todo20260219.md` | `specs/archive/2026-02-19-todo-audit.md` |
+| `plan20260707.md` | `specs/archive/2026-07-07-implementation-plan.md` |
+| `review20260707.md` | `specs/archive/2026-07-07-project-review.md` |
+
+Root `ISSUES.md` — a stub whose only content is "this moved" — is **deleted**. It points at a file
+that will no longer be there, and a redirect is a third thing to keep honest.
+
+Add one line to the top of each archived source, above its original content:
+
+> *Triaged into `specs/issues/` on 2026-08-08. Entries not present there were verified as done or
+> no longer relevant. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.*
+
+That sentence is what makes the archive readable later: without it, an entry missing from the new
+tracker is indistinguishable from one that was overlooked.
 
 ### 4.5 Rewriting the 15 code references
 
@@ -165,8 +277,15 @@ pointer to `index.csv`. Handled in Step 6.
 
 ## 5. Step 3 — Feature briefs
 
-`specs/FEATURES/` becomes issues with `kind: feature`. The briefs are substantial documents; each
-becomes the body of its issue file, unchanged.
+`specs/FEATURES/` is the fifth source, triaged under the same rule (§4.0): **only briefs describing
+work that still needs doing are ported**, as issues with `kind: feature`. A brief that survives
+becomes the body of its issue file unchanged; one that is partly done is rewritten to state only
+the remainder; one that is done or obsolete stays in the archive.
+
+Several rows below are already covered by the consolidated table in §4.0a — `SCHEDULER-IMPROVEMENTS`,
+`COMBINED-EXPIRES`, `EXTENDED-FAST-TRACK`, `KEY-LEVEL-ACL`, `BENCHMARK-SUITE` and `TECHNICAL-DEBT-1`
+each restate a problem the review or the plan also records. **Port them once, from the consolidated
+row**, with the brief as the body since it is usually the fullest description.
 
 | Brief | New ID | Status | Pri | Cx | Area |
 |---|---|---|---|---|---|
@@ -178,34 +297,38 @@ becomes the body of its issue file, unchanged.
 | `COMBINED-VALUE-DISCRIMINATION.md` | `COMBINED-VALUE-DISCRIMINATION` | `draft` | P2 | M | `core/value;lib/value` |
 | `COMMAND-METADATA-ENHANCEMENTS.md` | `COMMAND-METADATA-ENHANCEMENTS` | `draft` | P2 | L | `core/commands;macro` |
 | `EGUI-ASSET-MANAGER-INTEGRATION.md` | `EGUI-ASSET-MANAGER-INTEGRATION` | `draft` | P2 | M | `lib/egui` |
-| `EGUI-VALUE-RENDERING.md` | `EGUI-VALUE-RENDERING` | `closed` | P2 | M | `lib/egui` |
-| `EXPIRATION-SAFETY.md` | `EXPIRATION-SAFETY-FEATURE` | `closed` | P0 | L | `core/assets` |
-| `EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md` | — | → `archive/` (marked superseded) | | | |
+| `EGUI-VALUE-RENDERING.md` | **not ported** — brief says Closed | | | | |
+| `EXPIRATION-SAFETY.md` | **not ported** — Closed; the live remainder is the P0 issue (§4.1) | | | | |
+| `EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md` | **not ported** — Closed (superseded) | | | | |
 | `EXTENDED-FAST-TRACK.md` | `EXTENDED-FAST-TRACK` | `draft` | P2 | L | `core/assets` |
-| `IMAGE-SERIALIZATION-FEATURE-GAPS.md` | `IMAGE-SERIALIZATION-FEATURE-GAPS` | `closed` | P2 | M | `lib/image;lib/value` |
+| `IMAGE-SERIALIZATION-FEATURE-GAPS.md` | **not ported** — brief says Closed | | | | |
 | `KEY-LEVEL-ACL.md` | `KEY-LEVEL-ACL` | `draft` | P2 | L | `core/store;axum` |
-| `POLARS-FEATURE-GAPS.md` | `POLARS-FEATURE-GAPS` | `accepted` | P2 | M | `lib/polars` |
-| `PYTHON-BASIC-OBJECTS.md` | `PYTHON-BASIC-OBJECTS` | **confirm** | P2 | L | `py` |
+| `POLARS-FEATURE-GAPS.md` | `POLARS-FEATURE-GAPS` | **restate** | P2 | M | `lib/polars` |
+| `PYTHON-BASIC-OBJECTS.md` | **verify first** | P2 | L | `py` | |
 | `SCHEDULER-IMPROVEMENTS.md` | `SCHEDULER-IMPROVEMENTS` | `draft` | P1 | L | `core/assets` |
-| `TECHNICAL-DEBT-1.md` | `TECHNICAL-DEBT-1` | `accepted` | P2 | L | `core/value;core/assets` |
+| `TECHNICAL-DEBT-1.md` | `TECHNICAL-DEBT-1` | `draft` | P2 | L | `core/value;core/assets` |
 | `VALUE-DESCRIPTION.md` | `VALUE-DESCRIPTION` | `draft` | P3 | M | `core/value;lib/value` |
-| `plan-init-section.md` | — | → `archive/` (a fragment, not a feature) | | | |
+| `plan-init-section.md` | **not ported** — a fragment, not a feature | | | | |
 
-Notes:
+Six of twenty are not ported. Notes on the rest:
 
-- **`EXPIRATION-SAFETY` collides** with the design folder of the same name. The feature brief
-  becomes `EXPIRATION-SAFETY-FEATURE`; the design keeps `EXPIRATION-SAFETY`. This is the one
-  ID collision in the whole set, and it is a direct symptom of the same work being tracked in two
-  systems.
-- **`POLARS-FEATURE-GAPS`** reads `Status: Partially Implemented`, which the new vocabulary does
-  not have and deliberately does not add. Split it: close what shipped, keep the remainder as
-  `accepted`. Partial states are how a tracker stops being queryable.
-- **`PYTHON-BASIC-OBJECTS`** reads `Draft`, but PR #2 implemented it. Verify against `liquers-py`
-  and set `closed` or `accepted` accordingly.
-- `specs/FEATURES/FEATURES.md` → **deleted**, superseded by `index.csv`. Its five phantom entries
+- **`POLARS-FEATURE-GAPS`** reads `Status: Partially Implemented`. Rewrite as the remaining gaps
+  only — the brief lists separator and parquet capabilities, so check each against
+  `liquers-lib/src/polars/` and keep what is still missing. If nothing is, it is not ported.
+- **`PYTHON-BASIC-OBJECTS`** reads `Draft`, but PR #2 is titled "implement PYTHON-BASIC-OBJECTS
+  wrappers". Verify against `liquers-py`; port only the wrappers that are genuinely absent.
+- **`TECHNICAL-DEBT-1`** reads `In Progress` — restate as the `Arc<Box<…>>` sites that remain.
+- **The `EXPIRATION-SAFETY` name collision resolves itself.** The brief is Closed and not ported,
+  so the design folder keeps the name uncontested. That collision existed only because the same
+  work was tracked in two systems, which is what this migration ends.
+- **`ASSETS-FIX1`** is the largest brief and overlaps `ASSETS-IMPROVEMENTS` and the review's
+  evaluate-path finding. Triage it against §4.0a before porting; it may resolve into two or three
+  narrower issues rather than one XL.
+- `specs/FEATURES/FEATURES.md` → **archived** with the rest of the folder. Its five phantom entries
   (`ASSETS-FIX1-PHASE1-RUNTIME-BLOCKERS.md` and four siblings) name files that have never existed;
-  there is nothing to migrate.
-- `specs/FEATURES/` is removed once empty.
+  there is nothing to migrate and nothing to verify.
+- Unported briefs move to `specs/archive/` under their own names, keeping the content available.
+  `specs/FEATURES/` is removed once empty.
 
 ---
 
@@ -222,11 +345,19 @@ Read from the current `**Status:**` lines and cross-checked against `ISSUES.md` 
 **Nine currently say "In Progress" while describing work that shipped** — those are the rows most
 in need of confirmation.
 
-Under the phase set in force at migration time (`high-level`, `architecture`, `examples`,
-`implementation` — all four required), a design whose code has shipped has no phase outstanding, so
-it maps to **`complete`**, not `implemented`. `implemented` describes the narrower state "code
-merged, some phase still owed", which does not yet arise because no post-implementation phase
-exists. It will the moment a documentation phase is added.
+**Designs need only a status.** Unlike the backlog, their content is not re-litigated: a design
+records what was decided, and that record is correct whatever happened afterwards. No design is
+rewritten, dropped or merged in this step.
+
+The rule is simple: **a design that reached the end of phase 4 with a successful implementation is
+`complete`.** Under the phase set in force at migration time (`high-level`, `architecture`,
+`examples`, `implementation` — all four required) nothing is outstanding after the code merges, so
+shipped work maps straight to `complete` and never to `implemented`. `implemented` describes the
+narrower state "code merged, some phase still owed", which cannot arise until the `documentation`
+phase activates (guide §5.2).
+
+Everything else takes the status matching where it actually stopped: `in_review` or `draft` with a
+phase for designs still moving, `abandoned` for those that stopped and will not resume.
 
 The `gh_pr` column below is written into `DESIGN.md` front-matter by hand, once, during migration —
 recovered from merged PR branch names, which match design slugs throughout the repository's
@@ -344,7 +475,8 @@ lands rather than inside it.
 
 | File | Archive name |
 |---|---|
-| `todo20260219.md` | `2026-02-19-todo-audit.md` |
+| `todo20260219.md` | `2026-02-19-todo-audit.md` — *archived in Step 2 (§4.4), listed here for completeness* |
+| `ISSUES.md` | `2026-08-08-issues.md` — *Step 2 (§4.4)* |
 | `DEPENDENCIES_STATUS.md` | date from first commit |
 | `JOBQUEUE_FIX.md` | date from first commit |
 | `PHASE3-UNIT-TESTS.md`, `PHASE3-UNIT-TESTS-SUMMARY.md`, `PHASE3-UNIT-TESTS-IMPLEMENTATION-GUIDE.md`, `PHASE3-TESTS-INDEX.md` | Superseded by the `liquers-unittest` skill |
@@ -371,15 +503,15 @@ path. Moving it buys nothing.
 | `ISSUES.md` | **Delete** — a stub redirect to a file that no longer exists |
 | `UNITTEST_GUIDE.md` | → `specs/guides/UNITTEST_GUIDE.md`, `audience: internal` |
 | `EXAMPLE_SCENARIO_1_SUMMARY.md` | → `specs/archive/2026-02-20-example-scenario-1-summary.md`. A near-copy exists at `specs/axum-assets-recipes-api/EXAMPLE_SCENARIO_1_SUMMARY.md` and the two **differ** — diff them, keep one, delete the other |
-| `plan20260707.md` | → `specs/archive/2026-07-07-implementation-plan.md` |
-| `review20260707.md` | → `specs/archive/2026-07-07-project-review.md` |
+| `plan20260707.md` | → `specs/archive/2026-07-07-implementation-plan.md` — *triaged and archived in Step 2 (§4.4)* |
+| `review20260707.md` | → `specs/archive/2026-07-07-project-review.md` — *Step 2 (§4.4)* |
 | `liquers-designer.skill` | **Delete** — see §8.4 |
 | `liquers-unittest.skill` | **Delete** — see §8.4 |
 
-`plan20260707.md` and `review20260707.md` are two of the six competing backlogs. Archiving them is
-not filing them away untouched: any still-open work package must first be promoted into
-`specs/issues/`. Confirm before archiving that WP-1…WP-n are either shipped or represented by an
-issue.
+`plan20260707.md` and `review20260707.md` are two of the five backlogs Step 2 consolidates, so they
+are triaged there (§4.0) and reach `archive/` only afterwards, carrying the provenance line from
+§4.4. Nothing in this step moves them untouched — by the time it runs, WP-1…WP-19 and findings
+1–20 are each either verified done or represented by an issue.
 
 ---
 
@@ -539,20 +671,29 @@ binary duplicates, not stale forks. Note this when archiving the review.
 
 ## 11. What a human must decide
 
-Nothing in this plan should be executed on a guess. These need an answer first:
+Nothing in this plan should be executed on a guess. These need an answer first.
+
+**The triage itself is the largest of them.** Step 2 verifies ~21 consolidated problems against
+`HEAD` (§4.0a) and decides, for each, whether it is done, live, or live-in-part. That is the work;
+the numbered items below are what remains once it is settled.
 
 1. **Every `complexity` value in §4.1 and §5.** Never previously recorded; all are estimates.
-2. **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — bare `High` mapped to P1. Confirm.
+2. **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — bare `High` mapped to P1. Confirm, and state what
+   PR #7 left undone.
 3. **Six design folders** flagged **yes** in §6.1 — is the work shipped, and if not, which phase
    is each one on?
-4. **`POLARS-FEATURE-GAPS`** — what shipped, what remains.
-5. **`PYTHON-BASIC-OBJECTS`** — closed by PR #2, or still open?
+4. **`POLARS-FEATURE-GAPS`** — which separator/parquet gaps remain, if any.
+5. **`PYTHON-BASIC-OBJECTS`** — which wrappers PR #2 left unimplemented, if any.
+5a. **`ASSET-EXPIRED-CACHED-BINARY-READ`** — did this P0 survive PR #11? If so, what does it mean
+   now that `expiration-safety` is complete?
+5b. **`ASSETS-FIX1`** — one XL issue, or two or three narrower ones? (§5)
 6. **`UI_PAYLOAD_DESIGN.md`** — reference or archive?
 7. **`EXAMPLE2-CUSTOM-CONFIG.md`** — accurate against the current config format?
 8. **The two `EXAMPLE_SCENARIO_1_SUMMARY.md` copies** — which is canonical?
 9. **`command_metadata.rs:702`** — which issue does it mean?
 10. **Move design folders into `specs/design/`, or leave them at `specs/<slug>/`?** (§2)
-11. **`plan20260707.md` work packages** — all shipped, or does archiving lose open work?
+11. **The three "shipped?" rows in §4.0a** — delegation deadlock/scheduler (PRs #4–6), dead code
+    hygiene, metadata traceback. Each has a WP with `### Acceptance` criteria to check against.
 12. **`wp2-terminal-outcome`** — what remains unimplemented? Guide §5.6 forbids a partial status,
     so the remainder becomes an issue and the design takes the status its PR earned. Someone has to
     say what the remainder *is*.
@@ -571,18 +712,22 @@ Nothing in this plan should be executed on a guess. These need an answer first:
 
 ## 12. Order and size
 
-| Step | Content | Touches code? |
-|---|---|---|
-| 1 | Scaffold + contract (§3) | No |
-| 2 | Issues (§4) | Yes — 15 references |
-| 3 | Feature briefs (§5) | No |
-| 4 | Design folders (§6) | Yes — 45 references |
-| 5 | Top level and root (§7) | Yes — a handful |
-| 6 | Entry points and skills (§8) | No |
-| 7 | Tooling and enforcement (§9) | Adds `scripts/`, CI |
-| 8 | *(optional)* GitHub issues for new work | No |
+| Step | Content | Nature | Touches code? |
+|---|---|---|---|
+| 1 | Scaffold + contract (§3) | mechanical | No |
+| 2 | **Triage and port the backlog** (§4) | **judgement — the bulk of the effort** | Yes — 15 references |
+| 3 | Feature briefs (§5) | judgement, same triage | No |
+| 4 | Design folders (§6) | status only | Yes — 45 references |
+| 5 | Top level and root (§7) | mechanical, plus `reviewed:` seeding | Yes — a handful |
+| 6 | Entry points and skills (§8) | mechanical | No |
+| 7 | Tooling and enforcement (§9) | new code | Adds `scripts/`, CI |
+| 8 | *(optional)* GitHub issues for new work | workflow change | No |
 
-Steps 1–3 deliver the queryable overview and can stop there — the backlog is usable with no change
+**Steps 2–3 are not the same kind of work as the rest.** Every other step moves files and rewrites
+paths; these two re-examine twenty-one problems against the current code and decide what is still
+true. They are why this is a backlog review with a migration attached rather than the reverse, and
+they should be scheduled as such — the file moves can be done in an afternoon, the triage cannot.
+
+Steps 1–3 deliver the queryable overview and can stop there: the backlog is usable with no change
 to how anyone works. Steps 4–5 are the genre sort, mechanical but wide. Steps 6–7 are what stop it
-drifting again. Step 8 is the only change to workflow, and it is optional in the sense that
-everything before it stands on its own.
+drifting again. Step 8 is the only change to workflow, and everything before it stands on its own.
