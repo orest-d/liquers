@@ -126,12 +126,18 @@ diverge: `context-param-order` and `value-list-support` use `FINDINGS.md`/`SOLUT
 Divergence is not itself wrong — a two-page investigation does not need four phases — but there is
 no rule saying which shape applies when, so each new folder is an independent invention.
 
-### 2.7 The root directory has stale duplicates
+### 2.7 The root directory holds duplicates
 
-`liquers-designer.skill` (57 KB) and `liquers-unittest.skill` (10 KB) sit at the repo root and
-**differ from** the live `.claude/skills/*/SKILL.md`. `UNITTEST_GUIDE.md` and
-`EXAMPLE_SCENARIO_1_SUMMARY.md` likewise duplicate-and-differ from copies under `.claude/` and
-`specs/axum-assets-recipes-api/`. Root `ISSUES.md` is a stub whose only content is "this moved".
+`liquers-designer.skill` (57 KB) and `liquers-unittest.skill` (10 KB) sit at the repo root. They
+are **ZIP bundles**, and unpacking them shows their contents are byte-identical to
+`.claude/skills/liquers-designer/` and `.claude/skills/liquers-unittest/` — packaged exports of
+content that already lives in the repository in editable form. They cannot be reviewed in a diff or
+grepped, and they will fall behind silently the moment either skill is edited. Only two of the four
+skills have bundles, which suggests they were incidental rather than part of a process.
+
+`UNITTEST_GUIDE.md` and `EXAMPLE_SCENARIO_1_SUMMARY.md` duplicate-and-differ from copies under
+`.claude/` and `specs/axum-assets-recipes-api/`. Root `ISSUES.md` is a stub whose only content is
+"this moved".
 
 ### 2.8 A 1,000-line shared file is a merge-conflict magnet
 
