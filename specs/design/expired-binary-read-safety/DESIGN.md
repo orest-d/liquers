@@ -29,6 +29,11 @@ triage with a "needs verification against PR #11" caveat). **Verified still live
 Phase 1: PR #11 gated `poll_state` and added `poll_state_any_status`, but left
 `AssetData::poll_binary` status-blind. See Phase 1 §"Verification of the issue at HEAD".
 
+**Phase 1 feedback (user):** every `get`/`poll` value-read method must have an analogous `*_binary`
+counterpart. Recorded as the design's governing principle (Phase 1 §"Read-API symmetry"), which
+widens scope from "add one status check" to "complete and align the binary read family" — five
+methods added, four brought under the state contract — and closes the original open question 3.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
