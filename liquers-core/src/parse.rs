@@ -290,7 +290,7 @@ const MAX_LINK_MARKERS: usize = 64;
 ///
 /// Removing this bound requires fixing the double-parse in
 /// `transform_segment_without_header`, which is a change to the core query grammar and
-/// out of scope here. Tracked in `specs/ISSUES.md`.
+/// out of scope here. Tracked in `specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md`.
 const MAX_LINK_DEPTH: usize = 8;
 
 #[allow(dead_code)]

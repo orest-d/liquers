@@ -225,5 +225,5 @@ async fn cmd(state: State<Value>, n: i64, context: Context<E>) -> Result<Value, 
 fn cmd(state: &State<Value>, n: i64) -> Result<Value, Error>
 ```
 Why: the `register_command!` macro and the parameter-index handling expect exactly
-this shape (see `specs/ISSUES.md` on the context-last requirement). Namespace is
+this shape (see `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md`). Namespace is
 set in the macro metadata, never baked into the function name.

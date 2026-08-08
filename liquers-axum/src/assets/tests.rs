@@ -4,7 +4,7 @@
 /// Placeholder tests are commented out until handlers are implemented.
 
 // Placeholder test file - tests will be uncommented as functionality is implemented
-// See specs/axum-assets-recipes-api/phase3-examples.md for test specifications
+// See specs/design/axum-assets-recipes-api/phase3-examples.md for test specifications
 
 #[cfg(test)]
 mod placeholder {

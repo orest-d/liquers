@@ -124,7 +124,7 @@ async fn asyncq03_two_evaluations_make_progress() {
 /// What it does **not** assert is that anything gets cancelled, because on this target nothing
 /// does: the immediate asset manager evaluates during `getAsset`, so the handle is already
 /// terminal. See `eval06_cancellation_has_defined_terminal_result` for that finding stated
-/// directly, and `specs/ISSUES.md` `WEB-CANCELLATION-INERT`.
+/// directly, and `specs/issues/WEB-CANCELLATION-INERT.md`.
 #[wasm_bindgen_test]
 async fn asyncq04_cancellation_propagates() {
     fresh();

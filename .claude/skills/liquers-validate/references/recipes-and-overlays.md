@@ -128,7 +128,7 @@ entry gets it right immediately and keeps the unchanged fields honest.
 This one is verified to work — it adds a proposed second parameter to `pl/head`:
 
 ```yaml
-# specs/my-feature/proposed_commands.yaml
+# specs/design/my-feature/proposed_commands.yaml
 commands:
 - namespace: pl
   name: head
@@ -166,7 +166,7 @@ the tag form. The JSON-style `default: {Value: 0}` does not deserialize.
 ```bash
 python3 .claude/skills/liquers-validate/scripts/lqv.py \
   --registry-file specs/command_registry.yaml \
-  --registry-file specs/my-feature/proposed_commands.yaml \
+  --registry-file specs/design/my-feature/proposed_commands.yaml \
   --allow-overwrite \
   -- '-R/data/sales.csv/-/ns-pl/head-10-5'
 ```

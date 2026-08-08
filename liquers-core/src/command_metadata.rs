@@ -699,7 +699,7 @@ impl CommandPreset {
 /// volatility.
 ///
 /// An `Optional` state — runs without a payload but receives one when available — is
-/// deliberately **not** implemented; see `specs/ISSUES.md`. Adding it would re-open the
+/// deliberately **not** implemented; see `specs/issues/` — the index is `specs/index.csv`. Adding it would re-open the
 /// otherwise unreachable "not volatile, but uses payload" state and is intentionally a
 /// breaking change for exhaustive matches, so that every match site must decide how to
 /// treat it.

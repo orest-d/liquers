@@ -7,7 +7,7 @@
 //! narrower — ASCII alphanumerics plus `_`, `+` and `.` — so everything in the gap encodes to text
 //! the parser later rejects, with no error raised at encode time. `a:b`, `a,b`, `a?b`, `café` and
 //! `日本` all encode "successfully" and produce a query that fails to parse somewhere else, later.
-//! See `specs/ISSUES.md`, `PARAMETER-ESCAPING-INCOMPLETE`.
+//! See `specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md`.
 //!
 //! Mirroring that behaviour into JavaScript would export the defect. So this encoder is written
 //! against the **parser's** accepted set rather than against `encode_token`, and it **raises a
@@ -100,7 +100,7 @@ fn unencodable(text: &str, c: char) -> Error {
             "Cannot encode {text:?} as a query parameter: the character {escape} has no entity in \
              the Liquers query grammar. Encodable characters are ASCII letters and digits, \
              '_', '+', '.', and the escapable '~', ' ', '/' and '-'. See \
-             PARAMETER-ESCAPING-INCOMPLETE in specs/ISSUES.md — a general entity mechanism is \
+             specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md — a general entity mechanism is \
              designed but not yet implemented."
         ),
     )

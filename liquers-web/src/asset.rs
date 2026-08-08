@@ -24,7 +24,7 @@
 //! must treat `cancel()` as a request that may be ignored — which is its documented contract on
 //! native too, where an asset past `Processing` also ignores it.
 //!
-//! Tracked as `WEB-CANCELLATION-INERT` in `specs/ISSUES.md`. The condition that reverses it is a
+//! Tracked as `specs/issues/WEB-CANCELLATION-INERT.md`. The condition that reverses it is a
 //! wasm asset manager that defers evaluation past `get_asset`.
 //!
 //! # Why every method returns a `Promise`

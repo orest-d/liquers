@@ -1,7 +1,7 @@
 //! `export-command-registry` — dump liquers-lib's registered command metadata.
 //!
 //! The output feeds `liquers-validate`, so query validation never has to link liquers-lib and
-//! its heavy optional dependencies. See `specs/query-validation/`.
+//! its heavy optional dependencies. See `specs/design/query-validation/`.
 //!
 //! The committed copy lives at `specs/command_registry.yaml`; regenerate it with
 //! `--format yaml -o specs/command_registry.yaml` whenever a command signature changes.

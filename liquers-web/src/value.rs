@@ -5,7 +5,7 @@
 //! never names `JsValue`, which is what lets Starlark and Python implement the same trait elsewhere
 //! without any of them meeting.
 //!
-//! See `specs/liquers-web/phase1-high-level-design.md` decision 2 for the semantics: structural
+//! See `specs/design/liquers-web/phase1-high-level-design.md` decision 2 for the semantics: structural
 //! conversion is the default, opacity is an explicit opt-in, and identity is *not* promised.
 
 use std::borrow::Cow;

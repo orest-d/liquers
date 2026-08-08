@@ -163,7 +163,7 @@ register_command!(cr, fn my_command(state, param: String, context) -> result)?;
 - Commands registered via macro (not manually via CommandMetadata)
 - Async command functions take **owned** `State<Value>` (not `&State<Value>`)
 - Sync command functions take `&State<Value>`
-- `context` parameter must be last (workaround for parameter index bug - see ISSUES.md)
+- `context` parameter must be last (workaround for a parameter-index bug — see `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md`)
 - State parameter can be `state`, `value`, `text`, or omitted
 - Return type: `-> result` (returns `Result<V, Error>`) or `-> value` (returns `V`)
 

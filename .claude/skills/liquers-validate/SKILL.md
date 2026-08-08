@@ -114,7 +114,7 @@ These pass validation. Only reading the plan catches them.
 - **Excess action parameters are silently dropped.** `to_text-extra-args` validates `Ok` as
   `action to_text()`, and `ns-pl/select_columns-name-price` resolves to `columns="name"` —
   `price` is gone, even though the command's own doc says "separated by dashes". This is a gap in
-  the plan builder, tracked as `PLAN-EXCESS-ACTION-PARAMETERS-DROPPED` in `specs/ISSUES.md`.
+  the plan builder, tracked in `specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md`.
   Until it warns, check that every parameter you wrote appears in the digest's `action …(…)` line.
 - **`--cwd` never changes the plan.** It only changes the storage key a recipe result lands
   under. The same recipe under `--cwd reports` and `--cwd archive` produces byte-identical steps.

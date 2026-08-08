@@ -1,8 +1,8 @@
 //! `VALUE*` conformance tests — the value bridge.
 //!
-//! Test IDs and names follow `specs/LANGUAGE-INTEGRATION_GUIDE.md` §3: the logical ID leads the
+//! Test IDs and names follow `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3: the logical ID leads the
 //! test-specific part of the name. The inventory these implement is in
-//! `specs/liquers-web/phase3-examples.md`.
+//! `specs/design/liquers-web/phase3-examples.md`.
 //!
 //! These exercise pure ECMAScript semantics — `Object`, `Array`, `Date`, `Map`, `Uint8Array`,
 //! `BigInt`, `Function` — and touch no DOM, so they run under Node as well as in a browser.

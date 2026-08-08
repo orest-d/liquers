@@ -6,8 +6,8 @@ A page constructs an environment, evaluates queries as `Promise`s, and registers
 in JavaScript. Those commands compose with the built-in Rust ones in a single query — a JavaScript
 command's result is converted structurally, so `myCommand/to_text` works.
 
-Design documents: [`specs/liquers-web/`](../specs/liquers-web/). The integration follows
-[`specs/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/LANGUAGE-INTEGRATION_GUIDE.md).
+Design documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). The integration follows
+[`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md).
 
 ## Quick start
 
@@ -99,7 +99,7 @@ the native one — the disk allowance does not fit both.
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
 
-All are in [`specs/ISSUES.md`](../specs/ISSUES.md), each with the condition that reverses it.
+All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 
 ## Extending
 

@@ -1,0 +1,772 @@
+# Liquers Implementation Plan — 2026-07-07
+
+> *Triaged into `specs/issues/` on 2026-08-08. Entries not present there were verified as done
+> or no longer relevant. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.*
+
+Companion to `review20260707.md`. Each work package (WP) below maps to a step in the review's
+§5 priority plan and lists: goal, design, concrete implementation steps, and a **test plan
+following red→green discipline** — every proposed test is written *first*, must **fail (or not
+compile) against current code for the stated reason**, and must pass after the fix.
+
+## Conventions used throughout
+
+- **Test placement**: unit tests in `#[cfg(test)] mod tests` at the end of the touched file;
+  cross-module behavior in `liquers-core/tests/*.rs` (new files named per WP, e.g.
+  `scheduler_deadlock.rs`), following the existing `SimpleEnvironment<Value>` +
+  `register_command!` + `AsyncMemoryStore` + `DefaultRecipeProvider` pattern from
+  `expiration_integration.rs`.
+- **No sleeps for correctness**: async tests use `tokio::time::timeout(...)` as a hang guard,
+  notification subscriptions for sequencing, and *gate commands* (commands that block on a
+  `tokio::sync::oneshot`/`Semaphore` shared with the test) to control timing deterministically.
+  `tokio::time::pause()`/`advance()` for timer-driven logic where the code uses tokio timers.
+- **Red-test semantics**: for bug fixes, the test compiles today and fails, demonstrating the
+  bug. For new APIs (flags, methods), the test cannot compile until the API exists; the plan
+  marks these `[red = compile]` and pairs them with at least one behavioral assertion that
+  would fail even if the API were stubbed.
+- **Validation commands** after every WP:
+  `cargo test -p liquers-core && cargo test --workspace --exclude liquers-py && cargo clippy --workspace --exclude liquers-py --all-targets`
+  plus `cargo check -p liquers-py` whenever a public core type changes (CLAUDE.md rule).
+- Timeout constant for hang-guard tests: 10 s (generous for CI; the passing case completes in
+  milliseconds).
+
+---
+
+# P0
+
+## WP-1: Dependency waiting semantics first, then scheduler rework (F-1, F-7)
+
+### Goal
+Make dependency handling have one clear source of truth before changing queue mechanics:
+static plan dependencies and runtime `Context` dependencies are recorded in metadata and the
+`DependencyManager`; `Status::Dependencies` means exactly "this asset is blocked on dependency
+completion"; and only after those semantics are correct should recipe delegation release queue
+slots and be resumed by the scheduler.
+
+### Design principles
+
+1. **Dependency graph is authoritative.** Do not create a second dependency model based on
+   `waiting_on`. Static `Plan.dependencies`, runtime `Context.pending_dependencies`, persisted
+   `MetadataRecord.dependencies`, and `DependencyManager` edges are the dependency facts. Any
+   `waiting_on` field is scheduler-local bookkeeping only, used to resume an asset and to aid
+   diagnostics.
+2. **`Status::Dependencies` is the waiting status.** Do not add a separate
+   `WaitingForDependency` status. `Status::Dependencies` already means that the asset cannot
+   proceed until dependency assets are ready, has no data, is not finished, and remains
+   cancellable.
+3. **Fix dependency semantics before scheduler mechanics.** First make static/dynamic dependency
+   registration complete and make `Status::Dependencies` transitions correct. Then replace inline
+   blocking delegation and the busy-wait queue.
+
+### Phase 1 — dependency recording and `Status::Dependencies` contract
+
+#### Phase 1A: Pin the lifecycle contract
+
+Define a small internal contract for dependency waits:
+
+```rust
+enum DependencyWait<E: Environment> {
+    Ready(State<E::Value>),
+    Waiting { dependency: AssetRef<E>, dependency_key: DependencyKey },
+    Failed(Error),
+}
+```
+
+This type does **not** replace metadata or `DependencyManager`; it is just the return shape used by
+helper functions that inspect dependency readiness.
+
+Required status behavior:
+
+- Enter `Status::Dependencies` when the current asset must wait for at least one unfinished
+  dependency.
+- While in `Status::Dependencies`, `poll_state()` remains `None`.
+- Cancellation of `Status::Dependencies` behaves like cancellation of `Processing`: cancel the
+  current asset only, not its dependency.
+- On dependency success, the current asset re-enters evaluation as `Submitted`/`Processing` and
+  eventually reaches `Ready`, `Error`, or `Cancelled`.
+- On dependency failure, the current asset reaches `Error` with dependency context.
+
+Implementation notes:
+
+- Add helper methods on `AssetRef` such as `enter_dependencies(dependency: &AssetRef<E>)`,
+  `leave_dependencies_for_resubmit()`, and `fail_due_to_dependency(error)`. These helpers should
+  update status, metadata status, notifications, and diagnostic log consistently.
+- Keep `Status::Dependencies` explicit in every status match. Do not use a default arm.
+- Add a documentation section to `specs/ASSETS.md` or update `specs/DEPENDENCIES_STATUS.md` to
+  say that no extra waiting status exists.
+
+#### Phase 1B: Make static plan dependencies complete enough to be trusted
+
+Before touching the scheduler, ensure the pre-execution path is the primary source of known
+dependencies:
+
+1. `finalize_plan()` should perform dependency discovery once, then reuse the discovered list for
+   volatility, expiration, metadata seeding, and dependency-manager registration. The current
+   `FIXME` notes that dependency discovery can be called twice.
+2. Register only direct edges in `DependencyManager`; keep transitive information for analysis and
+   diagnostics but avoid storing redundant transitive edges as if they were direct facts.
+3. Preserve the existing cycle check in `find_dependencies()` and improve error messages to include
+   the full chain where practical.
+4. Resolve relative key dependencies consistently for `SetCwd` + `GetAsset*`; keep the existing
+   TODO for relative `Evaluate(query)` visible if it is not fixed in this package.
+5. Do not treat `GetResource*` as asset dependencies, but keep the documentation warning that these
+   calls bypass asset dependency controls.
+
+#### Phase 1C: Make runtime dependencies complete and path-independent
+
+Runtime dependencies discovered during command evaluation must be captured consistently regardless
+of the evaluation path:
+
+1. Keep `Context::evaluate()` / dependency-access helpers responsible for recording runtime
+   dependencies in `pending_dependencies` with the best available version.
+2. Add a dedicated helper such as `Context::get_dependency_state(query)` for commands that need the
+   dependency value, not just an `AssetRef`. This helper should:
+   - request the dependency asset;
+   - record the dependency in `pending_dependencies`;
+   - if the dependency is not ready, set the current asset to `Status::Dependencies`;
+   - wait or return `DependencyWait::Waiting`, depending on the caller path;
+   - restore/resume current evaluation after readiness.
+3. Drain `context.take_pending_dependencies()` in every recipe evaluation path, including queued
+   and immediate evaluation. This closes the known asymmetry where immediate evaluation can drop
+   runtime dependencies.
+4. When produced metadata is assembled, merge static plan dependencies and runtime dependencies
+   with de-duplication by dependency key, preferring the newest non-unknown version.
+5. After a non-volatile asset reaches `Ready`, call `DependencyManager::track_asset()` once so
+   stored metadata dependencies become graph edges.
+
+#### Phase 1D: Dynamic cycle checks remain graph-based
+
+Runtime cycle checks should use the existing dependency graph rather than a new wait-cycle graph:
+
+1. Before recording a dynamic edge, check `DependencyManager::would_create_cycle()`.
+2. If the edge would create a cycle, fail the current asset with `Error::dependency_cycle(...)`.
+3. If an untracked or version-unknown dependency prevents a definitive graph answer, return a
+   precise diagnostic but do not invent a second canonical cycle detector.
+4. Any scheduler `waiting_on` chain check introduced later is defensive only: it may catch a bug or
+   improve the error message, but it must not be the authoritative dependency mechanism.
+
+### Phase 1 tests — dependency semantics before scheduler
+
+Create `liquers-core/tests/dependency_waiting.rs` and extend relevant unit tests in
+`assets.rs`, `context.rs`, and `dependencies.rs`.
+
+| Test | Setup | Red before | Green after |
+|---|---|---|---|
+| `test_context_dependency_records_runtime_dependency` | Command calls `context.evaluate("dep")`; inspect result metadata | Runtime dependency may be missing on some paths | Metadata contains dependency record for `dep` |
+| `test_immediate_evaluation_records_runtime_dependencies` | Same command through immediate evaluation | Dependency list empty on immediate path | Same dependency metadata as queued path |
+| `test_static_and_runtime_dependencies_are_deduplicated` | Recipe has static `GetAsset(dep)` and command also evaluates `dep` | Duplicate or version-poor records | One dependency record, best available version retained |
+| `test_parent_enters_dependencies_when_context_dependency_not_ready` | Parent command requests gated child via context; child blocks | Parent stays `Processing` | Parent is `Status::Dependencies` while child is blocked |
+| `test_parent_leaves_dependencies_after_child_ready` | Release gated child | Parent can remain ambiguous / blocking | Parent reaches `Ready`; dependency metadata recorded |
+| `test_dependency_error_propagates_to_parent` | Child command fails | Error propagation is path-dependent | Parent reaches `Error` with child error context |
+| `test_cancel_while_in_dependencies_does_not_cancel_child` | Parent waits on gated child, then cancel parent | Under-specified | Parent `Cancelled`; child can still complete and be reused |
+| `test_dynamic_dependency_cycle_fails_via_dependency_manager` | A command dynamically evaluates B while B depends on A | Hang or generic error | `Error::dependency_cycle`, no hang |
+| `test_dependencies_status_has_no_data` | Asset manually/status-helper set to `Dependencies` | Existing behavior pinned | `poll_state()` is `None`; status is not finished |
+
+Acceptance for Phase 1:
+
+- `Status::Dependencies` is used by real dependency waits, not only in hand-written tests.
+- Queued and immediate evaluation both preserve runtime dependency metadata.
+- Dependency cycles are detected through `find_dependencies()` and `DependencyManager`, not by a
+  separate canonical wait graph.
+- No new asset status is introduced for dependency waiting.
+
+### Phase 2 — scheduler and delegation rework
+
+Only after Phase 1 is green, change the queue/delegation mechanics.
+
+#### Phase 2A: Non-blocking recipe delegation
+
+`evaluate_recipe()`'s pure-key delegation branch (`assets.rs:1310-1318`) must stop calling
+`asset.get().await` while the parent still occupies a job slot. Instead the internal evaluation
+path gains an outcome type:
+
+```rust
+enum EvaluationOutcome<E: Environment> {
+    Completed(State<E::Value>),
+    Delegated(AssetRef<E>),
+}
+```
+
+`run()` / `evaluate_and_store()` handle `Delegated(child)` as follows:
+
+1. Record the child dependency using the same Phase 1 dependency-recording helper.
+2. Set the parent to `Status::Dependencies`.
+3. Ensure the child is submitted/evaluating.
+4. Return from the current job so the parent's queue slot is released.
+5. Register a one-shot completion hook that observes the child terminal status and resubmits the
+   parent.
+6. On re-entry, re-check child status rather than trusting stale hook state. If ready, fast-track or
+   copy/propagate the child state according to existing delegation semantics. If failed, fail the
+   parent with dependency context.
+
+#### Phase 2B: Scheduler-local `waiting_on` bookkeeping
+
+If needed, add `waiting_on: Option<AssetId>` or `waiting_on: Option<WeakAssetRef<E>>` to
+`AssetData`, but with strict constraints:
+
+- It is not persisted.
+- It is not the dependency graph.
+- It is cleared before/when the parent resumes.
+- It is used for diagnostics, observability, and preventing duplicate completion hooks.
+- A defensive wait-chain cycle check may fail fast, but the authoritative dependency cycle checks
+  remain `find_dependencies()` and `DependencyManager`.
+
+#### Phase 2C: Event-driven `JobQueue`
+
+Replace the 100 ms polling loop with an event-driven queue:
+
+- Add `tokio::sync::Notify`; `submit()`, job finish, cancellation, and dependency-resume hooks call
+  `notify_one()`.
+- `run()` dispatches all ready work, then awaits either `notify.notified()` or shutdown.
+- Do not await asset status while holding the queue mutex. Collect candidates, release the lock,
+  inspect statuses, then reacquire only to mutate queue state.
+- Remove finished entries immediately via completion callbacks instead of retaining strong refs
+  until periodic cleanup.
+- Keep capacity configurable; add `DefaultAssetManager::with_capacity(usize)`.
+- Add `shutdown()` for the queue and wire `DefaultAssetManager::shutdown()` to both the queue and
+  the expiration monitor.
+
+#### Phase 2D: Re-entry and duplicate-submit rules
+
+- Submitting an asset already in `Submitted`, `Processing`, or `Dependencies` should be idempotent.
+- Dependency completion should resubmit the parent at most once per wait generation.
+- A parent re-entering after dependency completion must verify that it is still waiting for that
+  same dependency and was not cancelled, overridden, expired, or externally set meanwhile.
+- Store a wait generation counter if needed to ignore stale completion hooks.
+
+### Phase 2 tests — scheduler after dependency semantics
+
+Create `liquers-core/tests/scheduler_deadlock.rs`.
+
+| Test | Setup | Red before | Green after |
+|---|---|---|---|
+| `test_delegation_chain_deeper_than_capacity` | Recipes `a.txt → -R/b.txt`, `b.txt → -R/c.txt`, etc., longer than queue capacity | Timeout / deadlock | Completes; all assets `Ready` |
+| `test_delegation_completes_with_capacity_1` | Two-level delegation with `DefaultAssetManager::with_capacity(1)` | No API / hang | Completes within timeout |
+| `test_parent_status_dependencies_while_delegated` | Delegated child is gated | Parent remains `Processing` | Parent is `Status::Dependencies` while child is gated |
+| `test_delegation_cycle_fails_fast` | `a.txt → -R/b.txt`, `b.txt → -R/a.txt` | Timeout | Cycle error; no hang |
+| `test_delegation_error_propagates_to_parent` | Child recipe fails | Inline behavior may pass; keep as regression | Parent `Error`, message includes child error |
+| `test_dependency_completion_resubmits_parent_once` | Parent waits on child, child completes, count parent starts | Possible duplicate/retry ambiguity | Exactly one resume generation completes |
+| `test_parent_cancelled_before_child_completion_is_not_resubmitted` | Parent waits, parent cancelled, child later completes | Parent may be resubmitted | Parent remains `Cancelled`; no new work |
+| `test_queue_shutdown_stops_worker` | Manager shutdown while idle and while work is pending | No API | Worker exits; new submit returns documented result |
+| `test_queue_does_not_retain_finished_assets` | Drop external refs after ready | Queue retains strong ref until cleanup | Weak ref cannot upgrade promptly |
+
+### Implementation order
+
+1. Add Phase 1 red tests.
+2. Implement `Status::Dependencies` helper methods and lifecycle documentation.
+3. Fix static dependency finalization and direct-edge registration.
+4. Fix runtime dependency capture for queued and immediate evaluation.
+5. Ensure dependency-cycle handling stays in `find_dependencies()` / `DependencyManager`.
+6. Run Phase 1 tests and full core tests.
+7. Add Phase 2 red tests.
+8. Introduce `EvaluationOutcome` and replace inline `asset.get().await` delegation.
+9. Add dependency completion hooks and parent resubmission.
+10. Rework `JobQueue` to event-driven dispatch, configurable capacity, and shutdown.
+11. Remove delegation `FIXME`s and update `specs/ISSUES.md`, `specs/todo20260219.md`, and
+    scheduler/dependency specs.
+12. Run full workspace validation.
+
+### Validation commands
+
+After Phase 1:
+
+```bash
+cargo test -p liquers-core --test dependency_waiting
+cargo test -p liquers-core
+cargo check -p liquers-py
+```
+
+After Phase 2:
+
+```bash
+cargo test -p liquers-core --test scheduler_deadlock
+cargo test -p liquers-core
+cargo test --workspace --exclude liquers-py
+cargo clippy --workspace --exclude liquers-py --all-targets
+cargo check -p liquers-py
+```
+
+### Risks
+
+- **Duplicate dependency records:** mitigate by centralizing metadata merge and de-duplication.
+- **Status flicker:** dependency waits may transition `Processing → Dependencies → Submitted`; document
+  this lifecycle and make UI/API consumers handle it explicitly.
+- **Resubmission storms:** use one-shot hooks plus wait generation checks.
+- **Stale hooks:** re-check status and wait generation before resubmitting.
+- **Graph/wait divergence:** keep `waiting_on` non-authoritative and clear it aggressively.
+
+### Acceptance
+
+- Static and dynamic dependencies are captured consistently in metadata and `DependencyManager`.
+- `Status::Dependencies` is the sole lifecycle representation of waiting for dependencies.
+- Parent jobs release queue capacity while waiting for dependencies.
+- Deep delegation chains complete with capacity 1.
+- Dependency cycles fail with explicit errors, not hangs.
+- No new waiting status is introduced.
+- No separate canonical wait-cycle dependency mechanism is introduced.
+
+---
+
+## WP-2: Asset failure & message-lifecycle contract (F-2, F-3)
+
+### Goal
+A finished asset has exactly one observable outcome. `get()` returns `Ok(state)` iff the
+asset holds data, and `Err(original error)` for `Error`/`Cancelled` — regardless of whether
+the caller arrives via polling or notification, and regardless of notification overwrites.
+Failure never erases the metadata audit trail. Post-finish service messages are ignored and
+logged.
+
+### Design
+
+1. **Outcome API as single source of truth.** Add to `AssetData`:
+   ```rust
+   pub enum AssetOutcome<E: Environment> {
+       Pending,                       // not finished
+       Ready(State<E::Value>),        // has data (Ready/Override/Source/Volatile/Directory)
+       Failed(Error),                 // Status::Error — the stored error
+       Cancelled(Error),              // Status::Cancelled — typed cancellation error
+   }
+   pub fn poll_outcome(&self) -> AssetOutcome<E>;
+   ```
+   The error is stored explicitly in `AssetData.error: Option<Error>` when the status is set
+   to `Error` (today it survives only inside metadata, and only on one of the two error
+   paths). `poll_state()` for `Status::Error | Cancelled` returns `None` (it currently
+   fabricates a none-valued `Some(State)`, `assets.rs:604` — that behavior moves behind an
+   explicit `poll_state_lenient()` if any caller genuinely needs it; caller audit below).
+   `Expired` keeps its current `poll_state` behavior in this WP (WP-3 changes it).
+
+2. **`get()` consults status, not notifications.** The loop becomes:
+   check `poll_outcome()` → `Pending`? wait on `rx.changed()` → re-check. The
+   notification *content* is no longer matched for terminal decisions; `watch` is a pure
+   wake-up signal, so overwritten `ErrorOccurred` messages cannot lose the error.
+
+3. **Error path preserves metadata.** In `finish_run_with_result()` replace
+   `lock.metadata = Metadata::from_error(e.clone())` (`assets.rs:1184`) with
+   `lock.metadata.with_error(e.clone())` (mutating the existing record: status → Error,
+   error recorded, log + query + type info retained). Unify with the
+   `evaluate_and_store` error branch so there is exactly one "asset failed" routine:
+   `fn fail_asset(&self, e: Error)` — sets `data=None`, `binary=None`, `error=Some(e)`,
+   status, metadata merge, notification.
+
+4. **Post-finish message policy.** `process_service_messages()` gets an explicit
+   `finishing: bool` phase; after `JobFinishing` is observed, mutating messages
+   (`UpdatePrimaryProgress`, `LogMessage`, …) are logged at `debug` level and dropped;
+   `Cancel` after finish is a no-op. Resolves the "meaningless send" `FIXME` at
+   `assets.rs:1227` (delete the send). This implements the policy demanded by
+   `ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS` in `specs/ISSUES.md`.
+
+5. **Caller audit** (compiler-driven where possible): `liquers-axum` handlers, UI
+   `AssetViewElement::from_asset_ref`, Python bindings — anything matching on
+   `poll_state()`/`get()` results for failed assets must switch to `poll_outcome()`.
+
+### Tests (new file `liquers-core/tests/asset_failure_contract.rs` + unit tests in `assets.rs`)
+
+| Test | Setup | Red (before) | Green (after) |
+|---|---|---|---|
+| `test_failed_asset_get_returns_err_after_completion` | Command always returns `Err(general_error("boom"))`; evaluate via queue; await terminal status (subscribe until `is_finished`); then call `get()` **three times** | Fails: `get()` returns `Ok(state)` with a none value (poll path hits the `Status::Error` branch of `poll_state`) | All three calls return `Err`, message contains `"boom"` |
+| `test_error_message_survives_notification_overwrite` | Unit test: build `AssetData`, apply the failure routine, then send `JobFinished` notification (simulating the overwrite race deterministically); a getter that subscribes *after* both | Fails: `get()` returns generic `"Asset finished but no data available"` (`assets.rs:1825`) | Returns `Err("…boom…")` |
+| `test_failure_preserves_metadata_log_and_query` | Command logs `context.info("step1")` then fails; after completion inspect `get_metadata()` | Fails: metadata was replaced by `Metadata::from_error` — log entry and query gone | Metadata contains the `step1` log entry, the original query, and the error |
+| `test_concurrent_getters_all_see_same_error` | Gate command that fails after the gate opens; spawn 8 `get()` waiters before opening the gate | Flaky/failing today (some waiters can see `Ok(none-state)` or the generic error) | All 8 receive `Err` with `"boom"`; assert with `join_all` |
+| `test_late_progress_message_after_finish_ignored` | After asset is `Ready`, send `UpdatePrimaryProgress` + `LogMessage` via the retained `service_sender()`; re-read metadata | Fails (message mutates metadata after finalization) or is under-specified today — the test pins the new contract | Metadata unchanged (except a debug log line, which the test does not forbid); status still `Ready` |
+| `test_cancelled_asset_get_returns_cancelled_error` | Start gate command, `cancel()`, open gate | Fails: `poll_state` `Cancelled` branch yields `Ok(none-state)` | `Err` with `ErrorType`/message identifying cancellation |
+| `test_poll_outcome_variants` (unit) | Drive one `AssetData` through None→Processing→Ready and a second through →Error `[red = compile]` | New API | Variants match statuses exactly |
+
+### Acceptance
+Contract documented in `specs/ASSETS.md` ("Terminal outcome contract" section); the
+`specs/ISSUES.md` issue updated with the implemented policy matrix (per message kind ×
+lifecycle phase); axum/UI/py callers migrated; full workspace green.
+
+### Risks
+- Behavior change for callers that *relied* on `Ok(error-state)` (e.g. UI rendering error
+  states from metadata). Mitigation: `poll_outcome()` gives them a richer signal;
+  migration is part of this WP, enforced by the caller audit.
+
+---
+
+## WP-3: Expiration safety (F-4)
+
+### Goal
+Expired assets are treated as cache misses by normal evaluation and dependency resolution, so
+stale data is never used accidentally or as an input to dependent assets. At the same time,
+expensive keyed assets remain intentionally recoverable: a user can explicitly inspect or
+promote an expired keyed asset to `Override` without recomputing it. The expiration monitor holds
+no strong references and has one shared code path for tracking/firing; re-tracking with an earlier
+deadline fires exactly once.
+
+### Semantics
+
+1. **Asset immutability after evaluation remains the default.** Once an `AssetRef` has evaluated
+   to a value, that value is not replaced in-place merely because time passes. Expiration changes
+   the status/lifecycle interpretation of that asset to `Status::Expired`; it does not mutate the
+   old data into a newly evaluated value.
+2. **Normal manager access treats expired as cache miss.** `AssetManager::get(...)` and any
+   evaluation path that asks the manager for an asset must not return an expired asset as usable
+   data. If the manager has an expired entry, it removes/ignores that entry and creates or loads a
+   fresh asset request instead.
+3. **Dependencies never use expired inputs.** Dependency resolution and fast-track/delegation paths
+   must treat an expired dependency as unavailable and must request a fresh dependency asset from
+   the manager. The only tolerated race is: a dependency was ready when the dependent asset read it,
+   and that dependency expires later while the dependent asset is already evaluating. In that case,
+   the in-flight evaluation may finish with the value it already observed; subsequent evaluations
+   must see the dependency as expired/cache-miss.
+4. **Explicit expired access is a separate API.** Keyed assets get an intentional recovery path,
+   e.g. `AssetManager::get_also_expired(key)` / `AssetRef::get_also_expired()`, that may return an
+   expired stored or in-memory state. This API is for user-directed inspection, download, audit, or
+   conversion to `Override`; it must not be used by normal evaluation or dependency resolution.
+5. **Only keyed expired assets are recoverable.** Non-keyed expired assets are always cache misses
+   and should be evicted from the manager early. Keyed expired assets may be persistent and may
+   remain in the backing store with `Status::Expired` for a long time. They are evicted from the
+   manager's normal cache, not automatically deleted from the store.
+6. **Re-evaluation updates the stored key.** If a normal keyed request or a dependent evaluation
+   needs an expired stored asset, the manager evaluates a fresh asset for the same key and stores it
+   back under that key, replacing/updating the expired persisted value and metadata.
+
+### Design
+Execute `specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md` (phases 1–6) with these
+concretizations discovered in review:
+
+1. **Weak refs in the heap**: `TimedAsset.asset_ref: WeakAssetRef<E>` (`assets.rs:2140`);
+   at fire time `upgrade()` — `None` means the asset is gone, skip silently. `Untrack`
+   already removes the id from `active_deadline_by_id`; with weak refs the lingering heap
+   entry no longer retains memory, so lazy removal becomes acceptable.
+2. **Single-track helper**: extract the duplicated Track/fire bodies of the two `select!`
+   arms (`assets.rs:2252-2384`) into `fn handle_message(...)` and
+   `async fn fire_due(...)` used by both arms.
+3. **Normal read guard**: split state access into two explicit paths:
+   - `poll_state()` / `AssetRef::get()` / manager `get()` are normal-use APIs. They return no
+     usable state for `Status::Expired`; normal keyed manager lookup removes/ignores the expired
+     in-memory entry and requests a fresh asset.
+   - `poll_state_also_expired()` / `get_also_expired()` are intentional recovery APIs. For keyed
+     assets they may return expired data from memory or load and deserialize an expired stored
+     state.
+4. **Dependency freshness guard**: every place that accepts a dependency state must check the
+   dependency asset status immediately before use. If it is already `Expired`, discard it and
+   ask the manager for a fresh dependency. Do not call the `*_also_expired` APIs from evaluation
+   code. If the dependency expires after its value has been read into an already-running
+   dependent evaluation, allow that evaluation to complete; expiration invalidates future
+   requests, not values already consumed by a running command.
+5. **Stored expired keyed assets**: normal store-load should treat persisted
+   `Status::Expired` as stale and force re-evaluation/update. `get_also_expired(key)` is the
+   explicit exception: it loads the expired state from store, including metadata and binary/data,
+   without submitting evaluation.
+6. **Override preservation path**: add a user-facing flow to turn an expired keyed state returned
+   by `get_also_expired` into `Override` for the same key. This preserves expensive results that
+   the user explicitly decides are still valuable.
+7. **Monitor decisions on expire-failure eviction** stay as implemented (status-aware
+   eviction), now covered by tests.
+
+### Tests (extend `liquers-core/tests/expiration_integration.rs`)
+
+| Test | Setup | Red (before) | Green after |
+|---|---|---|---|
+| `test_manager_get_treats_expired_keyed_asset_as_cache_miss` | Counter command (static `AtomicUsize`) with `version:` metadata; evaluate keyed asset → value `1`; expire it; request the same key through the manager | Fails: manager may return the same expired asset/value `1` | Manager creates/evaluates a fresh asset, returns `2`, and stores updated `Ready` metadata |
+| `test_assetref_get_does_not_serve_expired_state` | Hold an `AssetRef`, evaluate value `1`, expire it, call normal `asset.get()` | Fails: returns stale `1` via `poll_state`'s `Expired` arm | Normal `get()` does not return expired data; it either resubmits through the manager when possible or returns a documented stale/expired error for detached/non-keyed refs |
+| `test_get_also_expired_returns_expired_keyed_state` `[red = compile]` | Evaluate keyed asset value `1`; expire it; call `manager.get_also_expired(key)` | New API | Returns value `1` with metadata status `Expired`, without incrementing the counter |
+| `test_get_also_expired_loads_persisted_expired_state` `[red = compile]` | Persist an expired keyed state, drop manager in-memory refs, then call `get_also_expired(key)` | New API / normal load treats expired as miss | Deserializes and returns the expired stored value and metadata without evaluation |
+| `test_expired_dependency_is_recomputed_before_dependent_evaluation` | Parent depends on child counter; evaluate child value `1`; expire child; evaluate parent | Fails: parent can consume stale child `1` | Parent uses fresh child value `2`; child store entry is updated |
+| `test_dependency_expiring_during_parent_evaluation_is_allowed` | Parent reads ready child, then blocks; child expires while parent is blocked | Pins nuanced exception | In-flight parent completes with the child value it already read; a later parent evaluation recomputes child |
+| `test_non_keyed_expired_asset_is_evicted_and_not_recoverable` | Create non-keyed/immediate asset, expire it, drop strong refs except monitor/manager internals | Fails if retained or recoverable | Weak ref cannot upgrade promptly; no `get_also_expired` path exists |
+| `test_override_from_expired_keyed_state_preserves_value` `[red = compile]` | Expire keyed value `1`; retrieve via `get_also_expired`; promote to `Override`; normal manager get | New API/flow | Returns value `1` as `Override` without recomputation |
+| `test_expired_status_poll_state_none` (unit) | `AssetData` with data + `Status::Expired` | Fails: `poll_state()` is `Some` | `None`; `poll_state_also_expired()` is `Some` only when the asset is keyed/recoverable |
+| `test_untrack_releases_strong_ref` (unit, in `assets.rs` tests) | Track an asset for `t+1h`; capture `WeakAssetRef`; send `Untrack`; drop all external strong refs; yield; `upgrade()` | Fails: heap's `TimedAsset` keeps a strong `AssetRef` | `upgrade()` is `None` |
+| `test_retrack_earlier_deadline_fires_once` | Subscribe to notifications; track `t+5s`, then `t+100ms`; collect `Expired` notifications for 1 s (`tokio::time` real, bounded) | May double-fire or fire late today (two heap entries, one canonical map — currently guarded, test pins it) | Exactly one `Expired`, arriving near the earlier deadline |
+| `test_expire_failure_preserves_processing_asset` | Gate command running (status `Processing`); force monitor fire via a `Track` in the past | Pins current intended behavior (preserve, log) | Asset unaffected; still completes when gate opens |
+
+### Acceptance
+`EXPIRATION-SAFETY.md` status → Closed; the counter-based staleness tests also become the
+regression guard for the WP-1 resubmission path (expired → normal manager request creates a fresh
+asset, while explicit `get_also_expired` remains recovery-only). Normal evaluation and dependency
+resolution never call `*_also_expired`; only user-directed inspection/override flows do.
+
+---
+
+# P1
+
+## WP-4: Metadata format/type consistency (F-5)
+
+### Goal
+The `data_format` used to serialize is provably the one used to deserialize; `State`
+mutation keeps metadata type fields in sync; external writes are validated (warn-first
+policy, strict mode available).
+
+### Design (per `specs/metadata-consistency/FINDINGS.md` candidate invariants)
+1. `State::with_data()` syncs `type_identifier`/`type_name` from the new value (today only
+   `with_metadata` does).
+2. Read path: delete or fix `deserialize_from_binary()` (unused per FINDINGS §2 — verify
+   with grep, then delete; fast-track already uses `get_data_format()`).
+3. `set_filename()`/`set_extension()` sync `media_type` (and `data_format` when the
+   extension maps to a known format), matching `with_filename()`.
+4. Validation in `AssetManager::set()`/`set_state()`: helper
+   `Metadata::validate_for_storage(strict: bool) -> Result<Vec<Warning>, Error>` —
+   non-empty `type_identifier`, supported effective `data_format`, media/format agreement.
+   `DefaultAssetManager` gains `strict_metadata: bool` (default `false` = normalize+warn to
+   the metadata log; `true` = reject with `Error`).
+5. Document the policy in `specs/ASSET_SET_OPERATION.md` (it already *demands* this).
+
+### Tests (unit tests in `state.rs`, `metadata.rs`; integration in new `liquers-core/tests/metadata_consistency.rs`)
+
+| Test | Red (before) | Green (after) |
+|---|---|---|
+| `test_with_data_syncs_type_identifier`: `State` of text → `with_data(Value::from(42))` → assert `metadata.type_identifier() == value.identifier()` | Fails: `with_data` leaves stale identifier (FINDINGS §0) | Passes |
+| `test_set_filename_syncs_media_type`: `set_filename("data.json")` → `get_media_type() == "application/json"` | Fails (FINDINGS §6b: no sync in `set_filename`) | Passes |
+| `test_roundtrip_uses_data_format_not_extension`: metadata with `data_format=json`, filename `weird.txt`; serialize state → deserialize through the public store-load path → equal value | Fails or silently mis-parses where extension wins | Passes |
+| `test_set_strict_rejects_missing_type_identifier` `[red = compile]` (strict flag is new): `set()` with empty `type_identifier` under strict mode → `Err` | New API | `Err` with a specific message; default mode logs a warning entry into stored metadata instead |
+| `test_set_default_mode_normalizes_and_warns`: same input, default mode → stored metadata gains normalized fields + warning log entry | Fails (no normalization today) | Passes |
+
+### Acceptance
+FINDINGS.md "Key Gaps" answered in `specs/metadata-consistency/PROPOSED_PLAN.md` (strictness
+= warn-first; registry = serializer capability check); `cargo check -p liquers-py` clean.
+
+---
+
+## WP-5: OpenDAL path normalization (F-6)
+
+### Goal
+One canonical key↔path mapping with the roundtrip law `path_to_key(key_to_path(k)) == k`,
+uniform trailing-slash policy, strict listing tests re-enabled.
+
+### Design
+1. New module `liquers-store/src/path_map.rs`:
+   `key_to_file_path(&Key) -> String`, `key_to_dir_path(&Key) -> String` (always exactly one
+   trailing `/`, empty key → `""`), `path_to_key(&str) -> Result<Key, Error>`
+   (rejects `..`, strips at most one trailing `/`), `entry_local_name(parent, entry) ->
+   Result<String, Error>` (strips parent prefix + trailing slash defensively).
+2. Rewrite `opendal_store.rs` call sites (`listdir`, `listdir_keys`, `listdir_keys_deep`,
+   `get_metadata`, `exists`, `is_dir`) to use only these helpers; delete ad-hoc
+   `trim_matches('/')` logic (`opendal_store.rs:239,335,447,478`).
+3. Re-enable directory-children population in `get_metadata()` (removes the `FIXME` at
+   `:335`).
+
+### Tests (in `path_map.rs` + strict rewrites in `opendal_store.rs` tests)
+
+| Test | Red (before) | Green (after) |
+|---|---|---|
+| `test_key_path_roundtrip_table`: table over `""`, `"a"`, `"a/b"`, `"a/b/c.txt"`, keys with encoded characters — assert the roundtrip law and dir/file path shapes | Partially fails against current ad-hoc trimming (the audit documents backend-dependent behavior) | Passes |
+| `test_opendal_subdir_strict`: replace the deliberately loose assertions (`opendal_store.rs:624-630`) with exact expected listings for a 2-level tree on the memory backend | **Fails — the loose test exists precisely because strict assertions fail today** | Passes |
+| `test_listdir_names_are_local`: `listdir("sub")` returns `["file1.txt","nested"]`, never `"sub/file1.txt"` or `"nested/"` | Fails on backends returning prefixed/suffixed entries | Passes |
+| `test_listdir_keys_deep_parity`: deep listing == transitive closure of shallow listings (set equality) | Fails (different path conventions per audit §6.1) | Passes |
+| `test_get_metadata_dir_has_children`: metadata for a directory key lists child names | Fails: feature disabled by `FIXME` | Passes |
+| Repeat the suite on the `fs` backend (tempdir) to catch backend-convention differences | — | Both backends agree |
+
+### Acceptance
+`STORE-OPENDAL-SLASH-HANDLING-BUG` closed in the audit doc; no path-string manipulation
+outside `path_map.rs`.
+
+---
+
+## WP-6: tracing migration + panic hygiene (F-14, F-15)
+
+### Goal
+Zero `println!`/`eprintln!` in library code; no reachable `unwrap`/`expect` panics in
+production paths; ignored `Result`s triaged.
+
+### Design
+1. Add `tracing` to `liquers-core` (workspace dependency); map: per-iteration chatter →
+   `trace!`, lifecycle events (job start/finish, expiration fire) → `debug!`, recoverable
+   anomalies (post-finish messages, map mismatches) → `warn!`, failures → `error!`. Targets:
+   `liquers_core::assets`, `::scheduler`, `::expiration` for filterability.
+2. `DefaultAssetManager::get_envref()` (`assets.rs:2396`): add `try_get_envref() ->
+   Result<EnvRef<E>, Error>`; migrate internal callers; keep `get_envref()` as a documented
+   invariant wrapper or deprecate.
+3. Triage the 4 clippy `unused_must_use` sites; either handle or `let _ = ...` with a
+   comment stating why dropping is safe.
+4. Enforcement: add `#![cfg_attr(not(test), warn(clippy::print_stdout, clippy::print_stderr, clippy::unwrap_used, clippy::expect_used))]`
+   to `liquers-core/src/lib.rs` (warn first; flip to `deny` at the end of the WP).
+
+### Tests / verification
+- **Guard test** `liquers-core/tests/hygiene.rs::test_no_println_in_library_sources`:
+  reads `liquers-core/src/*.rs` at test time, strips `#[cfg(test)] mod tests` blocks,
+  asserts no `println!(`/`eprintln!(` occurrences. **Red today: 183 hits.** Green after
+  migration. (Coarse but effective and dependency-free; the clippy lints are the precise
+  long-term guard.)
+- `test_try_get_envref_before_init_returns_error` `[red = compile]`: fresh
+  `DefaultAssetManager` without `set_envref` → `try_get_envref()` is `Err`, does not panic.
+- Existing suite must stay green — this WP must not change behavior, only observability.
+
+---
+
+## WP-7: Plan builder — `expand_predecessors` crash, config, relative resolution (F-8)
+
+### Goal
+`disable_expand_predecessors()` is usable; plan policies live in one documented config;
+relative keys/queries in recipes resolve against `cwd` for dependency discovery.
+
+### Design
+1. **Regression first**: re-enable the commented-out `disable_expand_predecessors()` in a
+   *test-local* `PlanBuilder` (not in `Recipe::to_plan` yet) to capture the crash.
+   Fix the plan-builder assumption that predecessors are always expanded (audit item 15 —
+   likely an indexing/first-step assumption in `build()`).
+2. **`PlanBuilderConfig`** `{ expand_predecessors: bool, cache_policy: …, volatile_policy: …, inline_policy: … }`
+   with `Default` documenting today's magic values (`plan.rs:891-901` TODOs). `PlanBuilder`
+   keeps its fluent methods, now writing into the config.
+3. **Relative resolution**: canonical API `Key::resolve_relative(base_cwd: &Key, rel: &str) -> Result<Key, Error>`
+   (or extend existing join/navigation helpers) used by dependency discovery at
+   `plan.rs:1533` and `plan.rs:1668`; recipes' `cwd` field feeds it.
+
+### Tests
+
+| Test | Red (before) | Green (after) |
+|---|---|---|
+| `test_plan_without_expand_predecessors_no_crash` (in `plan.rs` tests): build a plan for `"world/greet"`-style query with expansion disabled; then evaluate it | **Crashes / errors today** (that is why the call is commented out at `recipes.rs:157`) | Builds and evaluates |
+| `test_recipe_to_plan_respects_disable_expand` (integration): recipe evaluated end-to-end with the option re-enabled in `Recipe::to_plan` | Crash | Green, result identical to expanded mode |
+| `test_plan_builder_config_defaults` `[red = compile]`: `PlanBuilderConfig::default()` matches documented values | New API | Passes |
+| `test_relative_key_dependency_resolution`: recipe stored under `sub/dir/out.txt` referencing `-R/../data.txt`; evaluate; assert recorded dependency key is the **absolute** `sub/data.txt` | Fails: relative resolution is TODO — dependency recorded wrong/missing | Passes; cascade expiration of `sub/data.txt` expires `sub/dir/out.txt` (ties into WP-3 counter test pattern) |
+
+---
+
+## WP-8: Evaluation-path consolidation (F-9, F-13) — after WP-1/WP-2
+
+### Goal
+One post-evaluation routine shared by queued and immediate paths; immediate path records
+dependencies; `resolve_volatility_before_evaluation` runs once per run; `Context` slims to
+an execution facade.
+
+### Design (executes `ASSETS-FIX1` Phases 2–3 with WP-1/2 semantics fixed)
+1. Extract `async fn finalize_success(&self, state, opts: FinalizeOpts { persist: bool, register_dm: bool })`
+   from `evaluate_and_store`; `evaluate_immediately` calls it with
+   `persist=false, register_dm=false` — but **both** now collect
+   `context.take_pending_dependencies()` into metadata (fixes ASSET_LIFECYCLE Issue 3).
+2. `resolve_volatility_before_evaluation()`: keep only the call in `run_with_future()`;
+   make the function idempotent-and-cheap anyway (guard flag) so a future misuse is harmless.
+3. Context slimming (ASSET_LIFECYCLE §8): move `pending_dependencies` ownership into the
+   evaluation scope (passed through `apply_recipe`), deprecate `Context::set_value/set_state/
+   set_error` in favor of `AssetRef` methods; keep `set_expires`/`set_filename` (they are
+   command-facing) but route them through a single asset-side entry point.
+
+### Tests
+
+| Test | Red (before) | Green (after) |
+|---|---|---|
+| `test_immediate_evaluation_records_dependencies` (extend `liquers-core/tests/dependency_manager_integration.rs`): command calling `context.evaluate("other/query")` run via `apply_immediately`; inspect result metadata | **Fails: dependencies list empty** (take_pending_dependencies never called on this path) | Dependency recorded, same shape as queued path |
+| `test_queued_and_immediate_metadata_equivalence`: same recipe both ways; compare `status`, `type_identifier`, `expires`, dependency list (ignore persistence-only fields) | Fails on dependency list (and pins the rest) | Equal |
+| `test_volatility_resolved_once` (unit): make `resolve_volatility_before_evaluation` set a run-scoped flag; assert inner calls are no-ops (observable via a debug counter behind `#[cfg(test)]` on `AssetData`) | Fails: counter reads 3–4 | Reads 1 |
+
+Existing volatility/expiration integration suites are the regression net for this refactor —
+they must stay green untouched.
+
+---
+
+# P2
+
+## WP-9: Box the `Error` payload (F-11)
+
+**Design**: `pub struct Error(Box<ErrorInner>)` where `ErrorInner` is the current struct;
+keep the public constructor/accessor API identical (methods on `Error` deref into the box),
+`ErrorType` stays public. Crate-local mechanical change + `cargo check -p liquers-py`.
+
+**Tests**:
+- `test_error_is_small` (unit in `error.rs`):
+  `assert!(std::mem::size_of::<Result<(), Error>>() <= 2 * size_of::<usize>())`.
+  **Red today** (the 421 clippy warnings exist because the Err variant is huge);
+  green after boxing. This is the cleanest fail-before/pass-after test in the whole plan.
+- Entire workspace suite green = API compatibility proof.
+- Clippy `result_large_err` count drops to ~0 — record the number in the PR description.
+
+## WP-10: Benchmark suite, then `Arc<Box<…>>` debt (F-20 / TECHNICAL-DEBT-1)
+
+**Design**: `criterion` benches in `liquers-core/benches/`: `parse_query` (short/long/encoded
+queries), `Key` encode/decode, plan building, asset fast-track load, `Error` construction
+(guards WP-9). Baseline committed as `specs/FEATURES/BENCHMARK-BASELINE-<date>.md`. Then
+execute TECHNICAL-DEBT-1 with before/after numbers.
+**Testing**: benches are not red/green; the acceptance gate is "no bench regresses >10% after
+the Arc refactor", enforced manually via `critcmp` in the PR.
+
+## WP-11: ValueInterface capability-trait split (F-10) — after WP-4
+
+**Design**: audit Alternative A. New traits `ValueTypeInfo`, `ValueConstruct`, `ValueExtract`,
+`ValueJson`, `ValueBinaryCodec`; blanket impl
+`impl<T: ValueTypeInfo + … + ValueBinaryCodec> ValueInterface for T` keeps every existing
+implementor compiling unchanged. Migrate `Value`/`ExtValue` to implement the small traits
+directly; relax bounds in code that needs only a subset (e.g. store paths need only
+`ValueBinaryCodec + ValueTypeInfo`).
+
+**Tests**:
+- `test_minimal_value_type_compiles` (new `liquers-core/tests/value_capabilities.rs`): a
+  test-local type implementing **only** `ValueTypeInfo + ValueBinaryCodec` is usable with the
+  store serialization helpers. **Red = compile** today (impossible without full
+  `ValueInterface`); compiles + passes after.
+- Full existing suite green (blanket-impl compatibility proof); `liquers-py` build green.
+
+## WP-12: Session + key-level ACL (F-12) — design doc first
+
+**Design phase** (1 week, no code): extend `specs/FEATURES/KEY-LEVEL-ACL.md` with:
+`Session { user, roles }` carried per *access point* (axum extractors, py entry), a
+`Permission { read, write, execute, delete }` check trait consulted in
+`AssetManager::{get,set,set_state,remove}` and in the axum store/query routes; asset
+*creation* stays session-free (shared assets — the PROJECT_OVERVIEW constraint).
+**Test skeletons to write with the design** (all `[red = compile]` until implemented):
+`test_set_denied_without_write_permission`, `test_get_allowed_read_only`,
+`test_pattern_scoped_acl_matches_key_prefix`, axum: `test_store_set_returns_403`.
+
+## WP-13: Dead-code & repo hygiene (F-16)
+
+Delete `liquers-core/src/entities.rs` (0 lines) and its `mod` declaration if any; decide
+`cache.rs` — recommendation: move behind a `legacy-cache` feature flag with a deprecation
+note, delete in the following cycle; move `example1_cascade_expiration.rs` +
+`EXAMPLE1_SUMMARY.md` into `specs/dependency-management/` or `liquers-core/examples/`;
+commit the untracked spec folders. **Verification**: workspace builds green; `git status`
+clean of stray root files. No unit tests (nothing behavioral).
+
+---
+
+# P3 (sketches — full plans to be written when scheduled)
+
+## WP-14: `openbin` streaming (F-17)
+Define `AsyncStore::openbin(key) -> Result<Box<dyn AsyncRead + Send + Unpin>, Error>` (read
+first; write streaming later); implement for memory store, router (delegate), OpenDAL
+(`operator.reader()`). Red tests: `test_openbin_roundtrip_large` (8 MB pseudo-random buffer,
+chunked read equals `get_bytes`) — currently the trait method is a TODO returning
+`Error`/absent, so the test fails; green after. Router test: `openbin` routes by prefix.
+
+## WP-15: Macro validation + hints (F-18)
+Parse-time validation of `query "..."` literals (call `parse_query` inside the proc-macro,
+emit `compile_error!` with span); propagate `hint` into `ArgumentInfo.hints`.
+Tests: `trybuild` UI tests in `liquers-macro/tests/ui/` — `invalid_query_literal.rs` must
+fail to compile with the right message (**red today: it compiles silently**); a runtime test
+asserting `ArgumentInfo.hints` is populated (red: currently empty).
+
+## WP-16: Axum listdir routes + WebSocket hardening (F-19) — after WP-2
+Add `/store/listdir_keys/{key}` and `/store/listdir_keys_deep/{key}` routes; WebSocket asset
+stream switches to the WP-2 outcome contract. Tests with `tower::ServiceExt::oneshot`:
+`test_listdir_keys_route_404_today` (red: route missing → 404; green: 200 + JSON body),
+`test_ws_error_frame_contains_original_error` (red under WP-2's old semantics).
+
+## WP-17: COMBINED-EXPIRES + EXTENDED-FAST-TRACK — after WP-1/WP-3
+Combined expires: implement `|` aggregation per draft spec; property-style unit tests
+(commutativity, associativity, identity `Never`, absorber `Immediately`, normalization
+idempotence) — red because the combination algebra doesn't exist yet.
+Extended fast-track: command execution classes (`fast`/`slow`/`default`) in command metadata
++ class-aware queues; tests: fast command evaluated inline without occupying a slow slot
+(observable via gate command occupying all slow slots while a fast query still completes).
+
+## WP-18–19: Library/UI polish, multi-realm, GC, docs
+To be planned when reached; GC design must incorporate the ownership decisions made in
+WP-1 (queue) and WP-3 (monitor weak refs) — both remove today's accidental strong-ref
+retention, which is the prerequisite for any reference-counting GC.
+
+---
+
+# Sequencing and parallelization
+
+```
+WP-1 ──► WP-2 ──► WP-3 ──► WP-8 ──► WP-17
+  │        │
+  │        └────► WP-16
+  ├─ parallel: WP-5, WP-6, WP-7, WP-13   (independent of asset internals)
+  └─ after WP-2 lands: WP-4 ──► WP-11
+WP-9 anytime (small, mechanical)
+WP-10 before any perf-motivated refactor (esp. TECHNICAL-DEBT-1)
+WP-12 design anytime; implementation after WP-2 (needs stable manager API)
+```
+
+Suggested first milestone (2–3 weeks): WP-1 + WP-2 + WP-6 + WP-13 — after which the core
+guarantee holds: *evaluation always terminates, outcomes are unambiguous, and the library is
+observable via `tracing` instead of stdout*.
+
+# Global risk register
+
+| Risk | Affected WPs | Mitigation |
+|---|---|---|
+| `assets.rs` is 4.9k lines; concurrent WPs collide | 1,2,3,8 | Strict sequencing (above); split `assets.rs` into `assets/{data,ref,manager,queue,monitor}.rs` as a pure-move refactor at the *start* of WP-1 |
+| Semantics change breaks UI/axum/py callers silently | 2,3,4 | No-default-match-arm rule + caller audits are part of each WP's definition of done; `cargo check -p liquers-py` in every WP |
+| Timing-based tests flake in CI | 1,2,3 | Gate commands + notification subscription instead of sleeps; hang guards use generous 10 s timeouts; timer tests use short real deadlines (<1 s) with wide assertion windows |
+| Red tests accidentally rely on incidental behavior | all | Each red test's failure reason is stated in this plan; when writing the test, confirm it fails *for that reason* (run before implementing, capture output in the PR) |

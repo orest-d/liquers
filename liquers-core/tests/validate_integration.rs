@@ -1,6 +1,6 @@
 //! End-to-end tests for the query validation module, exercised through its public API.
 //!
-//! See `specs/query-validation/phase3-examples.md` for the scenarios these cover.
+//! See `specs/design/query-validation/phase3-examples.md` for the scenarios these cover.
 
 use liquers_core::command_metadata::{CommandMetadata, CommandMetadataRegistry};
 use liquers_core::error::Error;

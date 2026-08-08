@@ -647,7 +647,7 @@ async fn test_payload_inherited_in_nested_evaluation() -> Result<(), Box<dyn std
     //
     // This replaces test_payload_not_inherited_in_nested_evaluation, which asserted the
     // opposite and documented the gap now closed.
-    // See specs/ISSUES.md: PAYLOAD-NESTED-EVALUATION-INHERITANCE.
+    // See specs/archive/2026-08-08-issues.md: PAYLOAD-NESTED-EVALUATION-INHERITANCE (resolved).
 
     let mut env = TestEnvironment::new();
     let cr = &mut env.command_registry;

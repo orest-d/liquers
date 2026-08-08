@@ -71,3 +71,12 @@ cargo test -p liquers-core              # All tests in a crate
 cargo test -p liquers-core test_name    # Specific test
 cargo test -p liquers-core -- --nocapture  # With stdout
 ```
+
+## See also
+
+`specs/guides/UNITTEST_GUIDE.md` — the narrative walkthrough of the evaluation flow: environment
+setup, store configuration, recipe providers, command registration, and complete worked examples.
+This skill's references are catalogues (patterns, testable components); the guide is the
+end-to-end explanation. They overlap and have not been deduplicated — prefer the references when
+you know what you are testing, the guide when you do not.
+

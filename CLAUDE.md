@@ -10,14 +10,43 @@ liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui U
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
-specs/            # Specifications and design documents
+specs/            # Internal documentation — see specs/README.md
+  reference/      #   how the system is; must be true at HEAD
+  guides/         #   how to work on it
+  design/<slug>/  #   why each change was made
+  issues/         #   what is wrong or missing
+  archive/        #   what was true on a date; never edited
 ```
 
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`
 
-**Key specs**: See `specs/PROJECT_OVERVIEW.md` for architecture, `specs/REGISTER_COMMAND_FSD.md` for macro details, `specs/ASSETS.md` for asset lifecycle.
+**Key specs**: See `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
-**Known issues** are tracked in `specs/ISSUES.md`.
+## Documentation
+
+Map: `specs/README.md` · Rules: `specs/DOCS_STRUCTURE_GUIDE.md` · Index: `specs/index.csv`
+
+**If you find a defect, gap or limitation you are not fixing, file it before you finish the task.**
+This applies to anything you notice in passing — a wrong result, a TODO you had to work around, an
+API that cannot express what you needed. Mentioning it only in your reply does not record it, and
+it is lost the moment the session ends.
+
+Create `specs/issues/<ID>.md`, where `<ID>` is `SCREAMING-KEBAB` naming the problem rather than the
+fix, with `status: draft` and `priority` / `complexity` / `area` filled — guess rather than leave
+blank, since review corrects a wrong guess and nothing corrects an empty field. Search
+`specs/index.csv` first so you do not file a duplicate.
+
+**Do not open a GitHub issue.** That happens when work starts, not when a problem is recorded.
+
+Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE.md` §4.8. Filing
+needs no network, no account and no permission — record what you found and carry on.
+
+Also:
+- Never edit a file under `specs/archive/`, and never change the status of an issue that has a
+  `github:` number.
+- A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
+- A change to a `reference/` or `guides/` document adds a `## History` row and bumps `reviewed:`
+  in the same commit (§9.2).
 
 ## Architecture Rules
 
@@ -29,7 +58,7 @@ specs/            # Specifications and design documents
 - New value types (DataFrames, images): `liquers-lib/src/value/`
 - New storage backends: `liquers-store/src/`
 - New commands: `liquers-lib/src/commands.rs`
-- Polars DataFrame operations: `liquers-lib/src/polars/` (see `specs/POLARS_COMMAND_LIBRARY.md`)
+- Polars DataFrame operations: `liquers-lib/src/polars/` (see `specs/reference/POLARS_COMMAND_LIBRARY.md`)
 
 ### Key Types
 - `Query`, `Key`, `ActionRequest` - query DSL (`liquers-core/src/query.rs`)
@@ -214,7 +243,7 @@ is broken.
 - Use `Error::new` directly
 - Use blocking I/O in async contexts
 - Add sync Store implementations (async only, sync via wrapper)
-- Modify Query/Key encoding without updating `specs/PROJECT_OVERVIEW.md`
+- Modify Query/Key encoding without updating `specs/reference/PROJECT_OVERVIEW.md`
 
 ### Performance-Sensitive Areas
 - Query parsing (`liquers-core/src/parse.rs`) - used on every request
@@ -226,7 +255,7 @@ is broken.
 ### Before Changing APIs
 1. Check if type is used in `liquers-py` (Python bindings break easily)
 2. Check `register_command!` macro usage in `liquers-lib`
-3. Update `specs/PROJECT_OVERVIEW.md` if core concepts change
+3. Update `specs/reference/PROJECT_OVERVIEW.md` if core concepts change
 
 ### Refactoring Guidelines
 - Prefer extending traits over modifying them
@@ -240,13 +269,13 @@ is broken.
 The `register_command!` macro is a **function-like macro** (not an attribute macro) with a custom DSL.
 The actual function must be defined SEPARATELY, then registered via the macro.
 
-**See `specs/COMMAND_REGISTRATION_GUIDE.md` for comprehensive guidelines** covering:
+**See `specs/guides/COMMAND_REGISTRATION_GUIDE.md` for comprehensive guidelines** covering:
 - Using the `register_command!` macro (recommended)
 - Manual registration (fine-grained control)
 - Generic Environment commands (library reusability)
 - Best practices and examples
 
-For macro syntax details, see `specs/REGISTER_COMMAND_FSD.md`.
+For macro syntax details, see `specs/reference/REGISTER_COMMAND_FSD.md`.
 
 ```rust
 use liquers_macro::register_command;
@@ -351,7 +380,7 @@ reformatting is not a failure but a changed argument list is.
 1. Implement `AsyncStore` trait in `liquers-store/src/`
 2. Add config support in `liquers-store/src/config.rs` and `liquers-store/src/store_builder.rs`
 3. Update `OPENDAL_STORE_TYPES` in `liquers-store/src/config.rs` if OpenDAL-based
-4. See `specs/STORE_CONFIG_FSD.md` for configuration format
+4. See `specs/reference/STORE_CONFIG_FSD.md` for configuration format
 
 ### Adding a Value Type
 1. Extend `ExtValue` enum in `liquers-lib/src/value/mod.rs`

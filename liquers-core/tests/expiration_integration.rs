@@ -449,7 +449,7 @@ async fn test_commands_chain_expiration() -> Result<(), Box<dyn std::error::Erro
 // ============================================================================
 // WP-3 (expiration-safety): expired assets are cache misses for normal access;
 // keyed assets get an explicit, non-evaluating recovery/promote path.
-// See specs/expiration-safety/ for the design.
+// See specs/design/expiration-safety/ for the design.
 // ============================================================================
 
 // --- Example 1: expired keyed asset is a cache miss (primary use case) ---

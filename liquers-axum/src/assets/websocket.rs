@@ -1,7 +1,7 @@
 //! WebSocket Handler - Real-time asset notifications via WebSocket
 //!
 //! Part of the Assets API implementation.
-//! See specs/axum-assets-recipes-api/phase2-architecture.md for specifications.
+//! See specs/design/axum-assets-recipes-api/phase2-architecture.md for specifications.
 
 use axum::{
     extract::{

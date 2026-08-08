@@ -7,7 +7,7 @@
 //! so `liquers-web` exports a concrete surface built on `liquers_lib::value::Value`, while the
 //! machinery underneath stays generic. That is what lets a downstream crate supply its own value
 //! type and environment (the "Tier 2" path in
-//! `specs/liquers-web/phase2-architecture.md`, "Extensibility"): it implements [`JsValueBridge`]
+//! `specs/design/liquers-web/phase2-architecture.md`, "Extensibility"): it implements [`JsValueBridge`]
 //! for its own type and reuses these functions unchanged.
 //!
 //! Most third-party JavaScript types need none of this. A value that only passes *through* Liquers

@@ -16,7 +16,7 @@
 //!
 //! `liquers_lib::environment::DefaultEnvironment` is generic over the value type and already
 //! selects the inline asset manager on `wasm32`, so it is used directly. See
-//! `specs/liquers-web/phase2-architecture.md`.
+//! `specs/design/liquers-web/phase2-architecture.md`.
 
 use std::cell::RefCell;
 

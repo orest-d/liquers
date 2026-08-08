@@ -155,7 +155,7 @@ impl Invalidation {
 /// Thread bounds follow [`UIElement`]: an `AppState` stores `dyn UIElement` handles, so it
 /// cannot be more strongly bounded than they are. Relaxed to the target-conditional markers as
 /// part of admitting a non-`Send` foreign value into `ExtValue` on wasm — see
-/// `specs/liquers-web/phase2-architecture.md`.
+/// `specs/design/liquers-web/phase2-architecture.md`.
 pub trait AppState:
     liquers_core::maybe_send::MaybeSend + liquers_core::maybe_send::MaybeSync + std::fmt::Debug
 {

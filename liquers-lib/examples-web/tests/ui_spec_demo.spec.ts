@@ -30,7 +30,7 @@ test('dashboard renders and reacts to a menu action', async ({ page }) => {
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
-// Stage 2 of specs/webui-fixes/: an insert must add one node, not regenerate the parent's subtree.
+// Stage 2 of specs/design/webui-fixes/: an insert must add one node, not regenerate the parent's subtree.
 // A tag set on a live node from the page survives only if that node is never replaced — which is
 // the mechanism that protects focus, caret, scroll and any node-local state in siblings.
 test('adding a panel preserves existing nodes', async ({ page }) => {
@@ -98,7 +98,7 @@ test('an ancestor and its descendant in one batch do not duplicate nodes', async
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
-// W3 (specs/webui-fixes/): an action that resolves fully inline leaves nothing in flight, so a
+// W3 (specs/design/webui-fixes/): an action that resolves fully inline leaves nothing in flight, so a
 // renderer that repaints on "is async work pending?" never learns about it. `Remove Last Panel`
 // is exactly that case; `Add Dashboard` is not, because it leaves a pending node behind.
 test('an inline action updates the DOM', async ({ page }) => {
