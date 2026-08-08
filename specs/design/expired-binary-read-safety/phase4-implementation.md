@@ -24,7 +24,12 @@ finds a working tree.
 
 ---
 
-## Step 1 — Add `ReadExposure` and `Status::read_exposure()`
+## Implementation Steps
+
+Eleven steps. Steps 1–7 are `liquers-core`, Step 8 is the `liquers-axum` consumer, Steps 9–11 are
+decision, documentation and close-out.
+
+### Step 1 — Add `ReadExposure` and `Status::read_exposure()`
 
 **File:** `liquers-core/src/metadata.rs`
 
@@ -51,7 +56,7 @@ table, `metadata.rs` `Status` enum and its existing predicates.
 
 ---
 
-## Step 2 — Unit-test the classifier (U1–U3)
+### Step 2 — Unit-test the classifier (U1–U3)
 
 **File:** `liquers-core/src/metadata.rs` (existing `#[cfg(test)] mod tests`, `:2314`)
 
@@ -74,7 +79,7 @@ cargo test -p liquers-core --lib metadata
 
 ---
 
-## Step 3 — Rewrite the read methods over the classifier
+### Step 3 — Rewrite the read methods over the classifier
 
 **File:** `liquers-core/src/assets.rs`
 
@@ -144,7 +149,7 @@ restructuring it, and getting `get_binary`'s four-way branch right. Not a haiku 
 
 ---
 
-## Step 4 — Point persistence at `binary_unchecked`
+### Step 4 — Point persistence at `binary_unchecked`
 
 **File:** `liquers-core/src/assets.rs`
 
@@ -170,7 +175,7 @@ cargo test -p liquers-core --test expiration_integration
 
 ---
 
-## Step 5 — `AssetManager::get_binary_any_status`
+### Step 5 — `AssetManager::get_binary_any_status`
 
 **File:** `liquers-core/src/assets.rs`
 
@@ -202,7 +207,7 @@ cargo check -p liquers-py   # trait change: confirm no downstream implementor br
 
 ---
 
-## Step 6 — Core tests (Examples 1–3, U4–U10, I1)
+### Step 6 — Core tests (Examples 1–3, U4–U10, I1)
 
 **File:** `liquers-core/src/assets.rs` (`mod tests`, `:5472`, `use super::*` at `:5480`)
 
@@ -229,7 +234,7 @@ model that will check APIs rather than assume them.
 
 ---
 
-## Step 7 — Integration tests (I2–I4)
+### Step 7 — Integration tests (I2–I4)
 
 **File:** `liquers-core/tests/expiration_integration.rs`
 
@@ -251,7 +256,7 @@ cargo test -p liquers-core --test manager_parametric
 
 ---
 
-## Step 8 — `liquers-axum` consumer fix
+### Step 8 — `liquers-axum` consumer fix
 
 **File:** `liquers-axum/src/query/handlers.rs`
 
@@ -279,7 +284,7 @@ cargo test -p liquers-axum
 
 ---
 
-## Step 9 — The axum test-coverage decision
+### Step 9 — The axum test-coverage decision
 
 **Carried from Phase 3 as an explicit choice, not a default.** `liquers-axum` has no handler test
 scaffolding, and Step 8 sits over the layer where the bug actually bites.
@@ -299,7 +304,7 @@ gain.
 
 ---
 
-## Step 10 — Documentation
+### Step 10 — Documentation
 
 **Files:** `liquers-core/src/assets.rs` module docs (`:100-116`), `specs/reference/ASSETS.md`
 
@@ -320,7 +325,7 @@ python3 scripts/docs_index.py --check
 
 ---
 
-## Step 11 — Close out
+### Step 11 — Close out
 
 **Action:**
 1. `specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md` → `status: complete`, noting that the
@@ -335,6 +340,28 @@ python3 scripts/docs_index.py --check
 **Agent:** haiku · knowledge: `DOCS_STRUCTURE_GUIDE.md` §4.8, §5.5, §8.1.
 
 ---
+
+## Agent Assignment
+
+Summary of the per-step assignments above. Model choice tracks how much judgement the step needs,
+not how long it is.
+
+| Step | Model | Skills | Why |
+|---|---|---|---|
+| 1 | haiku | rust-best-practices | Transcribes a table Phase 2 already fixed |
+| 2 | haiku | liquers-unittest, rust-best-practices | Test code given in Phase 3 |
+| 3 | **sonnet** | rust-best-practices | The only step needing judgement: preserve `poll_state` exactly while restructuring it, and get `get_binary`'s four-way branch right |
+| 4 | haiku | rust-best-practices | One-line change, but must ship with Step 3 |
+| 5 | haiku | rust-best-practices | Mirrors `get_any_status` minus one call |
+| 6 | **sonnet** | liquers-unittest, rust-best-practices | Setup is the hard part; the drafting pass got it wrong repeatedly, so this needs a model that verifies APIs rather than assuming them |
+| 7 | sonnet | liquers-unittest | Integration setup with recipes and managers |
+| 8 | sonnet | rust-best-practices | Fifteen explicit arms plus a behaviour decision per status |
+| 9 | sonnet if (a), none if (b) | — | Filing an issue needs no agent |
+| 10 | haiku | — | Mechanical, against a matrix that already exists |
+| 11 | haiku | — | Follows `DOCS_STRUCTURE_GUIDE.md` §4.8/§5.5/§8.1 |
+
+Every agent needs `CLAUDE.md`'s hard rules in context: no `unwrap`/`expect` in library code, no
+`_ =>` on Liquers enums, typed error constructors only, `eprintln!` never `println!`.
 
 ## Testing Plan
 
