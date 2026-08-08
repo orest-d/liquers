@@ -256,10 +256,11 @@ conforming folder.
 id: EXPIRATION-SAFETY
 kind: design
 title: Timing and race safety in asset expiration
-status: in_review
+status: in_review           # OMITTED once `gh_pr` is set — see §5.5
 phase: architecture         # see §5.2
 area: [core/assets]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
+gh_pr: [11]                 # PRs implementing this design; set by hand once, then owned by GitHub
 created: 2026-07-18
 superseded_by:              # design slug, when status is `superseded`
 ---
@@ -267,15 +268,16 @@ superseded_by:              # design slug, when status is `superseded`
 
 ### 5.1 Design status
 
-| Status | Meaning | `phase` |
-|---|---|---|
-| `draft` | The named phase is being written. | required |
-| `in_review` | The named phase is written and awaiting approval. | required |
-| `approved` | The named phase is approved and the next one has not started. | required |
-| `implemented` | The code has landed and merged. Phases may still be outstanding — a documentation phase, for instance, runs after the code. | required if any phase remains |
-| `complete` | Every phase required when this design was approved is done. **The folder is frozen from here** — it records what was decided, not what the code does now. Corrections to behaviour belong in `reference/`. | omitted |
-| `superseded` | Replaced by another design. `superseded_by` names it. | omitted |
-| `abandoned` | Not pursued. Kept for the reasoning. | omitted |
+| Status | Meaning | Source | `phase` |
+|---|---|---|---|
+| `draft` | The named phase is being written. | local | required |
+| `in_review` | The named phase is written and awaiting approval. | local | required |
+| `approved` | The named phase is approved and the next one has not started. No implementation PR yet. | local | required |
+| `in_implementation` | At least one linked PR is open. | github | required |
+| `implemented` | Every linked PR is merged, and a phase is still outstanding — a documentation phase, for instance, runs after the code. | github | required |
+| `complete` | Every phase required when this design was approved is done. **The folder is frozen from here** — it records what was decided, not what the code does now. Corrections to behaviour belong in `reference/`. | either | omitted |
+| `superseded` | Replaced by another design. `superseded_by` names it. | local | omitted |
+| `abandoned` | Not pursued, or the implementation attempt was closed unmerged and will not be retried. Kept for the reasoning. | local | omitted |
 
 `status` and `phase` are **two facts, stored separately**: `status` is what is happening, `phase` is
 where in the pipeline it is happening. They are rendered together wherever a design is displayed —
@@ -337,6 +339,61 @@ make a version redundant, and a version would be one more thing to keep truthful
 |---|---|
 | 2026-08-08 | Initial set: `high-level`, `architecture`, `examples`, `implementation`. |
 
+### 5.5 Pull requests and derived status
+
+A design is implemented by pull requests, and **GitHub owns whether they merged** — the same
+ownership rule that governs issues (§4.3). So the implementation-related part of a design's status
+is derived, never hand-written.
+
+`gh_pr` is written by hand exactly once, when the first implementing PR is opened. From that
+moment `scripts/docs_index.py --sync` derives the status:
+
+| Linked PRs | Derived status |
+|---|---|
+| any open | `in_implementation` |
+| all merged, a phase still outstanding | `implemented` |
+| all merged, no phase outstanding | `complete` |
+| all closed unmerged | **needs a human** — `--check` reports it rather than guessing between `abandoned`, `superseded` and a retry |
+
+**Once `gh_pr` is set, `DESIGN.md` carries no `status:` field**, exactly as an issue with a
+`github:` number carries none. The cached value lives in `index.csv` and is informational there.
+Before `gh_pr` is set, status is local and hand-written: `draft`, `in_review`, `approved`,
+`superseded` and `abandoned` all describe a design that no PR has touched yet.
+
+`gh_pr` is a **list**. One PR per design has held so far, and it is the common case — but it is an
+observation about how work has happened, not a constraint worth enforcing. An `XL` design landing
+across three PRs is ordinary, and the derivation rules above are written over the set rather than a
+single value so that nothing breaks the first time it happens.
+
+The branch name is not used as the link. The convention `claude/<slug>-<suffix>` has held, but it
+is a convention, `codex/` branches do not follow it, and a derived link that is right most of the
+time is worse than an explicit integer written once.
+
+### 5.6 A design is never *partially* anything
+
+There is no `partially_implemented`. When a design's plan is executed in part and the remainder is
+not going to happen in the same effort, **the remainder becomes an issue** linked to the design, and
+the design takes the status its PRs earned.
+
+Partial states are how a tracker stops being queryable — the same reason §4.3 has no partial issue
+status. `specs/wp2-terminal-outcome/` is exactly this case today: its `DESIGN.md` says "In
+Progress" while `ISSUES.md` says "Partially Resolved (WP-2)", and neither answers what is left.
+Split, it becomes one `complete` design and one issue that says precisely what remains.
+
+### 5.7 Closing a design without completing it
+
+Yes, and there are two ways, both terminal and both keeping the folder:
+
+- **`abandoned`** — the design will not be pursued. Either it was never implemented, or its PRs
+  were closed unmerged. The body must say why; that reasoning is the entire value of keeping the
+  folder.
+- **`superseded`** — a different design replaced it. `superseded_by` names the successor, so the
+  chain is followable in both directions.
+
+A design that is approved and simply *not scheduled* is neither of these. It stays `approved` with
+`phase: implementation` — an honest description of a finished design waiting for someone to build
+it, and one that a query for "designed but not built" will find.
+
 ---
 
 ## 6. `specs/issues/index.csv`
@@ -358,10 +415,10 @@ id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `priority`, `complexity` | Empty for `kind: design`. |
 | `area` | `;`-separated. |
-| `gh_issue` | Number, or empty. |
-| `gh_pr` | `;`-separated numbers, from GitHub. Never hand-written. |
-| `branch` | From the linked PR head. Never hand-written. |
-| `design` | Design slug, or empty. |
+| `gh_issue` | Number, or empty. Written by hand once, in the issue's front-matter (§4.3). |
+| `gh_pr` | `;`-separated numbers. For an **issue**, derived from GitHub's issue↔PR links. For a **design**, seeded from `DESIGN.md` front-matter, where it is written by hand once (§5.5); the *state* of those PRs is always GitHub's. |
+| `branch` | From the linked PR heads. Never hand-written. |
+| `design` | Design slug, or empty. For `kind: design`, the row's own slug. |
 | `created` | `YYYY-MM-DD`. |
 | `file` | Repo-relative path. |
 
@@ -393,16 +450,19 @@ Three modes.
 2. IDs are unique and match the filename.
 3. `complexity` in `L`/`XL` implies a non-empty `design`, and that design folder exists.
 4. `design`, `duplicate_of` and `superseded_by` resolve to something that exists.
-5. A file with `github:` has no `status:` field.
+5. A file with `github:` (issue) or `gh_pr:` (design) has no `status:` field.
 6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
    phase name is accepted on a file that already carried it and rejected on a new one — so the
    check must compare against `HEAD`, not just the working tree.
 7. `index.csv` matches what regeneration would produce.
 8. Every path and every issue ID referenced by `specs/README.md` exists.
-9. *With network:* imported bodies still match `imported_body_sha`.
+9. Every stage marker in the capability map matches the directory its link points into (§8.1).
+10. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
+    are all closed unmerged is reported for a human decision (§5.5).
 
-Check 8 is what stops the live map decaying the way the old `FEATURES.md` did — it listed five
-files that did not exist. The prose cannot be validated; the links can.
+Checks 8 and 9, with the coverage block of §8.4, are what stop the capability map decaying the way
+the old `FEATURES.md` did — it listed five files that did not exist and omitted two that did. The
+prose cannot be validated; the links, the stages and the omissions can.
 
 ### When sync runs
 
@@ -414,46 +474,128 @@ files that did not exist. The prose cannot be validated; the links can.
 
 Not on session start — that is an API call per session for data most sessions never read.
 
-`--check` runs in CI on every PR, and its offline validations (1–8) run with no token, so a
+`--check` runs in CI on every PR, and its offline validations (1–9) run with no token, so a
 sandboxed or network-isolated build is never broken by it.
 
 ---
 
-## 8. `specs/README.md` — the live map
+## 8. `specs/README.md` — the capability map
 
-The orientation document, for a human planner and for a coding agent picking up cold. It is
-maintained by hand (that is, by an LLM with a human reviewing the diff) and it is the only artifact
-here whose prose no check can verify — so its rules are about keeping it small enough to stay true.
+The orientation document, for a human planner and for a coding agent picking up cold. It answers
+two questions that nothing else here answers:
 
-**Hard cap: 200 lines.** A short document gets rewritten; a long one gets appended to. The cap is
-the mechanism, not a suggestion.
+1. **What does this project do, and how far along is each part of it?** — including the parts that
+   are only planned.
+2. **Which document should I open?** — with enough of a summary to choose without opening three.
 
-**Link, never restate.** It must not contain a priority, a status, a PR number or a date. Those
-live in the CSV and would go stale here. It says *"asset expiration — design in
-`design/expiration-safety/`, two open issues"* and stops.
+It is maintained by hand (an LLM writing, a human reviewing the diff). Its prose cannot be
+verified — but its *coverage* can, and §8.4 is what keeps it from decaying the way the old
+`FEATURES.md` did.
 
-**Structure**
+### 8.1 Maturity
 
-1. A ~5-line preamble: what this folder is, pointing at this guide and at `issues/index.csv`.
-   This discharges the "describe the directory" duty a README owes, in five lines.
-2. Hand-written narrative: the subsystems, which design covers each, what is in flight and why.
-3. A generated block, between `<!-- BEGIN generated: issues -->` and `<!-- END generated: issues -->`,
-   refreshed by `docs_index.py`.
-4. A generated block listing `guides/`, each with its H1 and first sentence.
+A capability matures through stages, and at each stage a **different document is authoritative**:
 
-**What the generated issue block contains** — every item that is:
+| Stage | Meaning | Authoritative document |
+|---|---|---|
+| `planned` | Wanted. Nothing designed yet. | `issues/<ID>.md` (`kind: feature`) |
+| `designing` | A design is being written or reviewed. | `design/<slug>/` |
+| `designed` | Design approved, implementation not started. | `design/<slug>/` |
+| `built` | The code exists. No reference or guide written yet. | `design/<slug>/` |
+| `documented` | Described as it *is*, not as it was planned. | `reference/<X>.md` or `guides/<X>.md` |
 
-- not `closed`, `closed_not_planned`, `rejected` or `duplicate`, **and**
-- linked to a design or feature (`design` non-empty), **and**
-- `priority` in `P0`, `P1`.
+**Reference exactly one document per capability: the highest stage it has reached.** A capability
+that reaches `documented` stops linking its design folder — the design records what was decided and
+the reference records what is true, and pointing at both invites a reader to the stale one. The
+design folder does not disappear; it is simply no longer the way in.
 
-Closed items drop out automatically. The prose may mention other issues by judgement; the block
-guarantees that no blocking or functionality-reducing issue attached to live design work is ever
-missing from the overview, and that no resolved one lingers in it.
+This makes the link target itself a maturity signal. A line pointing into `design/` says "built but
+undocumented"; one pointing into `reference/` says "settled". `--check` verifies that the stated
+stage matches the directory the link points into, so the two cannot contradict each other.
 
-**When it is updated:** the PR that adds a design folder, moves a design to `complete`, or
-changes what a subsystem is, updates the narrative. That rule lives in `CLAUDE.md` and in the
-`liquers-designer` skill, because rules that do not live where the work happens are not followed.
+### 8.2 Structure
+
+1. **Preamble**, ~5 lines: what this folder is, pointing at this guide and at
+   `issues/index.csv`. This discharges the "describe the directory" duty a README owes.
+2. **When to use what** (§8.3) — the navigational table.
+3. **Capabilities** — the hierarchical map, grouped by subsystem, **one line per capability**:
+   name, stage, single link. Planned capabilities appear alongside built ones; a subsystem's
+   entries read as its roadmap.
+4. Generated block `issues`: **open P0/P1 issues** attached to live design work — every item that
+   is not `closed`, `closed_not_planned`, `rejected` or `duplicate`, has a non-empty `design`, and
+   is `P0` or `P1`. Closed items drop out automatically.
+5. Generated block `unplaced`: **not yet placed** (§8.4).
+6. Generated block `guides`: each file in `guides/` with its H1 and first sentence.
+
+Generated blocks are delimited by `<!-- BEGIN generated: <name> -->` and
+`<!-- END generated: <name> -->`. `docs_index.py` rewrites only what is between the markers and
+never touches a line outside them, so hand-written prose and generated content can sit adjacent
+without either overwriting the other.
+
+The capability section is a tree, not prose. One line per node is the density rule, and it is what
+lets the document grow with the project without becoming something nobody rereads:
+
+```markdown
+### Assets and evaluation
+
+- **Asset lifecycle** — documented → [`reference/ASSETS.md`](reference/ASSETS.md)
+- **Dependency scheduling** — built → [`design/dependency-scheduling/`](design/dependency-scheduling/)
+- **Expiration and volatility** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Fast-track execution classes** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
+```
+
+Short prose between groups is welcome where it *adds* something a list cannot — why two
+capabilities are coupled, what a subsystem is for, which of three planned items matters first.
+That judgement is the reason this document is written rather than generated.
+
+**It carries no priority, status, PR number or date.** Those live in `index.csv`, and copied here
+they would be a second home for a fact that already has an owner (§1, rule 1). The stage marker is the
+one exception, and it is derived from the link target rather than tracked separately.
+
+### 8.3 "When to use what"
+
+A short table, one row per document *kind*, telling a reader which to open for a given task — the
+guidance half of the document. Roughly:
+
+| You want to… | Read |
+|---|---|
+| Understand the architecture and vocabulary | `reference/PROJECT_OVERVIEW.md` |
+| Add a command | `guides/COMMAND_REGISTRATION_GUIDE.md` |
+| Know why something was built this way | the `design/<slug>/` for that capability |
+| Know what is broken or missing | `issues/index.csv` |
+| Know what a document is allowed to claim | this guide, §2 |
+
+Individual `reference/` and `guides/` documents are listed by the generated guides index, so this
+table stays a handful of rows about *kinds of task*, not a catalogue.
+
+### 8.4 The coverage check
+
+The prose cannot be validated. What can be validated is that nothing is **missing**, and that is
+the failure that mattered: `FEATURES.md` listed five files that did not exist and omitted two that
+did.
+
+`docs_index.py` maintains a generated **"not yet placed"** block listing every item that the
+capability map does not reference and that no higher-stage document supersedes:
+
+- design folders not `superseded`, whose slug appears nowhere in the document;
+- documents in `reference/` and `guides/` whose path appears nowhere;
+- issues with `kind: feature` that are not `closed`, `rejected` or `duplicate`.
+
+This is a **generated list, not a build failure**. Some items legitimately should not be linked
+individually — three designs may sit behind one capability line. Making it an error would push
+people to link everything, which is how a map becomes a directory listing. Making it visible, and
+regenerating it on every run, means the omission is in front of whoever next edits the file.
+
+Together with the link-target check from §8.1 and the dead-link check from §7, that covers every
+way this document can be wrong except being badly written.
+
+### 8.5 When it is updated
+
+The PR that adds a design folder, moves a design to `complete`, adds a `reference/` document, or
+changes what a subsystem is, updates the capability map in the same PR. Two of those are stage
+transitions and will show up in "not yet placed" if skipped; the other two will not, which is why
+the rule also lives in `CLAUDE.md` and in the `liquers-designer` skill — rules that do not live
+where the work happens are not followed.
 
 ---
 

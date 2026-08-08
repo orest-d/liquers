@@ -228,6 +228,13 @@ it maps to **`complete`**, not `implemented`. `implemented` describes the narrow
 merged, some phase still owed", which does not yet arise because no post-implementation phase
 exists. It will the moment a documentation phase is added.
 
+The `gh_pr` column below is written into `DESIGN.md` front-matter by hand, once, during migration —
+recovered from merged PR branch names, which match design slugs throughout the repository's
+history. From then on `--sync` derives the status from those PRs (guide §5.5) and the `status:`
+field is removed from the file. **Every migrated design with a merged PR therefore ends up with no
+hand-written status at all**, which is the point: the nine folders that currently claim "In
+Progress" about shipped work cannot make that mistake again.
+
 | Slug | Current text | Proposed | Phase | Confirm? |
 |---|---|---|---|---|
 | `async-wasm-refactor` | In Progress | `complete` | — | ISSUES.md says resolved 2026-07-23 |
@@ -437,10 +444,27 @@ documents the skills superseded (§8.5).
 - `scripts/docs_index.py` per guide §7 — generate, `--sync`, `--check`.
 - Wire `--check` into CI on every PR (offline validations only, no token required).
 - Add the post-merge `--sync` job and the weekly scheduled run.
-- Populate the generated blocks in `specs/README.md` and write its narrative.
+
+Then **write `specs/README.md`** — the capability map (guide §8), which is the largest single piece
+of writing in the migration and the one that cannot be mechanised. Build it in this order, because
+each step narrows what the next has to invent:
+
+1. Run `docs_index.py` and take the `unplaced` block: every design folder, every `reference/` and
+   `guides/` document, every open feature. That is the raw material, complete by construction.
+2. Group into subsystems. The `area` vocabulary (guide §3) is the natural first cut — `core/assets`,
+   `core/query`, `lib/ui`, `web` — but the map is for readers, not for the validator, so merge or
+   split where that reads better.
+3. Give each capability its stage and its single highest-stage link (guide §8.1). Most entries
+   resolve mechanically: a capability with a `reference/` document is `documented`; one with only a
+   `complete` design is `built`; a `kind: feature` issue with no design is `planned`.
+4. Write the connective prose — why two capabilities are coupled, what a subsystem is for, which
+   planned item matters first. This is the part that makes the document worth reading rather than
+   querying, and it is the only part an LLM should be inventing.
+5. Re-run until `unplaced` holds only items deliberately folded behind a broader capability line.
 
 This step lands **last** among the structural ones, because `--check` validating a half-migrated
-tree would block the migration on itself.
+tree would block the migration on itself, and because the capability map cannot be written until
+every document is in its final location.
 
 ---
 
@@ -471,6 +495,12 @@ Nothing in this plan should be executed on a guess. These need an answer first:
 9. **`command_metadata.rs:702`** — which issue does it mean?
 10. **Move design folders into `specs/design/`, or leave them at `specs/<slug>/`?** (§2)
 11. **`plan20260707.md` work packages** — all shipped, or does archiving lose open work?
+12. **`wp2-terminal-outcome`** — what remains unimplemented? Guide §5.6 forbids a partial status,
+    so the remainder becomes an issue and the design takes the status its PR earned. Someone has to
+    say what the remainder *is*.
+13. **`gh_pr` for each shipped design** — recoverable from branch names, but confirm the mapping
+    for `dependency-management` and `dependency-scheduling`, which sit near PRs #5 and #6 and could
+    be transposed.
 
 ---
 
