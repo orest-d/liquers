@@ -222,33 +222,46 @@ Read from the current `**Status:**` lines and cross-checked against `ISSUES.md` 
 **Nine currently say "In Progress" while describing work that shipped** — those are the rows most
 in need of confirmation.
 
-| Slug | Current text | Proposed | Confirm? |
-|---|---|---|---|
-| `async-wasm-refactor` | In Progress | `implemented` | ISSUES.md says resolved 2026-07-23 |
-| `axum-assets-recipes-api` | In Progress | `implemented` | **yes** |
-| `dependency-management` | In Progress | `implemented` | **yes** (PR #5/#6) |
-| `dependency-scheduling` | In Progress | `implemented` | **yes** (PR #6) |
-| `expiration-mechanism` | In Progress | `implemented` | **yes** |
-| `expiration-monitor-assetref` | In Progress | `implemented` | **yes** (PR #9) |
-| `expiration-safety` | Complete | `implemented` | PR #11 |
-| `keyboard-shortcuts` | ✓ Implemented | `implemented` | |
-| `liquers-web` | Implementation complete — M1-M6 ✅ | `implemented` | PR #19 |
-| `menu-pane-layout` | In Progress | ? | **yes** |
-| `payload-nested-evaluation-inheritance` | In Progress | `implemented` | PR #14; issue resolved |
-| `query-console-element` | In Progress | ? | **yes** |
-| `query-link-parser` | Complete — designed, implemented, tested | `implemented` | PR #17 |
-| `query-validation` | Complete — designed, implemented, tested | `implemented` | PR #15 |
-| `ui-events` | Phase 1 drafted — awaiting review | `in_review` | |
-| `volatility-system` | In Progress | ? | **yes** |
-| `web-api-library` | ✅ Complete | `implemented` | |
-| `webui` | Implemented; browser runtime is a tracked follow-up | `implemented` | PR #10 |
-| `webui-fixes` | Implementation complete (2026-07-25) | `implemented` | PR #12 |
-| `wp2-terminal-outcome` | In Progress | ? | **yes** — issue says "Partially Resolved (WP-2)" |
-| `liquers-wf` | *(phase 1 only)* | `draft` | |
-| `value-accessor` | *(phase 1 only)* | `draft` | |
+Under the phase set in force at migration time (`high-level`, `architecture`, `examples`,
+`implementation` — all four required), a design whose code has shipped has no phase outstanding, so
+it maps to **`complete`**, not `implemented`. `implemented` describes the narrower state "code
+merged, some phase still owed", which does not yet arise because no post-implementation phase
+exists. It will the moment a documentation phase is added.
+
+| Slug | Current text | Proposed | Phase | Confirm? |
+|---|---|---|---|---|
+| `async-wasm-refactor` | In Progress | `complete` | — | ISSUES.md says resolved 2026-07-23 |
+| `axum-assets-recipes-api` | In Progress | `complete` | — | **yes** |
+| `dependency-management` | In Progress | `complete` | — | **yes** (PR #5/#6) |
+| `dependency-scheduling` | In Progress | `complete` | — | **yes** (PR #6) |
+| `expiration-mechanism` | In Progress | `complete` | — | **yes** |
+| `expiration-monitor-assetref` | In Progress | `complete` | — | **yes** (PR #9) |
+| `expiration-safety` | Complete | `complete` | — | PR #11 |
+| `keyboard-shortcuts` | ✓ Implemented | `complete` | — | |
+| `liquers-web` | Implementation complete — M1-M6 ✅ | `complete` | — | PR #19 |
+| `menu-pane-layout` | In Progress | ? | ? | **yes** |
+| `payload-nested-evaluation-inheritance` | In Progress | `complete` | — | PR #14; issue resolved |
+| `query-console-element` | In Progress | ? | ? | **yes** |
+| `query-link-parser` | Complete — designed, implemented, tested | `complete` | — | PR #17 |
+| `query-validation` | Complete — designed, implemented, tested | `complete` | — | PR #15 |
+| `ui-events` | Phase 1 drafted — awaiting review | `in_review` | `high-level` | |
+| `volatility-system` | In Progress | ? | ? | **yes** |
+| `web-api-library` | ✅ Complete | `complete` | — | |
+| `webui` | Implemented; browser runtime is a tracked follow-up | `complete` | — | PR #10 |
+| `webui-fixes` | Implementation complete (2026-07-25) | `complete` | — | PR #12 |
+| `wp2-terminal-outcome` | In Progress | ? | ? | **yes** — issue says "Partially Resolved (WP-2)" |
+| `liquers-wf` | *(phase 1 only)* | `draft` or `in_review` | `high-level` | |
+| `value-accessor` | *(phase 1 only)* | `draft` or `in_review` | `high-level` | |
 
 Cheap confirmation for the flagged rows: check whether the type or function the design introduces
-exists at HEAD, and whether the design's slug appears in a merged PR branch name.
+exists at HEAD, and whether the design's slug appears in a merged PR branch name. For the four rows
+whose phase is unknown, the highest-numbered phase file that is more than a template stub gives the
+answer.
+
+`liquers-wf` and `value-accessor` have only `phase1-high-level-design.md`, which does not by itself
+say whether that phase is being written (`draft`) or is waiting on a reviewer (`in_review`). Set
+both to `draft` unless someone remembers otherwise — it is the state that invites work rather than
+implying someone else owes a response.
 
 ### 6.2 Non-conforming folders
 
@@ -313,7 +326,7 @@ mistake here surfaces immediately.
 **→ `design/python-wrapper/`**
 
 `PYTHON-WRAPPER-ARCHITECTURE.md` and `PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md` are a design pair
-predating the folder convention. Add `DESIGN.md`; set `implemented` or `draft` after checking
+predating the folder convention. Add `DESIGN.md`; set `complete` or `draft` after checking
 `liquers-py`.
 
 **Stays put:** `command_registry.yaml` — 21 code and test references, and `CLAUDE.md` documents its
@@ -362,7 +375,7 @@ issue.
 > - Found a problem? File `specs/issues/<ID>.md` with `status: draft`. Search `index.csv` first.
 > - Never edit a file under `specs/archive/`, and never change the status of an issue that has a
 >   `github:` number.
-> - A PR that adds a design folder, or moves one to `implemented`, updates `specs/README.md`.
+> - A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
 > - `specs/issues/index.csv` is generated — run `scripts/docs_index.py`, do not hand-edit.
 
 ### 8.2 `README.md`
@@ -379,9 +392,9 @@ could not distinguish the two. After the migration the path answers it: `referen
 
 | Skill / file | Change |
 |---|---|
-| `liquers-designer/scripts/init_feature.py` | Create under `specs/design/<slug>/`; emit `DESIGN.md` front-matter per guide §5; drop the freeform `**Status:** In Progress` line in favour of `status: draft`; print a reminder to run `scripts/docs_index.py` |
-| `liquers-designer/scripts/validate_phase.py` | Path `specs/parquet-support/…` → `specs/design/…`; add front-matter validation |
-| `liquers-designer/SKILL.md` | Design folders live under `specs/design/`; the design status vocabulary is guide §5; **a landing design updates `specs/README.md`**; an `L`/`XL` issue requires a design folder |
+| `liquers-designer/scripts/init_feature.py` | Create under `specs/design/<slug>/`; emit `DESIGN.md` front-matter per guide §5, with `status: draft` and `phase: high-level`; drop the freeform `**Status:** In Progress` line; print a reminder to run `scripts/docs_index.py` |
+| `liquers-designer/scripts/validate_phase.py` | Path `specs/parquet-support/…` → `specs/design/…`; add front-matter validation; **advance `phase:` when a phase is approved** — the field is only true if something maintains it, and this script is the one place that already knows a phase just passed |
+| `liquers-designer/SKILL.md` | Design folders live under `specs/design/`; the status and phase vocabularies are guide §5.1–5.2; each phase transition updates `phase:` in `DESIGN.md`; **a landing design updates `specs/README.md`**; an `L`/`XL` issue requires a design folder |
 | `liquers-designer/references/liquers-patterns.md:166` | `see ISSUES.md` → `specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md` |
 | `liquers-designer/references/phase*-template.md` | No change — phase files carry no front-matter |
 | `liquers-validate/SKILL.md:117` | → `specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md` |
@@ -448,7 +461,8 @@ Nothing in this plan should be executed on a guess. These need an answer first:
 
 1. **Every `complexity` value in §4.1 and §5.** Never previously recorded; all are estimates.
 2. **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — bare `High` mapped to P1. Confirm.
-3. **Six design folders** flagged **yes** in §6.1 — is the work implemented?
+3. **Six design folders** flagged **yes** in §6.1 — is the work shipped, and if not, which phase
+   is each one on?
 4. **`POLARS-FEATURE-GAPS`** — what shipped, what remains.
 5. **`PYTHON-BASIC-OBJECTS`** — closed by PR #2, or still open?
 6. **`UI_PAYLOAD_DESIGN.md`** — reference or archive?

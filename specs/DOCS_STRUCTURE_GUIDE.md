@@ -256,7 +256,8 @@ conforming folder.
 id: EXPIRATION-SAFETY
 kind: design
 title: Timing and race safety in asset expiration
-status: implemented
+status: in_review
+phase: architecture         # see §5.2
 area: [core/assets]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
 created: 2026-07-18
@@ -264,20 +265,77 @@ superseded_by:              # design slug, when status is `superseded`
 ---
 ```
 
-### Design status
+### 5.1 Design status
 
-| Status | Meaning |
-|---|---|
-| `draft` | Folder exists, phases incomplete. |
-| `in_review` | Phases drafted, awaiting approval. |
-| `approved` | All phases approved. Implementation not finished. |
-| `implemented` | Shipped and merged. **The folder is frozen from this point** — it records what was decided, not what the code does now. Corrections to behaviour belong in `reference/`. |
-| `superseded` | Replaced by another design. `superseded_by` names it. |
-| `abandoned` | Not pursued. Kept for the reasoning. |
+| Status | Meaning | `phase` |
+|---|---|---|
+| `draft` | The named phase is being written. | required |
+| `in_review` | The named phase is written and awaiting approval. | required |
+| `approved` | The named phase is approved and the next one has not started. | required |
+| `implemented` | The code has landed and merged. Phases may still be outstanding — a documentation phase, for instance, runs after the code. | required if any phase remains |
+| `complete` | Every phase required when this design was approved is done. **The folder is frozen from here** — it records what was decided, not what the code does now. Corrections to behaviour belong in `reference/`. | omitted |
+| `superseded` | Replaced by another design. `superseded_by` names it. | omitted |
+| `abandoned` | Not pursued. Kept for the reasoning. | omitted |
+
+`status` and `phase` are **two facts, stored separately**: `status` is what is happening, `phase` is
+where in the pipeline it is happening. They are rendered together wherever a design is displayed —
+`in_review` + `architecture` reads as **"Architecture review"** in `specs/README.md` and appears as
+two columns in `index.csv`, so filtering on either works.
+
+They are not fused into a single enum (`in_review_phase2`, `approved_phase3`, …) for one reason:
+that enum is the cross-product of phases and states, so **every change to the phase set rewrites
+it** — and the phase set is expected to change. Five phases times three live states is fifteen
+values to maintain, to validate, and to migrate every time a phase is added or redefined. Kept
+apart, adding a phase is one row in the table below and touches no status anywhere.
 
 Designs have no `priority` or `complexity`; those live on the issue that motivated the design.
-Designs are never deleted and never move out of `design/` — `implemented`, `superseded` and
-`abandoned` are all readable states, and the status field is what separates them.
+Designs are never deleted and never move out of `design/` — every terminal status is a readable
+state, and the status field is what separates them.
+
+### 5.2 Phases
+
+**Phases are identified by name, never by number.** The ordinal below exists only for ordering and
+display. This is what makes renumbering free: inserting or removing a phase changes no stored
+value in any file.
+
+| Ordinal | `phase` | Produces | Required |
+|---|---|---|---|
+| 1 | `high-level` | `phase1-high-level-design.md` | yes |
+| 2 | `architecture` | `phase2-architecture.md` | yes |
+| 3 | `examples` | `phase3-examples.md` | yes |
+| 4 | `implementation` | `phase4-implementation.md` | yes |
+
+The `liquers-designer` skill owns what each phase *contains*; this table owns only their names and
+order, so the two can evolve without a coordinated edit.
+
+A short investigation does not run phases at all: it may go straight to `status: complete` with no
+`phase`, carrying `DESIGN.md` plus whatever findings document it produced.
+
+### 5.3 Changing the phase set
+
+The phase set will change — a documentation phase after implementation is anticipated, and
+`examples` is known to need adjustment. These rules keep that from invalidating history:
+
+1. **Adding a phase** is one row here plus a note in §5.4. Designs already `complete` are
+   unaffected: `complete` means *every phase required when this design was approved*, so a design
+   finished under a four-phase set stays finished. Designs still live pick up the new phase.
+2. **Retiring or replacing a phase** keeps its name in the table, marked `retired`, with a line
+   saying what replaced it. **A name that appears in any committed file is never deleted**, so old
+   `DESIGN.md` files keep parsing and keep meaning what they meant. `--check` accepts a retired
+   name on a file that already carries it and rejects it on a new one.
+3. **A phase that runs after implementation** — documentation being the expected case — is why
+   `implemented` and `complete` are separate statuses. A design sits at `implemented` with
+   `phase: documentation` while the code is merged and the docs are not, which is the honest
+   description of that state and the reason `implemented` does not freeze the folder.
+
+There is deliberately no `phase_set_version` field. Stable names plus never-deleted retired entries
+make a version redundant, and a version would be one more thing to keep truthful.
+
+### 5.4 Phase set changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-08 | Initial set: `high-level`, `architecture`, `examples`, `implementation`. |
 
 ---
 
@@ -289,7 +347,7 @@ Designs are never deleted and never move out of `design/` — `implemented`, `su
 Columns, in this exact order:
 
 ```
-id,kind,title,status,status_source,priority,complexity,area,gh_issue,gh_pr,branch,design,created,file
+id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,created,file
 ```
 
 | Column | Notes |
@@ -297,6 +355,7 @@ id,kind,title,status,status_source,priority,complexity,area,gh_issue,gh_pr,branc
 | `id`, `kind`, `title` | From front-matter. |
 | `status` | Front-matter for local items; GitHub for tracked ones. |
 | `status_source` | `local` or `github`. Makes the ownership rule visible in the data. |
+| `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `priority`, `complexity` | Empty for `kind: design`. |
 | `area` | `;`-separated. |
 | `gh_issue` | Number, or empty. |
@@ -335,11 +394,14 @@ Three modes.
 3. `complexity` in `L`/`XL` implies a non-empty `design`, and that design folder exists.
 4. `design`, `duplicate_of` and `superseded_by` resolve to something that exists.
 5. A file with `github:` has no `status:` field.
-6. `index.csv` matches what regeneration would produce.
-7. Every path and every issue ID referenced by `specs/README.md` exists.
-8. *With network:* imported bodies still match `imported_body_sha`.
+6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
+   phase name is accepted on a file that already carried it and rejected on a new one — so the
+   check must compare against `HEAD`, not just the working tree.
+7. `index.csv` matches what regeneration would produce.
+8. Every path and every issue ID referenced by `specs/README.md` exists.
+9. *With network:* imported bodies still match `imported_body_sha`.
 
-Check 7 is what stops the live map decaying the way the old `FEATURES.md` did — it listed five
+Check 8 is what stops the live map decaying the way the old `FEATURES.md` did — it listed five
 files that did not exist. The prose cannot be validated; the links can.
 
 ### When sync runs
@@ -352,7 +414,7 @@ files that did not exist. The prose cannot be validated; the links can.
 
 Not on session start — that is an API call per session for data most sessions never read.
 
-`--check` runs in CI on every PR, and its offline validations (1–7) run with no token, so a
+`--check` runs in CI on every PR, and its offline validations (1–8) run with no token, so a
 sandboxed or network-isolated build is never broken by it.
 
 ---
@@ -389,7 +451,7 @@ Closed items drop out automatically. The prose may mention other issues by judge
 guarantees that no blocking or functionality-reducing issue attached to live design work is ever
 missing from the overview, and that no resolved one lingers in it.
 
-**When it is updated:** the PR that adds a design folder, moves a design to `implemented`, or
+**When it is updated:** the PR that adds a design folder, moves a design to `complete`, or
 changes what a subsystem is, updates the narrative. That rule lives in `CLAUDE.md` and in the
 `liquers-designer` skill, because rules that do not live where the work happens are not followed.
 
