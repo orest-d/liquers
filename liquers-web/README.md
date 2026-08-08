@@ -93,7 +93,7 @@ the native one — the disk allowance does not fit both.
 
 | Limitation | Tracked as |
 |---|---|
-| `Asset.cancel()` is inert: the immediate asset manager evaluates during `getAsset`, so an asset is already terminal when a caller receives it | `WEB-CANCELLATION-INERT` |
+| `Asset.cancel()` is inert: the immediate asset manager evaluates during `getAsset`, so an asset is already terminal when a caller receives it. The issue records what fixing it requires — the obstacle is not the absence of a task spawner | `WEB-CANCELLATION-INERT` |
 | `encodeParam` refuses values containing a lone colon, most punctuation, or any non-ASCII character — the query grammar has no entity for them. Refusing is deliberate; the core encoder emits unparseable text instead | `PARAMETER-ESCAPING-INCOMPLETE` |
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 

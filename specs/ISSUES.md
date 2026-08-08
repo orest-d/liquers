@@ -110,6 +110,47 @@ rather than withheld — the surface does not move, only the behaviour behind it
 Until then `cancel()` must be documented as a request that may be ignored, which is also its
 contract on native for an asset past `Processing`.
 
+#### What the fix actually requires — measured, not estimated
+
+The obvious reading is that this needs a task spawner, and that a browser therefore cannot have it.
+**That is not the obstacle.** The cancellation window does not need concurrency at all: a caller
+does `get_asset()` → *(window)* → `get()`, so it is enough that the evaluation happen at `get()`
+rather than at `get_asset()`. No spawning, no runtime.
+
+The single line responsible is in `ImmediateAssetManager::get_asset`
+(`liquers-core/src/assets.rs`, in the `loop`):
+
+```rust
+assetref.run_inline().await?;
+return Ok(assetref);
+```
+
+Moving it is nevertheless **not** a one-line change, and this is the part worth knowing before
+scoping the work: `AssetRef::get` (`assets.rs:2325`) polls state and then *waits on the
+notification channel*. It never starts a run — on native it must not, because a worker owns the
+run. Deferring the inline run out of `get_asset` without changing `get` makes `get` wait forever.
+
+So the fix needs a way for an asset to know that **nobody else will run it**, and for `get` to run
+it inline in exactly that case. Either:
+
+- a flag on the asset (`self_driven`, set by `ImmediateAssetManager` at creation) that `get`
+  consults before entering the wait loop; or
+- an `ImmediateAssetManager`-specific handle that owns the "run on first get" behaviour, leaving
+  `AssetRef::get` untouched.
+
+The first is smaller and the second is safer. Either touches the shared `AssetRef::get` path or the
+`AssetRef` type, and changes *when* evaluation happens in a documented lifecycle
+(`specs/ASSETS.md`) — which is why this is a `liquers-designer` task rather than a patch, and why
+it was not folded into `specs/liquers-web` M6.
+
+**Blast radius of the semantic change**, for whoever picks it up: `get_asset` currently guarantees
+the returned asset is *finished*. Callers are `liquers-core/src/context.rs:287` (nested evaluation
+— follows with `get()`, so unaffected), `liquers-web/src/{eval,asset}.rs` (both follow with
+`get()`), `liquers-axum/src/assets/{handlers,websocket}.rs` (native, `DefaultAssetManager`, so
+untouched by a change confined to the immediate manager), and several `liquers-core` asset tests
+that inspect status straight after `get_asset` — those tests are the ones that would need
+revisiting, and they are the ones worth reading first, because they encode the current contract.
+
 #### Where it is recorded
 
 - `liquers-web/src/asset.rs` — module documentation, "Limitation: cancellation is inert in this

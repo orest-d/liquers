@@ -936,10 +936,12 @@ type, `TestValue = CombinedValue<SimpleValue, MatrixExt>`, a never-called functi
 generic entry point at that type (so a regression is a *compile* error), and the reduced
 `VALUE01`/`VALUE04`/`VALUE09` suite plus a full end-to-end evaluation on a downstream environment.
 
-A smaller wart, noted and left: `liquers_lib::value` glob-imports `CombinedValue`, `SimpleValue`
-and `ValueExtension` privately, so a downstream crate must reach into `value::extended` and
-`value::simple`. Fixing it means touching `liquers-lib`, which M1 was meant to be the only
-milestone to do.
+A smaller wart, found the same way and **since fixed**: `liquers_lib::value` glob-imported
+`CombinedValue`, `SimpleValue` and `ValueExtension` privately, so they were not re-exported at
+that level and a downstream crate had to reach into `value::extended` and `value::simple`. They
+are now `pub use`d explicitly from `value/mod.rs`, which is where anyone writing their own value
+type looks first. Additive — three names appear at a path that previously had none — and
+`liquers-lib`'s native suite is unchanged.
 
 ### Step 25: the measurement Phase 1 deferred
 

@@ -25,13 +25,11 @@ use std::sync::Arc;
 
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::value::{DefaultValueSerializer, ValueInterface};
-// The full module paths, not `liquers_lib::value::{…}`: `value/mod.rs` glob-imports these
-// privately (`use crate::value::extended::*;`), so they are not re-exported at that level. A
-// downstream crate writing its own value type has to reach into the submodules exactly like this —
-// an ergonomic wart on the Tier-2 path, noted in the M6 record. It is not a blocker, so fixing it
-// is left out of this milestone rather than folded into it.
-use liquers_lib::value::extended::{CombinedValue, ValueExtension};
-use liquers_lib::value::simple::SimpleValue;
+// Imported from `liquers_lib::value` — the path a downstream crate would reach for first. It did
+// not work until this test tried it: `value/mod.rs` glob-imported these privately, so they were
+// not re-exported at that level and the extension path required reaching into `value::extended`
+// and `value::simple`.
+use liquers_lib::value::{CombinedValue, SimpleValue, ValueExtension};
 use liquers_web::bridge::{
     js_to_value, opaque_value, value_to_js, ConversionPolicy, JsExtensionBridge, JsValueBridge,
 };

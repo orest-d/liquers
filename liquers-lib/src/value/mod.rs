@@ -7,8 +7,13 @@ use std::{borrow::Cow, result::Result, sync::Arc};
 use crate::image::serde::{deserialize_image_from_bytes, serialize_image_to_bytes};
 #[cfg(feature = "polars")]
 use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
-use crate::value::extended::*;
-use crate::value::simple::*;
+// Re-exported, not merely imported. A crate defining its own value type needs these three, and
+// `liquers_lib::value::{CombinedValue, SimpleValue, ValueExtension}` is where it will look for
+// them — reaching into `value::extended` and `value::simple` is an avoidable papercut on the
+// documented extension path. Explicit rather than a glob, so the public surface of this module is
+// visible here.
+pub use crate::value::extended::{CombinedValue, ValueExtension};
+pub use crate::value::simple::SimpleValue;
 use std::io::Cursor;
 
 pub mod extended;
