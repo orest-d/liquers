@@ -83,6 +83,7 @@ and a YAML list in front-matter.
 | `core/assets` | `liquers-core`: `assets.rs`, `dependencies.rs`, `expiration.rs`, `recipes.rs` — asset lifecycle |
 | `core/store` | `liquers-core`: `store.rs`, `cache.rs` — store traits |
 | `core/value` | `liquers-core`: `value.rs`, `state.rs`, `metadata.rs`, `media_type.rs`, `entities.rs` |
+| `core/context` | `liquers-core`: `context.rs` — `Environment`, `EnvRef`, `Context`, `Session` |
 | `core/error` | `liquers-core`: `error.rs` — `Error`, `ErrorType` |
 | `core/validate` | `liquers-core`: `validate/`, the `liquers-validate` binary |
 | `macro` | `liquers-macro` — `register_command!` |

@@ -461,7 +461,7 @@ Comprehensive unit tests for Phase 2 architecture core modules, covering happy p
 
 **Location:** `liquers-axum/src/core/{response,error,format}.rs` (inline `#[cfg(test)]` modules)
 
-**See:** `/home/orest/zlos/rust/liquers/specs/PHASE3-UNIT-TESTS.md` for complete unit test specifications covering:
+**See:** `/home/orest/zlos/rust/liquers/specs/archive/2026-03-02-phase3-unit-tests.md` for complete unit test specifications covering:
 
 ### Test Coverage Overview
 
@@ -1107,10 +1107,10 @@ wrk -t4 -c100 -d30s http://localhost:3000/metrics
 ## References
 
 ### Specifications
-- `specs/WEB_API_SPECIFICATION.md` - Complete API specification
+- `specs/reference/WEB_API_SPECIFICATION.md` - Complete API specification
 - `specs/web-api-library/phase1-high-level-design.md` - Feature design
 - `specs/web-api-library/phase2-architecture.md` - Implementation architecture
-- `specs/PHASE3-UNIT-TESTS.md` - Complete unit test specifications
+- `specs/archive/2026-03-02-phase3-unit-tests.md` - Complete unit test specifications
 
 ### Code Files
 - Examples: `liquers-axum/examples/{basic_server,custom_config,custom_environment}.rs`

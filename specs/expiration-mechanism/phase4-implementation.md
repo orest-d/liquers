@@ -424,7 +424,7 @@ git checkout liquers-macro/src/lib.rs
 **Agent Specification:**
 - **Model:** sonnet
 - **Skills:** rust-best-practices
-- **Knowledge:** `liquers-macro/src/lib.rs` (CommandSignatureStatement ~line 742, Parse impl ~line 753, CommandSpec struct, code generation), Phase 2 macro section, `specs/REGISTER_COMMAND_FSD.md`
+- **Knowledge:** `liquers-macro/src/lib.rs` (CommandSignatureStatement ~line 742, Parse impl ~line 753, CommandSpec struct, code generation), Phase 2 macro section, `specs/reference/REGISTER_COMMAND_FSD.md`
 - **Rationale:** Macro code generation requires understanding of syn/quote patterns and the existing DSL structure
 
 ---
@@ -1107,7 +1107,7 @@ If partially complete but need to pause:
 - Asset expiration: Time-based lifecycle management via `Expires`/`ExpirationTime` in metadata
 ```
 
-### specs/ASSETS.md
+### specs/reference/ASSETS.md
 
 **Update:** Document the expiration lifecycle (Ready → Expired transition, soft expiration model, monitoring).
 

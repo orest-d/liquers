@@ -694,7 +694,7 @@ async fn test_retrack_earlier_deadline_fires_once() {
 }
 
 /// REGRESSION (already-implemented status-aware eviction per
-/// `specs/FEATURES/EXPIRATION-SAFETY.md`): a `Processing` asset whose expiration timer fires must
+/// `specs/archive/EXPIRATION-SAFETY.md`): a `Processing` asset whose expiration timer fires must
 /// NOT be evicted from the manager's map; it completes normally once its gate is released.
 #[tokio::test]
 async fn test_expire_failure_preserves_processing_asset() -> Result<(), Box<dyn std::error::Error>>

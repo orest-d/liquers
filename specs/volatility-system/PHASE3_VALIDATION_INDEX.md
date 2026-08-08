@@ -149,7 +149,7 @@
 ### Priority 3 - Documentation Updates (Important)
 
 **3 Documentation Areas:**
-1. Update `specs/REGISTER_COMMAND_FSD.md` with `volatile:` metadata syntax
+1. Update `specs/reference/REGISTER_COMMAND_FSD.md` with `volatile:` metadata syntax
 2. Document `Query::parse()` vs `parse_query()` usage
 3. Clarify context parameter position requirement (known bug noted in ISSUES.md)
 
@@ -231,7 +231,7 @@ Status: ✅ Comprehensive
 
 **Reference Documents:**
 - `/home/orest/zlos/rust/liquers/CLAUDE.md` - Code conventions
-- `/home/orest/zlos/rust/liquers/specs/PROJECT_OVERVIEW.md` - Query syntax
+- `/home/orest/zlos/rust/liquers/specs/reference/PROJECT_OVERVIEW.md` - Query syntax
 - `/home/orest/zlos/rust/liquers/.claude/projects/.../MEMORY.md` - UI patterns
 - `/home/orest/zlos/rust/liquers/liquers-core/tests/async_hellow_world.rs` - Test patterns
 - Related volatility spec documents (Phase 1, 2 designs)

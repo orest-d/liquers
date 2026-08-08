@@ -51,4 +51,4 @@ New workspace crate **liquers-wf**, depending on `liquers-core`, `liquers-store`
 - `liquers-core/src/store.rs:267` — `AsyncStore` trait; `AsyncMemoryStore` at :501
 - `liquers-core/src/commands.rs:407` — `CommandExecutor` trait
 - `liquers-store/src/config.rs` — `StoreRouterConfig`/`StoreConfig`
-- `specs/PROJECT_OVERVIEW.md`, `specs/ASSETS.md`, `specs/UI_INTERFACE_PHASE1_FSD.md`
+- `specs/reference/PROJECT_OVERVIEW.md`, `specs/reference/ASSETS.md`, `specs/archive/2026-03-02-ui-interface-phase1-fsd.md`

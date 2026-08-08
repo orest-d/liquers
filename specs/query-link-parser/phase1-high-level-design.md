@@ -89,7 +89,7 @@ A deliverable of this feature, not an afterthought:
 1. `liquers-core/src/parse.rs` module docs — delete the "Known link-parser bug" section
    (l. 59-66), add `link-parameter` to the grammar and the entity table, and state the
    embedded-query rule.
-2. `specs/api-docs-analysis/doc-02-query-language-reference.md` — replace the "Link
+2. `specs/reference/api/doc-02-query-language-reference.md` — replace the "Link
    parameters do not parse" limitation and drop the P0 row from the improvement table.
 3. `liquers-core/src/query.rs` — `ActionParameter::Link` doc comment currently says the
    encoded form cannot be parsed (l. 536-540).
@@ -136,4 +136,4 @@ so this is a parser-side gap. No downstream crate signature changes (`liquers-py
 - `liquers-core/src/query.rs` — `ActionParameter::Link`, `encode`, `QueryRenderer`
   (l. 531-644); `Query::encode` (l. 2477); `encode_with_header` (l. 1719, 1898)
 - `liquers-core/src/plan.rs` — `ParameterValue::ParameterLink` construction (l. 615-633)
-- `specs/api-docs-analysis/doc-02-query-language-reference.md` — records the gap as P0
+- `specs/reference/api/doc-02-query-language-reference.md` — records the gap as P0

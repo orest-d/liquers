@@ -705,7 +705,7 @@ cargo test -p liquers-axum --lib recipes::tests -- --nocapture
 
 - **Phase 1:** `/home/orest/zlos/rust/liquers/specs/axum-assets-recipes-api/phase1-high-level-design.md`
 - **Phase 2:** `/home/orest/zlos/rust/liquers/specs/axum-assets-recipes-api/phase2-architecture.md`
-- **WEB_API_SPECIFICATION:** `/home/orest/zlos/rust/liquers/specs/WEB_API_SPECIFICATION.md` (sections 5 & 6)
+- **WEB_API_SPECIFICATION:** `/home/orest/zlos/rust/liquers/specs/reference/WEB_API_SPECIFICATION.md` (sections 5 & 6)
 
 ### Implementation References
 

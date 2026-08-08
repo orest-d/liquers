@@ -83,8 +83,8 @@ No changes to liquers-core, liquers-macro, or liquers-store.
 
 ## References
 
-- `specs/UI_WEB_DESIGN_NOTES.md` — browser DOM rendering sketch (create-once + update, SSR hydration)
-- `specs/UI_INTERFACE_FSD.md` — query-driven, platform-independent UI philosophy
-- `specs/UI_RATATUI_DESIGN_NOTES.md`, `specs/UI_DIOXUS_DESIGN_NOTES.md` — other backend sketches validating the trait
+- `specs/archive/2026-03-02-ui-web-design-notes.md` — browser DOM rendering sketch (create-once + update, SSR hydration)
+- `specs/reference/UI_INTERFACE_FSD.md` — query-driven, platform-independent UI philosophy
+- `specs/archive/2026-03-02-ui-ratatui-design-notes.md`, `specs/archive/2026-03-02-ui-dioxus-design-notes.md` — other backend sketches validating the trait
 - Reference backend: `liquers-lib/src/egui/` and `show_in_egui` in `liquers-lib/src/ui/element.rs`
 - `liquers-lib/src/ui/` — AppState, runner, element, widgets, ui_context (framework-agnostic core)

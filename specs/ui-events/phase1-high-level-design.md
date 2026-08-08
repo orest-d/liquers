@@ -201,5 +201,5 @@ adopted, keeping `liquers-py` and `liquers-axum` out of the blast radius.
   feature was split out of
 - `specs/archive/2026-08-08-issues.md` — W1, W2, W5 records
 - `specs/value-accessor/phase1-high-level-design.md` — the binding layer this composes with
-- `specs/UI_INTERFACE_FSD.md`, `specs/UI_WEB_DESIGN_NOTES.md`, `specs/UI_RATATUI_DESIGN_NOTES.md`
+- `specs/reference/UI_INTERFACE_FSD.md`, `specs/archive/2026-03-02-ui-web-design-notes.md`, `specs/archive/2026-03-02-ui-ratatui-design-notes.md`
 - `liquers-lib/src/ui/{element,action,runner,shortcuts}.rs`, `liquers-lib/src/ui/web/app.rs`

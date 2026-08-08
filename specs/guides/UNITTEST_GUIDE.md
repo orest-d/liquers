@@ -1,3 +1,10 @@
+---
+title: Unit Testing Guide
+kind: guide
+audience: internal
+area: [build]
+reviewed: 2026-03-02
+---
 # Liquers Unit Testing Guide
 
 This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluation, and result verification.
@@ -744,7 +751,13 @@ async fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 ## See Also
 
-- [Command Registration Guide](specs/COMMAND_REGISTRATION_GUIDE.md)
-- [Project Overview](specs/PROJECT_OVERVIEW.md)
-- [Polars Command Library](specs/POLARS_COMMAND_LIBRARY.md)
+- [Command Registration Guide](specs/guides/COMMAND_REGISTRATION_GUIDE.md)
+- [Project Overview](specs/reference/PROJECT_OVERVIEW.md)
+- [Polars Command Library](specs/reference/POLARS_COMMAND_LIBRARY.md)
 - [Claude Development Guide](CLAUDE.md)
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

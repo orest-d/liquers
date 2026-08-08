@@ -249,7 +249,7 @@ The example demonstrates:
 
 ## Integration with Assets API
 
-The WebSocket endpoint integrates with the full Assets API specification (see `specs/WEB_API_SPECIFICATION.md` section 5.2):
+The WebSocket endpoint integrates with the full Assets API specification (see `specs/reference/WEB_API_SPECIFICATION.md` section 5.2):
 
 - **WebSocket Path**: `/liquer/ws/assets/{*query}`
 - **Initial Message**: Asset status and metadata
@@ -342,9 +342,9 @@ For the example to work, the following dev-dependencies were added:
 ## References
 
 - **Phase 2 Architecture**: See `specs/axum-assets-recipes-api/phase2-architecture.md`
-- **WebSocket Specification**: See `specs/WEB_API_SPECIFICATION.md` section 5.2
-- **Asset Lifecycle**: See `specs/PROJECT_OVERVIEW.md` asset status states
-- **Format Negotiation**: See `specs/WEB_API_SPECIFICATION.md` section 4.1.13
+- **WebSocket Specification**: See `specs/reference/WEB_API_SPECIFICATION.md` section 5.2
+- **Asset Lifecycle**: See `specs/reference/PROJECT_OVERVIEW.md` asset status states
+- **Format Negotiation**: See `specs/reference/WEB_API_SPECIFICATION.md` section 4.1.13
 
 ## Future Enhancements
 

@@ -265,8 +265,8 @@ convention-driven test authoring.
 
 ### Step 9: Documentation updates
 
-**Files:** `specs/DEPENDENCIES_STATUS.md` (document truthful `Processing → Dependencies →
-Processing` wait flow; "no extra waiting status"), `specs/PROJECT_OVERVIEW.md` (asset
+**Files:** `specs/reference/DEPENDENCIES_STATUS.md` (document truthful `Processing → Dependencies →
+Processing` wait flow; "no extra waiting status"), `specs/reference/PROJECT_OVERVIEW.md` (asset
 scheduling/lifecycle: non-blocking dependency evaluation, local queues, run-claim).
 CLAUDE.md needs no change (no new conventions). Update DESIGN.md status → Phase 4 approved.
 
@@ -336,8 +336,8 @@ default arm, typed `Error` constructors, async-first, `#[async_trait]`).
 
 ## Documentation Updates
 
-- `specs/DEPENDENCIES_STATUS.md` — the wait status flow (Step 9).
-- `specs/PROJECT_OVERVIEW.md` — non-blocking dependency scheduling in the asset lifecycle
+- `specs/reference/DEPENDENCIES_STATUS.md` — the wait status flow (Step 9).
+- `specs/reference/PROJECT_OVERVIEW.md` — non-blocking dependency scheduling in the asset lifecycle
   (Step 9); required because a core asset concept changes (CLAUDE.md "update
   PROJECT_OVERVIEW if core concepts change").
 - `specs/dependency-scheduling/DESIGN.md` — mark Phase 4 approved / implementation status.

@@ -18,8 +18,8 @@ github:
 Focus: remove known runtime gaps (dependency handling, delegation deadlock risk, metadata consistency), reduce duplication, and finalize incomplete API paths.
 
 Related feature split:
-- Expiration timing/race safety concerns are now tracked under [EXPIRATION-SAFETY.md](/home/orest/zlos/rust/liquers/specs/FEATURES/EXPIRATION-SAFETY.md).
-- Scheduler/runtime robustness for dependency delegation is now tracked under [SCHEDULER-IMPROVEMENTS.md](/home/orest/zlos/rust/liquers/specs/FEATURES/SCHEDULER-IMPROVEMENTS.md).
+- Expiration timing/race safety concerns are now tracked under [EXPIRATION-SAFETY.md](/home/orest/zlos/rust/liquers/specs/archive/EXPIRATION-SAFETY.md).
+- Scheduler/runtime robustness for dependency delegation is now tracked under [SCHEDULER-IMPROVEMENTS.md](/home/orest/zlos/rust/liquers/specs/archive/SCHEDULER-IMPROVEMENTS.md).
 
 
 ## Inventory (assets.rs)

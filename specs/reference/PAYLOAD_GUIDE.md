@@ -1,3 +1,10 @@
+---
+title: Payload Specification and Usage
+kind: reference
+audience: internal
+area: [core/context, core/commands]
+reviewed: 2026-08-01
+---
 # Payload Usage Guide
 
 ## Quick Start
@@ -1175,5 +1182,11 @@ When creating a newtype for injection:
 *See also:*
 - `liquers-core/src/context.rs` - Context and Environment definitions
 - `liquers-core/src/assets.rs` - Asset evaluation with payload
-- `specs/COMMAND_REGISTRATION_GUIDE.md` - Command registration patterns
-- `specs/PROJECT_OVERVIEW.md` - Architecture overview
+- `specs/guides/COMMAND_REGISTRATION_GUIDE.md` - Command registration patterns
+- `specs/reference/PROJECT_OVERVIEW.md` - Architecture overview
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-01 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

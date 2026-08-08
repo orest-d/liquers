@@ -157,4 +157,4 @@ field. Separate ergonomic `get`, `AssetOutcome`, `poll_outcome`, and a separate
 - Code: `assets.rs` `poll_state` (:596), `get` (:1990), `finish_run_with_result` (:1326/:1359),
   `poll_state` error arm (:612); `state.rs` `from_error`/`error_result`/`is_error`;
   `metadata.rs` `with_error` (:1050), `error_result` (:1192), `error_data` field (:795)
-- `specs/ASSETS.md` (Terminal outcome contract section to be added)
+- `specs/reference/ASSETS.md` (Terminal outcome contract section to be added)

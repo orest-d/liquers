@@ -1,3 +1,10 @@
+---
+title: Asset Set Operation Specification
+kind: reference
+audience: internal
+area: [core/assets]
+reviewed: 2026-08-08
+---
 # Asset Set Operation Specification
 
 ## Overview
@@ -338,3 +345,9 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 - Status enum: `liquers-core/src/metadata.rs`
 - Error types: `liquers-core/src/error.rs`
 - Issues: `specs/issues/`
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

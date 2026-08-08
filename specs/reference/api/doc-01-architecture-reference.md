@@ -29,7 +29,7 @@ Before DOC-01, the root `README.md` contained only:
 Next-gen Liquer Framework
 ```
 
-The substantive overview was available only in `specs/PROJECT_OVERVIEW.md` and
+The substantive overview was available only in `specs/reference/PROJECT_OVERVIEW.md` and
 development instructions. There was no canonical index mapping concepts to public
 modules and types. The available documents also did not clearly distinguish:
 
@@ -187,8 +187,8 @@ application should not be added to DOC-01.
 - `README.md`
 - `liquers-core/examples/hello_world.rs`
 - `liquers-core/src/lib.rs`
-- `specs/api-docs-analysis/doc-01-architecture-reference.md`
-- `specs/api-docs-analysis/README.md`
+- `specs/reference/api/doc-01-architecture-reference.md`
+- `specs/archive/2026-03-02-api-docs-gap-analysis.md`
 
 ## Verification
 

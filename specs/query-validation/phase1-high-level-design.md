@@ -135,4 +135,4 @@ selected command groups, and dumps `CommandRegistry::command_metadata_registry`.
 - `liquers-core/src/commands.rs` (`CommandRegistry::command_metadata_registry`, public)
 - `liquers-lib/src/commands.rs` (`register_all_commands!`), `liquers-lib/src/ui/payload.rs`
   (`SimpleUIPayload`, needed for the `lui` group)
-- `specs/PROJECT_OVERVIEW.md`, `specs/REGISTER_COMMAND_FSD.md`
+- `specs/reference/PROJECT_OVERVIEW.md`, `specs/reference/REGISTER_COMMAND_FSD.md`

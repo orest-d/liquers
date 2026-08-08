@@ -6,7 +6,7 @@ Payload Inheritance in Nested Evaluation (resolves ISSUES.md: PAYLOAD-NESTED-EVA
 
 ## Purpose
 
-`specs/PAYLOAD_GUIDE.md` and `specs/PROJECT_OVERVIEW.md` promise that nested evaluations inherit
+`specs/reference/PAYLOAD_GUIDE.md` and `specs/reference/PROJECT_OVERVIEW.md` promise that nested evaluations inherit
 the parent's payload, but `Context::evaluate` / `get_dependency_state` / `apply` schedule through the
 `AssetManager` without forwarding `Context::payload` (proven by
 `test_payload_not_inherited_in_nested_evaluation`). This feature **implements inheritance** with a
@@ -72,7 +72,7 @@ Not touched. `liquers-axum` benefits indirectly (request-scoped payload reaches 
 `src/assets.rs` (payload-bearing evaluation path). `liquers-macro` for the command-level metadata
 statement (D2). `liquers-lib/src/ui/commands.rs` for annotating existing payload-using commands.
 Docs to update:
-`specs/PAYLOAD_GUIDE.md`, `specs/PROJECT_OVERVIEW.md`, `liquers_core::context` rustdoc, and the
+`specs/reference/PAYLOAD_GUIDE.md`, `specs/reference/PROJECT_OVERVIEW.md`, `liquers_core::context` rustdoc, and the
 existing non-inheritance test (which becomes an inheritance test).
 
 ## Open Questions
@@ -614,7 +614,7 @@ design.
 ## References
 
 - `specs/archive/2026-08-08-issues.md` — Issue: PAYLOAD-NESTED-EVALUATION-INHERITANCE
-- `specs/PAYLOAD_GUIDE.md`, `specs/PROJECT_OVERVIEW.md` (claims this change makes true)
+- `specs/reference/PAYLOAD_GUIDE.md`, `specs/reference/PROJECT_OVERVIEW.md` (claims this change makes true)
 - `liquers-core/src/context.rs:76-80, 448-474` (payload doc + nested-evaluation methods)
 - `liquers-core/src/assets.rs:2630-2714` (`AssetManager`: `get_dependency_asset`, `apply`, `apply_immediately`)
 - `liquers-core/src/plan.rs:1353-1380, 1424-1427` (`Plan::is_volatile` — precedent for `requires_payload`)

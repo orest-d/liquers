@@ -645,7 +645,7 @@ a limitation note.
 |---|---|
 | `liquers-core/src/parse.rs` module docs | delete "Known link-parser bug"; add the `link-parameter` grammar, the entity-table clarification, and the shorthand rule |
 | `liquers-core/src/query.rs` | `ActionParameter::Link` doc comment |
-| `specs/api-docs-analysis/doc-02-query-language-reference.md` | see the per-section breakdown below |
+| `specs/reference/api/doc-02-query-language-reference.md` | see the per-section breakdown below |
 | `specs/archive/2026-08-08-issues.md` | mark `QUERY-ACTION-PARAMETER-LINK-PARSER` resolved |
 
 ### `parse.rs` module docs — required edits
@@ -671,7 +671,7 @@ a limitation note.
 
 ### doc-02 (API reference) — required edits, per section
 
-This file has its own factual-verification policy (`specs/api-docs-analysis/README.md`),
+This file has its own factual-verification policy (`specs/archive/2026-03-02-api-docs-gap-analysis.md`),
 so each claim below must be backed by a test or by source, and the `## Verification`
 section updated with what was run.
 

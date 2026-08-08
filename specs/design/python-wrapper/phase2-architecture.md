@@ -2,7 +2,7 @@
 
 Status: Draft  
 Date: 2026-02-26  
-Supersedes detail level in: `specs/PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md`
+Supersedes detail level in: `specs/design/python-wrapper/phase1-high-level-design.md`
 
 ## 1. Scope and Direction
 

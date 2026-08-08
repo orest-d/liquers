@@ -7,9 +7,9 @@ storage.
 
 > [!NOTE]
 > The workspace is currently at version `0.1.0` and its public API is evolving.
-> Documents under `specs/` may describe current behavior, proposed behavior, or
-> implementation history. The Rust public API and its tests are the authoritative
-> reference when a specification has no explicit status.
+> `specs/reference/` describes how the system is now, `specs/design/` why it was built that
+> way, and `specs/archive/` what was true on a date. The Rust public API and its tests
+> remain authoritative where they disagree with any of them.
 
 ## API reference
 
@@ -34,14 +34,14 @@ Current supporting references:
 
 | Subject | Reference |
 |---|---|
-| Architecture and terminology | [Project overview](specs/PROJECT_OVERVIEW.md) |
-| Command registration API | [Command registration guide](specs/COMMAND_REGISTRATION_GUIDE.md) |
-| Asset model and lifecycle | [Assets specification](specs/ASSETS.md), [lifecycle map](specs/ASSET_LIFECYCLE.md) |
-| Store configuration | [Store configuration specification](specs/STORE_CONFIG_FSD.md) |
-| HTTP surface | [Axum reference](liquers-axum/README.md), [web API specification](specs/WEB_API_SPECIFICATION.md) |
-| Polars commands | [Polars command library](specs/POLARS_COMMAND_LIBRARY.md) |
-| Image commands | [Image command library](specs/IMAGE_COMMAND_LIBRARY.md) |
-| Documentation gaps and progress | [API documentation analysis](specs/api-docs-analysis/README.md) |
+| Architecture and terminology | [Project overview](specs/reference/PROJECT_OVERVIEW.md) |
+| Command registration API | [Command registration guide](specs/guides/COMMAND_REGISTRATION_GUIDE.md) |
+| Asset model and lifecycle | [Assets specification](specs/reference/ASSETS.md), [lifecycle map](specs/reference/ASSET_LIFECYCLE.md) |
+| Store configuration | [Store configuration specification](specs/reference/STORE_CONFIG_FSD.md) |
+| HTTP surface | [Axum reference](liquers-axum/README.md), [web API specification](specs/reference/WEB_API_SPECIFICATION.md) |
+| Polars commands | [Polars command library](specs/reference/POLARS_COMMAND_LIBRARY.md) |
+| Image commands | [Image command library](specs/reference/IMAGE_COMMAND_LIBRARY.md) |
+| Documentation gaps and progress | [API documentation analysis](specs/archive/2026-03-02-api-docs-gap-analysis.md) |
 
 ## Workspace API surface
 

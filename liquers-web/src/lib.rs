@@ -1,7 +1,7 @@
 //! Browser/JavaScript integration of Liquers, compiled to WebAssembly.
 //!
 //! This crate is the `wasm32` half of the language integration described in
-//! `specs/LANGUAGE-INTEGRATION_GUIDE.md`. A page constructs an environment, evaluates queries as
+//! `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`. A page constructs an environment, evaluates queries as
 //! `Promise`s, and registers commands written in JavaScript.
 //!
 //! # Target

@@ -180,8 +180,8 @@ Runtime errors:
 2. Generate `ArgumentType::Enum` / `ArgumentType::GlobalEnum` metadata.
 3. Add runtime alias expansion + validation path in generated extractor code.
 4. Add docs/examples in:
-   - `specs/REGISTER_COMMAND_FSD.md`
-   - `specs/COMMAND_REGISTRATION_GUIDE.md`
+   - `specs/reference/REGISTER_COMMAND_FSD.md`
+   - `specs/guides/COMMAND_REGISTRATION_GUIDE.md`
 5. Add tests:
    - parser unit tests
    - expansion codegen tests

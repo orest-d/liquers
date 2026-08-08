@@ -89,8 +89,8 @@ Add one command registration/execution test where `context` is in middle and com
 
 Update these docs after implementation:
 
-- `specs/REGISTER_COMMAND_FSD.md`
-- `specs/COMMAND_REGISTRATION_GUIDE.md`
+- `specs/reference/REGISTER_COMMAND_FSD.md`
+- `specs/guides/COMMAND_REGISTRATION_GUIDE.md`
 
 ### Suggested wording
 

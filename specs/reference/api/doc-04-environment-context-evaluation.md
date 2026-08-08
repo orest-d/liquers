@@ -32,9 +32,9 @@ Claims were verified in this order:
 4. [`liquers-core/src/commands.rs`](../../liquers-core/src/commands.rs)
 5. [`liquers-lib/src/environment.rs`](../../liquers-lib/src/environment.rs)
 6. Core manager, dependency-scheduling, injection, expiration, and volatility tests
-7. [`specs/PAYLOAD_GUIDE.md`](../PAYLOAD_GUIDE.md),
-   [`specs/PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md), and
-   [`specs/ASSET_LIFECYCLE.md`](../ASSET_LIFECYCLE.md) as supplementary design and
+7. [`specs/reference/PAYLOAD_GUIDE.md`](../PAYLOAD_GUIDE.md),
+   [`specs/reference/PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md), and
+   [`specs/reference/ASSET_LIFECYCLE.md`](../ASSET_LIFECYCLE.md) as supplementary design and
    historical material
 
 Source and executable tests take precedence where the supplementary documents

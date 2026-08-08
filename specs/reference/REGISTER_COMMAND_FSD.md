@@ -1,3 +1,10 @@
+---
+title: register_command! Macro Functional Specification
+kind: reference
+audience: internal
+area: [macro, core/commands]
+reviewed: 2026-03-02
+---
 # register_command! Macro Functional Specification
 
 ## Overview
@@ -528,3 +535,9 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 ---
 
 *Last updated: 2025-01-18*
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

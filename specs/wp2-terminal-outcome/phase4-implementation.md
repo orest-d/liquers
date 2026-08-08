@@ -295,7 +295,7 @@ element flow, py bindings · Rationale: cross-crate; py exception mapping is a r
 
 ### Step 10: Documentation
 
-**Files:** `specs/ASSETS.md`, `specs/archive/2026-08-08-issues.md`, `specs/wp2-terminal-outcome/DESIGN.md`.
+**Files:** `specs/reference/ASSETS.md`, `specs/archive/2026-08-08-issues.md`, `specs/wp2-terminal-outcome/DESIGN.md`.
 
 **Action:** Add "Terminal outcome contract" section to `ASSETS.md` (value-XOR-error, single `get()`,
 cancelled-is-a-status, re-eval policy, dependency composition). Update
@@ -368,10 +368,10 @@ policy). Branch-level rollback: `git reset --hard <pre-WP2-commit>`.
 
 ## Documentation Updates
 
-- `specs/ASSETS.md`: new "Terminal outcome contract" section (Step 10).
+- `specs/reference/ASSETS.md`: new "Terminal outcome contract" section (Step 10).
 - `specs/archive/2026-08-08-issues.md`: `ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS` → resolved with policy matrix.
 - `CLAUDE.md`: no change required (no new error type/struct; one enum variant).
-- `specs/PROJECT_OVERVIEW.md`: touch only if the layer-2/3 (`State`/`Asset`) description needs the
+- `specs/reference/PROJECT_OVERVIEW.md`: touch only if the layer-2/3 (`State`/`Asset`) description needs the
   value-XOR-error invariant spelled out — check during Step 10.
 
 ## Inline Critical Review (stands in for 4-haiku/1-opus)

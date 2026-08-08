@@ -7,7 +7,7 @@ in JavaScript. Those commands compose with the built-in Rust ones in a single qu
 command's result is converted structurally, so `myCommand/to_text` works.
 
 Design documents: [`specs/liquers-web/`](../specs/liquers-web/). The integration follows
-[`specs/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/LANGUAGE-INTEGRATION_GUIDE.md).
+[`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md).
 
 ## Quick start
 

@@ -14,8 +14,8 @@ Implement Issue 10 (`ENUM-ARGUMENT-TYPE`) by extending `register_command!` DSL a
 - Macro/parser and codegen changes in `liquers-macro/src/lib.rs`.
 - Supporting enum resolution/validation path in command argument extraction flow (wrapper-generated or core helper).
 - Updated docs:
-  - `specs/REGISTER_COMMAND_FSD.md`
-  - `specs/COMMAND_REGISTRATION_GUIDE.md`
+  - `specs/reference/REGISTER_COMMAND_FSD.md`
+  - `specs/guides/COMMAND_REGISTRATION_GUIDE.md`
 - Tests in `liquers-macro` and `liquers-core`.
 
 ## Phase 1: DSL and Parser Model
@@ -106,7 +106,7 @@ Implement Issue 10 (`ENUM-ARGUMENT-TYPE`) by extending `register_command!` DSL a
 
 ## Phase 5: Documentation Updates
 
-### 5.1 Update `specs/REGISTER_COMMAND_FSD.md`
+### 5.1 Update `specs/reference/REGISTER_COMMAND_FSD.md`
 Add or revise sections:
 - **Command Parameters / Syntax**:
   - add `enum` and `enum_ref` in parameter metadata grammar
@@ -127,7 +127,7 @@ Add or revise sections:
   - integer quality preset enum
   - global enum reference example
 
-### 5.2 Update `specs/COMMAND_REGISTRATION_GUIDE.md`
+### 5.2 Update `specs/guides/COMMAND_REGISTRATION_GUIDE.md`
 Add practical examples and guidance:
 - **New subsection: Enum Parameters**
   - common inline string enum
@@ -151,7 +151,7 @@ Add practical examples and guidance:
 - Metadata introspection exposes correct enum alternatives/type/others flag.
 - Runtime uses alias expansion and respects `others_allowed` behavior.
 - Existing commands compile and run unchanged.
-- `specs/REGISTER_COMMAND_FSD.md` and `specs/COMMAND_REGISTRATION_GUIDE.md` document the new syntax and examples.
+- `specs/reference/REGISTER_COMMAND_FSD.md` and `specs/guides/COMMAND_REGISTRATION_GUIDE.md` document the new syntax and examples.
 - New tests pass.
 
 ## Risks and Mitigations

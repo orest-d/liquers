@@ -1,3 +1,10 @@
+---
+title: Liquers Project Overview
+kind: reference
+audience: internal
+area: [core/query, core/plan, core/assets, core/store, core/value]
+reviewed: 2026-08-08
+---
 # Liquers Project Overview
 
 ## Executive Summary
@@ -409,3 +416,9 @@ Session (user session - currently minimal)
 ---
 
 *Last updated: 2026-01-18*
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

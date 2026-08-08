@@ -403,7 +403,7 @@ Rationale: judgment on any surfaced issue.
 
 ### Step 17: Docs
 
-**Files:** `CLAUDE.md`, `specs/webui/DESIGN.md`, optionally `specs/PROJECT_OVERVIEW.md`
+**Files:** `CLAUDE.md`, `specs/webui/DESIGN.md`, optionally `specs/reference/PROJECT_OVERVIEW.md`
 
 **Action:** note the `egui`/`webui` features + the two rendering methods in CLAUDE.md's UI section;
 mark webui phases complete in `DESIGN.md`; cross-link `UI_WEB_DESIGN_NOTES.md`. No core-concept change

@@ -1,3 +1,10 @@
+---
+title: Language Integration Guide
+kind: guide
+audience: internal
+area: [web, py, core/commands]
+reviewed: 2026-08-08
+---
 # Liquers Language Integration Guide
 
 Status: Draft  
@@ -1970,3 +1977,9 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
     assert any("LICENSE" in n for n in names)
     assert artifact_metadata(built_artifact())["requires_python"] is not None
 ```
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

@@ -422,7 +422,7 @@ feature working through a real entry point, and they exercise the D6 message end
 
 Phase 2 made documentation a deliverable across four targets. Three of them are prose and
 would otherwise ship unverified, which matters most for `doc-02` — that folder carries a
-**factual-verification policy** (`specs/api-docs-analysis/README.md`) requiring every
+**factual-verification policy** (`specs/archive/2026-03-02-api-docs-gap-analysis.md`) requiring every
 API-reference claim to be backed by source or a test, and its `## Verification` section to
 record what was run. Phase 3 therefore owns making the docs checkable:
 

@@ -1,3 +1,10 @@
+---
+title: UI Interface Specification
+kind: reference
+audience: internal
+area: [lib/ui]
+reviewed: 2026-03-02
+---
 # UI Interface Specification
 
 ## Overview
@@ -674,3 +681,9 @@ Candidate universal operations identified across use cases:
 1. Should `Context.app_state` be `Option` (UI-only) or always present?
 2. How to handle widget state updates (polling vs events)?
 3. Do we need standard widget types or fully platform-specific?
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

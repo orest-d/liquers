@@ -120,7 +120,7 @@ unnoticed. Consolidating both directions into `entities.rs` — one table, one e
 one round-trip test — is the natural fix.
 
 Item 1 and item 3 are grammar changes and affect the encoding description in
-`specs/PROJECT_OVERVIEW.md`.
+`specs/reference/PROJECT_OVERVIEW.md`.
 
 ## Related code
 
@@ -133,7 +133,7 @@ Item 1 and item 3 are grammar changes and affect the encoding description in
 | `liquers-core/src/parse.rs:386` | the `entities` combinator — **the extension point** |
 | `liquers-core/src/query.rs:503` | `encode_token`, the encoder half |
 | `liquers-core/src/query.rs:609-646` | `Query` encoding paths that depend on it |
-| `specs/PROJECT_OVERVIEW.md` | documents query encoding; needs updating with the outcome |
+| `specs/reference/PROJECT_OVERVIEW.md` | documents query encoding; needs updating with the outcome |
 
 ## Discovery
 

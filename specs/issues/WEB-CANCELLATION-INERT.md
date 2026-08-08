@@ -79,7 +79,7 @@ it inline in exactly that case. Either:
 
 The first is smaller and the second is safer. Either touches the shared `AssetRef::get` path or the
 `AssetRef` type, and changes *when* evaluation happens in a documented lifecycle
-(`specs/ASSETS.md`) — which is why this is a `liquers-designer` task rather than a patch, and why
+(`specs/reference/ASSETS.md`) — which is why this is a `liquers-designer` task rather than a patch, and why
 it was not folded into `specs/liquers-web` M6.
 
 **Blast radius of the semantic change**, for whoever picks it up: `get_asset` currently guarantees

@@ -509,7 +509,7 @@ suggest a design flaw, stop and return to Phase 2/3 rather than patching around 
 
 ### Step 7: Close out specs
 
-**File:** `specs/FEATURES/EXPIRATION-SAFETY.md`, `specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`,
+**File:** `specs/archive/EXPIRATION-SAFETY.md`, `specs/archive/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`,
 `specs/expiration-safety/DESIGN.md`
 
 **Action:**
@@ -526,13 +526,13 @@ suggest a design flaw, stop and return to Phase 2/3 rather than patching around 
 
 **Validation:**
 ```bash
-git diff specs/FEATURES/EXPIRATION-SAFETY.md specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md specs/expiration-safety/DESIGN.md
+git diff specs/archive/EXPIRATION-SAFETY.md specs/archive/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md specs/expiration-safety/DESIGN.md
 # Expected: status fields updated, no other content regressions
 ```
 
 **Rollback:**
 ```bash
-git checkout specs/FEATURES/EXPIRATION-SAFETY.md specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md specs/expiration-safety/DESIGN.md
+git checkout specs/archive/EXPIRATION-SAFETY.md specs/archive/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md specs/expiration-safety/DESIGN.md
 ```
 
 **Agent Specification:**
@@ -636,10 +636,10 @@ fields).
 ### Full Feature Rollback
 ```bash
 git diff main -- liquers-core/src/assets.rs liquers-core/tests/expiration_integration.rs \
-  specs/FEATURES/EXPIRATION-SAFETY.md specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md \
+  specs/archive/EXPIRATION-SAFETY.md specs/archive/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md \
   specs/expiration-safety/DESIGN.md
 git checkout main -- liquers-core/src/assets.rs liquers-core/tests/expiration_integration.rs \
-  specs/FEATURES/EXPIRATION-SAFETY.md specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md \
+  specs/archive/EXPIRATION-SAFETY.md specs/archive/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md \
   specs/expiration-safety/DESIGN.md
 ```
 No new files are created by this WP (all changes are to existing files), and no `Cargo.toml`
@@ -678,7 +678,7 @@ for merge-adjacent content before adding.
 **No updates needed** — internal library-correctness fix, not a new user-facing feature to
 advertise.
 
-### specs/FEATURES/EXPIRATION-SAFETY.md and EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md
+### specs/archive/EXPIRATION-SAFETY.md and EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md
 Covered by Step 7 above.
 
 ## Execution Options

@@ -67,7 +67,7 @@ mechanics, no rich types. `cargo check -p liquers-py` guards binding compatibili
 ## References
 
 - `plan20260707.md` WP-1 (F-1, F-7); `review20260707.md` §3.1
-- `specs/FEATURES/ASSETS-FIX1.md` issue #17 (deadlock walkthrough)
-- `specs/FEATURES/SCHEDULER-IMPROVEMENTS.md`, `specs/DEPENDENCIES_STATUS.md`
-- `specs/JOBQUEUE_FIX.md`, `specs/dependency-management/DESIGN.md`
+- `specs/issues/ASSETS-FIX1.md` issue #17 (deadlock walkthrough)
+- `specs/archive/SCHEDULER-IMPROVEMENTS.md`, `specs/reference/DEPENDENCIES_STATUS.md`
+- `specs/archive/2026-03-02-jobqueue-fix.md`, `specs/dependency-management/DESIGN.md`
 - Design research and decisions: plan session 2026-07-14 (approved plan)

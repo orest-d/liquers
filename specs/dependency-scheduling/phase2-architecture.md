@@ -660,7 +660,7 @@ non-blocking behavior. (User confirmation requested at the Phase 2 gate.)
 
 None added or changed. Observable difference for API/UI consumers: the status flow
 `Processing → Dependencies → Processing` while an asset waits for a dependency
-(documented in the `specs/DEPENDENCIES_STATUS.md` update).
+(documented in the `specs/reference/DEPENDENCIES_STATUS.md` update).
 
 ## Error Handling
 

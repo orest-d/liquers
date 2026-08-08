@@ -48,9 +48,9 @@ Rationale:
 - `specs/archive/2026-08-08-issues.md` Issue 8 text:
   - replace `Value::List` with `Value::Array`
   - note that `children`/`roots` are changed in-place to return arrays
-- `specs/UI_INTERFACE_PHASE1_FSD.md` command table:
+- `specs/archive/2026-03-02-ui-interface-phase1-fsd.md` command table:
   - update `children` / `roots` return type from `comma-separated handles` to `array of handles (integers)`
-- `specs/COMMAND_REGISTRATION_GUIDE.md` (if examples include `lui` navigation return forms)
+- `specs/guides/COMMAND_REGISTRATION_GUIDE.md` (if examples include `lui` navigation return forms)
 
 ## Test Plan
 

@@ -1,3 +1,10 @@
+---
+title: Polars Command Library Specification
+kind: reference
+audience: internal
+area: [lib/polars]
+reviewed: 2026-03-02
+---
 # Polars Command Library Specification
 
 ## Table of Contents
@@ -816,6 +823,12 @@ To minimize dependencies and enable incremental testing:
 
 - [Polars DataFrame Docs](https://docs.rs/polars/latest/polars/frame/struct.DataFrame.html)
 - [Polars Prelude](https://docs.rs/polars/latest/polars/prelude/index.html)
-- `specs/COMMAND_REGISTRATION_GUIDE.md` - How to register these commands
+- `specs/guides/COMMAND_REGISTRATION_GUIDE.md` - How to register these commands
 - `CLAUDE.md` - Architecture and module organization
 - `PROJECT_OVERVIEW.md` - Liquers query language design
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

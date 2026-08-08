@@ -50,7 +50,7 @@ No changes to liquers-core (AssetRef and notification infrastructure already exi
 
 ## References
 
-- `specs/UI_INTERFACE_PHASE1_FSD.md` - UIElement trait and AppState design
+- `specs/archive/2026-03-02-ui-interface-phase1-fsd.md` - UIElement trait and AppState design
 - `liquers-lib/src/ui/element.rs` - existing UIElement implementations (AssetViewElement, StateViewElement)
 - `liquers-lib/src/egui/widgets.rs` - `edit_query()` syntax highlighting function
 - `liquers-core/src/command_metadata.rs` - `CommandPreset` and `CommandMetadata.next` field

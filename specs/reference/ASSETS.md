@@ -1,3 +1,10 @@
+---
+title: Assets Specification
+kind: reference
+audience: internal
+area: [core/assets]
+reviewed: 2026-07-17
+---
 # Assets Specification
 
 ## Overview
@@ -595,12 +602,12 @@ The following issues were identified and resolved through discussion:
 ### 1. JobQueue Bug (RESOLVED - needs fix)
 **Problem**: Line 1858 in `assets.rs` has buggy logic that removes assets immediately after adding them.
 
-**Resolution**: This is a bug. See `specs/JOBQUEUE_FIX.md` for the fix specification.
+**Resolution**: This is a bug. See `specs/archive/2026-03-02-jobqueue-fix.md` for the fix specification.
 
 ### 2. Dependencies Status (RESOLVED - needs implementation)
 **Problem**: Dependencies status exists but is never set.
 
-**Resolution**: The interpreter should set this status when waiting for dependencies. See `specs/DEPENDENCIES_STATUS.md` for implementation spec.
+**Resolution**: The interpreter should set this status when waiting for dependencies. See `specs/reference/DEPENDENCIES_STATUS.md` for implementation spec.
 
 ### 3. Cancel → Set Path (RESOLVED)
 **Problem**: What status path for set() on Processing asset?
@@ -736,7 +743,13 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 - Implementation: `liquers-core/src/assets.rs`
 - Metadata/Status: `liquers-core/src/metadata.rs`
-- Set Operation Spec: `specs/ASSET_SET_OPERATION.md`
-- JobQueue Fix Spec: `specs/JOBQUEUE_FIX.md`
-- Dependencies Spec: `specs/DEPENDENCIES_STATUS.md`
+- Set Operation Spec: `specs/reference/ASSET_SET_OPERATION.md`
+- JobQueue Fix Spec: `specs/archive/2026-03-02-jobqueue-fix.md`
+- Dependencies Spec: `specs/reference/DEPENDENCIES_STATUS.md`
 - Store interface: `liquers-core/src/store.rs`
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-07-17 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

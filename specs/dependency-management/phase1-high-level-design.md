@@ -79,5 +79,5 @@ None — all design questions resolved.
 - `liquers-core/src/dependencies.rs` — current skeletal `DependencyManagerImpl`
 - `liquers-core/src/plan.rs` — `find_dependencies()` pre-execution analysis
 - `liquers-core/src/metadata.rs` — `MetadataRecord`, `Status`
-- `specs/ASSETS.md` — asset lifecycle
-- `specs/todo20260219.md` — `CORE-ASSETS-RECIPE-DELEGATION-DEADLOCK`
+- `specs/reference/ASSETS.md` — asset lifecycle
+- `specs/archive/2026-02-19-todo-audit.md` — `CORE-ASSETS-RECIPE-DELEGATION-DEADLOCK`

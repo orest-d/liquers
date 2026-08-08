@@ -32,8 +32,8 @@ Claims were verified in this order:
 3. [`liquers-core/src/metadata.rs`](../../liquers-core/src/metadata.rs)
 4. [`liquers-core/src/interpreter.rs`](../../liquers-core/src/interpreter.rs)
 5. Asset, expiration, and failure tests under `liquers-core`
-6. [`specs/ASSETS.md`](../ASSETS.md) and
-   [`specs/ASSET_LIFECYCLE.md`](../ASSET_LIFECYCLE.md) as supplementary design and
+6. [`specs/reference/ASSETS.md`](../ASSETS.md) and
+   [`specs/reference/ASSET_LIFECYCLE.md`](../ASSET_LIFECYCLE.md) as supplementary design and
    historical material
 
 The two existing specifications are not authoritative API references. They contain

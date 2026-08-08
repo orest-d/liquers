@@ -80,7 +80,7 @@
   - **Question:** Are they aliases? Different behavior?
 
 - [ ] **register_command! 'volatile:' metadata:** Update DSL documentation
-  - **Action:** Add to specs/REGISTER_COMMAND_FSD.md
+  - **Action:** Add to specs/reference/REGISTER_COMMAND_FSD.md
   - **Syntax:** `volatile: true | false`
 
 - [ ] **Context parameter position:** Clarify last-parameter requirement
@@ -154,8 +154,8 @@
 - [ ] Check for missing helper functions
 
 **Documentation Phase (1 day):**
-- [ ] Update specs/REGISTER_COMMAND_FSD.md with volatile metadata
-- [ ] Update specs/PROJECT_OVERVIEW.md with query examples
+- [ ] Update specs/reference/REGISTER_COMMAND_FSD.md with volatile metadata
+- [ ] Update specs/reference/PROJECT_OVERVIEW.md with query examples
 - [ ] Update CLAUDE.md with volatility system patterns
 - [ ] Document circular dependency detection algorithm
 
@@ -196,10 +196,10 @@
 
 ### Specs to Update
 
-- [ ] `specs/REGISTER_COMMAND_FSD.md`
+- [ ] `specs/reference/REGISTER_COMMAND_FSD.md`
   - Add `volatile: true/false` metadata syntax
 
-- [ ] `specs/PROJECT_OVERVIEW.md`
+- [ ] `specs/reference/PROJECT_OVERVIEW.md`
   - Update volatility section with query examples
   - Clarify Query::parse() vs parse_query()
 

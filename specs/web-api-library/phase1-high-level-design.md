@@ -6,7 +6,7 @@ Web API Library (liquers-axum rebuild)
 
 ## Purpose
 
-Transform liquers-axum from a monolithic standalone server into a composable library that applications can embed and customize. Implements Query Execution API (`/q` endpoints) and Store API (`/api/store` endpoints) as reusable builders, generic over Environment, supporting CBOR/bincode/JSON serialization formats for atomic get/set of data+metadata in unified entry endpoints. Enables applications to compose web APIs with custom configuration while maintaining 100% compliance with specs/WEB_API_SPECIFICATION.md.
+Transform liquers-axum from a monolithic standalone server into a composable library that applications can embed and customize. Implements Query Execution API (`/q` endpoints) and Store API (`/api/store` endpoints) as reusable builders, generic over Environment, supporting CBOR/bincode/JSON serialization formats for atomic get/set of data+metadata in unified entry endpoints. Enables applications to compose web APIs with custom configuration while maintaining 100% compliance with specs/reference/WEB_API_SPECIFICATION.md.
 
 ## Core Interactions
 
@@ -57,7 +57,7 @@ Not applicable (server-side web API).
 
 ## References
 
-- specs/WEB_API_SPECIFICATION.md - Complete API specification (sections 3, 4, 7)
+- specs/reference/WEB_API_SPECIFICATION.md - Complete API specification (sections 3, 4, 7)
 - liquers-core/src/context.rs - Environment trait
 - liquers-core/src/store.rs - AsyncStore trait
 - Current liquers-axum/src/ - Existing implementation (~30% complete, will be replaced)

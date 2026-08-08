@@ -1218,7 +1218,7 @@ cargo test -p liquers-axum test_store_concurrent_writes -- --exact
 ## References
 
 - **Crate:** `liquers-axum/` (Web API library)
-- **Spec:** `specs/WEB_API_SPECIFICATION.md` (API contract)
+- **Spec:** `specs/reference/WEB_API_SPECIFICATION.md` (API contract)
 - **Architecture:** `specs/web-api-library/phase2-architecture.md` (implementation)
 - **Error spec:** `specs/web-api-library/phase2-architecture.md` section "Error Handling"
 - **Formats:** `specs/web-api-library/phase2-architecture.md` section "Serialization Strategy"

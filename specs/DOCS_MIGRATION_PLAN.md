@@ -528,7 +528,7 @@ mistake here surfaces immediately.
 **→ `guides/`** (how-to for designers and coding agents, `audience: internal`)
 
 `COMMAND_REGISTRATION_GUIDE.md`, `LANGUAGE-INTEGRATION_GUIDE.md`, `PAYLOAD_GUIDE.md`
-— plus `UNITTEST_GUIDE.md` arriving from the repo root (§7.2).
+— plus `specs/guides/UNITTEST_GUIDE.md` arriving from the repo root (§7.2).
 
 ### 7.1a Seeding `reviewed:` and History
 
@@ -583,7 +583,7 @@ path. Moving it buys nothing.
 | `README.md` | **Stays.** Update the links table (§8.2) |
 | `CLAUDE.md` | **Stays.** Update references (§8.1) |
 | `ISSUES.md` | **Delete** — a stub redirect to a file that no longer exists |
-| `UNITTEST_GUIDE.md` | → `specs/guides/UNITTEST_GUIDE.md`, `audience: internal` |
+| `specs/guides/UNITTEST_GUIDE.md` | → `specs/guides/UNITTEST_GUIDE.md`, `audience: internal` |
 | `EXAMPLE_SCENARIO_1_SUMMARY.md` | → `specs/archive/2026-02-20-example-scenario-1-summary.md`. A near-copy exists at `specs/axum-assets-recipes-api/EXAMPLE_SCENARIO_1_SUMMARY.md` and the two **differ** — diff them, keep one, delete the other |
 | `plan20260707.md` | → `specs/archive/2026-07-07-implementation-plan.md` — *triaged and archived in Step 2 (§4.4)* |
 | `review20260707.md` | → `specs/archive/2026-07-07-project-review.md` — *Step 2 (§4.4)* |
@@ -604,12 +604,12 @@ by an issue. `review20260707.md` is archived without triage, superseded by the p
 | Line | Current | Becomes |
 |---|---|---|
 | 13 | `specs/  # Specifications and design documents` | Expand to the six-directory layout from the guide |
-| 18 | `specs/PROJECT_OVERVIEW.md`, `specs/REGISTER_COMMAND_FSD.md`, `specs/ASSETS.md` | `specs/reference/…` |
+| 18 | `specs/reference/PROJECT_OVERVIEW.md`, `specs/reference/REGISTER_COMMAND_FSD.md`, `specs/reference/ASSETS.md` | `specs/reference/…` |
 | 20 | `**Known issues** are tracked in specs/ISSUES.md` | `specs/issues/` — index at `specs/index.csv`; filing rules in `specs/DOCS_STRUCTURE_GUIDE.md` §4.8 |
-| 32 | `specs/POLARS_COMMAND_LIBRARY.md` | `specs/reference/POLARS_COMMAND_LIBRARY.md` |
-| 217, 229 | `specs/PROJECT_OVERVIEW.md` | `specs/reference/PROJECT_OVERVIEW.md` |
-| 243, 249 | `specs/COMMAND_REGISTRATION_GUIDE.md`, `specs/REGISTER_COMMAND_FSD.md` | `specs/guides/…`, `specs/reference/…` |
-| 354 | `specs/STORE_CONFIG_FSD.md` | `specs/reference/STORE_CONFIG_FSD.md` |
+| 32 | `specs/reference/POLARS_COMMAND_LIBRARY.md` | `specs/reference/POLARS_COMMAND_LIBRARY.md` |
+| 217, 229 | `specs/reference/PROJECT_OVERVIEW.md` | `specs/reference/PROJECT_OVERVIEW.md` |
+| 243, 249 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md`, `specs/reference/REGISTER_COMMAND_FSD.md` | `specs/guides/…`, `specs/reference/…` |
+| 354 | `specs/reference/STORE_CONFIG_FSD.md` | `specs/reference/STORE_CONFIG_FSD.md` |
 | 304, 311, 331, 340 | `specs/command_registry.yaml` | unchanged |
 
 **New section**, placed near the top since it governs every session. Guide §4.8.4 fixes exactly what
@@ -795,7 +795,7 @@ documents the skills superseded (§8.5).
 | Document | Overlaps | Action |
 |---|---|---|
 | `specs/PHASE3-UNIT-TESTS*.md` (4 files) | `liquers-unittest` references | → `archive/` (§7.1). The skill is the live copy |
-| `UNITTEST_GUIDE.md` (19 KB, root) | `liquers-unittest/references/test-patterns.md` (16 patterns) and `testable-components.md` | **Keep both, they differ in kind** — the guide is a narrative walkthrough, the references are catalogues. Move the guide to `specs/guides/`, have the skill link to it. Deduplicating the overlapping content is a **follow-up, not part of this migration**: it is a content decision and would hide behind a move |
+| `specs/guides/UNITTEST_GUIDE.md` (19 KB, root) | `liquers-unittest/references/test-patterns.md` (16 patterns) and `testable-components.md` | **Keep both, they differ in kind** — the guide is a narrative walkthrough, the references are catalogues. Move the guide to `specs/guides/`, have the skill link to it. Deduplicating the overlapping content is a **follow-up, not part of this migration**: it is a content decision and would hide behind a move |
 
 ---
 

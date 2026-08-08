@@ -650,9 +650,9 @@ remains its own justification either way.
 
 ### Step 26: Documentation
 
-**Files:** `specs/PROJECT_OVERVIEW.md` (add `liquers-web` to the crate structure), `CLAUDE.md` (build
+**Files:** `specs/reference/PROJECT_OVERVIEW.md` (add `liquers-web` to the crate structure), `CLAUDE.md` (build
 and test commands for the new crate), `liquers-web/README.md`, `specs/liquers-web/DESIGN.md` (final
-status), `specs/LANGUAGE-INTEGRATION_GUIDE.md` (the feature matrix for this integration, per §7
+status), `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (the feature matrix for this integration, per §7
 item 1).
 
 **Agent:** sonnet · knowledge: all phase documents.
@@ -964,7 +964,7 @@ justification is *identity*. Fed back into Phase 1 decision 2 in `DESIGN.md`.
 ### Step 26: documentation
 
 `README.md` (new), `CLAUDE.md` (the three test loops and why there are three),
-`specs/PROJECT_OVERVIEW.md` (crate structure), `DESIGN.md` (final status and the measurement), and
+`specs/reference/PROJECT_OVERVIEW.md` (crate structure), `DESIGN.md` (final status and the measurement), and
 `LANGUAGE-INTEGRATION_GUIDE.md` — which gained the two findings that generalize beyond JavaScript:
 the orphan-rule trap in checklist item 3, and "conformance tests that pass whatever the code does"
 in §3.

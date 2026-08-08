@@ -7,7 +7,7 @@
 - `liquers-core/src/commands.rs` (`FromParameterValue<Vec<V>>`)
 - `liquers-lib/src/ui/commands.rs` (`lui` `children`, `roots`)
 - `liquers-lib/src/value/simple.rs` and `liquers-lib/src/value/extended.rs`
-- `specs/UI_INTERFACE_PHASE1_FSD.md` command contract
+- `specs/archive/2026-03-02-ui-interface-phase1-fsd.md` command contract
 
 ## Summary
 
@@ -30,8 +30,8 @@ Issue 8 is still relevant, but the current behavior is more nuanced than the iss
   - `liquers-lib/src/ui/commands.rs:235`
 
 This matches the current Phase 1 FSD command table (`comma-separated handles`):
-- `specs/UI_INTERFACE_PHASE1_FSD.md:1213`
-- `specs/UI_INTERFACE_PHASE1_FSD.md:1219`
+- `specs/archive/2026-03-02-ui-interface-phase1-fsd.md:1213`
+- `specs/archive/2026-03-02-ui-interface-phase1-fsd.md:1219`
 
 ### B. Array support exists in concrete value types
 

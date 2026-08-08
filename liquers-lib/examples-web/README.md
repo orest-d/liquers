@@ -1,7 +1,7 @@
 # Liquers web (wasm) examples
 
 Browser examples for the **`webui`** backend of `liquers-lib` — the string-first,
-framework-independent web renderer described in `specs/webui/` and `specs/UI_WEB_DESIGN_NOTES.md`.
+framework-independent web renderer described in `specs/webui/` and `specs/archive/2026-03-02-ui-web-design-notes.md`.
 
 Each example compiles `liquers-lib` (and `liquers-core`) to `wasm32-unknown-unknown` and runs the
 **whole Liquers evaluation engine inside the browser**: queries are parsed, commands are executed

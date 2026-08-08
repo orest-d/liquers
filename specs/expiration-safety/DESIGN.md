@@ -41,7 +41,7 @@ heavily (+1153/-279 lines). Re-audited all four phase documents against the merg
   freeing disk, the affected `liquers-lib` targets (`query_console_integration`,
   `ui_shortcuts_integration`) link and pass (6 + 7 tests) — the failure was environmental, not a
   WP-3 defect (those targets reference no WP-3 API; zero `error[E…]` anywhere).
-- `specs/FEATURES/EXPIRATION-SAFETY.md` and its original implementation plan marked **Closed**
+- `specs/archive/EXPIRATION-SAFETY.md` and its original implementation plan marked **Closed**
   (Phase 4 Step 7).
 
 **Remaining (non-blocking):** exposing `get_any_status`/`to_override` on the web API is confirmed

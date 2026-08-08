@@ -52,6 +52,6 @@ Rationale: Complex widget warrants own module. Group similar complex widgets in 
 
 ## References
 
-- `specs/UI_INTERFACE_PHASE1_FSD.md` - UIElement trait definition
-- `specs/UI_INTERFACE_PHASE1b.md` - AppRunner pattern, message handling
+- `specs/archive/2026-03-02-ui-interface-phase1-fsd.md` - UIElement trait definition
+- `specs/archive/2026-03-02-ui-interface-phase1b.md` - AppRunner pattern, message handling
 - `liquers-lib/examples/ui_button_app.rs` - Query submission pattern for actions

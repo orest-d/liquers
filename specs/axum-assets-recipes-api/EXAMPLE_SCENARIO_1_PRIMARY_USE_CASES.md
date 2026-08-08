@@ -497,6 +497,6 @@ let app = axum::Router::new()
 
 - **Phase 1 Design:** `/specs/axum-assets-recipes-api/phase1-high-level-design.md`
 - **Phase 2 Architecture:** `/specs/axum-assets-recipes-api/phase2-architecture.md`
-- **WEB_API_SPECIFICATION:** `/specs/WEB_API_SPECIFICATION.md` (sections 5 & 6)
+- **WEB_API_SPECIFICATION:** `/specs/reference/WEB_API_SPECIFICATION.md` (sections 5 & 6)
 - **Store API Pattern:** `/liquers-axum/src/store/` (reference implementation)
 - **Query API Pattern:** `/liquers-axum/src/query/` (reference implementation)

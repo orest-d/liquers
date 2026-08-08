@@ -501,7 +501,7 @@ git checkout liquers-lib/src/ui/commands.rs
 **Agent Specification:**
 - **Model:** haiku
 - **Skills:** rust-best-practices
-- **Knowledge:** `liquers-lib/src/ui/commands.rs` (especially `ui_spec` pattern), `specs/REGISTER_COMMAND_FSD.md`
+- **Knowledge:** `liquers-lib/src/ui/commands.rs` (especially `ui_spec` pattern), `specs/reference/REGISTER_COMMAND_FSD.md`
 - **Rationale:** Follows established command registration pattern
 
 ---

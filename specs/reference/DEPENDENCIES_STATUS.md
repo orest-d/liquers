@@ -1,3 +1,10 @@
+---
+title: Status::Dependencies Specification
+kind: reference
+audience: internal
+area: [core/assets]
+reviewed: 2026-07-15
+---
 # Dependencies Status Specification
 
 ## Overview
@@ -231,3 +238,9 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 - Schedule-time cycle detection (`DependencyManager::register_scheduled_dependency`,
   keyed-expansion model) rejects dependency cycles with `Error::dependency_cycle`
   instead of hanging.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-07-15 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

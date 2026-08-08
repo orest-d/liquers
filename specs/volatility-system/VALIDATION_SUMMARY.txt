@@ -115,7 +115,7 @@ PRIORITY 2 - API Verification:
   [ ] Verify Context.with_volatile() method
 
 PRIORITY 3 - Documentation Updates:
-  [ ] Update specs/REGISTER_COMMAND_FSD.md with volatile: metadata
+  [ ] Update specs/reference/REGISTER_COMMAND_FSD.md with volatile: metadata
   [ ] Document Query::parse() vs parse_query() usage
   [ ] Clarify context parameter position requirement
   [ ] Add volatile metadata to CLAUDE.md
@@ -204,8 +204,8 @@ BEFORE IMPLEMENTATION STARTS:
    - Document any variations
 
 3. Documentation (1 day)
-   - Update specs/REGISTER_COMMAND_FSD.md with volatile: syntax
-   - Add examples to specs/PROJECT_OVERVIEW.md
+   - Update specs/reference/REGISTER_COMMAND_FSD.md with volatile: syntax
+   - Add examples to specs/reference/PROJECT_OVERVIEW.md
    - Update CLAUDE.md with volatility patterns
    - Document query syntax clearly
 
@@ -273,7 +273,7 @@ This Summary: /tmp/VALIDATION_SUMMARY.txt
 Files Reviewed:
   - /home/orest/zlos/rust/liquers/specs/volatility-system/phase3-examples.md
   - /home/orest/zlos/rust/liquers/CLAUDE.md
-  - /home/orest/zlos/rust/liquers/specs/PROJECT_OVERVIEW.md
+  - /home/orest/zlos/rust/liquers/specs/reference/PROJECT_OVERVIEW.md
   - liquers-core/tests/async_hellow_world.rs (pattern reference)
   - specs/volatility-system/phase3-*.md (related specifications)
 

@@ -1,3 +1,10 @@
+---
+title: Command Registration Guide
+kind: guide
+audience: internal
+area: [core/commands, macro]
+reviewed: 2026-03-02
+---
 # Command Registration Guide
 
 This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
@@ -66,7 +73,7 @@ register_command!(
 )
 ```
 
-See `specs/REGISTER_COMMAND_FSD.md` for the complete DSL specification including:
+See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification including:
 - State parameter variations (state, value, text)
 - Parameter types and defaults
 - Injected parameters
@@ -593,7 +600,7 @@ fn apply(...) -> Result<...> { ... }
 
 ### Related Documentation
 
-- `specs/REGISTER_COMMAND_FSD.md` - Complete macro syntax specification
+- `specs/reference/REGISTER_COMMAND_FSD.md` - Complete macro syntax specification
 - `CLAUDE.md` - "Common Tasks > Adding a Command" section
 - `liquers-core/src/commands.rs` - CommandRegistry implementation and tests
 - `liquers-lib/src/commands.rs` - Example command library
@@ -604,3 +611,9 @@ fn apply(...) -> Result<...> { ... }
 - **GUI commands**: `liquers-lib/src/egui/commands.rs` (with trait bounds)
 - **Tests**: `liquers-core/tests/async_hellow_world.rs` (complete example)
 - **Manual registration**: `liquers-core/src/commands.rs` tests section
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

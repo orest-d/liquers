@@ -1,3 +1,10 @@
+---
+title: Image Command Library Specification
+kind: reference
+audience: internal
+area: [lib/image]
+reviewed: 2026-03-02
+---
 # Image Command Library Specification
 
 ## Table of Contents
@@ -1445,7 +1452,13 @@ pub mod image;
 - [image crate docs](https://docs.rs/image/0.25.9/image/)
 - [imageproc crate docs](https://docs.rs/imageproc/0.26.0/imageproc/)
 - [resvg docs](https://docs.rs/resvg/latest/resvg/)
-- `specs/COMMAND_REGISTRATION_GUIDE.md` - How to register commands
-- `specs/POLARS_COMMAND_LIBRARY.md` - Analogous command library pattern
+- `specs/guides/COMMAND_REGISTRATION_GUIDE.md` - How to register commands
+- `specs/reference/POLARS_COMMAND_LIBRARY.md` - Analogous command library pattern
 - `CLAUDE.md` - Architecture and module organization
 - `PROJECT_OVERVIEW.md` - Liquers query language design
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

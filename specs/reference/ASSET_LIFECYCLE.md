@@ -1,3 +1,10 @@
+---
+title: Asset Lifecycle Map
+kind: reference
+audience: internal
+area: [core/assets]
+reviewed: 2026-07-07
+---
 # Asset Lifecycle — Comprehensive Map
 
 ## Overview
@@ -605,12 +612,18 @@ pub struct Context<E: Environment> {
 
 | Concept | Implementation | Spec |
 |---------|---------------|------|
-| Asset status enum | `liquers-core/src/metadata.rs`: `Status` | `specs/ASSETS.md` |
-| AssetData / AssetRef | `liquers-core/src/assets.rs` | `specs/ASSETS.md` |
-| JobQueue | `liquers-core/src/assets.rs`: `JobQueue` | `specs/JOBQUEUE_FIX.md` |
-| Dependencies status | `liquers-core/src/assets.rs`: `Status::Dependencies` | `specs/DEPENDENCIES_STATUS.md` |
+| Asset status enum | `liquers-core/src/metadata.rs`: `Status` | `specs/reference/ASSETS.md` |
+| AssetData / AssetRef | `liquers-core/src/assets.rs` | `specs/reference/ASSETS.md` |
+| JobQueue | `liquers-core/src/assets.rs`: `JobQueue` | `specs/archive/2026-03-02-jobqueue-fix.md` |
+| Dependencies status | `liquers-core/src/assets.rs`: `Status::Dependencies` | `specs/reference/DEPENDENCIES_STATUS.md` |
 | Context | `liquers-core/src/context.rs` | — |
 | Interpreter | `liquers-core/src/interpreter.rs` | — |
 | Expiration types | `liquers-core/src/expiration.rs` | — |
 | DependencyManager | `liquers-core/src/dependencies.rs` | — |
 | RecipeProvider | `liquers-core/src/recipes.rs` | — |
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-07-07 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

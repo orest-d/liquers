@@ -513,7 +513,7 @@ l. 531-545 · *Rationale: one doc comment plus a three-line example.*
 
 ### Step 13: API reference (doc-02)
 
-**File:** `specs/api-docs-analysis/doc-02-query-language-reference.md`
+**File:** `specs/reference/api/doc-02-query-language-reference.md`
 
 **Action:** the eight per-section edits tabulated in Phase 2. The two that are easy to
 miss:
@@ -534,9 +534,9 @@ grep -rn "do not parse\|does not parse\|no link production\|nested-query syntax"
 # Expected: no hits.
 ```
 
-**Rollback:** `git checkout specs/api-docs-analysis/doc-02-query-language-reference.md`
+**Rollback:** `git checkout specs/reference/api/doc-02-query-language-reference.md`
 
-**Agent:** sonnet · skills: — · knowledge: doc-02 in full, `specs/api-docs-analysis/README.md`
+**Agent:** sonnet · skills: — · knowledge: doc-02 in full, `specs/archive/2026-03-02-api-docs-gap-analysis.md`
 (the verification policy), Phase 2 Documentation Deliverables · *Rationale: eight sections
 with a compliance policy; requires judgment about what each claim now says.*
 
@@ -562,7 +562,7 @@ guard.
 
 ### Step 14b: Project overview consistency
 
-**File:** `specs/PROJECT_OVERVIEW.md`
+**File:** `specs/reference/PROJECT_OVERVIEW.md`
 
 **Action:** the two edits described under "Documentation Updates" below — move the
 `~X~...~E` row out of the "Special encoding" table (l. 117), and resolve or narrow the
@@ -571,11 +571,11 @@ guard.
 
 **Validation:**
 ```bash
-grep -n "~X~" specs/PROJECT_OVERVIEW.md
+grep -n "~X~" specs/reference/PROJECT_OVERVIEW.md
 # Expected: the link syntax is described, but not as a row in the entity table.
 ```
 
-**Rollback:** `git checkout specs/PROJECT_OVERVIEW.md`
+**Rollback:** `git checkout specs/reference/PROJECT_OVERVIEW.md`
 
 **Agent:** sonnet · skills: — · knowledge: PROJECT_OVERVIEW.md l. 110-120 and l. 335-350,
 Phase 2 Documentation Deliverables · *Rationale: the technical-debt entry needs a judgment
@@ -674,7 +674,7 @@ Beyond the four Phase 2 deliverables (steps 11-14):
 
 - **`CLAUDE.md`** — no change. The link syntax is not a build, test or command-registration
   workflow, which is what that file covers.
-- **`specs/PROJECT_OVERVIEW.md`** — **not a no-op**, contrary to a first assumption; two
+- **`specs/reference/PROJECT_OVERVIEW.md`** — **not a no-op**, contrary to a first assumption; two
   places need attention and were found by grepping rather than reasoning:
 
   - **l. 117** lists `~X~...~E → nested query (embedded link)` inside the "Special

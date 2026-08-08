@@ -419,7 +419,7 @@ register_command!(cr,
 
 **Status:** ✅ COMPLIANT with CLAUDE.md specifications
 
-**Note:** `volatile: true` is a new metadata field - must be added to the DSL documentation in `specs/REGISTER_COMMAND_FSD.md`.
+**Note:** `volatile: true` is a new metadata field - must be added to the DSL documentation in `specs/reference/REGISTER_COMMAND_FSD.md`.
 
 ---
 
@@ -870,7 +870,7 @@ asset_ref.to_override().await.unwrap();
 ## Part 7: Cross-Reference Issues
 
 ### Cross-Reference 1: Recipe Structure
-**Expected in:** `specs/PROJECT_OVERVIEW.md`, line 177-186
+**Expected in:** `specs/reference/PROJECT_OVERVIEW.md`, line 177-186
 
 **Found:**
 ```rust
@@ -1002,7 +1002,7 @@ nested_ctx = context.with_volatile(false)
 ---
 
 ### Priority 3: Documentation Updates
-1. ✅ Update `specs/REGISTER_COMMAND_FSD.md` with `volatile:` metadata
+1. ✅ Update `specs/reference/REGISTER_COMMAND_FSD.md` with `volatile:` metadata
 2. ✅ Clarify `Query::parse()` vs `parse_query()` usage
 3. ✅ Document `Context::with_volatile()` semantics
 4. ✅ Document circular dependency detection algorithm

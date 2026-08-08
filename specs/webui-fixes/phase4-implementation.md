@@ -412,7 +412,7 @@ tests are written against Phase 2's recording table, one test per row.
 - `specs/webui/DESIGN.md` — note that rendering now follows model changes.
 - `specs/webui-fixes/DESIGN.md` — phase tracking → Implementation Complete.
 - `liquers-lib/examples-web/README.md` — the demo's new menu entry.
-- `CLAUDE.md` / `specs/PROJECT_OVERVIEW.md` — no change; no core concepts change.
+- `CLAUDE.md` / `specs/reference/PROJECT_OVERVIEW.md` — no change; no core concepts change.
 
 ## Review Findings (inline)
 

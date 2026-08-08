@@ -39,7 +39,7 @@ Investigation of Issue `METADATA-CONSISTENCY` in `specs/archive/2026-08-08-issue
 - No pre-check ensures metadata `data_format` and `type_identifier` are actually supported.
 
 6. Existing specs already state stronger requirements than implementation
-- `specs/ASSET_SET_OPERATION.md` states mandatory `data_format` and `type_identifier` for `set()`/`set_state()`, but this is not enforced in code.
+- `specs/reference/ASSET_SET_OPERATION.md` states mandatory `data_format` and `type_identifier` for `set()`/`set_state()`, but this is not enforced in code.
 
 6a. `type_name` vs `type_identifier` semantics are split and not captured in metadata
 - `ValueInterface` has both:

@@ -154,7 +154,7 @@
 ### M-F — docs & follow-up
 
 **Step 16 — docs + tracked follow-up.**
-- **Files:** `specs/archive/2026-08-08-issues.md` (full-tokio-removal / executor-agnostic follow-up — explicitly out of scope), `specs/webui/DESIGN.md` (mark the async-on-wasm follow-up resolved, link here), `specs/PROJECT_OVERVIEW.md` (note `Environment::AssetManager` + wasm support), `CLAUDE.md` (async-on-wasm note if warranted), `specs/async-wasm-refactor/DESIGN.md` (mark phases complete).
+- **Files:** `specs/archive/2026-08-08-issues.md` (full-tokio-removal / executor-agnostic follow-up — explicitly out of scope), `specs/webui/DESIGN.md` (mark the async-on-wasm follow-up resolved, link here), `specs/reference/PROJECT_OVERVIEW.md` (note `Environment::AssetManager` + wasm support), `CLAUDE.md` (async-on-wasm note if warranted), `specs/async-wasm-refactor/DESIGN.md` (mark phases complete).
 - **Validate:** docs consistent; no code impact.
 - **Agent:** haiku · Knowledge: all four phase docs.
 - **Rollback:** revert doc edits.
@@ -200,7 +200,7 @@
 
 ## Documentation Updates
 
-- `specs/PROJECT_OVERVIEW.md`: `Environment::AssetManager` associated type; wasm/browser support; `ImmediateAssetManager`.
+- `specs/reference/PROJECT_OVERVIEW.md`: `Environment::AssetManager` associated type; wasm/browser support; `ImmediateAssetManager`.
 - `specs/archive/2026-08-08-issues.md`: full-tokio-removal + executor-agnostic core as tracked, out-of-scope follow-up.
 - `specs/webui/DESIGN.md`: async-on-wasm follow-up resolved → link here.
 - `specs/async-wasm-refactor/DESIGN.md`: phases complete.

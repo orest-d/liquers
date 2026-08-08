@@ -276,7 +276,7 @@ cargo test -p liquers-core --test volatility_integration -- --nocapture --test-t
 
 ### Documentation Updates Needed
 
-- Update `specs/PROJECT_OVERVIEW.md` if core concepts change
+- Update `specs/reference/PROJECT_OVERVIEW.md` if core concepts change
 - Document `make_plan()` API change in migration guide
 - Add volatility section to API documentation
 
@@ -403,7 +403,7 @@ cargo test -p liquers-core --test volatility_integration -- --nocapture --test-t
 - `liquers-core/src/interpreter.rs` (make_plan async, evaluate_plan, IsVolatile impl)
 
 ### Reference/Documentation
-- `specs/PROJECT_OVERVIEW.md` (if core concepts change)
+- `specs/reference/PROJECT_OVERVIEW.md` (if core concepts change)
 - `CLAUDE.md` (no changes, patterns followed)
 
 ---

@@ -32,5 +32,5 @@ violate — the failure is a runtime mismatch rather than a compile error.
 
 Recorded in `specs/context-param-order/` since before the migration. It was **never in
 `ISSUES.md`** (now `specs/archive/2026-08-08-issues.md`), yet `.claude/skills/rust-best-practices/references/anti-patterns.md` and
-`liquers-designer/references/liquers-patterns.md` both cited `specs/ISSUES.md` for it — a dangling
+`liquers-designer/references/liquers-patterns.md` both cited `specs/archive/2026-08-08-issues.md` for it — a dangling
 reference this issue now resolves.

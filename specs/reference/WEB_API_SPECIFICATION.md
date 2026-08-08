@@ -1,3 +1,10 @@
+---
+title: Liquers Web API Specification
+kind: reference
+audience: internal
+area: [axum, web]
+reviewed: 2026-03-02
+---
 # Liquers Web API Specification
 
 **Version:** 1.0.0
@@ -2324,3 +2331,9 @@ Features not included in v1.0 but planned for future versions:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-01-19 | Initial specification |
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

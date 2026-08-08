@@ -2,7 +2,7 @@
 
 ## Feature Name
 
-expiration-safety (WP-3 of `plan20260707.md`, closing `specs/FEATURES/EXPIRATION-SAFETY.md`)
+expiration-safety (WP-3 of `plan20260707.md`, closing `specs/archive/EXPIRATION-SAFETY.md`)
 
 ## Purpose
 
@@ -101,7 +101,7 @@ Questions" below).
 
 ## References
 
-- `specs/FEATURES/EXPIRATION-SAFETY.md`, `specs/FEATURES/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`
+- `specs/archive/EXPIRATION-SAFETY.md`, `specs/archive/EXPIRATION-SAFETY-IMPLEMENTATION-PLAN.md`
 - `specs/expiration-mechanism/`, `specs/expiration-monitor-assetref/` (prior related designs)
 - `specs/async-wasm-refactor/` (landed on `main` during this design's Phase 4 — see sync note above)
 - `plan20260707.md` WP-3

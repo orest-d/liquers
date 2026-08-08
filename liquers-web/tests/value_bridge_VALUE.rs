@@ -1,6 +1,6 @@
 //! `VALUE*` conformance tests — the value bridge.
 //!
-//! Test IDs and names follow `specs/LANGUAGE-INTEGRATION_GUIDE.md` §3: the logical ID leads the
+//! Test IDs and names follow `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3: the logical ID leads the
 //! test-specific part of the name. The inventory these implement is in
 //! `specs/liquers-web/phase3-examples.md`.
 //!

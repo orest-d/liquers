@@ -1,3 +1,10 @@
+---
+title: Store Configuration Functional Specification
+kind: reference
+audience: internal
+area: [store/config]
+reviewed: 2026-03-02
+---
 # Functional Specification Document (FSD): Store Configuration for `liquers-store`
 
 ## Overview
@@ -416,3 +423,9 @@ Though UI is put of scope, the UI should be optionally supported (as a feature) 
 
 ---
 **End of FSD**
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
