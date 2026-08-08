@@ -19,7 +19,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [ ] Phase 4: Implementation Plan (in progress)
+- [ ] Phase 4: Implementation Plan (**blocked** — see cross-phase review below)
 - [ ] Implementation Complete
 
 ## Notes
@@ -78,6 +78,40 @@ recorded as an explicit Phase 4 decision carrying a file-an-issue obligation.
 and gains the same pre-wait expiry check as `get_binary`. The alternative — binary reads erroring
 while state reads hang on the same asset — would have shipped exactly the asymmetry this design
 exists to remove.
+
+## Cross-phase review: two blocking findings
+
+The final review read all four phases together and found two problems that pairwise review could
+not, both **verified against source**. Phase 4 is not approvable until they are decided.
+
+**B1 — `Status::Expired` carries two different meanings, and the design collapses them.**
+`finish_run_with_result` (`assets.rs:1618-1631`) relabels a *successfully completed* asset from
+`Ready` to `Expired` when its evaluation consumed a stale dependency — deliberately, tested, and
+reached on the normal path. Persistence has already run by then (`serialize_to_binary`, `:2017`),
+so the asset holds cached bytes. So `Expired` + cached bytes is not only the bug configuration this
+design targets; it is also the ordinary outcome of a query whose dependency expired mid-flight,
+whose value is explicitly meant to be kept. Under this design the axum handler would return an
+error for a computation that succeeded — and racily, since the 10 ms poll may observe either side
+of the relabel. The two meanings are *"stale cached data, do not serve"* (`expire()`) and *"fresh
+result, do not cache"* (the relabel). Phase 1 §"Expiry is an error" assumes only the first.
+
+**B2 — a consumer inside `liquers-core` that Phase 2 declared did not exist.**
+`Step::GetAssetBinary` (`interpreter.rs:293-299`) calls `AssetRef::get_binary` — a
+query-language-level consumer, emitted by the plan builder (`plan.rs:1102`). Phase 2 §Integration
+Points says "This is the only consumer change in the workspace", naming only `liquers-axum`. That
+is false. Worse, it collides with `liquers-core`'s own execution-time staleness contract
+(`wait_for_dependency`, `:4055`), which requires an execution-time expired dependency to remain
+*usable* — the opposite of "expiry is an error".
+
+Also recorded: `AssetManager::get_binary_any_status` cannot recover an expired asset whose value was
+never serialized (`binary` is populated by two sites and cleared by ten), so the recovery API is
+weaker than its state twin — leaving the originating issue's verification item 4 unclosed; and
+`AssetRef::get` returning `Err` for a terminal-but-obtainable status contradicts `ASSETS.md`
+§Terminal Outcome Contract, which reserves `Err` for delivery failures.
+
+**Filed separately:** `DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE` (P1) — `wait_for_dependency`'s
+stale-value branch is dead code since PR #11 gated `poll_state`, the same defect class this design
+fixes for `poll_binary`. Pre-existing and out of scope here.
 
 ## Links
 
