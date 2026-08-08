@@ -646,7 +646,7 @@ a limitation note.
 | `liquers-core/src/parse.rs` module docs | delete "Known link-parser bug"; add the `link-parameter` grammar, the entity-table clarification, and the shorthand rule |
 | `liquers-core/src/query.rs` | `ActionParameter::Link` doc comment |
 | `specs/api-docs-analysis/doc-02-query-language-reference.md` | see the per-section breakdown below |
-| `specs/ISSUES.md` | mark `QUERY-ACTION-PARAMETER-LINK-PARSER` resolved |
+| `specs/archive/2026-08-08-issues.md` | mark `QUERY-ACTION-PARAMETER-LINK-PARSER` resolved |
 
 ### `parse.rs` module docs — required edits
 

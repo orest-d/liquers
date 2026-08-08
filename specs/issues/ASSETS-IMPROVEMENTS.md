@@ -1,6 +1,17 @@
+---
+id: ASSETS-IMPROVEMENTS
+kind: feature
+title: Asset persistence, eviction safety and upload limits
+status: draft
+priority: P2
+complexity: L
+area: [core/assets, core/store]
+design:
+created: 2026-08-08
+github:
+---
 # ASSETS-IMPROVEMENTS
 
-Status: Draft
 
 ## Summary
 Improve asset robustness for externally set data by:

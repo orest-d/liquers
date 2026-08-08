@@ -1,6 +1,17 @@
+---
+id: ASSETS-FIX1
+kind: feature
+title: Unresolved TODO and FIXME markers in the asset lifecycle
+status: draft
+priority: P2
+complexity: L
+area: [core/assets]
+design:
+created: 2026-08-08
+github:
+---
 # ASSETS-FIX1
 
-Status: Draft
 
 ## Summary
 `ASSETS-FIX1` consolidates all `TODO`, `FIXME`, and `todo!()` markers in `liquers-core/src/assets.rs` into a concrete implementation backlog.  

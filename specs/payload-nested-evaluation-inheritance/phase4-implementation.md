@@ -346,7 +346,7 @@ dependency-manager introspection — neither is boilerplate.
 
 ### Step 13: Documentation
 
-**Files:** `specs/PAYLOAD_GUIDE.md`, `specs/PROJECT_OVERVIEW.md`, `specs/ISSUES.md`
+**Files:** `specs/PAYLOAD_GUIDE.md`, `specs/PROJECT_OVERVIEW.md`, `specs/archive/2026-08-08-issues.md`
 
 **Action:**
 - `PAYLOAD_GUIDE.md`: the "Inheritance" bullet (`:65-67`) becomes true; add `payload: required` to

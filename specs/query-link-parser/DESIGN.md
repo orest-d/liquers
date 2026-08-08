@@ -30,7 +30,7 @@ Key decisions, for anyone picking this up cold:
   `MAX_LINK_MARKERS = 64` and **implementation proved that wrong**: parsing is exponential
   in nesting depth, so 64 never finishes and the guard was itself a DoS vector. Now two
   bounds: `MAX_LINK_DEPTH = 8` and `MAX_LINK_MARKERS = 64`. See Phase 4 → Implementation
-  Findings, and follow-up `QUERY-LINK-EXPONENTIAL-BACKTRACKING` in `specs/ISSUES.md`.
+  Findings, and follow-up `QUERY-LINK-EXPONENTIAL-BACKTRACKING` in `specs/archive/2026-08-08-issues.md`.
 
 ## Links
 

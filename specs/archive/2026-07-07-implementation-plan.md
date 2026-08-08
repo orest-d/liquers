@@ -1,5 +1,8 @@
 # Liquers Implementation Plan — 2026-07-07
 
+> *Triaged into `specs/issues/` on 2026-08-08. Entries not present there were verified as done
+> or no longer relevant. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.*
+
 Companion to `review20260707.md`. Each work package (WP) below maps to a step in the review's
 §5 priority plan and lists: goal, design, concrete implementation steps, and a **test plan
 following red→green discipline** — every proposed test is written *first*, must **fail (or not

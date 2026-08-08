@@ -1,6 +1,17 @@
+---
+id: EXTENDED-FAST-TRACK
+kind: feature
+title: Fast-track covers only simple loading
+status: draft
+priority: P2
+complexity: L
+area: [core/assets]
+design:
+created: 2026-08-08
+github:
+---
 # EXTENDED-FAST-TRACK
 
-Status: Draft
 
 ## Summary
 `EXTENDED-FAST-TRACK` expands fast-track execution beyond simple loading and query-only shortcuts.

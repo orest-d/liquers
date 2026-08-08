@@ -54,7 +54,7 @@ replaces — which is how the pre-fix measurement below was found.
   discards: a ready-made invalidation source.
 - W4 needs no code — `async-wasm-refactor` (2026-07-23) shipped `ImmediateAssetManager`, reduced
   wasm tokio to `["sync"]`, and proved the browser path with a green Playwright run. Only the
-  `specs/ISSUES.md` entry is stale.
+  `specs/archive/2026-08-08-issues.md` entry is stale.
 
 ## Links
 

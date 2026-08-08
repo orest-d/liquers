@@ -1,6 +1,17 @@
+---
+id: VALUE-DESCRIPTION
+kind: feature
+title: Value types have no auto-generated description
+status: draft
+priority: P3
+complexity: M
+area: [core/value, lib/value]
+design:
+created: 2026-08-08
+github:
+---
 # VALUE-DESCRIPTION
 
-Status: Draft
 
 ## Summary
 Define a general, auto-generated value description model that provides lightweight, structured metadata about a value without requiring full value materialization in clients.

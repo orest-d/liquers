@@ -1,6 +1,17 @@
+---
+id: COMBINED-EXPIRES
+kind: feature
+title: No algebra for combining expiration across dependencies
+status: draft
+priority: P2
+complexity: L
+area: [core/assets]
+design:
+created: 2026-08-08
+github:
+---
 # COMBINED-EXPIRES
 
-Status: Draft
 
 ## Summary
 Add combinable expiration expressions for `Expires` using `|` (logical "earliest expiry wins").

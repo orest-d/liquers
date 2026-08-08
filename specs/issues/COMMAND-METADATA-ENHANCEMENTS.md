@@ -1,6 +1,17 @@
+---
+id: COMMAND-METADATA-ENHANCEMENTS
+kind: feature
+title: Command metadata lacks enums, specialization and IO typing
+status: draft
+priority: P2
+complexity: L
+area: [core/commands, macro]
+design:
+created: 2026-08-08
+github:
+---
 # COMMAND-METADATA-ENHANCEMENTS
 
-Status: Draft
 
 ## Summary
 Evolve command metadata from a mostly static registry schema into an extensible model that supports:

@@ -1,6 +1,17 @@
+---
+id: EGUI-ASSET-MANAGER-INTEGRATION
+kind: feature
+title: No stable adapter between egui widgets and the asset manager
+status: draft
+priority: P2
+complexity: M
+area: [lib/egui]
+design:
+created: 2026-08-08
+github:
+---
 # EGUI-ASSET-MANAGER-INTEGRATION
 
-Status: Draft
 
 ## Summary
 Replace temporary/implicit asset-manager coupling in egui widgets with a stable integration interface.

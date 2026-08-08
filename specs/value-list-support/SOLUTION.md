@@ -45,7 +45,7 @@ Rationale:
 
 ## Required Documentation Updates
 
-- `specs/ISSUES.md` Issue 8 text:
+- `specs/archive/2026-08-08-issues.md` Issue 8 text:
   - replace `Value::List` with `Value::Array`
   - note that `children`/`roots` are changed in-place to return arrays
 - `specs/UI_INTERFACE_PHASE1_FSD.md` command table:

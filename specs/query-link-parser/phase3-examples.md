@@ -431,7 +431,7 @@ record what was run. Phase 3 therefore owns making the docs checkable:
 | `parse.rs` module docs | **E1** — the worked examples go in the rustdoc as a ```` ```rust ```` block, so `cargo test --doc` compiles and runs them. A grammar change that breaks the documented syntax fails the build. |
 | `query.rs` `ActionParameter::Link` doc | **E2** — give the doc comment a short runnable example (parse `action-~X~hello~E`, assert `is_link()` and `encode()`), turning a prose claim into a compiled one. The current comment states the opposite of the new behavior, so it cannot be left alone. |
 | `doc-02` sections | **E3** — the eight edits are prose and cannot be executed. What the policy requires instead is an evidence trail: add a dated `## Verification` entry naming the test groups (A/B/C/D) and the exact `cargo test` invocations, mirroring the existing 2026-07-26 entry. |
-| `specs/ISSUES.md` | The issue's own Verification list is the acceptance criterion; the coverage table below maps each of its six items to a test. Marking it resolved is justified by that table, not by assertion. |
+| `specs/archive/2026-08-08-issues.md` | The issue's own Verification list is the acceptance criterion; the coverage table below maps each of its six items to a test. Marking it resolved is justified by that table, not by assertion. |
 
 `documented_query_language_contract` is the existing mechanism this repo already uses to
 pin documented behavior in an executable test — **C9** extends it rather than replacing

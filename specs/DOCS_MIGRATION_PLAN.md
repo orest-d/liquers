@@ -45,6 +45,22 @@ Playwright specs, example READMEs, `CLAUDE.md`, `README.md`, the skills and
 | `specs/ISSUES.md` | 15 |
 | Top-level `specs/SCREAMING_NAME.md` | ~25 |
 
+> **Corrected during execution, 2026-08-08.** The counts above were measured over `CLAUDE.md`,
+> `README.md`, `.claude/`, `scripts/` and the crate sources — **they exclude `specs/**` itself.**
+> Including it, `ISSUES.md` alone is referenced about **70 times**, not 15: roughly 55 of those are
+> inside design folders.
+>
+> That does not make the work five times larger, because **a design folder is a frozen record**
+> (guide §5.1). "`ISSUES.md`: close PAYLOAD-NESTED-EVALUATION-INHERITANCE" in a phase-4 document is
+> a true statement about what that design planned; rewriting it would falsify history. Those
+> references get a **path-only rewrite** — `specs/ISSUES.md` → `specs/archive/2026-08-08-issues.md`
+> — so the sentence keeps its meaning and the link resolves. Nothing else in a frozen folder is
+> touched.
+>
+> Only documents that claim something about the *present* are rewritten to point at the new issue
+> files: `reference/`, `guides/`, the crate sources, and `liquers-web/README.md`, whose
+> `[specs/ISSUES.md](../specs/ISSUES.md)` was a real broken link.
+
 So a "documentation-only" reorganization touches `liquers-core/src/parse.rs`,
 `liquers-axum/src/assets/handlers.rs`, `liquers-web/tests/eval_EVAL.rs` and forty-odd others.
 That is fine — the rewrites are mechanical — but each move step must carry its `sed` and be
@@ -209,7 +225,7 @@ Design implementation evidence, for the rows §6.1 flagged:
 | `expiration-monitor-assetref` | `complete` | `WeakAssetRef` at `assets.rs:921`, documented at `:15` |
 | `volatility-system` | `complete` | volatility threaded through `assets`, `metadata`, `context`, `recipes`, `expiration` |
 | `query-console-element` | `complete` | `lib/ui/widgets/query_console_element.rs` |
-| `wp2-terminal-outcome` | `complete`, remainder unknown | Terminal-outcome contract documented at `assets.rs:57-96` with `Status::is_finished`. What `ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS` still refers to was **not** determined — see §11 |
+| `wp2-terminal-outcome` | `complete` | Terminal-outcome contract documented at `assets.rs:57-96` with `Status::is_finished`. **Closed by decision, 2026-08-08** — no remainder identified, so `ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS` is not ported |
 | `menu-pane-layout` | **unresolved** | No `Menu` or `Pane` type in `lib/ui/element.rs`. Either it lives elsewhere or the design was not implemented. Needs a human look |
 
 Feature briefs:
@@ -250,12 +266,12 @@ issue, and all arrive as `draft` pending the review that confirms the estimates 
 
 Two need restating rather than copying (§4.0 row three):
 
-- **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — reads "Partially Resolved (WP-2)". Rewrite as what
-  remains after PR #7, checked against WP-2's `### Acceptance` criteria. Its `Priority: High` is
-  also the one entry outside the P-scale; mapped to **P1**, confirm.
-- **`ASSET-EXPIRED-CACHED-BINARY-READ`** — P0, and the `expiration-safety` design is complete with
-  PR #11 merged. Either the P0 survived that work or it did not; if it survived, the issue must say
-  what PR #11 left undone rather than restating the original symptom.
+- **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — **not ported.** `wp2-terminal-outcome` was closed by
+  decision on 2026-08-08 with no remainder identified, so under §4.0 there is nothing to carry.
+- **`ASSET-EXPIRED-CACHED-BINARY-READ`** — **ported unchanged, as a P0.** Whether PR #11 resolved it
+  could not be determined from the code, and the safe reading of an unverifiable P0 is that it is
+  still live. The body carries an explicit verification note rather than a restatement: inventing a
+  remainder we cannot see would be worse than carrying the original symptom forward.
 
 ### 4.2 The two entries that are not issues
 
@@ -838,15 +854,15 @@ Nothing in this plan should be executed on a guess. These need an answer first.
 the numbered items below are what remains once it is settled.
 
 1. **Every `complexity` value in §4.1 and §5.** Never previously recorded; all are estimates.
-2. **`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`** — bare `High` mapped to P1. Confirm, and state what
-   PR #7 left undone.
+2. ~~`ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS`~~ — **resolved by decision**: `wp2-terminal-outcome`
+   closed, issue not ported.
 3. **`menu-pane-layout`** — the one design §4.0c could not resolve. No `Menu`/`Pane` type in
    `lib/ui/element.rs`: implemented elsewhere, or never built? Every other flagged design verified
    as `complete`.
 4. ~~`POLARS-FEATURE-GAPS`~~ — **resolved by verification** (§4.0c): both gaps closed, not ported.
 5. ~~`PYTHON-BASIC-OBJECTS`~~ — **resolved by verification** (§4.0c): implemented, not ported.
-5a. **`ASSET-EXPIRED-CACHED-BINARY-READ`** — did this P0 survive PR #11? If so, what does it mean
-   now that `expiration-safety` is complete?
+5a. **`ASSET-EXPIRED-CACHED-BINARY-READ`** — ported as a live P0 pending verification. Confirming
+   or closing it against PR #11 is the first thing to do once the migration lands.
 5b. **`ASSETS-FIX1`** — one XL issue, or two or three narrower ones? (§5)
 6. **`UI_PAYLOAD_DESIGN.md`** — reference or archive?
 7. **`EXAMPLE2-CUSTOM-CONFIG.md`** — accurate against the current config format?

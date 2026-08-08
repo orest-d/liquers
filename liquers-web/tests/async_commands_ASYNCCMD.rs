@@ -128,7 +128,7 @@ async fn asynccmd02_async_exception() {
 /// **JavaScript → Rust does work**: a command that fails, for whatever reason including its own
 /// cancellation, surfaces as a failure of the evaluation rather than being swallowed.
 ///
-/// See `specs/ISSUES.md` `WEB-CANCELLATION-INERT`.
+/// See `specs/issues/WEB-CANCELLATION-INERT.md`.
 #[wasm_bindgen_test]
 async fn asynccmd03_cancellation_in_both_directions() {
     fresh();

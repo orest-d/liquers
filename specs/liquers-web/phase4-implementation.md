@@ -575,7 +575,7 @@ these assertions are unfalsifiable if written naively; that section exists preci
 
 **File:** `liquers-web/src/encode.rs`
 
-**Decision required, and recommended answer.** `PARAMETER-ESCAPING-INCOMPLETE` (`specs/ISSUES.md`)
+**Decision required, and recommended answer.** `PARAMETER-ESCAPING-INCOMPLETE` (`specs/archive/2026-08-08-issues.md`)
 makes `encode_token` unsuitable to mirror — it emits unparseable text for `:` and all non-ASCII.
 The options are (a) fix the core encoder first, which needs the entity redesign and blocks this
 crate on a grammar change, or (b) implement `encodeParam` against the *current* entity table.
@@ -586,7 +586,7 @@ a typed error rather than producing a broken query. **Raising an error is the re
 production of unparseable text is the defect being avoided. When the entity design lands,
 `encodeParam` delegates to the fixed `encode_token` and the limitation disappears.
 
-**Agent:** sonnet · knowledge: `specs/ISSUES.md` `PARAMETER-ESCAPING-INCOMPLETE`, `parse.rs:386`
+**Agent:** sonnet · knowledge: `specs/archive/2026-08-08-issues.md` `PARAMETER-ESCAPING-INCOMPLETE`, `parse.rs:386`
 entity table, Phase 3 `web_encode_param_roundtrip`.
 
 ### Step 21: trunk quick-start example

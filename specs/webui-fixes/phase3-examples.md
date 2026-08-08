@@ -264,7 +264,7 @@ npx playwright test
 Manual browser check: add three panels, remove the last — it disappears immediately; add another —
 the remaining panels do not flicker (stage 2 makes this observable in devtools as unchanged nodes).
 
-For W4 there is nothing to run: verification is that `specs/ISSUES.md` records the wasm issue as
+For W4 there is nothing to run: verification is that `specs/archive/2026-08-08-issues.md` records the wasm issue as
 resolved by `async-wasm-refactor`, and that the existing Playwright suite still passes — which it
 does today.
 

@@ -393,7 +393,7 @@ hazard as designed behavior rather than leaving it as a latent surprise.
 | `specs/PAYLOAD_GUIDE.md` | "Inheritance" bullet becomes true; add `payload: required`; correct "Not available: background/async" to the new error semantics |
 | `specs/PROJECT_OVERVIEW.md` | lines 271, 390 — inheritance now real, note the keyed boundary |
 | `liquers_core::context` rustdoc | `:76-80` currently states nested evaluation does **not** inherit; `:450`, `:459-460`, `:469-470` say the same per-method |
-| `specs/ISSUES.md` | close the issue; record the `Optional` deferral and the keyed limitation |
+| `specs/archive/2026-08-08-issues.md` | close the issue; record the `Optional` deferral and the keyed limitation |
 
 ## Review Checklist
 

@@ -17,7 +17,8 @@ specs/            # Specifications and design documents
 
 **Key specs**: See `specs/PROJECT_OVERVIEW.md` for architecture, `specs/REGISTER_COMMAND_FSD.md` for macro details, `specs/ASSETS.md` for asset lifecycle.
 
-**Known issues** are tracked in `specs/ISSUES.md`.
+**Known issues** are tracked in `specs/issues/`, indexed by `specs/index.csv`. See
+`specs/DOCS_STRUCTURE_GUIDE.md` §4.8 for how to file one.
 
 ## Architecture Rules
 

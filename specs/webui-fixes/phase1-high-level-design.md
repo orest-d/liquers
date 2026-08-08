@@ -19,7 +19,7 @@ has to protect and an immediate-mode backend never has to think about. This is w
 
 ## Scope
 
-| ID | Issue (`specs/ISSUES.md`) | Outcome |
+| ID | Issue (`specs/archive/2026-08-08-issues.md`) | Outcome |
 |----|---------------------------|---------|
 | W3 | WEBUI-REPAINT-AFTER-SYNC-MUTATION | Any model change reaches the DOM, without stealing focus |
 | W4 | webui async engine does not run on wasm | Already resolved by `async-wasm-refactor` — close the record |
@@ -124,7 +124,7 @@ The fix is therefore an *invalidation* concept in the `ui` module, not a patch i
 
 ## References
 
-- `specs/ISSUES.md` — W3, W4 records
+- `specs/archive/2026-08-08-issues.md` — W3, W4 records
 - `specs/ui-events/` — the interaction half of the original design (W1, W2, W5)
 - `specs/webui/` — the original webui feature design
 - `specs/async-wasm-refactor/DESIGN.md` — evidence that W4 is resolved

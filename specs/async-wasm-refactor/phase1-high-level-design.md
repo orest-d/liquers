@@ -139,7 +139,7 @@ Core changes in **`liquers-core`** (new `rt` module + trait-bound edits). Tier 2
 
 ## References
 
-- `specs/webui/DESIGN.md`, `specs/ISSUES.md` — prior session's async-on-wasm follow-up notes.
+- `specs/webui/DESIGN.md`, `specs/archive/2026-08-08-issues.md` — prior session's async-on-wasm follow-up notes.
 - `liquers-core/Cargo.toml` — existing wasm cfg (drops `fs`/`net`, keeps `sync`/`rt`/`macros`/`time`).
 - Spawn/timer sites: `assets.rs:2480,2484,187,1148,1440,3820,3985,4621,4653`; `context.rs:605,732`.
 - Send-bound sites: `context.rs:43,66,111`; `assets.rs:2248`; `commands.rs:407`; `store.rs:267`; `recipes.rs:305`.

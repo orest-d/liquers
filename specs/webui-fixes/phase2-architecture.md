@@ -317,7 +317,7 @@ operation.
 | `liquers-lib/src/ui/widgets/ui_spec_element.rs` | emit `data-lq-children="{handle}"` on the layout wrapper in `render_web` |
 | `liquers-lib/src/ui/mod.rs` | re-export `Invalidation`, `UIChange` |
 | `liquers-lib/examples/ui_*.rs` (5 egui apps) | request a repaint when `take_invalidation()` is not `None` (they get W3's fix too) |
-| `specs/ISSUES.md` | W3 resolved; W4 closed as resolved by `async-wasm-refactor` |
+| `specs/archive/2026-08-08-issues.md` | W3 resolved; W4 closed as resolved by `async-wasm-refactor` |
 
 `needs_repaint()` / `has_evaluating()` / `has_monitoring()` stay — they answer "is async work still
 coming?", which the loop needs to decide whether to keep polling. They stop being the *rendering*

@@ -93,7 +93,7 @@ A deliverable of this feature, not an afterthought:
    parameters do not parse" limitation and drop the P0 row from the improvement table.
 3. `liquers-core/src/query.rs` — `ActionParameter::Link` doc comment currently says the
    encoded form cannot be parsed (l. 536-540).
-4. `specs/ISSUES.md` — mark the issue resolved.
+4. `specs/archive/2026-08-08-issues.md` — mark the issue resolved.
 
 All four must say the same thing about the shorthand: **it is discouraged in general** —
 `-R/data/x.csv/-/to_text` is preferred over `data/x.csv/-/to_text` because the explicit
@@ -129,7 +129,7 @@ so this is a parser-side gap. No downstream crate signature changes (`liquers-py
 
 ## References
 
-- `specs/ISSUES.md` → `QUERY-ACTION-PARAMETER-LINK-PARSER` (P0)
+- `specs/archive/2026-08-08-issues.md` → `QUERY-ACTION-PARAMETER-LINK-PARSER` (P0)
 - `liquers-core/src/parse.rs` — grammar reference, "Known link-parser bug" note (l. 59-66),
   query form precedence (l. 101-123), `query_parser` (l. 649), current rejection test
   `documented_query_language_contract` (l. 1322)

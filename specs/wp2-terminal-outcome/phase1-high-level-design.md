@@ -153,7 +153,7 @@ field. Separate ergonomic `get`, `AssetOutcome`, `poll_outcome`, and a separate
 
 ## References
 
-- `plan20260707.md` WP-2 (F-2, F-3); `specs/ISSUES.md` → ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS
+- `plan20260707.md` WP-2 (F-2, F-3); `specs/archive/2026-08-08-issues.md` → ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS
 - Code: `assets.rs` `poll_state` (:596), `get` (:1990), `finish_run_with_result` (:1326/:1359),
   `poll_state` error arm (:612); `state.rs` `from_error`/`error_result`/`is_error`;
   `metadata.rs` `with_error` (:1050), `error_result` (:1192), `error_data` field (:795)

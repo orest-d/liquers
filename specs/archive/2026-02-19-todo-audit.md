@@ -1,5 +1,8 @@
 # TODO/FIXME Audit (2026-02-19)
 
+> *Triaged into `specs/issues/` on 2026-08-08. Entries not present there were verified as done
+> or no longer relevant. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.*
+
 Scope: repository-wide scan of `TODO`, `FIXME`, and `todo!` markers (excluding `target/`).
 
 ## Summary Table

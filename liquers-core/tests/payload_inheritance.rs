@@ -1,6 +1,6 @@
 //! Integration tests for payload inheritance in nested evaluation.
 //!
-//! Covers the behaviour introduced for `specs/ISSUES.md`:
+//! Covers the behaviour introduced for `specs/archive/2026-08-08-issues.md` (PAYLOAD-NESTED-EVALUATION-INHERITANCE, resolved):
 //! PAYLOAD-NESTED-EVALUATION-INHERITANCE — a nested query whose plan requires a payload
 //! inherits the parent evaluation's payload, together with the boundaries that limit it.
 
@@ -95,7 +95,7 @@ where
 /// recipe check runs. That is a **pre-existing** defect, reproducible with a plain
 /// `volatile: true` command and no payload involvement whatsoever — see
 /// `test_volatile_keyed_recipe_cycles_preexisting_defect` below and
-/// `specs/ISSUES.md`: VOLATILE-KEYED-RECIPE-SELF-DELEGATION.
+/// `specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md`.
 #[tokio::test]
 async fn test_keyed_recipe_requiring_payload_is_rejected(
 ) -> Result<(), Box<dyn std::error::Error>> {

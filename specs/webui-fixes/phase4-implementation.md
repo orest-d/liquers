@@ -303,7 +303,7 @@ cd liquers-lib/examples-web/ui_spec_demo && npx playwright test
 
 ### Step 11: W4 and documentation
 
-**Files:** `specs/ISSUES.md`, `specs/webui/DESIGN.md`, `specs/webui-fixes/DESIGN.md`,
+**Files:** `specs/archive/2026-08-08-issues.md`, `specs/webui/DESIGN.md`, `specs/webui-fixes/DESIGN.md`,
 `liquers-lib/examples-web/README.md`
 
 **Action:**
@@ -319,12 +319,12 @@ cd liquers-lib/examples-web/ui_spec_demo && npx playwright test
 
 **Validation:**
 ```bash
-grep -n "WEBUI-REPAINT\|async evaluation engine" specs/ISSUES.md
+grep -n "WEBUI-REPAINT\|async evaluation engine" specs/archive/2026-08-08-issues.md
 ```
 
 **Rollback:** `git checkout specs liquers-lib/examples-web/README.md`
 
-**Agent:** haiku · knowledge: `specs/ISSUES.md`, `specs/async-wasm-refactor/DESIGN.md`.
+**Agent:** haiku · knowledge: `specs/archive/2026-08-08-issues.md`, `specs/async-wasm-refactor/DESIGN.md`.
 
 ## Testing Plan
 
@@ -408,7 +408,7 @@ tests are written against Phase 2's recording table, one test per row.
 
 ## Documentation Updates
 
-- `specs/ISSUES.md` — W3 resolved, W4 closed, W1/W2/W5 pointed at `specs/ui-events/` (step 11).
+- `specs/archive/2026-08-08-issues.md` — W3 resolved, W4 closed, W1/W2/W5 pointed at `specs/ui-events/` (step 11).
 - `specs/webui/DESIGN.md` — note that rendering now follows model changes.
 - `specs/webui-fixes/DESIGN.md` — phase tracking → Implementation Complete.
 - `liquers-lib/examples-web/README.md` — the demo's new menu entry.

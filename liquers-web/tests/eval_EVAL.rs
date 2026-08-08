@@ -183,7 +183,7 @@ async fn eval05_payload_and_context_reach_a_command() {
 /// corrupting the asset. The behaviour is deterministic, so the assertion is too; the day a
 /// deferred asset manager makes cancellation real, this test fails and says so.
 ///
-/// See `specs/ISSUES.md`, `WEB-CANCELLATION-INERT`.
+/// See `specs/issues/WEB-CANCELLATION-INERT.md`.
 #[wasm_bindgen_test]
 async fn eval06_cancellation_has_defined_terminal_result() {
     fresh();

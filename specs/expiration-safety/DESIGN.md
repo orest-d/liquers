@@ -45,7 +45,7 @@ heavily (+1153/-279 lines). Re-audited all four phase documents against the merg
   (Phase 4 Step 7).
 
 **Remaining (non-blocking):** exposing `get_any_status`/`to_override` on the web API is confirmed
-wanted and is now tracked as `EXPIRATION-RECOVERY-WEB-API` in `specs/ISSUES.md` (a follow-up in
+wanted and is now tracked as `EXPIRATION-RECOVERY-WEB-API` in `specs/archive/2026-08-08-issues.md` (a follow-up in
 `liquers-axum`, out of this core WP's scope). The previously-`#[ignore]`'d retry-branch test is now
 implemented and passing — no tests are skipped.
 

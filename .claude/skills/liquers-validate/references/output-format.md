@@ -136,7 +136,7 @@ Other `plan` fields: `query`, `init_steps`, `is_volatile`, `payload_required`, `
 | `None` | — | Not set. |
 
 **Parameters beyond the declared arity do not appear here at all** — they are dropped silently
-(`PLAN-EXCESS-ACTION-PARAMETERS-DROPPED` in `specs/ISSUES.md`). Confirm every parameter you wrote
+(`specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md`). Confirm every parameter you wrote
 is present; do not rely on `status`.
 
 ## Detail levels

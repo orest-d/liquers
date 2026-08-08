@@ -1,7 +1,7 @@
 # METADATA-CONSISTENCY Findings
 
 ## Scope
-Investigation of Issue `METADATA-CONSISTENCY` in `specs/ISSUES.md` with focus on `liquers-core` write/read paths for metadata fields:
+Investigation of Issue `METADATA-CONSISTENCY` in `specs/archive/2026-08-08-issues.md` with focus on `liquers-core` write/read paths for metadata fields:
 - `type_identifier`
 - `type_name` (runtime detailed type)
 - `data_format`

@@ -1,6 +1,17 @@
+---
+id: COMBINED-VALUE-DISCRIMINATION
+kind: feature
+title: Deserialization cannot discriminate base from extended values
+status: draft
+priority: P2
+complexity: M
+area: [core/value, lib/value]
+design:
+created: 2026-08-08
+github:
+---
 # COMBINED-VALUE-DISCRIMINATION
 
-Status: Draft
 
 ## Summary
 Improve combined value deserialization so type identifiers drive correct base-vs-extended value decoding.

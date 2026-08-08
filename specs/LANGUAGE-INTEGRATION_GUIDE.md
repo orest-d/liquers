@@ -1227,7 +1227,7 @@ def test_COMMAND04_defaults_enums_and_variadics_bind(env):
         return f"{mode}:{sum(rest)}"
     # The variadic must map to an ArgumentInfo with multiple=True, otherwise the
     # planner silently drops the extra parameters (PLAN-EXCESS-ACTION-PARAMETERS-DROPPED
-    # in specs/ISSUES.md) and this asserts "b:1" instead of failing loudly.
+    # in specs/issues/) and this asserts "b:1" instead of failing loudly.
     assert env.evaluate("hello/f") == "a:0"
     assert env.evaluate("hello/f-b-1-2") == "b:3"
 

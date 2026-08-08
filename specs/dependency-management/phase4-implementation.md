@@ -832,7 +832,7 @@ git checkout liquers-lib/src/commands.rs
 **Agent Specification:**
 - **Model:** haiku
 - **Skills:** rust-best-practices
-- **Knowledge:** `liquers-lib/src/commands.rs` (existing command registration patterns), `specs/COMMAND_REGISTRATION_GUIDE.md`, `specs/REGISTER_COMMAND_FSD.md`, `specs/ISSUES.md` (context parameter position bug), `specs/dependency-management/phase2-architecture.md` (dep namespace + command_metadata.rs sections), `liquers-core/src/command_metadata.rs` (CommandMetadata struct with new version fields from Step 1b)
+- **Knowledge:** `liquers-lib/src/commands.rs` (existing command registration patterns), `specs/COMMAND_REGISTRATION_GUIDE.md`, `specs/REGISTER_COMMAND_FSD.md`, `specs/archive/2026-08-08-issues.md` (context parameter position bug), `specs/dependency-management/phase2-architecture.md` (dep namespace + command_metadata.rs sections), `liquers-core/src/command_metadata.rs` (CommandMetadata struct with new version fields from Step 1b)
 - **Rationale:** Standard command registration, well-understood pattern. The `command_metadata` function is now much simpler (no hashing — just registry lookup + serialize).
 
 TODO: `specs/COMMAND_REGISTRATION_GUIDE.md` and `specs/REGISTER_COMMAND_FSD.md` needs to be updated to explain `command_version` macro and recommend to always use it together with `version: auto`.

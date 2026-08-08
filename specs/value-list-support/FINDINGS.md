@@ -2,7 +2,7 @@
 
 ## Scope Investigated
 
-- `specs/ISSUES.md` (Issue 8)
+- `specs/archive/2026-08-08-issues.md` (Issue 8)
 - `liquers-core/src/value.rs` (`Value`, `ValueInterface`)
 - `liquers-core/src/commands.rs` (`FromParameterValue<Vec<V>>`)
 - `liquers-lib/src/ui/commands.rs` (`lui` `children`, `roots`)

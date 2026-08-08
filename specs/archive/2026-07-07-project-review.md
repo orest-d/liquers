@@ -1,5 +1,8 @@
 # Liquers Comprehensive Project Review — 2026-07-07
 
+> *Superseded by `2026-07-07-implementation-plan.md`, which carries every finding F-1…F-20 into
+> a work package with acceptance criteria. Not triaged directly; see that document.*
+
 ## 1. Executive Summary
 
 Liquers is in a healthy but transitional state. The build is green across the whole workspace

@@ -11,7 +11,7 @@ declares what it reacts to, and how a handler is expressed (native where that is
 query-based where the action should be data).
 
 Split out of `specs/webui-fixes/`, which keeps the rendering/invalidation half. Acceptance criteria
-are the interaction defects in `specs/ISSUES.md`: W1 (Enter does not submit), W2 (submitted query
+are the interaction defects in `specs/archive/2026-08-08-issues.md`: W1 (Enter does not submit), W2 (submitted query
 never reaches the element), W5 (accelerators are egui-only).
 
 ## Phase Status

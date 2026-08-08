@@ -26,7 +26,7 @@ imports from this module).
 /// Whether a command or plan needs an evaluation payload to run.
 ///
 /// `Optional` — runs without a payload but receives one when available — is
-/// deliberately not implemented; see `specs/ISSUES.md`. Adding it re-opens the
+/// deliberately not implemented; see `specs/archive/2026-08-08-issues.md`. Adding it re-opens the
 /// non-volatile-with-payload state and is a breaking change for exhaustive matches,
 /// which is intended: every match site must decide how to treat it.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

@@ -337,4 +337,4 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 - Asset lifecycle: `liquers-core/src/assets.rs`
 - Status enum: `liquers-core/src/metadata.rs`
 - Error types: `liquers-core/src/error.rs`
-- Issues: `specs/ISSUES.md`
+- Issues: `specs/issues/`

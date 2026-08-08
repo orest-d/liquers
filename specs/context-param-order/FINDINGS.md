@@ -2,7 +2,7 @@
 
 ## Scope Investigated
 
-- `specs/ISSUES.md` (issue definition)
+- `specs/archive/2026-08-08-issues.md` (issue definition)
 - `liquers-macro/src/lib.rs` (macro parser + code generation)
 - `liquers-core/src/commands.rs` (runtime argument retrieval)
 - `liquers-core/src/command_metadata.rs` (metadata model behavior relevant to indexing)

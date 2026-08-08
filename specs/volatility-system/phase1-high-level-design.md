@@ -67,7 +67,7 @@ No changes to liquers-store, liquers-lib, or liquers-axum.
 
 ## References
 
-- `specs/ISSUES.md` - Issue 1: VOLATILE-METADATA
+- `specs/archive/2026-08-08-issues.md` - Issue 1: VOLATILE-METADATA
 - `liquers-core/src/interpreter.rs` (lines 316-422) - Existing `IsVolatile<E>` trait
 - `liquers-core/src/command_metadata.rs` (line 767) - `CommandMetadata.volatile` field
 - `liquers-core/src/recipes.rs` (line 40) - `Recipe.volatile` field

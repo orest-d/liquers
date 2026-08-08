@@ -1,6 +1,17 @@
+---
+id: BENCHMARK-SUITE
+kind: feature
+title: No reproducible benchmarks for core runtime paths
+status: draft
+priority: P3
+complexity: M
+area: [build]
+design:
+created: 2026-08-08
+github:
+---
 # BENCHMARK-SUITE
 
-Status: Draft
 
 ## Summary
 Define a repeatable benchmark suite for core runtime paths so technical-debt refactors (stores, assets, planning, serialization) can be validated with performance evidence.

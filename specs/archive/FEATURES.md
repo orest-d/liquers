@@ -1,5 +1,8 @@
 # Features Index
 
+> *Triaged into `specs/issues/` on 2026-08-08. Entries not present there were verified as done
+> or no longer relevant. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.*
+
 This folder contains larger feature specifications that should be detailed before implementation design.
 
 ## Feature List

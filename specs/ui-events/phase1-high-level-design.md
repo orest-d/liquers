@@ -25,7 +25,7 @@ action should be data.
 These are observable consequences of the missing path — this feature's acceptance criteria, not its
 scope.
 
-| ID | Issue (`specs/ISSUES.md`) | Symptom |
+| ID | Issue (`specs/archive/2026-08-08-issues.md`) | Symptom |
 |----|---------------------------|---------|
 | W1 | WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT | Enter in the query input does nothing; only clicking "Go" works |
 | W2 | WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED | The submitted query never reaches the element that owns it, so the input reverts and refreshes re-run the stale query |
@@ -199,7 +199,7 @@ adopted, keeping `liquers-py` and `liquers-axum` out of the blast radius.
 
 - `specs/webui-fixes/` — the rendering/invalidation half (W3) and the review discussion this
   feature was split out of
-- `specs/ISSUES.md` — W1, W2, W5 records
+- `specs/archive/2026-08-08-issues.md` — W1, W2, W5 records
 - `specs/value-accessor/phase1-high-level-design.md` — the binding layer this composes with
 - `specs/UI_INTERFACE_FSD.md`, `specs/UI_WEB_DESIGN_NOTES.md`, `specs/UI_RATATUI_DESIGN_NOTES.md`
 - `liquers-lib/src/ui/{element,action,runner,shortcuts}.rs`, `liquers-lib/src/ui/web/app.rs`

@@ -361,7 +361,7 @@ Session (user session - currently minimal)
   the encode/parse round-trip. Not reachable from parsed input.
 - Query parsing is exponential in link nesting depth, currently contained by a
   depth bound rather than fixed; see `QUERY-LINK-EXPONENTIAL-BACKTRACKING` in
-  `specs/ISSUES.md`
+  `specs/issues/` (indexed by `specs/index.csv`)
 - Documentation needs to be written (current Python docs are obsolete/incomplete)
 - Some sync code may be considered obsolete
 - Testing gaps: Both unit tests and integration tests need improvement

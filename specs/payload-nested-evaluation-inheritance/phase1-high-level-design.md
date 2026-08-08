@@ -241,7 +241,7 @@ bool**, so it can gain a third state without a breaking representation change:
 ```rust
 /// Whether a command needs an evaluation payload.
 /// `Optional` (runs without a payload, but receives one when available)
-/// is reserved for a future extension; see specs/ISSUES.md.
+/// is reserved for a future extension; see specs/archive/2026-08-08-issues.md.
 pub enum PayloadRequirement {
     /// Does not use payload. Default.
     None,
@@ -613,7 +613,7 @@ design.
 
 ## References
 
-- `specs/ISSUES.md` — Issue: PAYLOAD-NESTED-EVALUATION-INHERITANCE
+- `specs/archive/2026-08-08-issues.md` — Issue: PAYLOAD-NESTED-EVALUATION-INHERITANCE
 - `specs/PAYLOAD_GUIDE.md`, `specs/PROJECT_OVERVIEW.md` (claims this change makes true)
 - `liquers-core/src/context.rs:76-80, 448-474` (payload doc + nested-evaluation methods)
 - `liquers-core/src/assets.rs:2630-2714` (`AssetManager`: `get_dependency_asset`, `apply`, `apply_immediately`)

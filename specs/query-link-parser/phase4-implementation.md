@@ -544,7 +544,7 @@ with a compliance policy; requires judgment about what each claim now says.*
 
 ### Step 14: Close the issue
 
-**File:** `specs/ISSUES.md`
+**File:** `specs/archive/2026-08-08-issues.md`
 
 **Action:** mark `QUERY-ACTION-PARAMETER-LINK-PARSER` Resolved. Record which test covers
 each of the issue's six Verification items (Phase 3 has the mapping). Note the two
@@ -553,7 +553,7 @@ guard.
 
 **Validation:** manual.
 
-**Rollback:** `git checkout specs/ISSUES.md`
+**Rollback:** `git checkout specs/archive/2026-08-08-issues.md`
 
 **Agent:** haiku · skills: — · knowledge: Phase 3 coverage table, ISSUES.md l. 167-218 ·
 *Rationale: transcription from an existing mapping.*

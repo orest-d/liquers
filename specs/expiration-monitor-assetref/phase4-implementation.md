@@ -598,6 +598,6 @@ git commit -m "expiration-monitor-assetref: checkpoint N complete"
 
 ## Documentation Updates
 
-- **`specs/ISSUES.md`**: Remove the FIXME items related to expiration monitor key-tracking (if listed).
+- **`specs/archive/2026-08-08-issues.md`**: Remove the FIXME items related to expiration monitor key-tracking (if listed).
 - **No changes to `specs/PROJECT_OVERVIEW.md`** — this is an internal implementation improvement, not a change to the query language or core concepts.
 - **No changes to `CLAUDE.md`** — conventions are unchanged.
