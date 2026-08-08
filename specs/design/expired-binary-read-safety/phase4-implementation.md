@@ -10,23 +10,29 @@ from it. Five `*_binary` methods are added, four are brought under the classifie
 `get`/`get_binary` gain a pre-wait expiry check.
 
 **Estimated complexity:** Medium. The change is small in lines but touches a contract with several
-consumers, and one step (Step 4) can regress persistence if done carelessly.
+consumers, and one step (Step 3) can regress persistence if its two parts are split.
 
 **Estimated time:** 4–6 hours for an experienced Rust developer, including tests.
 
 **Prerequisites:** Phases 1–3 approved. All open questions resolved — notably, `AssetRef::get`
 **is** in scope (user decision, option A). No new dependencies.
 
-**Ordering principle:** every step compiles and passes tests on its own. Steps 1–2 are additive and
-change no behaviour; Step 3 is the first behavioural change; Step 4 must land *with* Step 3 to
-avoid a persistence window. Steps are ordered so that a bisect landing between any two commits
-finds a working tree.
+**Ordering principle:** every step compiles and passes the test suite on its own. Steps 1–2 are
+additive and change no behaviour; Step 3 is the first behavioural change, and its two parts are one
+commit.
+
+**One honest caveat about "working tree":** between Step 3 and Step 7, the build is green and
+`liquers-core` is correct, but `liquers-axum` is *behaviourally* degraded — its handlers treat the
+now-gated `Expired` as "still processing" and spin to the 30-second timeout instead of returning
+stale bytes. Compiling and passing tests is not the same as behaving correctly here, because the
+handler gap is exactly what no test covers (Step 8). **Do not ship a release cut between Step 3 and
+Step 7.** Land them in one PR.
 
 ---
 
 ## Implementation Steps
 
-Eleven steps. Steps 1–7 are `liquers-core`, Step 8 is the `liquers-axum` consumer, Steps 9–11 are
+Ten steps. Steps 1–6 are `liquers-core`, Step 7 is the `liquers-axum` consumer, Steps 8–10 are
 decision, documentation and close-out.
 
 ### Step 1 — Add `ReadExposure` and `Status::read_exposure()`
@@ -79,7 +85,14 @@ cargo test -p liquers-core --lib metadata
 
 ---
 
-### Step 3 — Rewrite the read methods over the classifier
+### Step 3 — Read methods + persistence  ⚠ ONE COMMIT
+
+> **Parts A and B below are a single commit.** They are numbered as one step, not two, because
+> splitting them opens a real persistence window *that Part A's own tests would not catch* — I1,
+> the regression test, does not exist until Step 4. A green `cargo test` between A and B is not
+> evidence of a working tree.
+
+#### Part A — rewrite the read methods over the classifier
 
 **File:** `liquers-core/src/assets.rs`
 
@@ -88,9 +101,12 @@ correct.
 
 1. `AssetData::poll_state` (`:769`) — rewrite as a `match self.status.read_exposure()` with four
    arms, preserving today's behaviour exactly: `Value` → value state (with `type_identifier` /
-   `type_name` set from `data`); `MetadataOnly` → metadata-only state (**note `Directory` sets
-   `type_identifier("dir")` and `Error`/`Cancelled` do not** — keep that distinction inside the
-   arm); `Expired` → `None`; `Pending` → `None`.
+   `type_name` set from `data`); `MetadataOnly` → metadata-only state; `Expired` → `None`;
+   `Pending` → `None`.
+   **The `MetadataOnly` arm needs an inner `match` on `Status`**: `Directory` sets
+   `type_identifier("dir")` (`:772-778`) and `Error`/`Cancelled` do not (`:785-790`). A flat
+   restructure loses that distinction — which is a behaviour change, and this step must not make
+   one. The inner match names all three statuses explicitly; no default arm.
 2. `AssetData::poll_state_any_status` (`:813`) — retarget onto `ReadExposure::Expired` instead of
    `Status::Expired`. Behaviour identical.
 3. `AssetData::poll_binary` (`:841`) — **the bug fix.** Return the cached bytes only for
@@ -106,6 +122,8 @@ correct.
    `Pending` → `self.get().await?` then re-derive.
 8. `AssetRef::get` (`:2325`) — pre-wait expiry check: if exposure is `Expired`, return `Err`
    immediately rather than subscribing and looping. **In scope by the user's option-A decision.**
+   Use the same message as `get_binary`'s expired case (Phase 2 §Error Handling), so the two report
+   the same condition identically — that is the symmetry, stated at the level a caller sees.
 
 **Step 3a — error construction.** Per Phase 2 §Error Handling. `Error` and `Cancelled` must be
 **separate match arms** inside `get_binary` despite sharing a `ReadExposure`, because only `Error`
@@ -129,53 +147,38 @@ match self.status.read_exposure() {
 }
 ```
 
-**Validation:**
+#### Part B — point persistence at `binary_unchecked`
+
+In `AssetRef::save_to_store` (`:1944`), replace `self.poll_binary().await` with the status-blind
+accessor. Between Part A and Part B, any asset persisted at a non-`Value` status falls through to
+`serialize_to_binary`, which consults `poll_state`, gets `None`, and turns a successful persist into
+`Err("Failed to obtain binary value for storing")`.
+
+That window is reachable in production, not theoretical: `AssetRef::set_state` (`:2548`) persists
+with whatever status the caller supplies, via `Context::set_state` (`context.rs:789`).
+
+**Validation (whole step):**
 ```bash
 cargo check -p liquers-core
 cargo test -p liquers-core --lib
-# Expected: existing tests still pass. Any state-read test that breaks means step 3.1
+# Expected: existing tests still pass. Any state-read test that breaks means Part A.1
 # changed behaviour it was supposed to preserve — investigate, do not adjust the test.
 ```
 
-That last sentence is the point of the step: **`poll_state` is a refactor, not a change.** A
-failing state test is a defect in the refactor.
+That expectation is the point of the step: **`poll_state` is a refactor, not a change.** A failing
+state test is a defect in the refactor.
 
-**Rollback:** `git checkout liquers-core/src/assets.rs`
+**Rollback:** revert the whole commit (see §Rollback Plan — `git checkout` is wrong here).
 
 **Agent:** **sonnet** · skills: `rust-best-practices` · knowledge: Phase 2 §Function Signatures +
-Behaviour Matrix + §Error Handling, `assets.rs:760-870` and `:2320-2470`, `CLAUDE.md` error rules.
+Behaviour Matrix + §Error Handling + §"Why it is needed", `assets.rs:760-870`, `:1930-1990` and
+`:2320-2470`, `CLAUDE.md` error rules.
 **Rationale:** the only step needing judgement — preserving `poll_state` semantics exactly while
 restructuring it, and getting `get_binary`'s four-way branch right. Not a haiku step.
 
 ---
 
-### Step 4 — Point persistence at `binary_unchecked`
-
-**File:** `liquers-core/src/assets.rs`
-
-**Action:** in `AssetRef::save_to_store` (`:1944`), replace `self.poll_binary().await` with the
-status-blind accessor. **This must land in the same commit as Step 3.** Between gating
-`poll_binary` and repointing `save_to_store`, any asset persisted at a non-`Value` status would
-fall through to `serialize_to_binary`, which consults `poll_state` and returns `None` — turning a
-successful persist into `Err("Failed to obtain binary value for storing")`.
-
-That window is reachable in production, not theoretical: `AssetRef::set_state` (`:2548`) persists
-with whatever status the caller supplies, via `Context::set_state` (`context.rs:789`).
-
-**Validation:**
-```bash
-cargo test -p liquers-core --lib
-cargo test -p liquers-core --test expiration_integration
-```
-
-**Rollback:** revert Steps 3 and 4 together.
-
-**Agent:** haiku · skills: `rust-best-practices` · knowledge: Phase 2 §"Why it is needed",
-`save_to_store` and `persist_with_status_tracking`.
-
----
-
-### Step 5 — `AssetManager::get_binary_any_status`
+### Step 4 — `AssetManager::get_binary_any_status`
 
 **File:** `liquers-core/src/assets.rs`
 
@@ -207,18 +210,31 @@ cargo check -p liquers-py   # trait change: confirm no downstream implementor br
 
 ---
 
-### Step 6 — Core tests (Examples 1–3, U4–U10, I1)
+### Step 5 — Core tests (Examples 1–3, U4–U10, I1)
 
 **File:** `liquers-core/src/assets.rs` (`mod tests`, `:5472`, `use super::*` at `:5480`)
 
-**Action:** land the tests from Phase 3. Use the **verified** setup facts:
-- `try_fast_track` (`:679`) is the clean way to reach `Expired` while holding cached bytes.
-- `expire()` accepts only `Ready`/`Override`.
-- I1 must be **in-file**, not in `tests/` — `set_state` is `pub(crate)`.
-- Do not use `AssetRef::set_binary` or `State::new_with_value`; neither exists.
+**Action:** land Examples 1–3 and U4–U10 + I1 from Phase 3. **Read Phase 3 §Verified Setup Facts
+first** — it is the binding list, and the drafting pass invented APIs repeatedly. The essentials,
+restated here so this step is self-contained:
 
-U9 (`get` on `Expired`) **must** use `tokio::time::timeout`, so that a regression fails the suite
-instead of hanging it.
+- **The setup route is two moves, not one.** `try_fast_track` (declared at **`:634`**; it assigns
+  `binary` and `data` at `:679`) refuses any stored status outside `Ready | Source | Override`
+  (`:650-653`) — so it **cannot load an `Expired` entry**. The route is: store the bytes as
+  `Ready` → `try_fast_track()` → **then** `expire()`. Fast-tracking `Ready` lands exactly where
+  expiry is legal, since `expire()` accepts only `Ready`/`Override`.
+- I1 must be **in-file**, not in `tests/` — `set_state` is `pub(crate)`.
+- `AssetRef::set_binary` and `State::new_with_value` **do not exist**. `try_poll_binary` **already
+  exists** (`:2456`) — it is gated, not added. `Status::all()` **does not exist**.
+- `EnvRef::evaluate` *does* exist (`context.rs:278`) but returns after *submission*, not
+  evaluation — with a queued manager you must still `get()` to wait.
+
+Example 2 contributes **two** tests: `test_binary_recovery_across_layers` and
+`test_manager_binary_recovery_skips_deserialization`. The second is the one that proves Step 4's
+efficiency claim by storing a type this build cannot deserialize; do not drop it as redundant.
+
+U9 (`get` on `Expired`) **must** wrap the call in `tokio::time::timeout` (Phase 3 uses 2 s), so a
+regression fails the suite instead of hanging it.
 
 **Validation:**
 ```bash
@@ -234,7 +250,7 @@ model that will check APIs rather than assume them.
 
 ---
 
-### Step 7 — Integration tests (I2–I4)
+### Step 6 — Integration tests (I2–I4)
 
 **File:** `liquers-core/tests/expiration_integration.rs`
 
@@ -256,7 +272,7 @@ cargo test -p liquers-core --test manager_parametric
 
 ---
 
-### Step 8 — `liquers-axum` consumer fix
+### Step 7 — `liquers-axum` consumer fix
 
 **File:** `liquers-axum/src/query/handlers.rs`
 
@@ -267,6 +283,9 @@ cargo test -p liquers-core --test manager_parametric
    belongs at the request boundary (`get_asset`/`get`), and a handler holding an `AssetRef` is past
    it. (Phase 1 §"Expiry is an error".)
 3. `Error`/`Cancelled` keep their current handling. `Pending` statuses keep looping.
+4. Search the file for any *other* status dispatch (`grep -n "match.*status" `) and confirm none
+   retains a catch-all. The compiler enforces exhaustiveness for `match`, but an `if`/`else` chain
+   on status would slip through silently.
 
 Without this step the fix converts stale bytes into a 30-second timeout, because the catch-all
 currently swallows `Expired` as "still processing".
@@ -275,6 +294,9 @@ currently swallows `Expired` as "still processing".
 ```bash
 cargo check -p liquers-axum
 cargo test -p liquers-axum
+# NOTE: this proves the crate compiles and existing tests pass. It does NOT exercise the handler
+# fix — liquers-axum has no handler test scaffolding. That gap is Step 8's decision, not something
+# this command covers. Do not read a green result here as "the handler fix is verified".
 ```
 
 **Rollback:** `git checkout liquers-axum/src/query/handlers.rs`
@@ -284,10 +306,10 @@ cargo test -p liquers-axum
 
 ---
 
-### Step 9 — The axum test-coverage decision
+### Step 8 — The axum test-coverage decision
 
 **Carried from Phase 3 as an explicit choice, not a default.** `liquers-axum` has no handler test
-scaffolding, and Step 8 sits over the layer where the bug actually bites.
+scaffolding, and Step 7 sits over the layer where the bug actually bites.
 
 Pick one and record it in `DESIGN.md`:
 - **(a)** Build the scaffolding — a test `Router` plus a request helper, ~80 lines, reusable by
@@ -304,7 +326,7 @@ gain.
 
 ---
 
-### Step 10 — Documentation
+### Step 9 — Documentation
 
 **Files:** `liquers-core/src/assets.rs` module docs (`:100-116`), `specs/reference/ASSETS.md`
 
@@ -312,9 +334,13 @@ gain.
 1. The module-level read-contract table currently documents the bug as intended behaviour — "A
    cached binary may be returned" for both `get_binary` and `poll_binary`. Replace with the Phase 2
    Behaviour Matrix, adding rows for the new methods.
-2. `ASSETS.md` §"Status and reads": same correction, plus the `ReadExposure` classification.
-3. `ASSETS.md` requires a `## History` row and a `reviewed:` bump **in the same commit**
-   (`DOCS_STRUCTURE_GUIDE.md` §9.2).
+2. `ASSETS.md` has **no** "Status and reads" section today (verified) — its nearest neighbours are
+   `## Status Enum` (`:105`) and `### Status Properties` (`:145`). **Create** a new subsection
+   under `## Status Enum` carrying the Behaviour Matrix and the `ReadExposure` classification.
+   `### Status Properties` also tabulates per-status predicates and should gain a `read_exposure`
+   column so the two do not disagree.
+3. `ASSETS.md` requires a `## History` row (the table exists at `:751`) and a `reviewed:` bump
+   **in the same commit** (`DOCS_STRUCTURE_GUIDE.md` §9.2).
 
 **Validation:**
 ```bash
@@ -325,7 +351,7 @@ python3 scripts/docs_index.py --check
 
 ---
 
-### Step 11 — Close out
+### Step 10 — Close out
 
 **Action:**
 1. `specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md` → `status: complete`, noting that the
@@ -350,15 +376,14 @@ not how long it is.
 |---|---|---|---|
 | 1 | haiku | rust-best-practices | Transcribes a table Phase 2 already fixed |
 | 2 | haiku | liquers-unittest, rust-best-practices | Test code given in Phase 3 |
-| 3 | **sonnet** | rust-best-practices | The only step needing judgement: preserve `poll_state` exactly while restructuring it, and get `get_binary`'s four-way branch right |
-| 4 | haiku | rust-best-practices | One-line change, but must ship with Step 3 |
-| 5 | haiku | rust-best-practices | Mirrors `get_any_status` minus one call |
-| 6 | **sonnet** | liquers-unittest, rust-best-practices | Setup is the hard part; the drafting pass got it wrong repeatedly, so this needs a model that verifies APIs rather than assuming them |
-| 7 | sonnet | liquers-unittest | Integration setup with recipes and managers |
-| 8 | sonnet | rust-best-practices | Fifteen explicit arms plus a behaviour decision per status |
-| 9 | sonnet if (a), none if (b) | — | Filing an issue needs no agent |
-| 10 | haiku | — | Mechanical, against a matrix that already exists |
-| 11 | haiku | — | Follows `DOCS_STRUCTURE_GUIDE.md` §4.8/§5.5/§8.1 |
+| 3 (A+B) | **sonnet** | rust-best-practices | The only step needing judgement: preserve `poll_state` exactly while restructuring it, and get `get_binary`'s four-way branch right. Part B is one line but must ship in the same commit |
+| 4 | haiku | rust-best-practices | Mirrors `get_any_status` minus one call |
+| 5 | **sonnet** | liquers-unittest, rust-best-practices | Setup is the hard part; the drafting pass got it wrong repeatedly, so this needs a model that verifies APIs rather than assuming them |
+| 6 | sonnet | liquers-unittest | Integration setup with recipes and managers |
+| 7 | sonnet | rust-best-practices | Fifteen explicit arms plus a behaviour decision per status |
+| 8 | sonnet if (a), none if (b) | — | Filing an issue needs no agent |
+| 9 | haiku | — | Mechanical, against a matrix that already exists |
+| 10 | haiku | — | Follows `DOCS_STRUCTURE_GUIDE.md` §4.8/§5.5/§8.1 |
 
 Every agent needs `CLAUDE.md`'s hard rules in context: no `unwrap`/`expect` in library code, no
 `_ =>` on Liquers enums, typed error constructors only, `eprintln!` never `println!`.
@@ -368,25 +393,37 @@ Every agent needs `CLAUDE.md`'s hard rules in context: no `unwrap`/`expect` in l
 | When | Command | Gate |
 |---|---|---|
 | After Steps 1, 2 | `cargo test -p liquers-core --lib metadata` | classifier correct in isolation |
-| After Steps 3, 4 | `cargo test -p liquers-core --lib` | **no existing state-read test regresses** |
-| After Step 5 | `cargo check -p liquers-py` | trait default breaks no downstream implementor |
-| After Step 6 | `cargo test -p liquers-core --lib` | new contract holds |
-| After Step 7 | `cargo test -p liquers-core --test expiration_integration --test manager_parametric` | routing + persistence unchanged |
-| After Step 8 | `cargo test -p liquers-axum` | consumer compiles and passes |
-| Final | `cargo test -p liquers-lib --lib --tests` | the project's default loop (per `CLAUDE.md`) |
+| After Step 3 | `cargo test -p liquers-core --lib` | **no existing state-read test regresses** |
+| After Step 4 | `cargo check -p liquers-py` | trait default breaks no downstream implementor |
+| After Step 5 | `cargo test -p liquers-core --lib` | new contract holds |
+| After Step 6 | `cargo test -p liquers-core --lib --test expiration_integration --test manager_parametric` | routing + persistence unchanged, unit tests still green |
+| After Step 7 | `cargo check -p liquers-axum` + `cargo test -p liquers-axum` | consumer compiles; handler behaviour **not** covered (Step 8) |
+| **Final** | **`cargo test -p liquers-core`** | **every test this design adds** |
+| Final, project | `cargo test -p liquers-lib --lib --tests` | the project's default loop (per `CLAUDE.md`) — a regression check on dependents, *not* on this feature |
+
+**The final gate is `-p liquers-core`, not `-p liquers-lib`.** `CLAUDE.md` names the `liquers-lib`
+loop as the project default, and it is — but Cargo does not run a *dependency's* tests, and every
+test this design adds lives in `liquers-core`. Running only the default loop at the end would
+verify nothing about this change. Run both.
 
 Do **not** run `cargo test --workspace` — `CLAUDE.md` warns it exhausts the 30 GB disk allowance.
 
-**The single most informative signal** is the Steps 3–4 gate: `poll_state` is being restructured
-but must not change. If a pre-existing state test fails there, the refactor is wrong — fix the
-code, not the test.
+**The single most informative signal** is the Step 3 gate: `poll_state` is being restructured but
+must not change. If a pre-existing state test fails there, the refactor is wrong — fix the code,
+not the test.
 
 ## Rollback Plan
 
+**`git checkout <file>` is only safe for a step whose file no other landed step has touched.**
+Steps 3, 4 and 5 all modify `liquers-core/src/assets.rs`, so once two of them are in,
+`git checkout liquers-core/src/assets.rs` discards both. Use `git revert <commit>` to undo one
+step selectively.
+
 | Scope | Action |
 |---|---|
-| Any single step | `git checkout <file>` — each step is one file, except 3+4 |
-| Steps 3+4 | Revert together; separating them opens the persistence window described in Step 4 |
+| A step whose file is untouched by later landed steps (1, 2, 6, 7) | `git checkout <file>` |
+| Steps 3, 4, 5 (all in `assets.rs`) | `git revert <commit>` for the specific step — **not** `git checkout` |
+| Step 3 | Revert as one commit. Parts A and B cannot be separated; splitting them opens the persistence window described in Part B. |
 | Whole feature | Revert to before Step 1. Steps 1–2 are additive and safe to leave in place if only the behavioural change needs backing out — the classifier is dead code without Step 3. |
 
 The design is **not** feature-gated. A read-contract fix behind a flag would mean shipping two
@@ -397,14 +434,16 @@ contracts, which is worse than shipping the fix.
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | `poll_state` refactor silently changes state reads | Medium | U4 asserts behaviour class for all 15 statuses; Step 3 gate treats a failing existing test as a defect |
-| Persistence breaks for non-`Value` statuses | Medium | Steps 3+4 land together; I1 is the regression test |
-| Axum handlers hang instead of erroring | High if Step 8 skipped | Step 8 is mandatory, not optional |
+| Persistence breaks for non-`Value` statuses | Medium | Step 3's parts land as one commit; I1 is the regression test. **Note Part A's own validation would pass while this is broken** — I1 does not exist until Step 5, which is why the parts are not separate steps |
+| Axum handlers hang instead of erroring | High if Step 7 skipped | Step 7 is mandatory, not optional; and no test catches it, so review is the only gate. Do not cut a release between Steps 3 and 7 |
 | `Cancelled` error wording diverges from `Error` | Low | U8 asserts error *identity*, not just failure |
 | A future `Status` variant lands in the wrong bucket | Low | U2's exhaustive match makes it a compile error |
 
 ## Open Items Carried Forward
 
-1. **Step 9's decision** — recommendation (b), needs confirmation at execution time.
+1. **Step 8's decision** — recommendation (b): accept review-only verification and file
+   `AXUM-HANDLER-TEST-COVERAGE`. Stated as a recommendation because it trades coverage for scope;
+   confirm it at execution time rather than treating it as settled.
 2. `EXPIRATION-RECOVERY-WEB-API` may want to grow to cover `get_binary_any_status`. Affects that
    issue's scope, not this design's code.
 3. Phase 3 named two things as untestable — `try_poll_binary` lock contention and the exact
