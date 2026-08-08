@@ -1,5 +1,6 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,draft,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
+DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,draft,local,,P1,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,draft,local,,P1,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,draft,local,,P1,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
 CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,draft,local,,P1,M,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
@@ -43,6 +44,7 @@ WEB-NATIVE-IO-TIER2,issue,No browser-native store or command backend,draft,local
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,draft,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,draft,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
+EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,draft,local,implementation,,,core/assets;core/store,,,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,draft,local,architecture,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
@@ -67,6 +69,7 @@ ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-07-15,,specs/reference/DEPENDENCIES_STATUS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-08,,specs/reference/PROJECT_OVERVIEW.md
+doc-08-recipes-plans,reference,,,local,,,,,,,,,,,specs/reference/api/doc-08-recipes-plans.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md

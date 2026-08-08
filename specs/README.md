@@ -57,6 +57,7 @@ volatility work all landed in `assets.rs`.
 - **Expiration mechanism** — built → [`design/expiration-mechanism/`](design/expiration-mechanism/)
 - **Expiration timing and race safety** — built → [`design/expiration-safety/`](design/expiration-safety/)
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
+- **Expired-safe binary reads** — designed → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
@@ -160,6 +161,7 @@ question are both measure-first items.
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
 | [`ASSET-EXPIRED-CACHED-BINARY-READ`](issues/ASSET-EXPIRED-CACHED-BINARY-READ.md) | P0 | M | `expiration-safety` |
+| [`DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE`](issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md) | P1 | S | `expired-binary-read-safety` |
 | [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P1 | M | `metadata-consistency` |
 <!-- END generated: issues -->
 
@@ -169,7 +171,7 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
-*Everything is placed in the capability map.*
+- `reference/api/doc-08-recipes-plans.md`
 <!-- END generated: unplaced -->
 
 ## Guides
