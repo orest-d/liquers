@@ -523,6 +523,30 @@ impl<E: Environment> CommandRegistry<E> {
         self.async_executors.insert(key.clone(), bf.clone());
         Ok(self.command_metadata_registry.get_mut(key).unwrap())
     }
+
+    /// Removes a command's sync executor, async executor and metadata.
+    ///
+    /// Returns `true` if anything was removed. Idempotent: unregistering a command that was
+    /// never registered returns `false` rather than an error.
+    ///
+    /// All three stores are cleared together by design. Planning consults the metadata registry
+    /// while execution consults the executor maps, so removing only the executors would leave a
+    /// command that plans successfully and then fails at execution, and removing only the
+    /// metadata would leave an unreachable executor.
+    ///
+    /// Note that this discards the `impl_version` that [`CommandMetadataRegistry::add_command`]
+    /// preserves when *replacing* a command: re-registering after `unregister` starts from a
+    /// fresh version, which expires assets computed by the earlier command.
+    pub fn unregister<K>(&mut self, key: K) -> bool
+    where
+        K: Into<CommandKey>,
+    {
+        let key: CommandKey = key.into();
+        let had_sync = self.executors.remove(&key).is_some();
+        let had_async = self.async_executors.remove(&key).is_some();
+        let had_metadata = self.command_metadata_registry.remove_command(key).is_some();
+        had_sync || had_async || had_metadata
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -669,5 +693,157 @@ mod tests {
         assert!(result.is_ok());
         let value = result.unwrap().try_into_string().unwrap();
         assert_eq!(value, "Hello, world!");
+    }
+}
+
+#[cfg(test)]
+mod unregister_tests {
+    use super::*;
+    use crate::command_metadata::CommandKey;
+    use crate::context::SimpleEnvironment;
+    use crate::parse::parse_query;
+    use crate::plan::PlanBuilder;
+    use crate::value::Value;
+
+    type Env = SimpleEnvironment<Value>;
+
+    fn registry_with_hello() -> CommandRegistry<Env> {
+        let mut registry = CommandRegistry::<Env>::new();
+        registry
+            .register_command(CommandKey::new("", "", "hello"), |_, _, _| {
+                Ok(Value::from("Hello, world!"))
+            })
+            .expect("register_command failed");
+        registry
+    }
+
+    /// unregister01 — metadata *and* both executor maps are cleared together.
+    ///
+    /// The sharp assertion is *which layer* fails afterwards. Planning consults the metadata
+    /// registry; execution consults the executor maps. So if only the executors were removed,
+    /// the query would still plan and fail later at execution — and this test must reject that,
+    /// not accept it as "an error was returned".
+    #[test]
+    fn unregister01_removes_metadata_and_executors() -> Result<(), Error> {
+        let mut registry = registry_with_hello();
+        let key = CommandKey::new("", "", "hello");
+
+        // Before: the query plans.
+        let query = parse_query("hello")?;
+        let mut builder = PlanBuilder::new(query.clone(), &registry.command_metadata_registry);
+        assert!(
+            builder.build().is_ok(),
+            "precondition: `hello` should plan while registered"
+        );
+
+        assert!(registry.unregister(key.clone()), "unregister reported no removal");
+
+        // After: planning itself must fail. A plan that still builds would mean the metadata
+        // survived, which is exactly the partial-removal bug this test exists to catch.
+        let mut builder = PlanBuilder::new(query, &registry.command_metadata_registry);
+        let planned = builder.build();
+        assert!(
+            planned.is_err(),
+            "after unregister the query still planned — metadata was not removed, so the failure \
+             would surface at execution instead"
+        );
+
+        // And the executors are gone too.
+        assert!(registry.executors.get(&key).is_none(), "sync executor survived");
+        assert!(
+            registry.async_executors.get(&key).is_none(),
+            "async executor survived"
+        );
+        assert!(
+            registry.command_metadata_registry.get(key).is_none(),
+            "metadata survived"
+        );
+        Ok(())
+    }
+
+    /// unregister02 — unregistering an absent command is `false`, not an error.
+    #[test]
+    fn unregister02_absent_is_false_not_error() {
+        let mut registry = registry_with_hello();
+        assert!(!registry.unregister(CommandKey::new("", "", "nonexistent")));
+        // Idempotent: a second unregister of a real command is also false.
+        assert!(registry.unregister(CommandKey::new("", "", "hello")));
+        assert!(!registry.unregister(CommandKey::new("", "", "hello")));
+    }
+
+    /// unregister03 — re-registering after unregister starts from a fresh `impl_version`.
+    ///
+    /// `add_command` deliberately *preserves* `impl_version` when replacing a command, so that a
+    /// replace does not expire dependent assets. `unregister` discards that history, so this
+    /// documents the difference rather than leaving it to be discovered as mysterious cache
+    /// invalidation.
+    #[test]
+    fn unregister03_reregister_resets_impl_version() {
+        let mut registry = registry_with_hello();
+        let key = CommandKey::new("", "", "hello");
+
+        if let Some(meta) = registry.command_metadata_registry.get_mut(key.clone()) {
+            meta.impl_version = crate::metadata::Version::new(42);
+        }
+        assert_eq!(
+            registry
+                .command_metadata_registry
+                .get(key.clone())
+                .map(|m| m.impl_version.clone()),
+            Some(crate::metadata::Version::new(42))
+        );
+
+        // A *replace* preserves it.
+        registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::none()))
+            .expect("replace failed");
+        assert_eq!(
+            registry
+                .command_metadata_registry
+                .get(key.clone())
+                .map(|m| m.impl_version.clone()),
+            Some(crate::metadata::Version::new(42)),
+            "replace should preserve impl_version"
+        );
+
+        // An unregister/re-register does not.
+        assert!(registry.unregister(key.clone()));
+        registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::none()))
+            .expect("re-register failed");
+        assert_ne!(
+            registry
+                .command_metadata_registry
+                .get(key)
+                .map(|m| m.impl_version.clone()),
+            Some(crate::metadata::Version::new(42)),
+            "unregister should discard impl_version history"
+        );
+    }
+
+    /// unregister04 — a command registered on *both* paths has both executors removed.
+    #[test]
+    fn unregister04_async_and_sync_both_removed() {
+        let mut registry = CommandRegistry::<Env>::new();
+        let key = CommandKey::new("", "", "both");
+        registry
+            .register_command(key.clone(), |_, _, _| Ok(Value::none()))
+            .expect("register_command failed");
+        registry
+            .register_async_command(key.clone(), |_, _, _| {
+                Box::pin(async { Ok(Value::none()) })
+            })
+            .expect("register_async_command failed");
+
+        assert!(registry.executors.contains_key(&key));
+        assert!(registry.async_executors.contains_key(&key));
+
+        assert!(registry.unregister(key.clone()));
+
+        assert!(!registry.executors.contains_key(&key), "sync executor survived");
+        assert!(
+            !registry.async_executors.contains_key(&key),
+            "async executor survived"
+        );
     }
 }

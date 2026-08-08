@@ -152,7 +152,13 @@ impl Invalidation {
 /// 2. A change to an element's *content* is reported by whoever made it — from `update` via the
 ///    returned `UpdateResponse::NeedsRepaint`, and from anywhere else via
 ///    [`AppState::record_change`].
-pub trait AppState: Send + Sync + std::fmt::Debug {
+/// Thread bounds follow [`UIElement`]: an `AppState` stores `dyn UIElement` handles, so it
+/// cannot be more strongly bounded than they are. Relaxed to the target-conditional markers as
+/// part of admitting a non-`Send` foreign value into `ExtValue` on wasm — see
+/// `specs/liquers-web/phase2-architecture.md`.
+pub trait AppState:
+    liquers_core::maybe_send::MaybeSend + liquers_core::maybe_send::MaybeSync + std::fmt::Debug
+{
     // ── Node Creation ────────────────────────────────────────────────────
 
     /// Add a new node with an auto-generated handle.

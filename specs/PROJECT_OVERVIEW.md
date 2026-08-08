@@ -55,6 +55,12 @@ liquers-core (foundation - all core abstractions)
     │   ├─ Store API (CRUD operations)
     │   └─ Implements Environment trait
     │
+    ├── liquers-web (browser/JavaScript bindings via wasm-bindgen)
+    │   ├─ Value bridge: structural conversion, plus opaque retention by opt-in
+    │   ├─ Commands written in JavaScript, composed with the Rust ones in one query
+    │   ├─ Query evaluation as Promises; no blocking entry point exists
+    │   └─ wasm32-only; excluded from the workspace default-members
+    │
     └── liquers-py (Python bindings via PyO3)
         └─ FFI wrappers for Python interoperability
 ```

@@ -2,6 +2,415 @@
 
 ## Open
 
+### Issue: POST-INIT-COMMAND-REGISTRATION
+Status: Open
+Priority: P3 (Low — an optimization, not a blocker)
+
+**Downgraded.** This was first filed as a P1 blocker on the claim that a command cannot be
+registered after an environment is shared. That claim was wrong: the ordinary Rust ordering —
+build the registry, then the environment, then `to_ref` — applies to a language integration too,
+and can simply be done again. `liquers-web` implements it and has no such limitation.
+
+#### Problem
+
+Registration needs `&mut CommandRegistry`, and there is no path to one once
+`Environment::to_ref` has run:
+
+- `Environment::to_ref(self)` **consumes** the environment into `EnvRef(Arc<E>)`
+  (`liquers-core/src/context.rs:213`). `Arc::get_mut` does not help — `init_with_envref` stores a
+  clone of the `EnvRef` inside the environment, so the strong count is never 1.
+- `Environment::get_command_executor(&self) -> &Self::CommandExecutor`
+  (`liquers-core/src/context.rs:170`) returns a **reference**, so an implementor cannot place the
+  executor behind a `RefCell`/`RwLock` either.
+
+So an environment is effectively frozen once shared.
+
+#### How this is handled today
+
+`liquers-web` keeps the environment un-shared and mutable until the first evaluation, and rebuilds
+it when a command is registered afterwards: a fresh environment is constructed, every retained
+declaration is replayed into it along with the new one, and the shared handle is swapped. Replay
+goes through the same registration path as the original, so the two cannot drift.
+
+The cost of a rebuild is the **asset cache**, discarded with the old environment. An evaluation
+already in flight keeps the old `EnvRef` and completes against it, so nothing is interrupted — it
+simply does not observe the new command. Registering all commands before the first evaluation
+avoids rebuilding entirely, which is the ordinary flow.
+
+#### Why it is still worth fixing
+
+The rebuild is correct but wasteful, and it gets more wasteful as an environment accumulates state
+that is expensive to rebuild — most obviously a populated asset cache, and later a configured store
+(`STORE`) or recipe provider (`RECIPE`). An application that registers commands per route pays it
+on every route change.
+
+#### Expected behavior
+
+Registering a command should not require discarding the environment. Two candidate designs:
+
+1. **Interior mutability in `CommandRegistry`.** Hold the executor maps and the metadata registry
+   in `RefCell` (wasm) / `RwLock` (native, selected by the existing `MaybeSend`/`MaybeSync` split),
+   and add `&self` registration methods alongside the current `&mut self` ones.
+   `get_command_executor` keeps returning `&CommandRegistry`, so the trait is unchanged and the
+   addition is backward compatible. **Recommended** — additive and localized.
+2. **A registration hook on `Environment`**, e.g. `fn register_command(&self, …)`. Larger surface,
+   and every implementor must decide what to do.
+
+Either way the concurrency story needs stating: registration mutates a structure evaluation reads,
+so on native the lock discipline matters, and on wasm the `RefCell` must not be held across an
+`await`.
+
+#### Discovery
+
+Found while implementing `specs/liquers-web` milestone M4, and corrected in the same milestone once
+the rebuild approach was identified. Recorded because the underlying constraint is real and worth
+removing, and because the first diagnosis being wrong is itself worth remembering: the absence of a
+mutable path is not the same as the absence of a way forward.
+
+### Issue: LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT
+Status: Open
+Priority: P3 (Low — the information survives, in the message rather than in fields)
+
+#### Problem
+
+`liquers-web` exposes `LiquersError.jsClass` and `LiquersError.jsStack`, and its error bridge
+populates them via `LiquersError::from_thrown`. **The evaluation path does not go through that
+constructor.** When a JavaScript command throws, the adapter converts the exception to a
+`liquers_core::error::Error` so it can travel through the planner and the asset lifecycle; that
+type has fields for message, position, query, key and command key, but nothing for
+language-specific context. The eventual `Promise` rejection is rebuilt from the `Error`, so
+`jsClass` and `jsStack` are `null`.
+
+Measured, on the real path — a command doing `throw new TypeError('bang')`:
+
+```
+errorType = "execution_error"
+jsClass   = undefined
+jsStack   = undefined
+message   = "TypeError: bang\n    at eval (...)\n    at ..."
+```
+
+Nothing is *lost* — the class and the stack are both in the message — but they are no longer
+separately addressable, so a page cannot branch on the class or render the stack on its own.
+
+#### Impact
+
+Small, and the same for every *integrated language*: Python's exception type and traceback, and
+Starlark's call stack, hit exactly the same wall. It is a property of the transport, not of the
+JavaScript bridge.
+
+#### Intended solution
+
+Give `liquers_core::error::Error` a place for language context — for example
+`language_context: Option<serde_json::Value>` with `#[serde(default, skip_serializing_if)]`, which
+is additive and keeps every existing implementor compiling. The bridge would fill it on the way in
+and read it on the way out, and `liquers-py` could use the same field for a traceback.
+
+Additive to core, but it is a core type change touching serialization, so it wants a moment's
+design rather than being folded into an integration milestone.
+
+#### Discovery
+
+Raised by review on PR #19 and confirmed by probing the real evaluation path. Worth noting how it
+survived: `ERROR03` tested the error bridge *in isolation*, where `from_thrown` does populate the
+fields — the test was true and the shipped path was not. A conformance test for a bridge should
+exercise the route production traffic takes, not the most convenient entry point.
+
+**Fixed alongside it:** the message contained its first line twice ("TypeError: bang\nTypeError:
+bang\n at ..."), because a JavaScript `stack` conventionally begins with the "Name: message" line
+that had already been prepended.
+
+### Issue: WEB-CANCELLATION-INERT
+Status: Open
+Priority: P3 (Low — the surface is correct; only the behaviour is missing)
+
+#### Problem
+
+On `wasm32` the environment uses `ImmediateAssetManager`, which evaluates the query **during**
+`AssetManager::get_asset`. By the time a caller holds the `AssetRef`, the asset has already reached
+a terminal status. `liquers-web` exposes `Asset.cancel()` — the cancellation surface required by
+`ASYNCQ04` — but it can never do anything: there is nothing in flight to cancel.
+
+Measured, not inferred. A command that takes 300 ms reports status `ready` immediately after
+`getAsset` returns, and `cancel()` leaves it `ready`.
+
+```javascript
+const asset = await liquers.getAsset("slow");   // 300 ms command
+await asset.status();                            // "ready" — already finished
+await asset.cancel();                            // resolves, changes nothing
+await asset.status();                            // "ready"
+```
+
+This follows directly from Phase 1 decision 5 of `specs/liquers-web` ("evaluate immediately; no
+heavy long-running background calculations are expected in the browser; some tradeoffs are
+acceptable"), so it is a consequence of a deliberate choice rather than a defect. It is filed
+because the consequence was not stated at the time and is easy to mistake for a working feature:
+`cancel()` returns a resolved `Promise` whether or not it did anything.
+
+#### Impact
+
+A page that starts a long evaluation cannot stop it. In practice the browser is also blocked from
+the moment the command's own `await` chain stops yielding, so the missing cancellation matters most
+for commands that fetch — precisely the ones Phase 1 decision 6 expects to be common.
+
+#### Intended solution
+
+A deferred asset manager for `wasm32` that submits the evaluation and returns a handle before
+running it, so `get_asset` yields an asset in `Submitted`/`Processing`. `AssetRef::cancel` already
+implements the rest; nothing in `liquers-web` changes, which is why `cancel()` is exposed now
+rather than withheld — the surface does not move, only the behaviour behind it.
+
+Until then `cancel()` must be documented as a request that may be ignored, which is also its
+contract on native for an asset past `Processing`.
+
+#### What the fix actually requires — measured, not estimated
+
+The obvious reading is that this needs a task spawner, and that a browser therefore cannot have it.
+**That is not the obstacle.** The cancellation window does not need concurrency at all: a caller
+does `get_asset()` → *(window)* → `get()`, so it is enough that the evaluation happen at `get()`
+rather than at `get_asset()`. No spawning, no runtime.
+
+The single line responsible is in `ImmediateAssetManager::get_asset`
+(`liquers-core/src/assets.rs`, in the `loop`):
+
+```rust
+assetref.run_inline().await?;
+return Ok(assetref);
+```
+
+Moving it is nevertheless **not** a one-line change, and this is the part worth knowing before
+scoping the work: `AssetRef::get` (`assets.rs:2325`) polls state and then *waits on the
+notification channel*. It never starts a run — on native it must not, because a worker owns the
+run. Deferring the inline run out of `get_asset` without changing `get` makes `get` wait forever.
+
+So the fix needs a way for an asset to know that **nobody else will run it**, and for `get` to run
+it inline in exactly that case. Either:
+
+- a flag on the asset (`self_driven`, set by `ImmediateAssetManager` at creation) that `get`
+  consults before entering the wait loop; or
+- an `ImmediateAssetManager`-specific handle that owns the "run on first get" behaviour, leaving
+  `AssetRef::get` untouched.
+
+The first is smaller and the second is safer. Either touches the shared `AssetRef::get` path or the
+`AssetRef` type, and changes *when* evaluation happens in a documented lifecycle
+(`specs/ASSETS.md`) — which is why this is a `liquers-designer` task rather than a patch, and why
+it was not folded into `specs/liquers-web` M6.
+
+**Blast radius of the semantic change**, for whoever picks it up: `get_asset` currently guarantees
+the returned asset is *finished*. Callers are `liquers-core/src/context.rs:287` (nested evaluation
+— follows with `get()`, so unaffected), `liquers-web/src/{eval,asset}.rs` (both follow with
+`get()`), `liquers-axum/src/assets/{handlers,websocket}.rs` (native, `DefaultAssetManager`, so
+untouched by a change confined to the immediate manager), and several `liquers-core` asset tests
+that inspect status straight after `get_asset` — those tests are the ones that would need
+revisiting, and they are the ones worth reading first, because they encode the current contract.
+
+#### Where it is recorded
+
+- `liquers-web/src/asset.rs` — module documentation, "Limitation: cancellation is inert in this
+  phase".
+- `liquers-web/tests/eval_EVAL.rs` — `eval06_cancellation_has_defined_terminal_result` asserts the
+  inert behaviour **deterministically**. It will fail the day a deferred manager lands, which is
+  the intent: the test is the tripwire, not an accommodation.
+
+#### Discovery
+
+Found while writing the `EVAL`/`ASYNCQ`/`ASYNCCMD` suites for `specs/liquers-web` milestone M4. The
+first version of all three cancellation tests matched on two outcomes — "either it was cancelled or
+it had already finished" — and passed. That form of assertion passes regardless of what the
+implementation does, and would have kept passing if `cancel()` began throwing or hanging. Probing
+which branch actually ran is what surfaced this. It is a concrete instance of the risk Phase 3
+named: *conformance tests written to pass rather than to catch*.
+
+### Issue: QUERY-BUILDER-TOOLING
+Status: Open
+Priority: P2 (Medium)
+
+#### Problem
+
+There is no supported way to *build* a query from untrusted string values. Liquers has good tooling
+for the parse direction — `parse_query`, and `liquers-validate` for checking that a query means what
+was intended — and nothing for the reverse. Every consumer that assembles a query from data
+therefore hand-concatenates strings and hopes the escaping is right.
+
+This affects more than one caller: UI code building links, recipe generators, and **every language
+integration**, since accepting a string parameter from a host language and putting it into a query is
+the most basic thing such an integration does. `specs/liquers-web` needs it for `encodeParam`.
+
+#### Current workaround
+
+Build the query programmatically and encode it, rather than concatenating text:
+
+```rust
+use liquers_core::query::{ActionRequest, Query};
+// Construct the ActionRequest with owned parameter values, then:
+let text = query.encode();
+```
+
+`ActionParameter::String` runs its value through `encode_token` on encode, so the escaping is at
+least applied rather than forgotten.
+
+**The workaround is only correct within the current escaping limits.** `encode_token` emits
+unparseable text for any value containing a colon or a non-ASCII character — see
+`PARAMETER-ESCAPING-INCOMPLETE`, which is the blocker for making this correct in general. Until that
+is fixed, programmatic construction is safe for values drawn from `[A-Za-z0-9_+.]` plus the
+characters `encode_token` does handle (`~`, space, `/`, `-`), and unsafe for anything else.
+
+#### Expected behavior
+
+1. A **CLI utility** for constructing a query — the encode-direction counterpart of
+   `liquers-validate`. Given a command name and parameter values as separate arguments (so the shell
+   does the quoting, not the user), it emits the encoded query. Round-tripping its output through
+   `liquers-validate` should reproduce the inputs exactly.
+2. A supported **library API** for the same, usable from `liquers-lib` and from language
+   integrations, so that `encodeParam`-style helpers delegate rather than reimplement.
+3. Both depend on `PARAMETER-ESCAPING-INCOMPLETE` being resolved to be correct for arbitrary input;
+   until then they should **raise a typed error** for values they cannot represent rather than emit
+   text that will not parse.
+
+#### Discovery
+
+Raised while designing `specs/liquers-web`, where a JavaScript command takes a URL as a parameter.
+The example initially assumed percent-encoding, which the grammar does not support at all; checking
+the real mechanism surfaced both this gap and the encoder defect it depends on.
+
+### Issue: PARAMETER-ESCAPING-INCOMPLETE
+Status: Open
+Priority: P1 (Medium-High)
+
+#### Problem
+
+Most characters cannot appear in a string action parameter at all, and `encode_token` silently
+produces text that the parser rejects rather than escaping them or reporting failure. **A general
+character-escaping mechanism, covering the full Unicode range, is missing.**
+
+Three separate defects, in increasing order of severity.
+
+**1. `encode_token` is not round-trip safe.**
+`liquers_core::query::encode_token` (`liquers-core/src/query.rs:503`) escapes exactly four
+characters — `~`, space, `/`, `-` — and passes everything else through unchanged. The parser's
+unescaped parameter set (`liquers-core/src/parse.rs:340`) accepts only ASCII alphanumerics plus `_`,
+`+` and `.`. Everything in the gap encodes to unparseable text, with no error at encode time.
+
+Measured — every one of these is **rejected** by the parser, and every one is what `encode_token`
+emits verbatim:
+
+```
+a:b   a?b   a,b   a=b   a&b   a(b   a%b   a#b   a!b   a@b   a*b   a;b   a[b   café   日本
+```
+
+The failure is silent and deferred: encoding succeeds, and the resulting query fails to parse later,
+somewhere else.
+
+**2. No escape exists for most characters, so no correct encoder is currently possible.**
+The entity table (`parse.rs:386-399`) provides `~~` `~_` `~<digit>` `~.` `~I` `~/` `~h` `~H` `~f`
+`~P`. A URL is expressible by hand — `f-~Hapi.example.com~/data` parses and decodes to exactly
+`https://api.example.com/data` — but there is no entity for a **lone colon**, nor for `?`, `=`, `&`,
+`#`, `,`, `(`, `)`, `%`, or any other punctuation, **nor for any non-ASCII character**. So a value
+such as `12:30`, `a,b`, or `café` cannot be represented by any encoder, however correct. This is why
+defect 1 cannot simply be fixed inside `encode_token`.
+
+**3. Unicode acceptance is incoherent, because the character test truncates the code point.**
+`parse.rs:340` tests `AsChar::is_alphanum(c as u8)`, where `c` is a `char`. The `as u8` cast keeps
+only the low byte, so whether a non-ASCII character is accepted depends on its code point modulo
+256. Measured:
+
+| Char | Code point | Low byte | Parser |
+|---|---|---|---|
+| `Ł` | U+0141 | 0x41 = `A` | **accepted** |
+| `Ő` | U+0150 | 0x50 = `P` | **accepted** |
+| `ŗ` | U+0157 | 0x57 = `W` | **accepted** |
+| `é` | U+00E9 | 0xE9 | rejected |
+| `ā` | U+0101 | 0x01 | rejected |
+| `Ā` | U+0100 | 0x00 | rejected |
+
+`Ł` is accepted while `é` is not, for no reason a user could infer. Any character whose low byte
+happens to land in `[0-9A-Za-z]` slips through, which is arbitrary and almost certainly unintended.
+
+#### Impact
+
+Wider than a helper function. `encode_token` is used by `Query`'s own encoder
+(`query.rs:609`, `:615`, `:620`, `:631`, `:646`, including `StyledQueryToken::StringParameter`), so
+**encode → parse is not a round trip** for any programmatically constructed query. Affected: query
+builders in UI code, links, recipes, asset keys derived from user data, and every language
+integration that accepts a string parameter from its host language. Non-English text is
+unrepresentable in a parameter, which makes this an internationalization defect and not only an
+escaping one.
+
+#### Intended solution
+
+**An HTML/XML-like entity system, with `~` as the escape character**, supporting both *named*
+entities and *numeric* entities in hexadecimal, octal or another radix — the role `&amp;` and
+`&#x41;` play in XML. `~` is already the established escape character in the query grammar and this
+extends it rather than introducing a second mechanism.
+
+The natural extension point is the `entities` combinator in
+`liquers_core::parse` (`parse.rs:386`, the `alt((tilde_entity, minus_entity, …))` list) together
+with its encoder counterpart, `encode_token`. **`liquers-core/src/entities.rs` is the intended home
+for the consolidated table**, so both directions derive from one definition.
+
+**This requires a proper design** — a `liquers-designer` run, not an incremental patch. The grammar
+constraints below are already known and are what make it non-trivial:
+
+- **Existing entities are terminator-free and fixed-length** (`~~`, `~_`, `~.`, `~I`, `~/`, `~h`,
+  `~H`, `~f`, `~P`). A variable-length named or numeric entity needs a terminator. `;` is a natural
+  choice and is currently *not* in the accepted character set, so it cannot occur unescaped — but
+  admitting it is itself a grammar change.
+- **`~<digit>` already means a negative number.** `negative_number_entity` (`parse.rs:378`) parses
+  `~42` as `-42`. Any numeric-entity syntax of the shape `~<digits>` collides with it directly. This
+  is the sharpest constraint on the design: either numeric entities take a distinguishing prefix
+  (`~#41;`, `~x41;`, `~u0041;`), or the compact negative-number form is retired with a migration
+  path.
+- **`alt` is ordered**, so a named-entity parser added to the list must not shadow the existing
+  short forms — a named entity beginning `h` must not capture `~h` (`http://`).
+- **Backward compatibility is required.** Every query and recipe already written must keep parsing
+  and keep meaning the same thing. The existing mnemonics stay as compact special cases layered over
+  the general mechanism.
+
+#### Expected behavior
+
+1. **A general escaping feature covering all of Unicode**, per the entity design above. Any `char`
+   must be representable in a string parameter, so that `encode_token(s)` round-trips for every `s`.
+2. `encode_token` emits those escapes, and emits the mnemonic entities where they apply so URLs
+   still encode to the compact `~H…` form.
+3. The `c as u8` truncation at `parse.rs:340` is replaced with a decision made deliberately: either
+   accept Unicode alphanumerics properly (`char::is_alphanumeric`) or restrict to ASCII explicitly
+   (`c.is_ascii_alphanumeric()`) and let escaping carry the rest. The current behaviour is neither.
+4. A round-trip property test over a generated character set, including astral-plane code points,
+   guards all three.
+
+**The placeholder module is `liquers-core/src/entities.rs`.** It exists, is empty (0 lines), and is
+not declared in `lib.rs` — it must be added to the module list when filled. The entity table
+currently lives inline in `parse.rs` (`tilde_entity`, `minus_entity`, `slash_entity`,
+`https_entity`, … and the `entities` combinator) with its encoder counterpart in `query.rs`; the two
+are separated by a whole module and drift silently, which is the structural reason this defect went
+unnoticed. Consolidating both directions into `entities.rs` — one table, one encoder, one parser,
+one round-trip test — is the natural fix.
+
+Item 1 and item 3 are grammar changes and affect the encoding description in
+`specs/PROJECT_OVERVIEW.md`.
+
+#### Related code
+
+| Location | Role |
+|---|---|
+| `liquers-core/src/entities.rs` | **empty placeholder** — intended home for the consolidated table, not yet in `lib.rs` |
+| `liquers-core/src/parse.rs:340` | unescaped character class, with the `as u8` truncation |
+| `liquers-core/src/parse.rs:345-377` | the fixed-length entity parsers |
+| `liquers-core/src/parse.rs:378` | `negative_number_entity` — the `~<digit>` form that collides with numeric entities |
+| `liquers-core/src/parse.rs:386` | the `entities` combinator — **the extension point** |
+| `liquers-core/src/query.rs:503` | `encode_token`, the encoder half |
+| `liquers-core/src/query.rs:609-646` | `Query` encoding paths that depend on it |
+| `specs/PROJECT_OVERVIEW.md` | documents query encoding; needs updating with the outcome |
+
+#### Discovery
+
+Found while validating a query for an example in `specs/liquers-web/phase3-examples.md`. The example
+had assumed percent-encoding, which the grammar does not support in any form; checking the real
+mechanism surfaced the encoder defect, and probing its boundaries surfaced the missing Unicode
+escapes and the truncation bug. Originally filed as `ENCODE-TOKEN-COLON`, renamed once the colon
+turned out to be only the presenting symptom.
+
+
 ### Issue: QUEUED-MANAGER-STARTUP-READINESS
 Status: Open
 Priority: P1 (Medium-High)

@@ -46,6 +46,8 @@ Unless qualified, “value” is informal. Designs should use *language value*, 
 
 ## 3. How to Use the Features
 
+**The “Objects/API to map or implement” lists say what the *integration* must cover, not what already exists.** Some entries are already provided by `liquers-core` or `liquers-lib` and only need exposing; others do not exist yet and must be added. Adding to core is legitimate and expected — `CommandRegistry::unregister` was added for exactly this reason — provided the addition is **additive**: new inherent methods and new trait methods with defaults, never a changed signature, since every implementor including `liquers-py` must keep compiling. Check before designing around an absence.
+
 A feature ID is preferably a pronounceable uppercase word of at most eight alphanumeric characters. A familiar abbreviation is acceptable; exceptionally, a longer ID may be used when shortening it would reduce clarity. IDs contain no underscores. IDs are stable and must not be renamed for one *integrated language*. A specific design may split a feature into milestones, but status and tests must still roll up to the ID.
 
 Use these requirement levels:
@@ -71,6 +73,38 @@ A status claim should link to design sections, implementation, and test evidence
 |---|---|---|---|---|
 | `VALUE` | Essential | PARTIAL | Opaque values cannot be serialized | `test_VALUE01_*` … |
 
+### Choosing a test harness
+
+The harness is *language*-specific, so this guide prescribes questions rather than an answer. Answer
+them in the design, before writing tests: getting this wrong is not a correctness problem but it
+reliably costs hours, and the failures are obscure.
+
+1. **What does each test actually need — the full *language runtime* host, or only its value
+   semantics?** These are usually different, and the difference is large. A *value bridge* test
+   exercising numbers, strings, byte arrays, containers and object identity typically needs only the
+   language's core semantics; a test of the event loop, UI thread, or module system needs the real
+   host. Classify the inventory on this axis first.
+2. **Is there a lighter runtime for the tests that do not need the host?** Browser JavaScript has
+   one: all thirteen `VALUE` tests for `liquers-web` are pure ECMAScript and run under Node with no
+   browser and no WebDriver, while `RUNTIME`, `ASYNCQ` and `PACKAGE` need a real browser. Python has
+   the same split between a bare interpreter and an application host. Using the lighter runtime
+   where it suffices removes an entire class of setup failure from most of the suite.
+3. **What version coupling does the harness impose, and does a mismatch fail loudly?** Toolchains
+   around foreign runtimes are often version-locked in ways that fail *late*: a `wasm-bindgen` CLI
+   that does not match the crate version fails at bindgen time rather than at compile time, and a
+   WebDriver whose major version does not match the browser fails with a bare HTTP 404. Record the
+   coupled versions and how to check them.
+4. **Does the harness need a separate driver or process, and is it present in every environment the
+   tests must run in?** A test suite that silently requires a browser driver is a test suite that
+   does not run in CI.
+5. **Does the test *binary* run natively at all?** For a cross-compiled target it may not — a
+   `wasm32` test binary is not executable, and without a configured runner the failure is an opaque
+   `Exec format error` rather than anything about tests.
+6. **Which tests must run in the heavyweight harness even though a lighter one would pass?** Some
+   contracts are only meaningful in the real host: event-loop behaviour, cancellation, and anything
+   `PACKAGE` asserts about a delivered artifact. Mark those explicitly so nobody "optimises" them
+   into the fast harness.
+
 ### Test naming
 
 Each test has a logical ID `<FEATURE><number>`, for example `VALUE01`. Put the logical ID at the start of the test-specific part of the framework name:
@@ -83,6 +117,44 @@ def test_COMMAND03_exception_crosses_command_boundary(): ...
 Rust may use `fn value01_primitive_roundtrip()`, and browser tests may use `test("ASYNCQ02 promise rejects with structured error", ...)`. File or module names should also include the feature ID when practical, for example `test_VALUE_value_bridge.py`. Do not reuse a logical test ID for a different contract.
 
 The tests listed below are the default conformance inventory. An *integration* design must mark each one required or `NA` with a reason; `CONFORMANT` means all applicable tests pass. [Appendix A](#appendix-a-reference-test-implementations) gives a reference implementation of every one of them as Python pseudocode, fixing the contract each test must establish.
+
+### When a prescribed test does not apply
+
+`NA` means **intentionally not applicable**, and it is the only way a required test may go unwritten. Because it is the sole escape hatch, it attracts reasons that sound sufficient and are not. The default answer for a test belonging to a selected feature is **required**; `NA` has to be argued.
+
+**A test may be marked `NA` when:**
+
+1. **The capability does not exist in the *integrated language*.** A language with no async model cannot satisfy `ASYNCCMD01`. Usually the whole feature is `NA`, and its tests follow.
+2. **The prescribed subject does not exist in this *integration*.** `PACKAGE06` (an optional extra installs and activates its feature) has nothing to install when the design exposes no extras. The test would be vacuous, not failing.
+3. **The test's premise is unreachable by construction.** If the design makes the state the test describes impossible, the test cannot be written as specified. Prefer, where you can, to *assert the unreachability* instead and keep the ID: a test that fails if someone later makes the state reachable is worth more than an `NA`.
+4. **Another selected test establishes the identical contract.** Only when it genuinely does — overlapping subject matter is not the same as an identical contract.
+
+**A test may *not* be marked `NA` because:**
+
+1. **It runs in a different harness.** Whether a check is a CI step, a compile-time assertion, a browser test, or a type-checker invocation says nothing about whether it applies. `STUBS02` and `STUBS06` are type-checker runs, not runtime tests; that makes them build steps, not `NA`.
+2. **The feature is deferred to a later milestone.** That is what the implementation states (`NS`, `PARTIAL`) are for. `NA` is a statement about applicability, not about schedule. A design that marks future work `NA` loses the record that it was ever required.
+3. **The behaviour is hard to observe.** `RUNTIME05` (shutdown releases handles) is awkward — it may need a debug-only counter, a weak reference, or an instrumented allocator. Difficulty of observation calls for a mechanism, not an exemption. A test whose assertion would pass with the bug present is worse than an absent test, because it reports safety it never checked.
+4. **The test's literal wording assumes a different host.** `RUNTIME01` ("native adapter satisfies required thread bounds") reads as inapplicable to a browser-only *integration* — but the contract behind it, that the *integration* has not weakened the thread bounds the native build relies on, is both testable and exactly where such an *integration* is most likely to do damage. **Restate the contract in the *integration*'s own terms and keep the ID.** Reinterpretation is expected; the IDs are contracts, not test scripts.
+5. **No obvious instance is at hand.** Before concluding that nothing exists to test — no representative *value type* variant, no enum with unknown variants — check whether the *integration* provides one under a different name. An *opaque language value* is a representative variant; an unrecognised string arriving from the *integrated language* is an unknown variant.
+
+**Some prescribed tests are conditional, and the condition is normative.** Where a test's entry in §5 or its reference implementation in [Appendix A](#appendix-a-reference-test-implementations) scopes it — "only for a *language* with no async model", "only where an optional extra exists" — a *language* outside that scope marks it `NA` and cites the condition. That is a genuine disposition, not an evasion. Check the appendix before reinterpreting a test: its pseudocode often fixes the contract more narrowly than the one-line summary suggests, and following it literally is usually right. `VALUE04`, for instance, asserts that a byte array and a string map to *different type names* — a statement about the mapping, not a claim that the *value type* must refuse to decode bytes as text later.
+
+**Every `NA` carries a reversing condition.** State what would make the test required again — "when any optional extra is defined", "when a payload type other than `()` is selected". Without it, an `NA` written for a good reason at one milestone silently outlives that reason.
+
+**A selected feature with many `NA` tests is a warning.** Its tests define what the feature *is*; excusing most of them usually means the feature should not have been selected, or the design does not implement the contract it claims. Two or three `NA`s across a whole *integration* is ordinary. A feature where half the inventory is excused deserves a second look before the design is approved, not after.
+
+### Conformance tests that pass whatever the code does
+
+A prescribed test names a claim; it is the *assertion* that decides whether the claim is checked. Two shapes pass regardless of what the implementation does, and both look reasonable while being written:
+
+- **The two-branch match.** "Either it was cancelled, or it had already finished." In `specs/liquers-web/`, all three cancellation tests were written this way and all three passed — while the cancellation path was in fact unreachable and `cancel()` did nothing. The same assertion would have kept passing if `cancel()` had begun throwing or hanging. When a test accommodates two outcomes, find out which one actually occurs; if it is always the same one, assert *that*, and the test becomes a tripwire for the day the other becomes possible.
+- **The existence check on something that was never absent.** Asserting that a forbidden name is missing from a namespace it was never in proves nothing. Assert the property instead — for a "does not block" claim, that the call *returns* before the work runs, timed.
+
+Neither is caught by review of the test list, because the ID is present and the test is green. The check is to ask, of each assertion: *what implementation change would make this fail?* If the answer is "none that anyone would plausibly make", the test is decorative.
+
+**Five prescribed tests exist because of this.** `OBJECT09`, `ENVIRON07`, `COMMAND12`, `COMMAND13` and `COMMAND14` were added after review of `specs/liquers-web/` found defects that the inventory as it then stood could not have caught — a declaration flag parsed by nobody, a state-passing mode silently degraded to another, a wrapper class with no methods, an accessor that threw in one lifecycle state, and a retained declaration aliasing the caller's mutable object. Four existing tests were also amended rather than left to be re-learned: `VALUE02` now asserts the *outbound* container type, `COMMAND05` includes a zero-argument command, `COMMAND08` requires the positive half of the opaque opt-in, and `ERROR03` must observe the exception on the evaluation path.
+
+This risk concentrates where a section did **not** warn about difficulty. The three tests `specs/liquers-web/` singled out as hard to assert were all fine, because they had specified mechanisms; the vacuous ones were in the group nobody had flagged.
 
 ## 4. Feature Overview
 
@@ -146,9 +218,11 @@ Recommended minimum profiles:
 
 **The design must answer:** Which binding technique is used—such as PyO3 classes, `wasm-bindgen` exported types, Starlark custom values, C ABI handles, or plain serialized data—and why? What common conventions govern constructors, ownership, cloning, getters/setters, `repr`/`toString`, errors, and Rust-to-language conversion? Which objects are wrapped, copied, or represented as plain *language values*? How are Rust enums represented: native language enums, tagged classes/objects, strings, or integer discriminants, and how are unknown future variants handled? Are *wrappers* mutable? How are identity, equality, hashing, subclassing, and invalidated handles handled? Which Rust fields are intentionally hidden?
 
-**Issues and patterns.** Reimplementing the Liquers query/key parser in the *integrated language* can produce different results and can fall out of date when the Rust grammar changes; route strings through the Liquers parser instead. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
+**Issues and patterns.** Reimplementing the Liquers query/key parser in the *integrated language* can produce different results and can fall out of date when the Rust grammar changes; route strings through the Liquers parser instead.
 
-**Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions.
+The **encode direction needs the same discipline and is easier to overlook.** Any *integration* that lets host code supply a string parameter must turn that string into query text, and query text has its own escaping (tilde entities: `~~`, `~_`, `~.`, `~/`, `~h`, `~H`, `~f`, `~P`, and `~<digit>` for a negative number). Percent-encoding is *not* part of the grammar and will not parse. Do not hand-roll an encoder in the *integrated language*: build the `Query` programmatically and call `encode()`, so the escaping comes from Rust. Two open issues bound what is currently possible — `PARAMETER-ESCAPING-INCOMPLETE` (values containing a colon or any non-ASCII character cannot be encoded at all today) and `QUERY-BUILDER-TOOLING` (there is no supported query-construction utility yet) — so an *integration* should raise a typed error for values it cannot represent rather than emit text that will not parse. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
+
+**Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions; `OBJECT09` a host string that cannot be represented in query text **raises** rather than producing text that will not parse.
 
 ### ERROR — Error bridge
 
@@ -166,7 +240,7 @@ Recommended minimum profiles:
 
 **Issues and patterns.** String-only conversion loses diagnostics. Use a structured payload and preserve the original language class/stack as context. Default an unmapped command exception to `ExecutionError`; conversion failures should be `ConversionError`, not execution failures. Never allow a foreign exception to unwind through FFI.
 
-**Meaningful tests:** `ERROR01` every `ErrorType` maps; `ERROR02` fields survive Rust-to-language-to-Rust; `ERROR03` language exception includes class and stack; `ERROR04` invalid or non-error throw has a safe fallback; `ERROR05` no panic crosses the boundary.
+**Meaningful tests:** `ERROR01` every `ErrorType` maps; `ERROR02` fields survive Rust-to-language-to-Rust; `ERROR03` language exception includes class and stack **as observed on the evaluation path** — raised by a *language command* and caught by the caller, not by calling the conversion helper directly; `ERROR04` invalid or non-error throw has a safe fallback; `ERROR05` no panic crosses the boundary.
 
 ### RUNTIME — Runtime, ownership, and portability constraints
 
@@ -181,6 +255,28 @@ Recommended minimum profiles:
 - A reentrancy/nested-evaluation policy
 
 **The design must answer:** Which thread/event loop owns the language runtime? Can callbacks move between threads? What is owned across `await`? How are nested evaluation, locks, cancellation, teardown, and callbacks after shutdown handled? Which compile targets are supported?
+
+#### The thread bounds are chosen by the *target*, not by the *integration*
+
+`MaybeSend`/`MaybeSync` are gated on `target_arch`, **never** on a Cargo feature — deliberately, because Cargo feature unification is additive across a workspace and a `non_send`-style feature would silently strip `Send` from the native multi-threaded build everywhere (`liquers-core/src/maybe_send.rs`). So an *integration* does not select its thread model. What it must determine, early, is whether its language's value handles can satisfy `Send + Sync` **at all**, because that decides which targets the *integration* can exist on:
+
+| Handle | `Send + Sync`? | Consequence |
+|---|---|---|
+| Python `Py<PyAny>` | yes | the *integration* runs natively |
+| Starlark owned/frozen value | to be established | determines whether a native Starlark *integration* is possible |
+| JavaScript `JsValue` | **no, on any target** | the *integration* is confined to `wasm32`, where the markers are vacuous |
+
+A *language* whose handles are not `Send + Sync` is not thereby excluded — but it is confined to a target where the markers are vacuous, and that is a fact to establish in the high-level design rather than discover during implementation.
+
+#### Relaxing a thread bound is transitive, and native builds cannot detect it
+
+If a *value type* becomes non-`Send` on some target, **every trait that stores that value under a hard `Send + Sync` bound must be relaxed too, transitively.** This is the single most under-estimated cost in this guide's experience so far: relaxing `ValueExtension` for `liquers-web` was costed as "one implementor, bounds local to one file", and it cascaded to `UIElement` (whose implementors hold a value behind a lock) and then to `AppState` (which stores `dyn UIElement` handles).
+
+Three things follow, and they generalize to any *integration*:
+
+- **Budget for the closure of the relation, not the first hop.** Trace what stores your value, then what stores *that*, until the chain closes.
+- **Every native configuration compiles throughout.** The markers still mean `Send + Sync` there, so nothing fails until the constrained target is built. A build-configuration matrix that includes that target is the only thing that finds it.
+- **Establish where the chain stops, and say so.** Relax one trait, observe the next failure, repeat, then record the closure. For this repository the chain is `ValueExtension → UIElement → AppState`, and the only hard `Send + Sync` bound remaining on a trait that could carry a value is the legacy synchronous `Store`, which is already excluded on `wasm32`.
 
 **Issues and patterns.** Do not hold a GIL, VM lock, Rust mutex guard, Starlark heap borrow, or JS borrow across blocking work or `await`. Copy, freeze, root, or use an owned handle before crossing the boundary. Separate target-specific type aliases for trait objects; `dyn Trait + MaybeSend` is not a substitute for conditional `+ Send`. Define and test a reentrancy policy rather than relying on the host runtime.
 
@@ -204,17 +300,64 @@ Recommended minimum profiles:
 
 1. Does the *integrated language* have a universal value representation, such as JavaScript `JsValue`, Starlark `Value<'v>`, a JSON value, or Python `Py<PyAny>`? Can it safely be retained inside the *value type*?
 2. Which *language values* receive *structural conversion*, which are exposed as *wrappers* around existing Rust values, and which must remain *opaque language values*? Provide a bidirectional mapping table for all supported types.
-3. Is the *value type* a new implementation, a generic composition such as `CombinedValue`, or an extension of an existing Liquers value? How are *upcast* and *downcast* operations exposed, checked, and reported on failure?
+3. Is the *value type* a new implementation, a generic composition such as `CombinedValue`, or an extension of an existing Liquers value? How are *upcast* and *downcast* operations exposed, checked, and reported on failure? **Before answering, see “Retaining an opaque language value” below — the shared mechanism usually makes a bespoke variant unnecessary.**
 4. Are conversions strict, permissive, or configurable? How are integer range, NaN/infinity, cycles, shared identity, mutation, and unknown objects handled?
 5. Can an *opaque language value* cross stores, threads, processes, Wasm boundaries, or another *language runtime*? Which codecs are supported and trusted?
 6. Does the *integrated language* support function pointers, bound methods, closures, or callable objects? May they be retained as *opaque language values*? Are they serializable? Are they accepted as *language commands* through `COMMAND`, even when they are not ordinary data values?
 7. Can users operate conveniently on a *value type* *wrapper* or *State* as if it were a language scalar? Which conversions are implicit versus explicit? Can arithmetic, comparison, indexing, iteration, truthiness, and display operators be defined without hiding conversion errors or metadata loss?
 
+#### Retaining an *opaque language value*: use the shared `ForeignValue`
+
+`liquers-lib` provides one variant for *all* integrated languages rather than one per language:
+
+```rust
+// liquers-lib/src/value/mod.rs — ungated: no target_arch, no feature.
+ExtValue::Foreign { value: Arc<dyn ForeignValue> }
+
+// liquers-lib/src/value/foreign.rs
+pub trait ForeignValue: Debug + MaybeSend + MaybeSync + 'static {
+    fn origin(&self) -> &'static str;          // "javascript" | "starlark" | "python"
+    fn as_any(&self) -> &dyn core::any::Any;   // object-safe downcast hook
+    fn identifier(&self) -> Cow<'static, str>;
+    fn type_name(&self) -> Cow<'static, str>;
+    fn default_extension(&self) -> Cow<'static, str>;
+    fn default_filename(&self) -> Cow<'static, str>;
+    fn default_media_type(&self) -> Cow<'static, str>;
+    fn try_into_string(&self) -> Result<String, Error>;      // refuses by default
+    fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;  // refuses by default
+    fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error>;         // refuses by default
+}
+```
+
+**An *integration* implements this trait in its own crate and adds nothing to `liquers-lib`.** The
+concrete wrapper — `JsOpaque` in `liquers-web`, a frozen-value wrapper for Starlark, `Py<PyAny>` for
+Python — stays where it belongs, and every `match` arm on the variant inside `liquers-lib` is a
+one-line delegation to the trait. Adding a language costs no variant and no match arms.
+
+Why this rather than a per-language variant:
+
+- **Languages are separated at *downcast* time, not at variant time.** `as_any().downcast_ref::<T>()`
+  returning `None` means the value came from a different runtime, and `origin()` names which — so a
+  cross-language mistake produces a diagnosable error rather than a bare conversion failure. That is
+  `POLYGLOT03` and `POLYGLOT04` satisfied by the mechanism instead of by extra machinery.
+- **The variant is ungated**, so a missing match arm is a compile error in *every* build
+  configuration rather than in one of them. Prefer this shape generally: a mechanism whose omissions
+  the compiler catches everywhere beats one it catches only where someone remembered to build.
+- **The refusing defaults are the right ones.** Refusing byte serialization is safe because the asset
+  layer already absorbs it, falling back to a time-based version and metadata-only persistence, so an
+  unserializable value degrades instead of breaking evaluation.
+
+Two cautions when adding any variant to a shared enum: **audit for pre-existing `_ =>` arms first**,
+because those absorb a new variant silently and are the one place the compiler will not help; and
+note that structural conversion of *compound* values goes through `try_from_json_value`, which is the
+only constructor every *value type* supports — so bytes nested inside an array or object degrade to
+an array of numbers, while top-level bytes are preserved.
+
 **Issues and patterns.** Prefer lossless *structural conversion* and an explicit opaque fallback. A JSON-like representation is portable but cannot preserve arbitrary objects, callable identity, cycles, bytes without a convention, or all numeric types. *Opaque language values* must advertise their ownership and serialization limits. JavaScript `Number` cannot losslessly represent every `i64`; use checked conversion or `BigInt`. Use `Uint8Array` for bytes. Starlark values are heap-lifetime-bound, so copy primitives/containers or retain an owned frozen value; never store a borrowed `Value<'v>`. Python may permissively retain `Py<PyAny>` and use an opt-in pickle codec, with the security implications documented.
 
 Callable values should normally be registered in a callable registry owned by `COMMAND`, while the *value type* stores only a stable callable ID or an explicitly opaque owned handle. This prevents accidental serialization and makes callable lifetime/replacement visible. Operator overloads on a *wrapper* can be ergonomic, but must define whether they operate on the underlying *language value*, convert through a scalar, or execute a Liquers operation. Operations on *State* must state whether metadata is preserved, combined, or discarded; explicit `.value`/`.to_*()` access is the safe baseline.
 
-**Meaningful tests:** `VALUE01` primitive roundtrip; `VALUE02` nested array/object roundtrip; `VALUE03` integer boundaries; `VALUE04` bytes are not confused with text; `VALUE05` unknown object follows configured policy; `VALUE06` opaque serialization fails or uses its codec explicitly; `VALUE07` cycles/shared references follow policy; `VALUE08` representative `ExtValue` roundtrip; `VALUE09` checked *upcast* and *downcast*; `VALUE10` language-only object retains documented identity/lifetime; `VALUE11` callable retention or rejection follows policy; `VALUE12` scalar operators produce the documented result; `VALUE13` *State* operations preserve or deliberately discard metadata.
+**Meaningful tests:** `VALUE01` primitive roundtrip; `VALUE02` nested array/object roundtrip **in both directions**, ending in the *host-idiomatic* container type; `VALUE03` integer boundaries; `VALUE04` bytes are not confused with text; `VALUE05` unknown object follows configured policy; `VALUE06` opaque serialization fails or uses its codec explicitly; `VALUE07` cycles/shared references follow policy; `VALUE08` representative `ExtValue` roundtrip; `VALUE09` checked *upcast* and *downcast*; `VALUE10` language-only object retains documented identity/lifetime; `VALUE11` callable retention or rejection follows policy; `VALUE12` scalar operators produce the documented result; `VALUE13` *State* operations preserve or deliberately discard metadata.
 
 ```python
 def test_VALUE05_unknown_object_uses_opaque_value():
@@ -239,7 +382,15 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Issues and patterns.** Avoid hidden creation of multiple incompatible environments. Builders are preferable before publication; after publication, either reject mutation or define atomic replacement. A global Python environment may be ergonomic, while embedders and tests still need explicit instances. Browser startup should return a `Promise`; do not expose a blocking initializer.
 
-**Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration; `ENVIRON06` shutdown is idempotent.
+**Registration after publication is the shape of the problem, and it is not a core limitation.** Rust code builds the registry, then the environment, then calls `to_ref` — but `Environment::to_ref` *consumes* the environment into an `Arc`, registration needs `&mut CommandRegistry`, and `get_command_executor` hands back a reference, so the executor cannot live behind a lock either. Once the environment is shared there is no mutable path to it. An *integration* whose host registers commands *at runtime* therefore cannot simply hold an `EnvRef` from the start, and it is easy to misdiagnose this as a missing core capability. It is not: the resolution is to do what Rust does, twice.
+
+- Keep the environment **un-shared and mutable** until something actually needs to share it, and create the `EnvRef` lazily on first evaluation. Registering everything before the first evaluation then costs nothing, which is the path to document.
+- For registration *after* sharing, **retain the original declarations** and replay them into a fresh environment along with the new one, then swap the handle atomically. Retain the host-language declarations rather than the parsed results, and replay through the same registration function used the first time — one code path, so first registration and replay cannot drift.
+- State the cost, because it is real: the rebuilt environment has an **empty asset cache**, and an evaluation already in flight keeps the old `EnvRef` and completes against it, so it does not see the new command. Neither is a bug; both are surprises if undocumented.
+
+**An environment with an empty registry passes almost every `ENVIRON` test.** `ENVIRON01`'s contract is that a default environment *evaluates a built-in command*, and the other five are about lifecycle, so a design can satisfy five of six while registering no Rust commands at all. Register the host's built-in command set as part of environment construction, and make `ENVIRON01` evaluate one of those commands. This is also what makes composition testable — a *language command* feeding a Rust command in a single query — which is the practical argument for structural conversion over opaque pass-through.
+
+**Meaningful tests:** `ENVIRON01` default environment evaluates a built-in command; `ENVIRON02` custom services are the services returned by the environment; `ENVIRON03` repeated initialization follows policy; `ENVIRON04` failed initialization is recoverable; `ENVIRON05` isolated test environments do not leak registration, asserted **through the language-visible API**; `ENVIRON06` shutdown is idempotent; `ENVIRON07` every documented environment operation is callable, in every state the documented lifecycle can be in.
 
 ### EVAL — Query evaluation API
 
@@ -258,7 +409,9 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Issues and patterns.** Do not bypass the environment, planner, or asset lifecycle merely to simplify the *wrapper*. Keep a low-level asset/*State* API and a convenience *language value* API. A browser must not simulate synchronous evaluation. Nested evaluation from a *language command* needs the `RUNTIME` reentrancy policy.
 
-**Meaningful tests:** `EVAL01` evaluate a built-in query; `EVAL02` string and wrapped query agree; `EVAL03` metadata and logs are available; `EVAL04` invalid query maps through `ERROR`; `EVAL05` payload/context reaches a command; `EVAL06` cancellation has a defined terminal result.
+**Before designing a cancellation surface, check that the selected asset manager leaves a window to cancel in.** `ImmediateAssetManager` — the wasm default, and the right choice where no background scheduler exists — evaluates *during* `get_asset`, so the asset has already reached a terminal status by the time the caller holds the handle. A `cancel()` exposed on top of that is inert: it succeeds and does nothing. Exposing it anyway is defensible, since the surface will not change when a deferred manager arrives, but only if the inertness is **documented and asserted**. `EVAL06` and `ASYNCQ04` will otherwise pass vacuously — this is the concrete case behind "the two-branch match" in §3. Measure which status the asset actually has on arrival rather than assuming a race exists.
+
+**Meaningful tests:** `EVAL01` evaluate a built-in query; `EVAL02` string and wrapped query agree; `EVAL03` metadata and logs are available; `EVAL04` invalid query maps through `ERROR`; `EVAL05` payload/context reaches a command; `EVAL06` cancellation has a defined terminal result — the design **names which** result occurs for its asset manager, and the test asserts that one.
 
 ### COMMAND — Language command registration
 
@@ -271,7 +424,10 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 - A callable registry and stable callable handle/ID
 - A Rust `CommandExecutor`/`CommandRegistry` adapter for language callables
 - Argument binder for `State`, ordinary parameters, variadics, and injected `Context`/services
-- Register, inspect, replace, and unregister operations
+- Register, inspect, replace, and unregister operations. Core provides
+  `CommandRegistry::unregister` and `CommandMetadataRegistry::remove_command`; both clear the
+  metadata registry *and* both executor maps together, because planning consults the metadata while
+  execution consults the executors, so a partial removal leaves a command that plans and then fails
 
 **The design must answer:** What is the most natural, small, and readable declaration in this *integrated language*: a decorator/annotation, function call, builder, module scan, callable object, or data object containing a function and metadata? Show minimal and complete examples. How do signature, annotations, defaults, variadics, documentation, namespace, realm, volatility, and async status map to metadata? Which fields require explicit metadata? How is callable identity retained? Which state-passing modes exist? Is registration reversible?
 
@@ -287,9 +443,20 @@ liquers.registerCommand({
 });
 ```
 
-Starlark may use a host function such as `command(name="repeat", fn=repeat, ...)`. Metadata is the planning contract; do not infer silently when the *integrated language* lacks enough type information. Allow explicit overrides and provide metadata inspection after registration. Resolve plan arguments before language binding. Release runtime/VM locks around Rust work and reacquire only for the callback. A bridge command plus callable registry is useful when direct generic registration is awkward, but aliases and callable IDs must remain observable and debuggable.
+Starlark may use a host function such as `command(name="repeat", fn=repeat, ...)`. Metadata is the planning contract; do not infer silently when the *integrated language* lacks enough type information. Allow explicit overrides and provide metadata inspection after registration.
 
-**Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration; `COMMAND06` duplicate/unregister policy; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE`; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`.
+**Where inference is possible at all, restrict it to a subset where the parse is provably exact, and refuse the rest.** Introspection quality varies sharply — Python's `inspect.signature` and Starlark's parameter lists are exact, while JavaScript offers only `Function.prototype.toString` and `Function.length`. The failure mode of a permissive inferencer is not an error but a *silent misbinding*, because Liquers binds arguments positionally: guess the wrong parameter list and the command runs, with arguments shifted.
+
+The rule that works:
+
+- Accept only the shapes the parse handles exactly — for JavaScript, every parameter a plain identifier — and **refuse anything else with an error naming the offending parameter**, rather than mangling it into metadata. A default, rest, or destructured parameter is a refusal, not a best effort.
+- **Cross-check against a second signal, and refuse on disagreement.** `Function.length` counts parameters *before the first default or rest parameter*, so a naive "regex plus arity check" agrees with itself on exactly the inputs it gets wrong. Where the two disagree, the parse is unreliable; do not pick a winner.
+- **Report through metadata inspection whether the arguments were inferred or declared.** Some corruption is undetectable — a minified build yields correct arity with meaningless names — and since binding is positional that degrades labels rather than behaviour. The only way an author notices is by being told which names were guessed.
+- Keep the explicit declaration as the documented reliable path, and let it win outright when both are present.
+
+**Warn on every replacement, and say what was replaced.** A duplicate registration and an accidental name collision are indistinguishable at the point they happen, and shadowing a Rust built-in stays invisible until a query quietly returns the wrong thing. Distinguish the two cases in the message — replacing a *language command* is routine, replacing a built-in usually is not. Resolve plan arguments before language binding. Release runtime/VM locks around Rust work and reacquire only for the callback. A bridge command plus callable registry is useful when direct generic registration is awkward, but aliases and callable IDs must remain observable and debuggable.
+
+**Meaningful tests:** `COMMAND01` register and execute a first command; `COMMAND02` transform receives state and typed parameters; `COMMAND03` exception maps through `ERROR`; `COMMAND04` defaults/enums/variadics bind; `COMMAND05` metadata matches the callable declaration, **including a command with no arguments**; `COMMAND06` duplicate/unregister policy, and registration **after the environment is already in use** takes effect; `COMMAND07` context injection; `COMMAND08` returned opaque value follows `VALUE` — **both** that an un-opted-in value is refused and that an opted-in one survives the round trip; `COMMAND09` minimal declaration has useful metadata defaults; `COMMAND10` complete declaration preserves every supported metadata field; `COMMAND11` closure captures and retains state according to `RUNTIME`; `COMMAND12` a declared flag that changes planner behaviour actually reaches the planner; `COMMAND13` every declared state-passing mode delivers its documented content; `COMMAND14` a retained declaration is unaffected by later mutation of the object the caller passed.
 
 ```python
 def test_COMMAND02_transform_receives_state_and_parameter(env):
@@ -315,7 +482,7 @@ def test_COMMAND02_transform_receives_state_and_parameter(env):
 
 **Issues and patterns.** Bridge, do not block: Rust `Future` to JavaScript `Promise`, Python awaitable, or an explicit host task. On wasm, `JsFuture` and language callbacks are non-`Send`; use the core's wasm execution model. Exported wasm futures generally need owned (`'static`) inputs. If the *integrated language* has no async model, possible restricted workarounds are: a blocking call executed outside any async worker/event-loop thread; a task handle with `poll`/`wait`/`cancel`; callbacks scheduled onto the *language runtime*; or an explicitly synchronous inline environment. State which operations can deadlock or starve. Never offer blocking wait on a single-threaded browser event loop.
 
-**Meaningful tests:** `ASYNCQ01` await successful evaluation; `ASYNCQ02` failure rejects/raises structured `ERROR`; `ASYNCQ03` two evaluations make progress; `ASYNCQ04` cancellation propagates; `ASYNCQ05` dropping the host handle follows policy; `ASYNCQ06` no event-loop blocking; `ASYNCQ07` documented non-async workaround completes safely; `ASYNCQ08` nested event-loop use is rejected or works without deadlock.
+**Meaningful tests:** `ASYNCQ01` await successful evaluation; `ASYNCQ02` failure rejects/raises structured `ERROR`; `ASYNCQ03` two evaluations make progress; `ASYNCQ04` cancellation propagates; `ASYNCQ05` dropping the host handle follows policy; `ASYNCQ06` no event-loop blocking; `ASYNCQ07` documented non-async workaround completes safely — **conditional: only for a *language* with no async model**, and correctly `NA` where the *language* has one; `ASYNCQ08` nested event-loop use is rejected or works without deadlock.
 
 ### ASYNCCMD — Async language commands
 
@@ -532,6 +699,13 @@ Module caches are a staleness hazard: `sys.modules` will happily retain a module
 
 Expose async APIs as Promises and bytes as `Uint8Array`; check `BigInt`/`i64` conversions. Keep `JsValue`, DOM handles, closures, and `JsFuture` on the wasm thread. Use the wasm-selected inline asset manager and the core `MaybeSend` model. Test in an actual browser with `wasm-bindgen-test`, including rejected Promises and disposal of JS closures.
 
+Four things cost real time in `specs/liquers-web/` and are worth knowing in advance:
+
+- **`serde_wasm_bindgen::to_value` serializes maps as JavaScript `Map`s, not objects.** Every `serde_json::Value::Object` and every `HashMap` goes through `serialize_map`, so a page reading `result.a`, `Object.keys(result)` or `JSON.stringify(result)` sees nothing. Rust *structs* serialize as objects either way, which is what makes this survive review: the affected values are the ones that came *from* JavaScript as objects. Use `Serializer::new().serialize_maps_as_objects(true)` everywhere, from one wrapper.
+- **Let `wasm-bindgen` generate the `.d.ts`; do not hand-write one.** A hand-written declaration file is a second source of truth defended only by a freshness check somebody has to run, and a stale declaration is worse than none — a type checker confidently accepts code that fails at runtime. What the generator cannot do is see inside a `JsValue`, so a `JsValue` parameter emits as `any` and type-checks anything. Fix that at the source with `typescript_custom_section` plus `typescript_type`-annotated extern types, and the generated file carries real types with no drift possible.
+- **`#[serde(skip_serializing_if)]` is right for a config file and wrong for an API.** `CommandMetadata` skips empty vectors, so `describeCommand(n).arguments` was `undefined` for a zero-argument command — working for every command except the ones the caller was least likely to special-case. Normalize the shape at the boundary.
+- **Structural conversion is cheaper than it sounds.** Measured round trip, `--release`: an object with 10 properties costs 78 µs, 1 000 properties 5.2 ms, and a 1 MB `Uint8Array` 0.87 ms. Opaque retention is flat (~6 µs), so the *ratio* grows without bound and is the wrong number to quote. Justify an opaque path by **identity**, not by speed, unless the *integrated language* genuinely passes very large structures.
+
 ### Starlark
 
 Treat sandboxing and determinism as product requirements. Prefer copied Liquers primitives for ordinary *language values*. `starlark::values::Value<'v>` belongs to a `Heap`; values retained after evaluation must be frozen/owned or converted. Host functions registered through Starlark globals are a natural `COMMAND` adapter. Document whether evaluation budgets, cancellation, filesystem/network access, and async features are intentionally unavailable.
@@ -551,6 +725,7 @@ Every language-specific design should contain:
 1. A feature matrix with level, status, limitations, milestone, and test links.
 2. A disposition for every item in each selected feature's “Objects/API to map or implement” list: mapped, implemented, internal-only, deferred, or `NA`, with the exposed language name.
 3. The exact Rust value and environment types used.
+   - **If the design offers downstream crates a "bring your own value type" path, check it against the orphan rule before promising it.** The natural sketch — `impl MyIntegrationTrait for CombinedValue<SimpleValue, MyExt>` — does *not* compile from a downstream crate: the trait belongs to the integration crate and `CombinedValue` to `liquers-lib`, so both are foreign there, and `CombinedValue` is not `#[fundamental]`, meaning instantiating it with a local type does not make the self type local (E0117). The integration crate itself never notices, because its own trait is local to it. Put the extension point on the *extension* type (`MyExt`, which the downstream crate owns) and provide a blanket impl carrying it up to the value type — then the integration crate uses the same route it documents, rather than a first-class one nobody else can reach.
 4. Ownership diagrams or precise prose for every stored foreign handle.
 5. Sync, async, thread, reentrancy, cancellation, and shutdown policies.
 6. Conversion tables, including loss and serialization behavior.
@@ -562,6 +737,9 @@ Every language-specific design should contain:
 ## 8. References
 
 - Liquers core integration boundaries: `liquers-core/src/value.rs`, `error.rs`, `context.rs`, `commands.rs`, `store.rs`, `recipes.rs`, `assets.rs`, and `maybe_send.rs`
+- Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
+- Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
+- A worked *integration* design following this guide: [`specs/liquers-web/`](liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
 - [Async/Wasm Refactor Design](async-wasm-refactor/DESIGN.md)
 - [Liquers Web API Specification](WEB_API_SPECIFICATION.md)
@@ -738,6 +916,17 @@ def test_OBJECT08_wrappers_follow_naming_and_ownership_conventions():
     # Largely a review criterion (§3) — mechanise only what is enumerable.
     for name in lq.public_surface():
         assert not name.startswith("_")
+
+def test_OBJECT09_unrepresentable_parameter_raises(env):
+    # The encode direction. A host string that the query grammar cannot express must RAISE,
+    # not produce text that fails to parse somewhere else, later. The core `encode_token`
+    # does the latter today (PARAMETER-ESCAPING-INCOMPLETE), which is what makes this test
+    # worth prescribing rather than assuming.
+    assert lq.parse_query(f"filter-{lq.encode_param('two words')}") is not None
+    for hostile in ["12:30", "a,b", "a?b", "caf\u00e9", "\u65e5\u672c"]:
+        with pytest.raises(lq.Error) as e:
+            lq.encode_param(hostile)
+        assert e.value.error_type == lq.ErrorType.ParameterError
 ```
 
 ### ERROR
@@ -756,6 +945,11 @@ def test_ERROR02_fields_survive_rust_language_rust():
     assert (r.message, r.position, r.query, r.key) == (e.message, e.position, e.query, e.key)
 
 def test_ERROR03_language_exception_includes_class_and_stack(env):
+    # Note `env.evaluate` — the exception must be raised by a command and observed by the
+    # caller. Calling the bridge's conversion helper directly is the easy version of this test
+    # and it can pass while the shipped path drops the fields: an exception travelling through
+    # the planner and asset lifecycle is carried by `liquers_core::Error`, which has no slot
+    # for language context (LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT).
     @env.command
     def boom(state): raise ValueError("inner")
     with pytest.raises(lq.Error) as e:
@@ -832,7 +1026,14 @@ def test_VALUE01_primitive_roundtrip(v):
 
 def test_VALUE02_nested_array_object_roundtrip():
     v = {"a": [1, 2, {"b": None}], "c": {"d": [True, "x"]}}
-    assert lq.from_value(lq.to_value(v)) == v
+    back = lq.from_value(lq.to_value(v))
+    assert back == v
+    # Assert the OUTBOUND container type too, not only equality of contents. A bridge can
+    # return a type that compares equal but is not what host code expects — serde-wasm-bindgen
+    # maps every map to a JavaScript `Map`, which carries the same data and supports none of
+    # `obj.a`, `Object.keys(obj)` or `JSON.stringify(obj)`. Equality-only assertions pass.
+    assert isinstance(back, dict) and isinstance(back["a"], list)
+    assert isinstance(back["c"], dict)
 
 @pytest.mark.parametrize("n", [0, 2**31, 2**53 - 1, 2**53, 2**63 - 1, -(2**63)])
 def test_VALUE03_integer_boundaries(n):
@@ -930,6 +1131,32 @@ def test_ENVIRON05_isolated_test_environments_do_not_leak_registration():
 
 def test_ENVIRON06_shutdown_is_idempotent(env):
     env.shutdown(); env.shutdown()                    # second call must not raise
+
+def test_ENVIRON07_documented_operations_callable_in_every_state():
+    # Two failures this catches, both of which leave every other ENVIRON test green.
+    #
+    # 1. A surface that is declared and not implemented. An environment wrapper exposing only
+    #    a constructor is constructible and useless; nothing else here would notice.
+    ops = ["evaluate", "get_asset", "describe_command", "command_names"]
+    e = lq.Environment()
+    for op in ops:
+        assert callable(getattr(e, op, None)), f"{op} is documented but not callable"
+    assert e.evaluate("hello") is not None
+    # An operation the design deliberately does not support must REFUSE, with a message
+    # naming the supported path — not be silently absent, and not silently do nothing.
+    if not lq.SUPPORTS_INSTANCE_REGISTRATION:
+        with pytest.raises(lq.Error) as err:
+            e.register_command("x", lambda: 1)
+        assert "register" in str(err.value)
+
+    # 2. A state the lifecycle reaches in which the accessors do not work. The window between
+    #    "initialized" and "first used" is the one that gets missed, because every test that
+    #    evaluates first walks straight past it.
+    lq.shutdown()
+    lq.init()
+    assert lq.is_initialized()
+    g = lq.Environment.global_()          # must not raise here
+    assert g.evaluate("hello") is not None
 ```
 
 ### EVAL
@@ -957,11 +1184,20 @@ def test_EVAL05_payload_and_context_reach_a_command(env):
     assert env.evaluate("echo_payload", payload={"k": "v"}) == "v"
 
 def test_EVAL06_cancellation_has_defined_terminal_result(env):
+    # The design must NAME which terminal result its asset manager produces, and this test
+    # asserts that one. Do not write `if cancelled ... else if finished ...`: an asset manager
+    # that evaluates during `get_asset` reaches a terminal status before the caller can cancel,
+    # so cancellation is inert and the accommodating form passes without checking anything
+    # (WEB-CANCELLATION-INERT). Measure which branch actually runs, then assert it.
     h = env.evaluate_async("sleep-60")
     h.cancel()
-    with pytest.raises(lq.Error) as e:
-        h.result()
-    assert e.value.error_type == lq.ErrorType.Cancelled
+    if lq.CANCELLATION_IS_EFFECTIVE:            # deferred asset manager
+        with pytest.raises(lq.Error) as e:
+            h.result()
+        assert e.value.error_type == lq.ErrorType.Cancelled
+    else:                                        # immediate asset manager: inert by design
+        assert h.status() == "ready"             # terminal on arrival, unchanged by cancel
+        assert h.result() is not None            # and an inert cancel damages nothing
 ```
 
 ### COMMAND
@@ -1002,9 +1238,23 @@ def test_COMMAND05_metadata_matches_the_declaration(env):
     assert md.label == "Repeat" and md.doc.startswith("Repeat")
     assert [a.name for a in md.arguments] == ["count"]
     assert md.arguments[0].type == lq.ArgumentType.Integer
+
+    # Include a command with NO arguments. Metadata serializers routinely skip empty
+    # collections — right for a config file, wrong for an API — so `arguments` can be absent
+    # rather than empty, and a caller iterating it breaks on exactly the commands that are
+    # least likely to be special-cased.
+    @env.command
+    def nullary(): ...
+    assert env.commands.metadata("nullary").arguments == []
     assert md.arguments[0].default == 2
 
 def test_COMMAND06_duplicate_and_unregister_policy(env):
+    # Includes registration AFTER the environment is already in use. An environment that is
+    # frozen once shared makes this fail, and it fails only here — every other COMMAND test
+    # registers before evaluating.
+    env.evaluate("hello")
+    env.register_command("late", lambda: "late")
+    assert env.evaluate("late") == "late"
     env.register_command("dup", lambda state: state)
     with pytest.raises(lq.Error) as e:                 # or: assert replacement wins
         env.register_command("dup", lambda state: state)
@@ -1021,9 +1271,20 @@ def test_COMMAND07_context_injection(env):
     assert any("hello from command" in str(m) for m in s.metadata.log)
 
 def test_COMMAND08_returned_opaque_value_follows_value_rules(env):
+    # BOTH halves. A negative-only test — "an un-opted-in object is refused" — passes while
+    # the opt-in itself has never once run, which is how a broken `opaque()` return path can
+    # ship: the wrapper an explicit opt-in produces is itself an unrecognised object, and
+    # structural conversion rejects it.
+    class Unregistered: pass
+    @env.command
+    def unopted(): return Unregistered()
+    with pytest.raises(lq.Error) as e:
+        env.evaluate("unopted")
+    assert e.value.error_type == lq.ErrorType.ConversionError
+
     sentinel = object()
     @env.command
-    def give(): return sentinel                    # source command
+    def give(): return lq.opaque(sentinel)         # source command, explicit opt-in
     assert env.evaluate("give") is sentinel
 
 def test_COMMAND09_minimal_declaration_has_useful_metadata_defaults(env):
@@ -1046,6 +1307,52 @@ def test_COMMAND11_closure_captures_retained_per_runtime_rules(env):
         def add(state: int) -> int: return state + n
     make(5)
     assert env.evaluate("number-1/add5") == 6      # `number` supplies the integer input
+
+def test_COMMAND12_declared_planner_flags_take_effect(env):
+    # COMMAND10 asserts the metadata FIELD holds what was declared. This asserts the planner
+    # acts on it — the two come apart when a declaration property is parsed by nobody, which
+    # leaves every command at the default and is invisible until a nondeterministic command
+    # returns a stale result.
+    calls = []
+    @env.command(volatile=True)
+    def tick():
+        calls.append(1)
+        return len(calls)
+    assert env.commands.metadata("tick").volatile is True
+    assert env.evaluate("tick") == 1
+    assert env.evaluate("tick") == 2, "a volatile command must not be served from cache"
+
+def test_COMMAND13_every_state_mode_delivers_its_content(env):
+    # One case per state-passing mode the design offers. A mode that silently degrades to
+    # another — metadata access falling back to the bare value — is not observable from any
+    # other test, because the command still runs and still returns something.
+    @env.command(state="value")
+    def as_value(v): return type(v).__name__
+    @env.command(state="text")
+    def as_text(t): return t.upper()
+    @env.command(state="state")
+    def as_state(s): return f"{s.value}|{s.status}|{s.metadata is not None}|{len(s.log) >= 0}"
+
+    assert env.evaluate("hello/as_text") == "HELLO"
+    assert env.evaluate("hello/as_value") is not None
+    # The state mode must carry metadata, status and log — not just the value again.
+    assert env.evaluate("hello/as_state").count("|") == 3
+
+def test_COMMAND14_retained_declaration_is_immune_to_caller_mutation(env):
+    # Registration must capture what it was given, not alias it. Where the declaration is a
+    # mutable host object — a dict, an object literal, a builder — retaining a reference means
+    # a caller reusing a template silently rewrites an already-registered command, and any
+    # later internal replay picks up the mutation.
+    #
+    # `NA` for a language whose declaration form is immutable (a Starlark struct); the
+    # reversing condition is a mutable declaration form being accepted.
+    decl = {"name": "snap", "run": lambda: "original"}
+    env.register_command(decl)
+    assert env.evaluate("snap") == "original"
+
+    decl["run"] = lambda: "mutated"
+    env.register_command({"name": "unrelated", "run": lambda: 1})   # may trigger a rebuild
+    assert env.evaluate("snap") == "original"
 ```
 
 ### ASYNCQ

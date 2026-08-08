@@ -7,11 +7,17 @@ use std::{borrow::Cow, result::Result, sync::Arc};
 use crate::image::serde::{deserialize_image_from_bytes, serialize_image_to_bytes};
 #[cfg(feature = "polars")]
 use crate::polars::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};
-use crate::value::extended::*;
-use crate::value::simple::*;
+// Re-exported, not merely imported. A crate defining its own value type needs these three, and
+// `liquers_lib::value::{CombinedValue, SimpleValue, ValueExtension}` is where it will look for
+// them — reaching into `value::extended` and `value::simple` is an avoidable papercut on the
+// documented extension path. Explicit rather than a glob, so the public surface of this module is
+// visible here.
+pub use crate::value::extended::{CombinedValue, ValueExtension};
+pub use crate::value::simple::SimpleValue;
 use std::io::Cursor;
 
 pub mod extended;
+pub mod foreign;
 pub mod simple;
 
 #[derive(Debug, Clone)]
@@ -34,6 +40,11 @@ pub enum ExtValue {
     UIElement {
         value: Arc<dyn crate::ui::element::UIElement>,
     },
+    /// An opaque value belonging to an integrated language runtime (JavaScript, Starlark,
+    /// Python). Deliberately one variant for all languages — see [`foreign::ForeignValue`].
+    Foreign {
+        value: Arc<dyn crate::value::foreign::ForeignValue>,
+    },
 }
 
 pub trait ExtValueInterface {
@@ -54,7 +65,7 @@ impl ExtValueInterface for ExtValue {
     fn as_image(&self) -> Result<Arc<image::DynamicImage>, Error> {
         match self {
             ExtValue::Image { value } => Ok(value.clone()),
-            ExtValue::UIElement { .. } => {
+            ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "Image"))
             }
             #[cfg(feature = "polars")]
@@ -77,10 +88,12 @@ impl ExtValueInterface for ExtValue {
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             ExtValue::PolarsDataFrame { value } => Ok(value.clone()),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } => Err(Error::conversion_error(
-                self.identifier().as_ref(),
-                "Polars dataframe",
-            )),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                Err(Error::conversion_error(
+                    self.identifier().as_ref(),
+                    "Polars dataframe",
+                ))
+            }
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
@@ -94,7 +107,7 @@ impl ExtValueInterface for ExtValue {
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error> {
         match self {
             ExtValue::UIElement { value } => Ok(value.clone()),
-            ExtValue::Image { .. } => {
+            ExtValue::Image { .. } | ExtValue::Foreign { .. } => {
                 Err(Error::conversion_error(self.identifier().as_ref(), "UIElement"))
             }
             #[cfg(feature = "polars")]
@@ -121,6 +134,7 @@ impl ValueExtension for ExtValue {
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
+            ExtValue::Foreign { value } => value.identifier(),
         }
     }
 
@@ -134,6 +148,7 @@ impl ValueExtension for ExtValue {
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "image".into(),
             ExtValue::UIElement { .. } => "ui_element".into(),
+            ExtValue::Foreign { value } => value.type_name(),
         }
     }
 
@@ -147,6 +162,7 @@ impl ValueExtension for ExtValue {
             ExtValue::Widget { .. } => "widget".into(),
             ExtValue::Image { .. } => "png".into(),
             ExtValue::UIElement { .. } => "ui".into(),
+            ExtValue::Foreign { value } => value.default_extension(),
         }
     }
 
@@ -160,6 +176,7 @@ impl ValueExtension for ExtValue {
             ExtValue::Widget { .. } => "data.widget".into(),
             ExtValue::Image { .. } => "image.png".into(),
             ExtValue::UIElement { .. } => "element.ui".into(),
+            ExtValue::Foreign { value } => value.default_filename(),
         }
     }
 
@@ -173,6 +190,7 @@ impl ValueExtension for ExtValue {
             ExtValue::Widget { .. } => "application/octet-stream".into(),
             ExtValue::Image { .. } => "image/png".into(),
             ExtValue::UIElement { .. } => "application/octet-stream".into(),
+            ExtValue::Foreign { value } => value.default_media_type(),
         }
     }
 }
@@ -187,7 +205,20 @@ impl DefaultValueSerializer for ExtValue {
                 serialize_dataframe_to_writer(value, format, &mut bytes)?;
                 Ok(bytes)
             }
-            _ => Err(Error::new(
+            ExtValue::Foreign { value } => value.as_bytes(format),
+            // Enumerated rather than caught by `_ =>` so that adding a variant is a compile
+            // error here too. The previous catch-all silently absorbed new variants, which made
+            // this the one match on ExtValue the compiler could not police.
+            ExtValue::UIElement { .. } => Err(Error::from_error(
+                ErrorType::SerializationError,
+                format!(
+                    "Serialization to {} not supported by {}",
+                    format,
+                    self.type_name()
+                ),
+            )),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::from_error(
                 ErrorType::SerializationError,
                 format!(
                     "Serialization to {} not supported by {}",

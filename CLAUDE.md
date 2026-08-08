@@ -8,11 +8,12 @@ liquers-macro/    # register_command! function-like proc-macro
 liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
 liquers-axum/     # HTTP REST API server
+liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
 specs/            # Specifications and design documents
 ```
 
-**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum`
+**Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`
 
 **Key specs**: See `specs/PROJECT_OVERVIEW.md` for architecture, `specs/REGISTER_COMMAND_FSD.md` for macro details, `specs/ASSETS.md` for asset lifecycle.
 
@@ -136,6 +137,28 @@ cd liquers-lib/examples-web/ui_spec_demo && trunk build && npx playwright test
 
 Avoid `cargo test --workspace` in a constrained environment: it also builds the examples and every
 crate's test binaries at once, which is what exhausts the allowance.
+
+### liquers-web
+
+`liquers-web` is **wasm32-only** and is excluded from `default-members`, so the commands above
+never build it. It has three test loops, because three different things are being tested — run
+them after `cargo clean`, separately from the native loop:
+
+```bash
+# Conformance suites, under Node. No browser needed; this is the routine loop.
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+
+# Declarations and artifact structure.
+./liquers-web/examples-web/quickstart/build.sh
+./liquers-web/scripts/check-stubs.sh
+
+# The delivery form, in a real browser.
+cd liquers-web/tests/e2e && npm install && npx playwright test
+```
+
+`--features debug-handles` is test-only: it exposes a live count of retained JavaScript function
+handles so `RUNTIME05` can assert handle release deterministically instead of depending on GC
+timing. See `liquers-web/README.md`.
 
 ### Applied measures, in order of effect
 

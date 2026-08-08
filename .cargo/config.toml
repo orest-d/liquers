@@ -1,0 +1,9 @@
+# wasm32 test binaries are not natively executable — they must be driven by
+# wasm-bindgen-test-runner, which loads them into a browser via a WebDriver.
+# Without this, `cargo test --target wasm32-unknown-unknown` fails with
+# "Exec format error" when it tries to run the .wasm directly.
+#
+# Install the runner with: cargo install wasm-bindgen-cli
+# Point it at a browser with CHROMEDRIVER=/path/to/chromedriver.
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"
