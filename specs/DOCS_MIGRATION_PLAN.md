@@ -5,7 +5,7 @@ How the documentation that exists today reaches the structure defined in
 required to `CLAUDE.md`, `README.md`, the skills, and the ~50 source files that reference spec
 paths.
 
-At its centre is a **backlog triage** (§4): the five documents that currently track outstanding
+At its centre is a **backlog triage** (§4): the documents that currently track outstanding
 work are consolidated, de-duplicated and verified against `HEAD`, and only what still needs doing
 is carried into the new structure. Everything else — the file moves, the path rewrites, the skill
 edits — is mechanical by comparison.
@@ -79,15 +79,26 @@ directories yet.
 
 ## 4. Step 2 — Triage and port the backlog
 
-Four documents record outstanding work, and they overlap. Every one is a source for this step:
+Three documents record outstanding work, plus the feature briefs. Each is a source for this step:
 
 | Source | Holds | Entries |
 |---|---|---|
+| `plan20260707.md` | Work packages, each with acceptance criteria | WP-1…WP-19 |
 | `specs/ISSUES.md` | Formal issues | 16 + 2 unindexed sections |
-| `specs/todo20260219.md` | A TODO/FIXME audit with its own status and complexity columns | 13 open of 17 |
-| `review20260707.md` §6 | 20 findings with area, type, priority, effort and evidence | 20 |
-| `plan20260707.md` | 19 work packages, each with acceptance criteria | WP-1…WP-19 |
+| `specs/todo20260219.md` | A TODO/FIXME audit with its own status and complexity columns | 12 live of 17 |
 | `specs/FEATURES/` | Feature briefs (§5) | 20 |
+
+**`review20260707.md` is not a source.** `plan20260707.md` supersedes it: the review produced 20
+findings, and the plan's work-package headings reference `F-1` through `F-20` with no gaps
+(`grep -o 'F-[0-9]*' plan20260707.md | sort -u` returns exactly twenty). Every finding is therefore
+carried into a work package with acceptance criteria attached, which is strictly more actionable
+than the finding it came from. The review is archived unread (§7.1) and needs no triage.
+
+That also disposes of a hazard an earlier draft of this plan flagged: the `F-n` labels in the WP
+headings do not align with the numbering of the review's §6 summary table, so cross-referencing the
+two by number would have mis-linked several items. With the review out of the triage, no
+cross-referencing is needed — **the work packages are keyed by WP number and that is the only
+identifier this step uses.**
 
 ### 4.0 The porting rule
 
@@ -106,8 +117,9 @@ that phrasing across would move the ambiguity rather than resolve it. Guide §4.
 status, deliberately — an issue states what is *to be done*, in the present tense, or it is closed.
 
 **This is not a mechanical step.** It is a backlog review with a document migration attached, and
-it is the largest piece of judgement in the plan. Budget accordingly: roughly 20 distinct problems
-survive de-duplication, each needing a verification against current code.
+it is the largest piece of judgement in the plan. Budget accordingly: 19 consolidated problems
+(§4.0a) plus the `ISSUES.md` items with no counterpart (§4.1), each needing a verification against
+current code.
 
 > **Consequence for the sources.** Because unported entries are not carried forward, the source
 > documents must be **archived, not deleted** — they become the only record of what was decided
@@ -116,39 +128,41 @@ survive de-duplication, each needing a verification against current code.
 
 ### 4.0a De-duplicate first
 
-The same problem appears in up to five places. Porting per-source would create five issues for one
-defect, so **build the consolidated table first and port from it**, one issue per problem.
+The same problem appears in up to four places. Porting per-source would create four issues for one
+defect, so **build the consolidated table first and port from it**, one issue per problem. The work
+packages are the spine — they are the most recent statement of each problem and the only one with
+acceptance criteria — so the table is keyed by WP number.
 
-| Problem | ISSUES.md | todo | review | WP | FEATURES | Likely state |
-|---|---|---|---|---|---|---|
-| Delegation deadlock / scheduler rework | — | #3 | 1 | WP-1 | ASSETS-FIX1, SCHEDULER-IMPROVEMENTS | shipped? PRs #4–6 |
-| Asset failure & message contract | ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS | — | 2, 3 | WP-2 | — | **partial** (PR #7) |
-| Expiration safety / stale reads | ASSET-EXPIRED-CACHED-BINARY-READ | — | 4 | WP-3 | EXPIRATION-SAFETY | **partial** — design complete (PR #11), P0 still open |
-| Metadata format/type consistency | — | — | 5 | WP-4 | — | open |
-| OpenDAL slash normalization | — | #6 | 6 | WP-5 | — | open |
-| Plan: `expand_predecessors`, config, relative resolution | — | #7, #8, #15 | 7 | WP-7 | — | open |
-| Evaluate-path consolidation | — | — | 8 | WP-8 | ASSETS-FIX1 | open |
-| `tracing` instead of `println`; no unwrap in lib | — | — | 9 | WP-6 | — | **partial** — `println!`→`eprintln!` landed with `query-validation`; `tracing` not adopted |
-| Box the `Error` payload | — | — | 10 | WP-9 | — | open |
-| Benchmarks → `Arc<Box<…>>` debt | — | — | 11 | WP-10 | BENCHMARK-SUITE, TECHNICAL-DEBT-1 | open |
-| `ValueInterface` capability split | — | #9 | 12 | WP-11 | — | open |
-| Session model + key-level ACL | — | #10 | 13 | WP-12 | KEY-LEVEL-ACL | open |
-| Dead code / repo hygiene | — | — | 14 | WP-13 | — | verify — may be stale |
-| `openbin` streaming | — | #5 | 15 | WP-14 | — | open |
-| Macro validation + hints | — | #16 | 16 | WP-15 | — | open |
-| Axum listdir routes + WebSocket hardening | — | #17 | 17 | WP-16 | — | partial |
-| `COMBINED-EXPIRES`, `EXTENDED-FAST-TRACK` | — | — | 18 | WP-17 | both | open |
-| Library/UI planned features | — | — | 19 | — | VALUE-DESCRIPTION, COMMAND-METADATA-ENHANCEMENTS, COMBINED-VALUE-DISCRIMINATION, EGUI-ASSET-MANAGER-INTEGRATION | open |
-| Multi-realm, asset GC, user docs | — | — | 20 | WP-18–19 | — | open |
-| Metadata traceback field | — | #14 | 3 | WP-2 | — | verify |
-| `State` lock API cleanup | — | #13 | — | — | — | open |
+| WP | Problem | ISSUES.md | todo | FEATURES | Likely state |
+|---|---|---|---|---|---|
+| WP-1 | Dependency waiting semantics, then scheduler rework | — | #3 | ASSETS-FIX1, SCHEDULER-IMPROVEMENTS | shipped? PRs #4–6 |
+| WP-2 | Asset failure & message-lifecycle contract | ASSET-MESSAGE-LIFECYCLE-ROBUSTNESS | #14 (traceback) | — | **partial** (PR #7) |
+| WP-3 | Expiration safety | ASSET-EXPIRED-CACHED-BINARY-READ | — | *(brief closed)* | **partial** — design complete (PR #11), P0 still open |
+| WP-4 | Metadata format/type consistency | — | — | — | open |
+| WP-5 | OpenDAL path normalization | — | #6 | — | open |
+| WP-6 | `tracing` migration + panic hygiene | — | — | — | **partial** — `println!`→`eprintln!` landed with `query-validation`; `tracing` not adopted |
+| WP-7 | Plan builder: `expand_predecessors`, config, relative resolution | — | #7, #8, #15 | — | open |
+| WP-8 | Evaluation-path consolidation | — | — | ASSETS-FIX1 | open |
+| WP-9 | Box the `Error` payload | — | — | — | open |
+| WP-10 | Benchmark suite | — | — | BENCHMARK-SUITE | open — see note below |
+| WP-11 | `ValueInterface` capability-trait split | — | #9 | — | open |
+| WP-12 | Session model + key-level ACL | — | #10 | KEY-LEVEL-ACL | open |
+| WP-13 | Dead-code & repo hygiene | — | — | — | verify — may be stale |
+| WP-14 | `openbin` streaming | — | #5 | — | open |
+| WP-15 | Macro validation + hints | — | #16 | — | open |
+| WP-16 | Axum listdir routes + WebSocket hardening | — | #17 | — | partial |
+| WP-17 | `COMBINED-EXPIRES` + `EXTENDED-FAST-TRACK` | — | — | both | open |
+| WP-18–19 | Library/UI polish, multi-realm, GC, docs | — | — | VALUE-DESCRIPTION, COMMAND-METADATA-ENHANCEMENTS, COMBINED-VALUE-DISCRIMINATION, EGUI-ASSET-MANAGER-INTEGRATION | open |
+| — | `State` lock API cleanup | — | #13 | — | open |
 
-Twenty-one rows against roughly sixty source entries. The remaining `ISSUES.md` items (§4.1) do not
+Nineteen rows against roughly fifty source entries. Every live `todo` row maps into a work package
+except #13, which is why it has a row of its own. The remaining `ISSUES.md` items (§4.1) do not
 appear above because they have no counterpart elsewhere; port those directly.
 
-> **Numbering hazard.** The `F-n` references in `plan20260707.md`'s WP headings do **not** align
-> with the `#n` numbering of `review20260707.md` §6 — WP-1 is headed `(F-1, F-7)` but §6 #7 is the
-> plan-builder finding. Map between the two documents **by title, never by number.**
+**WP-10 is halved.** It is titled "Benchmark suite, then `Arc<Box<…>>` debt" — the debt half is
+`TECHNICAL-DEBT-1`, archived unprocessed (§5), so only the benchmark half survives as a candidate.
+If the `Arc<Box<…>>` work should stay tracked, it needs its own issue; otherwise the plan drops it
+along with the brief.
 
 ### 4.0b How to verify each candidate
 
@@ -157,9 +171,8 @@ judgement about intent — only about current code.
 
 | Source | Verify by |
 |---|---|
+| `plan20260707.md` | **Each WP has an `### Acceptance` section.** Check those criteria directly — the plan wrote its own tests for doneness, which is why it supersedes the review |
 | `todo20260219.md` | `git grep` for the `TODO`/`FIXME`/`todo!` marker. Line numbers in that document are from February and have drifted — grep the symbol or surrounding text, not the line |
-| `review20260707.md` | Re-run the evidence its "Status today" column names: recount the `println!` occurrences, re-run clippy for the `Error`-size warnings, re-read the cited `FIXME` |
-| `plan20260707.md` | **Each WP has an `### Acceptance` section.** Check those criteria directly — the plan wrote its own tests for doneness |
 | `specs/ISSUES.md` | Re-read the "Problem" section against the cited source locations |
 | `specs/FEATURES/` | Check whether the described gap still exists in the named module |
 
@@ -226,23 +239,30 @@ skill references at it. Status and priority to be set at review; the folder stay
 Because unported entries are not carried forward (§4.0), these documents are the **only** surviving
 record of what was triaged out. All four are archived, not deleted:
 
-| Source | Becomes |
-|---|---|
-| `specs/ISSUES.md` | `specs/archive/2026-08-08-issues.md` |
-| `specs/todo20260219.md` | `specs/archive/2026-02-19-todo-audit.md` |
-| `plan20260707.md` | `specs/archive/2026-07-07-implementation-plan.md` |
-| `review20260707.md` | `specs/archive/2026-07-07-project-review.md` |
+| Source | Becomes | Triaged? |
+|---|---|---|
+| `plan20260707.md` | `specs/archive/2026-07-07-implementation-plan.md` | yes |
+| `specs/ISSUES.md` | `specs/archive/2026-08-08-issues.md` | yes |
+| `specs/todo20260219.md` | `specs/archive/2026-02-19-todo-audit.md` | yes |
+| `specs/FEATURES/*` | `specs/archive/` under their own names (§5) | yes |
+| `review20260707.md` | `specs/archive/2026-07-07-project-review.md` | **no — superseded (§4)** |
 
 Root `ISSUES.md` — a stub whose only content is "this moved" — is **deleted**. It points at a file
 that will no longer be there, and a redirect is a third thing to keep honest.
 
-Add one line to the top of each archived source, above its original content:
+Add one line to the top of each **triaged** source, above its original content:
 
 > *Triaged into `specs/issues/` on 2026-08-08. Entries not present there were verified as done or
 > no longer relevant. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.*
 
 That sentence is what makes the archive readable later: without it, an entry missing from the new
 tracker is indistinguishable from one that was overlooked.
+
+`review20260707.md` gets a different line, because it was never triaged and a reader must not
+mistake its findings for a live backlog:
+
+> *Superseded by `2026-07-07-implementation-plan.md`, which carries every finding F-1…F-20 into a
+> work package with acceptance criteria. Not triaged directly; see that document.*
 
 ### 4.5 Rewriting the 15 code references
 
@@ -277,15 +297,15 @@ pointer to `index.csv`. Handled in Step 6.
 
 ## 5. Step 3 — Feature briefs
 
-`specs/FEATURES/` is the fifth source, triaged under the same rule (§4.0): **only briefs describing
+`specs/FEATURES/` is the fourth source, triaged under the same rule (§4.0): **only briefs describing
 work that still needs doing are ported**, as issues with `kind: feature`. A brief that survives
 becomes the body of its issue file unchanged; one that is partly done is rewritten to state only
 the remainder; one that is done or obsolete stays in the archive.
 
 Several rows below are already covered by the consolidated table in §4.0a — `SCHEDULER-IMPROVEMENTS`,
-`COMBINED-EXPIRES`, `EXTENDED-FAST-TRACK`, `KEY-LEVEL-ACL`, `BENCHMARK-SUITE` and `TECHNICAL-DEBT-1`
-each restate a problem the review or the plan also records. **Port them once, from the consolidated
-row**, with the brief as the body since it is usually the fullest description.
+`COMBINED-EXPIRES`, `EXTENDED-FAST-TRACK`, `KEY-LEVEL-ACL` and `BENCHMARK-SUITE` each restate a
+problem a work package also records. **Port them once, from the consolidated row**, with the brief
+as the body since it is usually the fullest description.
 
 | Brief | New ID | Status | Pri | Cx | Area |
 |---|---|---|---|---|---|
@@ -306,7 +326,7 @@ row**, with the brief as the body since it is usually the fullest description.
 | `POLARS-FEATURE-GAPS.md` | `POLARS-FEATURE-GAPS` | **restate** | P2 | M | `lib/polars` |
 | `PYTHON-BASIC-OBJECTS.md` | **verify first** | P2 | L | `py` | |
 | `SCHEDULER-IMPROVEMENTS.md` | `SCHEDULER-IMPROVEMENTS` | `draft` | P1 | L | `core/assets` |
-| `TECHNICAL-DEBT-1.md` | `TECHNICAL-DEBT-1` | `draft` | P2 | L | `core/value;core/assets` |
+| `TECHNICAL-DEBT-1.md` | **not ported** — archived unprocessed; no triage needed | | | | |
 | `VALUE-DESCRIPTION.md` | `VALUE-DESCRIPTION` | `draft` | P3 | M | `core/value;lib/value` |
 | `plan-init-section.md` | **not ported** — a fragment, not a feature | | | | |
 
@@ -317,7 +337,10 @@ Six of twenty are not ported. Notes on the rest:
   `liquers-lib/src/polars/` and keep what is still missing. If nothing is, it is not ported.
 - **`PYTHON-BASIC-OBJECTS`** reads `Draft`, but PR #2 is titled "implement PYTHON-BASIC-OBJECTS
   wrappers". Verify against `liquers-py`; port only the wrappers that are genuinely absent.
-- **`TECHNICAL-DEBT-1`** reads `In Progress` — restate as the `Arc<Box<…>>` sites that remain.
+- **`TECHNICAL-DEBT-1`** is archived unprocessed. It reads `In Progress`, but it is not triaged and
+  not ported; the `Arc<Box<…>>` work is dropped as a tracked item along with WP-10's second half
+  (§4.0a). Reopening it later means filing a fresh issue, which is cheap — and cheaper than
+  carrying a stale one.
 - **The `EXPIRATION-SAFETY` name collision resolves itself.** The brief is Closed and not ported,
   so the design folder keeps the name uncontested. That collision existed only because the same
   work was tracked in two systems, which is what this migration ends.
@@ -508,10 +531,10 @@ path. Moving it buys nothing.
 | `liquers-designer.skill` | **Delete** — see §8.4 |
 | `liquers-unittest.skill` | **Delete** — see §8.4 |
 
-`plan20260707.md` and `review20260707.md` are two of the five backlogs Step 2 consolidates, so they
-are triaged there (§4.0) and reach `archive/` only afterwards, carrying the provenance line from
-§4.4. Nothing in this step moves them untouched — by the time it runs, WP-1…WP-19 and findings
-1–20 are each either verified done or represented by an issue.
+`plan20260707.md` is one of the backlogs Step 2 consolidates, so it is triaged there (§4.0) and
+reaches `archive/` only afterwards, carrying the provenance line from §4.4. Nothing in this step
+moves it untouched — by the time it runs, WP-1…WP-19 are each either verified done or represented
+by an issue. `review20260707.md` is archived without triage, superseded by the plan (§4).
 
 ---
 
@@ -673,7 +696,7 @@ binary duplicates, not stale forks. Note this when archiving the review.
 
 Nothing in this plan should be executed on a guess. These need an answer first.
 
-**The triage itself is the largest of them.** Step 2 verifies ~21 consolidated problems against
+**The triage itself is the largest of them.** Step 2 verifies 19 consolidated problems against
 `HEAD` (§4.0a) and decides, for each, whether it is done, live, or live-in-part. That is the work;
 the numbered items below are what remains once it is settled.
 
@@ -724,7 +747,7 @@ the numbered items below are what remains once it is settled.
 | 8 | *(optional)* GitHub issues for new work | workflow change | No |
 
 **Steps 2–3 are not the same kind of work as the rest.** Every other step moves files and rewrites
-paths; these two re-examine twenty-one problems against the current code and decide what is still
+paths; these two re-examine nineteen problems against the current code and decide what is still
 true. They are why this is a backlog review with a migration attached rather than the reverse, and
 they should be scheduled as such — the file moves can be done in an afternoon, the triage cannot.
 
