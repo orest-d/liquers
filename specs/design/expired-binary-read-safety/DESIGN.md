@@ -2,7 +2,7 @@
 id: EXPIRED-BINARY-READ-SAFETY
 kind: design
 title: Expired-safe binary reads
-status: draft
+status: approved
 phase: implementation
 area: [core/assets, core/store]
 gh_pr: []
@@ -19,7 +19,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [ ] Phase 4: Implementation Plan (revised after cross-phase review; awaiting approval)
+- [x] Phase 4: Implementation Plan (approved)
 - [ ] Implementation Complete
 
 ## Notes
@@ -132,6 +132,17 @@ Revisions applied across all four phases:
   steps agree) and U11 (recovery with no cached bytes).
 - Phase 4 adds Step 7 for `interpreter.rs` and amends `ASSETS.md` §Terminal Outcome Contract, which
   option A contradicts.
+
+**Phase 4 approved** after the revision pass. Branch synchronized with `main` (specs-only changes
+upstream; no source moved, so the design's file:line citations stand).
+
+Two decisions deliberately left for execution time, with recommended defaults:
+- `ReadExposure` visibility — `pub` as specified, or `pub(crate)`, which gives the same
+  compile-time exhaustiveness guarantee without a permanent API commitment. **Recommend
+  `pub(crate)`.**
+- Step 9's axum test coverage — build the scaffolding, or accept review-only verification and file
+  `AXUM-HANDLER-TEST-COVERAGE`. **Recommend the latter**, to keep a P0 read-contract fix from
+  growing a test-infrastructure project.
 
 **Filed separately:** `DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE` (P1) — `wait_for_dependency`'s
 stale-value branch is dead code since PR #11 gated `poll_state`, the same defect class this design
