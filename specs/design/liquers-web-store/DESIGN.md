@@ -3,7 +3,7 @@ id: LIQUERS-WEB-STORE
 kind: design
 title: Browser stores for liquers-web
 status: in_review
-phase: high-level
+phase: architecture
 area: [web, store/config, core/store]
 gh_pr: []
 issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE]
@@ -19,8 +19,8 @@ which `specs/design/liquers-web/` explicitly deferred.
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved)
+- [x] Phase 2: Solution & Architecture (awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
@@ -94,6 +94,44 @@ natively and a `fetch` store in the browser — or a separate `liquers-web` buil
 target gate `AsyncFileStore` already carries (`liquers-core/src/store.rs:816`). No consumer is
 affected: `liquers-axum` takes default features and `liquers-lib` uses `liquers-store` only as a
 dev-dependency.
+
+**Phase 2 outcome.** No change to `AsyncStore`, `AsyncStoreRouter`, `Key`, `Metadata` or the query
+language. Two additive changes land outside `liquers-web`: `liquers-store` gains an `opendal`
+feature, and its builder gains a `StoreFactory` seam consulted *before* the built-in types — which
+`liquers-web` needs because `http` is already a built-in OpenDAL type and the browser must override
+it, and which is what makes one configuration document mean the same thing on both targets.
+
+Decisions worth carrying forward:
+- **The `localStorage` index is derived by scanning, never persisted separately.** A second source
+  of truth can disagree with the entries after a partial write. Empty directories are the one thing
+  not derivable, so they get marker entries — which is also what makes `makedir` survive a reload.
+- **The data envelope is a two-character prefix (`1u` / `1b`), not JSON.** JSON would escape the
+  payload a second time and cost a parse on every read, for two fields that will not grow.
+- **Metadata precedence is extension first, response `Content-Type` second** — the inverse of the
+  usual web rule, because Liquers dispatches deserialization on `data_format`, and a static server
+  labelling everything `text/plain` would break every command downstream of a fetched asset.
+- **Absent optional `JsStore` methods error rather than take the trait default.** `contains` and
+  `listdir` default to `false` and `[]`, so a half-written store would look like an empty one and
+  `STORE03` would pass vacuously. `isSupported` is the exception, since a store answering "no" is
+  invisible to the router.
+- **The store joins the existing rebuild path** rather than getting a swappable indirection. A
+  `SwappableStore` would preserve the asset cache, but assets computed against the old store are
+  stale the moment it is replaced and there is no invalidation path for them — discarding is
+  correct, so the rebuild is a feature.
+- **`LocalStorageStore` never awaits**, because Web Storage is synchronous. That is load-bearing:
+  it is why `RefCell` is sound, and why `STORE06` has a real assertion (no interleaving point
+  exists, so last-write-wins is a fact rather than one of two acceptable outcomes).
+
+**A `liquers-core` defect was found while specifying the key guard:** `..` is a valid
+`ResourceName`, and `AsyncFileStore::key_to_path` is `path.push(key.to_string())`, so a key can
+escape the store root — reachable from a query and therefore over `liquers-axum`. Filed as
+`STORE-FILESTORE-PATH-TRAVERSAL` (P1). Not fixed here; the guard lives in `liquers-web` for now and
+the issue proposes hoisting a shared version into `liquers_core::store`.
+
+**Phase 2 open question:** Q8 — whether store-manipulation *commands* (a `store` namespace) are in
+scope. Recommendation is no: it belongs in `liquers-lib` so every target gets it, and it turns
+"the browser can have a store" into "queries can mutate stores", which needs its own security
+discussion alongside `CORE-SESSION-AND-KEY-ACL`.
 
 ## Links
 
