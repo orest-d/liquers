@@ -50,11 +50,13 @@ None.
 
 In scope: the ownership test and its two manager implementations; the volatile-key case
 (`VOLATILE-KEYED-RECIPE-SELF-DELEGATION`, P1, fails on the same line for the same reason — an
-id comparison against an asset the manager mints fresh each call); regression tests on both targets.
+id comparison against an asset the manager mints fresh each call); enforcing *a volatile asset is
+never taken from the key map* wherever the map is read, which the ownership test depends on and
+which fixes the indefinite reuse of a `set_state`-inserted volatile asset; a re-entrancy guard in
+`ImmediateAssetManager::get`; regression tests on both targets.
 
 Out of scope: `LIB-RECIPE-PROVIDER-PANIC` (same code path, different defect, separately filed);
-the queued manager's redundant self-submission through `job_queue` (deduplicated today, worth
-recording as an issue, not worth fixing here).
+`Context::apply` with a bare key; persistence rules, which are already coherent.
 
 ## Decided (verified against the source)
 
@@ -67,29 +69,55 @@ recording as an issue, not worth fixing here).
   finds the caller itself and the id comparison is unchanged.
 - **No registered owner ⇒ the asset evaluates its own recipe.** The result is not shared under the
   key; that is the accepted tradeoff for a non-standard path.
-- **The ownership test must be volatility-aware, not a bare map lookup.** The manager never
+- **A volatile asset is never owned by the manager and is never reused.** The manager never
   *resolves* a volatile key through the map (`:4041`, `:5466` mint a fresh asset), but the map can
   still hold an entry for that key — inserted unconditionally by the `set_state`/store-asset paths
-  (`:3237`, `:4817`), or left from before the key's recipe became volatile. A bare lookup would
-  find that entry and delegate, reproducing the cycle. Rule: *volatile ⇒ self owns; otherwise
-  consult the map.* `resolve_volatility_before_evaluation()` already runs at the top of
-  `evaluate_recipe`, so `lock.is_volatile` is available.
+  (`:3237`, `:4817`), or left from before the key's recipe became volatile. The rule is therefore
+  general: whenever an asset is taken from the key map and found volatile, it is removed and the
+  request proceeds as if nothing were cached. Both the ownership test and `get_resource_asset` obey
+  it, through one shared non-evaluating helper.
+
+  *This is a live defect, not only a hazard for the fix.* `Status::Volatile.is_finished()` is
+  `true` (`metadata.rs:443`) and both managers' `get` return on `is_finished()`, with the expiry
+  re-check gated on `status == Status::Ready`. A volatile value written through `set_state` under a
+  key with no recipe (so `is_volatile(key)` consults the recipe, finds none, returns `false`) is
+  cached and reused indefinitely.
+- **Persistence rules are unchanged.** Storing a volatile asset is deliberate: it gives the user the
+  chance to override. The value written is by definition not valid and must not be read back, and
+  today it is not — `save_to_store` writes metadata with `Status::Volatile`, and `try_fast_track`
+  accepts only a stored `Ready | Source | Override` (`:670-681`). A user who deliberately writes
+  `Override` under that key is honoured. The mechanism is already coherent; this design does not
+  touch it.
+
+- **A re-entrancy guard is added to `ImmediateAssetManager::get` as well**, to report rather than
+  crash if the ownership test is ever bypassed. It cannot be shown redundant: the dependency graph
+  does cycle-check before the manager is reached (`register_scheduled_dependency` precedes
+  `get_dependency_asset`, `context.rs:465-473`), but that check is skipped for an ad-hoc dependent
+  (`dependent_opt == None` — no key, no query) and deliberately bypassed for payload dependencies,
+  which detect cycles through `active_payload_queries` instead. Either can still reach `get` on a
+  key that is mid-evaluation. The guard turns an undebuggable wasm stack overflow into a typed
+  error naming the key.
 
 ## Open Questions
 
-1. Should a non-owner asset still persist under the key? `evaluate_and_store` persists
-   unconditionally and `save_to_store` targets `recipe.key().or(recipe.store_to_key())` (`:2052`),
-   so an ad-hoc keyed asset writes to the store under that key. It already does today (delegation
-   installs the delegate's state, which is then persisted), so the change is not a new write but a
-   possibly different value — computed from the caller's input state rather than taken from the
-   shared asset. The only production route is `Context::apply(&pure_key_query, state)`
-   (`context.rs:617`). Explicit decision wanted, not inheritance.
-2. Where does the ownership test live — a private helper on `AssetRef`, or a trait method on
-   `AssetManager` that names the question (`key_owner`)? Both managers would share one body either
-   way; the trait option makes the contract visible to future managers.
-3. Should a re-entrancy guard be added to `ImmediateAssetManager::get` *as well*, to catch cycles
-   this fix does not (option 2 in the issue)? Defence in depth versus a second mechanism to reason
-   about.
+1. Where does the shared non-evaluating helper live — a method on `AssetManager` that names the
+   question (`owned_key_asset`), or a free function over `lookup_key_asset` + `remove_key_asset`?
+   The trait option makes the contract visible to future managers; Phase 2 picks.
+2. What should the re-entrancy guard *do* — return `Error::dependency_cycle` naming the key, or
+   return the asset unrun and let the caller wait? The latter risks a deadlock on wasm's single
+   thread. Leaning to the error; Phase 2 confirms against `wait_for_dependency`.
+
+## Noted, not fixed here
+
+- `Context::apply(&pure_key_query, state)` (`context.rs:617`) is ill-defined: it builds an untracked
+  asset whose recipe is a bare key, so the supplied input state is discarded by the key recipe, and
+  the result is persisted under that key with status `Ready` — which `try_fast_track` will later
+  accept. This is pre-existing (today the ad-hoc asset delegates, then persists the delegate's
+  state); after this change the value written when nothing is registered would derive from the
+  caller's input state instead. To be filed as its own issue rather than special-cased here.
+- The queued manager's `evaluate_recipe` re-submits its own asset to `job_queue`, harmless only
+  because `try_to_start_immediately` dedups by asset id (`:5207`). Disappears with this fix; worth
+  filing if any similar self-submission remains.
 
 ## References
 
