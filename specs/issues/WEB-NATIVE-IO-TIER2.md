@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [web]
-design: 
+design: liquers-web-store
 created: 2026-08-08
 github:
 ---
