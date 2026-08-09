@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 // Integration tests for expiration system
 use liquers_core::{
-    assets::{AssetManager, AssetRef, PersistenceStatus},
+    assets::{AssetData, AssetManager, AssetRef, PersistenceStatus},
     command_metadata::CommandKey,
     context::{Context, EnvRef, Environment, SimpleEnvironment},
     error::Error,
@@ -1186,5 +1186,175 @@ async fn test_get_any_status_and_to_override_from_store_only(
     assert_eq!(reloaded.status().await, Status::Override);
     assert_eq!(reloaded.get().await?.try_into_string()?, "1");
     assert_eq!(CALLS.load(Ordering::SeqCst), 1, "still no recompute");
+    Ok(())
+}
+
+// ======================================================================================
+// expired-binary-read-safety: I2-I6.
+// ======================================================================================
+
+/// I2 — the Behaviour Matrix end to end, through a real keyed asset.
+#[tokio::test]
+async fn test_binary_read_matrix_end_to_end() -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, key, _calls) = wp3_keyed_counter_env().await?;
+    let manager = envref.get_asset_manager();
+
+    let asset = manager.get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "1");
+
+    // While Ready, binary reads work.
+    let (bytes, _) = asset.get_binary().await?;
+    assert_eq!(bytes.as_ref().as_slice(), b"1");
+    assert!(asset.poll_binary().await.is_some());
+
+    asset.expire().await?;
+
+    // After expiry, every normal binary read declines.
+    assert!(asset.poll_binary().await.is_none());
+    assert!(asset.try_poll_binary().is_none());
+    assert!(
+        asset.get_binary().await.is_err(),
+        "get_binary must not serve an expired asset"
+    );
+    // And so does the state side, which was already correct.
+    assert!(asset.poll_state().await.is_none());
+    assert!(asset.get().await.is_err(), "get must not block or serve");
+
+    // Explicit recovery still works, at both layers.
+    assert!(asset.get_binary_any_status().await?.is_some());
+    let (recovered, _) = manager
+        .get_binary_any_status(&key)
+        .await?
+        .ok_or("manager-level recovery must find the retained bytes")?;
+    assert_eq!(recovered.as_ref().as_slice(), b"1");
+    Ok(())
+}
+
+/// I3 — the manager request boundary is unchanged: `Expired` is still a cache miss that
+/// rebuilds. Without this, the fix could silently convert "expired -> recompute" into
+/// "expired -> error" for every caller.
+#[tokio::test]
+async fn test_manager_re_request_still_rebuilds_after_gate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (envref, key, calls) = wp3_keyed_counter_env().await?;
+    let manager = envref.get_asset_manager();
+
+    let first = manager.get(&key).await?;
+    assert_eq!(first.get().await?.try_into_string()?, "1");
+    first.expire().await?;
+    assert!(first.get_binary().await.is_err());
+
+    // Re-requesting the key rebuilds rather than surfacing the expiry.
+    let second = manager.get(&key).await?;
+    let (bytes, _) = second.get_binary().await?;
+    assert_eq!(bytes.as_ref().as_slice(), b"2");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
+/// I5 — the accepted regression, and both sanctioned escape hatches.
+///
+/// An expired asset serves no bytes. That is only acceptable because the caller can still
+/// opt in explicitly: `get_binary_any_status` reads the retained data, and `to_override`
+/// promotes it so that ordinary reads work again. If either hatch fails, the design has
+/// taken something away without providing the replacement.
+#[tokio::test]
+async fn test_expired_recovery_hatches_work() -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, key, calls) = wp3_keyed_counter_env().await?;
+    let manager = envref.get_asset_manager();
+
+    let asset = manager.get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "1");
+    asset.expire().await?;
+
+    // 1. Withheld from the normal read.
+    assert!(asset.get_binary().await.is_err());
+
+    // 2. Hatch one: explicit any-status recovery.
+    let (recovered, _) = asset
+        .get_binary_any_status()
+        .await?
+        .ok_or("any-status recovery must yield the retained bytes")?;
+    assert_eq!(recovered.as_ref().as_slice(), b"1");
+
+    // 3. Hatch two: accept the result by promoting it. Ordinary reads then work again,
+    //    and nothing was recomputed to get there.
+    asset.to_override().await?;
+    assert_eq!(asset.status().await, Status::Override);
+    let (bytes, _) = asset.get_binary().await?;
+    assert_eq!(bytes.as_ref().as_slice(), b"1");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "accepting an expired result must not trigger recomputation"
+    );
+    Ok(())
+}
+
+/// I6 — the query language agrees with itself: `-R-b/<key>` (which plans to
+/// `Step::GetAssetBinary`) must not fail where `-R/<key>` (`Step::GetAsset`) succeeds.
+///
+/// Before Step 7, the binary step discarded the state that dependency resolution returned and
+/// re-read the asset through the now-gated `get_binary`, so the two could disagree.
+#[tokio::test]
+async fn test_get_asset_binary_agrees_with_get_asset() -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, key, _calls) = wp3_keyed_counter_env().await?;
+    let manager = envref.get_asset_manager();
+
+    let state_query = parse_query(&format!("-R/{}", key.encode()))?;
+    let binary_query = parse_query(&format!("-R-b/{}", key.encode()))?;
+
+    let state_asset = manager.get_asset(&state_query).await?;
+    let state_result = state_asset.get().await;
+
+    let binary_asset = manager.get_asset(&binary_query).await?;
+    let binary_result = binary_asset.get().await;
+
+    assert_eq!(
+        state_result.is_ok(),
+        binary_result.is_ok(),
+        "-R/ and -R-b/ must agree: state ok={}, binary ok={}",
+        state_result.is_ok(),
+        binary_result.is_ok()
+    );
+    assert!(state_result.is_ok(), "both should resolve for a fresh asset");
+    assert_eq!(binary_result?.try_into_string()?, "1");
+    Ok(())
+}
+
+/// I4 — an expired keyed asset does not fast-track its stale bytes back in.
+///
+/// `mark_expired_status` persists `Expired` to the store precisely so that an evicted asset
+/// cannot be reloaded as fresh. `try_fast_track` accepts only `Ready`/`Source`/`Override`, so a
+/// direct `AssetData` built from the same store entry must refuse — otherwise the read gate could
+/// be bypassed entirely by eviction plus reload.
+#[tokio::test]
+async fn test_expired_keyed_asset_does_not_fast_track_back()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (envref, key, _calls) = wp3_keyed_counter_env().await?;
+    let manager = envref.get_asset_manager();
+
+    let asset = manager.get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "1");
+    asset.expire().await?;
+
+    // The store now records the expiry, not a stale Ready.
+    let store = envref.get_async_store();
+    let (_bytes, metadata) = store.get(&key).await?;
+    assert_eq!(
+        metadata.status(),
+        Status::Expired,
+        "expiry must be persisted, or an evicted asset reloads as fresh"
+    );
+
+    // A fresh AssetData over the same store entry refuses to fast-track it.
+    let mut reloaded =
+        AssetData::<SimpleEnvironment<Value>>::new(9401, key.clone().into(), envref.clone());
+    assert!(
+        !reloaded.try_fast_track().await?,
+        "an Expired store entry must not fast-track"
+    );
+    assert!(reloaded.poll_binary().is_none());
+    assert!(reloaded.poll_state().is_none());
     Ok(())
 }

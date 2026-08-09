@@ -327,7 +327,60 @@ impl Default for Status {
     }
 }
 
+/// What a read of an asset in a given [`Status`] is permitted to expose.
+///
+/// This is the single decision point shared by the state-read family
+/// ([`AssetData::poll_state`](crate::assets::AssetData::poll_state), `get`, …) and the binary-read
+/// family (`poll_binary`, `get_binary`, …). Each family renders the same classification in its own
+/// terms; neither re-derives it from [`Status`] directly, so the two cannot drift apart.
+///
+/// Deliberately **not** expressible via [`Status::has_data`], which answers a different question
+/// ("is there a value in there") and returns `true` for both `Expired` and `Partial` — statuses a
+/// normal read must hide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReadExposure {
+    /// A real value is available: `Ready`, `Source`, `Override`, `Volatile`.
+    Value,
+    /// No value, but metadata is meaningful: `Directory`, `Error`, `Cancelled`.
+    /// There is no binary counterpart of a metadata-only state.
+    MetadataOnly,
+    /// Data is retained but stale. Hidden from normal reads; returned by the
+    /// `*_any_status` recovery reads: `Expired`.
+    Expired,
+    /// Nothing to expose yet. A waiting read blocks; a polling read returns `None`:
+    /// `None`, `Recipe`, `Submitted`, `Dependencies`, `Processing`, `Partial`, `Storing`.
+    Pending,
+}
+
 impl Status {
+    /// Classifies this status for the read families — see [`ReadExposure`].
+    ///
+    /// Every variant is matched explicitly, with no default arm: adding a `Status` must be a
+    /// compile error here rather than a silent fallthrough into the wrong bucket at each of the
+    /// eight read methods.
+    pub(crate) fn read_exposure(&self) -> ReadExposure {
+        match self {
+            Status::Ready => ReadExposure::Value,
+            Status::Source => ReadExposure::Value,
+            Status::Override => ReadExposure::Value,
+            Status::Volatile => ReadExposure::Value,
+
+            Status::Directory => ReadExposure::MetadataOnly,
+            Status::Error => ReadExposure::MetadataOnly,
+            Status::Cancelled => ReadExposure::MetadataOnly,
+
+            Status::Expired => ReadExposure::Expired,
+
+            Status::None => ReadExposure::Pending,
+            Status::Recipe => ReadExposure::Pending,
+            Status::Submitted => ReadExposure::Pending,
+            Status::Dependencies => ReadExposure::Pending,
+            Status::Processing => ReadExposure::Pending,
+            Status::Partial => ReadExposure::Pending,
+            Status::Storing => ReadExposure::Pending,
+        }
+    }
+
     /// Returns true if some data is associated with the status
     /// For Ready and Source it is a fully valid data,
     /// otherwise it may be Partial or Expired.
@@ -2313,6 +2366,91 @@ impl From<MetadataRecord> for Metadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// U1 — every one of the fifteen statuses, asserted individually rather than in a loop,
+    /// so a wrong bucket names itself in the failure output.
+    #[test]
+    fn test_read_exposure_all_statuses() {
+        assert_eq!(Status::Ready.read_exposure(), ReadExposure::Value);
+        assert_eq!(Status::Source.read_exposure(), ReadExposure::Value);
+        assert_eq!(Status::Override.read_exposure(), ReadExposure::Value);
+        assert_eq!(Status::Volatile.read_exposure(), ReadExposure::Value);
+
+        assert_eq!(Status::Directory.read_exposure(), ReadExposure::MetadataOnly);
+        assert_eq!(Status::Error.read_exposure(), ReadExposure::MetadataOnly);
+        assert_eq!(Status::Cancelled.read_exposure(), ReadExposure::MetadataOnly);
+
+        assert_eq!(Status::Expired.read_exposure(), ReadExposure::Expired);
+
+        assert_eq!(Status::None.read_exposure(), ReadExposure::Pending);
+        assert_eq!(Status::Recipe.read_exposure(), ReadExposure::Pending);
+        assert_eq!(Status::Submitted.read_exposure(), ReadExposure::Pending);
+        assert_eq!(Status::Dependencies.read_exposure(), ReadExposure::Pending);
+        assert_eq!(Status::Processing.read_exposure(), ReadExposure::Pending);
+        assert_eq!(Status::Partial.read_exposure(), ReadExposure::Pending);
+        assert_eq!(Status::Storing.read_exposure(), ReadExposure::Pending);
+    }
+
+    /// U2 — the exhaustiveness guard.
+    ///
+    /// The guarantee comes from `expected`'s match, not from the array below: adding a `Status`
+    /// variant makes that match non-exhaustive, which is a compile error. The array alone would
+    /// happily keep compiling, so it is not the guard — it only drives the comparison.
+    #[test]
+    fn test_read_exposure_guard_is_exhaustive() {
+        fn expected(s: Status) -> ReadExposure {
+            match s {
+                Status::Ready | Status::Source | Status::Override | Status::Volatile => {
+                    ReadExposure::Value
+                }
+                Status::Directory | Status::Error | Status::Cancelled => ReadExposure::MetadataOnly,
+                Status::Expired => ReadExposure::Expired,
+                Status::None
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing => ReadExposure::Pending,
+            }
+        }
+
+        for s in [
+            Status::None,
+            Status::Directory,
+            Status::Recipe,
+            Status::Submitted,
+            Status::Dependencies,
+            Status::Processing,
+            Status::Partial,
+            Status::Error,
+            Status::Storing,
+            Status::Expired,
+            Status::Cancelled,
+            Status::Ready,
+            Status::Source,
+            Status::Override,
+            Status::Volatile,
+        ] {
+            assert_eq!(s.read_exposure(), expected(s), "wrong bucket for {:?}", s);
+        }
+    }
+
+    /// U3 — `has_data()` looks like the read gate and is not: it is `true` for `Expired` and
+    /// `Partial`, both of which a normal read must hide. Pinned so nobody "simplifies"
+    /// `read_exposure` into a call to it.
+    #[test]
+    fn test_has_data_is_not_the_read_gate() {
+        assert!(Status::Expired.has_data());
+        assert_ne!(Status::Expired.read_exposure(), ReadExposure::Value);
+
+        assert!(Status::Partial.has_data());
+        assert_ne!(Status::Partial.read_exposure(), ReadExposure::Value);
+
+        // For contrast: for Ready the two agree.
+        assert!(Status::Ready.has_data());
+        assert_eq!(Status::Ready.read_exposure(), ReadExposure::Value);
+    }
 
     #[test]
     fn test_version_serialization_roundtrip_hex_width_32() {

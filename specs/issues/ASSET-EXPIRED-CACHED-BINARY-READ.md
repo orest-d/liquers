@@ -2,7 +2,7 @@
 id: ASSET-EXPIRED-CACHED-BINARY-READ
 kind: issue
 title: Expired asset can still return its cached binary on read
-status: draft
+status: closed
 priority: P0
 complexity: M
 area: [core/assets, core/store]
@@ -10,10 +10,17 @@ design: expiration-safety
 created: 2026-08-08
 github:
 ---
-> **Needs verification.** `expiration-safety` is `complete` and PR #11 merged; whether that work
-> resolved this could not be determined from the code during the 2026-08-08 migration triage. It is
-> carried forward unchanged as a live P0 because the safe reading of an unverifiable P0 is that it
-> is still live. Confirm or close it against PR #11 before scheduling anything else here.
+> **Verified live, then fixed.** The "needs verification against PR #11" caveat is resolved: the
+> bug *was* still live at HEAD. PR #11 gated `poll_state` and added `poll_state_any_status` but
+> never touched the binary path — `AssetData::poll_binary` had no status check at all. Fixed by
+> `design/expired-binary-read-safety`.
+>
+> **The fix went wider than this issue describes.** Because `poll_binary` ignored status entirely,
+> every non-`Value` status leaked cached bytes, not only `Expired`; the gate covers all of them.
+> Two further consequences fell out: `AssetRef::get` gained the same pre-wait expiry check (it
+> blocked forever on an already-expired asset), and `Step::GetAssetBinary` was reconciled with the
+> dependency contract. Verification item 4 is closed by making `get_binary_any_status` serialize on
+> demand rather than only returning cached bytes.
 
 ## Problem
 

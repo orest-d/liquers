@@ -106,9 +106,50 @@ pub async fn get_query_handler<E: Environment>(
                     ApiResponse::error(error_detail, "Query execution cancelled");
                 return response.into_response();
             }
-            _ => {
-                // Still processing, wait and retry
+            // Expired is a terminal cache miss for a handler that already holds this AssetRef:
+            // re-evaluation belongs at the manager request boundary, and recomputing here would
+            // hide expiry from the caller. Retained data is reachable only by explicit opt-in
+            // (to_override, or the *_any_status reads), which HTTP does not expose yet.
+            Status::Expired => {
+                let error_detail = crate::api_core::ErrorDetail {
+                    error_type: "ExecutionError".to_string(),
+                    message: "Query result is expired".to_string(),
+                    query: Some(query.encode()),
+                    key: None,
+                    traceback: None,
+                    metadata: None,
+                };
+                let response: ApiResponse<()> =
+                    ApiResponse::error(error_detail, "Query result expired");
+                return response.into_response();
             }
+            // Directory has no binary representation, so poll_binary never yields for it.
+            // Without an explicit arm this would spin to the timeout.
+            Status::Directory => {
+                let error_detail = crate::api_core::ErrorDetail {
+                    error_type: "ExecutionError".to_string(),
+                    message: "Query refers to a directory, which has no binary representation"
+                        .to_string(),
+                    query: Some(query.encode()),
+                    key: None,
+                    traceback: None,
+                    metadata: None,
+                };
+                let response: ApiResponse<()> =
+                    ApiResponse::error(error_detail, "Not a binary asset");
+                return response.into_response();
+            }
+            // Value-bearing statuses: poll_binary yields on the next turn (it may have to
+            // serialize first), so keep looping rather than deciding here.
+            Status::Source | Status::Override | Status::Volatile => {}
+            // Still processing, wait and retry.
+            Status::None
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing => {}
         }
 
         // Not ready yet, wait a bit before polling again
@@ -213,7 +254,50 @@ pub async fn post_query_handler<E: Environment>(
                     ApiResponse::error(error_detail, "Query execution cancelled");
                 return response.into_response();
             }
-            _ => {}
+            // Expired is a terminal cache miss for a handler that already holds this AssetRef:
+            // re-evaluation belongs at the manager request boundary, and recomputing here would
+            // hide expiry from the caller. Retained data is reachable only by explicit opt-in
+            // (to_override, or the *_any_status reads), which HTTP does not expose yet.
+            Status::Expired => {
+                let error_detail = crate::api_core::ErrorDetail {
+                    error_type: "ExecutionError".to_string(),
+                    message: "Query result is expired".to_string(),
+                    query: Some(query.encode()),
+                    key: None,
+                    traceback: None,
+                    metadata: None,
+                };
+                let response: ApiResponse<()> =
+                    ApiResponse::error(error_detail, "Query result expired");
+                return response.into_response();
+            }
+            // Directory has no binary representation, so poll_binary never yields for it.
+            // Without an explicit arm this would spin to the timeout.
+            Status::Directory => {
+                let error_detail = crate::api_core::ErrorDetail {
+                    error_type: "ExecutionError".to_string(),
+                    message: "Query refers to a directory, which has no binary representation"
+                        .to_string(),
+                    query: Some(query.encode()),
+                    key: None,
+                    traceback: None,
+                    metadata: None,
+                };
+                let response: ApiResponse<()> =
+                    ApiResponse::error(error_detail, "Not a binary asset");
+                return response.into_response();
+            }
+            // Value-bearing statuses: poll_binary yields on the next turn (it may have to
+            // serialize first), so keep looping rather than deciding here.
+            Status::Ready | Status::Source | Status::Override | Status::Volatile => {}
+            // Still processing, wait and retry.
+            Status::None
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing => {}
         }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;

@@ -292,10 +292,14 @@ pub fn do_step<E: Environment>(
         .maybe_boxed(),
         Step::GetAssetBinary(key) => async move {
             let asset = context.schedule_dependency_asset(&key.into()).await?;
-            context.wait_for_dependency(&asset).await?;
-            let (binary, _metadata) = asset.get_binary().await?;
+            // Serialize the state the dependency resolution just returned, rather than issuing a
+            // second, independently-gated read of the same asset. Re-reading made this step fail
+            // where its neighbour `Step::GetAsset` succeeds — the dependency contract decides what
+            // a dependent may use, and both steps must honour the same answer.
+            let state = context.wait_for_dependency(&asset).await?;
+            let binary = state.as_bytes()?;
             Ok(Arc::new(
-                <<E as Environment>::Value as ValueInterface>::from_bytes((*binary).clone()),
+                <<E as Environment>::Value as ValueInterface>::from_bytes(binary),
             ))
         }
         .maybe_boxed(),
