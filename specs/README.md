@@ -174,6 +174,7 @@ deliberately folded behind a broader line.
 <!-- BEGIN generated: unplaced -->
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - `reference/api/DOC_08_RECIPES_PLANS.md`
+- design `keyed-recipe-ownership`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 

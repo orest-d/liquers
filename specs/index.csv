@@ -10,6 +10,7 @@ STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file stor
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,draft,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,draft,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
+ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,draft,local,,P2,S,core/assets,,,,,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,draft,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,draft,local,,P2,S,core/value,,,,,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,draft,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
@@ -52,6 +53,7 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,draft
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,draft,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
+KEYED-RECIPE-OWNERSHIP,design,Non-evaluating ownership test for keyed recipes,in_review,local,implementation,,,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/design/keyed-recipe-ownership/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,draft,local,architecture,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md

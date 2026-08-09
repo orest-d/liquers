@@ -2393,6 +2393,20 @@ impl<E: Environment> AssetRef<E> {
         self.data.read().await.status == Status::Expired
     }
 
+    /// Returns whether this asset is volatile: flagged before evaluation, or volatile as a
+    /// final status.
+    ///
+    /// A volatile asset is never owned by an asset manager and is never reused — see
+    /// [`AssetManager::owned_key_asset`].
+    ///
+    /// Deliberately does **not** consult [`Metadata::is_volatile`], which is also true for an
+    /// `Override` entry whose stored metadata carries the flag. That is the user-supplied
+    /// override, and it must stay reusable.
+    pub async fn is_volatile(&self) -> bool {
+        let lock = self.data.read().await;
+        lock.is_volatile || lock.status == Status::Volatile
+    }
+
     /// Schedule automatic expiration via the centralized expiration monitor.
     /// Routes through `envref` to `DefaultAssetManager::track_expiration`.
     /// Only `ExpirationTime::At(_)` is tracked; Never/Immediately are no-ops.
@@ -3424,6 +3438,42 @@ pub trait AssetManager<E: Environment>:
 
     /// Remove a cached asset by key from this manager's key→asset map.
     async fn remove_key_asset(&self, key: &Key);
+
+    /// Remove this key's entry only if it is still the asset with `asset_id`, reporting
+    /// whether an entry was removed.
+    ///
+    /// The id check is what keeps a slow caller from evicting a replacement registered after
+    /// its own lookup. The default below is lookup-compare-remove, which is correct but not
+    /// atomic; both in-tree managers override it to do the whole thing under their map lock.
+    async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
+        match self.lookup_key_asset(key) {
+            Some(existing) if existing.id() == asset_id => {
+                self.remove_key_asset(key).await;
+                true
+            }
+            Some(_) | None => false,
+        }
+    }
+
+    /// The asset currently registered as this key's owner, if any.
+    ///
+    /// **Non-evaluating.** This reads the key→asset map and never starts, submits, fast-tracks
+    /// or resolves an evaluation, which is what makes it usable from *inside* an evaluation —
+    /// [`AssetRef::evaluate_recipe`] asks it whether it owns the key it is evaluating. Asking
+    /// [`AssetManager::get`] instead recurses forever under an inline manager, which is the
+    /// defect this method exists to remove.
+    ///
+    /// A volatile asset is never an owner: it cannot be shared and cannot be reused, so a
+    /// volatile entry is dropped and `None` is returned. `None` therefore means "no asset is
+    /// registered for this key", and the caller owns the key's recipe itself.
+    async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
+        let asset = self.lookup_key_asset(key)?;
+        if asset.is_volatile().await {
+            self.remove_key_asset_if(key, asset.id()).await;
+            return None;
+        }
+        Some(asset)
+    }
 
     /// Insert an asset into this manager's key→asset map.
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>);
@@ -4980,6 +5030,16 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let _ = self.assets.remove_async(key).await;
     }
 
+    async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
+        if let Some(entry) = self.assets.get_async(key).await {
+            if entry.get().id() == asset_id {
+                drop(entry);
+                return self.assets.remove_async(key).await.is_some();
+            }
+        }
+        false
+    }
+
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
         let _ = self.assets.insert_async(key.clone(), asset).await;
     }
@@ -5673,6 +5733,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     async fn remove_key_asset(&self, key: &Key) {
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(key);
+    }
+
+    async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
+        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get(key) {
+            Some(existing) if existing.id() == asset_id => map.remove(key).is_some(),
+            Some(_) | None => false,
+        }
     }
 
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
@@ -7928,5 +7996,188 @@ recipes:
         let (stored, _) = store.get(&key).await?;
         assert_eq!(stored, b"persist me anyway");
         Ok(())
+    }
+
+    // ==================================================================================
+    // Keyed-recipe ownership — `owned_key_asset`, `remove_key_asset_if`
+    //
+    // See `specs/design/keyed-recipe-ownership/`. The property these protect is that
+    // asking *who owns a key* never evaluates anything: `evaluate_recipe` asks it about
+    // the key it is itself evaluating, so an evaluating answer recurses forever.
+    // ==================================================================================
+
+    /// Environment whose `counted.txt` recipe runs a command that counts its own calls.
+    ///
+    /// The counter is per-environment rather than a `static`, so these tests do not
+    /// interfere when the harness runs them in parallel.
+    async fn ownership_env() -> (EnvRef<SimpleEnvironment<Value>>, Arc<AtomicUsize>) {
+        use crate::context::Environment;
+        use crate::recipes::DefaultRecipeProvider;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: counted/counted.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("counted"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("counted"))
+            })
+            .expect("register counted");
+
+        (env.to_ref(), calls)
+    }
+
+    /// A volatile asset registered under `key`, which is a state the manager itself never
+    /// creates — it is what a stale entry looks like after a result turns out volatile.
+    async fn insert_volatile_asset(
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+        key: &Key,
+    ) -> AssetRef<SimpleEnvironment<Value>> {
+        let manager = envref.get_asset_manager();
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        {
+            let mut data = asset.data.write().await;
+            data.is_volatile = true;
+        }
+        manager.insert_key_asset(key, asset.clone()).await;
+        asset
+    }
+
+    /// T10 — the property the whole design rests on: the ownership query must not evaluate.
+    ///
+    /// Asserted with a call counter, before and after the key is registered. A future
+    /// "simplification" of `owned_key_asset` back into `get` fails here, and the message
+    /// says why that matters.
+    #[tokio::test]
+    async fn owned_key_asset_does_not_evaluate() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        assert!(
+            manager.owned_key_asset(&key).await.is_none(),
+            "nothing is registered before the first request"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "asking who owns a key must not evaluate its recipe"
+        );
+
+        manager.get(&key).await.expect("get").get().await.expect("value");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "precondition: evaluated once");
+
+        assert!(manager.owned_key_asset(&key).await.is_some());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the ownership query must not re-run the recipe either"
+        );
+    }
+
+    /// T7 — a registered key reports its own asset as the owner.
+    #[tokio::test]
+    async fn owned_key_asset_returns_registered_owner() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let asset = manager.get(&key).await.expect("get");
+        let owner = manager.owned_key_asset(&key).await.expect("an owner");
+        assert_eq!(owner.id(), asset.id());
+    }
+
+    /// T8 — an unregistered key has no owner, and that is an answer rather than an error.
+    #[tokio::test]
+    async fn owned_key_asset_none_when_unregistered() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        assert!(manager
+            .owned_key_asset(&parse_key("never/requested.txt").expect("key"))
+            .await
+            .is_none());
+    }
+
+    /// T9 — a volatile entry is not an owner, and is evicted on the way out.
+    ///
+    /// This is what makes `None` mean "evaluate it yourself" for a volatile keyed recipe,
+    /// which is `VOLATILE-KEYED-RECIPE-SELF-DELEGATION`.
+    #[tokio::test]
+    async fn owned_key_asset_evicts_volatile_entry() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+        let volatile = insert_volatile_asset(&envref, &key).await;
+
+        assert!(
+            manager.owned_key_asset(&key).await.is_none(),
+            "a volatile asset is never an owner"
+        );
+        assert!(
+            manager.lookup_key_asset(&key).is_none(),
+            "and it is removed rather than left to be found again"
+        );
+        assert!(volatile.is_volatile().await, "sanity: it really was volatile");
+    }
+
+    /// T11 — `remove_key_asset_if` will not evict a replacement.
+    ///
+    /// The race it closes: a caller looks the key up, releases the lock to await the
+    /// volatility check, and by the time it removes, a different asset is registered.
+    #[tokio::test]
+    async fn remove_key_asset_if_respects_id() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let first = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        manager.insert_key_asset(&key, first.clone()).await;
+
+        let second = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        // Removed first, deliberately: the two managers disagree on whether
+        // `insert_key_asset` overwrites an existing entry — `scc::insert_async` reports a
+        // duplicate and the result is discarded, while `HashMap::insert` replaces. See
+        // `specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md`. This test is about
+        // `remove_key_asset_if`, so it does not depend on that unsettled behaviour.
+        manager.remove_key_asset(&key).await;
+        manager.insert_key_asset(&key, second.clone()).await;
+
+        assert!(
+            !manager.remove_key_asset_if(&key, first.id()).await,
+            "the stale id must not match"
+        );
+        assert_eq!(
+            manager.lookup_key_asset(&key).map(|a| a.id()),
+            Some(second.id()),
+            "the replacement survives"
+        );
+
+        assert!(manager.remove_key_asset_if(&key, second.id()).await);
+        assert!(manager.lookup_key_asset(&key).is_none());
     }
 }
