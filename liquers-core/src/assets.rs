@@ -4207,12 +4207,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 let assetref = self.get_query_asset(query).await?;
                 let status = assetref.status().await;
                 // Stale-terminal states are a cache miss: Expired, Error and Cancelled are all
-                // re-evaluated on a fresh manager request (a failure may be transient). Dropping
-                // the entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since
-                // a stored Error/Cancelled is not fast-tracked).
+                // re-evaluated on a fresh manager request (a failure may be transient). Volatile
+                // joins them for a different reason — a volatile asset is used once and never
+                // reused, so it must not be served from the map even though it is finished.
+                // Dropping the entry rebuilds a fresh Recipe asset next iteration (no infinite
+                // loop, since a stored Error/Cancelled is not fast-tracked, and a volatile asset
+                // is never inserted in the first place).
                 if matches!(
                     status,
-                    Status::Expired | Status::Error | Status::Cancelled
+                    Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
                 ) {
                     let asset_id = assetref.id();
                     if let Some(entry) = self.query_assets.get_async(query).await {
@@ -4252,7 +4255,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 self.get_query_asset(query).await?
             };
             // Stale-terminal at SCHEDULING time: evict and recompute. Expired, Error and
-            // Cancelled are all treated as a cache miss (a failure may be transient), mirroring
+            // Cancelled are all treated as a cache miss (a failure may be transient), and Volatile
+            // because a volatile asset is never reused, mirroring
             // the stale-terminal eviction in `get`/`get_asset` so a dependency request rebuilds
             // exactly like a top-level one. This is the ONLY point where such a dependency is
             // refreshed — once the dependent is executing, `wait_for_dependency` uses the stale
@@ -4261,7 +4265,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // pre-execution state, so this cannot spin.
             if matches!(
                 asset.status().await,
-                Status::Expired | Status::Error | Status::Cancelled
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 match query.key() {
                     Some(key) => {
@@ -4520,12 +4524,18 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let asset_ref = self.get_resource_asset(key).await?;
             let status = asset_ref.status().await;
             // Stale-terminal states are a cache miss: Expired, Error and Cancelled are all
-            // re-evaluated on a fresh manager request (a failure may be transient). Dropping the
-            // entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since a stored
-            // Error/Cancelled is not fast-tracked).
+            // re-evaluated on a fresh manager request (a failure may be transient). Volatile joins
+            // them for a different reason — a volatile asset is used once and never reused, so it
+            // must not be served from the map even though it is finished. Dropping the entry
+            // rebuilds a fresh Recipe asset next iteration (no infinite loop, since a stored
+            // Error/Cancelled is not fast-tracked, and a volatile asset is never inserted in the
+            // first place).
+            //
+            // Note this is the check on *entry*: an asset that turns out volatile during this
+            // call is still returned to the caller below. Used once, then evicted.
             if matches!(
                 status,
-                Status::Expired | Status::Error | Status::Cancelled
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 let asset_id = asset_ref.id();
                 if let Some(entry) = self.assets.get_async(key).await {
@@ -5602,7 +5612,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         loop {
             let assetref = self.get_query_asset(query).await?;
             let status = assetref.status().await;
-            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
                 let asset_id = assetref.id();
                 let mut map = self
                     .query_assets
@@ -5689,7 +5702,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         loop {
             let asset_ref = self.get_resource_asset(key).await?;
             let status = asset_ref.status().await;
-            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
                 let asset_id = asset_ref.id();
                 let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(existing) = map.get(key) {
@@ -8146,6 +8162,192 @@ recipes:
             "and it is removed rather than left to be found again"
         );
         assert!(volatile.is_volatile().await, "sanity: it really was volatile");
+    }
+
+    /// T12 — an asset that turns out volatile is used once, then dropped from the key map.
+    ///
+    /// The recipe is not volatile, so the manager registers the asset as normal; volatility
+    /// is discovered on the *result*. `try_to_set_ready` reaches that state from a metadata
+    /// expiry a command sets during evaluation, which no registration-time check can predict
+    /// — here it is set directly, so the test pins the eviction rule rather than the expiry
+    /// machinery that leads to it.
+    ///
+    /// Without the eviction the second `get` returns the same asset forever:
+    /// `Status::Volatile.is_finished()` is true, and the expiry re-check only fires for
+    /// `Status::Ready`.
+    ///
+    /// The command counter is deliberately not asserted here. This key's value was persisted
+    /// with `Status::Ready` before the flag was flipped, so the replacement asset fast-tracks
+    /// it from the store rather than re-running the recipe — correct, and the store's gate
+    /// doing its job. `volatile_keyed_recipe_recomputes_every_time` covers the genuine case,
+    /// where the stored copy carries `Status::Volatile` and `try_fast_track` refuses it.
+    #[tokio::test]
+    async fn runtime_volatile_asset_is_evicted_from_key_map() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let first = manager.get(&key).await.expect("first get");
+        assert_eq!(
+            first.get().await.expect("value").try_into_string().expect("string"),
+            "counted",
+            "the caller that computed the value still receives it"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // The result turns out volatile.
+        {
+            let mut data = first.data.write().await;
+            data.is_volatile = true;
+            data.status = Status::Volatile;
+        }
+
+        let second = manager.get(&key).await.expect("second get");
+        assert_ne!(
+            second.id(),
+            first.id(),
+            "a volatile asset must not be served from the key map"
+        );
+        assert!(
+            !second.is_volatile().await,
+            "and the replacement is a fresh, non-volatile asset"
+        );
+        assert_eq!(
+            second.get().await.expect("value").try_into_string().expect("string"),
+            "counted"
+        );
+    }
+
+    /// A genuinely volatile keyed recipe recomputes on every request.
+    ///
+    /// This is the user-visible half of "used once, never reused", and unlike T12 the command
+    /// counter is meaningful: a volatile result persists with `Status::Volatile`, which
+    /// `try_fast_track` refuses, so nothing short-circuits the second evaluation.
+    #[tokio::test]
+    async fn volatile_keyed_recipe_recomputes_every_time() {
+        use crate::context::Environment;
+        use crate::recipes::DefaultRecipeProvider;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: vol_counted/vol.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("vol_counted"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("vol"))
+            })
+            .expect("register vol_counted")
+            .volatile = true;
+
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("vol.txt").expect("key");
+
+        for expected in 1..=2 {
+            let asset = manager.get(&key).await.expect("get");
+            assert_eq!(
+                asset.get().await.expect("value").try_into_string().expect("string"),
+                "vol"
+            );
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                expected,
+                "a volatile recipe must run again on request {expected}"
+            );
+        }
+    }
+
+    /// T12 on the inline manager, whose key map is a plain `HashMap` behind a `std::Mutex`
+    /// rather than `scc` — a separate eviction site with the same rule.
+    #[tokio::test]
+    async fn runtime_volatile_asset_is_evicted_from_key_map_immediate() {
+        use crate::context::{Environment, ImmediateEnvironment};
+        use crate::recipes::DefaultRecipeProvider;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: counted/counted.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("counted"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("counted"))
+            })
+            .expect("register counted");
+
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let first = manager.get(&key).await.expect("first get");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        {
+            let mut data = first.data.write().await;
+            data.is_volatile = true;
+            data.status = Status::Volatile;
+        }
+
+        let second = manager.get(&key).await.expect("second get");
+        assert_ne!(second.id(), first.id());
+        assert!(!second.is_volatile().await);
+        assert_eq!(
+            second.get().await.expect("value").try_into_string().expect("string"),
+            "counted"
+        );
+    }
+
+    /// T14 — the same rule on the query map, which `get_query_asset` bypasses for volatile
+    /// queries exactly as the keyed path does.
+    #[tokio::test]
+    async fn runtime_volatile_query_asset_is_recomputed() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let query = parse_query("counted").expect("query");
+
+        let first = manager.get_asset(&query).await.expect("first get_asset");
+        first.get().await.expect("value");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        {
+            let mut data = first.data.write().await;
+            data.is_volatile = true;
+            data.status = Status::Volatile;
+        }
+
+        let second = manager.get_asset(&query).await.expect("second get_asset");
+        assert_ne!(
+            second.id(),
+            first.id(),
+            "a volatile asset must not be served from the query map either"
+        );
+        // Awaited, because the queued manager returns before evaluation finishes. A query
+        // asset is not a resource, so `try_fast_track` declines it and the recipe genuinely
+        // re-runs — which makes the counter meaningful here in a way it is not for T12.
+        second.get().await.expect("value");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     /// T11 — `remove_key_asset_if` will not evict a replacement.
