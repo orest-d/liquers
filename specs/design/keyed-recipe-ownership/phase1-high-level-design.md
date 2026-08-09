@@ -56,18 +56,38 @@ Out of scope: `LIB-RECIPE-PROVIDER-PANIC` (same code path, different defect, sep
 the queued manager's redundant self-submission through `job_queue` (deduplicated today, worth
 recording as an issue, not worth fixing here).
 
+## Decided (verified against the source)
+
+- **Ownership means "the manager's key→asset map holds this asset under this key".** That is
+  `lookup_key_asset` on both managers (`:4975` scc read, `:5668` `Mutex<HashMap>` read).
+- **The standard path is always registered, and registered early enough.** Both managers insert
+  inside `get_resource_asset` — queued via `entry_async().or_insert_with()` (`:4020`, atomic
+  insert-if-absent, so also correct under concurrency), immediate via a double-checked `Mutex`
+  insert (`:5503`) — before `get` reaches `run_inline`/`job_queue.submit`. The lookup therefore
+  finds the caller itself and the id comparison is unchanged.
+- **No registered owner ⇒ the asset evaluates its own recipe.** The result is not shared under the
+  key; that is the accepted tradeoff for a non-standard path.
+- **The ownership test must be volatility-aware, not a bare map lookup.** The manager never
+  *resolves* a volatile key through the map (`:4041`, `:5466` mint a fresh asset), but the map can
+  still hold an entry for that key — inserted unconditionally by the `set_state`/store-asset paths
+  (`:3237`, `:4817`), or left from before the key's recipe became volatile. A bare lookup would
+  find that entry and delegate, reproducing the cycle. Rule: *volatile ⇒ self owns; otherwise
+  consult the map.* `resolve_volatility_before_evaluation()` already runs at the top of
+  `evaluate_recipe`, so `lock.is_volatile` is available.
+
 ## Open Questions
 
-1. What does *no registered owner* mean — the volatile case, and any asset holding a key recipe
-   that the manager never put in the map? Self-evaluate (fixes the volatile issue, but the result
-   is not shared under the key) or register-then-evaluate? Phase 2 decides.
-2. Is `lookup_key_asset` sufficient, or does the ownership test deserve its own trait method with a
-   name that states the question (`is_key_owner` / `key_owner`)? `lookup_key_asset` is a sync
-   `Mutex`/`scc` read on both managers, so it is cheap either way.
-3. Does the queued manager's insertion ordering guarantee the asset is in the map before `run`
-   observes it? `get_nonvolatile_resource_asset` inserts via `entry_async().or_insert_with()`
-   before returning, so it should — Phase 2 verifies against the concurrent `scc` path.
-4. Should a re-entrancy guard in `ImmediateAssetManager::get` be added *as well*, to catch cycles
+1. Should a non-owner asset still persist under the key? `evaluate_and_store` persists
+   unconditionally and `save_to_store` targets `recipe.key().or(recipe.store_to_key())` (`:2052`),
+   so an ad-hoc keyed asset writes to the store under that key. It already does today (delegation
+   installs the delegate's state, which is then persisted), so the change is not a new write but a
+   possibly different value — computed from the caller's input state rather than taken from the
+   shared asset. The only production route is `Context::apply(&pure_key_query, state)`
+   (`context.rs:617`). Explicit decision wanted, not inheritance.
+2. Where does the ownership test live — a private helper on `AssetRef`, or a trait method on
+   `AssetManager` that names the question (`key_owner`)? Both managers would share one body either
+   way; the trait option makes the contract visible to future managers.
+3. Should a re-entrancy guard be added to `ImmediateAssetManager::get` *as well*, to catch cycles
    this fix does not (option 2 in the issue)? Defence in depth versus a second mechanism to reason
    about.
 
