@@ -1830,51 +1830,62 @@ impl<E: Environment> AssetRef<E> {
             if let Ok(Some(key)) = recipe.key() {
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
-                let asset = manager.get(&key).await?;
-                if asset.id() == self.id() {
-                    let recipe = envref
-                        .clone()
-                        .get_recipe_provider()
-                        .recipe(&key, envref.clone())
-                        .await?;
-                    // Keys are a payload boundary: reject a keyed recipe that requires an
-                    // evaluation payload, since no payload can reach a keyed asset.
-                    recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
-                    // The asset starts with an ad-hoc key recipe before provider lookup. Once the
-                    // stored recipe is resolved, make its identity and human-facing metadata the
-                    // asset's authoritative recipe metadata.
-                    {
-                        let mut lock = self.data.write().await;
-                        lock.recipe = recipe.clone();
-                        if let Metadata::MetadataRecord(metadata) = &mut lock.metadata {
-                            metadata
-                                .with_title(recipe.title.clone())
-                                .with_description(recipe.description.clone());
-                        }
+                // Who owns this key? Asked with a map read, never with an evaluation:
+                // `AssetManager::get` would run the asset inline under an inline manager, and
+                // this asset *is* that asset, so it recursed until the wasm stack was gone.
+                // See `specs/design/keyed-recipe-ownership/`.
+                match manager.owned_key_asset(&key).await {
+                    // Another asset is the registered owner: delegate to it.
+                    Some(asset) if asset.id() != self.id() => {
+                        eprintln!(
+                            "Delegating evaluation of asset {} to asset {}",
+                            self.id(),
+                            asset.id()
+                        );
+                        // Record delegation as a dependency wait, then delegate the F-1 inline
+                        // guard onto the shared, claim-based wait primitive: it drains this
+                        // asset's own local queue, direct-claims the child if still runnable
+                        // (no queue slot consumed), or subscribes — guaranteeing progress for
+                        // pure-key delegation chains without the old ad-hoc inline run.
+                        self.record_dependency_on_asset(&asset).await?;
+                        let envref = self.get_envref().await;
+                        let manager = envref.get_asset_manager();
+                        let state = manager.wait_for_dependency(self, &asset).await?;
+                        return Ok(state);
                     }
-                    eprintln!(
-                        "Evaluating asset {} using its own recipe for key {}:\n{}\n",
-                        self.id(),
-                        key,
-                        recipe
-                    );
-                    (input_state, recipe)
-                } else {
-                    eprintln!(
-                        "Delegating evaluation of asset {} to asset {}",
-                        self.id(),
-                        asset.id()
-                    );
-                    // Record delegation as a dependency wait, then delegate the F-1 inline
-                    // guard onto the shared, claim-based wait primitive: it drains this
-                    // asset's own local queue, direct-claims the child if still runnable
-                    // (no queue slot consumed), or subscribes — guaranteeing progress for
-                    // pure-key delegation chains without the old ad-hoc inline run.
-                    self.record_dependency_on_asset(&asset).await?;
-                    let envref = self.get_envref().await;
-                    let manager = envref.get_asset_manager();
-                    let state = manager.wait_for_dependency(self, &asset).await?;
-                    return Ok(state);
+                    // This asset is the registered owner, or nothing is registered — a
+                    // volatile key, which the manager deliberately never registers, or an
+                    // untracked asset built from a key recipe. Either way the recipe is
+                    // resolved and evaluated here.
+                    Some(_) | None => {
+                        let recipe = envref
+                            .clone()
+                            .get_recipe_provider()
+                            .recipe(&key, envref.clone())
+                            .await?;
+                        // Keys are a payload boundary: reject a keyed recipe that requires an
+                        // evaluation payload, since no payload can reach a keyed asset.
+                        recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
+                        // The asset starts with an ad-hoc key recipe before provider lookup. Once
+                        // the stored recipe is resolved, make its identity and human-facing
+                        // metadata the asset's authoritative recipe metadata.
+                        {
+                            let mut lock = self.data.write().await;
+                            lock.recipe = recipe.clone();
+                            if let Metadata::MetadataRecord(metadata) = &mut lock.metadata {
+                                metadata
+                                    .with_title(recipe.title.clone())
+                                    .with_description(recipe.description.clone());
+                            }
+                        }
+                        eprintln!(
+                            "Evaluating asset {} using its own recipe for key {}:\n{}\n",
+                            self.id(),
+                            key,
+                            recipe
+                        );
+                        (input_state, recipe)
+                    }
                 }
             } else {
                 (input_state, recipe)
