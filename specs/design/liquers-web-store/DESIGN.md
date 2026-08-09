@@ -6,7 +6,7 @@ status: approved
 phase: implementation
 area: [web, store/config, core/store]
 gh_pr: []
-issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE]
+issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE, WORKSPACE-SERDE-DERIVE-UNDECLARED, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE, STORE-FILESTORE-PATH-TRAVERSAL, STORE-COMMAND-NAMESPACE-MISSING]
 created: 2026-08-09
 superseded_by:
 ---
@@ -23,7 +23,7 @@ which `specs/design/liquers-web/` explicitly deferred.
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved 2026-08-09 — all four phases approved)
-- [ ] Implementation Complete — **M1-M4 done ✅** (Steps 1-15); M5-M6 not started
+- [ ] Implementation Complete — **M1-M5 done ✅** (Steps 1-20); M6 not started
 
 ## Implementation status
 
@@ -33,7 +33,7 @@ which `specs/design/liquers-web/` explicitly deferred.
 | M2 | Envelope codec, key guard | ✅ 9 tests green under Node; 106 wasm tests total, no regression |
 | M3 | `FetchStore` | ✅ 7 pure tests under Node; store compiles and is wired |
 | M4 | `LocalStorageStore` | ✅ 10 tests green in Chromium |
-| M5 | `JsStore`, factory, environment wiring | not started |
+| M5 | `JsStore`, factory, environment wiring | ✅ 16 tests green under Node |
 | M6 | e2e, stubs, documentation | not started |
 
 **M1 EXECUTED ✅.** `opendal` is optional and in `default`; `opendal_store` and the OpenDAL
@@ -120,6 +120,37 @@ documented on `ensure_budget`.
    network policy blocks the host). The tests were nevertheless *run and verified* by the route the
    README now records: `NO_HEADLESS=1` makes the runner serve the suite at `127.0.0.1:8000`, and
    Playwright drives it over CDP with no WebDriver at all.
+
+**M5 EXECUTED ✅.** `JsStore`, `WebStoreFactory`, `build_router`, the `Store` wasm class, and the
+environment wiring (`configureStore`, `registerStoreObject`, `store()`). Gates: 16 tests green
+under Node; full Node suite **129 tests**, no regression.
+
+**The riskiest step was verified by breaking it on purpose.** Phase 4 flagged Step 18 — a missed
+thread-local replay silently dropping every `js` store when a rebuild happens — as the most
+dangerous in the milestone. `store_survives_a_rebuild` covers it, and rather than trust that, the
+`apply_store` call was temporarily removed from `rebuild_with` and the test **did** fail, then
+passed again once restored. A tripwire nobody has seen trip is not yet a tripwire.
+
+The fix that makes it safe is structural rather than careful: `apply_store` is called from *every*
+path that builds an environment for the singleton, so a future rebuild path cannot forget it by
+omission — it would have to actively skip it. `reset_global` clears the store thread-locals too,
+or one suite would leak a store into the next.
+
+**Two `liquers-core` defects surfaced, both filed, neither fixed here:**
+- `Metadata::get_media_type` returns JSON-*quoted* strings for `LegacyMetadata`
+  (`"\"text/plain\""`), because it uses `Value::to_string()` where the record branch uses the
+  value — `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`. Compounded by `Metadata::from_json`
+  silently falling back to `LegacyMetadata` for any *partial* document, which is how a page's
+  `{media_type: "text/plain"}` ends up there. `liquers-web` normalizes partial metadata at the
+  boundary (`store::metadata_from_js_value`) so no page has to know, but the core bug affects
+  every other consumer.
+- `LiquersError` has no JavaScript constructor, so a page cannot raise a *typed* error —
+  `WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`.
+
+**A Phase 3 example was wrong and is corrected.** Example 2 showed a page throwing
+`new liquers.LiquersError("key_not_found", …)`. It cannot: there is no constructor. The protocol
+now says absence is `undefined`, which is both the path that works and the better design — a throw
+means *failure*, and conflating it with absence would make a broken store look like an empty one.
 
 ## Notes
 

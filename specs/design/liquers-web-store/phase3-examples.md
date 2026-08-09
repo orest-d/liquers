@@ -105,7 +105,7 @@ them without copying anything into a second store.
 const myStore = {
   async get(key) {
     const rec = await db.read(key);
-    if (!rec) throw new liquers.LiquersError("key_not_found", `no such key: ${key}`);
+    if (!rec) return undefined;              // `undefined` is how a page says "absent"
     return { data: rec.bytes, metadata: { media_type: rec.type } };
   },
   async contains(key) { return (await db.read(key)) != null; },
@@ -123,9 +123,13 @@ await env.evaluate("-R/docs/notes/-/to_text");
 **What this is meant to show.** Three things, each of which is a decision from Phase 2 rather than
 an incidental detail:
 
-1. **A thrown `LiquersError` keeps its type across the boundary.** `js_error_to_liquers` preserves
-   the discriminant, so `key_not_found` thrown in JavaScript arrives as `ErrorType::KeyNotFound`
-   and the asset layer treats it as an absent key rather than an execution failure.
+1. **Absence is `undefined`, and it arrives as `KeyNotFound`.** *(Corrected during M5: the first
+   draft threw `new liquers.LiquersError("key_not_found", …)`, but `LiquersError` exposes no
+   constructor to JavaScript, so a page cannot build one — see
+   `specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md`.* Returning `undefined` is the path that
+   actually works, and it is better anyway: it is the obvious thing to write. A page that *throws*
+   gets `KeyReadError` with its message preserved, which is right — a throw is a failure, not an
+   absence, and conflating them would make a broken store look like an empty one.
 2. **`set` is simply absent, and that is a complete answer.** Calls to it return
    `KeyNotSupported` — not the permissive trait default.
 3. **A sync method is allowed.** `isDir` returns a boolean, not a Promise; the adapter awaits only

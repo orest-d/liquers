@@ -48,6 +48,22 @@ thread_local! {
     /// Left unset when initialization fails, so a retry can succeed (`ENVIRON04`).
     static GLOBAL_ENV: RefCell<Option<EnvRef<WebEnvironment>>> = const { RefCell::new(None) };
 
+    /// The store configuration, if one has been applied.
+    ///
+    /// Retained for the same reason as [`REGISTERED_SPECS`]: a rebuild constructs a fresh
+    /// environment, and anything not replayed into it is silently lost. A dropped store is
+    /// **worse** than a dropped command, because the failure is a `-R/` query that stops
+    /// resolving rather than a name that stops existing.
+    static STORE_CONFIG: RefCell<Option<liquers_store::config::StoreRouterConfig>> =
+        const { RefCell::new(None) };
+
+    /// Page objects named by `js` store entries, in registration order.
+    ///
+    /// A JavaScript object cannot be written into a YAML document, so the document carries a name
+    /// and this holds the mapping. Replayed on rebuild alongside the configuration — without it a
+    /// rebuild would fail on "no store object named …" for a store that was working a moment ago.
+    static STORE_OBJECTS: RefCell<Vec<(String, js_sys::Object)>> = const { RefCell::new(Vec::new()) };
+
     /// Every command declaration registered so far, in order.
     ///
     /// Retained so the environment can be rebuilt: registering after the environment has been
@@ -204,6 +220,26 @@ fn warn_on_replacement(name: &str, replaced: Replaced) {
     web_sys::console::warn_1(&JsValue::from_str(&message));
 }
 
+/// Applies the retained store configuration to a freshly built environment.
+///
+/// Called from **every** path that constructs an environment which the singleton will use, so the
+/// store cannot be lost by a rebuild. A no-op when no store has been configured.
+fn apply_store(env: &mut WebEnvironment) -> Result<(), Error> {
+    let Some(config) = STORE_CONFIG.with(|cell| cell.borrow().clone()) else {
+        return Ok(());
+    };
+    let mut factory = crate::store::builder::WebStoreFactory::new();
+    // Clone the handles out and drop the borrow before building: construction calls into
+    // JavaScript, and a borrow held across that is the mistake this crate's borrow rule forbids.
+    let objects = STORE_OBJECTS.with(|cell| cell.borrow().clone());
+    for (name, object) in objects {
+        factory.register_object(&name, object);
+    }
+    let router = crate::store::builder::build_router(&config, factory)?;
+    env.with_async_store(Box::new(router));
+    Ok(())
+}
+
 /// Rebuilds the shared environment from every retained declaration, plus `additional`.
 ///
 /// Used when a command is registered after the environment has been shared.
@@ -216,10 +252,114 @@ fn rebuild_with(additional: JsValue) -> Result<(), Error> {
         let parsed = crate::command::JsCommandSpec::parse(spec)?;
         crate::command::register_js_command(&mut env.command_registry, parsed)?;
     }
+    apply_store(&mut env)?;
 
     let envref = env.to_ref();
     GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
     Ok(())
+}
+
+/// Configures the singleton's store from a `liquers_store` configuration document.
+///
+/// Follows the same lifecycle as [`register_command_on`]: applied directly while the environment
+/// is still un-shared, and otherwise by rebuilding and replaying. The rebuild discards the asset
+/// cache, which is correct rather than merely tolerable — assets computed against the previous
+/// store are stale the moment it is replaced, and nothing else invalidates them.
+pub fn configure_store_on(
+    config: liquers_store::config::StoreRouterConfig,
+) -> Result<(), Error> {
+    // Build once before retaining it, so a bad configuration fails without leaving the retained
+    // copy pointing at something that cannot be constructed on the next rebuild.
+    STORE_CONFIG.with(|cell| *cell.borrow_mut() = Some(config));
+
+    let applied_directly = PENDING_ENV.with(|cell| -> Result<bool, Error> {
+        let mut guard = cell.borrow_mut();
+        match guard.as_mut() {
+            Some(env) => {
+                apply_store(env)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    });
+
+    match applied_directly {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
+                return Err(Error::from_error(
+                    ErrorType::NotAvailable,
+                    "Liquers is not initialized — await liquers.init() first".to_string(),
+                ));
+            }
+            rebuild_without()
+        }
+        Err(e) => {
+            // Do not retain a configuration that could not be applied.
+            STORE_CONFIG.with(|cell| *cell.borrow_mut() = None);
+            Err(e)
+        }
+    }
+}
+
+/// Names a page object so a `js` store entry in the configuration can refer to it.
+///
+/// Registering before `configureStore` is the efficient order and costs nothing. Registering
+/// *after* re-applies the store configuration, so the order of the two calls does not matter —
+/// at the price of a rebuild when the environment has already been shared.
+pub fn register_store_object_on(name: &str, object: js_sys::Object) -> Result<(), Error> {
+    STORE_OBJECTS.with(|cell| {
+        let mut objects = cell.borrow_mut();
+        objects.retain(|(existing, _)| existing != name);
+        objects.push((name.to_string(), object));
+    });
+
+    let configured = STORE_CONFIG.with(|cell| cell.borrow().is_some());
+    if !configured {
+        return Ok(());
+    }
+    let config = STORE_CONFIG.with(|cell| cell.borrow().clone());
+    match config {
+        Some(config) => configure_store_on(config),
+        None => Ok(()),
+    }
+}
+
+/// Reads a store configuration from a JavaScript object, or from a YAML/JSON string.
+///
+/// A string is tried as YAML, which also accepts JSON — one code path, so the two cannot drift in
+/// what they accept. An object is stringified to JSON first, for the same reason: the
+/// configuration is parsed by `liquers_store` in every case, so a browser cannot end up
+/// interpreting a document differently from the server that wrote it.
+pub fn parse_store_config(
+    config: &JsValue,
+) -> Result<liquers_store::config::StoreRouterConfig, Error> {
+    use liquers_store::config::StoreRouterConfig;
+
+    if let Some(text) = config.as_string() {
+        return StoreRouterConfig::from_yaml(&text);
+    }
+    if config.is_undefined() || config.is_null() {
+        return Err(Error::general_error(
+            "a store configuration is required: pass an object, or a YAML or JSON string"
+                .to_string(),
+        ));
+    }
+    let json = js_sys::JSON::stringify(config)
+        .ok()
+        .and_then(|s| s.as_string())
+        .ok_or_else(|| {
+            Error::general_error("the store configuration is not JSON-serializable".to_string())
+        })?;
+    StoreRouterConfig::from_json(&json)
+}
+
+/// The singleton's store, as a JavaScript-visible object.
+pub fn global_store() -> Result<crate::store::wrapper::LiquersStore, Error> {
+    let envref = shared_env()?;
+    Ok(crate::store::wrapper::LiquersStore::new(
+        envref.0.get_async_store(),
+    ))
 }
 
 /// Removes a command from the global environment.
@@ -270,6 +410,7 @@ fn rebuild_without() -> Result<(), Error> {
         let parsed = crate::command::JsCommandSpec::parse(spec)?;
         crate::command::register_js_command(&mut env.command_registry, parsed)?;
     }
+    apply_store(&mut env)?;
     let envref = env.to_ref();
     GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
     Ok(())
@@ -444,6 +585,8 @@ pub fn reset_global() {
         *cell.borrow_mut() = None;
     });
     REGISTERED_SPECS.with(|cell| cell.borrow_mut().clear());
+    STORE_CONFIG.with(|cell| *cell.borrow_mut() = None);
+    STORE_OBJECTS.with(|cell| cell.borrow_mut().clear());
     crate::command::adapter::clear_inference_records();
 }
 
@@ -482,6 +625,33 @@ impl LiquersEnvironment {
         shared_env()
             .map(|envref| LiquersEnvironment { envref })
             .map_err(liquers_error_to_js)
+    }
+
+    /// Configures the **singleton's** store from a configuration object, or a YAML/JSON string.
+    ///
+    /// Returns a `Promise`. Nothing is awaited today, but a future IndexedDB store will need to
+    /// be, and turning a synchronous API asynchronous later breaks every caller.
+    ///
+    /// This configures the singleton rather than this handle: the store is a service of the
+    /// global environment, and an explicit `new Environment()` instance keeps the empty store it
+    /// was built with.
+    #[wasm_bindgen(js_name = configureStore)]
+    pub fn configure_store(&self, config: JsValue) -> js_sys::Promise {
+        match parse_store_config(&config).and_then(configure_store_on) {
+            Ok(()) => js_sys::Promise::resolve(&JsValue::UNDEFINED),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
+    }
+
+    /// Names a page object so a `js` store entry in the configuration can refer to it.
+    #[wasm_bindgen(js_name = registerStoreObject)]
+    pub fn register_store_object(&self, name: &str, object: js_sys::Object) -> Result<(), JsValue> {
+        register_store_object_on(name, object).map_err(liquers_error_to_js)
+    }
+
+    /// The singleton's store.
+    pub fn store(&self) -> Result<crate::store::wrapper::LiquersStore, JsValue> {
+        global_store().map_err(liquers_error_to_js)
     }
 
     /// Evaluates a query on **this** environment, returning a `Promise`.
