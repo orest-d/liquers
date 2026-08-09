@@ -79,9 +79,11 @@ Out of scope: `LIB-RECIPE-PROVIDER-PANIC` (same code path, different defect, sep
 
   *This is a live defect, not only a hazard for the fix.* `Status::Volatile.is_finished()` is
   `true` (`metadata.rs:443`) and both managers' `get` return on `is_finished()`, with the expiry
-  re-check gated on `status == Status::Ready`. A volatile value written through `set_state` under a
-  key with no recipe (so `is_volatile(key)` consults the recipe, finds none, returns `false`) is
-  cached and reused indefinitely.
+  re-check gated on `status == Status::Ready`. A map-registered asset that ends `Status::Volatile`
+  is therefore served from cache forever. Phase 2 identifies the reachable route: registration
+  decides volatility from the recipe, but `try_to_set_ready` also marks a result volatile when the
+  metadata expiry a command set *during* evaluation is volatile. (`set_state` is **not** that
+  route — it maps an incoming `Status::Volatile` to `Override`/`Source`.)
 - **Persistence rules are unchanged.** Storing a volatile asset is deliberate: it gives the user the
   chance to override. The value written is by definition not valid and must not be read back, and
   today it is not — `save_to_store` writes metadata with `Status::Volatile`, and `try_fast_track`
