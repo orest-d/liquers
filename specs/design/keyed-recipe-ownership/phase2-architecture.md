@@ -428,8 +428,10 @@ map), recorded in place rather than smuggled in.
   would deadlock. The call it replaces (`manager.get`) reaches the same lock, so no new hazard is
   introduced — but the property is now load-bearing and should not be broken by moving the test
   earlier.
-- **`std::collections::HashSet` is not yet imported** in `assets.rs` (`HashMap` and `VecDeque`
-  are). One import line; called out so it is not discovered at compile time.
+- **`HashSet` is not in scope** in `assets.rs` — the import at `:199` brings in `BTreeSet`,
+  `HashMap` and `VecDeque`. No import is needed if `running_inline` uses fully-qualified
+  `std::collections::HashSet`, which is how its neighbours `assets` and `query_assets` are written
+  (`:5415-5416`). Called out so it is settled in the design rather than at compile time.
 - `remove_expired_from_maps` (`:5695`) removes by id from either map, so the
   `get_dependency_asset` site needs no new primitive.
 

@@ -2,8 +2,8 @@
 id: KEYED-RECIPE-OWNERSHIP
 kind: design
 title: Non-evaluating ownership test for keyed recipes
-status: draft
-phase: examples
+status: in_review
+phase: implementation
 area: [core/assets, web]
 gh_pr: []
 issues: [CORE-IMMEDIATE-MANAGER-KEYED-RECURSION, VOLATILE-KEYED-RECIPE-SELF-DELEGATION]
@@ -18,8 +18,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design
 - [x] Phase 2: Solution & Architecture
-- [x] Phase 3: Examples & Testing (awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing
+- [x] Phase 4: Implementation Plan (awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
