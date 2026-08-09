@@ -5052,13 +5052,14 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
-        if let Some(entry) = self.assets.get_async(key).await {
-            if entry.get().id() == asset_id {
-                drop(entry);
-                return self.assets.remove_async(key).await.is_some();
-            }
-        }
-        false
+        // `remove_if_async` evaluates the predicate and removes under one bucket lock. A
+        // `get_async` / compare / `remove_async` sequence would release the entry guard in
+        // between, and a replacement registered in that gap would be the thing removed —
+        // exactly the race the id check exists to prevent.
+        self.assets
+            .remove_if_async(key, |asset| asset.id() == asset_id)
+            .await
+            .is_some()
     }
 
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
@@ -8419,6 +8420,12 @@ recipes:
     ///
     /// The race it closes: a caller looks the key up, releases the lock to await the
     /// volatility check, and by the time it removes, a different asset is registered.
+    ///
+    /// This asserts the *decision*, sequentially. That the decision and the removal are also
+    /// **atomic** is structural rather than testable here — each manager performs both under
+    /// one lock (`remove_if_async` on `scc`, one `Mutex` acquisition on the inline map). A
+    /// test cannot pin that without racing threads and being flaky; the thing to preserve is
+    /// the single lock, not this assertion.
     #[tokio::test]
     async fn remove_key_asset_if_respects_id() {
         let (envref, _calls) = ownership_env().await;
