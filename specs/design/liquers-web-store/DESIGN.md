@@ -2,7 +2,7 @@
 id: LIQUERS-WEB-STORE
 kind: design
 title: Browser stores for liquers-web
-status: in_review
+status: approved
 phase: implementation
 area: [web, store/config, core/store]
 gh_pr: []
@@ -22,7 +22,7 @@ which `specs/design/liquers-web/` explicitly deferred.
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [x] Phase 4: Implementation Plan (awaiting approval)
+- [x] Phase 4: Implementation Plan (approved 2026-08-09 — all four phases approved)
 - [ ] Implementation Complete
 
 ## Notes
