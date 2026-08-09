@@ -291,3 +291,81 @@ async fn web_evaluate_structured_result() {
     assert_eq!(b.get(1).as_bool(), Some(true));
     reset_global();
 }
+
+/// EVAL07 — a keyed (`-R/`) query evaluates.
+///
+/// **This is the regression guard for `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`.** Keyed
+/// evaluation used to recurse until the wasm stack was exhausted: the plan's resource step
+/// resolves `-R/d/f.txt` through `AssetManager::get`, which runs an unfinished asset inline,
+/// and `evaluate_recipe` then asked `get` who owned the very key it was evaluating. The wasm
+/// instance died and the caller's `Promise` never settled — a hang whose only trace was a
+/// `pageerror`, which is why the browser suite could not catch it either.
+///
+/// The ownership question is now a non-evaluating map read
+/// (`specs/design/keyed-recipe-ownership/`). This runs in the Node loop, so it is the cheapest
+/// guard on the real target; the Playwright `STORE07` cases cover the delivery form.
+#[wasm_bindgen_test]
+async fn eval07_keyed_query_evaluates() {
+    use liquers_core::metadata::{Metadata, MetadataRecord};
+    use liquers_core::store::AsyncStore;
+    use liquers_web::environment::{configure_store_on, register_store_object_on};
+    use liquers_web::store::StoreRouterConfig;
+    use wasm_bindgen::JsCast;
+
+    // A minimal writable JS store, local to this test. `store_js_STORE.rs` has a fuller one,
+    // but duplicating five lines keeps the two suites independent — this one only has to hold
+    // a single file.
+    const STORE: &str = r#"
+(() => {
+  const data = new Map();
+  return {
+    async get(key) { return data.get(key); },
+    async set(key, bytes, metadata) { data.set(key, { data: bytes, metadata }); },
+    async contains(key) { return data.has(key); },
+    isDir(key) { return false; },
+    isSupported(key) { return true; },
+    async keys() { return [...data.keys()]; },
+  };
+})()
+"#;
+    let store_object = js_sys::eval(STORE)
+        .expect("fixture source must evaluate")
+        .dyn_into::<js_sys::Object>()
+        .expect("fixture must be an object");
+
+    fresh();
+    register_fixture_commands();
+
+    register_store_object_on("evalstore", store_object).expect("register store object");
+    configure_store_on(
+        StoreRouterConfig::from_yaml(
+            "stores:\n  - type: js\n    prefix: d\n    config: { object: evalstore }\n",
+        )
+        .expect("config parses"),
+    )
+    .expect("configure");
+
+    let envref = shared_env().expect("env");
+    let mut record = MetadataRecord::new();
+    record.with_media_type("text/plain".to_string());
+    envref
+        .get_async_store()
+        .set(
+            &liquers_core::parse::parse_key("d/f.txt").expect("key"),
+            b"hello from the store",
+            &Metadata::MetadataRecord(record),
+        )
+        .await
+        .expect("seed the store");
+
+    let text = eval_to_js("-R/d/f.txt/-/shout")
+        .await
+        .expect("keyed evaluation must resolve, not exhaust the stack");
+    assert_eq!(
+        text.as_string().as_deref(),
+        Some("HELLO FROM THE STORE"),
+        "the stored bytes must reach the command"
+    );
+
+    reset_global();
+}
