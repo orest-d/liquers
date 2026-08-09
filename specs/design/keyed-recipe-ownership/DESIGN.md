@@ -69,9 +69,14 @@ The recursion reproducer was verified: with the ownership test temporarily rever
 `keyed_eval_immediate` aborts with `stack overflow` (SIGABRT), which is why it had to land in the
 same commit as the fix.
 
-**Verification status:** `liquers-core` 506 passed, `liquers-lib` 368 passed, `registry_export`
-green. The five `expiration_integration` failures are pre-existing and unchanged. The wasm and
-Playwright loops are covered in the branch's final report.
+**Verification status.** `liquers-core` 506 passed · `liquers-lib` 368 passed ·
+`registry_export` green untouched · `liquers-web` on `wasm32-unknown-unknown` 136 passed across 15
+targets, 0 failed. The five `expiration_integration` failures are pre-existing and unchanged
+(`EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD`).
+
+**Not run: the Playwright end-to-end loop.** `trunk` is not available in the environment this was
+implemented in, so the browser suite was never executed. Its five `-R/` cases are `fixme` regardless,
+blocked on `IMMEDIATE-MANAGER-NO-FAST-TRACK`.
 
 ## Links
 
