@@ -23,7 +23,7 @@ which `specs/design/liquers-web/` explicitly deferred.
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved 2026-08-09 — all four phases approved)
-- [ ] Implementation Complete — **M1-M2 done ✅** (Steps 1-8); M3-M6 not started
+- [ ] Implementation Complete — **M1-M4 done ✅** (Steps 1-15); M5-M6 not started
 
 ## Implementation status
 
@@ -31,8 +31,8 @@ which `specs/design/liquers-web/` explicitly deferred.
 |---|---|---|
 | M1 | `liquers-store`: `opendal` feature, `StoreFactory` seam | ✅ 4 factory tests; 10 build configurations green; no regression |
 | M2 | Envelope codec, key guard | ✅ 9 tests green under Node; 106 wasm tests total, no regression |
-| M3 | `FetchStore` | not started |
-| M4 | `LocalStorageStore` | not started |
+| M3 | `FetchStore` | ✅ 7 pure tests under Node; store compiles and is wired |
+| M4 | `LocalStorageStore` | ✅ 10 tests green in Chromium |
 | M5 | `JsStore`, factory, environment wiring | not started |
 | M6 | e2e, stubs, documentation | not started |
 
@@ -87,6 +87,39 @@ the path taken.
 `wasm-bindgen` version (0.2.127 here). It was absent in this container and a mismatch fails at
 bindgen time rather than at compile time, which is the late, obscure failure the guide's harness
 question 3 warns about.
+
+**M3 EXECUTED ✅.** `FetchStore` with `key_to_url`, `infer_metadata`, `media_type_of` and
+`directory_index` as free functions, plus the `AsyncStore` impl. Gates: 12 tests in
+`store_pure_STORE` (7 new), Node loop green.
+
+**M4 EXECUTED ✅.** `LocalStorageStore` — `{ns}/d|m|D/{key}` layout, index rebuilt by scanning,
+quota accounting, full contract. Gates: **10 tests green in Chromium**, Node loop 113 tests green.
+
+**M4's quota test found a real bug, which is why it was worth running rather than assuming.** The
+first run failed: `set` writes *two* entries and the budget was checked per entry, so the metadata
+entry could land while the data entry was refused — leaving an orphan metadata entry occupying
+quota for a key with no value. `contains` still reported false, so nothing but the byte accounting
+could have caught it. Fixed by budgeting **all of an operation's entries together**
+(`ensure_budget` / `put_all`), and the test now asserts `used_bytes` is *exactly* unchanged after a
+refusal rather than merely not smaller.
+
+The same run showed the test's own quota was unrealistic: metadata dominates the budget for small
+values — a `MetadataRecord` serializes to several hundred bytes whatever the payload — so a
+200-byte quota cannot hold one entry. That is honest accounting, not a defect, and is now
+documented on `ensure_budget`.
+
+**Two harness facts that changed the repository, not just this design:**
+
+1. **`run_in_browser` in any one file makes the *whole* crate's Node loop demand a WebDriver.** This
+   design added the crate's first such file, and `cargo test -p liquers-web --target
+   wasm32-unknown-unknown` began failing. Fixed with a `browser-tests` feature — off by default,
+   mirroring `debug-handles` — so only tests that cannot work otherwise pay that cost. Documented
+   in `liquers-web/README.md`.
+2. **The chromedriver in this container is 147; the available Chromium is 141,** and ChromeDriver
+   refuses across major versions. The matching driver could not be downloaded (the environment's
+   network policy blocks the host). The tests were nevertheless *run and verified* by the route the
+   README now records: `NO_HEADLESS=1` makes the runner serve the suite at `127.0.0.1:8000`, and
+   Playwright drives it over CDP with no WebDriver at all.
 
 ## Notes
 

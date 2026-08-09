@@ -30,7 +30,11 @@
 //! `specs/design/liquers-web-store/phase3-examples.md`.
 
 pub mod encoding;
+pub mod fetch;
 pub mod key_guard;
+pub mod local_storage;
 
 pub use encoding::{decode_envelope, encode_envelope, ByteEncoding};
+pub use fetch::FetchStore;
 pub use key_guard::check_key;
+pub use local_storage::LocalStorageStore;
