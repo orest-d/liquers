@@ -23,7 +23,42 @@ which `specs/design/liquers-web/` explicitly deferred.
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved 2026-08-09 — all four phases approved)
-- [ ] Implementation Complete
+- [ ] Implementation Complete — **M1 done ✅** (Steps 1-4); M2-M6 not started
+
+## Implementation status
+
+| Milestone | Scope | Result |
+|---|---|---|
+| M1 | `liquers-store`: `opendal` feature, `StoreFactory` seam | ✅ 4 factory tests; 10 build configurations green; no regression |
+| M2 | Envelope codec, key guard | not started |
+| M3 | `FetchStore` | not started |
+| M4 | `LocalStorageStore` | not started |
+| M5 | `JsStore`, factory, environment wiring | not started |
+| M6 | e2e, stubs, documentation | not started |
+
+**M1 EXECUTED ✅.** `opendal` is optional and in `default`; `opendal_store` and the OpenDAL
+dispatch arm are gated; `create_filesystem_store` follows `AsyncFileStore`'s existing wasm32 gate;
+`StoreFactory` and `StoreRouterBuilder::with_factory` added, consulted before the built-ins.
+Gates: `cargo test -p liquers-store` 26 passed and 22 passed without `opendal`;
+`bash scripts/check-build-matrix.sh` 10/10; `liquers-lib` 296+ green; `liquers-axum` 162 green.
+
+**The milestone's own gate proved its point immediately.** `liquers-store` now compiles for
+`wasm32-unknown-unknown` without OpenDAL, which is the dependency edge every later milestone
+assumes — had it not, Phase 2 would have needed reworking before any browser code was written,
+which is exactly why M1 was gated separately.
+
+**A latent defect surfaced that had nothing to do with OpenDAL.** Removing OpenDAL from the graph
+produced 13 errors in `config.rs`, a file the change never touched: `liquers-store` declared
+`serde = "1.0.181"` without `features = ["derive"]` and imported the derive macros anyway,
+compiling only because OpenDAL enabled `serde/derive` and Cargo unified it. Fixed here with a
+comment recording why. `liquers-core`, `liquers-lib` and `liquers-axum` have the same undeclared
+dependency and were left alone as out of scope — filed as `WORKSPACE-SERDE-DERIVE-UNDECLARED`.
+The lesson generalises: a crate that survives only through feature unification is one
+optional-dependency change away from an afternoon of confusing errors in an unrelated file.
+
+`factory02` is worth keeping in mind during M5: it asserts that a factory claiming `http` beats
+the OpenDAL built-in, using a call counter rather than "the router built successfully", because
+the latter cannot tell which code path ran.
 
 ## Notes
 

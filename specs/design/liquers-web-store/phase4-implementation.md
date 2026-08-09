@@ -156,6 +156,19 @@ Add a `liquers-store` section beside the existing `liquers-lib` one:
 > **M1 exit gate.** All four `cargo check`s, both `cargo test -p liquers-store` runs, and the
 > matrix script pass, and `cargo test -p liquers-lib --lib --tests` shows no regression. **If this
 > gate cannot be met, stop and revisit Phase 2** — everything downstream assumes it.
+>
+> **✅ MET (2026-08-09).** `liquers-store` 26 tests with `opendal`, 22 without; matrix 10/10
+> including `liquers-store` on `wasm32-unknown-unknown` without OpenDAL; `liquers-lib` 296+ and
+> `liquers-axum` 162 unchanged.
+>
+> **One thing the plan did not predict.** Removing OpenDAL from the graph broke `config.rs`, which
+> the change never touched: `liquers-store` declared `serde` without `features = ["derive"]` and
+> imported the derive macros anyway, compiling only because OpenDAL enabled `serde/derive` and
+> Cargo unified it. Fixed in `Cargo.toml` with a comment. `liquers-core`, `liquers-lib` and
+> `liquers-axum` carry the same undeclared dependency; left alone as out of scope and filed as
+> `WORKSPACE-SERDE-DERIVE-UNDECLARED`. Later milestones should expect that **making a dependency
+> optional exposes every feature the rest of the graph was silently providing** — the errors
+> appear in files unrelated to the edit.
 
 ---
 

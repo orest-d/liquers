@@ -1,4 +1,5 @@
 pub mod config;
+#[cfg(feature = "opendal")]
 pub mod opendal_store;
 pub mod store_builder;
 
