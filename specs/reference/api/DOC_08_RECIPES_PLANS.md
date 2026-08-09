@@ -253,11 +253,13 @@ Review verification on 2026-08-09:
 - `git diff --check` passes
 
 The tests report pre-existing compiler warnings outside the DOC-08 documentation
-scope. No Rust source file is changed by DOC-08.
+scope. Applying this reference to source-level Rustdoc changes documentation only;
+runtime behavior is unchanged.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Applied the verified recipe and planning contracts to comprehensive module and public-API Rustdoc in `plan.rs` and `recipes.rs`. | DOC-08 |
 | 2026-08-09 | Reviewed recipe resolution, plan building, payload requirements, finalization, and execution against HEAD; documented `Plan::payload_required` and corrected links. | PAYLOAD-INHERITANCE |
 | 2026-07-29 | Verified recipe resolution, planning, finalization, and execution against the implementation and focused tests. | DOC-08 |

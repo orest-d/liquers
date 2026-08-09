@@ -1,3 +1,30 @@
+//! Recipe definitions and recipe-provider lookup.
+//!
+//! A [`Recipe`] augments a query in multiple ways:
+//! - It allows to specify additional human facing data such as title and description, which would be difficult in a compact query string.
+//! - Recipes can specify whether the asset is volatile or when it expires.
+//! - Recipes can place the query in a logical hierarchycal structure similar to a filesystem.
+//!   This allows to organize queries, give them names, lazyly execute them, cache the results (via AssetManager) and access the results similarly as files.
+//! - Recipes can override query parameters and pass this way more complex arguments to the query, e.g. longer texts or strings.
+//! - Recipes can be used internally to represent complex asset queries, e.g. to implement web APIs with arguments specified in JSON format.
+//!
+//! Converting a recipe with [`Recipe::to_plan`] builds a [`Plan`] but does not execute it.
+//!
+//! [`AsyncRecipeProvider`] is a service that resolves recipes registered for logical keys.
+//! In other words, it says what recipes are available in each directory.
+//! By default, it reads a [`RecipeList`] from `<directory>/recipes.yaml`; filenames derived from recipe queries
+//! identify the assets in that directory. A recipe looked up by key must use
+//! [`Recipe::to_plan_for_key`], because keyed assets are globally shared and cannot receive a
+//! per-evaluation payload.
+//! Custom recipe providers can be implemented to provide recipes from different sources or automatic default recipes.
+//!
+//! The [`RecipeList`] is a collection of recipes, which conviniently can be loaded from a YAML file.
+//! The **resipes.yaml** files (used by the default recipe provider) are meant to be human-readable and editable
+//! and are typically written by hand, specifying what needs to be calculated and how.
+//!
+//! Recipe conversion is only the synchronous planning phase. Environment-backed dependency
+//! volatility and expiration are incorporated later by interpreter finalization before execution.
+
 use std::collections::HashMap;
 use std::fmt;
 
@@ -15,38 +42,58 @@ use crate::{
     query::{Key, Query, ResourceName},
 };
 
+/// Declarative instructions and metadata for producing an asset.
+///
+/// [`Recipe::new`] validates and canonicalizes query text. Public fields and Serde
+/// deserialization intentionally do not validate eagerly, so methods that parse `query`, `cwd`,
+/// or links remain fallible.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct Recipe {
+    /// Encoded query compiled into a plan.
+    /// Note: query can be invalid - e.g. because it is unfinished or by user mistake.
+    /// Since queries may often contain such mistakes,
+    /// it is important that an invalid query does not invalidate other valid recipes.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
     pub query: String,
+    /// Human-facing recipe title.
+    /// The size is not enforced, but this should ideally be a short string, preferably a single line
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
     pub title: String,
+    /// Human-facing recipe description.
+    /// This should ideally be a short and concise description/documentation of the asset.
+    /// The recommended size is be multiple lines - a paragraph or two.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[serde(default)]
     pub description: String,
+    /// JSON-value overrides indexed by command parameter name.
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
     pub arguments: HashMap<String, Value>,
+    /// Encoded query-link overrides indexed by command parameter name.
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
     pub links: HashMap<String, String>,
+    /// Logical working key used to resolve relative keys and links.
+    /// This should not be specified in recipes.yaml - it is set by the recipe provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub cwd: Option<String>,
-    /// If true, the recipe is treated as volatile even if it doesn't have a volatile plan
+    /// Forces volatile evaluation in addition to volatility inferred from the plan.
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default = "false_default")]
     pub volatile: bool,
-    /// If true, this recipe has circular dependencies
-    /// Set by recipe provider during validation
+    /// Provider-supplied indication that validation found a circular dependency.
+    /// This serves as an early warning that the recipe may not be valid.
+    /// `Recipe::to_plan` does not recompute or enforce this field.
     #[serde(default)]
     pub has_circular_dependencies: bool,
-    /// If has_circular_dependencies is true, this holds the key that caused the cycle
+    /// Key reported by the provider when `has_circular_dependencies` is true.
+    /// This is used to identify the circular dependency.
     #[serde(default)]
     pub circular_dependency_key: Option<Key>,
-    /// Expiration specification for assets produced by this recipe
+    /// Recipe-level expiration combined with finalized plan expiration.
     #[serde(default)]
     pub expires: Expires,
 }
@@ -60,7 +107,7 @@ fn false_default() -> bool {
 }
 
 impl Recipe {
-    /// Creates a new recipe with the given query, title, and description.
+    /// Creates a recipe after parsing and encoding `query`.
     pub fn new(query: String, title: String, description: String) -> Result<Recipe, Error> {
         Ok(Recipe {
             query: parse_query(&query)?.encode(),
@@ -76,39 +123,39 @@ impl Recipe {
         })
     }
 
-    /// Specify an argument for the recipe.
+    /// Adds or replaces a named JSON-value override.
     pub fn with_argument(mut self, name: String, value: Value) -> Self {
         self.arguments.insert(name, value);
         self
     }
 
-    /// Specify a link for the recipe.
+    /// Adds or replaces a named encoded query-link override.
+    ///
+    /// The link is parsed later by [`Self::to_plan`].
     pub fn with_link(mut self, name: String, value: String) -> Self {
         self.links.insert(name, value);
         self
     }
 
-    /// Returns the query of the recipe as a `Query` object.
+    /// Parses the stored query text.
     pub fn get_query(&self) -> Result<Query, Error> {
         parse_query(&self.query)
     }
 
-    /// Returns the filename of the recipe, if it has a valid query.
-    /// NOTE: Though in general recipes need to have filenames,
-    /// ad-hoc recipes (stemming e.g. from web API calls) of queries converted to recipes
-    /// do not need to have a filename.
+    /// Returns the query filename, if present.
+    ///
+    /// Provider-backed recipes normally need a filename so they can be addressed in a directory;
+    /// ad-hoc recipes do not.
     pub fn filename(&self) -> Result<Option<ResourceName>, Error> {
         Ok(self.get_query()?.filename())
     }
 
-    /// Return filename extension of the recipe, if it has a valid query.
+    /// Returns the query filename extension, if present.
     pub fn extension(&self) -> Result<Option<String>, Error> {
         Ok(self.get_query()?.extension())
     }
 
-    /// Returns the data format of the recipe, which is the file extension if available, or "binary" otherwise.
-    /// This is used to determine e.g. how the recipe result will be stored.
-    /// Default is "binary" if no extension is available.
+    /// Returns the filename extension used as a data format, or `"bin"` when absent.
     pub fn data_format(&self) -> Result<String, Error> {
         if let Some(extension) = self.extension()? {
             return Ok(extension);
@@ -116,6 +163,10 @@ impl Recipe {
         Ok("bin".to_string())
     }
 
+    //TODO: specify icons in recipes.yaml?
+    /// Returns the Unicode icon associated with the query filename extension.
+    ///
+    /// Invalid queries and filenames without extensions use the default icon.
     pub fn unicode_icon(&self) -> String {
         if let Ok(Some(extension)) = self.extension() {
             crate::icons::file_extension_to_unicode_icon(&extension).to_owned()
@@ -124,16 +175,20 @@ impl Recipe {
         }
     }
 
-    /// Returns true if the recipe has any arguments either values or links.
+    /// Returns whether the recipe contains any value or link overrides.
     pub fn has_arguments(&self) -> bool {
         !self.arguments.is_empty() || !self.links.is_empty()
     }
-    /// Returns true if the recipe is a pure query (i.e. is a valid query with no arguments or links).
+    /// Returns whether the recipe contains a valid query and no overrides.
     pub fn is_pure_query(&self) -> bool {
         !self.has_arguments() && self.get_query().is_ok()
     }
-    /// Returns key if the recipe is a pure query, that is a key.
-    /// Key is expanded to an absolute form using the cwd (if set)
+
+    // TODO: Non-persistent recipes. Aliases definitely would benefit from this.
+    /// Returns the logical key represented by a pure key query.
+    /// A recipe returning a `Some` key is effectively an alias for another keyed asset.
+    /// Recipes with overrides are not pure and return `None`. When `cwd` is present, relative keys
+    /// are converted to absolute logical form.
     pub fn key(&self) -> Result<Option<Key>, Error> {
         let query = self.get_query()?;
         if !self.has_arguments() {
@@ -149,8 +204,11 @@ impl Recipe {
         Ok(None)
     }
 
-    /// Converts the recipe to a `Plan` using the provided `CommandMetadataRegistry`.
-    /// It applies the arguments and links to the plan.
+    /// Builds a preliminary plan and applies named overrides to its last action.
+    ///
+    /// Placeholders are allowed during the initial build. Every override name must resolve on the
+    /// last action or this returns an error; earlier actions are deliberately not searched. Link
+    /// text is parsed here. This method neither finalizes dependencies nor executes the plan.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
         let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
@@ -190,11 +248,7 @@ impl Recipe {
     /// Note this cannot be folded into [`Self::to_plan`]: [`Self::key`] reports the key of the
     /// recipe's *query*, which is unrelated to the key the recipe is registered under. Only the
     /// caller that looked the recipe up knows that key.
-    pub fn to_plan_for_key(
-        &self,
-        cmr: &CommandMetadataRegistry,
-        key: &Key,
-    ) -> Result<Plan, Error> {
+    pub fn to_plan_for_key(&self, cmr: &CommandMetadataRegistry, key: &Key) -> Result<Plan, Error> {
         let plan = self.to_plan(cmr)?;
         if plan.payload_required.is_required() {
             return Err(Error::general_error(format!(
@@ -210,10 +264,10 @@ impl Recipe {
         Ok(plan)
     }
 
-    /// Return current working directory for the recipe, if set.
-    /// CWD is used to resolve relative keys in the recipe query and links.
-    /// CWD is set automatically when loading recipes from a folder.
-    /// This may raise an error if cwd is not a valid key.
+    /// Parses the logical working key, if set.
+    ///
+    /// Providers normally set it to the directory containing `recipes.yaml`. It is used to
+    /// resolve relative keys in the recipe query and links.
     pub fn get_cwd(&self) -> Result<Option<Key>, Error> {
         if let Some(cwd) = &self.cwd {
             Ok(Some(parse_key(cwd)?))
@@ -222,7 +276,9 @@ impl Recipe {
         }
     }
 
-    /// Returns the key to which the result of the recipe should be stored, if applicable.
+    /// Derives the logical storage key from `cwd` and the query filename.
+    ///
+    /// This is descriptive only and performs no write.
     pub fn store_to_key(&self) -> Result<Option<Key>, Error> {
         let filename = self.filename()?;
         let cwd = self.get_cwd()?;
@@ -233,6 +289,7 @@ impl Recipe {
         }
     }
 
+    /// Creates recipe-status asset information without evaluating or loading an asset.
     pub fn get_asset_info(&self) -> Result<AssetInfo, Error> {
         let mut asset_info = AssetInfo::new();
         asset_info.key = None; // Key is not known to the recipe
@@ -335,26 +392,40 @@ impl From<&Key> for Recipe {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+/// Asynchronous lookup and planning interface for recipes registered at logical keys.
+/// A recipe provider can be understood as a logical overlay of recipes on top of a store.
+/// Asset manager unites the store and recipe provider into a single interface.
+/// The recipe provider parametrizes what recipes are available and how they are specified.
+/// E.g., in case if you need automatically generated recipes or a custome file format for specifying the recipes,
+/// this can be achieved by a custom recipe provider (implementing this trait).
+///
+/// Directory methods operate on the parent directory key, while `recipe`, `recipe_opt`, and
+/// `recipe_plan` operate on a complete asset key including its filename. Implementations should
+/// distinguish a missing recipe from provider failures: `recipe_opt` returns `Ok(None)` only for
+/// absence, while I/O and parsing failures may still be errors.
 pub trait AsyncRecipeProvider<E: Environment>:
     crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync
 {
-    /// Returns true if folder represented by key has recipes
+    /// Returns whether the directory represented by `key` has a recipe collection.
     async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error>;
-    /// Returns a list of assets that have recipes in the folder represented by key
+    /// Lists filenames of recipe-backed assets in the directory represented by `key`.
     async fn assets_with_recipes(
         &self,
         key: &Key,
         envref: EnvRef<E>,
     ) -> Result<Vec<ResourceName>, Error>;
-    /// Returns the plan for the asset represented by key
+    /// Builds a dependency-analyzed plan for the recipe registered at `key`.
+    ///
+    /// A missing recipe is an error. This convenience performs more analysis than
+    /// [`Recipe::to_plan`] but is not a substitute for complete execution finalization.
     async fn recipe_plan(&self, key: &Key, envref: EnvRef<E>) -> Result<Plan, Error>;
-    /// Returns the recipe for the asset represented by key
-    /// Errors if no recipe is found
+    /// Returns the recipe registered at `key`, or an error when it is absent.
     async fn recipe(&self, key: &Key, envref: EnvRef<E>) -> Result<Recipe, Error>;
-    /// Returns a recipe if available, None otherwise
-    /// Error can still occur e.g. for an IO error.
+    /// Returns the recipe registered at `key`, or `None` when it is absent.
+    ///
+    /// Provider I/O, decoding, and validation failures remain errors.
     async fn recipe_opt(&self, key: &Key, envref: EnvRef<E>) -> Result<Option<Recipe>, Error>;
-    /// Returns true if the asset represented by key has a recipe
+    /// Returns whether the complete asset `key` has a recipe.
     async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
         if let Some(name) = key.filename() {
             let parent_key = key.parent();
@@ -370,8 +441,11 @@ pub trait AsyncRecipeProvider<E: Environment>:
             Ok(false)
         }
     }
-    /// Returns asset info for the asset represented by key
-    /// This is a true asset info only if the asset is not available.
+    /// Describes the recipe registered at `key` and includes planning diagnostics.
+    ///
+    /// The returned [AssetInfo] may serve as a quick preview of the asset (recipe).
+    /// This reports recipe availability; it does not prove that an evaluated or persisted asset
+    /// exists at the key.
     async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
         eprintln!("Getting asset info for recipe at key {}", key);
         let recipe = self.recipe(key, envref.clone()).await?;
@@ -399,7 +473,8 @@ pub trait AsyncRecipeProvider<E: Environment>:
     }
 }
 
-async fn create_plan_with_init_metadata<E: Environment>( // TODO: missleading name, use conventioanl plan building functionality
+async fn create_plan_with_init_metadata<E: Environment>(
+    // TODO: missleading name, use conventioanl plan building functionality
     recipe: &Recipe,
     envref: EnvRef<E>,
     key: Option<&Key>,
@@ -416,6 +491,9 @@ async fn create_plan_with_init_metadata<E: Environment>( // TODO: missleading na
     Ok(plan)
 }
 
+/// Provider used when an environment has no configured recipes.
+///
+/// Directory and optional lookups are empty; required recipe and plan lookups return errors.
 pub struct TrivialRecipeProvider;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -454,9 +532,18 @@ impl<E: Environment> AsyncRecipeProvider<E> for TrivialRecipeProvider {
     }
 }
 
+/// Store-backed provider using one `recipes.yaml` file per logical directory.
+///
+/// Each file deserializes as [`RecipeList`]. Recipe query filenames identify the assets exposed in
+/// that directory, and the directory key is installed as each recipe's working key.
 pub struct DefaultRecipeProvider;
 
 impl DefaultRecipeProvider {
+    /// Loads and parses `<key>/recipes.yaml`, then assigns `key` as every recipe's `cwd`.
+    ///
+    /// The current implementation maps every store read failure—not only a missing file—to an
+    /// empty recipe list. Malformed YAML remains an error. [`RecipeList::set_cwd`] may partially
+    /// mutate a list before rejecting a recipe that already specifies `cwd`.
     pub async fn get_recipes<E: Environment>(
         &self,
         key: &Key,
@@ -498,8 +585,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
     }
 
     // TODO: Not used at the moment - consider removing
-    /// Convenience method to get a plan for a recipe
-    /// It fetches the recipe (if available) and uses [Recipe::to_plan] to convert it to a plan.
+    /// Fetches the keyed recipe and builds its dependency-analyzed plan.
     async fn recipe_plan(&self, key: &Key, envref: EnvRef<E>) -> Result<Plan, Error> {
         if let Some(filename) = key.filename() {
             let recipes = self.get_recipes(&key.parent(), envref.clone()).await?;
@@ -551,25 +637,34 @@ impl<E: Environment> AsyncRecipeProvider<E> for DefaultRecipeProvider {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+/// Serialized root of a `recipes.yaml` file.
+/// It can also be used as a general collection of recipes (e.g. for batch processing).
 pub struct RecipeList {
+    /// Recipes in file order.
     pub recipes: Vec<Recipe>,
 }
 
 impl RecipeList {
+    /// Creates an empty recipe list.
     pub fn new() -> Self {
         RecipeList {
             recipes: Vec::new(),
         }
     }
 
+    /// Appends a recipe, preserving file order.
     pub fn add_recipe(&mut self, recipe: Recipe) {
         self.recipes.push(recipe);
     }
 
+    /// Returns the number of recipes, including entries without valid filenames.
     pub fn len(&self) -> usize {
         self.recipes.len()
     }
 
+    /// Finds the first recipe whose parsed query filename equals `name`.
+    ///
+    /// Recipes with invalid queries or no filename are skipped.
     pub fn get(&self, name: &str) -> Option<&Recipe> {
         self.recipes.iter().find(|r| {
             if let Ok(Some(filename)) = r.filename() {
@@ -580,7 +675,10 @@ impl RecipeList {
         })
     }
 
-    /// Set the current working directory for all the recipes in the list that do not have the CWD set.
+    /// Assigns the same logical working key to every recipe that does not already have one.
+    ///
+    /// This method mutates in iteration order. If it encounters an explicitly populated `cwd`, it
+    /// returns an error after any preceding recipes have already been changed.
     pub fn set_cwd(&mut self, cwd: String) -> Result<(), Error> {
         for recipe in &mut self.recipes {
             if recipe.cwd.is_none() {

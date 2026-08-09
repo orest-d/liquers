@@ -1,6 +1,29 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
+//! Query planning and the executable plan data model.
+//!
+//! [`Plan`] is an executable plan that the interpreter can execute.
+//! A single step in the plan is a [`Step`] that contains an executable instruction.
+//! 
+//! A [`Query`] describes a general syntax, it obtains a specific meaning by building a [`Plan`],
+//! which can be executed by an interpreter.  [`PlanBuilder`] performs the synchronous part of planning against a
+//! [`CommandMetadataRegistry`]: it resolves commands, converts action parameters, applies
+//! defaults, identifies links, and derives initial volatility, payload, and expiration
+//! requirements. It does not execute commands or produce an asset.
+//!
+//! Planning that depends on an environment remains asynchronous and lives in
+//! `crate::interpreter`. In particular, `finalize_plan` incorporates dependency volatility and
+//! expiration and registers dependency information before `apply_plan` executes the steps.
+//! Consequently, the corresponding fields on a newly built plan are preliminary until
+//! finalization has completed.
+//!
+//! Recipe arguments use [`Plan::override_value`] and [`Plan::override_link`]. Both deliberately
+//! target only the last action in a plan; they are not general substitutions across all steps.
+//!
+//! [`Plan::init_steps`] are planning diagnostics copied into metadata. They are distinct from
+//! diagnostic variants in [`Plan::steps`], which the interpreter encounters in execution order.
+
 use std::clone;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -91,7 +114,10 @@ fn append_actions(query: &Query, actions: Vec<ActionRequest>) -> Query {
 ///
 /// The function first tries plain append. If the resolved command namespace does not
 /// match `ns` (treating `root` and empty namespace as equivalent), it prepends `ns-<ns>`
-/// before the action.
+/// before the action. Appending to an existing transform removes its filename because the
+/// filename no longer terminates the modified transform.
+///
+/// This returns an error when an existing `ns` instruction contains non-string parameters.
 pub fn append_action(
     query: &Query,
     ns: &str,
@@ -121,48 +147,79 @@ pub fn append_action(
     Ok(append_actions(query, vec![ns_action, action]))
 }
 
+/// One operation or diagnostic in an executable [`Plan`].
+///
+/// Data-producing variants replace the current interpreter value. Context modifiers such as
+/// [`Step::Filename`] and [`Step::SetCwd`] change execution context without producing data.
+/// [`Step::Info`], [`Step::Warning`], and [`Step::Error`] in `Plan::steps` are executable
+/// diagnostics; a `Step::Error` logs an error but is not the same as [`Plan::error`].
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Step {
+    /// Load the evaluated state of the asset at a logical key.
     GetAsset(Key),
+    /// Load the binary representation of the asset at a logical key.
     GetAssetBinary(Key),
+    /// Load metadata for the asset at a logical key.
     GetAssetMetadata(Key),
+    /// Load the recipe associated with a keyed asset.
     GetAssetRecipe(Key),
+    /// List the evaluated asset directory at a logical key.
     GetAssetDirectory(Key),
+    /// Read data directly from the backing store, bypassing asset evaluation.
     GetResource(Key),
+    /// Read metadata directly from the backing store.
     GetResourceMetadata(Key),
+    /// List a directory directly in the backing store.
     GetResourceDirectory(Key),
+    /// Evaluate a nested query and use its resulting value.
     Evaluate(Query),
+    /// Use a query itself as the current value instead of evaluating it.
     UseQueryValue(Query),
+    /// Invoke a resolved command with resolved parameters.
     Action {
+        /// Command realm selected by the query.
         realm: String,
+        /// Resolved command namespace.
         ns: String,
+        /// Registered command name.
         action_name: String,
+        /// Source position of the action for diagnostics.
         position: Position,
+        /// Parameter values resolved from metadata, query text, and overrides.
         parameters: ResolvedParameterValues,
     },
+    /// Set the output filename in the current execution context.
     Filename(ResourceName),
+    /// Emit an informational execution log entry.
     Info(String),
+    /// Emit a warning execution log entry.
     Warning(String),
+    /// Emit an error-level execution log entry without itself aborting execution.
     Error(String),
+    /// Execute a nested, already-built plan.
     Plan(Plan),
+    /// Set the logical working key used to resolve relative references.
     SetCwd(Key),
+    /// Convert a logical key into the current value without loading that key.
     UseKeyValue(Key),
 }
 
 impl Step {
+    /// Returns whether this is an executable error diagnostic.
     pub fn is_error(&self) -> bool {
         match self {
             Step::Error(_) => true,
             _ => false,
         }
     }
+    /// Returns whether this is an executable warning diagnostic.
     pub fn is_warning(&self) -> bool {
         match self {
             Step::Warning(_) => true,
             _ => false,
         }
     }
-    /// Returns true if this step is an action step,
+    /// Returns whether this step invokes a registered command.
     pub fn is_action(&self) -> bool {
         match self {
             Step::Action { .. } => true,
@@ -170,9 +227,7 @@ impl Step {
         }
     }
 
-    /// Returns true is this step just modifies the context,
-    /// i.e. logging operation, changing cwd or filename
-    /// and does not produce any data.
+    /// Returns whether this step changes context or emits a diagnostic without producing data.
     pub fn is_context_modifier(&self) -> bool {
         match self {
             Step::GetAsset(_key) => false,
@@ -197,24 +252,16 @@ impl Step {
     }
 }
 
-/// Parameter value contains the partially or fully resolved value of a single command parameter.
-/// Parameter values are passed to the command executor when the command is executed.
-/// There are four variants of parameter value:
-/// - JSON value - directly containing the parameter value. To keep things simple, it is represented as a serde_json::Value.
-/// - Link - a query that will be executed to get the parameter value. The query is resolved before the command is executed.
-/// - Injected - the parameter value is injected by the environment.
-/// - Multiple parameters - a vector of parameter values. This is used for vector arguments - i.e. when ArgumentInfo::multiple is set.
-/// - None - the parameter value is not set. This is a temporary state. Plan should never contain a parameter with None value.
+/// A partially or fully resolved command argument stored in an action [`Step`].
 ///
-/// Parameter can be obtained from several sources:
-/// - Resolved from the action request. This is the most common case.
-/// - Default value from the command metadata (ArgumentInfo). This is used when ActionRequest does not have enough parameters
-/// or (depending on a type) when ActionParameter is an empty string.
-/// - From a link passed as an ActionParameter.
-/// - From a value or link that is an enum value for the ActionParameter.
-/// - Injected from an environment. Whether a parameter is injected is determined by its type and is set in the ArgumentInfo.
-/// Supported scalar values (string, integer, optional integer, float, optional float, boolean, enum and any) are never injected,
-/// all other types are always injected. Note that any is a Environment::Value type.
+/// Values retain their source—command default, query parameter, recipe override, enum mapping,
+/// or context injection—so diagnostics and metadata can explain how an argument was obtained.
+/// Link variants contain queries that the interpreter resolves before command invocation.
+/// [`ParameterValue::MultipleParameters`] represents a variadic argument.
+///
+/// [`ParameterValue::Placeholder`] is permitted while building a recipe so a named override can
+/// fill the value later. [`ParameterValue::None`] is an intermediate unresolved state and should
+/// not remain in an executable plan.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ParameterValue {
     /// Default value of the parameter from the command metadata.
@@ -225,19 +272,19 @@ pub enum ParameterValue {
     ParameterValue(String, Value, Position),
     /// Resolved link of the parameter from the action request.
     ParameterLink(String, Query, Position),
-    /// Override value of the parameter, e.g. from a recipe
+    /// Value override supplied by a recipe.
     OverrideValue(String, Value),
-    /// Override link of the parameter, e.g. from a recipe
+    /// Link override supplied by a recipe.
     OverrideLink(String, Query),
-    /// Parameter placeholder - when neither the default nor the resolved value is set, but override is expected.
+    /// Unresolved named parameter that a later recipe override is expected to fill.
     Placeholder(String),
-    /// Enum link - when parameter enum value maps to a link
+    /// Query link selected through an enum alias.
     EnumLink(String, Query, Position),
-    /// Multiple parameters - used for vector arguments
+    /// Resolved elements of a variadic argument.
     MultipleParameters(Vec<ParameterValue>),
-    /// Injected parameter value
+    /// Parameter supplied by the command execution context rather than query text.
     Injected(String),
-    /// Parameter value is not set
+    /// Intermediate state representing an unresolved parameter.
     None,
 }
 
@@ -329,6 +376,10 @@ impl ParameterValue {
         ))
     }
 
+    /// Creates the initial resolved representation described by command argument metadata.
+    ///
+    /// Defaults and injected arguments are materialized immediately. A variadic argument becomes
+    /// `MultipleParameters`, including any values supplied by an array default.
     pub fn from_arginfo(arginfo: &ArgumentInfo) -> Self {
         if arginfo.multiple {
             let mut values = Vec::new();
@@ -371,6 +422,7 @@ impl ParameterValue {
             }
         }
     }
+    /// Converts a command-metadata default into a parameter value with the supplied name.
     pub fn from_command_parameter_value(name: &str, cpv: &CommandParameterValue) -> Self {
         match cpv {
             CommandParameterValue::Value(x) => {
@@ -383,6 +435,10 @@ impl ParameterValue {
         }
     }
 
+    /// Converts an unresolved `None` into an `ArgumentMissing` error at `position`.
+    ///
+    /// Other variants are returned unchanged. The closure is evaluated only when the value is
+    /// missing.
     pub fn to_result(self, error: impl Fn() -> String, position: &Position) -> Result<Self, Error> {
         match self {
             ParameterValue::None => {
@@ -392,6 +448,10 @@ impl ParameterValue {
         }
     }
 
+    /// Parses one textual action parameter according to its command argument metadata.
+    ///
+    /// Empty strings may select a default or the type's optional fallback. Conversion failures
+    /// retain `pos` for source-level diagnostics.
     pub fn from_string(arginfo: &ArgumentInfo, s: &str, pos: &Position) -> Result<Self, Error> {
         match arginfo.argument_type {
             ArgumentType::String => Ok(ParameterValue::ParameterValue(
@@ -561,6 +621,11 @@ impl ParameterValue {
         }
     }
 
+    /// Consumes the action parameter or parameters belonging to `arginfo`.
+    ///
+    /// Injected arguments consume no query parameters. Variadic arguments consume the iterator's
+    /// remainder. If a required scalar is absent, a placeholder is returned only when
+    /// `allow_placeholders` is enabled; otherwise this returns `ArgumentMissing`.
     pub fn pop_value(
         arginfo: &ArgumentInfo,
         param: &mut ActionParameterIterator,
@@ -647,6 +712,7 @@ impl ParameterValue {
             }
         }
     }
+    /// Returns whether this value came from command metadata as a default.
     pub fn is_default(&self) -> bool {
         match self {
             ParameterValue::DefaultValue(_, _) => true,
@@ -654,12 +720,14 @@ impl ParameterValue {
             _ => false,
         }
     }
+    /// Returns whether this is the unresolved `None` state.
     pub fn is_none(&self) -> bool {
         match self {
             ParameterValue::None => true,
             _ => false,
         }
     }
+    /// Returns whether this value contains a query link.
     pub fn is_link(&self) -> bool {
         match self {
             ParameterValue::DefaultLink(_, _) => true,
@@ -669,18 +737,21 @@ impl ParameterValue {
             _ => false,
         }
     }
+    /// Returns whether this parameter is supplied by the execution context.
     pub fn is_injected(&self) -> bool {
         match self {
             ParameterValue::Injected(_) => true,
             _ => false,
         }
     }
+    /// Returns whether this represents a variadic argument.
     pub fn is_multiple(&self) -> bool {
         match self {
             ParameterValue::MultipleParameters(_) => true,
             _ => false,
         }
     }
+    /// Returns the command argument name, or `None` for unnamed aggregate and empty variants.
     pub fn name(&self) -> Option<String> {
         match self {
             ParameterValue::DefaultValue(name, _) => Some(name.clone()),
@@ -695,6 +766,7 @@ impl ParameterValue {
             _ => None,
         }
     }
+    /// Returns a clone of the contained JSON value, when this is a value variant.
     pub fn value(&self) -> Option<Value> {
         match self {
             ParameterValue::DefaultValue(_, v) => Some(v.clone()),
@@ -703,6 +775,7 @@ impl ParameterValue {
             _ => None,
         }
     }
+    /// Returns a clone of the contained query, when this is a link variant.
     pub fn link(&self) -> Option<Query> {
         match self {
             ParameterValue::DefaultLink(_, q) => Some(q.clone()),
@@ -712,12 +785,16 @@ impl ParameterValue {
             _ => None,
         }
     }
+    /// Returns clones of the elements of a variadic argument.
     pub fn multiple(&self) -> Option<Vec<ParameterValue>> {
         match self {
             ParameterValue::MultipleParameters(v) => Some(v.clone()),
             _ => None,
         }
     }
+    /// Returns the source position retained by query- and enum-derived values.
+    ///
+    /// Variants without a query-text origin return [`Position::unknown`].
     pub fn position(&self) -> Position {
         match self {
             ParameterValue::ParameterValue(_, _, pos) => pos.clone(),
@@ -728,11 +805,11 @@ impl ParameterValue {
     }
 }
 
-/// ResolvedParameterValues contains the resolved values of all command parameters.
-/// It is used in a Plan to define (resolved) parameters of an action.
-/// Injected parameter values are (of course) not included in ResolvedParameterValues,
-/// but they are marked with an Injected parameter value placeholder.
-/// ResolvedParameterValues is created from an ActionRequest and CommandMetadata.
+/// Ordered command arguments resolved for an action [`Step`].
+///
+/// Entries correspond to command metadata order. Injected arguments remain represented by
+/// [`ParameterValue::Injected`] markers so the executor can fill them without consuming query
+/// parameters.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
 impl Default for ResolvedParameterValues {
@@ -742,19 +819,15 @@ impl Default for ResolvedParameterValues {
 }
 
 impl ResolvedParameterValues {
+    /// Creates an empty parameter list.
     pub fn new() -> Self {
         ResolvedParameterValues(Vec::new())
     }
-    /// Create ResolvedParameterValues from an ActionRequest.
-    /// The command metadata is used to determine the default values of the parameters.
-    /// Additional source of parameters are the head_parameters,
-    /// filling the parameter slots at the beginning of the parameter list.
-    /// The head_parameters are used for an alias command.
-    /// If allow_placeholders is true, the missing parameters are replaced with a placeholder,
-    /// otherwise an error is returned. This is used when parameters are expected to be overriden e.g. for
-    /// - recipes with parameters defined inside the recipe
-    /// - calling a query as a service
-    /// - passing user-defined arguments into a query in general.
+    /// Resolves an action, optionally prefixing arguments supplied by an alias definition.
+    ///
+    /// `head_parameters` fill the first command argument slots; remaining slots consume the
+    /// action request. Defaults and injection rules come from `command_metadata`. Missing required
+    /// arguments become placeholders only when `allow_placeholders` is true.
     pub fn from_action_extended(
         action_request: &ActionRequest,
         command_metadata: &CommandMetadata,
@@ -774,6 +847,7 @@ impl ResolvedParameterValues {
         }
         Ok(ResolvedParameterValues(values))
     }
+    /// Resolves an action without alias-supplied leading parameters.
     pub fn from_action(
         action_request: &ActionRequest,
         command_metadata: &CommandMetadata,
@@ -782,15 +856,21 @@ impl ResolvedParameterValues {
         Self::from_action_extended(action_request, command_metadata, &[], allow_placeholders)
     }
 
+    /// Removes all resolved parameters.
     pub fn clear(&mut self) {
         self.0.clear();
     }
+    /// Returns the number of command argument slots.
     pub fn len(&self) -> usize {
         self.0.len()
     }
+    /// Returns whether the list contains no command argument slots.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    /// Replaces the named, non-injected argument with a value override.
+    ///
+    /// Returns `false` when the name is absent or identifies an injected argument.
     pub fn override_value(&mut self, name: &str, value: Value) -> bool {
         for pv in &mut self.0 {
             if let Some(n) = pv.name() {
@@ -806,6 +886,9 @@ impl ResolvedParameterValues {
         }
         false
     }
+    /// Replaces the named, non-injected argument with a query-link override.
+    ///
+    /// Returns `false` when the name is absent or identifies an injected argument.
     pub fn override_link(&mut self, name: &str, query: Query) -> bool {
         for pv in &mut self.0 {
             if let Some(n) = pv.name() {
@@ -822,18 +905,22 @@ impl ResolvedParameterValues {
         false
     }
 
+    /// Iterates over resolved parameters in command metadata order.
     pub fn iter(&self) -> std::slice::Iter<'_, ParameterValue> {
         self.0.iter()
     }
 
+    /// Mutably iterates over resolved parameters in command metadata order.
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, ParameterValue> {
         self.0.iter_mut()
     }
 
+    /// Returns the parameter at `index`.
     pub fn get(&self, index: usize) -> Option<&ParameterValue> {
         self.0.get(index)
     }
 
+    /// Returns the mutable parameter at `index`.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut ParameterValue> {
         self.0.get_mut(index)
     }
@@ -847,13 +934,21 @@ impl IntoIterator for ResolvedParameterValues {
     }
 }
 
+/// Cursor over the parameters of one [`ActionRequest`].
+///
+/// The cursor retains the most recently consumed source position so a missing trailing argument
+/// can still be reported near the action that required it.
 pub struct ActionParameterIterator<'a> {
+    /// Action whose parameters are being consumed.
     pub action_request: &'a ActionRequest,
+    /// Zero-based index of the next parameter.
     pub parameter_number: usize,
+    /// Position of the last consumed parameter, or the action position initially.
     pub position: Position,
 }
 
 impl<'a> ActionParameterIterator<'a> {
+    /// Creates a cursor positioned before the first action parameter.
     pub fn new(action_request: &'a ActionRequest) -> Self {
         ActionParameterIterator {
             action_request,
@@ -877,6 +972,15 @@ impl<'a> Iterator for ActionParameterIterator<'a> {
     }
 }
 
+/// Synchronously compiles a [`Query`] into a preliminary [`Plan`].
+///
+/// The builder resolves commands and parameters against borrowed command metadata. It expands
+/// predecessor queries and rejects missing required parameters by default. Recipe construction can
+/// enable placeholders and fill them afterward with named overrides.
+///
+/// The resulting volatility and expiration fields include command and link information available
+/// without an environment. Dependency-derived values are incorporated later by interpreter
+/// finalization.
 pub struct PlanBuilder<'c> {
     query: Query,
     command_registry: &'c CommandMetadataRegistry,
@@ -900,6 +1004,7 @@ pub struct PlanBuilder<'c> {
 // TODO: support volatile flags
 // TODO: support inline flag
 impl<'c> PlanBuilder<'c> {
+    /// Creates a builder that expands predecessors and rejects placeholders.
     pub fn new(query: Query, command_registry: &'c CommandMetadataRegistry) -> Self {
         PlanBuilder {
             query,
@@ -912,14 +1017,21 @@ impl<'c> PlanBuilder<'c> {
             expires: Expires::Never,
         }
     }
+    /// Allows missing required arguments to become named placeholders.
+    ///
+    /// This is primarily used by recipes, which apply named overrides after the initial build.
     pub fn with_placeholders_allowed(mut self) -> Self {
         self.allow_placeholders = true;
         self
     }
+    /// Enables predecessor expansion into the same plan.
+    ///
+    /// This is already the default and is provided for explicit builder configuration.
     pub fn expand_predecessors(mut self) -> Self {
         self.expand_predecessors = true;
         self
     }
+    /// Disables predecessor expansion, emitting [`Step::Evaluate`] boundaries instead.
     pub fn disable_expand_predecessors(mut self) -> Self {
         self.expand_predecessors = false;
         self
@@ -1036,6 +1148,11 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    /// Builds and returns the current preliminary plan.
+    ///
+    /// Reusing a builder after this call is not intended: processing appends to its internal plan.
+    /// The returned plan has not undergone environment-backed dependency finalization and executes
+    /// no commands.
     pub fn build(&mut self) -> Result<Plan, Error> {
         let query = self.query.clone();
         self.plan.query = query.clone();
@@ -1216,9 +1333,10 @@ impl<'c> PlanBuilder<'c> {
                 head_parameters,
             } => {
                 let original_key = command_metadata.key();
-                self.plan
-                    .steps
-                    .push(Step::Info(format!("Alias command {} to {}", original_key, &command)));
+                self.plan.steps.push(Step::Info(format!(
+                    "Alias command {} to {}",
+                    original_key, &command
+                )));
 
                 // Resolve parameters first
                 let parameters = ResolvedParameterValues::from_action_extended(
@@ -1386,36 +1504,55 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    /// Applies a value override to the last action built so far.
+    ///
+    /// Returns `false` when the last action has no matching overridable parameter.
     pub fn override_value(&mut self, name: &str, value: Value) -> bool {
         self.plan.override_value(name, value)
     }
 
+    /// Applies a query-link override to the last action built so far.
+    ///
+    /// Returns `false` when the last action has no matching overridable parameter.
     pub fn override_link(&mut self, name: &str, query: Query) -> bool {
         self.plan.override_link(name, query)
     }
 }
 
+/// Resolved interpreter operations and planning metadata for one source query.
+///
+/// A plan is a data model, not an evaluated result. [`PlanBuilder`] creates the synchronous
+/// first pass; environment-backed dependency analysis may subsequently update volatility,
+/// expiration, diagnostics, and dependencies before the interpreter executes [`Self::steps`].
+///
+/// Serde derives expose the current internal representation. Except for fields explicitly marked
+/// with `serde(default)`, this module does not define a stable cross-version wire format.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Plan {
+    /// Query from which this plan was built.
     pub query: Query,
 
-    /// Diagnostics produced during planning/analysis, before execution.
-    /// Contains only Step::Info/Step::Warning/Step::Error.
+    /// Diagnostics produced during planning and analysis, before execution.
+    ///
+    /// This should contain only [`Step::Info`], [`Step::Warning`], and [`Step::Error`]. The
+    /// interpreter does not execute this list; metadata projection copies it into the asset log.
     #[serde(default)]
     pub init_steps: Vec<Step>,
 
+    /// Ordered operations and executable diagnostics interpreted at runtime.
     pub steps: Vec<Step>,
 
-    /// If true, this plan produces volatile results.
-    /// Computed during plan building via two-phase volatility detection.
-    /// NOTE: No #[serde(default)] - always required in serialized format per Phase 2
+    /// Whether the plan produces a result that must not be reused as a stable asset.
+    ///
+    /// Command and link volatility is computed during building; dependency volatility is added
+    /// during finalization. This required serialized field intentionally has no Serde default.
     pub is_volatile: bool,
 
     /// Whether this plan needs an evaluation payload to run.
-    /// Computed during plan building, mirroring [`Self::is_volatile`].
     ///
-    /// NOTE: unlike `is_volatile` this field DOES have `#[serde(default)]` — plans
-    /// serialized before the field existed must still deserialize.
+    /// It is computed from command metadata and linked subplans. A required payload also implies
+    /// volatile evaluation. This field has a Serde default so older plans deserialize as
+    /// [`PayloadRequirement::None`].
     #[serde(default)]
     pub payload_required: PayloadRequirement,
 
@@ -1440,6 +1577,7 @@ impl Default for Plan {
 }
 
 impl Plan {
+    /// Creates an empty, nonvolatile plan with no expiration or payload requirement.
     pub fn new() -> Self {
         Plan {
             query: Query::new(),
@@ -1452,47 +1590,60 @@ impl Plan {
             dependencies: Vec::new(),
         }
     }
+    /// Returns whether there are no executable steps.
     pub fn is_empty(&self) -> bool {
         self.steps.is_empty()
     }
+    /// Appends an executable informational diagnostic.
     pub fn info(&mut self, message: String) {
         self.steps.push(Step::Info(message));
     }
+    /// Appends an executable warning diagnostic.
     pub fn warning(&mut self, message: String) {
         self.steps.push(Step::Warning(message));
     }
+    /// Appends an executable error-level diagnostic.
+    ///
+    /// This does not populate [`Self::error`] and does not by itself abort interpretation.
     pub fn error(&mut self, message: String) {
         self.steps.push(Step::Error(message));
     }
+    /// Returns whether structured or diagnostic errors are present.
     pub fn has_error(&self) -> bool {
         self.error.is_some()
             || self.init_steps.iter().any(|x| x.is_error())
             || self.steps.iter().any(|x| x.is_error())
     }
+    /// Returns whether planning or executable warning diagnostics are present.
     pub fn has_warning(&self) -> bool {
         self.init_steps.iter().any(|x| x.is_warning()) || self.steps.iter().any(|x| x.is_warning())
     }
+    /// Returns the number of executable steps.
     pub fn len(&self) -> usize {
         self.steps.len()
     }
 
-    /// Set the volatile flag (called during plan building)
+    /// Sets the preliminary or finalized volatility flag.
     pub fn set_volatile(&mut self, is_volatile: bool) {
         self.is_volatile = is_volatile;
     }
 
+    /// Appends an informational planning diagnostic.
     pub fn init_info(&mut self, message: String) {
         self.init_steps.push(Step::Info(message));
     }
 
+    /// Appends a warning planning diagnostic.
     pub fn init_warning(&mut self, message: String) {
         self.init_steps.push(Step::Warning(message));
     }
 
+    /// Appends an error-level planning diagnostic without setting a structured error.
     pub fn init_error(&mut self, message: String) {
         self.init_steps.push(Step::Error(message));
     }
 
+    /// Records the first structured planning error and always adds it to planning diagnostics.
     pub fn set_error(&mut self, error: Error) {
         if self.error.is_none() {
             self.error = Some(error.clone());
@@ -1500,10 +1651,10 @@ impl Plan {
         self.init_error(error.to_string());
     }
 
-    /// Create a `MetadataRecord` from plan fields (excluding `steps`).
-    /// Status is set to `Status::Submitted`. Init steps with Info/Warning/Error
-    /// are added to the metadata log. Plan dependencies are NOT copied
-    /// (those are `PlanDependency`, not `DependencyRecord`).
+    /// Creates submitted asset metadata from plan fields, excluding executable steps.
+    ///
+    /// Planning diagnostics are copied to the metadata log. Plan dependencies are not copied:
+    /// [`PlanDependency`] is analysis data, distinct from runtime dependency records.
     pub fn to_metadata_record(&self) -> MetadataRecord {
         let mut mr = MetadataRecord::new();
         mr.status = Status::Submitted;
@@ -1545,8 +1696,10 @@ impl Plan {
         mr
     }
 
-    /// Update an existing `MetadataRecord` from plan fields.
-    /// Appends log entries rather than replacing.
+    /// Updates an existing metadata record from plan fields.
+    ///
+    /// Planning diagnostics are appended to the existing log rather than replacing it. Plan
+    /// dependencies and executable steps are not copied.
     pub fn update_metadata_record(&self, mr: &mut MetadataRecord) {
         mr.query = self.query.clone();
         mr.is_volatile = self.is_volatile;
@@ -1595,6 +1748,10 @@ impl Plan {
         None
     }
 
+    /// Overrides the named parameter on the last action step with a JSON value.
+    ///
+    /// Returns `false` if the plan has no action or the last action has no matching overridable
+    /// parameter. Earlier actions are deliberately not searched.
     pub fn override_value(&mut self, name: &str, value: Value) -> bool {
         if let Some(i) = self.last_action_index() {
             if let Step::Action { parameters, .. } = &mut self.steps[i] {
@@ -1604,6 +1761,10 @@ impl Plan {
         false
     }
 
+    /// Overrides the named parameter on the last action step with a query link.
+    ///
+    /// Returns `false` if the plan has no action or the last action has no matching overridable
+    /// parameter. Earlier actions are deliberately not searched.
     pub fn override_link(&mut self, name: &str, query: Query) -> bool {
         if let Some(i) = self.last_action_index() {
             if let Step::Action { parameters, .. } = &mut self.steps[i] {
@@ -1613,8 +1774,7 @@ impl Plan {
         false
     }
 
-    /// Find the index to split the plan.
-    /// Plan after the split index should contain only context modifiers and at most one action step.
+    /// Finds a split point whose suffix contains at most one action plus context modifiers.
     pub fn split_index(&self) -> usize {
         for i in (0..self.steps.len()).rev() {
             if self[i].is_action() {
@@ -1637,9 +1797,11 @@ impl Plan {
         0
     }
 
-    /// Split the plan into two plans.
-    /// First plan is being the state argument dependency for the second plan.
-    /// The second plan should contain at most one action step.
+    /// Splits the plan into a state-producing prefix and a final-action suffix.
+    ///
+    /// Both halves retain query-level analysis fields and planning diagnostics. The first plan's
+    /// result is intended to become the state argument of the second plan. The suffix contains at
+    /// most one action plus context modifiers.
     pub fn split(&self) -> (Plan, Plan) {
         if self.is_empty() {
             return (Plan::new(), Plan::new());
@@ -1914,10 +2076,7 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                     ));
 
                     // Traverse parameters for link dependencies
-                    fn collect_param_deps(
-                        pv: &ParameterValue,
-                        out: &mut HashSet<PlanDependency>,
-                    ) {
+                    fn collect_param_deps(pv: &ParameterValue, out: &mut HashSet<PlanDependency>) {
                         match pv {
                             ParameterValue::ParameterLink(name, query, _) => {
                                 out.insert(PlanDependency::new(
@@ -3085,9 +3244,7 @@ mod tests {
 
         let plan = PlanBuilder::new(parse_query("payload_cmd")?, &cr).build()?;
         assert!(
-            plan.init_steps
-                .iter()
-                .any(|s| matches!(s, Step::Info(m)
+            plan.init_steps.iter().any(|s| matches!(s, Step::Info(m)
                     if m.contains("Payload required") && m.contains("payload_cmd"))),
             "expected a message naming the command, got: {:?}",
             plan.init_steps
@@ -3111,7 +3268,11 @@ mod tests {
             .iter()
             .filter(|s| matches!(s, Step::Info(m) if m.contains("Payload required")))
             .count();
-        assert_eq!(count, 1, "expected exactly one message, got: {:?}", plan.init_steps);
+        assert_eq!(
+            count, 1,
+            "expected exactly one message, got: {:?}",
+            plan.init_steps
+        );
         Ok(())
     }
 
@@ -3178,7 +3339,9 @@ mod tests {
 
     fn link_registry() -> command_metadata::CommandMetadataRegistry {
         let mut cr = command_metadata::CommandMetadataRegistry::new();
-        cr.add_command(CommandMetadata::new("greet").with_argument(ArgumentInfo::any_argument("who")));
+        cr.add_command(
+            CommandMetadata::new("greet").with_argument(ArgumentInfo::any_argument("who")),
+        );
         cr.add_command(&CommandMetadata::new("world"));
         cr
     }
@@ -3223,7 +3386,10 @@ mod tests {
         }
         let from_built = PlanBuilder::new(built, &cr).build()?;
 
-        let (a, b) = (action_parameters(&from_text), action_parameters(&from_built));
+        let (a, b) = (
+            action_parameters(&from_text),
+            action_parameters(&from_built),
+        );
         match (&a.0[0], &b.0[0]) {
             (
                 ParameterValue::ParameterLink(n1, q1, _),
@@ -3245,7 +3411,10 @@ mod tests {
         let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
         match &action_parameters(&plan).0[0] {
             ParameterValue::ParameterLink(_, _, position) => {
-                assert!(!position.is_unknown(), "position must survive plan building");
+                assert!(
+                    !position.is_unknown(),
+                    "position must survive plan building"
+                );
                 assert_eq!(position.offset, "greet-".len());
             }
             other => panic!("expected a ParameterLink, got {other:?}"),
@@ -3282,4 +3451,3 @@ mod tests {
         Ok(())
     }
 }
-

@@ -1840,6 +1840,18 @@ impl<E: Environment> AssetRef<E> {
                     // Keys are a payload boundary: reject a keyed recipe that requires an
                     // evaluation payload, since no payload can reach a keyed asset.
                     recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
+                    // The asset starts with an ad-hoc key recipe before provider lookup. Once the
+                    // stored recipe is resolved, make its identity and human-facing metadata the
+                    // asset's authoritative recipe metadata.
+                    {
+                        let mut lock = self.data.write().await;
+                        lock.recipe = recipe.clone();
+                        if let Metadata::MetadataRecord(metadata) = &mut lock.metadata {
+                            metadata
+                                .with_title(recipe.title.clone())
+                                .with_description(recipe.description.clone());
+                        }
+                    }
                     eprintln!(
                         "Evaluating asset {} using its own recipe for key {}:\n{}\n",
                         self.id(),
@@ -6362,27 +6374,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_evaluate_with_recipe() {
+    async fn test_recipe_yaml_title_and_description_reach_asset_metadata() {
         use crate::command_metadata::CommandKey;
         use crate::context::{Environment, SimpleEnvironment};
         use crate::metadata::Metadata;
         use crate::parse::parse_key;
-        use crate::recipes::{DefaultRecipeProvider, Recipe, RecipeList};
+        use crate::recipes::DefaultRecipeProvider;
         use crate::store::{AsyncMemoryStore, AsyncStore};
         use crate::value::Value;
 
-        // 1. Create a recipe with a query "hello/hello.txt"
-        let recipe = Recipe::new(
-            "hello/hello.txt".to_string(),
-            "Test Hello Recipe".to_string(),
-            "A hello recipe".to_string(),
-        )
-        .unwrap();
-
-        // 2. Add recipe to a RecipeList and serialize to YAML
-        let mut recipe_list = RecipeList::new();
-        recipe_list.add_recipe(recipe);
-        let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
+        // Specify the recipe exactly as a user would in recipes.yaml.
+        let yaml_content = r#"
+recipes:
+  - query: hello/hello.txt
+    title: Test Hello Recipe
+    description: A hello recipe
+"#;
 
         // 3. Set it into memory store under key test/recipes.yaml
         let recipes_key = parse_key("test/recipes.yaml").unwrap();
@@ -6419,6 +6426,9 @@ mod tests {
         let value = state1.try_into_string().unwrap();
         assert_eq!(value, "Hello, world!");
         assert!(!state1.is_error().unwrap());
+        let asset_metadata = asset1.get_metadata().await.unwrap();
+        assert_eq!(asset_metadata.title(), "Test Hello Recipe");
+        assert_eq!(asset_metadata.description(), "A hello recipe");
 
         // 9. Check the result again to ensure caching works
         let state2 = asset2.get().await.expect("Failed to get asset state");
