@@ -213,3 +213,74 @@ fn store03_directory_index_is_consistent() {
         "a leaf key must not be a directory"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Review follow-up: the configured key set bounds what can be fetched.
+// ---------------------------------------------------------------------------
+
+use liquers_core::store::AsyncStore;
+use liquers_web::store::FetchStore;
+
+fn listed_store() -> FetchStore {
+    FetchStore::new(
+        &parse_key("data").expect("prefix"),
+        "https://example.org/ref/",
+        vec![parse_key("data/input.txt").expect("key")],
+    )
+    .expect("store")
+}
+
+/// An unlisted key is absent, and no request is made for it.
+///
+/// Before this, `get` built a URL from any syntactically valid key below the prefix and fetched
+/// it, while `contains` said false — so the three listing answers contradicted what a read would
+/// actually do, and an empty `keys` turned the store into a way to request arbitrary paths under
+/// `url_prefix`. The known-key set has to bound reads, not just listings.
+///
+/// This test runs under Node with no `fetch` available, which is itself part of the assertion: if
+/// the store attempted a request, the error would be about a missing global rather than a missing
+/// key.
+#[wasm_bindgen_test]
+async fn fetch_unlisted_key_is_absent_and_not_requested() {
+    let store = listed_store();
+    let unlisted = parse_key("data/unlisted.txt").expect("key");
+
+    match store.get(&unlisted).await {
+        Ok(_) => panic!("an unlisted key must not resolve"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message),
+    }
+    assert!(!store.contains(&unlisted).await.expect("contains"));
+    assert!(
+        !store.is_supported(&unlisted),
+        "an unlisted key must not be routed here, or it shadows a store that could serve it"
+    );
+
+    // The listed key is supported, so the guard bounds rather than disables the store.
+    let listed = parse_key("data/input.txt").expect("key");
+    assert!(store.is_supported(&listed));
+    assert!(store.contains(&listed).await.expect("contains"));
+
+    // A derived directory is routable too — listing it must not require a data key of its own.
+    assert!(store.is_supported(&parse_key("data").expect("key")));
+}
+
+/// A key shape the guard refuses is still `KeyNotSupported`, not merely "unlisted".
+///
+/// Order matters: the membership check must not mask the escape check, or `STORE05` would start
+/// reporting `KeyNotFound` and a caller could no longer tell a refused shape from an absent file.
+#[wasm_bindgen_test]
+async fn fetch_escaping_key_is_unsupported_not_merely_unlisted() {
+    let store = listed_store();
+    match store.get(&parse_key("data/../../etc").expect("key")).await {
+        Ok(_) => panic!("an escaping key must be refused"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
+    }
+}
+
+/// A store configured with no keys serves nothing at all.
+#[wasm_bindgen_test]
+async fn fetch_store_with_no_keys_serves_nothing() {
+    let store = FetchStore::new(&parse_key("data").expect("prefix"), "https://example.org/", vec![])
+        .expect("store");
+    assert!(!store.is_supported(&parse_key("data/anything").expect("key")));
+}

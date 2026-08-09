@@ -276,10 +276,30 @@ fn rebuild_with(additional: JsValue) -> Result<(), Error> {
 pub fn configure_store_on(
     config: liquers_store::config::StoreRouterConfig,
 ) -> Result<(), Error> {
-    // Build once before retaining it, so a bad configuration fails without leaving the retained
-    // copy pointing at something that cannot be constructed on the next rebuild.
-    STORE_CONFIG.with(|cell| *cell.borrow_mut() = Some(config));
+    // Retain the replacement *and keep the predecessor*, because applying it can fail and the
+    // retained copy is what every later rebuild replays. Leaving a failed replacement retained
+    // would make the next command registration rebuild into a broken store; clearing retention
+    // instead would drop a working store that is still installed. Both were possible before this
+    // was written as a swap-and-restore.
+    let previous = STORE_CONFIG.with(|cell| cell.borrow_mut().replace(config));
 
+    let result = apply_retained_store_config();
+
+    if result.is_err() {
+        // Nothing has been installed: `apply_store` builds the router before touching the
+        // environment, and `rebuild_without` swaps `GLOBAL_ENV` only after it succeeds. So the
+        // live environment still has the predecessor's store, and restoring the retained copy is
+        // all that is needed to keep the two in step.
+        STORE_CONFIG.with(|cell| *cell.borrow_mut() = previous);
+    }
+    result
+}
+
+/// Applies whatever is currently retained in `STORE_CONFIG` to the singleton.
+///
+/// Directly while the environment is un-shared; by rebuilding and replaying once it has been
+/// shared.
+fn apply_retained_store_config() -> Result<(), Error> {
     let applied_directly = PENDING_ENV.with(|cell| -> Result<bool, Error> {
         let mut guard = cell.borrow_mut();
         match guard.as_mut() {
@@ -289,25 +309,18 @@ pub fn configure_store_on(
             }
             None => Ok(false),
         }
-    });
+    })?;
 
-    match applied_directly {
-        Ok(true) => Ok(()),
-        Ok(false) => {
-            if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
-                return Err(Error::from_error(
-                    ErrorType::NotAvailable,
-                    "Liquers is not initialized — await liquers.init() first".to_string(),
-                ));
-            }
-            rebuild_without()
-        }
-        Err(e) => {
-            // Do not retain a configuration that could not be applied.
-            STORE_CONFIG.with(|cell| *cell.borrow_mut() = None);
-            Err(e)
-        }
+    if applied_directly {
+        return Ok(());
     }
+    if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
+        return Err(Error::from_error(
+            ErrorType::NotAvailable,
+            "Liquers is not initialized — await liquers.init() first".to_string(),
+        ));
+    }
+    rebuild_without()
 }
 
 /// Names a page object so a `js` store entry in the configuration can refer to it.
@@ -316,21 +329,29 @@ pub fn configure_store_on(
 /// *after* re-applies the store configuration, so the order of the two calls does not matter —
 /// at the price of a rebuild when the environment has already been shared.
 pub fn register_store_object_on(name: &str, object: js_sys::Object) -> Result<(), Error> {
-    STORE_OBJECTS.with(|cell| {
+    let previous_objects = STORE_OBJECTS.with(|cell| {
         let mut objects = cell.borrow_mut();
+        let snapshot = objects.clone();
         objects.retain(|(existing, _)| existing != name);
         objects.push((name.to_string(), object));
+        snapshot
     });
 
+    // Only re-apply when a configuration is already installed. Registering objects *before*
+    // `configureStore` is the ordinary order and costs nothing; this branch exists so that the
+    // reverse order also works rather than silently doing nothing.
     let configured = STORE_CONFIG.with(|cell| cell.borrow().is_some());
     if !configured {
         return Ok(());
     }
-    let config = STORE_CONFIG.with(|cell| cell.borrow().clone());
-    match config {
-        Some(config) => configure_store_on(config),
-        None => Ok(()),
+
+    let result = apply_retained_store_config();
+    if result.is_err() {
+        // The new object could not be brought into service, so it must not stay registered
+        // either — otherwise a later unrelated rebuild would pick it up.
+        STORE_OBJECTS.with(|cell| *cell.borrow_mut() = previous_objects);
     }
+    result
 }
 
 /// Reads a store configuration from a JavaScript object, or from a YAML/JSON string.
@@ -606,7 +627,24 @@ pub fn reset_global() {
 /// possible (`ENVIRON05`).
 #[wasm_bindgen(js_name = Environment)]
 pub struct LiquersEnvironment {
-    envref: EnvRef<WebEnvironment>,
+    handle: EnvHandle,
+}
+
+/// What an [`LiquersEnvironment`] points at.
+///
+/// The distinction exists because the singleton is **replaced**, not mutated: registering a
+/// command or configuring a store after the environment has been shared builds a fresh one and
+/// swaps `GLOBAL_ENV`. A handle that cached the `EnvRef` it was created with would keep evaluating
+/// against the environment as it was at `Environment.global()` time — so `configureStore()`
+/// followed by `evaluate()` on the *same* handle would run against the store-less predecessor
+/// while `store()` returned the configured one. Resolving on each use is what keeps the two
+/// halves of one handle telling the same story.
+enum EnvHandle {
+    /// The singleton, resolved on every use so that a rebuild is visible immediately.
+    Global,
+    /// An isolated instance created with `new Environment()`. It is never rebuilt, so holding its
+    /// `EnvRef` is correct — and necessary, since it is not reachable any other way.
+    Explicit(EnvRef<WebEnvironment>),
 }
 
 #[wasm_bindgen(js_class = Environment)]
@@ -616,7 +654,9 @@ impl LiquersEnvironment {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<LiquersEnvironment, JsValue> {
         build_environment()
-            .map(|envref| LiquersEnvironment { envref })
+            .map(|envref| LiquersEnvironment {
+                handle: EnvHandle::Explicit(envref),
+            })
             .map_err(liquers_error_to_js)
     }
 
@@ -630,9 +670,12 @@ impl LiquersEnvironment {
     /// it would after an evaluation.
     #[wasm_bindgen(js_name = global)]
     pub fn global() -> Result<LiquersEnvironment, JsValue> {
-        shared_env()
-            .map(|envref| LiquersEnvironment { envref })
-            .map_err(liquers_error_to_js)
+        // Share now, for the reason above, but do not *retain* the result: the handle re-resolves
+        // on every use so that a later rebuild is visible through it.
+        shared_env().map_err(liquers_error_to_js)?;
+        Ok(LiquersEnvironment {
+            handle: EnvHandle::Global,
+        })
     }
 
     /// Configures the **singleton's** store from a configuration object, or a YAML/JSON string.
@@ -663,14 +706,23 @@ impl LiquersEnvironment {
         register_store_object_on(name, object).map_err(liquers_error_to_js)
     }
 
-    /// The singleton's store.
+    /// This environment's store.
+    ///
+    /// The singleton's store for a global handle, and the instance's own for an explicit one —
+    /// which for an instance is the empty default, since `configureStore` targets the singleton.
     pub fn store(&self) -> Result<crate::store::wrapper::LiquersStore, JsValue> {
-        global_store().map_err(liquers_error_to_js)
+        let envref = self.resolve().map_err(liquers_error_to_js)?;
+        Ok(crate::store::wrapper::LiquersStore::new(
+            envref.0.get_async_store(),
+        ))
     }
 
     /// Evaluates a query on **this** environment, returning a `Promise`.
     pub fn evaluate(&self, query: &str) -> js_sys::Promise {
-        let envref = self.envref.clone();
+        let envref = match self.resolve() {
+            Ok(envref) => envref,
+            Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),
+        };
         match liquers_core::parse::parse_query(query) {
             Ok(parsed) => crate::eval::evaluate_to_promise(envref, parsed),
             Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
@@ -680,13 +732,19 @@ impl LiquersEnvironment {
     /// Evaluates an already-parsed query on this environment.
     #[wasm_bindgen(js_name = evaluateQuery)]
     pub fn evaluate_query(&self, query: &crate::objects::LiquersQuery) -> js_sys::Promise {
-        crate::eval::evaluate_to_promise(self.envref.clone(), query.inner().clone())
+        match self.resolve() {
+            Ok(envref) => crate::eval::evaluate_to_promise(envref, query.inner().clone()),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
     }
 
     /// Resolves a query to an `Asset` on this environment.
     #[wasm_bindgen(js_name = getAsset)]
     pub fn get_asset(&self, query: &str) -> js_sys::Promise {
-        let envref = self.envref.clone();
+        let envref = match self.resolve() {
+            Ok(envref) => envref,
+            Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),
+        };
         let parsed = match liquers_core::parse::parse_query(query) {
             Ok(q) => q,
             Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),
@@ -703,8 +761,8 @@ impl LiquersEnvironment {
     #[wasm_bindgen(js_name = describeCommand)]
     pub fn describe_command(&self, name: &str) -> Result<JsValue, JsValue> {
         let key = liquers_core::command_metadata::CommandKey::new("", "", name);
-        let meta = self
-            .envref
+        let envref = self.resolve().map_err(liquers_error_to_js)?;
+        let meta = envref
             .0
             .get_command_metadata_registry()
             .get(key.clone())
@@ -715,7 +773,10 @@ impl LiquersEnvironment {
     /// The names of every command registered on this environment.
     #[wasm_bindgen(js_name = commandNames)]
     pub fn command_names(&self) -> Vec<JsValue> {
-        self.envref
+        let Ok(envref) = self.resolve() else {
+            return Vec::new();
+        };
+        envref
             .0
             .get_command_metadata_registry()
             .commands
@@ -748,12 +809,21 @@ impl LiquersEnvironment {
 }
 
 impl LiquersEnvironment {
-    pub fn envref(&self) -> &EnvRef<WebEnvironment> {
-        &self.envref
+    /// The environment this handle currently points at.
+    ///
+    /// For a global handle this re-reads the singleton, so a rebuild that happened since the
+    /// handle was created is visible.
+    pub fn resolve(&self) -> Result<EnvRef<WebEnvironment>, Error> {
+        match &self.handle {
+            EnvHandle::Global => shared_env(),
+            EnvHandle::Explicit(envref) => Ok(envref.clone()),
+        }
     }
 
     pub fn from_envref(envref: EnvRef<WebEnvironment>) -> Self {
-        LiquersEnvironment { envref }
+        LiquersEnvironment {
+            handle: EnvHandle::Explicit(envref),
+        }
     }
 }
 

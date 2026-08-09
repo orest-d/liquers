@@ -217,8 +217,9 @@ impl LocalStorageStore {
     /// Takes **all** the entries a single operation will write, not one at a time. A `set` writes
     /// both metadata and data, and checking them separately lets the first succeed and the second
     /// fail — which leaves an orphan metadata entry occupying quota for a key that has no value.
-    /// The atomicity this store offers is therefore "all of an operation's entries fit, or none is
-    /// written", which is the strongest guarantee available over a synchronous key-value API.
+    /// This covers the *configured* budget only. The browser's own limit cannot be checked in
+    /// advance and is handled by the rollback in [`Self::put_all`]; between the two, an operation
+    /// writes all of its entries or leaves storage as it found it.
     ///
     /// Note that metadata dominates the budget for small values: a `MetadataRecord` serializes to
     /// several hundred bytes regardless of payload size. That is honest accounting — the bytes are
@@ -278,7 +279,18 @@ impl LocalStorageStore {
         Ok(())
     }
 
-    /// Writes every entry of one operation, or none of them.
+    /// Writes every entry of one operation, or leaves storage as it found it.
+    ///
+    /// Two failures are possible and they need different handling. The **configured** budget is
+    /// checked for all entries together up front, so it refuses before anything is written. The
+    /// **browser's own** limit cannot be checked in advance — `setItem` simply throws, and it can
+    /// throw on the second entry after the first has been committed. Without a rollback, a `set`
+    /// that hit the real quota would leave the new metadata beside the *old* data, and `get`
+    /// would return a value paired with metadata describing a different one.
+    ///
+    /// So each write records what it replaced, and a failure restores those values in reverse.
+    /// Restoring cannot itself hit the quota: every restored value is one storage already held,
+    /// and a removal only frees space.
     fn put_all(
         &self,
         storage: &web_sys::Storage,
@@ -286,10 +298,38 @@ impl LocalStorageStore {
         entries: &[(String, String)],
     ) -> Result<(), Error> {
         self.ensure_budget(storage, key, entries)?;
+
+        let mut written: Vec<(&str, Option<String>)> = Vec::with_capacity(entries.len());
         for (name, value) in entries {
-            self.write_entry(storage, key, name, value)?;
+            let replaced = storage.get_item(name).ok().flatten();
+            match self.write_entry(storage, key, name, value) {
+                Ok(()) => written.push((name.as_str(), replaced)),
+                Err(e) => {
+                    self.roll_back(storage, &written);
+                    return Err(e);
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Undoes the writes of a failed [`Self::put_all`], newest first.
+    ///
+    /// The byte accounting is rebuilt by rescanning rather than by unwinding the increments:
+    /// this is an error path, so the extra pass is free, and a scan cannot drift from what is
+    /// actually stored the way a hand-maintained counter can.
+    fn roll_back(&self, storage: &web_sys::Storage, written: &[(&str, Option<String>)]) {
+        for (name, replaced) in written.iter().rev() {
+            match replaced {
+                Some(value) => {
+                    let _ = storage.set_item(name, value);
+                }
+                None => {
+                    let _ = storage.remove_item(name);
+                }
+            }
+        }
+        let _ = self.rescan();
     }
 
     fn drop_entry(&self, storage: &web_sys::Storage, name: &str) {

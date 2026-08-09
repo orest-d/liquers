@@ -28,26 +28,36 @@ import { test, expect } from '@playwright/test';
  * served by the same static server as the page. Run `build.sh` first.
  */
 
-/** Loads the module in the page and returns nothing; subsequent evaluates reuse it. */
+/**
+ * Reaches the module the page already loaded.
+ *
+ * Deliberately does **not** call the wasm-bindgen initializer: `/index.html` has already run it,
+ * and ES modules are cached per URL, so this import yields the very same initialized module.
+ * Calling `default()` a second time re-instantiates the wasm module underneath the page's
+ * references, which shows up as an intermittent `memory access out of bounds` and then as every
+ * later `page.evaluate` hanging — a dead instance never resolves its promises.
+ */
 const BOOT = `
-  const m = await import('./liquers_web.js');
-  if (!globalThis.__liquersModule) {
-    await m.default();
-    globalThis.__liquersModule = m;
-  }
-  if (!m.isInitialized()) await m.init();
+  const liquers = await import('./liquers_web.js');
+  if (!liquers.isInitialized()) await liquers.init();
 `;
+
+/** Waits until the page's own script has initialized the wasm module. */
+async function awaitReady(page: import('@playwright/test').Page) {
+  await page.waitForFunction(() => (globalThis as any).__liquersQuickstart?.ready === true);
+}
 
 async function boot(page: import('@playwright/test').Page) {
   await page.goto('/index.html');
-  await page.evaluate(`(async () => { ${BOOT} return true; })()`);
+  // The page's own script initializes the module; wait for it rather than racing it. Evaluating
+  // too early reaches the module before its wasm is instantiated, and every export throws.
+  await awaitReady(page);
 }
 
 /** Runs an async body in the page with the module bound to `liquers`. */
 function inPage(body: string): string {
   return `(async () => {
     ${BOOT}
-    const liquers = globalThis.__liquersModule;
     ${body}
   })()`;
 }
@@ -191,6 +201,7 @@ test.describe('STORE — end to end in a real browser', () => {
     );
 
     await page.reload();
+    await awaitReady(page);
 
     const out = await page.evaluate(
       inPage(`
@@ -325,6 +336,7 @@ test.describe('STORE — the store surface, which is not blocked', () => {
     );
 
     await page.reload();
+    await awaitReady(page);
 
     const out = await page.evaluate(
       inPage(`

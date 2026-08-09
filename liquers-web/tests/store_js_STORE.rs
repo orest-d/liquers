@@ -467,3 +467,107 @@ fn object_may_be_registered_after_the_configuration() {
     reset_global();
 }
 
+
+// ---------------------------------------------------------------------------
+// Review follow-up (PR #24).
+// ---------------------------------------------------------------------------
+
+/// A global `Environment` handle sees a rebuild that happened after it was created.
+///
+/// The singleton is *replaced*, not mutated. A handle that cached the `EnvRef` it was made with
+/// kept evaluating against the environment as it was at `Environment.global()` time, so
+/// `configureStore()` followed by `evaluate()` on the **same handle** ran against the store-less
+/// predecessor while `store()` returned the configured one — two halves of one object disagreeing.
+#[wasm_bindgen_test]
+fn global_handle_follows_the_rebuilt_environment() {
+    use liquers_web::environment::{with_global, LiquersEnvironment};
+
+    reset_global();
+    init_global().expect("init");
+
+    // Taking the handle shares the environment, so the configuration below rebuilds.
+    let handle = LiquersEnvironment::global().expect("global handle");
+    let before = handle.resolve().expect("resolve before");
+
+    register_store_object_on("mine", object(FULL_STORE)).expect("register object");
+    configure_store_on(js_store_config("mem", "mine")).expect("configure");
+
+    let after = handle.resolve().expect("resolve after");
+    assert!(
+        !std::sync::Arc::ptr_eq(&before.0, &after.0),
+        "the configuration must have rebuilt the environment, or this test proves nothing"
+    );
+    assert!(
+        std::sync::Arc::ptr_eq(&after.0, &with_global().expect("global").0),
+        "the handle must resolve to the current singleton, not the one it was created from"
+    );
+
+    // Both halves of the handle now agree: the store it reports is the configured one.
+    assert!(handle
+        .store()
+        .expect("store")
+        .store_name()
+        .contains("Store router"));
+
+    reset_global();
+}
+
+/// An explicit instance keeps its own environment and is unaffected by the singleton.
+#[wasm_bindgen_test]
+fn explicit_instance_is_not_the_singleton() {
+    use liquers_web::environment::{with_global, LiquersEnvironment};
+
+    reset_global();
+    init_global().expect("init");
+    let instance = LiquersEnvironment::new().expect("instance");
+    let shared = liquers_web::environment::shared_env().expect("shared");
+    assert!(!std::sync::Arc::ptr_eq(&instance.resolve().expect("resolve").0, &shared.0));
+
+    register_store_object_on("mine", object(FULL_STORE)).expect("register object");
+    configure_store_on(js_store_config("mem", "mine")).expect("configure");
+
+    assert!(
+        !std::sync::Arc::ptr_eq(
+            &instance.resolve().expect("resolve").0,
+            &with_global().expect("global").0
+        ),
+        "configuring the singleton must not repoint an explicit instance"
+    );
+    reset_global();
+}
+
+/// A failed reconfiguration leaves the working store retained and installed.
+///
+/// The retained configuration is what every later rebuild replays, so getting this wrong is
+/// delayed rather than immediate: the failure is visible only when something *else* triggers a
+/// rebuild, and then the store either vanishes or the rebuild keeps failing.
+#[wasm_bindgen_test]
+fn failed_reconfiguration_keeps_the_previous_store() {
+    reset_global();
+    init_global().expect("init");
+    register_store_object_on("good", object(FULL_STORE)).expect("register object");
+    configure_store_on(js_store_config("mem", "good")).expect("configure");
+
+    // An invalid replacement: it names an object nobody registered.
+    let invalid = configure_store_on(js_store_config("mem", "never_registered"));
+    assert!(invalid.is_err(), "a configuration naming an unknown object must fail");
+
+    // Still installed…
+    assert!(global_store()
+        .expect("store")
+        .store_name()
+        .contains("Store router"));
+
+    // …and still *retained*, which only a later rebuild can show. Registering a command is the
+    // ordinary way a rebuild happens.
+    register_command_on(&common::decl("hello", "return 'hi';")).expect("register command");
+    assert!(
+        global_store()
+            .expect("store after rebuild")
+            .store_name()
+            .contains("Store router"),
+        "the working configuration must survive a rebuild that follows a failed replacement"
+    );
+
+    reset_global();
+}

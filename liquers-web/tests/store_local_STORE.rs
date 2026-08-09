@@ -296,3 +296,50 @@ async fn quota_absent_means_unlimited() {
     let (data, _) = store.get(&k).await.expect("get");
     assert_eq!(data.len(), 5000);
 }
+
+/// A write the *browser* refuses part-way through leaves the previous value intact.
+///
+/// This is the failure the configured budget cannot catch. `set` writes two entries, metadata
+/// first; if the data write then throws `QuotaExceededError`, without a rollback the store is left
+/// holding the **old data beside the new metadata** — a value silently described by metadata for a
+/// different one. `contains` still says true, `used_bytes` still looks plausible, and only reading
+/// both halves reveals it.
+///
+/// No configured quota here, deliberately: the point is the browser's own limit. The payload is
+/// far past any implementation's few-megabyte cap, so the refusal is deterministic.
+#[wasm_bindgen_test]
+async fn browser_quota_failure_rolls_back_the_whole_write() {
+    let store = store("t_rollback");
+    let k = key("d/doc.txt");
+
+    store
+        .set(&k, b"original", &Metadata::new())
+        .await
+        .expect("the first write fits");
+    let used_before = store.used_bytes();
+
+    // ~40 MB of text: past every browser's localStorage limit.
+    let oversized = vec![b'x'; 40 * 1024 * 1024];
+    match store.set(&k, &oversized, &Metadata::new()).await {
+        Ok(()) => panic!("a 40 MB value must not fit in localStorage"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyWriteError, "{}", e.message),
+    }
+
+    // Both halves are the originals. `file_size` is the discriminator, deliberately: `set`
+    // finalizes metadata from the key, so `media_type` is re-derived from the `.txt` extension and
+    // reads `text/plain` for *either* version — an assertion on it would pass whatever happened.
+    // The recorded size is the field that actually differs between the two writes.
+    let (data, metadata) = store.get(&k).await.expect("the original value survives");
+    assert_eq!(data, b"original", "the data must not have been replaced");
+    assert_eq!(
+        metadata.file_size(),
+        Some(8),
+        "the metadata must describe the *stored* value — this is the half written first, so \
+         without a rollback it describes the 40 MB one that was never written"
+    );
+    assert_eq!(
+        store.used_bytes(),
+        used_before,
+        "a rolled-back write must not leave bytes behind"
+    );
+}

@@ -168,6 +168,29 @@ impl FetchStore {
         key_to_url(&self.url_prefix, &self.prefix, key, &self.store_name())
     }
 
+    /// Whether this store claims to hold `key`, as a data key or as a derived directory.
+    fn knows(&self, key: &Key) -> bool {
+        self.keys.contains(key) || self.dirs.contains_key(key)
+    }
+
+    /// Refuses a key the configuration never listed, **before** any request is made.
+    ///
+    /// The configured key set is what `contains`, `is_dir` and `listdir` answer from, so a `get`
+    /// that fetched anything under the prefix would contradict all three — and, with an empty or
+    /// absent `keys`, would turn the store into a way to request arbitrary paths under
+    /// `url_prefix`. The known-key boundary has to bound what can be fetched, not just what can be
+    /// listed.
+    ///
+    /// If unlisted fetches are ever wanted, that is an explicit configuration option, not the
+    /// default.
+    fn require_known(&self, key: &Key) -> Result<(), Error> {
+        if self.keys.contains(key) {
+            Ok(())
+        } else {
+            Err(Error::key_not_found(key))
+        }
+    }
+
     /// Issues a request and returns the response.
     ///
     /// `fetch` is read off the global object rather than `web_sys::Window`, so this works in a
@@ -269,6 +292,7 @@ impl AsyncStore for FetchStore {
 
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         let url = self.url_for(key)?;
+        self.require_known(key)?;
         let response = self.request(key, &url, "GET").await?;
         if !response.ok() {
             return Err(self.status_error(key, &url, response.status()));
@@ -294,6 +318,7 @@ impl AsyncStore for FetchStore {
             return Ok(self.directory_metadata(key));
         }
         let url = self.url_for(key)?;
+        self.require_known(key)?;
         let response = self.request(key, &url, "HEAD").await?;
         if response.ok() {
             return Ok(self.metadata_from_response(key, &response, None));
@@ -313,7 +338,7 @@ impl AsyncStore for FetchStore {
     }
 
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        Ok(self.keys.contains(key) || self.dirs.contains_key(key))
+        Ok(self.knows(key))
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
@@ -334,7 +359,11 @@ impl AsyncStore for FetchStore {
 
     /// Must be overridden: the trait default is `false`, and `AsyncStoreRouter` consults it, so a
     /// store that leaves the default is silently never selected.
+    ///
+    /// Membership in the configured key set is part of the answer, not only the prefix. A store
+    /// that claimed every syntactically valid key below its prefix would take routing decisions
+    /// for keys it cannot serve — and, in a composition, would shadow a later store that can.
     fn is_supported(&self, key: &Key) -> bool {
-        key.has_key_prefix(&self.prefix) && check_key(key, "fetch store").is_ok()
+        key.has_key_prefix(&self.prefix) && check_key(key, "fetch store").is_ok() && self.knows(key)
     }
 }
