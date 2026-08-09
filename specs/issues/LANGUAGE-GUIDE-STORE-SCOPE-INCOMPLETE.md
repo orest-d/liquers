@@ -2,7 +2,7 @@
 id: LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE
 kind: issue
 title: The guide's STORE feature omits integration-provided stores and store configuration
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [web, py, core/store]
@@ -65,6 +65,37 @@ apply") warns that reinterpretation is where inventories go soft.
 Whether these belong under `STORE` or split into a separate feature ID is open — a separate ID
 would let an *integration* select configuration without a *language*-defined store, which is
 `liquers-web`'s actual situation.
+
+## Resolved, 2026-08-09
+
+`LANGUAGE-INTEGRATION_GUIDE.md` §5 `STORE` now states two directions explicitly — a store written
+in the *language*, and stores the *integration* provides plus their configuration — and says that
+leaving the second out is the easy mistake, because the first is what "language-defined" suggests
+while the second is usually the larger half of the work.
+
+Added with it: design questions for an integration-provided backend (read-only refusal, where
+metadata comes from and which source wins, directory semantics on a backend that has none, quota
+behaviour, byte representation on a text-only backend) and for configuration (whether one document
+means the same thing on every target, and what variable substitution means in a host with no
+environment).
+
+The four proposed tests were adopted under the numbers this issue suggested — `STORE08`
+integration-provided store satisfies the same contract, `STORE09` read-only refusal without
+fall-through, `STORE10` metadata precedence, `STORE11` configured routing — with blueprints in
+Appendix A. They are `NA`, with the reason stated, for an *integration* that selects only the
+first direction.
+
+The question this issue left open — whether configuration deserves a feature ID of its own — was
+**answered no**. Keeping it inside `STORE` costs an *integration* that wants configuration without
+a *language*-defined store nothing: it selects `STORE`, implements direction 2, and marks
+`STORE01`–`STORE07`'s language-defined column `NA`. A separate ID would have split one coherent
+contract across two, for a case that is a disposition rather than a different feature.
+
+Two further changes came out of the same review, beyond what this issue asked for: a shared
+"Service adapters — two rules that apply to all of them" section (permissive defaults must not be
+inherited by an adapter; resolve the protocol at adaptation time), which applies to `RECIPE` as
+much as `STORE`, and an `ERROR` question about whether the *language* can *construct* an error —
+without which every failure a *language* store reports collapses onto the adapter's fallback type.
 
 ## Discovery
 
