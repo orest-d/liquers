@@ -2645,10 +2645,21 @@ impl<E: Environment> AssetRef<E> {
         if let Some(binary) = self.poll_binary_any_status().await {
             return Ok(Some(binary));
         }
-        let state = {
+        // Only a value-bearing or retained-expired state can be serialized. `poll_state_any_status`
+        // also returns a metadata-only sentinel for Directory/Error/Cancelled, and serializing that
+        // is wrong in two different ways: `Error` would surface the recorded value error as if
+        // serialization had failed, while `Cancelled` and `Directory` have no value error and would
+        // fabricate bytes from a `none` value. Those statuses have no binary representation at all,
+        // so the answer is `Ok(None)` — matching the manager's store-backed path, which already
+        // declines them via `has_data()`.
+        let (exposure, state) = {
             let lock = self.data.read().await;
-            lock.poll_state_any_status()
+            (lock.status.read_exposure(), lock.poll_state_any_status())
         };
+        match exposure {
+            ReadExposure::Value | ReadExposure::Expired => {}
+            ReadExposure::MetadataOnly | ReadExposure::Pending => return Ok(None),
+        }
         let Some(state) = state else {
             return Ok(None);
         };
@@ -7819,6 +7830,42 @@ mod tests {
         assert!(err.to_string().to_lowercase().contains("director"));
         assert!(dir.poll_binary().await.is_none());
         assert!(dir.poll_state().await.is_some());
+        Ok(())
+    }
+
+    /// The `MetadataOnly` and `Pending` rows of `get_binary_any_status`, which the first pass
+    /// through the suite left unasserted — every other test reaches recovery through a status
+    /// that *has* a binary form.
+    ///
+    /// These statuses have no binary representation at all, so recovery must report absence
+    /// rather than serialize the metadata-only sentinel `poll_state_any_status` returns for them.
+    /// Serializing it fails two different ways: `Error` surfaces its recorded value error as if
+    /// serialization had broken, and `Cancelled`/`Directory` have no value error, so they
+    /// fabricate bytes out of a `none` value.
+    #[tokio::test]
+    async fn test_binary_recovery_declines_statuses_with_no_binary()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let envref = test_envref();
+        for (i, status) in ALL_STATUSES.into_iter().enumerate() {
+            match status.read_exposure() {
+                ReadExposure::MetadataOnly | ReadExposure::Pending => {}
+                ReadExposure::Value | ReadExposure::Expired => continue,
+            }
+            // A retained value but no cached bytes: the shape that would tempt serialization.
+            let key = parse_key("gate/no_binary_form.txt")?;
+            let mut d =
+                AssetData::<SimpleEnvironment<Value>>::new(9340 + i as u64, key.into(), envref.clone());
+            d.data = Some(Arc::new(Value::from("not serializable via this path")));
+            d.binary = None;
+            d.status = status;
+            let assetref = d.to_ref();
+
+            assert!(
+                assetref.get_binary_any_status().await?.is_none(),
+                "{:?} has no binary representation; recovery must report absence, not serialize",
+                status
+            );
+        }
         Ok(())
     }
 
