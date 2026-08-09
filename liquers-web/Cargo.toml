@@ -15,6 +15,12 @@ liquers-core = { path = "../liquers-core" }
 liquers-lib = { path = "../liquers-lib", default-features = false, features = ["webui"] }
 # Linked because `register_core_commands!` expands into this crate and names `liquers_macro`.
 liquers-macro = { path = "../liquers-macro" }
+# Configuration and the store-router builder, without OpenDAL — which is native-oriented and
+# large. `StoreFactory` (added for this crate) is what lets the browser store types plug in.
+# See specs/design/liquers-web-store/.
+liquers-store = { path = "../liquers-store", default-features = false, features = ["async_store"] }
+# localStorage holds UTF-16 strings, so bytes that are not valid UTF-8 are base64-encoded.
+base64 = "0.22"
 
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -28,7 +34,11 @@ futures = "0.3"
 
 [dependencies.web-sys]
 version = "0.3"
-features = ["console", "Window"]
+# `Storage` for the localStorage store; `Request`/`Response`/`Headers` for the fetch store.
+# Deliberately *not* `WorkerGlobalScope`: the `fetch` function is taken from `js_sys::global()`,
+# which works in a window, a worker and under Node alike — see
+# specs/design/liquers-web-store/phase2-architecture.md.
+features = ["console", "Window", "Storage", "Request", "RequestInit", "Response", "Headers"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

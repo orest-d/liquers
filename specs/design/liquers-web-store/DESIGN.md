@@ -23,14 +23,14 @@ which `specs/design/liquers-web/` explicitly deferred.
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved 2026-08-09 — all four phases approved)
-- [ ] Implementation Complete — **M1 done ✅** (Steps 1-4); M2-M6 not started
+- [ ] Implementation Complete — **M1-M2 done ✅** (Steps 1-8); M3-M6 not started
 
 ## Implementation status
 
 | Milestone | Scope | Result |
 |---|---|---|
 | M1 | `liquers-store`: `opendal` feature, `StoreFactory` seam | ✅ 4 factory tests; 10 build configurations green; no regression |
-| M2 | Envelope codec, key guard | not started |
+| M2 | Envelope codec, key guard | ✅ 9 tests green under Node; 106 wasm tests total, no regression |
 | M3 | `FetchStore` | not started |
 | M4 | `LocalStorageStore` | not started |
 | M5 | `JsStore`, factory, environment wiring | not started |
@@ -59,6 +59,34 @@ optional-dependency change away from an afternoon of confusing errors in an unre
 `factory02` is worth keeping in mind during M5: it asserts that a factory claiming `http` beats
 the OpenDAL built-in, using a call counter rather than "the router built successfully", because
 the latter cannot tell which code path ran.
+
+**M2 EXECUTED ✅.** `liquers-web/src/store/` created with `encoding.rs` (the versioned `1u`/`1b`
+envelope) and `key_guard.rs`, plus the `liquers-store` and `base64` dependencies and the four new
+web-sys features. Gates: 9 new tests green under Node, full `liquers-web` wasm suite 106 tests
+green with no regression.
+
+**Group 1 delivers 9 of its 12 tests here, not 12.** The other three are the `STORE05` cells for
+`LocalStorageStore`, `FetchStore` and `JsStore` — they assert that each *store* calls the guard,
+which cannot be written until the stores exist, so they land with M3/M4/M5. The guard's own
+behaviour is fully covered now.
+
+Two small additions to the plan, both worth keeping:
+- **`keyguard04`** — the negative half. Without it `check_key` could refuse everything and the
+  three refusal tests would still pass.
+- **`keyguard05`** — the empty key must be *accepted*. It is the store root, which
+  `AsyncStore::keys` reaches through `key_prefix()`, so refusing empty keys wholesale would break
+  top-level listing. The guard rejects empty *segments*, not the empty key, and that distinction
+  now has a test.
+
+**`encoding02` exists because `encoding01` alone is not enough.** If the encoding selector
+inverted and everything took the base64 path, the round trip would still succeed and the
+recorded-encoding contract would be silently gone. `encoding02` asserts the tag actually records
+the path taken.
+
+**Environment note:** the Node loop needs `wasm-bindgen-test-runner` at *exactly* the crate's
+`wasm-bindgen` version (0.2.127 here). It was absent in this container and a mismatch fails at
+bindgen time rather than at compile time, which is the late, obscure failure the guide's harness
+question 3 warns about.
 
 ## Notes
 
