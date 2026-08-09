@@ -3,7 +3,7 @@ id: LIQUERS-WEB-STORE
 kind: design
 title: Browser stores for liquers-web
 status: in_review
-phase: examples
+phase: implementation
 area: [web, store/config, core/store]
 gh_pr: []
 issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE]
@@ -21,8 +21,8 @@ which `specs/design/liquers-web/` explicitly deferred.
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [x] Phase 3: Examples & Testing (awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [x] Phase 4: Implementation Plan (awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
@@ -160,6 +160,33 @@ naming: `STORE06` does not accept "either the last write won or one of them did"
 `LocalStorageStore` never awaits, there is no interleaving point, so the test asserts the value
 equals the *last* write specifically and is one byte long. It becomes a tripwire the day someone
 makes a storage call async.
+
+**Phase 4 outcome — 23 steps in 6 milestones, 44 tests.** M1 (`liquers-store`: the `opendal`
+feature and the `StoreFactory` seam) is the only milestone touching an existing crate and is
+separately gated: if it cannot be made green, the design's foundation is wrong and nothing should
+be built on it. Everything after it is new code in a crate excluded from `default-members`, so
+rollback is a file deletion.
+
+The ordering principle is that **the tests which catch silent data corruption run before the code
+that needs a browser exists**: M2 delivers the envelope codec and the key guard as pure functions
+with their full corpus, in the fast Node loop, before either store is written. M3 and M4 are
+independent.
+
+Four steps carry most of the risk, and the plan says so where an implementer will see it: Step 18
+(a missed thread-local replay silently drops every `js` store on rebuild), Step 12 (the `RefCell`
+borrow rule), Step 1 (the cfg cross-product), and Step 16 (a permissive default would make
+`STORE03` pass vacuously).
+
+**Step 1 is the only change that is not freely reversible**, since it alters a published crate's
+feature set. Mitigated by putting `opendal` in `default`, so a consumer who does nothing sees no
+change; within this workspace the set of consumers using `default-features = false` is empty.
+
+**Partial delivery is a defined outcome:** if M5 is abandoned, M1-M4 still leave `liquers-store`
+usable from wasm and two working stores, and the remainder becomes an issue rather than a
+half-finished design (`DOCS_STRUCTURE_GUIDE.md` §5.6).
+
+**Review corrected a test-count error** carried from Phase 3: the roll-up said 41 where its own
+table summed to 44. Both documents now say 44 (4 native + 29 Node + 6 Chromium + 5 Playwright).
 
 ## Links
 

@@ -231,7 +231,7 @@ WebDriver major must match Chromium) and is already recorded in `liquers-web/REA
 
 ## Test Plan
 
-**41 tests in five tiers.** Roll-up, and the order to run them in — cheapest and most diagnostic
+**44 tests in six groups across five tiers.** Roll-up, and the order to run them in — cheapest and most diagnostic
 first, so a broken encoding never reaches a browser run:
 
 | # | Group | Tier | Count | Gate |
