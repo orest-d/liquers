@@ -1,11 +1,15 @@
-# API Documentation Analysis
+---
+title: API Documentation Gap Analysis
+kind: reference
+audience: internal
+area: [docs]
+reviewed: 2026-08-09
+---
+# API Documentation Gap Analysis
 
-Status: DOC-01 through DOC-04 and DOC-08 complete
-Last reviewed: 2026-07-29
-
-This folder tracks the analysis and improvement of the Liquers API documentation.
-This document is the initial concept inventory, gap assessment, and prioritized
-documentation backlog.
+This document tracks the analysis and improvement of the Liquers API
+documentation. It is the concept inventory, gap assessment, and prioritized
+documentation backlog. DOC-01 through DOC-04 and DOC-08 are complete.
 
 ## Scope
 
@@ -167,7 +171,7 @@ The API consists of the following major concepts:
 | 5 | Commands and registration | Medium-good | Very high | Not started |
 | 6 | Values, state, metadata, and serialization | Poor | High | Not started |
 | 7 | Stores and persistence | Medium | High | Not started |
-| 8 | Recipes and plans | Poor-medium | High | Not started |
+| 8 | Recipes and plans | Good | High | Complete |
 | 9 | Dependencies, expiration, and volatility | Poor-medium | High | Not started |
 | 10 | HTTP and WebSocket APIs | Misleading | High | Not started |
 | 11 | Errors and diagnostics | Poor | Medium-high | Not started |
@@ -180,19 +184,16 @@ The API consists of the following major concepts:
 
 This is the highest-leverage documentation improvement.
 
-The [root README](../../README.md) contains only a title and tagline. It does not
-allow a developer or coding agent to determine:
+The [root README](../../../README.md) now provides the workspace API entry point,
+including crate responsibilities, core concepts, environment choices, and an
+end-to-end example. Remaining navigation gaps are:
 
-- Which crate to depend on
-- Whether to use `SimpleEnvironment`, `ImmediateEnvironment`, or
-  `liquers_lib::DefaultEnvironment`
-- How commands, stores, recipes, and assets are assembled
-- How to evaluate a query and retrieve its result
-- Which features are stable, optional, experimental, or platform-specific
+- A complete feature and target availability matrix
+- Hosted rustdoc links when published documentation exists
+- Deeper method and type contracts for the unfinished DOC items
 
-The [project overview](../PROJECT_OVERVIEW.md) contains useful architecture material,
-but it is under `specs/`, mixes current behavior with plans, and is not linked from
-the root README.
+The [project overview](../PROJECT_OVERVIEW.md) is the internal architecture
+reference and is linked from the root README.
 
 #### Recommended documentation
 
@@ -221,7 +222,7 @@ normative language reference. The concise description in the
 - Canonical rendering and round-tripping
 - Invalid inputs and diagnostic positions
 
-The completed [DOC-02 analysis](doc-02-query-language-reference.md) records the
+The completed [DOC-02 reference](DOC_02_QUERY_LANGUAGE_REFERENCE.md) records the
 implemented reference, verified semantics, and remaining implementation-level
 limitations.
 
@@ -241,13 +242,13 @@ or confuse logical keys with filesystem paths.
 
 ### 3. Assets and execution lifecycle
 
-The completed [DOC-03 analysis](doc-03-assets-execution-lifecycle.md) records the
+The completed [DOC-03 reference](DOC_03_ASSETS_EXECUTION_LIFECYCLE.md) records the
 verified public contract, implementation/specification conflicts, and remaining
 prioritized gaps.
 
 Assets have the largest amount of existing conceptual documentation:
 
-- Module-level documentation in [`assets.rs`](../../liquers-core/src/assets.rs)
+- Module-level documentation in [`assets.rs`](../../../liquers-core/src/assets.rs)
 - The [assets specification](../ASSETS.md)
 - The [asset lifecycle map](../ASSET_LIFECYCLE.md)
 
@@ -281,13 +282,14 @@ concisely:
 
 ### 4. Environment, context, and end-to-end evaluation
 
-The completed [DOC-04 analysis](doc-04-environment-context-evaluation.md) records
+The completed [DOC-04 reference](DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) records
 the verified initialization, environment binding, context sharing, dependency,
 payload, and platform contracts, together with remaining prioritized gaps.
 
 The architecture overview explains the hierarchy, but the corresponding public API
 has little method-level guidance. `Environment`, its associated types, and most of
-its methods in [`context.rs`](../../liquers-core/src/context.rs) are undocumented.
+its methods in [`context.rs`](../../../liquers-core/src/context.rs) need further
+method-level coverage.
 
 This is especially harmful to coding agents because generic constraints, associated
 types, selected asset-manager implementation, payload handling, and initialization
@@ -306,14 +308,14 @@ order must all be correct before an application can evaluate a query.
 
 ### 5. Commands and command registration
 
-The [command registration guide](../COMMAND_REGISTRATION_GUIDE.md) is one of the
+The [command registration guide](../../guides/COMMAND_REGISTRATION_GUIDE.md) is one of the
 strongest documents in the repository. It includes a quick reference, macro and
 manual registration, generic commands, organization guidance, and examples.
 
 Its main problems are discoverability and conflicting documentation. The
 [project overview](../PROJECT_OVERVIEW.md#3-command-system) describes an
 attribute-like `#[register_command]` macro, while
-[`liquers-macro`](../../liquers-macro/src/lib.rs) exports the function-like
+[`liquers-macro`](../../../liquers-macro/src/lib.rs) exports the function-like
 `register_command!` macro. The macro itself has no rustdoc.
 
 #### Recommended documentation
@@ -350,7 +352,7 @@ constructs inconsistent state or metadata.
 ### 7. Stores and persistence
 
 `liquers-store` configuration has relatively good source documentation and examples
-in [`config.rs`](../../liquers-store/src/config.rs). The underlying `Store` and
+in [`config.rs`](../../../liquers-store/src/config.rs). The underlying `Store` and
 `AsyncStore` consumer contract is less clear.
 
 #### Recommended documentation
@@ -368,13 +370,13 @@ in [`config.rs`](../../liquers-store/src/config.rs). The underlying `Store` and
 
 ### 8. Recipes and plans
 
-The completed [DOC-08 analysis](doc-08-recipes-plans.md) records the verified
+The completed [DOC-08 reference](DOC_08_RECIPES_PLANS.md) records the verified
 recipe schema, provider lookup rules, planning policies, execution flow, and
 remaining implementation-level gaps.
 
 The relationship between query, recipe, plan, and asset is not documented
 operationally enough. The `Recipe` example in the project overview is also
-incomplete relative to the current [`Recipe`](../../liquers-core/src/recipes.rs),
+incomplete relative to the current [`Recipe`](../../../liquers-core/src/recipes.rs),
 which includes circular-dependency and expiration fields.
 
 The canonical flow should be documented as:
@@ -421,10 +423,10 @@ look reasonable while violating freshness guarantees.
 
 ### 10. HTTP and WebSocket APIs
 
-The [Axum README](../../liquers-axum/README.md) calls the crate
+The [Axum README](../../../liquers-axum/README.md) calls the crate
 "production-ready" but documents only the query and store APIs. The crate publicly
 exports `AssetsApiBuilder` and `RecipesApiBuilder` from
-[`lib.rs`](../../liquers-axum/src/lib.rs), but these surfaces are omitted from the
+[`lib.rs`](../../../liquers-axum/src/lib.rs), but these surfaces are omitted from the
 README.
 
 Some routes registered by `AssetsApiBuilder` explicitly return "not implemented"
@@ -466,7 +468,7 @@ which preserve causal context, and which operations may be retried.
 ### 12. Python bindings
 
 `liquers-py` exposes many Rust concepts from
-[`lib.rs`](../../liquers-py/src/lib.rs), but it has no README, API guide, `.pyi`
+[`lib.rs`](../../../liquers-py/src/lib.rs), but it has no README, API guide, `.pyi`
 type stubs, or user-oriented examples.
 
 #### Recommended documentation
@@ -528,7 +530,8 @@ For HTTP deployments, explicitly document:
 
 ### Missing rustdoc
 
-A documentation build with `missing_docs` warnings enabled produced approximately:
+The initial 2026-03-02 documentation build with `missing_docs` warnings enabled
+produced approximately:
 
 | Crate/configuration | Missing-documentation warnings |
 |---|---:|
@@ -539,8 +542,9 @@ A documentation build with `missing_docs` warnings enabled produced approximatel
 | `liquers-macro` | 3 |
 
 These are warning instances for the tested configurations, not necessarily unique
-public API items. Conditional compilation may affect the totals. The scale is still
-representative of the current public API coverage.
+public API items. Conditional compilation affects the totals. Treat them as the
+dated baseline rather than current warning counts; DOC-01 through DOC-04 and
+DOC-08 subsequently added substantial module and type documentation.
 
 `liquers-core` contains only one rustdoc `# Example` section. The other usage
 examples are primarily in specs, tests, or development instructions and are
@@ -549,42 +553,30 @@ therefore not visible from the generated API reference.
 ### Broken and stale links
 
 The crate-level glossary in
-[`liquers-core/src/lib.rs`](../../liquers-core/src/lib.rs) links to obsolete module
-names including:
+The original audit found that [`liquers-core/src/lib.rs`](../../../liquers-core/src/lib.rs)
+linked to obsolete module names including:
 
 - `assets2`
 - `recipes2`
 - `context2`
 - `commands2`
 
-The rustdoc build reported 20 warnings, including broken intra-doc links and public
-documentation that links to private items.
+Those glossary links have since been corrected to current modules. The original
+rustdoc build also reported 20 warnings, including broken intra-doc links and
+public documentation that linked to private items; current DOC verification runs
+record their own warning results instead of reusing that dated count.
 
-### Specification status is unclear
+### Specification status and review metadata
 
-Documents under `specs/` may be:
+The documentation migration resolved the original genre ambiguity by separating
+current references and guides, change designs, issues, and dated archive records.
+Current references use the front matter defined by
+[`DOCS_STRUCTURE_GUIDE.md`](../../DOCS_STRUCTURE_GUIDE.md), including `kind`,
+`audience`, `area`, and `reviewed`; every review is recorded in `History`.
 
-- Current normative behavior
-- A design proposal
-- An implementation plan
-- Historical analysis
-- Partially implemented behavior
-- A list of resolved or unresolved issues
-
-This status is rarely machine-readable or consistently shown near the document
-title. For coding agents, this creates a high risk of implementing an obsolete
-design or calling an API that was planned but never made public.
-
-Every specification should carry a standard status block:
-
-```yaml
-status: current | proposed | historical | partially-implemented
-last-verified: YYYY-MM-DD
-implementation:
-  - path/to/source.rs
-supersedes:
-  - optional/older/document.md
-```
+The remaining risk is semantic rather than structural: metadata proves that a
+review occurred, but only comparison with implementation and tests can establish
+that a present-tense claim is correct.
 
 ### Examples are not validated centrally
 
@@ -625,14 +617,14 @@ Markdown files in this folder and linked from the `Analysis` column.
 
 | ID | Concept | Priority | Analysis | Implementation | Verification |
 |---|---|---:|---|---|---|
-| DOC-01 | Architecture and API-reference navigation | P0 | [Detailed analysis](doc-01-architecture-reference.md) | Complete | Core rustdoc clean; links checked |
-| DOC-02 | Query language, keys, and actions | P0 | [Detailed analysis](doc-02-query-language-reference.md) | Complete | Focused parser test, doctests, and rustdoc pass |
-| DOC-03 | Assets and execution lifecycle | P0 | [Detailed analysis](doc-03-assets-execution-lifecycle.md) | Complete | 401 tests and 2 doctests pass; rustdoc clean; links checked |
-| DOC-04 | Environment and context | P0 | [Detailed analysis](doc-04-environment-context-evaluation.md) | Complete | 401 tests and 2 doctests pass; rustdoc and Wasm check pass; links checked |
+| DOC-01 | Architecture and API-reference navigation | P0 | [Reference](DOC_01_ARCHITECTURE_REFERENCE.md) | Complete | Library tests and doctests pass; current private-item rustdoc warnings recorded; links checked |
+| DOC-02 | Query language, keys, and actions | P0 | [Reference](DOC_02_QUERY_LANGUAGE_REFERENCE.md) | Complete | Focused parser test, doctests, and rustdoc pass |
+| DOC-03 | Assets and execution lifecycle | P0 | [Reference](DOC_03_ASSETS_EXECUTION_LIFECYCLE.md) | Complete | State/binary read policy and expiry behavior reviewed against HEAD |
+| DOC-04 | Environment and context | P0 | [Reference](DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) | Complete | Payload-aware nested evaluation and environment choices reviewed against HEAD |
 | DOC-05 | Commands and registration | P0 | Baseline complete | Not started | Not started |
 | DOC-06 | Values, state, metadata, serialization | P1 | Baseline complete | Not started | Not started |
 | DOC-07 | Stores and persistence | P1 | Baseline complete | Not started | Not started |
-| DOC-08 | Recipes and plans | P1 | [Detailed analysis](doc-08-recipes-plans.md) | Complete | 38 focused tests passed; links checked |
+| DOC-08 | Recipes and plans | P1 | [Reference](DOC_08_RECIPES_PLANS.md) | Complete | Planning, payload requirements, finalization, and execution reviewed against HEAD |
 | DOC-09 | Dependencies, expiration, volatility | P1 | Baseline complete | Not started | Not started |
 | DOC-10 | HTTP and WebSocket APIs | P1 | Baseline complete | Not started | Not started |
 | DOC-11 | Errors and diagnostics | P2 | Baseline complete | Not started | Not started |
@@ -646,13 +638,19 @@ Markdown files in this folder and linked from the `Analysis` column.
 
 Suggested files for further work:
 
-- `assets-api-analysis.md`
-- `commands-api-analysis.md`
-- `environment-context-analysis.md`
-- `value-state-metadata-analysis.md`
-- `store-api-analysis.md`
-- `recipes-plans-analysis.md`
-- `dependencies-expiration-analysis.md`
-- `http-api-analysis.md`
-- `python-api-analysis.md`
-- `rustdoc-coverage.md`
+- `ASSETS_API_ANALYSIS.md`
+- `COMMANDS_API_ANALYSIS.md`
+- `ENVIRONMENT_CONTEXT_ANALYSIS.md`
+- `VALUE_STATE_METADATA_ANALYSIS.md`
+- `STORE_API_ANALYSIS.md`
+- `RECIPES_PLANS_ANALYSIS.md`
+- `DEPENDENCIES_EXPIRATION_ANALYSIS.md`
+- `HTTP_API_ANALYSIS.md`
+- `PYTHON_API_ANALYSIS.md`
+- `RUSTDOC_COVERAGE.md`
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-08-09 | Promoted to current API reference; reviewed the gap inventory against HEAD, updated completed work and documentation-structure findings, and corrected links. | quarterly |

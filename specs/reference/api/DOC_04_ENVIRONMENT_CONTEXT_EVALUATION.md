@@ -3,12 +3,9 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-03-02
+reviewed: 2026-08-09
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
-
-Status: Complete
-Last reviewed: 2026-07-26
 
 ## Outcome
 
@@ -16,7 +13,7 @@ DOC-04 establishes an API-reference-level description of the runtime boundary
 formed by `Environment`, `EnvRef`, and `Context`.
 
 The primary reference is the module Rustdoc in
-[`liquers-core/src/context.rs`](../../liquers-core/src/context.rs). It now defines:
+[`liquers-core/src/context.rs`](../../../liquers-core/src/context.rs). It now defines:
 
 - The ownership and initialization relationship between `Environment` and `EnvRef`
 - The services and associated types bound by `Environment`
@@ -24,7 +21,7 @@ The primary reference is the module Rustdoc in
 - The return-time difference between queued and inline environments
 - The lifetime and sharing behavior of `Context`
 - Dependency evaluation versus ad-hoc application
-- Payload presence, cloning, injection, and non-inheritance by nested assets
+- Payload presence, cloning, injection, nested propagation, and keyed boundaries
 - The current limited role of `Session` and `User`
 - Native, inline, payload-bearing, and library environment choices
 - Application-facing APIs versus framework lifecycle hooks
@@ -33,11 +30,11 @@ The primary reference is the module Rustdoc in
 
 Claims were verified in this order:
 
-1. [`liquers-core/src/context.rs`](../../liquers-core/src/context.rs)
-2. [`liquers-core/src/assets.rs`](../../liquers-core/src/assets.rs)
-3. [`liquers-core/src/interpreter.rs`](../../liquers-core/src/interpreter.rs)
-4. [`liquers-core/src/commands.rs`](../../liquers-core/src/commands.rs)
-5. [`liquers-lib/src/environment.rs`](../../liquers-lib/src/environment.rs)
+1. [`liquers-core/src/context.rs`](../../../liquers-core/src/context.rs)
+2. [`liquers-core/src/assets.rs`](../../../liquers-core/src/assets.rs)
+3. [`liquers-core/src/interpreter.rs`](../../../liquers-core/src/interpreter.rs)
+4. [`liquers-core/src/commands.rs`](../../../liquers-core/src/commands.rs)
+5. [`liquers-lib/src/environment.rs`](../../../liquers-lib/src/environment.rs)
 6. Core manager, dependency-scheduling, injection, expiration, and volatility tests
 7. [`specs/reference/PAYLOAD_GUIDE.md`](../PAYLOAD_GUIDE.md),
    [`specs/reference/PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md), and
@@ -169,11 +166,11 @@ async method.
 
 ## Dependency and apply methods
 
-| Context method | Schedules | Waits | Records dependency | Inherits payload |
-|---|---:|---:|---:|---:|
-| `evaluate` | Yes | No direct state wait; may inline-run locally queued work | Yes | No |
-| `get_dependency_state` | Yes | Yes | Yes | No |
-| `apply` | According to manager mode | According to manager mode | No | No |
+| Context method | Schedules | Waits | Records dependency | Payload behavior |
+|---|---:|---:|---:|---|
+| `evaluate` | Yes | No direct state wait; may inline-run locally queued work | Yes | Inherits only when the nested plan requires it |
+| `get_dependency_state` | Yes | Yes | Yes | Inherits only when the nested plan requires it |
+| `apply` | According to manager mode | According to manager mode | No | Inherits for payload-required plans and evaluates them immediately |
 | `evaluate_local_queue` | Previously scheduled local dependencies | Runs locally queued work; does not wait for work already running elsewhere | Records were created during scheduling | N/A |
 
 `Context::evaluate` does more than `EnvRef::evaluate`: it cycle-checks and
@@ -184,8 +181,9 @@ the observed version, and drains the local dependency queue. It still returns an
 `get_dependency_state` is the direct schedule-and-wait operation used by the
 interpreter for linked and resource dependencies.
 
-`Context::apply` is an ad-hoc transformation of a supplied state. It neither
-records a dependency nor forwards the current payload.
+`Context::apply` is an ad-hoc transformation of a supplied state. It does not
+record a dependency. For a payload-required plan it forwards the current payload
+and uses immediate application; other plans follow the manager's ordinary mode.
 
 Pending dependency methods are public, but are chiefly finalization primitives.
 `take_pending_dependencies` is destructive: it clears the shared collection.
@@ -201,13 +199,17 @@ the context before recipe evaluation. Context clones used by actions in that
 evaluation receive payload clones, which supports direct context access and
 `InjectedFromContext` parameters.
 
-Ordinary `EnvRef::evaluate`, manager `get`/`get_asset`, and `Context::evaluate`
-create nested assets without a payload. The existing
-`test_payload_not_inherited_in_nested_evaluation` verifies that a child command
-requiring injected payload fails when reached through `Context::evaluate`.
+Ordinary top-level `EnvRef::evaluate` and keyed manager reads do not supply a
+payload. During an evaluation that has one, `Context::evaluate`,
+`get_dependency_state`, and `apply` inspect the nested plan's
+`payload_required` field. A required payload is forwarded and the nested asset is
+evaluated inline; a missing payload is an error. Payload-required evaluation is
+volatile, unshared, and not persisted.
 
-This directly contradicts the inheritance claim in `PAYLOAD_GUIDE.md` and the
-context hierarchy in `PROJECT_OVERVIEW.md`.
+Keys are a payload boundary because keyed assets have global identity while a
+payload belongs to one evaluation. A keyed recipe that requires a payload is
+rejected. Payload-evaluated dependency chains use path-based cycle detection
+instead of registering payload-specific assets in the shared dependency graph.
 
 ## Logging, progress, metadata, and outcome
 
@@ -233,6 +235,7 @@ legacy JSON metadata.
 | `SimpleEnvironment<V>` | Native only | `()` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
 | `ImmediateEnvironment<V>` | Native or Wasm | `()` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
 | `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | Panics if missing | Async store; legacy sync setter |
+| `ImmediateEnvironmentWithPayload<V, P>` | Native or Wasm | `P` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
 | `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Panics if missing | Async store |
 
 `SimpleEnvironment::with_cache` and
@@ -269,12 +272,10 @@ Visibility does not consistently enforce this separation.
 
 | Priority | Gap | Evidence and impact | Recommended action |
 |---:|---|---|---|
-| P0 | Payload documentation promises nested inheritance that does not exist | `PAYLOAD_GUIDE.md` and `PROJECT_OVERVIEW.md` claim inheritance; `Context::evaluate` has no payload path and the injection test explicitly verifies non-inheritance | Correct the guides now; separately decide whether inheritance should be implemented |
 | P0 | `EnvRef::new` creates an evaluation-unsafe uninitialized reference | It is public and looks like a normal constructor but skips `init_with_envref`; manager environment access can panic | Make it private or explicitly unsafe-by-protocol, or introduce a distinct initialized constructor/state |
 | P0 | Custom `Environment::apply_recipe` semantics are convention-only | Dependency finalization, volatility, expiration, and plan application are manually duplicated by every environment | Provide a shared default helper or default method and reserve customization for narrower hooks |
 | P1 | Manager startup completion is not observable for queued environments | `init_with_envref` spawns `start` and immediately returns; command-version loading can still be in flight | Make initialization async or make first evaluation await idempotent startup |
 | P1 | `Session` and `User` imply an evaluation hierarchy that is not implemented | `create_session` has no callers in the runtime, and `Context` contains no session or user | Mark them experimental/minimal until authorization/session propagation is designed |
-| P1 | Payload availability differs across environment choices without one comparison reference | Core has no inline payload environment; Wasm payload use relies on `liquers_lib::DefaultEnvironment` | Keep the comparison table public and consider a core `ImmediateEnvironmentWithPayload` or generic core environment |
 | P1 | Recipe-provider absence has inconsistent behavior | Core unit-payload environments fall back to trivial recipes; payload and library environments panic | Define one absence/error contract and use a fallible provider lookup if absence is valid |
 | P1 | Public context lifecycle methods can break finalization invariants | `take_pending_dependencies` clears records; `set_error` and `set_expires` directly affect the asset | Narrow visibility or split command-facing and engine-facing context traits |
 | P1 | Payload mutability semantics are easy to misread | `payload` is public and cloned by value, while guides describe it as mutable/inherited | Document clone semantics and prefer accessors or an explicit shared payload wrapper |
@@ -290,7 +291,7 @@ The improved reference should prevent:
 - Registering commands or selecting stores after `to_ref` consumes the environment
 - Assuming `EnvRef::evaluate(...).await` always returns a ready value
 - Building a native queued environment outside a Tokio runtime
-- Expecting immediate-evaluation payloads in nested assets
+- Expecting payload inheritance through keyed assets, which deliberately form a payload boundary
 - Treating `Context::error` as an asset failure
 - Treating `Context::apply` as dependency-tracked evaluation
 - Mutating one context clone's payload and expecting other clones to see replacement
@@ -309,18 +310,21 @@ The following executable evidence covers this reference:
 - Queued and inline manager-parametric evaluation tests
 - Dependency scheduling and cycle tests
 - Payload and injected-parameter tests
-- Explicit nested-payload non-inheritance test
+- Payload inheritance, missing-payload, keyed-boundary, and payload-cycle tests
 - Context volatility propagation tests
 - Expiration and asset finalization tests
 
-Final verification:
+Review verification on 2026-08-09:
 
-- `cargo test -p liquers-core`: 401 executable tests passed; 2 doctests passed
-  and 2 doctests were ignored
-- `cargo doc -p liquers-core --no-deps`: passed without Rustdoc warnings
-- `cargo check --target wasm32-unknown-unknown -p liquers-core`: passed
-- All local Markdown link targets in this analysis and the tracker exist
-- `git diff --check` passed for the DOC-04 files
+- `cargo test -p liquers-core --lib`: 446 passed
+- `cargo test -p liquers-core --doc`: 5 passed, 2 intentionally ignored
+- `cargo doc -p liquers-core --no-deps`: completed with three known private-item
+  link warnings
+- All relative Markdown links in `specs/reference/api/` resolve
+- `git diff --check` passes
+
+The earlier DOC-04 completion also passed
+`cargo check --target wasm32-unknown-unknown -p liquers-core`.
 
 The test build still reports existing compiler warnings, including the public
 `AssetManager::dependency_manager`/private `DependencyManager` mismatch already
@@ -330,4 +334,5 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Reviewed environment construction, context sharing, dependency evaluation, and payload propagation against HEAD; documented payload-aware nested evaluation and the inline payload environment, and corrected links. | PAYLOAD-INHERITANCE |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

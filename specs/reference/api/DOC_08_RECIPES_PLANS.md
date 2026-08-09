@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-07-29
+reviewed: 2026-08-09
 ---
 # DOC-08: Recipes and Plans
 
@@ -13,8 +13,8 @@ DOC-08 provides the verified analysis needed for an API-reference-level
 description of recipe resolution, query planning, and plan execution.
 
 The primary implementation references are
-[`liquers-core/src/recipes.rs`](../../liquers-core/src/recipes.rs) and
-[`liquers-core/src/plan.rs`](../../liquers-core/src/plan.rs). This document
+[`liquers-core/src/recipes.rs`](../../../liquers-core/src/recipes.rs) and
+[`liquers-core/src/plan.rs`](../../../liquers-core/src/plan.rs). This document
 defines:
 
 - The boundary among a query, recipe, plan, and evaluated asset
@@ -30,11 +30,11 @@ defines:
 
 Claims were verified in this order:
 
-1. [`liquers-core/src/recipes.rs`](../../liquers-core/src/recipes.rs)
-2. [`liquers-core/src/plan.rs`](../../liquers-core/src/plan.rs)
-3. [`liquers-core/src/interpreter.rs`](../../liquers-core/src/interpreter.rs)
-4. [`liquers-core/src/assets.rs`](../../liquers-core/src/assets.rs)
-5. [`liquers-core/src/context.rs`](../../liquers-core/src/context.rs)
+1. [`liquers-core/src/recipes.rs`](../../../liquers-core/src/recipes.rs)
+2. [`liquers-core/src/plan.rs`](../../../liquers-core/src/plan.rs)
+3. [`liquers-core/src/interpreter.rs`](../../../liquers-core/src/interpreter.rs)
+4. [`liquers-core/src/assets.rs`](../../../liquers-core/src/assets.rs)
+5. [`liquers-core/src/context.rs`](../../../liquers-core/src/context.rs)
 6. Core recipe, plan, asset, expiration, volatility, and dependency tests
 7. [`specs/PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md) as supplementary
    conceptual material
@@ -146,9 +146,10 @@ expands predecessor queries by default.
 
 During `build`, the planner resolves command namespaces and aliases, parameters,
 defaults, enum mappings, injected parameters, explicit links, command volatility,
-and command expiration. The special `v` instruction marks a plan volatile without
-creating an action step. The `q` instruction produces a query value and accepts no
-arguments.
+payload requirements, and command expiration. A payload-required command or link
+marks the plan as both payload-required and volatile. The special `v` instruction
+marks a plan volatile without creating an action step. The `q` instruction
+produces a query value and accepts no arguments.
 
 Recipe value and link overrides affect only the last `Step::Action`. They do not
 provide general substitution across every action in a plan.
@@ -161,6 +162,7 @@ provide general substitution across every action in a plan.
 | `init_steps` | Planning `Info`, `Warning`, and `Error` diagnostics |
 | `steps` | Ordered operations interpreted at runtime |
 | `is_volatile` | Volatility estimate; authoritative after finalization |
+| `payload_required` | Whether execution requires an evaluation payload; derived during planning |
 | `expires` | Combined expiration estimate; authoritative after finalization |
 | `error` | Structured planning or analysis error |
 | `dependencies` | Static dependencies discovered during analysis |
@@ -173,7 +175,8 @@ planning failure channel.
 Before sequential step execution, `apply_plan` schedules known keyed dependencies
 so they can start concurrently. Steps themselves are then interpreted in order,
 and each data-producing step replaces the current value. Context modifiers retain
-the current value.
+the current value. `apply_plan` rejects a payload-required plan when its context has
+no payload.
 
 ## Finalization and expiration
 
@@ -189,6 +192,11 @@ Synchronous build results are incomplete for environment-backed dependencies.
 Built-in `Environment::apply_recipe` implementations then combine finalized
 `plan.expires` with `recipe.expires`, apply that expiration to the context, and
 call `apply_plan`.
+
+Keyed recipes cannot require an evaluation payload: keys identify globally shared
+assets, while a payload belongs to one evaluation. Payload-required nested queries
+instead inherit the current context payload and execute as volatile, unshared
+inline assets.
 
 `interpreter::make_plan` is the dependency-aware helper for an ad-hoc query, but it
 has no `Context`, so it performs volatility and expiration analysis without the
@@ -235,12 +243,14 @@ The reference is covered by existing recipe and plan unit tests, keyed recipe
 asset tests, namespace-resolution tests, and expiration/dependency integration
 tests.
 
-Final verification performed for DOC-08:
+Review verification on 2026-08-09:
 
-- `cargo test -p liquers-core recipes::test --lib`: 6 passed
-- `cargo test -p liquers-core plan::tests --lib`: 32 passed
-- All local Markdown link targets in this analysis and the tracker exist
-- `git diff --check`
+- `cargo test -p liquers-core --lib`: 446 passed
+- `cargo test -p liquers-core --doc`: 5 passed, 2 intentionally ignored
+- `cargo doc -p liquers-core --no-deps`: completed with three known private-item
+  link warnings
+- All relative Markdown links in `specs/reference/api/` resolve
+- `git diff --check` passes
 
 The tests report pre-existing compiler warnings outside the DOC-08 documentation
 scope. No Rust source file is changed by DOC-08.
@@ -249,4 +259,5 @@ scope. No Rust source file is changed by DOC-08.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Reviewed recipe resolution, plan building, payload requirements, finalization, and execution against HEAD; documented `Plan::payload_required` and corrected links. | PAYLOAD-INHERITANCE |
 | 2026-07-29 | Verified recipe resolution, planning, finalization, and execution against the implementation and focused tests. | DOC-08 |

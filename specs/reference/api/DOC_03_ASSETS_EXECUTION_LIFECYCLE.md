@@ -3,12 +3,9 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-03-02
+reviewed: 2026-08-09
 ---
 # DOC-03: Assets and Execution Lifecycle
-
-Status: Complete
-Last reviewed: 2026-07-26
 
 ## Outcome
 
@@ -17,7 +14,7 @@ scheduling, reads, notifications, persistence, expiration, recovery, and keyed
 mutation.
 
 The primary reference is the module rustdoc in
-[`liquers_core::assets`](../../liquers-core/src/assets.rs). It is organized around
+[`liquers_core::assets`](../../../liquers-core/src/assets.rs). It is organized around
 public contracts rather than an application tutorial:
 
 - What an asset and `AssetRef` represent
@@ -34,10 +31,10 @@ public contracts rather than an application tutorial:
 
 Claims were verified in this order:
 
-1. [`liquers-core/src/assets.rs`](../../liquers-core/src/assets.rs)
-2. [`liquers-core/src/context.rs`](../../liquers-core/src/context.rs)
-3. [`liquers-core/src/metadata.rs`](../../liquers-core/src/metadata.rs)
-4. [`liquers-core/src/interpreter.rs`](../../liquers-core/src/interpreter.rs)
+1. [`liquers-core/src/assets.rs`](../../../liquers-core/src/assets.rs)
+2. [`liquers-core/src/context.rs`](../../../liquers-core/src/context.rs)
+3. [`liquers-core/src/metadata.rs`](../../../liquers-core/src/metadata.rs)
+4. [`liquers-core/src/interpreter.rs`](../../../liquers-core/src/interpreter.rs)
 5. Asset, expiration, and failure tests under `liquers-core`
 6. [`specs/reference/ASSETS.md`](../ASSETS.md) and
    [`specs/reference/ASSET_LIFECYCLE.md`](../ASSET_LIFECYCLE.md) as supplementary design and
@@ -151,7 +148,8 @@ reject the fast track and continue with evaluation.
 
 `Status` is a classifier, not an enforced transition type.
 `AssetData::set_status` updates the status and metadata but does not validate a
-transition graph.
+transition graph. `Status::read_exposure` is the shared classifier for state and
+binary reads: value-bearing, metadata-only, expired, or pending.
 
 ### State exposure
 
@@ -174,9 +172,11 @@ channel. Calling it on an unscheduled asset can wait indefinitely. Because
 evaluation failure may be returned as `Ok(State)` with diagnostic metadata rather
 than `Err`.
 
-Binary polling is independent of the normal state-status filter:
-`poll_binary` returns a cached binary whenever present. `get_binary` checks that
-cache before calling `get`.
+Binary reads use the same exposure policy as state reads. `poll_binary` and
+`get_binary` hide or reject retained expired bytes; `poll_binary_any_status` is the
+non-serializing recovery poll, while `get_binary_any_status` can serialize a
+retained value when no binary is cached. Metadata-only statuses (`Directory`,
+`Error`, and `Cancelled`) have no binary representation.
 
 ## Notification contract
 
@@ -242,6 +242,11 @@ The queued manager monitors finite future deadlines. The immediate manager has n
 timer and detects expiration lazily during manager access. Volatile assets finish
 as `Volatile` and are not placed in the reusable maps.
 
+If a dependency expires after it has already been admitted to an evaluation, the
+current run uses the retained value rather than recursively restarting. The parent
+records the stale dependency and finishes as `Expired`, causing the next manager
+access to recompute it.
+
 Normal manager access does not serve expired cached state. Explicit keyed recovery
 uses:
 
@@ -284,9 +289,7 @@ labels the boundary, but a future API pass should narrow or separate it.
 
 | Priority | Gap | Evidence and impact | Recommended action |
 |---:|---|---|---|
-| P0 | Expired binary reads bypass the normal expired-state policy | `poll_binary` is status-independent and `get_binary` checks it before `get`; stale cached bytes may be returned by a normal binary read | Fix the bug tracked as `ASSET-EXPIRED-CACHED-BINARY-READ` in `specs/archive/2026-08-08-issues.md` |
 | P0 | Recovery “data-bearing” contract differs between memory and store | Manager `get_any_status` checks `has_data` for store fallback, but delegates to `AssetRef::get_any_status` in memory, where `Error` and `Cancelled` produce no-value states | Define whether recovery returns diagnostic no-value states or only retained values, then test both paths |
-| P0 | Mid-execution expired-dependency stale-value branch is unreachable | `wait_for_dependency` handles `Expired` by calling normal `poll_state`, which always hides expired data; its documented `Some(state)` propagation branch cannot run | Use the explicit any-status poll if stale consumption is intended, or remove that policy and test the failure contract |
 | P1 | Public trait exposes a private dependency-manager type | Rust warns that `AssetManager::dependency_manager` is public while `DependencyManager` is `pub(crate)`; external implementations cannot name the required return type | Move lifecycle primitives to a sealed/internal trait or make the type intentionally public |
 | P1 | Existing asset specifications describe nonexistent partial/checkpoint APIs | `ASSETS.md` presents `Context::set_partial`, `get_partial`, `has_partial`, preview/checkpoint metadata, and transitions that are absent from source | Mark those sections proposed or move them to a design document |
 | P1 | Existing lifecycle map uses stale public/private entry points and source lines | `ASSET_LIFECYCLE.md` presents internal `run`, `run_immediately`, and other methods as public entry points and predates the inline manager | Regenerate it from the verified reference or label it historical |
@@ -328,13 +331,14 @@ The following existing tests were used as executable evidence:
 - Volatile asset tests in `volatility_integration.rs`
 - Job queue capacity, duplicate, claim, cancellation, and cleanup tests
 
-Final verification:
+Review verification on 2026-08-09:
 
-- `cargo test -p liquers-core`: 401 executable tests passed; 2 doctests passed
-  and 2 doctests were ignored
-- `cargo doc -p liquers-core --no-deps`: passed without rustdoc warnings
-- All local Markdown link targets in this analysis and the tracker exist
-- `git diff --check` passed for the DOC-03 files
+- `cargo test -p liquers-core --lib`: 446 passed
+- `cargo test -p liquers-core --doc`: 5 passed, 2 intentionally ignored
+- `cargo doc -p liquers-core --no-deps`: completed with three known private-item
+  link warnings
+- All relative Markdown links in `specs/reference/api/` resolve
+- `git diff --check` passes
 
 The test build still reports the existing `private_interfaces` warning for
 `AssetManager::dependency_manager`; that verified warning is recorded above as an
@@ -344,4 +348,5 @@ API-surface gap.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Reviewed asset reads, expiration, dependency waiting, persistence, and lifecycle behavior against HEAD; documented the unified state/binary exposure policy and corrected links. | ASSET-EXPIRED-CACHED-BINARY-READ |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

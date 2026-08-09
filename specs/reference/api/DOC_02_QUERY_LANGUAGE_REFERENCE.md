@@ -3,23 +3,20 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-03-02
+reviewed: 2026-08-09
 ---
 # DOC-02: Query Language, Keys, and Actions
-
-Status: Complete  
-Last reviewed: 2026-07-26
 
 ## Outcome
 
 DOC-02 establishes the Rust API reference for Liquers query syntax and semantics.
 The reference is intentionally not a user guide:
 
-- [`liquers_core::parse`](../../liquers-core/src/parse.rs) is the authoritative
+- [`liquers_core::parse`](../../../liquers-core/src/parse.rs) is the authoritative
   definition of accepted text.
-- [`liquers_core::query`](../../liquers-core/src/query.rs) is the authoritative
+- [`liquers_core::query`](../../../liquers-core/src/query.rs) is the authoritative
   semantic data model.
-- [`PlanBuilder`](../../liquers-core/src/plan.rs) is authoritative for
+- [`PlanBuilder`](../../../liquers-core/src/plan.rs) is authoritative for
   planner-level interpretations such as resource selectors and the `ns`, `q`, and
   `v` instructions.
 - Styled-query rendering is out of scope. It is presentation behavior and does not
@@ -37,17 +34,17 @@ relative resolution, and planner instructions.
 
 Primary implementation:
 
-- [`liquers-core/src/parse.rs`](../../liquers-core/src/parse.rs)
-- [`liquers-core/src/query.rs`](../../liquers-core/src/query.rs)
-- [`liquers-core/src/plan.rs`](../../liquers-core/src/plan.rs)
-- [`liquers-core/src/error.rs`](../../liquers-core/src/error.rs)
+- [`liquers-core/src/parse.rs`](../../../liquers-core/src/parse.rs)
+- [`liquers-core/src/query.rs`](../../../liquers-core/src/query.rs)
+- [`liquers-core/src/plan.rs`](../../../liquers-core/src/plan.rs)
+- [`liquers-core/src/error.rs`](../../../liquers-core/src/error.rs)
 
 Supplementary specifications:
 
 - [`specs/reference/PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md)
-- [`specs/guides/COMMAND_REGISTRATION_GUIDE.md`](../COMMAND_REGISTRATION_GUIDE.md)
-- [`specs/design/volatility-system/DESIGN.md`](../volatility-system/DESIGN.md)
-- [`specs/design/volatility-system/phase4-implementation.md`](../volatility-system/phase4-implementation.md)
+- [`specs/guides/COMMAND_REGISTRATION_GUIDE.md`](../../guides/COMMAND_REGISTRATION_GUIDE.md)
+- [`specs/design/volatility-system/DESIGN.md`](../../design/volatility-system/DESIGN.md)
+- [`specs/design/volatility-system/phase4-implementation.md`](../../design/volatility-system/phase4-implementation.md)
 - [`specs/reference/IMAGE_COMMAND_LIBRARY.md`](../IMAGE_COMMAND_LIBRARY.md)
 - [`specs/reference/POLARS_COMMAND_LIBRARY.md`](../POLARS_COMMAND_LIBRARY.md)
 
@@ -218,9 +215,9 @@ the preceding query segment. A transform segment with no preceding segment start
 without resource input. Its optional terminal filename describes the output
 filename rather than an additional action.
 
-The semantic reference in [`liquers_core::query`](../../liquers-core/src/query.rs)
+The semantic reference in [`liquers_core::query`](../../../liquers-core/src/query.rs)
 links back to the authoritative syntax in
-[`liquers_core::parse`](../../liquers-core/src/parse.rs), including the segment,
+[`liquers_core::parse`](../../../liquers-core/src/parse.rs), including the segment,
 header, parameter, and parse-precedence rules.
 
 ### Identity and positions
@@ -367,6 +364,14 @@ task-oriented explanations from this verified base.
 
 ## Verification
 
+Reviewed on 2026-08-09:
+
+- `cargo test -p liquers-core --lib`: 446 passed
+- `cargo test -p liquers-core --doc`: 5 passed, 2 intentionally ignored
+- `cargo doc -p liquers-core --no-deps`: completed with three known private-item
+  link warnings
+- All relative Markdown links in `specs/reference/api/` resolve
+
 Completed on 2026-08-06 (link action parameters, `QUERY-ACTION-PARAMETER-LINK-PARSER`):
 
 - Added 34 parser tests in `liquers-core/src/parse.rs` (`link_tests`) covering
@@ -398,4 +403,6 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Reviewed query parsing, link parameters, encoding, and planner instructions against HEAD; corrected links after the reference reorganization. | quarterly |
+| 2026-08-06 | Documented and verified textual action-parameter links and their planning behavior. | QUERY-ACTION-PARAMETER-LINK-PARSER |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

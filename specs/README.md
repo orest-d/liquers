@@ -35,8 +35,8 @@ yet described as it *is*; one pointing into `reference/` means settled.
 The query language and the plan it compiles to: `-R/key/-/action` addressing, `Key`/`Query`
 encoding, and the interpreter that turns a plan into asset evaluation.
 
-- **Query language and Key encoding** — documented → [`reference/api/doc-02-query-language-reference.md`](reference/api/doc-02-query-language-reference.md)
-- **Plan building and evaluation** — documented → [`reference/api/doc-01-architecture-reference.md`](reference/api/doc-01-architecture-reference.md)
+- **Query language and Key encoding** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
+- **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
 - **Action-parameter links (`~X~~E`)** — built → [`design/query-link-parser/`](design/query-link-parser/)
 - **Payload inheritance in nested evaluation** — built → [`design/payload-nested-evaluation-inheritance/`](design/payload-nested-evaluation-inheritance/)
@@ -51,7 +51,7 @@ be expressed in a query at all, and it is what `liquers-web` had to work around.
 The largest subsystem and the one carrying the most history — the dependency, expiration and
 volatility work all landed in `assets.rs`.
 
-- **Asset model and lifecycle** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(also: [lifecycle map](reference/ASSET_LIFECYCLE.md), [execution lifecycle](reference/api/doc-03-assets-execution-lifecycle.md), [set operations](reference/ASSET_SET_OPERATION.md))*
+- **Asset model and lifecycle** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(also: [lifecycle map](reference/ASSET_LIFECYCLE.md), [execution lifecycle](reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md), [set operations](reference/ASSET_SET_OPERATION.md))*
 - **`Status::Dependencies` semantics** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md)
 - **Dependency-wait lifecycle and deadlock-safe delegation** — built → [`design/dependency-management/`](design/dependency-management/)
 - **Non-blocking dependency scheduling** — built → [`design/dependency-scheduling/`](design/dependency-scheduling/)
@@ -75,7 +75,7 @@ simply stop being wanted.
 ### Values, metadata and errors
 
 - **Payloads** — documented → [`reference/PAYLOAD_GUIDE.md`](reference/PAYLOAD_GUIDE.md)
-- **Environment, Context and evaluation** — documented → [`reference/api/doc-04-environment-context-evaluation.md`](reference/api/doc-04-environment-context-evaluation.md)
+- **Environment, Context and evaluation** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md)
 - **Metadata format/type consistency** — designing → [`design/metadata-consistency/`](design/metadata-consistency/)
 - **Value accessor abstraction** — designing → [`design/value-accessor/`](design/value-accessor/)
 - **`ValueInterface` capability split** — planned → [`issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md)
@@ -171,7 +171,8 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
-- `reference/api/doc-08-recipes-plans.md`
+- `reference/api/API_DOCS_GAP_ANALYSIS.md`
+- `reference/api/DOC_08_RECIPES_PLANS.md`
 <!-- END generated: unplaced -->
 
 ## Guides

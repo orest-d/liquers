@@ -513,7 +513,7 @@ l. 531-545 · *Rationale: one doc comment plus a three-line example.*
 
 ### Step 13: API reference (doc-02)
 
-**File:** `specs/reference/api/doc-02-query-language-reference.md`
+**File:** `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`
 
 **Action:** the eight per-section edits tabulated in Phase 2. The two that are easy to
 miss:
@@ -534,9 +534,9 @@ grep -rn "do not parse\|does not parse\|no link production\|nested-query syntax"
 # Expected: no hits.
 ```
 
-**Rollback:** `git checkout specs/reference/api/doc-02-query-language-reference.md`
+**Rollback:** `git checkout specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`
 
-**Agent:** sonnet · skills: — · knowledge: doc-02 in full, `specs/archive/2026-03-02-api-docs-gap-analysis.md`
+**Agent:** sonnet · skills: — · knowledge: doc-02 in full, `specs/reference/api/API_DOCS_GAP_ANALYSIS.md`
 (the verification policy), Phase 2 Documentation Deliverables · *Rationale: eight sections
 with a compliance policy; requires judgment about what each claim now says.*
 

@@ -3,13 +3,9 @@ title: Architecture Reference
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets]
-reviewed: 2026-03-02
+reviewed: 2026-08-09
 ---
 # DOC-01: Architecture and API Reference Entry Point
-
-Status: Complete  
-Priority: P0  
-Last reviewed: 2026-07-26
 
 ## Objective
 
@@ -194,10 +190,20 @@ application should not be added to DOC-01.
 - `README.md`
 - `liquers-core/examples/hello_world.rs`
 - `liquers-core/src/lib.rs`
-- `specs/reference/api/doc-01-architecture-reference.md`
-- `specs/archive/2026-03-02-api-docs-gap-analysis.md`
+- `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`
+- `specs/reference/api/API_DOCS_GAP_ANALYSIS.md`
 
 ## Verification
+
+Reviewed on 2026-08-09:
+
+- `cargo test -p liquers-core --lib`: 446 passed
+- `cargo test -p liquers-core --doc`: 5 passed, 2 intentionally ignored
+- `cargo doc -p liquers-core --no-deps`: completed with three known private-item
+  link warnings
+- All relative Markdown links in `specs/reference/api/` resolve
+
+Earlier DOC-01 completion evidence:
 
 - [x] The root README maps all workspace crates to their API responsibilities.
 - [x] The direct workspace dependency table agrees with crate manifests.
@@ -206,8 +212,8 @@ application should not be added to DOC-01.
 - [x] The license name agrees with the repository `LICENSE` text.
 - [x] `cargo run -p liquers-core --example hello_world` produces
   `Hello, world!`.
-- [x] `cargo test -p liquers-core --lib` passes all 326 tests.
-- [x] `cargo doc -p liquers-core --no-deps` completes without rustdoc warnings.
+- [x] `cargo test -p liquers-core --lib` passed all 326 tests at completion.
+- [x] `cargo doc -p liquers-core --no-deps` completed without rustdoc warnings at completion.
 - [x] All affected relative Markdown links resolve.
 
 ## Remaining work outside DOC-01
@@ -222,4 +228,5 @@ application should not be added to DOC-01.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Reviewed workspace structure, dependency relationships, public API entry points, and links against HEAD; corrected paths after the reference reorganization. | quarterly |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

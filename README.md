@@ -41,7 +41,7 @@ Current supporting references:
 | HTTP surface | [Axum reference](liquers-axum/README.md), [web API specification](specs/reference/WEB_API_SPECIFICATION.md) |
 | Polars commands | [Polars command library](specs/reference/POLARS_COMMAND_LIBRARY.md) |
 | Image commands | [Image command library](specs/reference/IMAGE_COMMAND_LIBRARY.md) |
-| Documentation gaps and progress | [API documentation analysis](specs/archive/2026-03-02-api-docs-gap-analysis.md) |
+| Documentation gaps and progress | [API documentation gap analysis](specs/reference/api/API_DOCS_GAP_ANALYSIS.md) |
 
 ## Workspace API surface
 
