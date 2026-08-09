@@ -401,14 +401,18 @@ a **dev**-dependency, so it was never in `liquers-web`'s tree.
 
 | File | Change |
 |---|---|
-| `Cargo.toml` | `liquers-store` with `default-features = false, features = ["async_store"]`; `base64`; web-sys features `Storage`, `Request`, `RequestInit`, `Response`, `Headers`, `WorkerGlobalScope`. |
+| `Cargo.toml` | `liquers-store` with `default-features = false, features = ["async_store"]`; `base64`; web-sys features `Storage`, `Request`, `RequestInit`, `Response`, `Headers`. |
 | `src/store/` | New: `mod.rs`, `local_storage.rs`, `fetch.rs`, `js_store.rs`, `builder.rs`, `encoding.rs`, `key_guard.rs`, `wrapper.rs`. |
 | `src/environment.rs` | `configure_store`, `register_store_object`, `store`; store config joins the rebuild replay. |
 | `src/lib.rs` | `pub mod store;` and re-exports. |
 | `src/typescript.rs` | Declarations for `Store` and the three new `Environment` methods. |
 
-**`fetch` is reached through `Window`, falling back to `WorkerGlobalScope`,** so the store works in
-a worker. Both are web-sys types; neither is a new crate.
+**`fetch` is taken from `js_sys::global()` via `Reflect::get` and called with `apply`** — not from
+`web_sys::Window`. *(Corrected in Phase 3: the original `Window` → `WorkerGlobalScope` fallback
+works in neither Node nor a bare global scope, which would have forced every `FetchStore` test into
+a browser for no reason. The global lookup works in a window, a worker **and** under Node, is less
+code than two web-sys types, and drops two web-sys features.)* `Request`/`Response`/`Headers`
+remain web-sys types, since the resolved value is a `Response` however the call was made.
 
 **Two wasm-bindgen mechanics the implementation must get right**, both of which bite at compile
 time rather than in review:
@@ -566,12 +570,27 @@ Checked by inspection against the real signatures:
 | Extend, don't mutate, traits | `AsyncStore` untouched. `StoreFactory` and `with_factory` are additive; `create_store` keeps its signature. |
 | Builders named `…Builder` | Reuses `StoreRouterBuilder`. |
 
+## Resolved Questions
+
+**Q8 — store-manipulation commands are out of scope (user decision).** A `store` namespace
+(`store_get`, `store_set`, `store_list`) would make store contents reachable from a query rather
+than only from JavaScript. It belongs in `liquers-lib`, so every target gets it rather than one
+host at a time, and folding it in here would widen this design from "the browser can have a store"
+to "queries can mutate stores" — which needs its own security discussion alongside
+`CORE-SESSION-AND-KEY-ACL`, and write commands marked `volatile`. Filed as
+`specs/issues/STORE-COMMAND-NAMESPACE-MISSING.md`.
+
 ## Open Questions
 
-**Q8 — should store-manipulation commands be in scope?** There are none today in any crate. A
-`store` namespace (`store_get`, `store_set`, `store_list`) would make store contents reachable from
-a query rather than only from JavaScript, which is a genuinely different capability — and one that
-would need the write commands marked `volatile`. My recommendation is **no**: it is a separable
-feature that belongs to `liquers-lib` (so every target gets it, not just the browser), and folding
-it in here would widen this design from "the browser can have a store" to "queries can mutate
-stores", which deserves its own security discussion given `CORE-SESSION-AND-KEY-ACL`.
+None.
+
+## Phase 3 corrections applied to this document
+
+Phase 3 changed two things here rather than leaving the documents to disagree:
+
+1. **`fetch` acquisition** — `js_sys::global()` + `Reflect`, not `web_sys::Window` with a
+   `WorkerGlobalScope` fallback. See "Integration Points".
+2. **Pure-function seams** — `infer_metadata(key, content_type, content_length)` and the URL
+   builder are specified as free functions over plain data, so the logic that can silently corrupt
+   or misroute is testable without a browser. This is a testability requirement on the
+   implementation, not merely a test-plan detail.

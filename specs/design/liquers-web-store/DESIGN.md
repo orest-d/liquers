@@ -3,7 +3,7 @@ id: LIQUERS-WEB-STORE
 kind: design
 title: Browser stores for liquers-web
 status: in_review
-phase: architecture
+phase: examples
 area: [web, store/config, core/store]
 gh_pr: []
 issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE]
@@ -20,8 +20,8 @@ which `specs/design/liquers-web/` explicitly deferred.
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [x] Phase 3: Examples & Testing (awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Implementation Complete
 
@@ -128,10 +128,38 @@ escape the store root — reachable from a query and therefore over `liquers-axu
 `STORE-FILESTORE-PATH-TRAVERSAL` (P1). Not fixed here; the guard lives in `liquers-web` for now and
 the issue proposes hoisting a shared version into `liquers_core::store`.
 
-**Phase 2 open question:** Q8 — whether store-manipulation *commands* (a `store` namespace) are in
-scope. Recommendation is no: it belongs in `liquers-lib` so every target gets it, and it turns
-"the browser can have a store" into "queries can mutate stores", which needs its own security
-discussion alongside `CORE-SESSION-AND-KEY-ACL`.
+**Phase 2 question 8 closed by the user:** store-manipulation commands are out of scope. They
+belong in `liquers-lib` so every target gets them rather than one host at a time, and folding them
+in would have turned "the browser can have a store" into "queries can mutate stores". Filed as
+`STORE-COMMAND-NAMESPACE-MISSING`. **Phase 2 has no open questions remaining.**
+
+**Phase 3 outcome — 41 tests in five tiers.** Of the 21 prescribed cells (`STORE01`–`STORE07` ×
+three stores), **19 are required and 2 are `NA`** — both `FetchStore`, both because it has no write
+path, both with the reversing condition recorded (a `PUT`-capable variant makes `STORE04` and
+`STORE06` required immediately). Four further tests, `STORE08`–`STORE11`, cover what the guide's
+inventory does not reach; the IDs are the ones `LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE` proposes and
+are adopted provisionally, to be renamed if the guide lands different numbers.
+
+**The harness analysis changed the architecture, which is what the phase is for.**
+`localStorage` does not exist under Node and `web_sys::window()` returns `None` there, so the
+`LocalStorageStore` contract tests must run in a browser. Rather than accept that for everything,
+the design now pulls **pure functions** out of each store — `encode_envelope`/`decode_envelope`,
+the key guard, URL construction, and `infer_metadata(key, content_type, content_length)` — so the
+logic that can silently corrupt or misroute data is tested in the fast Node loop, and only plumbing
+needs a browser. That is a requirement on the implementation, not a test-plan detail, and Phase 2
+was amended to carry it.
+
+**A Phase 2 correction came out of Phase 3.** Phase 2 specified acquiring `fetch` from
+`web_sys::Window` with a `WorkerGlobalScope` fallback. Neither exists under Node, which would have
+forced every `FetchStore` test into a browser for no reason. Corrected to `js_sys::global()` +
+`Reflect` + `apply`, which works in a window, a worker *and* Node, is less code than two web-sys
+types, and drops two web-sys features.
+
+**Non-vacuous assertions were specified test by test**, per the guide's warning. The one worth
+naming: `STORE06` does not accept "either the last write won or one of them did" — because
+`LocalStorageStore` never awaits, there is no interleaving point, so the test asserts the value
+equals the *last* write specifically and is one byte long. It becomes a tripwire the day someone
+makes a storage call async.
 
 ## Links
 
