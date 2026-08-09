@@ -1,6 +1,5 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,draft,local,,P1,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
-CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",draft,local,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,draft,local,,P1,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,draft,local,,P1,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
 CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,draft,local,,P1,M,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
@@ -9,9 +8,9 @@ PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express eve
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,draft,local,,P1,M,core/store;store/backends;axum,,,,,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,draft,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
-VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,draft,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,draft,local,,P2,S,core/assets,,,,,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
+CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,draft,local,,P2,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,draft,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,draft,local,,P2,S,core/value,,,,,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,draft,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
@@ -25,6 +24,7 @@ CORE-PLAN-POLICY-AND-DEFAULTS,issue,Plan builder has no configuration and questi
 CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,draft,local,,P2,M,core/error;build,,,,,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,draft,local,,P2,M,lib/egui,,,,,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 EXPIRATION-RECOVERY-WEB-API,issue,Expiration recovery has no web API surface,draft,local,,P2,M,axum;core/assets,,,,,,2026-08-08,specs/issues/EXPIRATION-RECOVERY-WEB-API.md
+INLINE-PATH-LACKS-EXECUTE-ONCE,issue,"The inline run path has no execute-once claim, only an is_finished check",draft,local,,P2,M,core/assets;web,,,,,,2026-08-09,specs/issues/INLINE-PATH-LACKS-EXECUTE-ONCE.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,draft,local,,P2,M,core/plan,,,,,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT,issue,Enter key does not submit in the browser query console,draft,local,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md
 WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preserved in the browser,draft,local,,P2,M,lib/ui,,,,ui-events,,2026-08-08,specs/issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md
@@ -55,7 +55,6 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,draft
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,draft,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
-KEYED-RECIPE-OWNERSHIP,design,Non-evaluating ownership test for keyed recipes,in_review,local,implementation,,,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/design/keyed-recipe-ownership/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,draft,local,architecture,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
@@ -71,7 +70,7 @@ REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,overdue,local,,,,axum;web,,,,,2026-03-02,,specs/reference/WEB_API_SPECIFICATION.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-09,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
-ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-07-07,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSET_SET_OPERATION.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-07-15,,specs/reference/DEPENDENCIES_STATUS.md
@@ -84,6 +83,8 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/co
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-08,,specs/reference/PROJECT_OVERVIEW.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
+CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",closed,local,,P1,M,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
+VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,closed,local,,P1,M,core/assets,,,,keyed-recipe-ownership,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
 LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE,issue,The guide's STORE feature omits integration-provided stores and store configuration,closed,local,,P2,M,web;py;core/store,,,,,,2026-08-09,specs/issues/LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
@@ -93,6 +94,7 @@ EXPIRATION-MECHANISM,design,Asset expiration mechanism,complete,local,,,,core/as
 EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,complete,local,,,,core/assets,,9;11,,expiration-monitor-assetref,,2026-03-02,specs/design/expiration-monitor-assetref/DESIGN.md
 EXPIRATION-SAFETY,design,Timing and race safety in asset expiration,complete,local,,,,core/assets,,11,,expiration-safety,,2026-03-02,specs/design/expiration-safety/DESIGN.md
 KEYBOARD-SHORTCUTS,design,Keyboard shortcuts in UISpec,complete,local,,,,lib/ui,,,,keyboard-shortcuts,,2026-03-02,specs/design/keyboard-shortcuts/DESIGN.md
+KEYED-RECIPE-OWNERSHIP,design,Non-evaluating ownership test for keyed recipes,complete,local,,,,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/design/keyed-recipe-ownership/DESIGN.md
 LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
 LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md

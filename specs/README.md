@@ -60,15 +60,17 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)
 - **Persistence, eviction safety and upload limits** — planned → [`issues/ASSETS-IMPROVEMENTS.md`](issues/ASSETS-IMPROVEMENTS.md)
 
-Seven designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
-only settled description and it predates most of them. **That is the largest documentation gap in
-the project.** Two structural issues sit on top: `CORE-EVALUATE-PATH-CONSOLIDATION` (P1), which is
+Nine designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
+only settled description and it predates most of them, though `keyed-recipe-ownership` did fold its
+ownership and volatility rules back into it. **That is the largest documentation gap in the
+project.** Two structural issues sit on top: `CORE-EVALUATE-PATH-CONSOLIDATION` (P1), which is
 the conclusion `ASSETS-FIX1` reaches from the other direction, and nothing collects assets that
 simply stop being wanted.
 
@@ -174,7 +176,6 @@ deliberately folded behind a broader line.
 <!-- BEGIN generated: unplaced -->
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - `reference/api/DOC_08_RECIPES_PLANS.md`
-- design `keyed-recipe-ownership`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 
