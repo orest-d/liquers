@@ -6,7 +6,7 @@ status: in_review
 phase: high-level
 area: [web, store/config, core/store]
 gh_pr: []
-issues: [WEB-NATIVE-IO-TIER2]
+issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE]
 created: 2026-08-09
 superseded_by:
 ---
@@ -27,9 +27,10 @@ which `specs/design/liquers-web/` explicitly deferred.
 
 ## Notes
 
-**Phase 1 scope:** three stores — `LocalStorageStore` (full `AsyncStore`), `FetchStore` (read-only
+**Phase 1 scope:** four stores — `LocalStorageStore` (full `AsyncStore`), `FetchStore` (read-only
 HTTP, `url_prefix` + key minus `key_prefix`, metadata inferred from extension and response media
-type), and the existing `AsyncStoreRouter` driven by a `liquers_store::config`-shaped declaration.
+type), `JsStore` (a JavaScript object adapted to `AsyncStore`), and the existing `AsyncStoreRouter`
+driven by a `liquers_store::config`-shaped declaration.
 
 **Phase 1 findings:**
 - `WebEnvironment` is built on `NoAsyncStore` today, so every `-R/` query in the browser fails.
@@ -52,9 +53,28 @@ argument does not apply: the native read-only HTTP store already exists as OpenD
 service, so a reqwest store would duplicate it rather than be reused. `web-sys` is already a
 `liquers-web` dependency.
 
-**Phase 1 open questions** (7) are listed in the phase document; the substantive one is Q1 —
-whether `STORE` here also includes a JS-*implemented* store adapter, which is the guide's literal
-reading of the feature.
+**User decisions closing Phase 1 questions 1 and 3-7.** `JsStore` added as a fourth store, so the
+design covers both readings of `STORE` — the guide's literal one (a store written in the language)
+and the requested one (stores the integration provides) (1). localStorage stores UTF-8-clean text
+directly and everything else base64, with a configurable byte quota, unlimited by default, whose
+breach is `Error::key_write_error` (3). Directories are backed by an explicit index following
+`AsyncMemoryStore`, not derived by prefix scanning, so `makedir` and `removedir` are meaningful (4).
+`FetchStore` listing comes from a configured known-key set, with page crawling as future work (5).
+Keys with `..` or empty segments are refused with `key_not_supported` — that is `STORE05` — and the
+separate, accepted limitation is that not every URL is representable as a `Key`, with a key→URL
+mapping held in reserve (6). No `${VAR}` expansion on wasm; the syntax stays unclaimed for
+JavaScript-supplied variables later (7).
+
+**A guide gap came out of question 1.** §5 `STORE` asks only about adapting a *language value* to
+`AsyncStore`. It asks nothing about stores the *integration itself* provides, nor about store
+configuration and composition — which together are most of this design, and which none of
+`STORE01`–`STORE07` exercises. Filed as `LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE`, deliberately not
+fixed here: amending the guide from inside the first design that trips over it would make the
+design its own conformance definition.
+
+**Phase 1 open question remaining:** where `StoreRouterConfig`/`StoreConfig` live (Q2) — moving
+them to `liquers-core` is the recommendation, since they are pure serde over dependencies core
+already has and `liquers-store` can re-export them unchanged.
 
 ## Links
 
