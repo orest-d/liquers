@@ -466,3 +466,4 @@ fn object_may_be_registered_after_the_configuration() {
 
     reset_global();
 }
+

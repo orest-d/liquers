@@ -2,11 +2,10 @@
 id: LIQUERS-WEB-STORE
 kind: design
 title: Browser stores for liquers-web
-status: approved
-phase: implementation
+status: complete
 area: [web, store/config, core/store]
 gh_pr: []
-issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE, WORKSPACE-SERDE-DERIVE-UNDECLARED, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE, STORE-FILESTORE-PATH-TRAVERSAL, STORE-COMMAND-NAMESPACE-MISSING]
+issues: [WEB-NATIVE-IO-TIER2, LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE, WORKSPACE-SERDE-DERIVE-UNDECLARED, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE, STORE-FILESTORE-PATH-TRAVERSAL, STORE-COMMAND-NAMESPACE-MISSING, CORE-IMMEDIATE-MANAGER-KEYED-RECURSION, LIB-RECIPE-PROVIDER-PANIC]
 created: 2026-08-09
 superseded_by:
 ---
@@ -23,7 +22,7 @@ which `specs/design/liquers-web/` explicitly deferred.
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved 2026-08-09 — all four phases approved)
-- [ ] Implementation Complete — **M1-M5 done ✅** (Steps 1-20); M6 not started
+- [x] Implementation Complete — **M1-M6 done ✅** (Steps 1-23)
 
 ## Implementation status
 
@@ -34,7 +33,7 @@ which `specs/design/liquers-web/` explicitly deferred.
 | M3 | `FetchStore` | ✅ 7 pure tests under Node; store compiles and is wired |
 | M4 | `LocalStorageStore` | ✅ 10 tests green in Chromium |
 | M5 | `JsStore`, factory, environment wiring | ✅ 16 tests green under Node |
-| M6 | e2e, stubs, documentation | not started |
+| M6 | e2e, stubs, documentation | ✅ 6 e2e green, 5 `fixme` (blocked by a core defect); stubs green |
 
 **M1 EXECUTED ✅.** `opendal` is optional and in `default`; `opendal_store` and the OpenDAL
 dispatch arm are gated; `create_filesystem_store` follows `AsyncFileStore`'s existing wasm32 gate;
@@ -151,6 +150,40 @@ or one suite would leak a store into the next.
 `new liquers.LiquersError("key_not_found", …)`. It cannot: there is no constructor. The protocol
 now says absence is `undefined`, which is both the path that works and the better design — a throw
 means *failure*, and conflating it with absence would make a broken store look like an empty one.
+
+**M6 EXECUTED ✅.** Playwright fixtures and store suite, TypeScript declarations for `Store`,
+`LiquersStoreConfig` and `LiquersStoreObject`, and documentation. Gates: 6 e2e tests green,
+`check-stubs.sh` all green (`class Store` included), build matrix 10/10, `liquers-core` 448,
+`liquers-lib` 15 suites, `liquers-store` 26, `liquers-axum` green, Node suite 129, browser suite 10.
+
+**M6 found the defect that decides what this design actually delivers.** The end-to-end tests hang
+where direct store access succeeds, because **`-R/` keyed evaluation recurses forever under
+`ImmediateAssetManager`** — `get` runs the asset inline, and `evaluate_recipe` calls `get` on its
+*own* key to check identity, so the guard `asset.id() == self.id()` sits one line after the call
+that never returns. In wasm the stack overflow kills the instance and the `Promise` never settles.
+Filed as `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION` (P1). Diagnosed from a Chromium stack trace, not
+inferred.
+
+So: **the four stores work and are verified; queries that reach them through the asset manager do
+not.** That is the honest statement of what shipped, and it is recorded in `liquers-web/README.md`
+under Known limitations. The five blocked e2e tests are kept as `fixme` rather than deleted — they
+are the regression guard the issue asks for, and removing the marker will prove the fix.
+
+**Two more defects on the same path, both found by running the tests rather than reading:**
+- `DefaultEnvironment::get_recipe_provider` **panics** when none is configured, and every `-R/`
+  query reaches it — so before this milestone a resource query aborted the wasm instance outright.
+  Worked around by calling `with_default_recipe_provider()` in `new_environment()`; filed as
+  `LIB-RECIPE-PROVIDER-PANIC`.
+- **`AsyncStoreRouter::listdir` panicked whenever the key equalled a store's own prefix** —
+  `listdir("data")` on a store mounted at `data`, the most ordinary call there is. `has_key_prefix`
+  is true for equal keys, so `key_prefix[key.len()]` indexed one past the end. The comment directly
+  above the line already stated the intent ("but smaller"); the code did not enforce it. **Fixed
+  here** — one guard, both the sync and async routers, with two native regression tests — because
+  it is a panic in library code sitting directly on the path this design delivers, and the fix is
+  the comment's own words.
+
+**Pre-existing, unrelated:** five tests in `liquers-core/tests/expiration_integration.rs` fail on
+this tree *and* on a stashed baseline. Not caused by this work; not investigated here.
 
 ## Notes
 

@@ -64,7 +64,7 @@ expected_classes=$(grep -rhoP '#\[wasm_bindgen\(js_name\s*=\s*\K\w+(?=\)\s*\]\s*
     --include='*.rs' -z "$crate/src" 2>/dev/null | tr '\0' '\n' | sort -u)
 # The -z/-P combination is brittle across grep builds; fall back to the known surface.
 if [[ -z "$expected_classes" ]]; then
-    expected_classes=$'Asset\nEnvironment\nKey\nLiquersError\nQuery\nState\nValue'
+    expected_classes=$'Asset\nEnvironment\nKey\nLiquersError\nQuery\nState\nStore\nValue'
 fi
 while read -r class; do
     [[ -z "$class" ]] && continue

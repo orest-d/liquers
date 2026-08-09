@@ -1,5 +1,6 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,draft,local,,P1,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
+CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",draft,local,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,draft,local,,P1,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,draft,local,,P1,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
 CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,draft,local,,P1,M,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
@@ -12,6 +13,7 @@ CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each o
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,draft,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,draft,local,,P2,S,core/value,,,,,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,draft,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
+LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,draft,local,,P2,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,draft,local,,P2,S,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",draft,local,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,draft,local,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
@@ -51,7 +53,6 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,draft
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,draft,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
-LIQUERS-WEB-STORE,design,Browser stores for liquers-web,approved,local,implementation,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,draft,local,architecture,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
@@ -64,7 +65,6 @@ autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,overdue,local,,,,lib/polars,,,,,2026-03-02,,specs/reference/POLARS_COMMAND_LIBRARY.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,overdue,local,,,,store/config,,,,,2026-03-02,,specs/reference/STORE_CONFIG_FSD.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,overdue,local,,,,axum;web,,,,,2026-03-02,,specs/reference/WEB_API_SPECIFICATION.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-09,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
@@ -79,6 +79,7 @@ DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evalua
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-09,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-08,,specs/reference/PROJECT_OVERVIEW.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
@@ -89,6 +90,7 @@ EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,com
 EXPIRATION-SAFETY,design,Timing and race safety in asset expiration,complete,local,,,,core/assets,,11,,expiration-safety,,2026-03-02,specs/design/expiration-safety/DESIGN.md
 KEYBOARD-SHORTCUTS,design,Keyboard shortcuts in UISpec,complete,local,,,,lib/ui,,,,keyboard-shortcuts,,2026-03-02,specs/design/keyboard-shortcuts/DESIGN.md
 LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
+LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
 PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md

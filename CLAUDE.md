@@ -177,6 +177,11 @@ them after `cargo clean`, separately from the native loop:
 # Conformance suites, under Node. No browser needed; this is the routine loop.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
 
+# Suites that need a real browser API (`localStorage`). Requires a chromedriver whose major
+# version matches the installed browser.
+CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
+  --target wasm32-unknown-unknown --features browser-tests
+
 # Declarations and artifact structure.
 ./liquers-web/examples-web/quickstart/build.sh
 ./liquers-web/scripts/check-stubs.sh
@@ -187,7 +192,10 @@ cd liquers-web/tests/e2e && npm install && npx playwright test
 
 `--features debug-handles` is test-only: it exposes a live count of retained JavaScript function
 handles so `RUNTIME05` can assert handle release deterministically instead of depending on GC
-timing. See `liquers-web/README.md`.
+timing. `--features browser-tests` is also test-only: it compiles the files carrying
+`wasm_bindgen_test_configure!(run_in_browser)`, which are gated off by default because one such
+file makes the *whole* Node loop demand a WebDriver. See `liquers-web/README.md`, which also
+records what to do when the chromedriver and browser versions cannot be matched.
 
 ### Applied measures, in order of effect
 

@@ -146,7 +146,7 @@ submit, and submitted query state is not preserved.
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
-- **Browser stores (localStorage, fetch, routing)** — designing → [`design/liquers-web-store/`](design/liquers-web-store/)
+- **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
 
 ### Build and repository

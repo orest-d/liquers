@@ -80,6 +80,14 @@ thread_local! {
 pub fn new_environment() -> Result<WebEnvironment, Error> {
     let mut env = WebEnvironment::new();
     crate::builtins::register_builtin_commands(&mut env)?;
+    // Required, not optional: `DefaultEnvironment::get_recipe_provider` *panics* when none is set
+    // (`liquers-lib/src/environment.rs:152`), and evaluating any `-R/` query reaches it. On wasm a
+    // panic aborts the instance, so the symptom is a `Promise` that never settles — a hang, with
+    // no error anywhere. See `specs/issues/LIB-RECIPE-PROVIDER-PANIC.md`.
+    //
+    // The default provider reads recipes through the environment's store, so with no store
+    // configured it simply finds none, and a `-R/` query fails with `KeyNotFound` as it should.
+    env.with_default_recipe_provider();
     Ok(env)
 }
 
@@ -636,7 +644,8 @@ impl LiquersEnvironment {
     /// global environment, and an explicit `new Environment()` instance keeps the empty store it
     /// was built with.
     #[wasm_bindgen(js_name = configureStore)]
-    pub fn configure_store(&self, config: JsValue) -> js_sys::Promise {
+    pub fn configure_store(&self, config: crate::typescript::JsStoreConfig) -> js_sys::Promise {
+        let config: JsValue = config.into();
         match parse_store_config(&config).and_then(configure_store_on) {
             Ok(()) => js_sys::Promise::resolve(&JsValue::UNDEFINED),
             Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
@@ -645,7 +654,12 @@ impl LiquersEnvironment {
 
     /// Names a page object so a `js` store entry in the configuration can refer to it.
     #[wasm_bindgen(js_name = registerStoreObject)]
-    pub fn register_store_object(&self, name: &str, object: js_sys::Object) -> Result<(), JsValue> {
+    pub fn register_store_object(
+        &self,
+        name: &str,
+        object: crate::typescript::JsStoreObject,
+    ) -> Result<(), JsValue> {
+        let object: js_sys::Object = JsValue::from(object).unchecked_into();
         register_store_object_on(name, object).map_err(liquers_error_to_js)
     }
 

@@ -105,7 +105,45 @@ WebDriver at all.
 Per [`CLAUDE.md`](../CLAUDE.md), run the browser loop **after `cargo clean`** and separately from
 the native one — the disk allowance does not fit both.
 
+## Stores
+
+A page gets four store backends and the same declarative configuration `liquers-store` uses
+natively, so one document can describe both. See `specs/reference/STORE_CONFIG_FSD.md` for the
+format and `specs/design/liquers-web-store/` for the design.
+
+```js
+const env = liquers.Environment.global();
+await env.configureStore({
+  stores: [
+    { type: 'http',         prefix: 'data',
+      config: { url_prefix: './reference/', keys: ['input.csv'] } },
+    { type: 'localstorage', prefix: 'local', config: { namespace: 'myapp' } },
+  ],
+});
+
+const store = env.store();
+await store.set('local/out.txt', new TextEncoder().encode('hello'));
+const bytes = await store.get('data/input.csv');
+```
+
+| `type` | Backend | Writes |
+|---|---|---|
+| `localstorage` | `localStorage`, full contract including directories | yes |
+| `http` / `https` | `fetch`; `url_prefix` + the key minus its routing prefix | no |
+| `js` | an object the page implements, registered with `registerStoreObject` | as implemented |
+
+A page-implemented store needs only `get`. Return `undefined` for an absent key — throwing signals
+a *failure* instead. Omitted optional methods report `key_not_supported` rather than quietly
+answering "empty", so a half-written store says so.
+
 ## Known limitations
+
+**`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through
+`env.store()`, but `env.evaluate("-R/…")` hangs: `ImmediateAssetManager::get` runs an asset inline
+and `evaluate_recipe` calls `get` on its *own* key, so keyed evaluation recurses until the wasm
+stack is exhausted, killing the instance. This is `liquers-core`, not this crate —
+`specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md` (P1). The blocked end-to-end tests are
+kept as `fixme` in `tests/e2e/store.spec.ts` so that removing the marker proves the fix.
 
 | Limitation | Tracked as |
 |---|---|
