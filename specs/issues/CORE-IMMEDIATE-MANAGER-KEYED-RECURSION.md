@@ -2,11 +2,11 @@
 id: CORE-IMMEDIATE-MANAGER-KEYED-RECURSION
 kind: issue
 title: Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets, web]
-design:
+design: keyed-recipe-ownership
 created: 2026-08-09
 github:
 ---
@@ -78,3 +78,28 @@ fix is in `core/assets` and affects the native manager's path too.
 
 A second, separate defect sits on the same path and was worked around rather than fixed —
 `LIB-RECIPE-PROVIDER-PANIC`.
+
+## Resolution
+
+Fixed by `specs/design/keyed-recipe-ownership/`. `AssetRef::evaluate_recipe` now asks
+`AssetManager::owned_key_asset` — a map read that never evaluates — instead of
+`AssetManager::get`. Option 1 from *Expected behaviour*, refined: the lookup is volatility-aware,
+because the manager never registers a volatile key and the raw map can still hold a stale entry
+for one.
+
+Option 2 was taken as well, as a backstop rather than the mechanism: `ImmediateAssetManager` tracks
+the ids it is running inline and returns `Error::dependency_cycle` rather than recursing, so a
+future bypass of the ownership test is a diagnosable error instead of a dead wasm instance.
+
+The regression guard the issue asks for exists on two levels:
+`liquers-core/tests/manager_parametric.rs::keyed_eval_immediate` (native, and verified to abort
+with `stack overflow` when the fix is reverted) and `EVAL07` under `wasm-bindgen-test`.
+
+**`-R/` in the browser is not unblocked by this alone.** The five `STORE07`/`STORE11` Playwright
+cases were enabled and then re-marked `fixme`: with the recursion gone they fail with
+`No recipe found`, because `ImmediateAssetManager::get` has no `try_fast_track` step and every key
+in those tests names a plain stored file rather than a recipe. That is
+`IMMEDIATE-MANAGER-NO-FAST-TRACK` (P1), found by this work and filed separately. The *Impact*
+section above — "`-R/` does not work in the browser at all" — therefore remains true for the
+plain-resource case; what changed is that it now reports a typed error instead of killing the wasm
+instance and hanging the caller.

@@ -2,11 +2,11 @@
 id: VOLATILE-KEYED-RECIPE-SELF-DELEGATION
 kind: issue
 title: Volatile keyed recipe delegates to itself
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets]
-design: 
+design: keyed-recipe-ownership
 created: 2026-08-08
 github:
 ---
@@ -52,3 +52,22 @@ volatile path return the calling asset when one is already evaluating that key.
 2. Non-volatile keyed recipes are unchanged.
 3. Invert `test_volatile_keyed_recipe_cycles_preexisting_defect` and re-enable the
    `evaluate()` path in `test_keyed_recipe_requiring_payload_is_rejected`.
+
+## Resolution
+
+Fixed by `specs/design/keyed-recipe-ownership/`, which replaced the id-identity ownership test with
+`AssetManager::owned_key_asset`. A volatile key has no registered owner, and "no owner" means
+"evaluate the recipe here", so the delegation that caused the spurious cycle no longer happens.
+This follows the *Fix direction*'s second suggestion — having the volatile path resolve to the
+calling asset — expressed as an absence rather than an identity.
+
+All three verification points are met:
+`payload_inheritance.rs::test_volatile_keyed_recipe_cycles_preexisting_defect` is inverted to
+`test_volatile_keyed_recipe_evaluates`; the `evaluate()` path is restored in
+`test_keyed_recipe_requiring_payload_is_rejected`; and non-volatile keyed recipes are unchanged,
+covered by `manager_parametric.rs::keyed_eval_{default,immediate}`.
+
+**What this did not fix.** The delegation branch itself still cannot succeed — it is only reached
+when the delegate is registered under the caller's own key, so `record_dependency_on_asset` always
+sees a self-edge. This issue's diagnosis of that mechanism was right and broader than the volatile
+case; it is now tracked as `ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`.

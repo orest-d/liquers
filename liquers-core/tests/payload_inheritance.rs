@@ -89,13 +89,11 @@ where
 /// A recipe stored at a key may not require a payload: a key names one shared asset while a
 /// payload is supplied per evaluation, so there is no payload that could satisfy it.
 ///
-/// NOTE: this is verified through recipe/plan resolution rather than through
-/// `evaluate("-R/<key>")`. A keyed recipe whose command is volatile — which
-/// `payload: required` implies — currently fails with a spurious dependency cycle before any
-/// recipe check runs. That is a **pre-existing** defect, reproducible with a plain
-/// `volatile: true` command and no payload involvement whatsoever — see
-/// `test_volatile_keyed_recipe_cycles_preexisting_defect` below and
-/// `specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md`.
+/// Verified three ways: through plan resolution, through asset introspection, and through
+/// `evaluate("-R/<key>")` — the path a caller actually takes. The evaluation check was
+/// disabled while `VOLATILE-KEYED-RECIPE-SELF-DELEGATION` was open, because
+/// `payload: required` implies `volatile` and a volatile keyed recipe failed with a spurious
+/// dependency cycle before any recipe check ran.
 #[tokio::test]
 async fn test_keyed_recipe_requiring_payload_is_rejected(
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -158,6 +156,19 @@ async fn test_keyed_recipe_requiring_payload_is_rejected(
         "unexpected asset-info message: {}",
         info.message
     );
+
+    // And the same rejection reaches evaluation, which is the path a caller actually takes.
+    let asset = envref.evaluate("-R/dash.txt").await?;
+    let err = asset
+        .get()
+        .await?
+        .value_state()
+        .expect_err("a keyed recipe requiring a payload must not evaluate");
+    assert!(
+        err.to_string().contains("keyed recipes cannot receive one"),
+        "expected the payload-boundary rejection, got: {}",
+        err
+    );
     Ok(())
 }
 
@@ -185,19 +196,21 @@ async fn test_same_command_works_when_evaluated_directly(
     Ok(())
 }
 
-/// Documents a **pre-existing defect**, unrelated to payload: a keyed recipe whose command is
-/// merely `volatile: true` fails with a spurious dependency cycle. No payload is involved
-/// anywhere in this test.
+/// A keyed recipe whose command is `volatile: true` evaluates to its value. No payload is
+/// involved anywhere in this test.
 ///
-/// It matters here only because `payload: required` implies `volatile`, so every keyed payload
-/// recipe hits this path — which is why the keyed-payload rejection above is verified through
-/// recipe resolution rather than through `evaluate("-R/<key>")`.
+/// It belongs in this file because `payload: required` implies `volatile`, so every keyed
+/// payload recipe runs through this path.
 ///
-/// This test asserts the *current* broken behaviour so that fixing the defect fails loudly here
-/// and this test can be inverted at that point.
+/// **This test used to assert the opposite.** A volatile key is deliberately never registered
+/// in the manager's key map, so the old id-identity ownership test — which compared against
+/// whatever `AssetManager::get` returned, and `get` mints a fresh asset for a volatile key on
+/// every call — never matched, and the asset delegated to itself. The ownership question is
+/// now asked with a non-evaluating map read, where "no registered owner" means "evaluate it
+/// here". See `VOLATILE-KEYED-RECIPE-SELF-DELEGATION` and
+/// `specs/design/keyed-recipe-ownership/`.
 #[tokio::test]
-async fn test_volatile_keyed_recipe_cycles_preexisting_defect(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_volatile_keyed_recipe_evaluates() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -230,19 +243,10 @@ async fn test_volatile_keyed_recipe_cycles_preexisting_defect(
     let envref = env.to_ref();
     let asset = envref.evaluate("-R/dash.txt").await?;
     let state = asset.get().await?;
-    let outcome = state.value_state();
-    match outcome {
-        Ok(_) => panic!(
-            "volatile keyed recipe unexpectedly succeeded - the pre-existing defect may have \
-             been fixed; invert this test and re-enable the evaluate() path in \
-             test_keyed_recipe_requiring_payload_is_rejected"
-        ),
-        Err(e) => assert!(
-            e.to_string().contains("Dependency cycle"),
-            "expected the known spurious cycle, got: {}",
-            e
-        ),
-    }
+    let value = state
+        .value_state()
+        .map_err(|e| format!("volatile keyed recipe should evaluate, got: {}", e))?;
+    assert_eq!(value.try_into_string()?, "vol");
     Ok(())
 }
 

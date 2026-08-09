@@ -1830,51 +1830,62 @@ impl<E: Environment> AssetRef<E> {
             if let Ok(Some(key)) = recipe.key() {
                 let envref = self.get_envref().await;
                 let manager = envref.get_asset_manager();
-                let asset = manager.get(&key).await?;
-                if asset.id() == self.id() {
-                    let recipe = envref
-                        .clone()
-                        .get_recipe_provider()
-                        .recipe(&key, envref.clone())
-                        .await?;
-                    // Keys are a payload boundary: reject a keyed recipe that requires an
-                    // evaluation payload, since no payload can reach a keyed asset.
-                    recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
-                    // The asset starts with an ad-hoc key recipe before provider lookup. Once the
-                    // stored recipe is resolved, make its identity and human-facing metadata the
-                    // asset's authoritative recipe metadata.
-                    {
-                        let mut lock = self.data.write().await;
-                        lock.recipe = recipe.clone();
-                        if let Metadata::MetadataRecord(metadata) = &mut lock.metadata {
-                            metadata
-                                .with_title(recipe.title.clone())
-                                .with_description(recipe.description.clone());
-                        }
+                // Who owns this key? Asked with a map read, never with an evaluation:
+                // `AssetManager::get` would run the asset inline under an inline manager, and
+                // this asset *is* that asset, so it recursed until the wasm stack was gone.
+                // See `specs/design/keyed-recipe-ownership/`.
+                match manager.owned_key_asset(&key).await {
+                    // Another asset is the registered owner: delegate to it.
+                    Some(asset) if asset.id() != self.id() => {
+                        eprintln!(
+                            "Delegating evaluation of asset {} to asset {}",
+                            self.id(),
+                            asset.id()
+                        );
+                        // Record delegation as a dependency wait, then delegate the F-1 inline
+                        // guard onto the shared, claim-based wait primitive: it drains this
+                        // asset's own local queue, direct-claims the child if still runnable
+                        // (no queue slot consumed), or subscribes — guaranteeing progress for
+                        // pure-key delegation chains without the old ad-hoc inline run.
+                        self.record_dependency_on_asset(&asset).await?;
+                        let envref = self.get_envref().await;
+                        let manager = envref.get_asset_manager();
+                        let state = manager.wait_for_dependency(self, &asset).await?;
+                        return Ok(state);
                     }
-                    eprintln!(
-                        "Evaluating asset {} using its own recipe for key {}:\n{}\n",
-                        self.id(),
-                        key,
-                        recipe
-                    );
-                    (input_state, recipe)
-                } else {
-                    eprintln!(
-                        "Delegating evaluation of asset {} to asset {}",
-                        self.id(),
-                        asset.id()
-                    );
-                    // Record delegation as a dependency wait, then delegate the F-1 inline
-                    // guard onto the shared, claim-based wait primitive: it drains this
-                    // asset's own local queue, direct-claims the child if still runnable
-                    // (no queue slot consumed), or subscribes — guaranteeing progress for
-                    // pure-key delegation chains without the old ad-hoc inline run.
-                    self.record_dependency_on_asset(&asset).await?;
-                    let envref = self.get_envref().await;
-                    let manager = envref.get_asset_manager();
-                    let state = manager.wait_for_dependency(self, &asset).await?;
-                    return Ok(state);
+                    // This asset is the registered owner, or nothing is registered — a
+                    // volatile key, which the manager deliberately never registers, or an
+                    // untracked asset built from a key recipe. Either way the recipe is
+                    // resolved and evaluated here.
+                    Some(_) | None => {
+                        let recipe = envref
+                            .clone()
+                            .get_recipe_provider()
+                            .recipe(&key, envref.clone())
+                            .await?;
+                        // Keys are a payload boundary: reject a keyed recipe that requires an
+                        // evaluation payload, since no payload can reach a keyed asset.
+                        recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
+                        // The asset starts with an ad-hoc key recipe before provider lookup. Once
+                        // the stored recipe is resolved, make its identity and human-facing
+                        // metadata the asset's authoritative recipe metadata.
+                        {
+                            let mut lock = self.data.write().await;
+                            lock.recipe = recipe.clone();
+                            if let Metadata::MetadataRecord(metadata) = &mut lock.metadata {
+                                metadata
+                                    .with_title(recipe.title.clone())
+                                    .with_description(recipe.description.clone());
+                            }
+                        }
+                        eprintln!(
+                            "Evaluating asset {} using its own recipe for key {}:\n{}\n",
+                            self.id(),
+                            key,
+                            recipe
+                        );
+                        (input_state, recipe)
+                    }
                 }
             } else {
                 (input_state, recipe)
@@ -2391,6 +2402,20 @@ impl<E: Environment> AssetRef<E> {
     /// Returns whether the current status is `Expired`.
     pub async fn is_expired(&self) -> bool {
         self.data.read().await.status == Status::Expired
+    }
+
+    /// Returns whether this asset is volatile: flagged before evaluation, or volatile as a
+    /// final status.
+    ///
+    /// A volatile asset is never owned by an asset manager and is never reused — see
+    /// [`AssetManager::owned_key_asset`].
+    ///
+    /// Deliberately does **not** consult [`Metadata::is_volatile`], which is also true for an
+    /// `Override` entry whose stored metadata carries the flag. That is the user-supplied
+    /// override, and it must stay reusable.
+    pub async fn is_volatile(&self) -> bool {
+        let lock = self.data.read().await;
+        lock.is_volatile || lock.status == Status::Volatile
     }
 
     /// Schedule automatic expiration via the centralized expiration monitor.
@@ -3425,6 +3450,42 @@ pub trait AssetManager<E: Environment>:
     /// Remove a cached asset by key from this manager's key→asset map.
     async fn remove_key_asset(&self, key: &Key);
 
+    /// Remove this key's entry only if it is still the asset with `asset_id`, reporting
+    /// whether an entry was removed.
+    ///
+    /// The id check is what keeps a slow caller from evicting a replacement registered after
+    /// its own lookup. The default below is lookup-compare-remove, which is correct but not
+    /// atomic; both in-tree managers override it to do the whole thing under their map lock.
+    async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
+        match self.lookup_key_asset(key) {
+            Some(existing) if existing.id() == asset_id => {
+                self.remove_key_asset(key).await;
+                true
+            }
+            Some(_) | None => false,
+        }
+    }
+
+    /// The asset currently registered as this key's owner, if any.
+    ///
+    /// **Non-evaluating.** This reads the key→asset map and never starts, submits, fast-tracks
+    /// or resolves an evaluation, which is what makes it usable from *inside* an evaluation —
+    /// [`AssetRef::evaluate_recipe`] asks it whether it owns the key it is evaluating. Asking
+    /// [`AssetManager::get`] instead recurses forever under an inline manager, which is the
+    /// defect this method exists to remove.
+    ///
+    /// A volatile asset is never an owner: it cannot be shared and cannot be reused, so a
+    /// volatile entry is dropped and `None` is returned. `None` therefore means "no asset is
+    /// registered for this key", and the caller owns the key's recipe itself.
+    async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
+        let asset = self.lookup_key_asset(key)?;
+        if asset.is_volatile().await {
+            self.remove_key_asset_if(key, asset.id()).await;
+            return None;
+        }
+        Some(asset)
+    }
+
     /// Insert an asset into this manager's key→asset map.
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>);
 
@@ -4146,12 +4207,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 let assetref = self.get_query_asset(query).await?;
                 let status = assetref.status().await;
                 // Stale-terminal states are a cache miss: Expired, Error and Cancelled are all
-                // re-evaluated on a fresh manager request (a failure may be transient). Dropping
-                // the entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since
-                // a stored Error/Cancelled is not fast-tracked).
+                // re-evaluated on a fresh manager request (a failure may be transient). Volatile
+                // joins them for a different reason — a volatile asset is used once and never
+                // reused, so it must not be served from the map even though it is finished.
+                // Dropping the entry rebuilds a fresh Recipe asset next iteration (no infinite
+                // loop, since a stored Error/Cancelled is not fast-tracked, and a volatile asset
+                // is never inserted in the first place).
                 if matches!(
                     status,
-                    Status::Expired | Status::Error | Status::Cancelled
+                    Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
                 ) {
                     let asset_id = assetref.id();
                     if let Some(entry) = self.query_assets.get_async(query).await {
@@ -4191,7 +4255,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 self.get_query_asset(query).await?
             };
             // Stale-terminal at SCHEDULING time: evict and recompute. Expired, Error and
-            // Cancelled are all treated as a cache miss (a failure may be transient), mirroring
+            // Cancelled are all treated as a cache miss (a failure may be transient), and Volatile
+            // because a volatile asset is never reused, mirroring
             // the stale-terminal eviction in `get`/`get_asset` so a dependency request rebuilds
             // exactly like a top-level one. This is the ONLY point where such a dependency is
             // refreshed — once the dependent is executing, `wait_for_dependency` uses the stale
@@ -4200,7 +4265,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // pre-execution state, so this cannot spin.
             if matches!(
                 asset.status().await,
-                Status::Expired | Status::Error | Status::Cancelled
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 match query.key() {
                     Some(key) => {
@@ -4459,12 +4524,18 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let asset_ref = self.get_resource_asset(key).await?;
             let status = asset_ref.status().await;
             // Stale-terminal states are a cache miss: Expired, Error and Cancelled are all
-            // re-evaluated on a fresh manager request (a failure may be transient). Dropping the
-            // entry rebuilds a fresh Recipe asset next iteration (no infinite loop, since a stored
-            // Error/Cancelled is not fast-tracked).
+            // re-evaluated on a fresh manager request (a failure may be transient). Volatile joins
+            // them for a different reason — a volatile asset is used once and never reused, so it
+            // must not be served from the map even though it is finished. Dropping the entry
+            // rebuilds a fresh Recipe asset next iteration (no infinite loop, since a stored
+            // Error/Cancelled is not fast-tracked, and a volatile asset is never inserted in the
+            // first place).
+            //
+            // Note this is the check on *entry*: an asset that turns out volatile during this
+            // call is still returned to the caller below. Used once, then evicted.
             if matches!(
                 status,
-                Status::Expired | Status::Error | Status::Cancelled
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 let asset_id = asset_ref.id();
                 if let Some(entry) = self.assets.get_async(key).await {
@@ -4978,6 +5049,17 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
 
     async fn remove_key_asset(&self, key: &Key) {
         let _ = self.assets.remove_async(key).await;
+    }
+
+    async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
+        // `remove_if_async` evaluates the predicate and removes under one bucket lock. A
+        // `get_async` / compare / `remove_async` sequence would release the entry guard in
+        // between, and a replacement registered in that gap would be the thing removed —
+        // exactly the race the id check exists to prevent.
+        self.assets
+            .remove_if_async(key, |asset| asset.id() == asset_id)
+            .await
+            .is_some()
     }
 
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
@@ -5531,7 +5613,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         loop {
             let assetref = self.get_query_asset(query).await?;
             let status = assetref.status().await;
-            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
                 let asset_id = assetref.id();
                 let mut map = self
                     .query_assets
@@ -5564,6 +5649,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
                 return Ok(assetref);
             }
+            // Backstop against re-entry: if this asset is already being run inline on this
+            // manager, running it again is the recursion `owned_key_asset` exists to prevent.
+            // Report it instead of exhausting the stack.
             assetref.run_inline().await?;
             return Ok(assetref);
         }
@@ -5618,7 +5706,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         loop {
             let asset_ref = self.get_resource_asset(key).await?;
             let status = asset_ref.status().await;
-            if matches!(status, Status::Expired | Status::Error | Status::Cancelled) {
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
                 let asset_id = asset_ref.id();
                 let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(existing) = map.get(key) {
@@ -5644,6 +5735,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
                 return Ok(asset_ref);
             }
+            // Backstop against re-entry — see the note in `get_asset`.
             asset_ref.run_inline().await?;
             return Ok(asset_ref);
         }
@@ -5673,6 +5765,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     async fn remove_key_asset(&self, key: &Key) {
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(key);
+    }
+
+    async fn remove_key_asset_if(&self, key: &Key, asset_id: u64) -> bool {
+        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get(key) {
+            Some(existing) if existing.id() == asset_id => map.remove(key).is_some(),
+            Some(_) | None => false,
+        }
     }
 
     async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
@@ -7928,5 +8028,441 @@ recipes:
         let (stored, _) = store.get(&key).await?;
         assert_eq!(stored, b"persist me anyway");
         Ok(())
+    }
+
+    // ==================================================================================
+    // Keyed-recipe ownership — `owned_key_asset`, `remove_key_asset_if`
+    //
+    // See `specs/design/keyed-recipe-ownership/`. The property these protect is that
+    // asking *who owns a key* never evaluates anything: `evaluate_recipe` asks it about
+    // the key it is itself evaluating, so an evaluating answer recurses forever.
+    // ==================================================================================
+
+    /// Environment whose `counted.txt` recipe runs a command that counts its own calls.
+    ///
+    /// The counter is per-environment rather than a `static`, so these tests do not
+    /// interfere when the harness runs them in parallel.
+    async fn ownership_env() -> (EnvRef<SimpleEnvironment<Value>>, Arc<AtomicUsize>) {
+        use crate::context::Environment;
+        use crate::recipes::DefaultRecipeProvider;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: counted/counted.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("counted"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("counted"))
+            })
+            .expect("register counted");
+
+        (env.to_ref(), calls)
+    }
+
+    /// A volatile asset registered under `key`, which is a state the manager itself never
+    /// creates — it is what a stale entry looks like after a result turns out volatile.
+    async fn insert_volatile_asset(
+        envref: &EnvRef<SimpleEnvironment<Value>>,
+        key: &Key,
+    ) -> AssetRef<SimpleEnvironment<Value>> {
+        let manager = envref.get_asset_manager();
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        {
+            let mut data = asset.data.write().await;
+            data.is_volatile = true;
+        }
+        manager.insert_key_asset(key, asset.clone()).await;
+        asset
+    }
+
+    /// T10 — the property the whole design rests on: the ownership query must not evaluate.
+    ///
+    /// Asserted with a call counter, before and after the key is registered. A future
+    /// "simplification" of `owned_key_asset` back into `get` fails here, and the message
+    /// says why that matters.
+    #[tokio::test]
+    async fn owned_key_asset_does_not_evaluate() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        assert!(
+            manager.owned_key_asset(&key).await.is_none(),
+            "nothing is registered before the first request"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "asking who owns a key must not evaluate its recipe"
+        );
+
+        manager.get(&key).await.expect("get").get().await.expect("value");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "precondition: evaluated once");
+
+        assert!(manager.owned_key_asset(&key).await.is_some());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the ownership query must not re-run the recipe either"
+        );
+    }
+
+    /// T7 — a registered key reports its own asset as the owner.
+    #[tokio::test]
+    async fn owned_key_asset_returns_registered_owner() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let asset = manager.get(&key).await.expect("get");
+        let owner = manager.owned_key_asset(&key).await.expect("an owner");
+        assert_eq!(owner.id(), asset.id());
+    }
+
+    /// T8 — an unregistered key has no owner, and that is an answer rather than an error.
+    #[tokio::test]
+    async fn owned_key_asset_none_when_unregistered() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        assert!(manager
+            .owned_key_asset(&parse_key("never/requested.txt").expect("key"))
+            .await
+            .is_none());
+    }
+
+    /// T9 — a volatile entry is not an owner, and is evicted on the way out.
+    ///
+    /// This is what makes `None` mean "evaluate it yourself" for a volatile keyed recipe,
+    /// which is `VOLATILE-KEYED-RECIPE-SELF-DELEGATION`.
+    #[tokio::test]
+    async fn owned_key_asset_evicts_volatile_entry() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+        let volatile = insert_volatile_asset(&envref, &key).await;
+
+        assert!(
+            manager.owned_key_asset(&key).await.is_none(),
+            "a volatile asset is never an owner"
+        );
+        assert!(
+            manager.lookup_key_asset(&key).is_none(),
+            "and it is removed rather than left to be found again"
+        );
+        assert!(volatile.is_volatile().await, "sanity: it really was volatile");
+    }
+
+    /// T12 — an asset that turns out volatile is used once, then dropped from the key map.
+    ///
+    /// The recipe is not volatile, so the manager registers the asset as normal; volatility
+    /// is discovered on the *result*. `try_to_set_ready` reaches that state from a metadata
+    /// expiry a command sets during evaluation, which no registration-time check can predict
+    /// — here it is set directly, so the test pins the eviction rule rather than the expiry
+    /// machinery that leads to it.
+    ///
+    /// Without the eviction the second `get` returns the same asset forever:
+    /// `Status::Volatile.is_finished()` is true, and the expiry re-check only fires for
+    /// `Status::Ready`.
+    ///
+    /// The command counter is deliberately not asserted here. This key's value was persisted
+    /// with `Status::Ready` before the flag was flipped, so the replacement asset fast-tracks
+    /// it from the store rather than re-running the recipe — correct, and the store's gate
+    /// doing its job. `volatile_keyed_recipe_recomputes_every_time` covers the genuine case,
+    /// where the stored copy carries `Status::Volatile` and `try_fast_track` refuses it.
+    #[tokio::test]
+    async fn runtime_volatile_asset_is_evicted_from_key_map() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let first = manager.get(&key).await.expect("first get");
+        assert_eq!(
+            first.get().await.expect("value").try_into_string().expect("string"),
+            "counted",
+            "the caller that computed the value still receives it"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // The result turns out volatile.
+        {
+            let mut data = first.data.write().await;
+            data.is_volatile = true;
+            data.status = Status::Volatile;
+        }
+
+        let second = manager.get(&key).await.expect("second get");
+        assert_ne!(
+            second.id(),
+            first.id(),
+            "a volatile asset must not be served from the key map"
+        );
+        assert!(
+            !second.is_volatile().await,
+            "and the replacement is a fresh, non-volatile asset"
+        );
+        assert_eq!(
+            second.get().await.expect("value").try_into_string().expect("string"),
+            "counted"
+        );
+    }
+
+    /// A genuinely volatile keyed recipe recomputes on every request.
+    ///
+    /// This is the user-visible half of "used once, never reused", and unlike T12 the command
+    /// counter is meaningful: a volatile result persists with `Status::Volatile`, which
+    /// `try_fast_track` refuses, so nothing short-circuits the second evaluation.
+    #[tokio::test]
+    async fn volatile_keyed_recipe_recomputes_every_time() {
+        use crate::context::Environment;
+        use crate::recipes::DefaultRecipeProvider;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: vol_counted/vol.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("vol_counted"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("vol"))
+            })
+            .expect("register vol_counted")
+            .volatile = true;
+
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("vol.txt").expect("key");
+
+        for expected in 1..=2 {
+            let asset = manager.get(&key).await.expect("get");
+            assert_eq!(
+                asset.get().await.expect("value").try_into_string().expect("string"),
+                "vol"
+            );
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                expected,
+                "a volatile recipe must run again on request {expected}"
+            );
+        }
+    }
+
+    /// T12 on the inline manager, whose key map is a plain `HashMap` behind a `std::Mutex`
+    /// rather than `scc` — a separate eviction site with the same rule.
+    #[tokio::test]
+    async fn runtime_volatile_asset_is_evicted_from_key_map_immediate() {
+        use crate::context::{Environment, ImmediateEnvironment};
+        use crate::recipes::DefaultRecipeProvider;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: counted/counted.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("counted"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("counted"))
+            })
+            .expect("register counted");
+
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let first = manager.get(&key).await.expect("first get");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        {
+            let mut data = first.data.write().await;
+            data.is_volatile = true;
+            data.status = Status::Volatile;
+        }
+
+        let second = manager.get(&key).await.expect("second get");
+        assert_ne!(second.id(), first.id());
+        assert!(!second.is_volatile().await);
+        assert_eq!(
+            second.get().await.expect("value").try_into_string().expect("string"),
+            "counted"
+        );
+    }
+
+    /// T14 — the same rule on the query map, which `get_query_asset` bypasses for volatile
+    /// queries exactly as the keyed path does.
+    #[tokio::test]
+    async fn runtime_volatile_query_asset_is_recomputed() {
+        let (envref, calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let query = parse_query("counted").expect("query");
+
+        let first = manager.get_asset(&query).await.expect("first get_asset");
+        first.get().await.expect("value");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        {
+            let mut data = first.data.write().await;
+            data.is_volatile = true;
+            data.status = Status::Volatile;
+        }
+
+        let second = manager.get_asset(&query).await.expect("second get_asset");
+        assert_ne!(
+            second.id(),
+            first.id(),
+            "a volatile asset must not be served from the query map either"
+        );
+        // Awaited, because the queued manager returns before evaluation finishes. A query
+        // asset is not a resource, so `try_fast_track` declines it and the recipe genuinely
+        // re-runs — which makes the counter meaningful here in a way it is not for T12.
+        second.get().await.expect("value");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// A failed keyed evaluation can be retried: the second request runs the command again
+    /// rather than being refused or serving the first failure from cache.
+    ///
+    /// Written for a re-entrancy guard that was reverted (see
+    /// `INLINE-PATH-LACKS-EXECUTE-ONCE`), and kept because the property is worth holding on
+    /// its own — `Status::Error` is a stale-terminal state precisely so a transient failure
+    /// does not poison a key.
+    #[tokio::test]
+    async fn failed_keyed_evaluation_is_retried() {
+        use crate::context::{Environment, ImmediateEnvironment};
+        use crate::recipes::DefaultRecipeProvider;
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let store = AsyncMemoryStore::new(&parse_key("").expect("root key"));
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("recipes key"),
+                b"recipes:\n  - query: boom/boom.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("write recipes.yaml");
+
+        let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+        let counter = attempts.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("boom"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err(Error::general_error("boom".to_string()))
+            })
+            .expect("register boom");
+
+        let envref = env.to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("boom.txt").expect("key");
+
+        // The inline manager runs during `get`, so a failing command surfaces there.
+        for attempt in 1..=2 {
+            let err = match manager.get(&key).await {
+                Ok(asset) => asset
+                    .get()
+                    .await
+                    .and_then(|state| state.value_state().map(|_| ()))
+                    .expect_err("the command fails"),
+                Err(e) => e,
+            };
+            assert_eq!(
+                err.error_type,
+                ErrorType::General,
+                "attempt {attempt} must surface the command's own error: {err}"
+            );
+        }
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            2,
+            "a failed evaluation must be retried, not cached"
+        );
+    }
+
+    /// T11 — `remove_key_asset_if` will not evict a replacement.
+    ///
+    /// The race it closes: a caller looks the key up, releases the lock to await the
+    /// volatility check, and by the time it removes, a different asset is registered.
+    ///
+    /// This asserts the *decision*, sequentially. That the decision and the removal are also
+    /// **atomic** is structural rather than testable here — each manager performs both under
+    /// one lock (`remove_if_async` on `scc`, one `Mutex` acquisition on the inline map). A
+    /// test cannot pin that without racing threads and being flaky; the thing to preserve is
+    /// the single lock, not this assertion.
+    #[tokio::test]
+    async fn remove_key_asset_if_respects_id() {
+        let (envref, _calls) = ownership_env().await;
+        let manager = envref.get_asset_manager();
+        let key = parse_key("counted.txt").expect("key");
+
+        let first = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        manager.insert_key_asset(&key, first.clone()).await;
+
+        let second = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        // Removed first, deliberately: the two managers disagree on whether
+        // `insert_key_asset` overwrites an existing entry — `scc::insert_async` reports a
+        // duplicate and the result is discarded, while `HashMap::insert` replaces. See
+        // `specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md`. This test is about
+        // `remove_key_asset_if`, so it does not depend on that unsettled behaviour.
+        manager.remove_key_asset(&key).await;
+        manager.insert_key_asset(&key, second.clone()).await;
+
+        assert!(
+            !manager.remove_key_asset_if(&key, first.id()).await,
+            "the stale id must not match"
+        );
+        assert_eq!(
+            manager.lookup_key_asset(&key).map(|a| a.id()),
+            Some(second.id()),
+            "the replacement survives"
+        );
+
+        assert!(manager.remove_key_asset_if(&key, second.id()).await);
+        assert!(manager.lookup_key_asset(&key).is_none());
     }
 }

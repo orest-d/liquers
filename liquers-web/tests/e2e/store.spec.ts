@@ -4,16 +4,21 @@ import { test, expect } from '@playwright/test';
  * `STORE07` for all three stores, plus the parts of `STORE02` and `STORE10` that need a real
  * server, plus the reload test.
  *
- * # `STORE07` is blocked, and the tests say so rather than being deleted
+ * # `STORE07` is still blocked, by a second defect
  *
- * Every test here that calls `env.evaluate('-R/…')` is marked `fixme`. They are correct, and they
- * fail for a reason outside this crate: `ImmediateAssetManager::get` runs an asset inline, and
- * `evaluate_recipe` calls `get` on its *own* key to check identity, so keyed evaluation recurses
- * until the wasm stack is exhausted — `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION` (P1).
+ * Every test here that calls `env.evaluate('-R/…')` is marked `fixme`, and they are correct.
  *
- * They are kept, and kept failing-by-declaration, because they are the regression guard that
- * issue asks for: the moment the manager is fixed, removing `fixme` proves it. Deleting them
- * would lose the only executable statement of what "the browser store works" means.
+ * The first reason is gone: keyed evaluation used to recurse until the wasm stack was exhausted
+ * (`CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`), and `specs/design/keyed-recipe-ownership/` fixed it.
+ *
+ * The second reason is `IMMEDIATE-MANAGER-NO-FAST-TRACK` (P1). `ImmediateAssetManager::get` has no
+ * `try_fast_track` step, so a key naming a plain stored file — which is every key in this file —
+ * goes to the recipe provider and gets `No recipe found`. A far better failure than a dead wasm
+ * instance, but still a failure. `liquers-web/tests/eval_EVAL.rs::eval07_keyed_query_evaluates`
+ * covers the part that now works, by going through a recipe.
+ *
+ * They are kept, and kept failing-by-declaration, because they are the executable statement of
+ * what "the browser store works" means. Removing `fixme` is what proves the remaining fix.
  *
  * The store surface itself is *not* blocked — `env.store().get(…)` and friends reach all four
  * stores, and the tests that exercise that path run normally.
