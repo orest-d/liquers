@@ -307,9 +307,8 @@ async fn web_evaluate_structured_result() {
 #[wasm_bindgen_test]
 async fn eval07_keyed_query_evaluates() {
     use liquers_core::metadata::{Metadata, MetadataRecord};
-    use liquers_core::store::AsyncStore;
     use liquers_web::environment::{configure_store_on, register_store_object_on};
-    use liquers_web::store::StoreRouterConfig;
+    use liquers_store::config::StoreRouterConfig;
     use wasm_bindgen::JsCast;
 
     // A minimal writable JS store, local to this test. `store_js_STORE.rs` has a fuller one,
