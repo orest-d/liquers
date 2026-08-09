@@ -4,12 +4,24 @@ import { test, expect } from '@playwright/test';
  * `STORE07` for all three stores, plus the parts of `STORE02` and `STORE10` that need a real
  * server, plus the reload test.
  *
- * The `STORE07` cases here were `fixme`-marked from the day they were written: keyed evaluation
- * recursed until the wasm stack was exhausted, because `evaluate_recipe` asked
- * `ImmediateAssetManager::get` who owned the key it was itself evaluating, and `get` runs an
- * unfinished asset inline. Fixed by `specs/design/keyed-recipe-ownership/`
- * (`CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`), and enabled here — which is what proves it, in the
- * delivery form, in a real browser.
+ * # `STORE07` is still blocked, by a second defect
+ *
+ * Every test here that calls `env.evaluate('-R/…')` is marked `fixme`, and they are correct.
+ *
+ * The first reason is gone: keyed evaluation used to recurse until the wasm stack was exhausted
+ * (`CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`), and `specs/design/keyed-recipe-ownership/` fixed it.
+ *
+ * The second reason is `IMMEDIATE-MANAGER-NO-FAST-TRACK` (P1). `ImmediateAssetManager::get` has no
+ * `try_fast_track` step, so a key naming a plain stored file — which is every key in this file —
+ * goes to the recipe provider and gets `No recipe found`. A far better failure than a dead wasm
+ * instance, but still a failure. `liquers-web/tests/eval_EVAL.rs::eval07_keyed_query_evaluates`
+ * covers the part that now works, by going through a recipe.
+ *
+ * They are kept, and kept failing-by-declaration, because they are the executable statement of
+ * what "the browser store works" means. Removing `fixme` is what proves the remaining fix.
+ *
+ * The store surface itself is *not* blocked — `env.store().get(…)` and friends reach all four
+ * stores, and the tests that exercise that path run normally.
  *
  * **Why these are here rather than in `wasm-bindgen-test`.** Everything the stores can do without
  * the network is covered in the Node and Chromium suites. What is left needs two things that
@@ -77,7 +89,7 @@ test.describe('STORE — end to end in a real browser', () => {
    * The whole point of the design in one line: `-R/` works in a browser. Note the `/-/`, without
    * which `to_text` would be read as part of the key rather than as a command.
    */
-  test('STORE07 a fetched resource evaluates end to end', async ({ page }) => {
+  test.fixme('STORE07 a fetched resource evaluates end to end', async ({ page }) => {
     const out = await page.evaluate(
       inPage(`
         const env = liquers.Environment.global();
@@ -95,7 +107,7 @@ test.describe('STORE — end to end in a real browser', () => {
   });
 
   /** STORE07 — a nested key resolves too, so URL construction is not accidentally flat. */
-  test('STORE07 a nested fetched key resolves', async ({ page }) => {
+  test.fixme('STORE07 a nested fetched key resolves', async ({ page }) => {
     const out = await page.evaluate(
       inPage(`
         const env = liquers.Environment.global();
@@ -179,7 +191,7 @@ test.describe('STORE — end to end in a real browser', () => {
    * living in the first page's memory. Everything else in the localStorage suite runs inside one
    * page lifetime and would pass with a purely in-memory index.
    */
-  test('STORE07 a localStorage resource survives a reload', async ({ page }) => {
+  test.fixme('STORE07 a localStorage resource survives a reload', async ({ page }) => {
     const config = `{ stores: [{ type: 'localstorage', prefix: 'local',
                      config: { namespace: 'e2e' } }] }`;
 
@@ -210,7 +222,7 @@ test.describe('STORE — end to end in a real browser', () => {
   });
 
   /** STORE07 — a page-implemented store serves a query. */
-  test('STORE07 a JavaScript store evaluates end to end', async ({ page }) => {
+  test.fixme('STORE07 a JavaScript store evaluates end to end', async ({ page }) => {
     const out = await page.evaluate(
       inPage(`
         const env = liquers.Environment.global();
@@ -237,7 +249,7 @@ test.describe('STORE — end to end in a real browser', () => {
    * The example from Phase 1, executed: read-only reference data from a server alongside writable
    * browser storage, described by a single document.
    */
-  test('STORE11 fetch and localStorage coexist in one configuration', async ({ page }) => {
+  test.fixme('STORE11 fetch and localStorage coexist in one configuration', async ({ page }) => {
     const out = await page.evaluate(
       inPage(`
         const env = liquers.Environment.global();

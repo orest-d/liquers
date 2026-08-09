@@ -54,7 +54,14 @@ smoothed over:
    the recursion is fixed by step 4 regardless. The evidence is recorded in
    `INLINE-PATH-LACKS-EXECUTE-ONCE`, which owns the correct fix — the second caller must *wait*,
    not be turned away, and that is execute-once work.
-4. **Two unrelated defects surfaced and were filed, not absorbed** —
+4. **`-R/` in the browser is still blocked, by a *second* defect.** With the recursion gone, the
+   wasm test for a plain stored file failed with `No recipe found` instead of crashing:
+   `ImmediateAssetManager::get` has no `try_fast_track` step, so a key that names a file rather
+   than a recipe never reaches the store. Filed as `IMMEDIATE-MANAGER-NO-FAST-TRACK` (P1). The five
+   Playwright `STORE07`/`STORE11` cases were enabled and then re-marked `fixme` pointing at it —
+   they assert exactly that scenario. `eval07_keyed_query_evaluates` covers what does now work, by
+   resolving through a recipe.
+5. **Two unrelated defects surfaced and were filed, not absorbed** —
    `ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE` and
    `EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD`.
 

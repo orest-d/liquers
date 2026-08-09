@@ -303,7 +303,12 @@ async fn web_evaluate_structured_result() {
 ///
 /// The ownership question is now a non-evaluating map read
 /// (`specs/design/keyed-recipe-ownership/`). This runs in the Node loop, so it is the cheapest
-/// guard on the real target; the Playwright `STORE07` cases cover the delivery form.
+/// guard on the real target.
+///
+/// The key resolves **through a recipe**, deliberately. A key naming a plain stored file cannot
+/// be evaluated on this target at all: `ImmediateAssetManager::get` has no `try_fast_track` step,
+/// so it goes straight to the recipe provider and gets "No recipe found" — a separate gap, see
+/// `IMMEDIATE-MANAGER-NO-FAST-TRACK`. The recursion this test guards against is common to both.
 #[wasm_bindgen_test]
 async fn eval07_keyed_query_evaluates() {
     use liquers_core::metadata::{Metadata, MetadataRecord};
@@ -350,20 +355,20 @@ async fn eval07_keyed_query_evaluates() {
     envref
         .get_async_store()
         .set(
-            &liquers_core::parse::parse_key("d/f.txt").expect("key"),
-            b"hello from the store",
+            &liquers_core::parse::parse_key("d/recipes.yaml").expect("key"),
+            b"recipes:\n  - query: hello/greeting.txt\n",
             &Metadata::MetadataRecord(record),
         )
         .await
         .expect("seed the store");
 
-    let text = eval_to_js("-R/d/f.txt/-/shout")
+    let text = eval_to_js("-R/d/greeting.txt")
         .await
         .expect("keyed evaluation must resolve, not exhaust the stack");
     assert_eq!(
         text.as_string().as_deref(),
-        Some("HELLO FROM THE STORE"),
-        "the stored bytes must reach the command"
+        Some("Hello, world!"),
+        "the recipe's command must have produced the value"
     );
 
     reset_global();
