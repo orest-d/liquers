@@ -2,10 +2,9 @@
 id: EXPIRED-BINARY-READ-SAFETY
 kind: design
 title: Expired-safe binary reads
-status: approved
 phase: implementation
 area: [core/assets, core/store]
-gh_pr: []
+gh_pr: [22]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
 created: 2026-08-08
 superseded_by:
@@ -146,9 +145,10 @@ Two decisions deliberately left for execution time, with recommended defaults:
 
 ### Implementation
 
-Landed on this branch across ten commits following the Phase 4 step order. Verification:
-`liquers-core` — 445 lib tests, 31 `expiration_integration` (was 27), whole-crate suite green;
-`cargo check -p liquers-py` clean; `liquers-axum` compiles.
+Landed on this branch following the Phase 4 step order; opened as
+[PR #22](https://github.com/orest-d/liquers/pull/22). Verification: `liquers-core` — 445 lib tests,
+32 `expiration_integration` (was 27), whole-crate suite green; `cargo test -p liquers-lib
+--lib --tests` green; `cargo check -p liquers-py` clean; `liquers-axum` compiles.
 
 Deviations from the plan, all recorded rather than silent:
 - `ReadExposure` is `pub(crate)`, not `pub` — the same compile-time exhaustiveness guarantee

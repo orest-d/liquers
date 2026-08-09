@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 // Integration tests for expiration system
 use liquers_core::{
-    assets::{AssetManager, AssetRef, PersistenceStatus},
+    assets::{AssetData, AssetManager, AssetRef, PersistenceStatus},
     command_metadata::CommandKey,
     context::{Context, EnvRef, Environment, SimpleEnvironment},
     error::Error,
@@ -1319,5 +1319,42 @@ async fn test_get_asset_binary_agrees_with_get_asset() -> Result<(), Box<dyn std
     );
     assert!(state_result.is_ok(), "both should resolve for a fresh asset");
     assert_eq!(binary_result?.try_into_string()?, "1");
+    Ok(())
+}
+
+/// I4 — an expired keyed asset does not fast-track its stale bytes back in.
+///
+/// `mark_expired_status` persists `Expired` to the store precisely so that an evicted asset
+/// cannot be reloaded as fresh. `try_fast_track` accepts only `Ready`/`Source`/`Override`, so a
+/// direct `AssetData` built from the same store entry must refuse — otherwise the read gate could
+/// be bypassed entirely by eviction plus reload.
+#[tokio::test]
+async fn test_expired_keyed_asset_does_not_fast_track_back()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (envref, key, _calls) = wp3_keyed_counter_env().await?;
+    let manager = envref.get_asset_manager();
+
+    let asset = manager.get(&key).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "1");
+    asset.expire().await?;
+
+    // The store now records the expiry, not a stale Ready.
+    let store = envref.get_async_store();
+    let (_bytes, metadata) = store.get(&key).await?;
+    assert_eq!(
+        metadata.status(),
+        Status::Expired,
+        "expiry must be persisted, or an evicted asset reloads as fresh"
+    );
+
+    // A fresh AssetData over the same store entry refuses to fast-track it.
+    let mut reloaded =
+        AssetData::<SimpleEnvironment<Value>>::new(9401, key.clone().into(), envref.clone());
+    assert!(
+        !reloaded.try_fast_track().await?,
+        "an Expired store entry must not fast-track"
+    );
+    assert!(reloaded.poll_binary().is_none());
+    assert!(reloaded.poll_state().is_none());
     Ok(())
 }
