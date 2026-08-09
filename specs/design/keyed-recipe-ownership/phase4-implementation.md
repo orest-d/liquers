@@ -156,7 +156,15 @@ asserted caching of a volatile value was asserting the defect.
 
 ---
 
-### Step 6 — Re-entrancy guard
+### Step 6 — Re-entrancy guard — **implemented, then reverted**
+
+> **Outcome:** this step was completed as written and then rolled back. A manager-global id set
+> cannot distinguish re-entrancy on one stack from two tasks legitimately awaiting the same asset;
+> `liquers-web/tests/async_ASYNCQ.rs` fails with the guard in place, because a JavaScript `async`
+> command yields and the second caller was refused. The rollback plan below anticipated this. The
+> evidence and the correct fix live in `INLINE-PATH-LACKS-EXECUTE-ONCE`. What follows is the step
+> as planned, kept because the reasoning is what the issue now builds on.
+
 
 **File:** `liquers-core/src/assets.rs`
 

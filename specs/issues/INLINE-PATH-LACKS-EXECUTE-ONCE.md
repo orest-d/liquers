@@ -51,15 +51,40 @@ whose `Drop` resets the asset to a re-runnable state rather than re-submitting t
 not have. `RunClaim` then becomes the queued specialization of a shared primitive rather than the
 only implementation.
 
-That would also **subsume the re-entrancy backstop** added by
-`specs/design/keyed-recipe-ownership/` — `ImmediateAssetManager::try_enter_inline` and its id set
-exist only because there is no claim on this path. A real claim makes them redundant, and one
-mechanism is easier to reason about than two.
+`specs/design/keyed-recipe-ownership/` tried to get the same protection cheaply and could not — see
+below. A real claim is the only thing that covers this path.
+
+## Why the cheap version does not work
+
+`keyed-recipe-ownership` implemented the small guard — a set of asset ids being run inline, refusing
+a second entry with `Error::dependency_cycle` — and **reverted it**, because it breaks working
+behaviour.
+
+A manager-global id set cannot tell the two cases apart:
+
+- **re-entrancy on one stack**, where an asset's own evaluation asks for itself — a cycle, which
+  the guard should refuse; and
+- **two tasks legitimately awaiting the same asset**, where the second caller should join the
+  first rather than be turned away.
+
+Both look like "this id is already running". The guard refused the second, and
+`liquers-web/tests/async_ASYNCQ.rs` failed as a result: a JavaScript `async` command genuinely
+yields to the event loop, so a concurrent request arrives while the first evaluation is still in
+flight. The native `manager_parametric.rs::immediate_concurrent_same_query_runs_once` did not catch
+it, because its command never yields — the first evaluation finishes before the second is polled.
+
+The behaviour the second caller needs is *wait for the running evaluation*, which is what
+`run_with_future_inline` already improvises with its `select!` between `wait_to_finish()` and its
+own evaluation future. Making that correct rather than improvised **is** this issue. A guard that
+only refuses is not a smaller version of it; it is a different and wrong answer.
+
+A real claim must therefore be scoped to the evaluation stack, not to the manager — or, better,
+must make the second caller wait, which is what `RunClaim` plus `wait_for_dependency` achieve on the
+queued path.
 
 ## Discovery
 
-Noted on 2026-08-09 while designing `specs/design/keyed-recipe-ownership/`. That design needed a
-re-entrancy guard for the inline path, considered generalizing `RunClaim`, and deliberately did not
-— execute-once is a different change with a wider blast radius than a keyed-recursion fix, and
-folding it in would have made the fix unreviewable. Filed so the smaller guard does not quietly
-become the permanent answer.
+Noted on 2026-08-09 while designing `specs/design/keyed-recipe-ownership/`, and confirmed the hard
+way while implementing it. That design considered generalizing `RunClaim` and deliberately did not
+— execute-once has a wider blast radius than a keyed-recursion fix, and folding it in would have
+made the fix unreviewable. The guard it wrote instead is the evidence above.

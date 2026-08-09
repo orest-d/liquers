@@ -5497,33 +5497,6 @@ pub struct ImmediateAssetManager<E: Environment> {
     query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
     dependency_manager: crate::dependencies::DependencyManager<E>,
     started: tokio::sync::OnceCell<()>,
-    /// Ids of assets whose inline run is in progress on this manager.
-    ///
-    /// Same locking discipline as the maps above: brief sync insert/remove, never across an
-    /// `.await`. See [`ImmediateAssetManager::try_enter_inline`].
-    running_inline: std::sync::Mutex<std::collections::HashSet<u64>>,
-}
-
-/// Proof that this manager has started an inline run for one asset id, released on drop.
-///
-/// A backstop, not the mechanism: with a correct ownership test in
-/// [`AssetRef::evaluate_recipe`] nothing re-enters, and this only ever fires if that test is
-/// bypassed. It exists because the alternative failure mode is a wasm stack overflow, which
-/// kills the instance and leaves the caller's `Promise` unsettled — undiagnosable. See
-/// `specs/design/keyed-recipe-ownership/`.
-///
-/// Deliberately holds a **borrow of the set, not a `MutexGuard`**: a guard would be `!Send`
-/// and could not be held across the `run_inline().await` this exists to span.
-struct InlineRunGuard<'a> {
-    running: &'a std::sync::Mutex<std::collections::HashSet<u64>>,
-    asset_id: u64,
-}
-
-impl Drop for InlineRunGuard<'_> {
-    fn drop(&mut self) {
-        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
-        running.remove(&self.asset_id);
-    }
 }
 
 impl<E: Environment> Default for ImmediateAssetManager<E> {
@@ -5545,35 +5518,11 @@ impl<E: Environment> ImmediateAssetManager<E> {
             query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             dependency_manager: crate::dependencies::DependencyManager::new(),
             started: tokio::sync::OnceCell::new(),
-            running_inline: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
     fn next_id(&self) -> u64 {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// Claim the right to run `asset_id` inline here, or `None` if a run for it is already in
-    /// progress on this manager.
-    ///
-    /// The claim is by id rather than by status because status does not track the inline run:
-    /// nothing sends `AssetServiceMessage::JobStarted`, so an inline-running asset never
-    /// reaches `Status::Processing`, and `run_with_future_inline` drives the service-message
-    /// loop concurrently with evaluation, so status lags the run by whatever the executor
-    /// decides.
-    fn try_enter_inline(&self, asset_id: u64) -> Option<InlineRunGuard<'_>> {
-        let mut running = self
-            .running_inline
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if running.insert(asset_id) {
-            Some(InlineRunGuard {
-                running: &self.running_inline,
-                asset_id,
-            })
-        } else {
-            None
-        }
     }
 
     fn envref(&self) -> EnvRef<E> {
@@ -5702,12 +5651,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             // Backstop against re-entry: if this asset is already being run inline on this
             // manager, running it again is the recursion `owned_key_asset` exists to prevent.
             // Report it instead of exhausting the stack.
-            match self.try_enter_inline(assetref.id()) {
-                Some(_guard) => assetref.run_inline().await?,
-                None => {
-                    return Err(Error::dependency_cycle(&DependencyKey::from(query)));
-                }
-            }
+            assetref.run_inline().await?;
             return Ok(assetref);
         }
     }
@@ -5791,12 +5735,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 return Ok(asset_ref);
             }
             // Backstop against re-entry — see the note in `get_asset`.
-            match self.try_enter_inline(asset_ref.id()) {
-                Some(_guard) => asset_ref.run_inline().await?,
-                None => {
-                    return Err(Error::dependency_cycle(&DependencyKey::from(key)));
-                }
-            }
+            asset_ref.run_inline().await?;
             return Ok(asset_ref);
         }
     }
@@ -8415,36 +8354,15 @@ recipes:
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
-    /// T15 — the inline guard refuses a second entry for the same asset and releases on drop.
-    #[tokio::test]
-    async fn try_enter_inline_refuses_second_entry() {
-        let manager = ImmediateAssetManager::<SimpleEnvironment<Value>>::new();
-
-        let first = manager.try_enter_inline(7);
-        assert!(first.is_some(), "the first claim succeeds");
-        assert!(
-            manager.try_enter_inline(7).is_none(),
-            "re-entry for the same asset must be refused - this is the recursion"
-        );
-        assert!(
-            manager.try_enter_inline(8).is_some(),
-            "a different asset is unaffected"
-        );
-
-        drop(first);
-        assert!(
-            manager.try_enter_inline(7).is_some(),
-            "the id is released when the run finishes"
-        );
-    }
-
-    /// T16 — the guard releases when the run fails, so a later request is not refused.
+    /// A failed keyed evaluation can be retried: the second request runs the command again
+    /// rather than being refused or serving the first failure from cache.
     ///
-    /// The failure path matters more than the success path: a guard leaked on `Err` would
-    /// turn one failed evaluation into a permanently unusable key, which is worse than the
-    /// defect it protects against.
+    /// Written for a re-entrancy guard that was reverted (see
+    /// `INLINE-PATH-LACKS-EXECUTE-ONCE`), and kept because the property is worth holding on
+    /// its own — `Status::Error` is a stale-terminal state precisely so a transient failure
+    /// does not poison a key.
     #[tokio::test]
-    async fn inline_guard_releases_on_error() {
+    async fn failed_keyed_evaluation_is_retried() {
         use crate::context::{Environment, ImmediateEnvironment};
         use crate::recipes::DefaultRecipeProvider;
 
@@ -8487,14 +8405,13 @@ recipes:
             assert_eq!(
                 err.error_type,
                 ErrorType::General,
-                "attempt {attempt} must fail with the command's own error, not a re-entrancy \
-                 refusal: {err}"
+                "attempt {attempt} must surface the command's own error: {err}"
             );
         }
         assert_eq!(
             attempts.load(Ordering::SeqCst),
             2,
-            "a failed run must release its guard, so the retry is not refused as re-entrant"
+            "a failed evaluation must be retried, not cached"
         );
     }
 

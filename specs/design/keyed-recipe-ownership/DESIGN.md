@@ -46,7 +46,15 @@ smoothed over:
    `Ready`, an evicted asset fast-tracks the value from the store instead of re-running. T12 asserts
    the eviction; `volatile_keyed_recipe_recomputes_every_time` carries the counter, because a
    volatile result persists as `Status::Volatile` and `try_fast_track` refuses it.
-3. **Two unrelated defects surfaced and were filed, not absorbed** —
+3. **The re-entrancy guard was implemented and then reverted.** It broke
+   `liquers-web/tests/async_ASYNCQ.rs`, which passes before the change and fails after: a
+   manager-global id set cannot distinguish re-entrancy on one stack from two tasks legitimately
+   awaiting the same asset, and a JavaScript `async` command yields, so the second caller was
+   refused. Phase 4's rollback plan anticipated exactly this and authorised reverting step 6 alone;
+   the recursion is fixed by step 4 regardless. The evidence is recorded in
+   `INLINE-PATH-LACKS-EXECUTE-ONCE`, which owns the correct fix — the second caller must *wait*,
+   not be turned away, and that is execute-once work.
+4. **Two unrelated defects surfaced and were filed, not absorbed** —
    `ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE` and
    `EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD`.
 
@@ -54,7 +62,7 @@ The recursion reproducer was verified: with the ownership test temporarily rever
 `keyed_eval_immediate` aborts with `stack overflow` (SIGABRT), which is why it had to land in the
 same commit as the fix.
 
-**Verification status:** `liquers-core` 507 passed, `liquers-lib` 368 passed, `registry_export`
+**Verification status:** `liquers-core` 506 passed, `liquers-lib` 368 passed, `registry_export`
 green. The five `expiration_integration` failures are pre-existing and unchanged. The wasm and
 Playwright loops are covered in the branch's final report.
 
