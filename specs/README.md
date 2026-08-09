@@ -146,6 +146,7 @@ submit, and submitted query state is not preserved.
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
+- **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
 
 ### Build and repository
@@ -173,6 +174,7 @@ deliberately folded behind a broader line.
 <!-- BEGIN generated: unplaced -->
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - `reference/api/DOC_08_RECIPES_PLANS.md`
+- feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 
 ## Guides

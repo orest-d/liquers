@@ -9,18 +9,28 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
-serde = "1.0.181"
+# `derive` is required: config.rs imports `Serialize`/`Deserialize` from `serde` as derive
+# macros. Until the `opendal` dependency became optional this crate compiled without declaring
+# it, because OpenDAL enabled `serde/derive` and Cargo unified the feature — an accident, not a
+# guarantee, and it broke the moment OpenDAL could be turned off.
+serde = { version = "1.0.181", features = ["derive"] }
 serde_derive = "1.0.181"
 serde_json = "1.0.104"
 serde_yaml = "0.9.33"
-opendal = "0.55.0"
+opendal = { version = "0.55.0", optional = true }
 bytes = "1.8.0"
 async-trait = "0.1.80"
 toml = { version = "0.8", optional = true }
 
 [features]
-default=["async_store"]
+default=["async_store", "opendal"]
 async_store=[]
+# OpenDAL-backed store backends. Optional so that a wasm32 consumer can depend on this
+# crate for its configuration and builder alone: OpenDAL is a large, native-oriented
+# dependency, and `liquers-web` needs `StoreConfig`/`StoreRouterBuilder` without it.
+# In `default`, so a consumer who does nothing sees no change.
+# See specs/design/liquers-web-store/phase4-implementation.md, Step 1.
+opendal=["dep:opendal"]
 toml=["dep:toml"]
 
 [dev-dependencies]

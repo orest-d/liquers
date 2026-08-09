@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-03-02
+reviewed: 2026-08-09
 ---
 # Functional Specification Document (FSD): Store Configuration for `liquers-store`
 
@@ -421,6 +421,75 @@ Though UI is put of scope, the UI should be optionally supported (as a feature) 
 ### Related
 - [serde](https://serde.rs/) - Serialization framework for Rust
 
+## Optional backends and extension
+
+### The `opendal` feature
+
+OpenDAL is an **optional** dependency of `liquers-store`, enabled by default. Building with
+`--no-default-features --features async_store` gives the configuration types and the router builder
+without it, which is what lets a `wasm32` consumer — `liquers-web` — reuse this crate: OpenDAL is
+native-oriented and large, and none of the browser's backends need it.
+
+With the feature off, a configuration naming an OpenDAL type is refused with an error that **names
+the missing feature** rather than reporting the type as unknown; a real, documented store type must
+not look like a typo. `filesystem` behaves the same way on `wasm32`, where `AsyncFileStore` cannot
+exist because it uses `tokio::fs`.
+
+### `StoreFactory` — store types this crate does not implement
+
+```rust
+pub trait StoreFactory {
+    fn store_types(&self) -> Vec<String>;
+    fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error>;
+}
+
+StoreRouterBuilder::new(config).with_factory(Box::new(my_factory)).build()
+```
+
+Factories are consulted **before** the built-in types, and in registration order. Preceding the
+built-ins is required rather than convenient: it is what allows a factory to *override* a type.
+`http` and `https` are built-in OpenDAL types, and a browser has to serve them with `fetch`
+instead — consulting factories second would make that impossible, and one configuration document
+could not then mean the same thing on both targets.
+
+The trait deliberately carries no `Send`/`Sync` bound. A factory is transient — consumed while the
+router is built — and only the `AsyncStore` it produces has thread requirements, which `AsyncStore`
+already states. A bound no call site needs would exclude a browser factory holding JavaScript
+handles.
+
+### Browser store types
+
+`liquers-web` contributes three types through that seam. They appear in the same document as any
+other store, and the routing rules above are unchanged.
+
+| `type` | Backend | Writes | Configuration |
+|---|---|---|---|
+| `localstorage` | `localStorage` | yes | `namespace` (no `/`, default `liquers`), `quota_bytes` (omit for unlimited) |
+| `http` / `https` | `fetch` | no | `url_prefix`, `keys` |
+| `js` | a page object | depends on the object | `object` — a name registered with `registerStoreObject` |
+
+```yaml
+stores:
+  - type: localstorage
+    prefix: local
+    config: { namespace: myapp, quota_bytes: 4000000 }
+  - type: http
+    prefix: data
+    config:
+      url_prefix: https://example.org/reference/
+      keys: [ input.csv, sub/report.json ]
+```
+
+Two differences from a native deployment are worth knowing:
+
+- **`${VAR}` is not expanded in a browser**, because there is no environment. The builder leaves
+  the text verbatim and warns; the syntax is reserved for page-supplied variables later.
+- **`http` has no directory listing.** HTTP does not provide one, so the store is told its `keys`
+  and derives `contains`, `is_dir` and `listdir` from that set — which is what keeps them
+  consistent with what a `get` will actually fetch.
+
+Full design: `specs/design/liquers-web-store/`.
+
 ---
 **End of FSD**
 
@@ -429,3 +498,4 @@ Though UI is put of scope, the UI should be optionally supported (as a feature) 
 | Date | Change | Source |
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
+| 2026-08-09 | Documented the optional `opendal` feature, the `StoreFactory` extension seam, and the three browser store types (`localstorage`, `http`/`https` via `fetch`, `js`). | `design/liquers-web-store/` |

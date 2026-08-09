@@ -106,6 +106,69 @@ export interface LiquersCommandInfo {
   module: string;
   volatile: boolean;
 }
+
+/** One store in a store-router configuration. */
+export interface LiquersStoreEntry {
+  /**
+   * The backend. `"localstorage"` and `"js"` are browser-only; `"http"`/`"https"` are served by
+   * `fetch` here and by OpenDAL natively, so one document works on both.
+   */
+  type: "localstorage" | "http" | "https" | "js" | string;
+  /** Key prefix this store answers for. Empty matches every key. */
+  prefix?: string;
+  /** Backend-specific settings. See the per-type fields below. */
+  config?: LiquersStoreEntryConfig;
+}
+
+/**
+ * Backend settings. Which fields apply depends on the entry's `type`; the union is deliberately
+ * open, because `liquers-store` accepts backends this build does not know about.
+ */
+export interface LiquersStoreEntryConfig {
+  /** `localstorage`: entry-name namespace. Must contain no `/`. Defaults to `"liquers"`. */
+  namespace?: string;
+  /** `localstorage`: byte budget the store enforces itself. Omit for unlimited. */
+  quota_bytes?: number;
+  /** `http`/`https`: URL the key is appended to, after its routing prefix is removed. */
+  url_prefix?: string;
+  /** `http`/`https`: the keys this store has. HTTP offers no listing, so it must be told. */
+  keys?: string[];
+  /** `js`: the name previously passed to `registerStoreObject`. */
+  object?: string;
+  [key: string]: unknown;
+}
+
+/** A store-router configuration: stores are tried in order, first matching prefix wins. */
+export interface LiquersStoreConfig {
+  stores: LiquersStoreEntry[];
+}
+
+/**
+ * A store implemented by the page, passed to `registerStoreObject`.
+ *
+ * Only `get` is required. Every other method may be omitted, and calls to it then fail with
+ * `key_not_supported` rather than returning a permissive default — a half-implemented store
+ * reports that it is half-implemented instead of looking empty. Any method may return its value
+ * directly or as a `Promise`; `isSupported` is the exception and must be synchronous.
+ *
+ * Return `undefined` from `get` to say a key is absent: that becomes `key_not_found`. Throwing
+ * signals a *failure* instead, and becomes `key_read_error`.
+ */
+export interface LiquersStoreObject {
+  get(key: string): { data: Uint8Array; metadata?: object } | undefined
+    | Promise<{ data: Uint8Array; metadata?: object } | undefined>;
+  getMetadata?(key: string): object | Promise<object>;
+  set?(key: string, data: Uint8Array, metadata: object): void | Promise<void>;
+  setMetadata?(key: string, metadata: object): void | Promise<void>;
+  remove?(key: string): void | Promise<void>;
+  removedir?(key: string): void | Promise<void>;
+  makedir?(key: string): void | Promise<void>;
+  contains?(key: string): boolean | Promise<boolean>;
+  isDir?(key: string): boolean | Promise<boolean>;
+  listdir?(key: string): string[] | Promise<string[]>;
+  /** Synchronous. A `Promise` here is truthy and would claim every key. */
+  isSupported?(key: string): boolean;
+}
 "#;
 
 #[wasm_bindgen]
@@ -121,4 +184,12 @@ extern "C" {
     /// A `Promise` resolving to an [`crate::LiquersAsset`].
     #[wasm_bindgen(typescript_type = "Promise<Asset>")]
     pub type AssetPromise;
+
+    /// A store-router configuration object, or a YAML/JSON string holding one.
+    #[wasm_bindgen(typescript_type = "LiquersStoreConfig | string")]
+    pub type JsStoreConfig;
+
+    /// A store implemented by the page.
+    #[wasm_bindgen(typescript_type = "LiquersStoreObject")]
+    pub type JsStoreObject;
 }

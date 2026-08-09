@@ -1,15 +1,20 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,draft,local,,P1,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
+CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",draft,local,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,draft,local,,P1,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,draft,local,,P1,M,core/plan,,,,,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
 CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,draft,local,,P1,M,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
 PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,draft,local,,P1,M,core/query,,,,,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
+STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,draft,local,,P1,M,core/store;store/backends;axum,,,,,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,draft,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,draft,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,draft,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,draft,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
+CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,draft,local,,P2,S,core/value,,,,,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,draft,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
+LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,draft,local,,P2,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
+WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,draft,local,,P2,S,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",draft,local,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
 COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,draft,local,,P2,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
 COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a workaround",draft,local,,P2,M,core/commands;macro,,,,context-param-order,,2026-08-08,specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md
@@ -30,6 +35,7 @@ EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,draft,local,,P
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,draft,local,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,draft,local,,P3,S,docs,,,,,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,draft,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
+WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",draft,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,draft,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,draft,local,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
 CORE-STATE-LOCK-API-CLEANUP,issue,`State` holds an `RwLock` that may not be needed,draft,local,,P3,M,core/value,,,,,,2026-08-08,specs/issues/CORE-STATE-LOCK-API-CLEANUP.md
@@ -37,10 +43,11 @@ CORE-STORE-OPENBIN-MISSING,issue,`openbin` is unimplemented in every store,draft
 LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT,issue,Language exception class and stack are lost in transport,draft,local,,P3,M,core/error;web;py,,,,,,2026-08-08,specs/issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md
 MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate queries or implement hints,draft,local,,P3,M,macro,,,,,,2026-08-08,specs/issues/MACRO-QUERY-VALIDATION-AND-HINTS.md
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,draft,local,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
+STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written from a query,draft,local,,P3,M,lib/commands;core/store,,,,,,2026-08-09,specs/issues/STORE-COMMAND-NAMESPACE-MISSING.md
 VALUE-DESCRIPTION,feature,Value types have no auto-generated description,draft,local,,P3,M,core/value;lib/value,,,,,,2026-08-08,specs/issues/VALUE-DESCRIPTION.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,draft,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,draft,local,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
-WEB-NATIVE-IO-TIER2,issue,No browser-native store or command backend,draft,local,,P3,L,web,,,,,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
+WEB-NATIVE-IO-TIER2,issue,No browser-native store or command backend,draft,local,,P3,L,web,,,,liquers-web-store,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,draft,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,draft,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
@@ -52,12 +59,11 @@ VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/v
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,overdue,local,,,,core/commands;macro,,,,,2026-03-02,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands,,,,,2026-08-08,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands,,,,,2026-08-09,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-09,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,overdue,local,,,,lib/polars,,,,,2026-03-02,,specs/reference/POLARS_COMMAND_LIBRARY.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,overdue,local,,,,store/config,,,,,2026-03-02,,specs/reference/STORE_CONFIG_FSD.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,overdue,local,,,,axum;web,,,,,2026-03-02,,specs/reference/WEB_API_SPECIFICATION.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-09,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
@@ -72,7 +78,9 @@ DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evalua
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-09,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-08,,specs/reference/PROJECT_OVERVIEW.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
+LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE,issue,The guide's STORE feature omits integration-provided stores and store configuration,closed,local,,P2,M,web;py;core/store,,,,,,2026-08-09,specs/issues/LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
@@ -82,6 +90,7 @@ EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,com
 EXPIRATION-SAFETY,design,Timing and race safety in asset expiration,complete,local,,,,core/assets,,11,,expiration-safety,,2026-03-02,specs/design/expiration-safety/DESIGN.md
 KEYBOARD-SHORTCUTS,design,Keyboard shortcuts in UISpec,complete,local,,,,lib/ui,,,,keyboard-shortcuts,,2026-03-02,specs/design/keyboard-shortcuts/DESIGN.md
 LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
+LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
 PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md

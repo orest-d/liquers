@@ -141,7 +141,10 @@ fn environ05_isolated_test_environments_do_not_leak_registration() {
     let a = LiquersEnvironment::new().expect("instance a");
     let b = LiquersEnvironment::new().expect("instance b");
     assert!(
-        !std::sync::Arc::ptr_eq(&a.envref().0, &b.envref().0),
+        !std::sync::Arc::ptr_eq(
+            &a.resolve().expect("instance a resolves").0,
+            &b.resolve().expect("instance b resolves").0
+        ),
         "two explicit instances must be independent"
     );
 

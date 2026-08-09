@@ -41,6 +41,11 @@ wasm-bindgen --target web --out-dir "$here/dist" --out-name liquers_web "$wasm"
 
 cp "$here/index.html" "$here/dist/index.html"
 
+# Fixture files the `STORE` e2e tests fetch over HTTP. They live here rather than under tests/
+# because the fetch store needs them served by the *same* static server as the page, and this is
+# the directory that server hosts.
+cp -r "$here/fixtures" "$here/dist/fixtures"
+
 echo
 echo "Built $here/dist"
 echo "Serve with:  python3 -m http.server 8090 --directory '$here/dist'"
