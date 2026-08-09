@@ -580,14 +580,16 @@ method does, and at what moment the *language* object is inspected.
 1. **A store written in the *integrated language*** — adapt a *language value* to the complete
    `AsyncStore` contract: data and metadata get/set, key support, containment, directory
    listing/creation/removal, and capability reporting.
-2. **Stores the *integration itself* provides**, backed by whatever storage the host offers, plus
-   the declarative configuration that composes them.
+2. **Stores the *integration itself* provides**, backed by whatever storage the host offers.
+3. **Composition and configuration** — a *router* that dispatches a key to one of several stores,
+   built from a declarative document rather than assembled in code.
 
-Direction 2 is easy to leave out of a design, because direction 1 is what the word "language-defined"
-suggests — and it is usually the larger half of the delivered work. A browser integration's most
-useful stores are backed by browser storage and HTTP rather than written in JavaScript; a Python
-integration's are backed by the filesystem or an object store. Decide explicitly which directions
-are in scope.
+Directions 2 and 3 are easy to leave out of a design, because direction 1 is what the word
+"language-defined" suggests — and together they are usually the larger half of the delivered work.
+A browser integration's most useful stores are backed by browser storage and HTTP rather than
+written in JavaScript; a Python integration's are backed by the filesystem or an object store. And
+a deployment almost never wants *one* store: it wants reference data in one place and scratch space
+in another, described by a document it can edit. Decide explicitly which directions are in scope.
 
 **Objects/API to map or implement:**
 
@@ -596,7 +598,12 @@ are in scope.
 - `Key`, `Metadata`, `MetadataRecord`, and `AssetInfo`
 - Byte-buffer conversion
 - Store backends appropriate to the host, where direction 2 is selected
-- Store builder/configuration and composition objects from `liquers-store`, where selected
+- `AsyncStoreRouter` from `liquers-core` — the composition primitive; normally **reused unchanged**
+  rather than reimplemented, since routing is not *language*-specific
+- `StoreRouterConfig` / `StoreConfig` and the router builder from `liquers-store`, where
+  direction 3 is selected
+- An extension seam on that builder, if the *integration* contributes store types the shared crate
+  does not know (see "Taking only part of the store support crate")
 
 **The design must answer:** Which methods are mandatory versus safely defaulted? Are bytes copied or viewed? Are keys normalized? What are atomicity and consistency guarantees? How are language sync methods scheduled? Can callbacks re-enter Liquers?
 
@@ -617,14 +624,86 @@ For a store the *integration* provides (direction 2), additionally:
   encoding, and the choice must be **recorded with the data**, never re-derived on read from a
   metadata hint that may be wrong.
 
-For configuration and composition:
+#### Composing stores: the router
+
+`AsyncStoreRouter` is *language*-neutral and should be reused as-is. What an *integration* has to
+understand, because it decides how its own stores behave in a composition:
+
+- **Routing is "first store whose key prefix matches *and* which reports the key supported".** Both
+  halves matter. `is_supported` **defaults to `false`** on the trait, so a store that does not
+  override it is silently never selected — the most likely way a new store appears to do nothing,
+  and it produces no error anywhere.
+- **The router does not retry.** If the selected store refuses, that is the answer; it does not
+  fall through to the next store whose prefix also matches. This is what makes a read-only prefix
+  genuinely read-only, and it is worth asserting rather than assuming (`STORE09`).
+- **Order decides overlaps.** Prefixes may nest (`data` and `data/scratch`), and the first match in
+  configuration order wins, so a broader prefix listed first shadows a narrower one listed later.
+  Say whether the *integration* warns about that or accepts it silently.
+- **Does the store see the whole key or the key minus its routing prefix?** Both are defensible and
+  the answer may differ per store — a store that maps keys onto an external namespace usually
+  strips, one whose own namespace already separates it usually does not. State it per store; a
+  single blanket rule in the design will be wrong for one of them.
+
+**The design must answer:** which of these the *integration* inherits unchanged, and whether any
+store it provides needs behaviour the router cannot express.
+
+#### Configuration
 
 - **Does one configuration document mean the same thing on every target?** It can, and it is worth
   arranging: the same store type can name a native backend and a host-specific one, so a
   deployment description ports unchanged. That requires the composition builder to consult the
   *integration*'s backends **before** its own built-ins, so a shared type name can be overridden.
+- **How does a store that cannot be written into a document get configured?** A *language*-defined
+  store is an object, and no document can contain one. The workable shape is a name: the document
+  carries an identifier, the host registers the object under that identifier, and the builder
+  resolves the two. Then say what happens when the name is unregistered — failing when the
+  configuration is applied, naming the identifier, beats failing at first use.
 - **What does variable substitution mean in this host?** A host with no environment must not
-  silently expand `${VAR}` to nothing.
+  silently expand `${VAR}` to nothing. Leaving the text unexpanded and warning is better than
+  quietly producing a configuration nobody wrote.
+- **Is the configuration re-appliable?** Reconfiguring a live environment is an ordinary request,
+  and the *integration* has to say what happens to work already derived from the previous store.
+
+#### Taking only part of the store support crate
+
+An *integration* on a constrained target usually wants the configuration format and the router
+builder while being unable to have the backends that ship alongside them. `liquers-store` bundles
+all three, and its backends pull a large, native-oriented dependency that a `wasm32` target cannot
+take. The same shape recurs for any *language* packaged for a restricted host — a minimal wheel, an
+embedded interpreter, a sandbox.
+
+Three ways to resolve it, and the choice is a design decision worth recording:
+
+1. **Duplicate the configuration types in the *integration*.** Fastest, and wrong: two definitions
+   of one format drift, and the drift is silent until a document behaves differently on two
+   targets.
+2. **Move the shared types into `liquers-core`.** Works, but widens core for one consumer's benefit
+   and separates the format from the crate whose reference documentation describes it.
+3. **Make the heavy backends an optional feature of the support crate, enabled by default.**
+   Recommended. Nothing moves, no definition is duplicated, the format stays owned by the store
+   crate, and a consumer who does nothing sees no change — only the *integration* asks for the
+   reduced build.
+
+Option 3 has three costs, all of which showed up in practice and none of which is obvious:
+
+- **Making a dependency optional exposes every feature the rest of the graph was silently
+  providing.** Cargo unifies features additively, so a crate can compile for years while relying on
+  a feature some *other* dependency happened to enable. Removing that dependency produces errors in
+  files the change never touched — a missing derive macro in the configuration module, for
+  instance. Budget for this; it is not a sign the approach is wrong.
+- **The reduced configuration must be in a build matrix.** The default build never exercises it, so
+  every missed conditional-compilation guard is invisible until someone builds the way the
+  *integration* does.
+- **A type that exists but is unavailable in this build must say *why*.** "Unknown store type" for
+  a type that is real, documented, and merely gated off sends the reader hunting for a typo. Name
+  the feature or the target responsible (`STORE13`). Target-gated types need this as much as
+  feature-gated ones.
+
+And a rule that follows from direction 2: **the shared builder must be extensible from outside,
+not edited to know about the *integration*.** A support crate that names an *integration*'s store
+types depends on that *integration*, which is backwards and does not scale past the first one. A
+registration seam — the builder consults contributed factories before its own built-ins — keeps the
+dependency pointing the right way and is what makes overriding a shared type name possible at all.
 
 **Issues and patterns.** Data and metadata must remain consistent; do not treat `set_metadata` as optional. Preserve `KeyNotFound`, read, and write error distinctions. Run blocking host I/O outside async workers. In a browser, IndexedDB-backed methods are naturally Promise-based and non-`Send`.
 
@@ -633,10 +712,20 @@ store; an *integration* shipping three must run them against all three, and say 
 test does not apply and why. A suite that exercises only the first store leaves the others
 unasserted while reporting full coverage.
 
-**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` unsupported key; `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins, and an unmatched key is reported absent.
+**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` unsupported key; `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and one that overrides a shared type name resolves to the *integration*'s implementation; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible.
 
-`STORE08`–`STORE11` are `NA` for an *integration* that selects only direction 1 — with that stated
-as the reason, since selecting direction 2 later makes them required again.
+Dispositions by direction, each stated with its reason so that selecting a direction later makes
+the tests required again:
+
+| Selected | `STORE01`–`STORE07` | `STORE08`, `STORE10` | `STORE09`, `STORE11`, `STORE12` | `STORE13` |
+|---|---|---|---|---|
+| 1 only — a *language*-defined store | required | `NA` | `NA` | `NA` |
+| 1 + 2 — plus *integration* backends | required, **per store** | required | `NA` without composition | required if any backend is optional |
+| 1 + 2 + 3 — plus composition | required, **per store** | required | required | required if any backend is optional |
+
+`STORE13` is a build-configuration check rather than a runtime one for most *integrations*, and
+that does not make it `NA` — §3 is explicit that the harness a check runs in says nothing about
+whether it applies.
 
 ### RECIPE — Language-defined recipe provider
 
@@ -1691,9 +1780,10 @@ async def test_STORE07_store_works_in_end_to_end_evaluation(env, store):
     # separator the whole string would be read as one key.
     assert await env.evaluate_async("-R/d/in.txt/-/greet") == "Hello, hello!"
 
-# --- STORE08-STORE11: for an integration that also provides its own stores and composes them
-# from configuration. `NA`, with that stated as the reason, for an integration that only adapts a
-# language-defined store.
+# --- STORE08-STORE13: for an integration that also provides its own stores (direction 2) and
+# composes them from configuration (direction 3). See the disposition table in §5 for which apply
+# to which selection; `NA` needs the direction stated as its reason, since selecting that
+# direction later makes the tests required again.
 
 async def test_STORE08_integration_provided_store_satisfies_the_contract(each_store):
     # Not a test body of its own: the assertion is that STORE01-STORE07 above are parameterised
@@ -1723,15 +1813,70 @@ def test_STORE10_metadata_inference_follows_documented_precedence():
     assert infer_metadata(lq.parse_key("d/blob"), content_type=None).media_type \
         == "application/octet-stream"       # an honest unknown, not an empty string
 
-async def test_STORE11_configured_router_routes_by_prefix(configured_router):
-    # Built from a configuration document, not assembled in code — the document is the thing
-    # under test.
-    await configured_router.set(lq.parse_key("a/one.txt"), b"1", lq.Metadata())
-    assert await configured_router.contains(lq.parse_key("a/one.txt"))
-    assert not await configured_router.contains(lq.parse_key("b/one.txt"))   # separate stores
+async def test_STORE11_configured_router_routes_by_prefix(build_router):
+    # Built from a configuration *document*, not assembled in code — the document is the thing
+    # under test, because that is what a deployment edits.
+    router = build_router("""
+    stores:
+      - {type: memory, prefix: a}
+      - {type: memory, prefix: b}
+    """)
+    await router.set(lq.parse_key("a/one.txt"), b"1", lq.Metadata())
+    assert await router.contains(lq.parse_key("a/one.txt"))
+    assert not await router.contains(lq.parse_key("b/one.txt"))     # separate stores
     with pytest.raises(lq.Error) as e:
-        await configured_router.get(lq.parse_key("zzz/nope.txt"))            # unmatched prefix
+        await router.get(lq.parse_key("zzz/nope.txt"))              # unmatched prefix
     assert e.value.error_type == lq.ErrorType.KeyNotFound
+
+    # Listing a store's own prefix is the most ordinary call there is, and an off-by-one in the
+    # "next segment of a store's prefix is a directory" rule makes it fail — it did.
+    assert await router.listdir(lq.parse_key("a")) == ["one.txt"]
+    assert sorted(await router.listdir(lq.parse_key(""))) == ["a", "b"]
+
+    # Overlapping prefixes: first match in document order wins, so a broader prefix listed first
+    # shadows a narrower one listed later. Assert the documented order, whichever it is.
+    shadowed = build_router("""
+    stores:
+      - {type: memory, prefix: data}
+      - {type: memory, prefix: data/scratch}
+    """)
+    await shadowed.set(lq.parse_key("data/scratch/x"), b"1", lq.Metadata())
+    assert await shadowed.store_for(lq.parse_key("data/scratch/x")).key_prefix() \
+        == lq.parse_key("data")
+
+async def test_STORE12_integration_store_types_are_configurable(build_router, register_object):
+    # An integration-provided backend is reachable from a document like any other type...
+    router = build_router("""
+    stores:
+      - {type: hoststorage, prefix: local, config: {namespace: test}}
+    """)
+    await router.set(lq.parse_key("local/x.txt"), b"1", lq.Metadata())
+    assert await router.get(lq.parse_key("local/x.txt")) == b"1"
+
+    # ...a language-defined store is named rather than embedded, since no document can hold an
+    # object, and an unregistered name fails when the configuration is applied, not at first use.
+    with pytest.raises(lq.Error) as e:
+        build_router("stores: [{type: language, prefix: m, config: {object: absent}}]")
+    assert "absent" in str(e.value)
+
+    # ...and where the design says a shared type name is overridden on this host, it resolves to
+    # the integration's implementation. This is the load-bearing assertion: if contributed
+    # factories were consulted *after* the built-ins, everything else here would still pass while
+    # the shared name silently produced a backend that cannot run on this target.
+    register_object.reset_calls()
+    overridden = build_router("stores: [{type: http, prefix: web, config: {url_prefix: '/x/'}}]")
+    assert register_object.calls == 1, "the integration's factory must be consulted first"
+    assert overridden.store_for(lq.parse_key("web/a")).backend_name() == "host-http"
+
+def test_STORE13_unavailable_store_type_names_the_reason(build_router):
+    # Only meaningful in the reduced build the integration actually uses — mark it as running
+    # there, do not mark it NA. A type that is real and merely gated off must not be reported as
+    # unknown, or the reader goes looking for a typo.
+    with pytest.raises(lq.Error) as e:
+        build_router("stores: [{type: s3, prefix: remote}]")
+    message = str(e.value)
+    assert "opendal" in message or "not available" in message   # names feature or target
+    assert "Unknown store type" not in message
 ```
 
 ### RECIPE
@@ -2209,3 +2354,4 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 |---|---|---|
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
 | 2026-08-09 | Reviewed against a completed `STORE` integration. Added a `BLOCKED` implementation state; harness question 7 (one test dragging the whole suite into the heavy harness) and "let the harness shape the design"; the mutation check for high-risk assertions; a shared "Service adapters — two rules" section; the `ERROR` question of whether the *language* can *construct* an error, plus `ERROR06`; `STORE`'s second direction (integration-provided stores and configuration) with `STORE08`–`STORE11`; and blueprint improvements to `VALUE04` (byte corpus), `STORE05` and `ERROR05`. | `design/liquers-web-store/` |
+| 2026-08-09 | `STORE` gained composition and configuration as an explicit third direction: router semantics an *integration* inherits (`is_supported` defaulting to false, no fall-through on refusal, overlap order, whether a store sees the stripped key), configuration questions (naming an object a document cannot hold, re-application, variable substitution), and "Taking only part of the store support crate" — the enable/disable design choice, why an optional default-on feature beats duplicating or relocating the configuration types, and its three costs. Added `STORE12`/`STORE13` and a disposition table by selected direction. | `design/liquers-web-store/` |

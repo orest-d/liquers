@@ -185,6 +185,21 @@ are the regression guard the issue asks for, and removing the marker will prove 
 **Pre-existing, unrelated:** five tests in `liquers-core/tests/expiration_integration.rs` fail on
 this tree *and* on a stashed baseline. Not caused by this work; not investigated here.
 
+**The guide was reviewed against this design afterwards** (2026-08-09), and `STORE` now prescribes
+the tests this design had adopted provisionally, under the same numbers — so `STORE08`–`STORE11`
+need no renaming. It also added two the design did not anticipate, and both are already satisfied
+here under local names, which is worth recording so the conformance claim stays checkable:
+
+| Guide ID | Satisfied by |
+|---|---|
+| `STORE12` (integration types configurable; an override resolves to the integration's implementation) | `factory01`/`factory02`/`factory03` in `liquers-store/src/store_builder.rs`, `store11_configuration_routes_by_prefix` and `c12_unregistered_object_fails_with_its_name` in `tests/store_js_STORE.rs` |
+| `STORE13` (an unavailable type names the feature or target) | `factory04_gated_type_names_the_feature` |
+
+The guide's `STORE11` blueprint now also asserts listing at a store's own prefix and the overlap
+order for nested prefixes. The first of those is the router panic this design fixed; the second is
+**not** covered here and is the one genuine gap against the current guide — a router with `data`
+and `data/scratch` configured in that order is untested.
+
 ## Notes
 
 **Phase 1 scope:** four stores — `LocalStorageStore` (full `AsyncStore`), `FetchStore` (read-only

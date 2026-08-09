@@ -82,8 +82,16 @@ environment).
 The four proposed tests were adopted under the numbers this issue suggested — `STORE08`
 integration-provided store satisfies the same contract, `STORE09` read-only refusal without
 fall-through, `STORE10` metadata precedence, `STORE11` configured routing — with blueprints in
-Appendix A. They are `NA`, with the reason stated, for an *integration* that selects only the
-first direction.
+Appendix A. A second pass added two more that this issue did not anticipate: `STORE12` (the
+*integration*'s store types are constructible from a document, and one overriding a shared type
+name resolves to the *integration*'s implementation) and `STORE13` (a type that exists but is
+unavailable in this build names the feature or target responsible, rather than reporting itself
+unknown). A disposition table in §5 says which apply to which selected direction.
+
+Composition ended up as an explicit **third** direction rather than a footnote to the second,
+alongside a section on taking only part of the store support crate — the enable/disable decision,
+why an optional default-on feature beats duplicating or relocating the configuration types, and
+the three costs that came with it.
 
 The question this issue left open — whether configuration deserves a feature ID of its own — was
 **answered no**. Keeping it inside `STORE` costs an *integration* that wants configuration without
