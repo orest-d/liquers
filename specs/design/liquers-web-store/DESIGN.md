@@ -53,11 +53,13 @@ argument does not apply: the native read-only HTTP store already exists as OpenD
 service, so a reqwest store would duplicate it rather than be reused. `web-sys` is already a
 `liquers-web` dependency.
 
-**User decisions closing Phase 1 questions 1 and 3-7.** `JsStore` added as a fourth store, so the
+**User decisions closing all Phase 1 open questions.** `JsStore` added as a fourth store, so the
 design covers both readings of `STORE` — the guide's literal one (a store written in the language)
-and the requested one (stores the integration provides) (1). localStorage stores UTF-8-clean text
-directly and everything else base64, with a configurable byte quota, unlimited by default, whose
-breach is `Error::key_write_error` (3). Directories are backed by an explicit index following
+and the requested one (stores the integration provides) (1). The config **stays in
+`liquers-store`**, which gains an `opendal` feature so `liquers-web` can depend on it with
+`default-features = false`; nothing moves to `liquers-core` (2). localStorage stores UTF-8-clean
+bytes directly and everything else base64, with a configurable byte quota, unlimited by default,
+whose breach is `Error::key_write_error` (3). Directories are backed by an explicit index following
 `AsyncMemoryStore`, not derived by prefix scanning, so `makedir` and `removedir` are meaningful (4).
 `FetchStore` listing comes from a configured known-key set, with page crawling as future work (5).
 Keys with `..` or empty segments are refused with `key_not_supported` — that is `STORE05` — and the
@@ -72,9 +74,26 @@ configuration and composition — which together are most of this design, and wh
 fixed here: amending the guide from inside the first design that trips over it would make the
 design its own conformance definition.
 
-**Phase 1 open question remaining:** where `StoreRouterConfig`/`StoreConfig` live (Q2) — moving
-them to `liquers-core` is the recommendation, since they are pure serde over dependencies core
-already has and `liquers-store` can re-export them unchanged.
+**On question 3, the reliability requirement drove the mechanism.** The encoding is *recorded* in a
+versioned envelope at write time, never inferred at read time, and it is *chosen by a check*
+(`from_utf8` succeeding is a proof) rather than by a `Metadata` hint (`type_name` or media type is
+a guess, and a wrong guess corrupts silently — `text/plain` may hold invalid UTF-8). The check
+costs a linear scan of bytes already being copied, so the hint would not even be faster.
+Losslessness of valid UTF-8 through the Rust `String` → JS `DOMString` → back path is pinned by a
+Phase 3 round-trip corpus rather than asserted.
+
+**Phase 1 has no open questions remaining.** One question *emerged* from question 2 and belongs to
+Phase 2: `store_builder::create_store` is a closed `match` on type strings, so `liquers-web` cannot
+add `localstorage` / `http` / `js` to it from outside. Either a factory-registration seam in
+`liquers-store` — which would also let one configuration document select an OpenDAL `http` store
+natively and a `fetch` store in the browser — or a separate `liquers-web` builder that delegates.
+
+**Verified while closing question 2:** `liquers-store/src/config.rs` imports only `std`, `serde` and
+`liquers_core`, so it needs no gating at all; the OpenDAL coupling is confined to
+`opendal_store.rs` and one branch of `store_builder.rs`. `create_filesystem_store` needs the same
+target gate `AsyncFileStore` already carries (`liquers-core/src/store.rs:816`). No consumer is
+affected: `liquers-axum` takes default features and `liquers-lib` uses `liquers-store` only as a
+dev-dependency.
 
 ## Links
 

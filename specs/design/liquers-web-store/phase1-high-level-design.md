@@ -58,10 +58,12 @@ None.
 
 - **`liquers-web`** — `src/store/` : `LocalStorageStore`, `FetchStore`, the JS surface, and a
   wasm store builder. Needs `web-sys` features `Storage`, `Request`, `Response`, `Headers`.
-- **`liquers-core`** — candidate new home for the *pure* config structs (`StoreRouterConfig`,
-  `StoreConfig`), which depend only on `serde`/`serde_json`/`serde_yaml`, all already core
-  dependencies. `liquers-store` cannot be a dependency of `liquers-web`: it pulls OpenDAL.
-- **`liquers-store`** — re-exports the moved types so nothing downstream breaks. No behaviour change.
+- **`liquers-store`** — keeps the config, and gains an `opendal` feature so it can be depended on
+  without it (`Q2`). `config.rs` is already OpenDAL-free — it imports only `std`, `serde` and
+  `liquers_core` — so only `opendal_store.rs` and the OpenDAL branch of `store_builder.rs` need
+  gating, plus the existing `AsyncFileStore` target gate (`liquers-core/src/store.rs:816`) followed
+  through into `create_filesystem_store`. `liquers-web` then depends on
+  `liquers-store` with `default-features = false`, and nothing moves between crates.
 
 **Footprint decision (b): `web-sys` `fetch`, not `reqwest`.** `reqwest`'s wasm backend is itself a
 wrapper over `web_sys::fetch` and drags in `http`, `bytes`, `tower-service`, `url` and
@@ -86,11 +88,28 @@ bridge that `ASYNCCMD` already built, so `STORE` is literally conformant rather 
 > amending the guide from inside the first design that trips over it would make the design its own
 > conformance definition.
 
-**Q3 — localStorage encoding and quota.** `localStorage` holds UTF-16 strings, so the value carries
-an encoding tag: text that round-trips as UTF-8 is stored **directly**, anything else **base64**
-(+33%, and only paid by binary). Quota is **configurable, unlimited by default** — a byte budget
-the store enforces itself, since browsers give no portable way to ask. Exceeding it, or a browser
-`QuotaExceededError`, becomes `Error::key_write_error` (`ErrorType::KeyWriteError`), which reads
+**Q3 — localStorage encoding and quota.** `localStorage` holds UTF-16 strings, so bytes need an
+encoding. Three rules, in order of importance:
+
+1. **The encoding is recorded, never inferred on read.** Each stored entry carries an explicit
+   encoding tag written at `set` time, in a versioned envelope, so `get` decodes what was actually
+   written. A future third encoding can be added without misreading existing entries.
+2. **The encoding is chosen by a check, not by a hint.** `std::str::from_utf8(data).is_ok()` is a
+   *proof* that the direct path is lossless; `Metadata`'s `type_name` / media type is a *guess*,
+   and a wrong guess corrupts data silently — a `text/plain` asset may hold invalid UTF-8 and an
+   `application/octet-stream` one may be pure ASCII. The check is a linear scan of bytes that are
+   about to be copied anyway, so consulting a hint would not even be faster. Metadata is
+   deliberately not trusted for this.
+3. **Losslessness is a tested property, not an argument.** Valid UTF-8 → Rust `String` → JS
+   `DOMString` (UTF-16) → back is lossless, and Phase 3 pins that with a fixed corpus round-tripped
+   byte-for-byte: empty, ASCII, multi-byte UTF-8 and emoji, embedded NUL, invalid UTF-8
+   (`FF FE`), the UTF-8-encoded lone surrogate `ED A0 80` (invalid, so it must take the base64
+   path), and a large binary blob.
+
+So: valid UTF-8 stored directly, everything else base64 (+33%, paid only by binary). Quota is
+**configurable, unlimited by default** — a byte budget the store enforces itself, since browsers
+expose no portable way to ask. Exceeding it, or a browser `QuotaExceededError`, becomes
+`Error::key_write_error` (`ErrorType::KeyWriteError`, `liquers-core/src/error.rs:314`), which reads
 correctly at the call site and is distinct from `KeyNotSupported`.
 
 **Q4 — directories are real.** `LocalStorageStore` maintains an explicit **directory index**,
@@ -117,11 +136,24 @@ scope here, and the configured set is the fallback that keeps working when it la
 empty string. The syntax is deliberately left unclaimed so that substitution from JavaScript-supplied
 variables can use it later. Out of scope here.
 
+**Q2 — the config stays in `liquers-store`, which gets feature-gated.** Nothing moves to
+`liquers-core`. `liquers-store` gains an `opendal` feature (in `default`), and `liquers-web`
+depends on it with `default-features = false`. This is smaller than the move and keeps store
+configuration owned by the store crate, where `STORE_CONFIG_FSD.md` already documents it.
+Verified as feasible: `config.rs` has no OpenDAL coupling at all, and the only two OpenDAL sites
+are `opendal_store.rs` and one branch of `store_builder.rs`. Existing consumers are unaffected —
+`liquers-axum` takes the default features, and `liquers-lib` uses `liquers-store` only as a
+dev-dependency.
+
 ## Open Questions
 
-1. **Where the config structs live** — move `StoreRouterConfig`/`StoreConfig` to `liquers-core`
-   (recommended; pure serde, zero new dependencies, `liquers-store` re-exports them), or duplicate
-   them in `liquers-web`, or extract a third `liquers-store-config` crate.
+*(None blocking. One question emerged from `Q2` and belongs to Phase 2:)*
+
+1. **How `liquers-web` adds its store types to the builder.** `store_builder::create_store` is a
+   closed `match` on type strings, so `localstorage` / `http` / `js` cannot be added from another
+   crate as it stands. Either a factory-registration seam in `liquers-store` — which would also let
+   the same configuration document select an OpenDAL `http` store natively and a `fetch` one in the
+   browser — or a separate `liquers-web` builder that handles its own types and delegates the rest.
 
 ## References
 
