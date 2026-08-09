@@ -1,7 +1,11 @@
+---
+title: Recipes and Plans Reference
+kind: reference
+audience: internal
+area: [core/plan, core/assets, core/context]
+reviewed: 2026-07-29
+---
 # DOC-08: Recipes and Plans
-
-Status: Complete
-Last reviewed: 2026-07-29
 
 ## Outcome
 
@@ -240,3 +244,9 @@ Final verification performed for DOC-08:
 
 The tests report pre-existing compiler warnings outside the DOC-08 documentation
 scope. No Rust source file is changed by DOC-08.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-07-29 | Verified recipe resolution, planning, finalization, and execution against the implementation and focused tests. | DOC-08 |
