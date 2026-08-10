@@ -243,7 +243,10 @@ where
 }
 
 /// Whether a value is a Promise (or any thenable).
-fn is_thenable(v: &JsValue) -> bool {
+///
+/// `pub(crate)` because the store adapter awaits language values by exactly the same rule: a
+/// protocol method may return a value or a Promise, and the two must not be told apart twice.
+pub(crate) fn is_thenable(v: &JsValue) -> bool {
     if !v.is_object() {
         return false;
     }

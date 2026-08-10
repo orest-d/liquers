@@ -14,8 +14,12 @@ use liquers_core::{
     command_metadata::CommandKey,
     context::{Environment, EnvRef, ImmediateEnvironment, SimpleEnvironment},
     error::Error,
-    metadata::Status,
-    query::{Query, TryToQuery},
+    metadata::{Metadata, Status},
+    parse::parse_key,
+    query::{Key, Query, TryToQuery},
+    recipes::DefaultRecipeProvider,
+    state::State,
+    store::{AsyncMemoryStore, AsyncStore},
     value::Value,
 };
 
@@ -61,6 +65,187 @@ where
     .expect("register greet");
 }
 
+// --- keyed scenarios (keyed-recipe-ownership) ---
+//
+// Every scenario above is non-keyed, which is exactly why
+// `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION` survived: a keyed query under the inline manager
+// recursed until the stack was exhausted, and nothing here went down that path.
+
+/// Store holding a `recipes.yaml` that maps `dash.txt` to `greet`.
+async fn recipe_store() -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("recipes.yaml")?,
+            b"recipes:\n  - query: greet/dash.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+    Ok(store)
+}
+
+/// Keyed evaluation through a stored recipe.
+///
+/// Under `ImmediateAssetManager` this is the recursion reproducer: `evaluate_recipe` used to
+/// ask `AssetManager::get` who owned `dash.txt` while it *was* that asset, and `get` runs an
+/// unfinished asset inline.
+async fn scenario_keyed_eval<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let asset = envref
+        .get_asset_manager()
+        .get(&parse_key("dash.txt")?)
+        .await?;
+    let state = asset.get().await?;
+    assert_eq!(state.try_into_string()?, "hello");
+    Ok(())
+}
+
+/// An asset holding a key recipe it does not own takes the **delegation** branch rather than
+/// evaluating the recipe itself.
+///
+/// This pins branch *selection*, which is what the ownership test controls: a fix that turned
+/// every case into self-evaluation would silently double-evaluate shared keys, and this test
+/// is what catches that. The counter proves it: the recipe runs once, for the owner.
+///
+/// **The branch's outcome is a separate, pre-existing defect.** Delegation always fails with
+/// a spurious `DependencyCycle`, and cannot do otherwise: `owned_key_asset` is queried with
+/// the key from *this* asset's own recipe, so the delegate is always registered under this
+/// asset's own key, and `record_dependency_on_asset` compares those two keys and sees a
+/// self-edge. See `ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`. This test asserts the current broken
+/// outcome so that fixing it fails loudly here — the same arrangement that
+/// `test_volatile_keyed_recipe_cycles_preexisting_defect` used before it was inverted.
+///
+/// `apply` builds the untracked asset: it constructs one from the recipe it is given and runs
+/// it without registering it, so a bare key recipe reaches `evaluate_recipe` with an id the
+/// key map does not hold.
+async fn scenario_keyed_delegation<E>(
+    envref: EnvRef<E>,
+    calls: Arc<AtomicUsize>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let key = parse_key("dash.txt")?;
+    let manager = envref.get_asset_manager();
+
+    let owner = manager.get(&key).await?;
+    assert_eq!(owner.get().await?.try_into_string()?, "counted");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "precondition: evaluated once");
+
+    // The failure surfaces at different points on the two managers, and both are correct:
+    // the inline manager runs the asset during `apply` and returns the error there, while the
+    // queued manager submits and the error appears when the value is read.
+    let err = match manager.apply((&key).into(), State::new()).await {
+        Ok(adhoc) => {
+            assert_ne!(adhoc.id(), owner.id(), "precondition: a different asset");
+            match adhoc.get().await {
+                Ok(state) => match state.value_state() {
+                    Ok(_) => panic!(
+                        "delegation unexpectedly produced a value - \
+                         ASSET-KEYED-DELEGATION-ALWAYS-CYCLES may have been fixed; invert this \
+                         test to assert the owner's value and a still-unchanged call count"
+                    ),
+                    Err(e) => e,
+                },
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().contains("Dependency cycle"),
+        "expected the known self-edge cycle from the delegation branch, got: {}",
+        err
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "whatever delegation does with the value, it must not re-run the recipe"
+    );
+    Ok(())
+}
+
+/// Environment with the `dash.txt` recipe mapped to a counting command.
+async fn counted_recipe_store() -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("recipes.yaml")?,
+            b"recipes:\n  - query: counted/dash.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+    Ok(store)
+}
+
+fn register_counted<E>(
+    cr: &mut liquers_core::commands::CommandRegistry<E>,
+    calls: Arc<AtomicUsize>,
+) where
+    E: Environment<Value = Value>,
+{
+    cr.register_command(
+        CommandKey::new_name("counted"),
+        move |_state, _args, _ctx| -> Result<Value, Error> {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Value::from("counted"))
+        },
+    )
+    .expect("register counted");
+}
+
+/// Store holding a `recipes.yaml` that maps `vol.txt` to a volatile command.
+async fn volatile_recipe_store() -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("recipes.yaml")?,
+            b"recipes:\n  - query: vol_cmd/vol.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+    Ok(store)
+}
+
+fn register_vol_cmd<E>(cr: &mut liquers_core::commands::CommandRegistry<E>)
+where
+    E: Environment<Value = Value>,
+{
+    cr.register_command(
+        CommandKey::new_name("vol_cmd"),
+        |_state, _args, _ctx| -> Result<Value, Error> { Ok(Value::from("vol")) },
+    )
+    .expect("register vol_cmd")
+    .volatile = true;
+}
+
+/// A keyed recipe whose command is `volatile: true` evaluates rather than delegating to
+/// itself — `VOLATILE-KEYED-RECIPE-SELF-DELEGATION`, on the inline manager.
+///
+/// The queued counterpart lives in `payload_inheritance.rs`.
+async fn scenario_volatile_keyed_eval<E>(envref: EnvRef<E>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let asset = envref
+        .get_asset_manager()
+        .get(&parse_key("vol.txt")?)
+        .await?;
+    let state = asset.get().await?;
+    assert_eq!(
+        state
+            .value_state()
+            .map_err(|e| Error::general_error(format!(
+                "volatile keyed recipe should evaluate, got: {e}"
+            )))?
+            .try_into_string()?,
+        "vol"
+    );
+    Ok(())
+}
+
 // --- Default manager (queued) ---
 
 #[tokio::test]
@@ -103,6 +288,55 @@ async fn cache_and_mode_immediate() -> Result<(), Error> {
     scenario_cache_and_mode(envref).await
 }
 
+// --- keyed, both managers (keyed-recipe-ownership) ---
+
+#[tokio::test]
+async fn keyed_eval_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_keyed_eval(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn keyed_eval_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_keyed_eval(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn keyed_delegation_default() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_counted(&mut env.command_registry, calls.clone());
+    env.with_async_store(Box::new(counted_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_keyed_delegation(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn keyed_delegation_immediate() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_counted(&mut env.command_registry, calls.clone());
+    env.with_async_store(Box::new(counted_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_keyed_delegation(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn volatile_keyed_eval_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_vol_cmd(&mut env.command_registry);
+    env.with_async_store(Box::new(volatile_recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_volatile_keyed_eval(env.to_ref()).await
+}
+
 // --- immediate-only ---
 
 /// Two concurrent `get_asset` for the same query share one evaluation (the command body runs once).
@@ -140,6 +374,34 @@ fn immediate_runs_without_tokio_runtime() -> Result<(), Error> {
 
     let text: String = futures::executor::block_on(async move {
         let asset = envref.get_asset_manager().get_asset(&q("greet")).await?;
+        let state = asset.get().await?;
+        state.try_into_string()
+    })?;
+    assert_eq!(text, "hello");
+    Ok(())
+}
+
+/// The same proof for a **keyed** query, which the non-keyed one above cannot give.
+///
+/// A keyed asset persists, and persistence is where a `tokio::spawn` would most plausibly be
+/// reintroduced — `persist_with_status_tracking` spawns for background saves and only stays
+/// synchronous because it checks for `EvalMode::Inline`. Green here means that check still
+/// holds; a regression panics with "no reactor running" rather than failing quietly in a
+/// browser where there is no reactor to find.
+#[test]
+fn immediate_keyed_eval_without_tokio_runtime() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    let store = futures::executor::block_on(recipe_store())?;
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref: EnvRef<ImmediateEnvironment<Value>> = env.to_ref();
+
+    let text: String = futures::executor::block_on(async move {
+        let asset = envref
+            .get_asset_manager()
+            .get(&parse_key("dash.txt")?)
+            .await?;
         let state = asset.get().await?;
         state.try_into_string()
     })?;

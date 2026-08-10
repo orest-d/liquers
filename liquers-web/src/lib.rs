@@ -41,6 +41,7 @@ pub mod error;
 pub mod environment;
 pub mod eval;
 pub mod objects;
+pub mod store;
 pub mod typescript;
 pub mod command;
 pub mod default_value;

@@ -4,4 +4,5 @@ pub mod adapter;
 pub mod spec;
 
 pub use adapter::{call_js_command, register_js_command};
+pub(crate) use adapter::is_thenable;
 pub use spec::{IsAsync, JsCommandSpec, StateMode, RESERVED_NAMESPACE};

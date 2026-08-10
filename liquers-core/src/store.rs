@@ -1726,8 +1726,14 @@ impl Store for StoreRouter {
                 let names = store.listdir(key)?;
                 list.extend(names);
             }
-            if store.key_prefix().has_key_prefix(key) {
-                // key is a prefix of store prefix, but smaller - hence it is a directory
+            // `key` is a prefix of the store's prefix *and strictly shorter* — so the next
+            // segment of the store's prefix is a directory inside `key`.
+            //
+            // The length check is what makes this safe: `has_key_prefix` is also true when the two
+            // are equal, and indexing `key_prefix[key.len()]` would then be out of bounds. Listing
+            // a store's own prefix — `listdir("data")` for a store mounted at `data` — is the most
+            // ordinary call there is, and it panicked.
+            if store.key_prefix().len() > key.len() && store.key_prefix().has_key_prefix(key) {
                 list.push(store.key_prefix()[key.len()].to_string());
             }
         }
@@ -1939,8 +1945,14 @@ impl AsyncStore for AsyncStoreRouter {
                 let names = store.listdir(key).await?;
                 list.extend(names);
             }
-            if store.key_prefix().has_key_prefix(key) {
-                // key is a prefix of store prefix, but smaller - hence it is a directory
+            // `key` is a prefix of the store's prefix *and strictly shorter* — so the next
+            // segment of the store's prefix is a directory inside `key`.
+            //
+            // The length check is what makes this safe: `has_key_prefix` is also true when the two
+            // are equal, and indexing `key_prefix[key.len()]` would then be out of bounds. Listing
+            // a store's own prefix — `listdir("data")` for a store mounted at `data` — is the most
+            // ordinary call there is, and it panicked.
+            if store.key_prefix().len() > key.len() && store.key_prefix().has_key_prefix(key) {
                 list.push(store.key_prefix()[key.len()].to_string());
             }
         }
@@ -2115,6 +2127,47 @@ mod tests {
         assert!(!store.contains(&key).await?);
 
         tokio::fs::remove_dir_all(root).await.unwrap();
+        Ok(())
+    }
+
+    /// `listdir` on a key that exactly equals a store's prefix must not panic.
+    ///
+    /// `has_key_prefix` is true for equal keys, so the "next segment of the store's prefix"
+    /// lookup used to index one past the end. Listing a store's own root is the most ordinary
+    /// call there is, and it aborted — in wasm, where a panic kills the instance, that surfaced as
+    /// a hung `Promise` rather than an error.
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn async_router_listdir_at_store_prefix() -> Result<(), Box<dyn std::error::Error>> {
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("data")?)));
+
+        let at_prefix = router.listdir(&parse_key("data")?).await?;
+        assert!(
+            at_prefix.is_empty(),
+            "an empty store lists nothing at its own prefix, got {at_prefix:?}"
+        );
+
+        // Above the prefix, the store's own first segment is the directory that shows up.
+        let at_root = router.listdir(&Key::new()).await?;
+        assert_eq!(at_root, vec!["data".to_string()]);
+
+        // And with content, the store's own listing comes through unchanged.
+        router
+            .set(&parse_key("data/a.txt")?, b"x", &Metadata::new())
+            .await?;
+        let with_content = router.listdir(&parse_key("data")?).await?;
+        assert_eq!(with_content, vec!["a.txt".to_string()]);
+        Ok(())
+    }
+
+    /// The same guard on the synchronous router, which carries the identical code.
+    #[test]
+    fn sync_router_listdir_at_store_prefix() -> Result<(), Box<dyn std::error::Error>> {
+        let mut router = StoreRouter::new();
+        router.add_store(Box::new(MemoryStore::new(&parse_key("data")?)));
+        assert!(router.listdir(&parse_key("data")?)?.is_empty());
+        assert_eq!(router.listdir(&Key::new())?, vec!["data".to_string()]);
         Ok(())
     }
 }

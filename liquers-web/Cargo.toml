@@ -15,6 +15,16 @@ liquers-core = { path = "../liquers-core" }
 liquers-lib = { path = "../liquers-lib", default-features = false, features = ["webui"] }
 # Linked because `register_core_commands!` expands into this crate and names `liquers_macro`.
 liquers-macro = { path = "../liquers-macro" }
+# Configuration and the store-router builder, without OpenDAL — which is native-oriented and
+# large. `StoreFactory` (added for this crate) is what lets the browser store types plug in.
+# See specs/design/liquers-web-store/.
+liquers-store = { path = "../liquers-store", default-features = false, features = ["async_store"] }
+# localStorage holds UTF-16 strings, so bytes that are not valid UTF-8 are base64-encoded.
+base64 = "0.22"
+# `AsyncStore` is declared with `#[async_trait(?Send)]` on wasm, so its implementors need the
+# attribute too — without it the impl is checked as an async-fn-in-trait against a desugared
+# trait, and every method reports a lifetime mismatch instead of the missing dependency.
+async-trait = "0.1"
 
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -28,7 +38,13 @@ futures = "0.3"
 
 [dependencies.web-sys]
 version = "0.3"
-features = ["console", "Window"]
+# `Storage` for the localStorage store; `Response`/`Headers` for the fetch store.
+# Deliberately *not* `WorkerGlobalScope`: the `fetch` function is taken from `js_sys::global()`,
+# which works in a window, a worker and under Node alike — see
+# specs/design/liquers-web-store/phase2-architecture.md.
+# Deliberately not `Request`/`RequestInit` either: the request options are a plain object built
+# with `js_sys`, which keeps the code off an API that has changed shape across web-sys releases.
+features = ["console", "Window", "Storage", "Response", "Headers"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
@@ -46,3 +62,8 @@ egui = ["liquers-lib/egui"]
 # Exposes a live count of retained JS handles so RUNTIME05 can assert handle release
 # deterministically, rather than depending on GC timing. Test-only.
 debug-handles = []
+# Compiles the test files that require a real browser. Off by default so that the routine loop —
+# `cargo test -p liquers-web --target wasm32-unknown-unknown`, which runs under Node — is not
+# dragged into needing a WebDriver by a single file carrying `run_in_browser`. Test-only.
+# See liquers-web/README.md and specs/design/liquers-web-store/.
+browser-tests = []

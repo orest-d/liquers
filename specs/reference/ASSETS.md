@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 ---
 # Assets Specification
 
@@ -58,6 +58,46 @@ Manages asset lifecycle:
 - `assets`: Map of Key -> AssetRef (non-volatile key assets)
 - `query_assets`: Map of Query -> AssetRef (non-volatile query assets)
 - `job_queue`: Queue for asset evaluation
+
+#### Key ownership
+
+An asset registered in `assets` under a key is that key's **owner**. Ownership decides what
+`AssetRef::evaluate_recipe` does with a keyed recipe: the owner resolves and evaluates the recipe,
+and any other asset holding the same key recipe delegates to the owner.
+
+The question is asked through `AssetManager::owned_key_asset(&key) -> Option<AssetRef>`, which is
+**non-evaluating** — it reads the map and never starts, submits, fast-tracks or resolves an
+evaluation. That is not an optimization but a requirement: `evaluate_recipe` asks about the key it
+is itself evaluating, so an evaluating answer re-enters the asset that is asking. Asking
+`AssetManager::get` instead recursed until the wasm stack was exhausted
+(`CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`).
+
+`None` means no asset is registered, and the caller therefore owns the recipe. Two ways to get
+there: the key is volatile, or the asset was built outside the manager's maps (`apply`,
+`create_asset`).
+
+#### Volatile assets are never owned
+
+A volatile asset cannot be shared and cannot be reused, so the maps never *serve* one:
+
+- neither map is consulted when resolving a volatile key or query — `get_volatile_resource_asset`,
+  `get_volatile_query_asset` and `make_volatile` all mint a fresh asset;
+- `owned_key_asset` drops a volatile entry it finds and reports no owner;
+- `Status::Volatile` is a stale-terminal state alongside `Expired`, `Error` and `Cancelled` in
+  `get`, `get_asset` and `get_dependency_asset`, so a cached volatile asset is evicted and rebuilt.
+
+The last point matters because volatility is not always known at registration time: registration
+consults the recipe, but `try_to_set_ready` also marks a result volatile from a metadata expiry set
+by a command *during* evaluation. Without the eviction, such an asset is served from cache forever
+— `Status::Volatile.is_finished()` is `true` and the expiry re-check only fires for
+`Status::Ready`.
+
+Eviction happens on **entry**, so the caller whose request produced a volatile value still receives
+it. Used once, never reused.
+
+A volatile value is still persisted, with `Status::Volatile` in its metadata. It is written as an
+opportunity for the user to override, not as a value to read back: `try_fast_track` accepts only a
+stored `Ready`, `Source` or `Override`.
 
 ## Communication Channels
 
@@ -804,5 +844,6 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-09 | Added §Key ownership and §Volatile assets are never owned to §AssetManager: the non-evaluating `owned_key_asset` contract, and the rule that a volatile asset is never served from either map. | `design/keyed-recipe-ownership` |
 | 2026-08-08 | Added §Status and reads with the `ReadExposure` classification and the read behaviour matrix; added a `read_exposure` column to §Status Properties; amended §Terminal Outcome Contract → Accessors for `get`'s pre-wait expiry check. | `design/expired-binary-read-safety` |
 | 2026-07-17 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

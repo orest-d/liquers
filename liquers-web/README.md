@@ -68,17 +68,21 @@ copy the page next to the output — without requiring trunk to be installed. If
 
 ## Testing
 
-Three harnesses, because three different things are being tested.
+Four harnesses, because four different things are being tested.
 
 ```bash
 # 1. Conformance suites, under Node. The bulk of the tests; no browser needed.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
 
-# 2. Declarations and artifact structure.
+# 2. Suites that genuinely need a browser API (`localStorage`). WebDriver required.
+CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
+  --target wasm32-unknown-unknown --features browser-tests
+
+# 3. Declarations and artifact structure.
 ./examples-web/quickstart/build.sh
 ./scripts/check-stubs.sh
 
-# 3. The delivery form, in a real browser.
+# 4. The delivery form, in a real browser.
 cd tests/e2e && npm install && npx playwright test
 ```
 
@@ -86,10 +90,60 @@ cd tests/e2e && npm install && npx playwright test
 how `RUNTIME05` asserts that unregistering a command releases its closure deterministically rather
 than depending on GC timing. Without the feature that one test is compiled out.
 
+`--features browser-tests` compiles the test files carrying
+`wasm_bindgen_test_configure!(run_in_browser)`. They are gated rather than always present because
+a single such file makes the *whole* Node loop demand a WebDriver, which would cost every other
+suite its fast, dependency-free harness. Only tests that cannot work otherwise belong behind it —
+`LocalStorageStore`, because `web_sys::window()` returns `None` under Node.
+
+**The chromedriver's major version must match the installed browser.** A mismatch is refused
+outright (`This version of ChromeDriver only supports Chrome version N`), and the error names both
+versions. Where the two cannot be matched, `NO_HEADLESS=1` makes the runner serve the tests at
+`http://127.0.0.1:8000` for a browser you drive yourself — Playwright over CDP works, and needs no
+WebDriver at all.
+
 Per [`CLAUDE.md`](../CLAUDE.md), run the browser loop **after `cargo clean`** and separately from
 the native one — the disk allowance does not fit both.
 
+## Stores
+
+A page gets four store backends and the same declarative configuration `liquers-store` uses
+natively, so one document can describe both. See `specs/reference/STORE_CONFIG_FSD.md` for the
+format and `specs/design/liquers-web-store/` for the design.
+
+```js
+const env = liquers.Environment.global();
+await env.configureStore({
+  stores: [
+    { type: 'http',         prefix: 'data',
+      config: { url_prefix: './reference/', keys: ['input.csv'] } },
+    { type: 'localstorage', prefix: 'local', config: { namespace: 'myapp' } },
+  ],
+});
+
+const store = env.store();
+await store.set('local/out.txt', new TextEncoder().encode('hello'));
+const bytes = await store.get('data/input.csv');
+```
+
+| `type` | Backend | Writes |
+|---|---|---|
+| `localstorage` | `localStorage`, full contract including directories | yes |
+| `http` / `https` | `fetch`; `url_prefix` + the key minus its routing prefix | no |
+| `js` | an object the page implements, registered with `registerStoreObject` | as implemented |
+
+A page-implemented store needs only `get`. Return `undefined` for an absent key — throwing signals
+a *failure* instead. Omitted optional methods report `key_not_supported` rather than quietly
+answering "empty", so a half-written store says so.
+
 ## Known limitations
+
+**`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through
+`env.store()`, but `env.evaluate("-R/…")` hangs: `ImmediateAssetManager::get` runs an asset inline
+and `evaluate_recipe` calls `get` on its *own* key, so keyed evaluation recurses until the wasm
+stack is exhausted, killing the instance. This is `liquers-core`, not this crate —
+`specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md` (P1). The blocked end-to-end tests are
+kept as `fixme` in `tests/e2e/store.spec.ts` so that removing the marker proves the fix.
 
 | Limitation | Tracked as |
 |---|---|
