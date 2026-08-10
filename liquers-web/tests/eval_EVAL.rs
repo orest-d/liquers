@@ -305,10 +305,9 @@ async fn web_evaluate_structured_result() {
 /// (`specs/design/keyed-recipe-ownership/`). This runs in the Node loop, so it is the cheapest
 /// guard on the real target.
 ///
-/// The key resolves **through a recipe**, deliberately. A key naming a plain stored file cannot
-/// be evaluated on this target at all: `ImmediateAssetManager::get` has no `try_fast_track` step,
-/// so it goes straight to the recipe provider and gets "No recipe found" — a separate gap, see
-/// `IMMEDIATE-MANAGER-NO-FAST-TRACK`. The recursion this test guards against is common to both.
+/// The key has both a stored value and a recipe that would produce a different value. Returning
+/// the stored value proves `ImmediateAssetManager` fast-tracks before recipe evaluation rather
+/// than running the conflicting recipe.
 #[wasm_bindgen_test]
 async fn eval07_keyed_query_evaluates() {
     use liquers_core::metadata::{Metadata, MetadataRecord};
@@ -362,13 +361,28 @@ async fn eval07_keyed_query_evaluates() {
         .await
         .expect("seed the store");
 
+    let key = liquers_core::parse::parse_key("d/greeting.txt").expect("key");
+    let mut stored_record = MetadataRecord::new();
+    stored_record.with_key(key.clone());
+    stored_record.with_type_identifier("text".to_owned());
+    stored_record.with_status(liquers_core::metadata::Status::Source);
+    envref
+        .get_async_store()
+        .set(
+            &key,
+            b"from store",
+            &Metadata::MetadataRecord(stored_record),
+        )
+        .await
+        .expect("seed stored result");
+
     let text = eval_to_js("-R/d/greeting.txt")
         .await
         .expect("keyed evaluation must resolve, not exhaust the stack");
     assert_eq!(
         text.as_string().as_deref(),
-        Some("Hello, world!"),
-        "the recipe's command must have produced the value"
+        Some("from store"),
+        "the eligible stored value must win over the conflicting recipe"
     );
 
     reset_global();

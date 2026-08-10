@@ -84,6 +84,51 @@ async fn recipe_store() -> Result<AsyncMemoryStore, Error> {
     Ok(store)
 }
 
+async fn stored_text_store(include_recipe: bool) -> Result<AsyncMemoryStore, Error> {
+    let key = parse_key("stored.txt")?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &key,
+            b"from store",
+            &Metadata::MetadataRecord(
+                liquers_core::metadata::MetadataRecord::new()
+                    .with_key(key.clone())
+                    .with_type_identifier("text".to_owned())
+                    .with_status(Status::Source)
+                    .clone(),
+            ),
+        )
+        .await?;
+    if include_recipe {
+        store
+            .set(
+                &parse_key("recipes.yaml")?,
+                b"recipes:\n  - query: counted/stored.txt\n",
+                &Metadata::new(),
+            )
+            .await?;
+    }
+    Ok(store)
+}
+
+async fn scenario_stored_value<E>(envref: EnvRef<E>, calls: Arc<AtomicUsize>) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let asset = envref
+        .get_asset_manager()
+        .get(&parse_key("stored.txt")?)
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "from store");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "an eligible stored value must fast-track without running its recipe"
+    );
+    Ok(())
+}
+
 /// Keyed evaluation through a stored recipe.
 ///
 /// Under `ImmediateAssetManager` this is the recursion reproducer: `evaluate_recipe` used to
@@ -306,6 +351,44 @@ async fn keyed_eval_immediate() -> Result<(), Error> {
     env.with_async_store(Box::new(recipe_store().await?));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider));
     scenario_keyed_eval(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn stored_value_precedes_recipe_default() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_counted(&mut env.command_registry, calls.clone());
+    env.with_async_store(Box::new(stored_text_store(true).await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stored_value(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn stored_value_precedes_recipe_immediate() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_counted(&mut env.command_registry, calls.clone());
+    env.with_async_store(Box::new(stored_text_store(true).await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stored_value(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn plain_stored_value_default() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = SimpleEnvironment::<Value>::new();
+    env.with_async_store(Box::new(stored_text_store(false).await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stored_value(env.to_ref(), calls).await
+}
+
+#[tokio::test]
+async fn plain_stored_value_immediate() -> Result<(), Error> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = ImmediateEnvironment::<Value>::new();
+    env.with_async_store(Box::new(stored_text_store(false).await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    scenario_stored_value(env.to_ref(), calls).await
 }
 
 #[tokio::test]

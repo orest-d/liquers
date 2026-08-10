@@ -5735,6 +5735,13 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 }
                 return Ok(asset_ref);
             }
+            {
+                let mut data = asset_ref.data.write().await;
+                if data.try_fast_track().await? {
+                    drop(data);
+                    return Ok(asset_ref);
+                }
+            }
             // Backstop against re-entry — see the note in `get_asset`.
             asset_ref.run_inline().await?;
             return Ok(asset_ref);
