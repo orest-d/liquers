@@ -1,0 +1,4 @@
+interface:
+  display_name: "Liquers Feature Designer"
+  short_description: "Continue legacy four-phase Liquers designs"
+  default_prompt: "Use $liquers-designer to continue an existing legacy four-phase Liquers design."

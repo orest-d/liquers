@@ -343,9 +343,10 @@ the status machine. Those are the parts that change.
 ## 5. Designs
 
 One folder per design effort: `specs/design/<slug>/`, containing `DESIGN.md` and whatever phase
-documents the work produced. The `liquers-designer` skill generates the four-phase skeleton; a
-short investigation does not need it, and `DESIGN.md` plus a findings document is a complete,
-conforming folder.
+documents the work produced. The `liquers-project` skill generates the five-phase skeleton; the
+legacy `liquers-designer` skill generates its original four-phase skeleton. A short investigation
+does not need either skill, and `DESIGN.md` plus a findings document is a complete, conforming
+folder.
 
 **The only hard requirement is `DESIGN.md` with front-matter.**
 
@@ -354,6 +355,7 @@ conforming folder.
 id: EXPIRATION-SAFETY
 kind: design
 title: Timing and race safety in asset expiration
+workflow: liquers-project  # five phases, including mandatory documentation; see §5.2
 status: in_review           # OMITTED once `gh_pr` is set — see §5.5
 phase: architecture         # see §5.2
 area: [core/assets]
@@ -392,6 +394,13 @@ Designs have no `priority` or `complexity`; those live on the issue that motivat
 Designs are never deleted and never move out of `design/` — every terminal status is a readable
 state, and the status field is what separates them.
 
+`workflow` records which gated skill created the effort. `workflow: liquers-project` is the
+unambiguous five-phase contract and makes `documentation` mandatory. An omitted `workflow` denotes
+a legacy or simplified transitional design whose required phases are those explicitly approved for
+that effort; such a design may therefore terminate after Phase 4. New substantial work uses
+`liquers-project`. Do not add its marker retroactively to an older design unless the user explicitly
+adopts the five-phase contract.
+
 **One exception: a folder that never described real work.** A stub created in error, or a folder
 whose documents describe a different design than its own front-matter, has no reasoning to
 preserve, and `abandoned` would only keep an empty shelf that every reader has to rule out.
@@ -413,34 +422,37 @@ value in any file.
 | 2 | `architecture` | `phase2-architecture.md` | yes |
 | 3 | `examples` | `phase3-examples.md` | yes |
 | 4 | `implementation` | `phase4-implementation.md` | yes |
-| 5 | `documentation` | `phase5-documentation.md` | **not yet active** |
+| 5 | `documentation` | `phase5-documentation.md` | yes for `workflow: liquers-project`; otherwise only when approved for that effort |
 
-`documentation` runs **after** the code has merged: it is where the designer reviews and updates
-every `reference/` and `guide/` document the change affected (§9.3). It is listed here because the
-obligation it carries is defined in this guide, but it is marked *not yet active* until the
-`liquers-designer` skill implements it — a required phase the workflow cannot run would leave every
-new design permanently short of `complete`. Activating it is one edit to this table plus a line in
-§5.4; §5.3 rule 1 protects designs approved under the four-phase set.
+`documentation` runs **after** implementation is finished and validated and all user and review
+comments are answered. It should normally be completed before merge in the same PR as the
+implementation; merge is not an entry condition. It produces a short summary of what was actually
+implemented and is where the project workflow creates the planned reference or guide documents,
+reviews every current-state document the change affected (§9.3), and updates the capability map.
+If a rebase, merge conflict, or integration change creates inconsistency, review and fix the
+affected documentation after merge. Designs using the legacy four-phase skill or an approved
+simplified transitional flow may terminate after Phase 4.
 
-The `liquers-designer` skill owns what each phase *contains*; this table owns only their names and
-order, so the two can evolve without a coordinated edit.
+The `liquers-project` skill owns what its five phases *contain*; the legacy `liquers-designer` skill
+continues to own its four-phase artifact form. This table owns the shared phase names and order.
 
 A short investigation does not run phases at all: it may go straight to `status: complete` with no
 `phase`, carrying `DESIGN.md` plus whatever findings document it produced.
 
 ### 5.3 Changing the phase set
 
-The phase set will change — a documentation phase after implementation is anticipated, and
-`examples` is known to need adjustment. These rules keep that from invalidating history:
+The phase set changes over time — `documentation` was added after the initial four-phase set, and
+`examples` may need future adjustment. These rules keep such changes from invalidating history:
 
 1. **Adding a phase** is one row here plus a note in §5.4. Designs already `complete` are
    unaffected: `complete` means *every phase required when this design was approved*, so a design
-   finished under a four-phase set stays finished. Designs still live pick up the new phase.
+   finished under a four-phase set stays finished. A live design picks up a new phase only when its
+   workflow marker or an explicit approval makes that phase part of its contract.
 2. **Retiring or replacing a phase** keeps its name in the table, marked `retired`, with a line
    saying what replaced it. **A name that appears in any committed file is never deleted**, so old
    `DESIGN.md` files keep parsing and keep meaning what they meant. `--check` accepts a retired
    name on a file that already carries it and rejects it on a new one.
-3. **A phase that runs after implementation** — documentation being the expected case — is why
+3. **A phase that runs after implementation** — currently `documentation` — is why
    `implemented` and `complete` are separate statuses. A design sits at `implemented` with
    `phase: documentation` while the code is merged and the docs are not, which is the honest
    description of that state and the reason `implemented` does not freeze the folder.
@@ -454,6 +466,7 @@ make a version redundant, and a version would be one more thing to keep truthful
 |---|---|
 | 2026-08-08 | Initial set: `high-level`, `architecture`, `examples`, `implementation`. |
 | 2026-08-08 | `documentation` reserved at ordinal 5, **not yet active** — see §5.2. |
+| 2026-08-10 | Activated `documentation` for `workflow: liquers-project`; legacy `liquers-designer` and simplified transitional designs may retain their approved four-phase contract. |
 
 ### 5.5 Pull requests and derived status
 
@@ -666,14 +679,15 @@ tooling, no network and no Python can still record what it found.
     History row whose date equals `reviewed:` (§9.5).
 11. If `reviewed:` changed in this diff, the History gained a row bearing the new date (§9.2). This
     one reads the diff, not just the tree.
-12. No design is `complete` while a document in its `affects_docs` has `reviewed:` earlier than the
-    merge date of the design's last PR (§9.3).
+12. No `workflow: liquers-project` design is `complete` unless `phase5-documentation.md` exists and
+    records the review of every document in its authoritative `affects_docs` set (§9.3).
 13. **Warning:** documents whose `reviewed:` is more than 92 days old (§9.4).
 14. *With network:* imported bodies still match `imported_body_sha`; every design whose linked PRs
     are all closed unmerged is reported for a human decision (§5.5).
 
-Checks 11, 12 and 14 are **not implemented yet** — 11 and 12 need git-diff and PR-merge dates, and
-14 needs the API. `--sync` is likewise unbuilt. Everything else runs offline with no token.
+Checks 11, 12 and 14 are **not implemented yet** — 11 needs the git diff, 12 needs cross-document
+Phase 5 validation, and 14 needs the API. `--sync` is likewise unbuilt. Everything else runs
+offline with no token.
 
 Checks 10–12 are the review guardrail. None of them can tell whether a document is *right* — they
 enforce that a judgement was recorded, dated and attributable, and that a landing design cannot
@@ -695,9 +709,8 @@ prose cannot be validated; the links, the stages and the omissions can.
 Not on session start — that is an API call per session for data most sessions never read.
 
 `--check` runs in CI on every PR, and its offline validations (1–13) run with no token, so a
-sandboxed or network-isolated build is never broken by it. Check 12 needs PR merge dates; without a
-token it falls back to the design's `complete` transition date from git, which is close enough to
-catch the case it exists for.
+sandboxed or network-isolated build is never broken by it. Check 12 is an offline comparison of the
+workflow marker, Phase 5 summary, and `affects_docs`; it does not require PR merge dates.
 
 ---
 
@@ -819,7 +832,7 @@ way this document can be wrong except being badly written.
 The PR that adds a design folder, moves a design to `complete`, adds a `reference/` document, or
 changes what a subsystem is, updates the capability map in the same PR. Two of those are stage
 transitions and will show up in "not yet placed" if skipped; the other two will not, which is why
-the rule also lives in `CLAUDE.md` and in the `liquers-designer` skill — rules that do not live
+the rule also lives in `CLAUDE.md` and in the `liquers-project` skill — rules that do not live
 where the work happens are not followed.
 
 ---
@@ -883,13 +896,17 @@ affects_docs: [reference/ASSETS.md, guides/COMMAND_REGISTRATION_GUIDE.md]
   can.
 - **`area` overlap generates the candidate list.** At the `documentation` phase, the skill offers
   every `reference/` and `guides/` document sharing an `area` with the design, so nothing is missed
-  through forgetting. The designer keeps or discards each.
-- **A design may not reach `complete` while any document in `affects_docs` has a `reviewed:`
-  earlier than the merge date of its last PR.** This is check 12 in §7, and it is the interlock
-  that makes the obligation real rather than aspirational.
+  through forgetting. The project workflow keeps or discards each.
+- **A `workflow: liquers-project` design may not reach `complete` until
+  `phase5-documentation.md` records the review of every document in `affects_docs`.** This is check
+  12 in §7, and it is the interlock that makes the obligation real rather than aspirational.
+  Completing the review in the implementation PR is valid; the later merge date alone does not
+  invalidate it. Re-review after merge only when a rebase, conflict resolution, or integration
+  change could have made the recorded documentation inconsistent.
 
-Until the `documentation` phase is active (§5.2), `affects_docs` may be filled in and the review
-done by hand; the interlock applies either way.
+The `documentation` phase records the authoritative `affects_docs` set and performs this review.
+An older design that voluntarily adds Phase 5 should follow the same review discipline, but older
+designs remain governed by their approved four-phase or simplified contract.
 
 ### 9.4 Trigger 2 — the quarterly fallback
 
@@ -921,7 +938,7 @@ Every `reference/` and `guides/` document ends with:
 | 2026-05-19 | Quarterly review; corrected two stale type names. | quarterly |
 ```
 
-Newest first. The top row's date must equal `reviewed:` — check 12.
+Newest first. The top row's date must equal `reviewed:` — check 10.
 
 A row is owed for **any change to what the document claims**, and for every review whether or not
 it changed anything. Typo and formatting fixes do not earn a row. `Source` is `phase-5`,
