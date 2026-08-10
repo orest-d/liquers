@@ -13,7 +13,7 @@ This is the binding procedure for a coding agent asked to fix an issue autonomou
 review, branch, test, or documentation step invalidates the workflow.
 
 This procedure is a deliberately simplified adaptation of the five-phase
-[`liquers-project`](../../.agents/skills/liquers-project/SKILL.md) workflow for small, well-bounded
+[`liquers-project`](../../.claude/skills/liquers-project/SKILL.md) workflow for small, well-bounded
 repairs. It preserves that workflow's phase purposes and ordering, but not its persistent artifact,
 reviewer-count, or per-phase approval requirements. It does not replace `liquers-project` for
 substantial feature or architecture work.
@@ -56,7 +56,7 @@ it did not just file.
    feasible. Run focused tests and proportionate broader checks. Never claim a command or test
    passed unless it was run successfully.
 6. **Keep repository records truthful.** Update required specs and generated indexes in the same
-   change as the implementation, following sections 9 and 10.
+   change as the implementation, following section 9.
 
 For S/M work, independent review concerns are mandatory but the `liquers-project` reviewer/model
 counts are intentionally not required. When the environment provides and authorizes independent
@@ -85,9 +85,12 @@ The five phases are required reasoning records, but S/M work does not require th
 folder and five phase documents used by `liquers-project`. The agent MAY keep them in its task plan
 or working notes. It MUST create or update `specs/design/<slug>/` only when the issue already links
 to that design, the user requests durable design documents, or the complexity rules in
-`DOCS_STRUCTURE_GUIDE.md` require them. If a design folder is used, it MUST carry
-`workflow: liquers-project`, use the canonical five artifact names, and follow that guide's
-front-matter and phase transitions.
+`DOCS_STRUCTURE_GUIDE.md` require them. If a design folder is used, its front-matter and phase
+transitions MUST follow that guide. This simplified adaptation MUST NOT add
+`workflow: liquers-project` merely because it uses the same five phase purposes: that marker opts a
+design into the canonical skill's persistent artifacts and approval contract. Preserve an existing
+workflow marker and follow its contract; when the user explicitly requests canonical
+`liquers-project` artifacts, use that skill instead of this simplified procedure.
 
 ## 4. Intake and preflight
 
@@ -242,17 +245,39 @@ simplified issue workflow, assume that no new guide or reference document is nee
 3. make only small necessary updates to existing documents, such as correcting or adding links,
    linking a new or existing design, or changing one or two sentences to keep current facts true.
 
-If truthful documentation would require a new reference or guide, a substantive rewrite, a new
-section, or similarly larger work, the agent MUST NOT silently expand this issue. It MUST describe
-the proposed documentation need, exact documents and rationale in the Phase 5/closing summary and
-ask for permission. That request does not undo a successful Phase 4; it records documentation work
-outside this procedure's simplified scope. If permission is granted, perform and review that work
-before declaring the overall workflow complete.
+If truthful documentation would benefit from a new reference or guide, a substantive rewrite, a
+new section, or similarly larger work, the agent MUST NOT silently expand this issue. It MUST
+describe the proposed documentation need, exact documents, and rationale in the Phase 5/closing
+summary and ask for permission to do that separate work. The proposal is not missing in-scope
+maintenance, does not undo a successful Phase 4, and does not block completion of this simplified
+workflow. If permission is granted, treat the documentation work as newly authorized scope and
+perform and review it separately.
 
 There is no Phase 5 approval gate for the summary or permitted small maintenance. After completing
-them, continue automatically to repository-record maintenance and pull-request handoff.
+them, continue automatically to repository-record maintenance and pull-request handoff. Asking
+permission for a substantive follow-up proposal does not create another gate in this workflow.
 
-## 9. Pull request on successful completion
+## 9. Required specs and documentation maintenance
+
+Repository records MUST comply with `specs/DOCS_STRUCTURE_GUIDE.md`:
+
+- Do not invent or overwrite issue status. GitHub-tracked status is synchronized; status changes
+  to pre-existing local issues remain human-owned under the guide's rules.
+- If a linked design exists, keep its `DESIGN.md`, phase, status, issue links, PR links, and
+  `affects_docs` truthful. Do not create a design merely because this workflow has five phases, and
+  do not add or replace its `workflow` marker merely to match this procedure.
+- For any permitted existing reference/guide edit, follow the guide's `reviewed:` and History rules.
+- If a distinct problem is discovered, search first and file it as `status: draft` using section
+  4.8 of the structure guide. Never create a GitHub issue unless the user separately asks.
+- Regenerate `specs/index.csv` with `python scripts/docs_index.py` after tracked-document changes,
+  and run `python scripts/docs_index.py --check` before completion.
+- Update `specs/README.md` only when the capability map or “When to use what” navigation changed.
+
+Commit issue/spec/design/documentation changes together with the code that makes them true. If a
+required in-scope record cannot be updated, implementation is incomplete. Keep substantive
+documentation proposed under Phase 5 distinct from missing required record maintenance.
+
+## 10. Pull request on successful completion
 
 If implementation, validation, and required in-scope documentation maintenance complete
 successfully, the agent MUST commit the change and make the branch available for review through a
@@ -264,25 +289,6 @@ neither path is available, report that limitation, the branch name, and the exac
 The PR title and description MUST identify the issue, summarize the fix and risk assessment, list
 tests and documentation checks, and disclose unresolved validation or proposed documentation work.
 A PR MUST NOT be described as a successful handoff while required in-scope work remains incomplete.
-
-## 10. Required specs and documentation maintenance
-
-Repository records MUST comply with `specs/DOCS_STRUCTURE_GUIDE.md`:
-
-- Do not invent or overwrite issue status. GitHub-tracked status is synchronized; status changes
-  to pre-existing local issues remain human-owned under the guide's rules.
-- If a linked design exists, keep its `DESIGN.md`, phase, status, issue links, PR links, and
-  `affects_docs` truthful. Do not create a design merely because this workflow has five phases.
-- For any permitted existing reference/guide edit, follow the guide's `reviewed:` and History rules.
-- If a distinct problem is discovered, search first and file it as `status: draft` using section
-  4.8 of the structure guide. Never create a GitHub issue unless the user separately asks.
-- Regenerate `specs/index.csv` with `python scripts/docs_index.py` after tracked-document changes,
-  and run `python scripts/docs_index.py --check` before completion.
-- Update `specs/README.md` only when the capability map or “When to use what” navigation changed.
-
-Commit issue/spec/design/documentation changes together with the code that makes them true. If a
-required in-scope record cannot be updated, implementation is incomplete. Keep substantive
-documentation proposed under Phase 5 distinct from missing required record maintenance.
 
 ## 11. Closing summary
 
@@ -307,5 +313,6 @@ that could not be run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-10 | Clarified that the simplified workflow does not opt designs into the canonical artifact contract, made substantive documentation a non-blocking follow-up proposal, and ordered record maintenance before PR handoff. | review |
 | 2026-08-10 | Aligned the autonomous procedure with the five `liquers-project` phases, retained one post-Phase-2 gate, and constrained Phase 5 to a summary and small existing-document maintenance. | documentation |
 | 2026-08-09 | Added the binding four-phase procedure, risk-based approval gate, and successful-completion PR handoff for autonomous S/M issue fixes. | documentation |
