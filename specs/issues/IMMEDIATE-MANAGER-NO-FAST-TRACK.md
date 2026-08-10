@@ -61,16 +61,24 @@ may be the honest fix.
 
 ## Verification
 
-1. A key naming a plain stored file evaluates through `-R/<key>` under `ImmediateEnvironment` on
-   native — a parametric scenario in `liquers-core/tests/manager_parametric.rs`, which currently
-   has keyed coverage only for recipe-backed keys.
-2. Remove `fixme` from the five `STORE07`/`STORE11` cases in `liquers-web/tests/e2e/store.spec.ts`.
-3. `liquers-web/tests/eval_EVAL.rs::eval07_keyed_query_evaluates` can then drop its recipe and read
-   a plain file, which is what it was originally written to do.
+1. Manager-parametric native tests prove that both managers read a plain stored file without a
+   recipe and that an eligible stored value wins over a recipe producing a different value.
+2. The five `STORE07`/`STORE11` cases in `liquers-web/tests/e2e/store.spec.ts` exercise plain stored
+   files through browser `-R/` evaluation without `fixme` markers.
+3. `liquers-web/tests/eval_EVAL.rs::eval07_keyed_query_evaluates` stores a value that conflicts
+   with its recipe and asserts that the immediate manager returns the stored value.
+
+## Implementation
+
+`ImmediateAssetManager::get` now calls the shared `AssetData::try_fast_track` before falling back
+to inline recipe evaluation. This matches the queued manager: eligible stored `Ready`, `Source`,
+or `Override` data is returned without running a recipe, while a missing or ineligible stored value
+continues through the existing inline evaluation path. No public API or storage format changed.
 
 ## Discovery
 
 Found on 2026-08-09 while implementing `specs/design/keyed-recipe-ownership/`. The wasm regression
 test for that design was written to evaluate a plain stored file and failed with
 `No recipe found for key d/f.txt` — no longer a crash, which is how the second defect became
-visible. The test now goes through a recipe and passes; this issue carries the remainder.
+visible. The test was temporarily changed to go through a recipe; the regression coverage now
+stores a conflicting value and proves that fast-track wins.
