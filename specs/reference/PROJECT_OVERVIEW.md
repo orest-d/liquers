@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-08-08
+reviewed: 2026-08-11
 ---
 # Liquers Project Overview
 
@@ -106,14 +106,16 @@ liquers-core (foundation - all core abstractions)
 ```
 
 **Segment Prefixes**:
-- `-R` - **Resource segment**: loads data from store by key
+- `-R` - **Resource segment**: resolves a managed asset by key; use the `stored` selector
+  (`-R-stored/path`) for a direct `GetResource` store read
 - `-` - **Transform segment**: sequence of commands/actions
 
 **Future prefixes** (under consideration):
 - `-S` - **Selection segment**: select part of data (row, column, range, JSON element)
 
 **Components**:
-- **Resource segment**: `-R/data/input.csv` - loads from store
+- **Resource segment**: `-R/data/input.csv` evaluates or reuses the managed keyed asset;
+  `-R-stored/data/input.csv` reads the stored resource directly
 - **Transform segment**: `-/filter-column-value` - applies command with args
 - **Output filename**: `result.json` - determines filename and serialization format
 - **Segment separator**: `/-/` separates resource from transform
@@ -204,6 +206,12 @@ pub struct Recipe {
 }
 ```
 
+`cwd` is a logical Liquers key, not an operating-system directory. Recipes loaded by
+`DefaultRecipeProvider` inherit the directory containing `recipes.yaml`; YAML authors do not set
+the field. Programmatic callers may set it directly. Conversion to a plan preserves relative
+operands and prepends one `SetCwd` plus a non-executable initialization diagnostic. The interpreter,
+not `PlanBuilder`, is responsible for resolving subsequent keys, queries, links, and nested plans.
+
 ### 5. Storage (Store)
 
 **Key-based abstraction** - Keys are path-like but not filesystem paths:
@@ -246,6 +254,13 @@ Optional serialization to a store
 Execution is managed and monitored via assets (`AssetRef`).
 Assets are handles that represent the whole process and get progress updates.
 
+During plan finalization, dependency analysis simulates ordered CWD changes without changing the
+live execution Context. During execution, each relative operand is normalized against the current
+logical CWD immediately before use. Thus recipe CWD and later `-R-cwd` instructions compose in
+order, while an absolute outer query's source resource remains rooted independently of that live
+CWD. Relative child links still use the live CWD. With no CWD, the first relative operand installs
+logical root `/` and records one warning for the shared evaluation Context.
+
 ### 7. Context Hierarchy
 
 **Environment** - Global shared state providing access to services:
@@ -266,15 +281,21 @@ Environment (global, shared across all queries)
   `ImmediateAssetManager` + target-gated conditional-`Send` (`MaybeSend`/`MaybeSync` markers +
   `#[async_trait(?Send)]` on wasm); see `specs/design/async-wasm-refactor/`.
 
-**Context** - Per-action execution context, created for each command in a pipeline:
+**Context** - Per-evaluation execution context, shared by command-facing clones in a pipeline:
 ```
-Context (per-action, created for each command execution)
+Context (per-evaluation, shared by command-facing clones)
   ├── envref        // Reference to Environment
   ├── assetref      // Reference to current Asset (for progress/logging)
   ├── cwd_key       // Current working directory (Key)
   ├── service_tx    // Channel to communicate with Asset
   └── payload       // Arbitrary user data (see below)
 ```
+
+The mutex-backed `cwd_key` is live evaluation state. Interpreter `SetCwd` steps update it, and
+`Context::evaluate`, `Context::get_dependency_state`, and `Context::apply` resolve relative queries
+against it. Nested linked evaluations inherit the current CWD as a scoped starting point; their
+subsequent CWD changes do not escape into the caller. Dependencies, cycle checks, cache lookup, and
+keyed-recipe ownership use resolved identities rather than raw relative spellings.
 
 **Service Channel** (`service_tx`) - Commands communicate with their Asset via messages:
 - Progress updates (primary and secondary)
@@ -410,15 +431,16 @@ Session (user session - currently minimal)
 | **First Command** | Command that generates data without requiring input |
 | **Segment Header** | Query metadata specifying realm (applies to whole segment) |
 | **Environment** | Global shared state providing access to services (store, assets, recipes) |
-| **Context** | Per-action execution context, created for each command in a pipeline |
+| **Context** | Per-evaluation execution context shared by command-facing clones in a pipeline |
 | **Payload** | Mutable user data passed through Context; inherited by sub-queries that declare `payload: required`; type defined by Environment |
 
 ---
 
-*Last updated: 2026-01-18*
+*Last updated: 2026-08-11*
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-11 | Reviewed recipe planning and execution; documented provider/programmatic CWD provenance, interpreter-owned ordered resolution, scoped nested evaluation, and resolved identities. | phase-5 |
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

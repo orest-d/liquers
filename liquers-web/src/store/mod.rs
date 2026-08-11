@@ -113,7 +113,11 @@ pub(crate) fn metadata_to_js_value(
     store_name: &str,
 ) -> Result<JsValue, Error> {
     let json = metadata.to_json().map_err(|e| {
-        Error::key_write_error(key, store_name, &format!("metadata is not serializable: {e}"))
+        Error::key_write_error(
+            key,
+            store_name,
+            &format!("metadata is not serializable: {e}"),
+        )
     })?;
     js_sys::JSON::parse(&json).map_err(|e| {
         Error::key_write_error(

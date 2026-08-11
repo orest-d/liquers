@@ -271,8 +271,8 @@ impl<E: Environment> DependencyManager<E> {
             | crate::metadata::Status::Volatile => return expired,
         }
 
+        let key_opt = asset.bound_owner_key().await.ok().flatten();
         let lock = asset.data.read().await;
-        let key_opt = lock.recipe.key().ok().flatten();
         let metadata = lock.metadata.clone();
         let weak_ref = asset.downgrade();
         drop(lock);
@@ -421,9 +421,7 @@ impl<E: Environment> DependencyManager<E> {
         // A = attribution set of `dependent`.
         let attribution: Vec<DependencyKey> = match dependent {
             ScheduleNode::Keyed(k) => vec![k.clone()],
-            ScheduleNode::Expression(q) => {
-                self.snapshot_set(&self.expression_dependents, q).await
-            }
+            ScheduleNode::Expression(q) => self.snapshot_set(&self.expression_dependents, q).await,
         };
 
         match dependency {
@@ -1150,7 +1148,10 @@ mod tests {
             )
             .await
             .expect_err("self-cycle must be rejected");
-        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+        assert!(matches!(
+            err.error_type,
+            crate::error::ErrorType::DependencyCycle
+        ));
     }
 
     #[tokio::test]
@@ -1173,7 +1174,10 @@ mod tests {
             )
             .await
             .expect_err("k2->k1 must cycle");
-        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+        assert!(matches!(
+            err.error_type,
+            crate::error::ErrorType::DependencyCycle
+        ));
     }
 
     #[tokio::test]
@@ -1198,7 +1202,10 @@ mod tests {
             )
             .await
             .expect_err("Q->K must cycle");
-        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+        assert!(matches!(
+            err.error_type,
+            crate::error::ErrorType::DependencyCycle
+        ));
     }
 
     #[tokio::test]
@@ -1231,7 +1238,10 @@ mod tests {
             )
             .await
             .expect_err("k2->Q must cycle");
-        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+        assert!(matches!(
+            err.error_type,
+            crate::error::ErrorType::DependencyCycle
+        ));
     }
 
     #[tokio::test]
@@ -1254,7 +1264,10 @@ mod tests {
             )
             .await
             .expect_err("q2->q1 must cycle");
-        assert!(matches!(err.error_type, crate::error::ErrorType::DependencyCycle));
+        assert!(matches!(
+            err.error_type,
+            crate::error::ErrorType::DependencyCycle
+        ));
     }
 
     #[tokio::test]
@@ -1281,4 +1294,3 @@ mod tests {
         .expect("Q->k ok after remove_expression");
     }
 }
-

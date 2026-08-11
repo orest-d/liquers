@@ -60,7 +60,11 @@ pub fn key_to_url(
         .skip(prefix.len())
         .map(|segment| segment.encode())
         .collect();
-    Ok(format!("{}{}", normalize_url_prefix(url_prefix), relative.join("/")))
+    Ok(format!(
+        "{}{}",
+        normalize_url_prefix(url_prefix),
+        relative.join("/")
+    ))
 }
 
 /// Ensures a URL prefix ends in `/`, so joining a relative key cannot fuse two segments.
@@ -125,7 +129,9 @@ pub fn directory_index(keys: &BTreeSet<Key>) -> BTreeMap<Key, BTreeSet<String>> 
         for depth in 0..key.len() {
             let parent = key.prefix_of_size(depth).unwrap_or_default();
             if let Some(child) = key.iter().nth(depth) {
-                dirs.entry(parent).or_default().insert(child.encode().to_string());
+                dirs.entry(parent)
+                    .or_default()
+                    .insert(child.encode().to_string());
             }
         }
     }
@@ -196,7 +202,12 @@ impl FetchStore {
     /// `fetch` is read off the global object rather than `web_sys::Window`, so this works in a
     /// window, a worker and under Node. `method` is passed in a plain options object, avoiding
     /// `RequestInit`, whose builder API has changed shape between web-sys releases.
-    async fn request(&self, key: &Key, url: &str, method: &str) -> Result<web_sys::Response, Error> {
+    async fn request(
+        &self,
+        key: &Key,
+        url: &str,
+        method: &str,
+    ) -> Result<web_sys::Response, Error> {
         let global = js_sys::global();
         let function = js_sys::Reflect::get(&global, &JsValue::from_str("fetch"))
             .ok()
@@ -222,22 +233,30 @@ impl FetchStore {
         let promise = function
             .call2(&global, &JsValue::from_str(url), &options)
             .map_err(|e| self.js_read_error(key, url, &e))?;
-        let promise: js_sys::Promise = promise
-            .dyn_into()
-            .map_err(|_| Error::key_read_error(key, &self.store_name(), &"fetch did not return a Promise"))?;
+        let promise: js_sys::Promise = promise.dyn_into().map_err(|_| {
+            Error::key_read_error(key, &self.store_name(), &"fetch did not return a Promise")
+        })?;
 
         let resolved = JsFuture::from(promise)
             .await
             .map_err(|e| self.js_read_error(key, url, &e))?;
         resolved.dyn_into::<web_sys::Response>().map_err(|_| {
-            Error::key_read_error(key, &self.store_name(), &"fetch did not resolve to a Response")
+            Error::key_read_error(
+                key,
+                &self.store_name(),
+                &"fetch did not resolve to a Response",
+            )
         })
     }
 
     fn js_read_error(&self, key: &Key, url: &str, error: &JsValue) -> Error {
         let detail = error
             .as_string()
-            .or_else(|| js_sys::Reflect::get(error, &JsValue::from_str("message")).ok()?.as_string())
+            .or_else(|| {
+                js_sys::Reflect::get(error, &JsValue::from_str("message"))
+                    .ok()?
+                    .as_string()
+            })
             .unwrap_or_else(|| format!("{error:?}"));
         Error::key_read_error(
             key,
@@ -266,7 +285,12 @@ impl FetchStore {
         response.headers().get(name).ok().flatten()
     }
 
-    fn metadata_from_response(&self, key: &Key, response: &web_sys::Response, body_len: Option<u64>) -> Metadata {
+    fn metadata_from_response(
+        &self,
+        key: &Key,
+        response: &web_sys::Response,
+        body_len: Option<u64>,
+    ) -> Metadata {
         let content_type = Self::header(response, "content-type");
         let content_length = body_len.or_else(|| {
             Self::header(response, "content-length").and_then(|v| v.trim().parse::<u64>().ok())

@@ -50,7 +50,10 @@ async fn asyncq02_failure_rejects_with_structured_error() {
         !rejection.is_string(),
         "rejecting with a string discards the error type, query and position"
     );
-    assert!(rejection.is_object(), "the rejection must be a LiquersError object");
+    assert!(
+        rejection.is_object(),
+        "the rejection must be a LiquersError object"
+    );
     assert_eq!(
         get(&rejection, "errorType").as_string().as_deref(),
         Some("action_not_registered"),
@@ -142,14 +145,24 @@ async fn asyncq04_cancellation_propagates() {
 
     // The status crosses as a lowercase string.
     assert_eq!(
-        settle(call("status")).await.expect("status").as_string().as_deref(),
+        settle(call("status"))
+            .await
+            .expect("status")
+            .as_string()
+            .as_deref(),
         Some("ready")
     );
 
     // `cancel` resolves rather than throwing, and leaves the asset intact.
-    settle(call("cancel")).await.expect("cancel must not reject");
+    settle(call("cancel"))
+        .await
+        .expect("cancel must not reject");
     assert_eq!(
-        settle(call("status")).await.expect("status").as_string().as_deref(),
+        settle(call("status"))
+            .await
+            .expect("status")
+            .as_string()
+            .as_deref(),
         Some("ready"),
         "an inert cancel must not move a terminal asset"
     );
@@ -278,9 +291,8 @@ async fn asyncq08_nested_event_loop_use_is_rejected_or_safe() {
 
     // Expose the evaluation entry point to the command. In a page this is `liquers.evaluate`;
     // under the test harness the module is not on `globalThis`, so it is bridged explicitly.
-    let bridge = Closure::<dyn Fn(String) -> js_sys::Promise>::new(|q: String| {
-        liquers_web::evaluate(&q)
-    });
+    let bridge =
+        Closure::<dyn Fn(String) -> js_sys::Promise>::new(|q: String| liquers_web::evaluate(&q));
     js_sys::Reflect::set(
         &js_sys::global(),
         &"__liquersEvaluate".into(),
@@ -288,9 +300,13 @@ async fn asyncq08_nested_event_loop_use_is_rejected_or_safe() {
     )
     .expect("install bridge");
 
-    let value = with_timeout(2000, "nested evaluation", settle(liquers_web::evaluate("nested")))
-        .await
-        .expect("a nested evaluation must resolve, not deadlock");
+    let value = with_timeout(
+        2000,
+        "nested evaluation",
+        settle(liquers_web::evaluate("nested")),
+    )
+    .await
+    .expect("a nested evaluation must resolve, not deadlock");
     assert_eq!(value.as_string().as_deref(), Some("got:Hello, world!"));
 
     drop(bridge);
@@ -324,7 +340,12 @@ async fn web_evaluation_returns_before_the_work_runs() {
     .expect("register slow");
 
     let now: js_sys::Function = get(&get(&js_sys::global(), "Date"), "now").unchecked_into();
-    let millis = || now.call0(&JsValue::NULL).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let millis = || {
+        now.call0(&JsValue::NULL)
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    };
 
     let before = millis();
     let pending = liquers_web::evaluate("slow");
@@ -345,7 +366,10 @@ async fn web_evaluation_returns_before_the_work_runs() {
     let asset: JsValue = liquers_web::get_asset("slow").into();
     let elapsed = millis() - before;
     assert!(asset.is_instance_of::<js_sys::Promise>());
-    assert!(elapsed < 25.0, "getAsset must not block either ({elapsed} ms)");
+    assert!(
+        elapsed < 25.0,
+        "getAsset must not block either ({elapsed} ms)"
+    );
 
     // Drain both so the test does not leave work outstanding for the next one.
     let _ = with_timeout(2000, "slow evaluation", settle(pending)).await;

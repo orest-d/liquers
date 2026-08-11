@@ -364,7 +364,8 @@ impl AssetViewElement {
                             match state.value_error() {
                                 None => {
                                     if let Ok(mut v) = value_clone.write() {
-                                        *v = Some(Arc::new(state.data_unchecked().as_ref().clone()));
+                                        *v =
+                                            Some(Arc::new(state.data_unchecked().as_ref().clone()));
                                     }
                                 }
                                 Some(err) => {

@@ -114,7 +114,7 @@ use crate::{
     error::Error,
     expiration::Expires,
     metadata::{DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version},
-    query::{Key, Query, TryToQuery},
+    query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
     value::ValueInterface,
@@ -420,9 +420,10 @@ impl<E: Environment> Context<E> {
         &self,
         query: &Query,
     ) -> Result<AssetRef<E>, Error> {
+        let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
-        let query_dep_key = DependencyKey::from(query);
+        let query_dep_key = DependencyKey::from(&query);
 
         // Does this dependency need a payload to run? Known from the plan, so the path is
         // chosen without speculatively evaluating anything.
@@ -432,14 +433,13 @@ impl<E: Environment> Context<E> {
         };
 
         if requirement.is_required() {
-            return self.schedule_payload_dependency_asset(query).await;
+            return self.schedule_payload_dependency_asset(&query).await;
         }
 
-        // Current asset's key (if keyed) for dependent classification.
-        let current_key_opt = {
-            let lock = self.assetref.data.read().await;
-            lock.recipe.key().ok().flatten()
-        };
+        // Only an asset that still owns its immutable construction-time key may act as a
+        // keyed dependent. Provider resolution can replace the mutable recipe, so deriving
+        // this identity from `AssetData::recipe` would register edges under the wrong key.
+        let owner_key = self.owner_key().await?;
 
         let version = manager
             .dependency_manager()
@@ -449,7 +449,7 @@ impl<E: Environment> Context<E> {
 
         // Classify the dependent: keyed asset -> graph node; non-keyed query -> expression;
         // ad-hoc (no key, no query) -> skip registration (not a graph participant).
-        let dependent_opt = if let Some(ref k) = current_key_opt {
+        let dependent_opt = if let Some(ref k) = owner_key {
             Some(ScheduleNode::Keyed(DependencyKey::from(k)))
         } else if let Some(q) = self.assetref.query().await {
             Some(ScheduleNode::Expression(DependencyKey::from(&q)))
@@ -470,10 +470,10 @@ impl<E: Environment> Context<E> {
         }
 
         // Capture the AssetRef exactly once (volatile-safe) and schedule it.
-        let asset = manager.get_dependency_asset(&self.assetref, query).await?;
+        let asset = manager.get_dependency_asset(&self.assetref, &query).await?;
 
         // Record the runtime dependency (path-independent capture) as evaluate did.
-        if current_key_opt.is_some() {
+        if owner_key.is_some() {
             manager
                 .dependency_manager()
                 .add_dependent_asset(&query_dep_key, self.assetref.downgrade())
@@ -497,10 +497,7 @@ impl<E: Environment> Context<E> {
     ///
     /// The asset's own dependency record is still written to the parent's metadata: a payload
     /// asset may *have* dependencies, it just may not *be* one.
-    async fn schedule_payload_dependency_asset(
-        &self,
-        query: &Query,
-    ) -> Result<AssetRef<E>, Error> {
+    async fn schedule_payload_dependency_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
         let query_dep_key = DependencyKey::from(query);
@@ -595,6 +592,7 @@ impl<E: Environment> Context<E> {
     /// [`AssetManager::apply_immediately`]; otherwise it delegates to
     /// [`AssetManager::apply`] as before.
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
+        let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
         let requirement = {
             use crate::interpreter::RequiresPayload;
@@ -607,14 +605,14 @@ impl<E: Environment> Context<E> {
                      started without one.",
                     query.encode()
                 ))
-                .with_query(query));
+                .with_query(&query));
             }
             return envref
                 .get_asset_manager()
-                .apply_immediately(query.into(), to, self.payload.clone())
+                .apply_immediately((&query).into(), to, self.payload.clone())
                 .await;
         }
-        envref.get_asset_manager().apply(query.into(), to).await
+        envref.get_asset_manager().apply((&query).into(), to).await
     }
 
     /// Returns the current asset's structured metadata record.
@@ -729,13 +727,93 @@ impl<E: Environment> Context<E> {
     }
     /// Returns the current working key used for relative query resolution.
     pub fn get_cwd_key(&self) -> Option<Key> {
-        self.cwd_key.lock().unwrap().clone()
+        self.cwd_key
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 
     /// Replaces the current working key shared by all context clones.
     pub fn set_cwd_key(&self, key: Option<Key>) {
-        let mut guard = self.cwd_key.lock().unwrap();
+        let mut guard = self
+            .cwd_key
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         *guard = key;
+    }
+
+    /// Resolves a key against the live Context CWD and installs logical root on fallback.
+    pub(crate) fn resolve_key_from_cwd(&self, key: &Key) -> Result<Key, Error> {
+        let (resolved, installed_root) = {
+            let mut guard = self
+                .cwd_key
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let mut cursor = CwdCursor::new(guard.clone());
+            let resolved = cursor.resolve_key(key);
+            let installed_root = cursor.take_root_fallback() && guard.is_none();
+            if installed_root {
+                *guard = Some(Key::new());
+            }
+            (resolved, installed_root)
+        };
+
+        if installed_root {
+            self.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
+        }
+        Ok(resolved)
+    }
+
+    /// Resolves a query copy against the live Context CWD without rewriting the stored plan.
+    pub(crate) fn resolve_query_from_cwd(&self, query: &Query) -> Result<Query, Error> {
+        let (resolved, installed_root) = {
+            let mut guard = self
+                .cwd_key
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let mut cursor = CwdCursor::new(guard.clone());
+            let resolved = cursor.resolve_query_scoped(query);
+            let installed_root = cursor.take_root_fallback() && guard.is_none();
+            if installed_root {
+                *guard = Some(Key::new());
+            }
+            (resolved, installed_root)
+        };
+
+        if installed_root {
+            self.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
+        }
+        Ok(resolved)
+    }
+
+    /// Resolves and then installs a new CWD for subsequent plan steps.
+    pub(crate) fn set_cwd_from_key(&self, key: &Key) -> Result<(), Error> {
+        let resolved = self.resolve_key_from_cwd(key)?;
+        let mut guard = self
+            .cwd_key
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *guard = Some(resolved);
+        Ok(())
+    }
+
+    /// Installs logical root when a pre-pass observed fallback before runtime execution.
+    pub(crate) fn install_logical_root_if_unset(&self) -> bool {
+        let mut guard = self
+            .cwd_key
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if guard.is_some() {
+            false
+        } else {
+            *guard = Some(Key::new());
+            true
+        }
+    }
+
+    /// Returns the immutable keyed identity owned by this Context's asset, if any.
+    pub(crate) async fn owner_key(&self) -> Result<Option<Key>, Error> {
+        self.assetref.bound_owner_key().await
     }
 
     /// Returns the current asset handle.
@@ -1213,6 +1291,329 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     fn init_with_envref(&self, envref: EnvRef<Self>) {
         // No spawn: ImmediateAssetManager::start() runs lazily on first evaluation.
         self.get_asset_manager().set_envref(envref);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::AssetData;
+    use crate::metadata::LogEntryKind;
+    use crate::parse::{parse_key, parse_query};
+    use crate::query::{ActionParameter, QuerySegment};
+    use crate::value::Value;
+
+    type TestEnvironment = ImmediateEnvironment<Value>;
+
+    fn test_context() -> (
+        Context<TestEnvironment>,
+        tokio::sync::mpsc::UnboundedReceiver<AssetServiceMessage>,
+    ) {
+        let envref = ImmediateEnvironment::<Value>::new().to_ref();
+        let assetref = AssetData::<TestEnvironment>::new_temporary(envref.clone()).to_ref();
+        let (service_tx, service_rx) = tokio::sync::mpsc::unbounded_channel();
+        (
+            Context {
+                assetref,
+                envref,
+                cwd_key: Arc::new(Mutex::new(None)),
+                service_tx,
+                payload: None,
+                is_volatile: false,
+                pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            },
+            service_rx,
+        )
+    }
+
+    fn first_resource_key(query: &Query) -> &Key {
+        match &query.segments[0] {
+            QuerySegment::Resource(resource) => &resource.key,
+            QuerySegment::Transform(_) => std::panic!("expected resource segment"),
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_key_matches_non_evaluating_registered_owner() {
+        let envref = ImmediateEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("a/b/result.txt").expect("bound key");
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        manager.insert_key_asset(&key, asset.clone()).await;
+
+        let mut provider_recipe: Recipe = parse_key("source/result.txt")
+            .expect("provider query")
+            .into();
+        provider_recipe.cwd = Some("a/b".to_owned());
+        {
+            let mut data = asset.data.write().await;
+            data.recipe = provider_recipe;
+        }
+        let context = Context::new(asset.clone(), false).await;
+
+        assert_eq!(context.owner_key().await.expect("owner lookup"), Some(key));
+        assert_eq!(
+            manager
+                .owned_key_asset(&parse_key("a/b/result.txt").expect("bound key"))
+                .await
+                .expect("registered owner")
+                .id(),
+            asset.id()
+        );
+    }
+
+    #[tokio::test]
+    async fn owner_key_rejects_temporary_ad_hoc_volatile_and_provider_mismatch() {
+        let envref = ImmediateEnvironment::<Value>::new().to_ref();
+        let temporary = AssetData::<TestEnvironment>::new_temporary(envref.clone()).to_ref();
+        assert_eq!(
+            Context::new(temporary, false)
+                .await
+                .owner_key()
+                .await
+                .expect("temporary owner"),
+            None
+        );
+
+        let ad_hoc_key = parse_key("ad-hoc/value.txt").expect("ad-hoc key");
+        let mut ad_hoc_recipe: Recipe = ad_hoc_key.into();
+        ad_hoc_recipe
+            .arguments
+            .insert("argument".to_owned(), serde_json::json!(1));
+        let ad_hoc = AssetRef::new_from_recipe(
+            envref.get_asset_manager().next_id_for_asset(),
+            ad_hoc_recipe,
+            envref.clone(),
+        );
+        assert_eq!(
+            Context::new(ad_hoc, false)
+                .await
+                .owner_key()
+                .await
+                .expect("ad-hoc owner"),
+            None
+        );
+
+        let manager = envref.get_asset_manager();
+        let volatile_key = parse_key("bound/volatile.txt").expect("volatile key");
+        let volatile = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            volatile_key.clone().into(),
+            envref.clone(),
+        );
+        volatile
+            .set_status(crate::metadata::Status::Volatile)
+            .await
+            .expect("mark volatile");
+        manager
+            .insert_key_asset(&volatile_key, volatile.clone())
+            .await;
+        assert_eq!(
+            Context::new(volatile, true)
+                .await
+                .owner_key()
+                .await
+                .expect("volatile owner"),
+            None
+        );
+        assert!(manager.lookup_key_asset(&volatile_key).is_none());
+
+        let key = parse_key("a/b/mismatch.txt").expect("mismatch key");
+        let asset = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        manager.insert_key_asset(&key, asset.clone()).await;
+        let mut provider_recipe: Recipe = parse_key("source/mismatch.txt")
+            .expect("provider query")
+            .into();
+        provider_recipe.cwd = Some("a/c".to_owned());
+        {
+            let mut data = asset.data.write().await;
+            data.recipe = provider_recipe;
+        }
+
+        assert_eq!(
+            Context::new(asset, false)
+                .await
+                .owner_key()
+                .await
+                .expect("mismatch owner"),
+            None
+        );
+    }
+
+    #[test]
+    fn resolver_installs_root_once_across_context_clones() {
+        let (context, mut receiver) = test_context();
+        let cloned = context.clone();
+
+        let first = context
+            .resolve_key_from_cwd(&parse_key("./one").expect("first relative key"))
+            .expect("first resolution");
+        let second = cloned
+            .resolve_key_from_cwd(&parse_key("../two").expect("second relative key"))
+            .expect("second resolution");
+
+        assert_eq!(first.encode(), "one");
+        assert_eq!(second.encode(), "two");
+        assert_eq!(context.get_cwd_key(), Some(Key::new()));
+        assert_eq!(cloned.get_cwd_key(), Some(Key::new()));
+        match receiver.try_recv().expect("one warning") {
+            AssetServiceMessage::LogMessage(entry) => {
+                assert_eq!(entry.kind, LogEntryKind::Warning);
+                assert_eq!(entry.message, RELATIVE_WITHOUT_CWD_WARNING);
+            }
+            message => std::panic!("expected warning log, got {message:?}"),
+        }
+        assert!(receiver.try_recv().is_err(), "warning must be emitted once");
+    }
+
+    #[test]
+    fn root_fallback_warning_delivery_error_propagates() {
+        let (context, receiver) = test_context();
+        drop(receiver);
+
+        let error = context
+            .resolve_key_from_cwd(&parse_key("./missing-base").expect("relative key"))
+            .expect_err("closed warning channel must fail");
+
+        assert!(error.message.contains("Failed to send log message"));
+        assert_eq!(context.get_cwd_key(), Some(Key::new()));
+    }
+
+    #[test]
+    fn absolute_operands_ignore_missing_cwd() {
+        let (context, mut receiver) = test_context();
+        let ordinary = parse_key("ordinary/value.txt").expect("ordinary key");
+
+        assert_eq!(
+            context
+                .resolve_key_from_cwd(&ordinary)
+                .expect("ordinary resolution"),
+            ordinary
+        );
+        let absolute = parse_query("/-R/./absolute.txt").expect("absolute query");
+        let resolved = context
+            .resolve_query_from_cwd(&absolute)
+            .expect("absolute resolution");
+
+        assert_eq!(first_resource_key(&resolved).encode(), "absolute.txt");
+        assert_eq!(context.get_cwd_key(), None);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn absolute_query_does_not_absolutize_relative_link() {
+        let (context, mut receiver) = test_context();
+        context.set_cwd_key(Some(parse_key("a/b").expect("context cwd")));
+        let query = parse_query("/-R/./outer.txt/-/action-~X~-R/./linked.txt~E")
+            .expect("absolute query with relative link");
+
+        let resolved = context
+            .resolve_query_from_cwd(&query)
+            .expect("scoped resolution");
+        assert_eq!(first_resource_key(&resolved).encode(), "outer.txt");
+        let linked = match &resolved.segments[1] {
+            QuerySegment::Transform(transform) => match &transform.query[0].parameters[0] {
+                ActionParameter::Link(link, _) => link,
+                ActionParameter::String(_, _) => std::panic!("expected linked query"),
+            },
+            QuerySegment::Resource(_) => std::panic!("expected transform segment"),
+        };
+        assert_eq!(first_resource_key(linked).encode(), "a/b/linked.txt");
+        assert_eq!(context.get_cwd_key(), Some(parse_key("a/b").expect("cwd")));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn absolute_outer_query_keeps_relative_link_independent() {
+        let (context, mut receiver) = test_context();
+        let query =
+            parse_query("/-R/./outer.txt/-/action-~X~-R/./relative.txt~E-~X~/-R/./absolute.txt~E")
+                .expect("absolute query with relative and absolute links");
+
+        let resolved = context
+            .resolve_query_from_cwd(&query)
+            .expect("scoped resolution without an entry cwd");
+        assert!(resolved.absolute);
+        assert_eq!(first_resource_key(&resolved).encode(), "outer.txt");
+        let QuerySegment::Transform(transform) = &resolved.segments[1] else {
+            std::panic!("expected transform segment");
+        };
+        let ActionParameter::Link(relative_link, _) = &transform.query[0].parameters[0] else {
+            std::panic!("expected relative linked query");
+        };
+        let ActionParameter::Link(absolute_link, _) = &transform.query[0].parameters[1] else {
+            std::panic!("expected absolute linked query");
+        };
+        assert!(!relative_link.absolute);
+        assert_eq!(first_resource_key(relative_link).encode(), "relative.txt");
+        assert!(absolute_link.absolute);
+        assert_eq!(first_resource_key(absolute_link).encode(), "absolute.txt");
+        assert_eq!(context.get_cwd_key(), Some(Key::new()));
+
+        let warning = receiver.try_recv().expect("root fallback warning");
+        let AssetServiceMessage::LogMessage(warning) = warning else {
+            std::panic!("expected a log message");
+        };
+        assert_eq!(warning.kind, LogEntryKind::Warning);
+        assert_eq!(warning.message, RELATIVE_WITHOUT_CWD_WARNING);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn context_entry_points_resolve_relative_queries() {
+        let (context, _receiver) = test_context();
+        context.set_cwd_key(Some(parse_key("a/b").expect("context cwd")));
+
+        let state = context
+            .get_dependency_state(&parse_query("-R-key/./from-state").expect("state query"))
+            .await
+            .expect("dependency state");
+        assert_eq!(
+            state.value().expect("state value").as_ref(),
+            &Value::Key(parse_key("a/b/from-state").expect("state key"))
+        );
+
+        let evaluated = context
+            .evaluate(&parse_query("-R-key/./from-evaluate").expect("evaluate query"))
+            .await
+            .expect("evaluate");
+        assert_eq!(
+            evaluated
+                .get()
+                .await
+                .expect("evaluated state")
+                .value()
+                .expect("evaluated value")
+                .as_ref(),
+            &Value::Key(parse_key("a/b/from-evaluate").expect("evaluate key"))
+        );
+
+        let applied = context
+            .apply(
+                &parse_query("-R-key/./from-apply").expect("apply query"),
+                State::new(),
+            )
+            .await
+            .expect("apply");
+        assert_eq!(
+            applied
+                .get()
+                .await
+                .expect("applied state")
+                .value()
+                .expect("applied value")
+                .as_ref(),
+            &Value::Key(parse_key("a/b/from-apply").expect("apply key"))
+        );
     }
 }
 

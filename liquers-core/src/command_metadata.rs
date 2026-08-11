@@ -1082,7 +1082,10 @@ impl CommandMetadataRegistry {
         K: Into<CommandKey>,
     {
         let key: CommandKey = key.into();
-        let position = self.commands.iter().position(|command| command.key() == key)?;
+        let position = self
+            .commands
+            .iter()
+            .position(|command| command.key() == key)?;
         Some(self.commands.remove(position))
     }
 

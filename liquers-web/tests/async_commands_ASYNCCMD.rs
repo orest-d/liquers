@@ -283,16 +283,27 @@ async fn asynccmd06_sync_and_async_metadata_differ() {
     fresh();
     register_fixture_commands();
 
-    register_command_on(&with(decl("sync_cmd", "return 1;"), "async", JsValue::FALSE))
-        .expect("register sync");
+    register_command_on(&with(
+        decl("sync_cmd", "return 1;"),
+        "async",
+        JsValue::FALSE,
+    ))
+    .expect("register sync");
     register_command_on(&async_decl("async_cmd", 5, "2")).expect("register async");
 
     // Both are registered and describable.
-    assert!(!describe_command_on("sync_cmd").expect("describe sync").is_null());
-    assert!(!describe_command_on("async_cmd").expect("describe async").is_null());
+    assert!(!describe_command_on("sync_cmd")
+        .expect("describe sync")
+        .is_null());
+    assert!(!describe_command_on("async_cmd")
+        .expect("describe async")
+        .is_null());
 
     // Both evaluate correctly.
-    assert_eq!(eval_to_js("sync_cmd").await.expect("sync").as_f64(), Some(1.0));
+    assert_eq!(
+        eval_to_js("sync_cmd").await.expect("sync").as_f64(),
+        Some(1.0)
+    );
     assert_eq!(
         with_timeout(2000, "async_cmd", eval_to_js("async_cmd"))
             .await

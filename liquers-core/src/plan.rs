@@ -5,7 +5,7 @@
 //!
 //! [`Plan`] is an executable plan that the interpreter can execute.
 //! A single step in the plan is a [`Step`] that contains an executable instruction.
-//! 
+//!
 //! A [`Query`] describes a general syntax, it obtains a specific meaning by building a [`Plan`],
 //! which can be executed by an interpreter.  [`PlanBuilder`] performs the synchronous part of planning against a
 //! [`CommandMetadataRegistry`]: it resolves commands, converts action parameters, applies
@@ -44,8 +44,8 @@ use crate::expiration::Expires;
 use crate::metadata::{DependencyKey, Metadata, MetadataRecord, Status};
 use crate::parse::parse_key;
 use crate::query::{
-    ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
-    ResourceQuerySegment,
+    ActionParameter, ActionRequest, CwdCursor, Key, Position, Query, QuerySegment, ResourceName,
+    ResourceQuerySegment, RELATIVE_WITHOUT_CWD_WARNING,
 };
 use crate::value::ValueInterface;
 
@@ -249,6 +249,46 @@ impl Step {
             Step::SetCwd(_) => true,
             Step::UseKeyValue(_) => false,
         }
+    }
+}
+
+fn resource_query_step_matches(resource: &ResourceQuerySegment, step: &Step) -> bool {
+    let key = &resource.key;
+    let instruction = resource
+        .header
+        .as_ref()
+        .and_then(|header| header.parameters.first())
+        .map(|parameter| parameter.value.as_str());
+
+    match instruction {
+        None => matches!(step, Step::GetAsset(step_key) if step_key == key),
+        Some("b" | "bin" | "binary") => {
+            matches!(step, Step::GetAssetBinary(step_key) if step_key == key)
+        }
+        Some("meta" | "metadata") => {
+            matches!(step, Step::GetAssetMetadata(step_key) if step_key == key)
+        }
+        Some("dir" | "directory") => {
+            matches!(step, Step::GetAssetDirectory(step_key) if step_key == key)
+        }
+        Some("sdir" | "store_directory") => {
+            matches!(step, Step::GetResourceDirectory(step_key) if step_key == key)
+        }
+        Some("r" | "recipe") => {
+            matches!(step, Step::GetAssetRecipe(step_key) if step_key == key)
+        }
+        Some("data" | "value") => {
+            matches!(step, Step::GetAsset(step_key) if step_key == key)
+        }
+        Some("stored" | "stored_binary" | "stored_bin" | "sbin") => {
+            matches!(step, Step::GetResource(step_key) if step_key == key)
+        }
+        Some("stored_meta" | "stored_metadata") => {
+            matches!(step, Step::GetResourceMetadata(step_key) if step_key == key)
+        }
+        Some("cwd") => matches!(step, Step::SetCwd(step_key) if step_key == key),
+        Some("key") => matches!(step, Step::UseKeyValue(step_key) if step_key == key),
+        Some(_) => false,
     }
 }
 
@@ -1590,6 +1630,41 @@ impl Plan {
             dependencies: Vec::new(),
         }
     }
+
+    /// Locates the first executable step produced by an absolute query's own resource segments.
+    ///
+    /// Recipe conversion may prepend a `SetCwd` that is not part of `query`. Matching all source
+    /// resource segments from the end keeps that prefix distinct even when it is identical to a
+    /// query-authored `cwd` instruction. The returned index is runtime provenance only: callers
+    /// resolve a consumed copy and leave this raw, serializable plan unchanged.
+    pub(crate) fn absolute_query_resource_step_index(&self) -> Option<usize> {
+        if !self.query.absolute {
+            return None;
+        }
+        let resources: Vec<&ResourceQuerySegment> = self
+            .query
+            .segments
+            .iter()
+            .filter_map(|segment| match segment {
+                QuerySegment::Resource(resource) => Some(resource),
+                QuerySegment::Transform(_) => None,
+            })
+            .collect();
+        if resources.is_empty() {
+            return None;
+        }
+
+        let mut upper_bound = self.steps.len();
+        let mut first_resource_step = None;
+        for resource in resources.iter().rev() {
+            let index = (0..upper_bound)
+                .rev()
+                .find(|index| resource_query_step_matches(resource, &self.steps[*index]))?;
+            first_resource_step = Some(index);
+            upper_bound = index;
+        }
+        first_resource_step
+    }
     /// Returns whether there are no executable steps.
     pub fn is_empty(&self) -> bool {
         self.steps.is_empty()
@@ -1883,26 +1958,73 @@ impl Metadata {
 ///   must find valid Cwd (previous SetCwd step in the plan), expand the query to
 ///   absolute form, and then assess the expanded query/key.
 ///
+fn collect_parameter_dependencies(
+    parameter: &ParameterValue,
+    cursor: &mut CwdCursor,
+    dependencies: &mut HashSet<PlanDependency>,
+) {
+    match parameter {
+        ParameterValue::DefaultLink(name, query) => {
+            let resolved = cursor.resolve_query_scoped(query);
+            dependencies.insert(PlanDependency::new(
+                DependencyKey::from(&resolved),
+                DependencyRelation::DefaultLink(name.clone()),
+            ));
+        }
+        ParameterValue::ParameterLink(name, query, _) => {
+            let resolved = cursor.resolve_query_scoped(query);
+            dependencies.insert(PlanDependency::new(
+                DependencyKey::from(&resolved),
+                DependencyRelation::ParameterLink(name.clone()),
+            ));
+        }
+        ParameterValue::OverrideLink(name, query) => {
+            let resolved = cursor.resolve_query_scoped(query);
+            dependencies.insert(PlanDependency::new(
+                DependencyKey::from(&resolved),
+                DependencyRelation::OverrideLink(name.clone()),
+            ));
+        }
+        ParameterValue::EnumLink(name, query, _) => {
+            let resolved = cursor.resolve_query_scoped(query);
+            dependencies.insert(PlanDependency::new(
+                DependencyKey::from(&resolved),
+                DependencyRelation::EnumLink(name.clone()),
+            ));
+        }
+        ParameterValue::MultipleParameters(values) => {
+            for value in values {
+                collect_parameter_dependencies(value, cursor, dependencies);
+            }
+        }
+        ParameterValue::DefaultValue(_, _)
+        | ParameterValue::ParameterValue(_, _, _)
+        | ParameterValue::OverrideValue(_, _)
+        | ParameterValue::Placeholder(_)
+        | ParameterValue::Injected(_)
+        | ParameterValue::None => {}
+    }
+}
+
 /// # Parameters
-/// - `cwd`: Optional current working directory for resolving relative keys
+/// - `cursor`: Ordered current working key for resolving dependency operands
 pub(crate) fn find_dependencies<'a, E: Environment>(
     envref: EnvRef<E>,
     plan: &'a Plan,
     stack: &'a mut Vec<Key>,
-    cwd: Option<Key>,
+    cursor: &'a mut CwdCursor,
 ) -> crate::maybe_send::BoxFuture<'a, Result<Vec<PlanDependency>, Error>> {
     Box::pin(async move {
         let mut dependencies = HashSet::new();
-        let mut current_cwd = cwd;
+        let absolute_resource_step = plan.absolute_query_resource_step_index();
 
-        for step in &plan.steps {
+        for (step_index, step) in plan.steps.iter().enumerate() {
             match step {
                 Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
-                    // Resolve key relative to cwd if needed
-                    let resolved_key = if let Some(cwd_key) = &current_cwd {
-                        key.to_absolute(cwd_key)
+                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                        key.to_absolute(&Key::new())
                     } else {
-                        key.clone()
+                        cursor.resolve_key(key)
                     };
 
                     // Check for circular dependency
@@ -1920,43 +2042,35 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         DependencyRelation::StateArgument,
                     ));
 
-                    // Push onto stack and recursively traverse only for cycle detection
                     stack.push(resolved_key.clone());
                     if let Ok(Some(recipe)) = envref
                         .get_recipe_provider()
                         .recipe_opt(&resolved_key, envref.clone())
                         .await
                     {
-                        // Add Recipe dependency when recipe is found
                         dependencies.insert(PlanDependency::new(
                             DependencyKey::from_recipe_key(&resolved_key),
                             DependencyRelation::Recipe,
                         ));
-
-                        if !recipe.query.is_empty() {
-                            if let Ok(recipe_query) = recipe.get_query() {
-                                let cmr = envref.get_command_metadata_registry();
-                                let mut pb = PlanBuilder::new(recipe_query, cmr);
-                                let recipe_plan = pb.build()?;
-                                let nested_dependencies = find_dependencies(
-                                    envref.clone(),
-                                    &recipe_plan,
-                                    stack,
-                                    current_cwd.clone(),
-                                )
-                                .await?;
-                                dependencies.extend(nested_dependencies);
-                            }
-                        }
+                        let cmr = envref.get_command_metadata_registry();
+                        let recipe_plan = recipe.to_plan_for_key(cmr, &resolved_key)?;
+                        let mut recipe_cursor = cursor.clone();
+                        let nested_dependencies = find_dependencies(
+                            envref.clone(),
+                            &recipe_plan,
+                            stack,
+                            &mut recipe_cursor,
+                        )
+                        .await?;
+                        dependencies.extend(nested_dependencies);
                     }
                     stack.pop();
                 }
                 Step::GetAssetDirectory(key) => {
-                    // Directory listing depends on key, but we currently do not recurse through recipe.
-                    let resolved_key = if let Some(cwd_key) = &current_cwd {
-                        key.to_absolute(cwd_key)
+                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                        key.to_absolute(&Key::new())
                     } else {
-                        key.clone()
+                        cursor.resolve_key(key)
                     };
 
                     if stack.contains(&resolved_key) {
@@ -1972,15 +2086,11 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         DependencyRelation::StateArgument,
                     ));
                 }
-                Step::UseKeyValue(_key) => {
-                    // Does NOT create dependency - just creates a value with the key
-                    // No attempt to fetch the resource is made
-                }
                 Step::GetAssetRecipe(key) => {
-                    let resolved_key = if let Some(cwd_key) = &current_cwd {
-                        key.to_absolute(cwd_key)
+                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                        key.to_absolute(&Key::new())
                     } else {
-                        key.clone()
+                        cursor.resolve_key(key)
                     };
 
                     if stack.contains(&resolved_key) {
@@ -1996,66 +2106,37 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         DependencyRelation::Recipe,
                     ));
                 }
-                Step::GetResource(_key) => {
-                    // Ambiguous: fetches directly from store, bypassing dependency controls
-                    // Treated as no dependency for now
-                    // TODO: Consider flagging this as potential dependency bypass
-                }
-                Step::GetResourceMetadata(_key) => {
-                    // Similar to GetResource - bypasses dependency system
-                }
                 Step::SetCwd(key) => {
-                    // Update current working directory for subsequent relative key resolution
-                    current_cwd = Some(if let Some(cwd_key) = &current_cwd {
-                        key.to_absolute(cwd_key)
+                    if absolute_resource_step == Some(step_index) {
+                        let resolved = key.to_absolute(&Key::new());
+                        cursor.set_cwd_from(&resolved);
                     } else {
-                        key.clone()
-                    });
-                    // Does not create dependency on its own
+                        cursor.set_cwd_from(key);
+                    }
                 }
-                Step::Evaluate(query) | Step::UseQueryValue(query) => {
-                    // Resolve query relative to cwd if needed
-                    let resolved_query = if current_cwd.is_some() {
-                        // TODO: Implement query.resolve_relative(cwd) or similar
-                        query.clone() // For now, use query as-is
-                    } else {
-                        query.clone()
-                    };
-
-                    // Convert query to plan, find its dependencies
+                Step::Evaluate(query) => {
+                    let resolved_query = cursor.resolve_query_scoped(query);
                     let cmr = envref.get_command_metadata_registry();
-                    let mut pb = PlanBuilder::new(resolved_query, cmr);
-                    let eval_plan = pb.build()?;
-                    let sub_deps =
-                        find_dependencies(envref.clone(), &eval_plan, stack, current_cwd.clone())
+                    let eval_plan = PlanBuilder::new(resolved_query, cmr).build()?;
+                    let mut child_cursor = cursor.clone();
+                    let child_dependencies =
+                        find_dependencies(envref.clone(), &eval_plan, stack, &mut child_cursor)
                             .await?;
-                    for dep in sub_deps {
-                        // Promote keyed (Key-convertible) deps as StateArgument
-                        if Key::try_from(&dep.key).is_ok() {
+                    for dependency in child_dependencies {
+                        if Key::try_from(&dependency.key).is_ok() {
                             dependencies.insert(PlanDependency::new(
-                                dep.key,
+                                dependency.key,
                                 DependencyRelation::StateArgument,
                             ));
                         } else {
-                            // Non-keyed: command metadata/impl deps are still relevant
-                            dependencies.insert(dep);
+                            dependencies.insert(dependency);
                         }
                     }
                 }
                 Step::Plan(nested_plan) => {
-                    let sub_deps =
-                        find_dependencies(envref.clone(), nested_plan, stack, current_cwd.clone())
-                            .await?;
-                    for dep in sub_deps {
-                        if Key::try_from(&dep.key).is_ok() {
-                            dependencies.insert(PlanDependency::new(
-                                dep.key,
-                                DependencyRelation::StateArgument,
-                            ));
-                        } else {
-                            dependencies.insert(dep);
-                        }
-                    }
+                    dependencies.extend(
+                        find_dependencies(envref.clone(), nested_plan, stack, cursor).await?,
+                    );
                 }
                 Step::Action {
                     realm,
@@ -2075,59 +2156,19 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
                         DependencyRelation::CommandImplementation,
                     ));
 
-                    // Traverse parameters for link dependencies
-                    fn collect_param_deps(pv: &ParameterValue, out: &mut HashSet<PlanDependency>) {
-                        match pv {
-                            ParameterValue::ParameterLink(name, query, _) => {
-                                out.insert(PlanDependency::new(
-                                    DependencyKey::from(query),
-                                    DependencyRelation::ParameterLink(name.clone()),
-                                ));
-                            }
-                            ParameterValue::DefaultLink(name, query) => {
-                                out.insert(PlanDependency::new(
-                                    DependencyKey::from(query),
-                                    DependencyRelation::DefaultLink(name.clone()),
-                                ));
-                            }
-                            ParameterValue::OverrideLink(name, query) => {
-                                out.insert(PlanDependency::new(
-                                    DependencyKey::from(query),
-                                    DependencyRelation::OverrideLink(name.clone()),
-                                ));
-                            }
-                            ParameterValue::EnumLink(name, query, _) => {
-                                out.insert(PlanDependency::new(
-                                    DependencyKey::from(query),
-                                    DependencyRelation::EnumLink(name.clone()),
-                                ));
-                            }
-                            ParameterValue::MultipleParameters(vec) => {
-                                for pv in vec {
-                                    collect_param_deps(pv, out);
-                                }
-                            }
-                            ParameterValue::DefaultValue(_, _)
-                            | ParameterValue::ParameterValue(_, _, _)
-                            | ParameterValue::OverrideValue(_, _)
-                            | ParameterValue::Placeholder(_)
-                            | ParameterValue::Injected(_)
-                            | ParameterValue::None => {}
-                        }
-                    }
-                    for pv in &parameters.0 {
-                        collect_param_deps(pv, &mut dependencies);
+                    for parameter in &parameters.0 {
+                        collect_parameter_dependencies(parameter, cursor, &mut dependencies);
                     }
                 }
-                Step::Info(_) | Step::Warning(_) | Step::Error(_) => {
-                    // No dependencies
-                }
-                Step::Filename(_) => {
-                    // No dependencies (just metadata)
-                }
-                Step::GetResourceDirectory(_key) => {
-                    // Similar to GetResource - bypasses dependency system
-                } // IMPORTANT: No default match arm - all Step variants must be explicit
+                Step::GetResource(_)
+                | Step::GetResourceMetadata(_)
+                | Step::GetResourceDirectory(_)
+                | Step::UseKeyValue(_)
+                | Step::UseQueryValue(_)
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_) => {}
             }
         }
 
@@ -2151,34 +2192,32 @@ fn dependency_check_error(plan: &mut Plan, error: &Error) {
 pub(crate) async fn has_volatile_dependencies<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
+    initial_cwd: Option<Key>,
 ) -> Result<bool, Error> {
-    // Only check if plan is not already marked volatile
+    let mut stack = Vec::new();
+    let mut cursor = CwdCursor::new(initial_cwd);
+    let dependencies = match find_dependencies(envref.clone(), plan, &mut stack, &mut cursor).await
+    {
+        Ok(dependencies) => dependencies,
+        Err(error) => {
+            dependency_check_error(plan, &error);
+            return Err(error);
+        }
+    };
+    plan.dependencies = dependencies.clone();
+    for dependency in &dependencies {
+        plan.init_info(format!(
+            "Dependency detected: {} ({:?})",
+            dependency.key, dependency.relation
+        ));
+    }
+    if cursor.take_root_fallback() {
+        plan.init_warning(RELATIVE_WITHOUT_CWD_WARNING.to_owned());
+    }
+
     if plan.is_volatile {
         return Ok(true);
     }
-
-    // Find all dependencies (no initial cwd)
-    let dependencies = if plan.dependencies.is_empty() {
-        let mut stack = Vec::new();
-        match find_dependencies(envref.clone(), plan, &mut stack, None).await {
-            Ok(dependencies) => {
-                plan.dependencies = dependencies.clone();
-                for dep in &dependencies {
-                    plan.init_info(format!(
-                        "Dependency detected: {} ({:?})",
-                        dep.key, dep.relation
-                    ));
-                }
-                dependencies
-            }
-            Err(error) => {
-                dependency_check_error(plan, &error);
-                return Err(error);
-            }
-        }
-    } else {
-        plan.dependencies.clone()
-    };
 
     // Check each dependency key for volatility
     for dependency in dependencies {
@@ -2212,41 +2251,27 @@ pub(crate) async fn has_expirable_dependencies<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
 ) -> Result<(), Error> {
-    has_expirable_dependencies_impl(envref, plan).await
+    let mut visited_recipe_keys = HashSet::new();
+    has_expirable_dependencies_impl(envref, plan, &mut visited_recipe_keys).await
 }
 
 fn has_expirable_dependencies_impl<'a, E: Environment>(
     envref: EnvRef<E>,
     plan: &'a mut Plan,
+    visited_recipe_keys: &'a mut HashSet<Key>,
 ) -> crate::maybe_send::BoxFuture<'a, Result<(), Error>> {
     Box::pin(async move {
-        let dependencies = if plan.dependencies.is_empty() {
-            let mut stack = Vec::new();
-            match find_dependencies(envref.clone(), plan, &mut stack, None).await {
-                Ok(dependencies) => {
-                    plan.dependencies = dependencies.clone();
-                    for dep in &dependencies {
-                        plan.init_info(format!(
-                            "Dependency detected: {} ({:?})",
-                            dep.key, dep.relation
-                        ));
-                    }
-                    dependencies
-                }
-                Err(error) => {
-                    dependency_check_error(plan, &error);
-                    return Err(error);
-                }
-            }
-        } else {
-            plan.dependencies.clone()
-        };
+        let dependencies = plan.dependencies.clone();
         let mut changed = false;
 
         for dependency in dependencies {
-            let Some(key) = dependency.key.key()? else {
+            let key = dependency.key.key()?.or(dependency.key.recipe_key()?);
+            let Some(key) = key else {
                 continue;
             };
+            if !visited_recipe_keys.insert(key.clone()) {
+                continue;
+            }
 
             if let Ok(Some(recipe)) = envref
                 .get_recipe_provider()
@@ -2256,13 +2281,16 @@ fn has_expirable_dependencies_impl<'a, E: Environment>(
                 let mut dependency_expires = recipe.expires.clone();
 
                 if !recipe.query.is_empty() {
-                    if let Ok(recipe_query) = recipe.get_query() {
-                        let cmr = envref.get_command_metadata_registry();
-                        let mut pb = PlanBuilder::new(recipe_query, cmr);
-                        let mut recipe_plan = pb.build()?;
-                        has_expirable_dependencies_impl(envref.clone(), &mut recipe_plan).await?;
-                        dependency_expires |= recipe_plan.expires.clone();
-                    }
+                    let cmr = envref.get_command_metadata_registry();
+                    let mut recipe_plan = recipe.to_plan_for_key(cmr, &key)?;
+                    has_volatile_dependencies(envref.clone(), &mut recipe_plan, None).await?;
+                    has_expirable_dependencies_impl(
+                        envref.clone(),
+                        &mut recipe_plan,
+                        visited_recipe_keys,
+                    )
+                    .await?;
+                    dependency_expires |= recipe_plan.expires.clone();
                 }
 
                 let previous = plan.expires.clone();
@@ -2292,12 +2320,87 @@ fn has_expirable_dependencies_impl<'a, E: Environment>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
     use crate::command_metadata::*;
+    use crate::context::{EnvRef, Environment, ImmediateEnvironment};
     use crate::parse::parse_query;
-    use crate::query::TryToQuery;
+    use crate::query::{QuerySource, TryToQuery};
+    use crate::recipes::{AsyncRecipeProvider, Recipe};
+    use async_trait::async_trait;
     use serde_yaml;
 
     use super::*;
+
+    #[derive(Clone)]
+    struct CountingRecipeProvider {
+        recipes: Arc<HashMap<Key, Recipe>>,
+        recipe_opt_calls: Arc<AtomicUsize>,
+    }
+
+    impl CountingRecipeProvider {
+        fn new(recipes: impl IntoIterator<Item = (Key, Recipe)>) -> Self {
+            Self {
+                recipes: Arc::new(recipes.into_iter().collect()),
+                recipe_opt_calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn recipe_opt_calls(&self) -> usize {
+            self.recipe_opt_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl<E: Environment> AsyncRecipeProvider<E> for CountingRecipeProvider {
+        async fn has_recipes(&self, _key: &Key, _envref: EnvRef<E>) -> Result<bool, Error> {
+            Ok(false)
+        }
+
+        async fn assets_with_recipes(
+            &self,
+            _key: &Key,
+            _envref: EnvRef<E>,
+        ) -> Result<Vec<ResourceName>, Error> {
+            Ok(Vec::new())
+        }
+
+        async fn recipe_plan(&self, key: &Key, envref: EnvRef<E>) -> Result<Plan, Error> {
+            let recipe = self
+                .recipes
+                .get(key)
+                .cloned()
+                .ok_or_else(|| Error::key_not_found(key))?;
+            recipe.to_plan_for_key(envref.get_command_metadata_registry(), key)
+        }
+
+        async fn recipe(&self, key: &Key, _envref: EnvRef<E>) -> Result<Recipe, Error> {
+            self.recipes
+                .get(key)
+                .cloned()
+                .ok_or_else(|| Error::key_not_found(key))
+        }
+
+        async fn recipe_opt(&self, key: &Key, _envref: EnvRef<E>) -> Result<Option<Recipe>, Error> {
+            self.recipe_opt_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.recipes.get(key).cloned())
+        }
+    }
+
+    fn plan_dependencies_contain(
+        dependencies: &[PlanDependency],
+        key: &str,
+        relation: &DependencyRelation,
+    ) -> bool {
+        dependencies
+            .iter()
+            .any(|dependency| dependency.key.as_str() == key && &dependency.relation == relation)
+    }
 
     #[test]
     fn first_test() {
@@ -3423,6 +3526,370 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn find_dependencies_resolves_all_link_variants_with_ordered_cwd() -> Result<(), Error> {
+        let envref = ImmediateEnvironment::<crate::value::Value>::new().to_ref();
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::SetCwd(parse_key("../c")?),
+            Step::Action {
+                realm: String::new(),
+                ns: String::new(),
+                action_name: "links".to_owned(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues(vec![
+                    ParameterValue::DefaultLink(
+                        "default".to_owned(),
+                        parse_query("-R/./default.txt")?,
+                    ),
+                    ParameterValue::ParameterLink(
+                        "parameter".to_owned(),
+                        parse_query("-R/./parameter.txt")?,
+                        Position::unknown(),
+                    ),
+                    ParameterValue::OverrideLink(
+                        "override".to_owned(),
+                        parse_query("-R/./override.txt")?,
+                    ),
+                    ParameterValue::EnumLink(
+                        "enum".to_owned(),
+                        parse_query("-R/./enum.txt")?,
+                        Position::unknown(),
+                    ),
+                    ParameterValue::MultipleParameters(vec![ParameterValue::OverrideLink(
+                        "multiple".to_owned(),
+                        parse_query("-R/./multiple.txt")?,
+                    )]),
+                ]),
+            },
+        ];
+
+        let mut stack = Vec::new();
+        let mut cursor = CwdCursor::default();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, &mut cursor).await?;
+
+        for (filename, relation) in [
+            (
+                "default.txt",
+                DependencyRelation::DefaultLink("default".to_owned()),
+            ),
+            (
+                "parameter.txt",
+                DependencyRelation::ParameterLink("parameter".to_owned()),
+            ),
+            (
+                "override.txt",
+                DependencyRelation::OverrideLink("override".to_owned()),
+            ),
+            ("enum.txt", DependencyRelation::EnumLink("enum".to_owned())),
+            (
+                "multiple.txt",
+                DependencyRelation::OverrideLink("multiple".to_owned()),
+            ),
+        ] {
+            assert!(plan_dependencies_contain(
+                &dependencies,
+                &format!("-R/a/c/{filename}"),
+                &relation,
+            ));
+        }
+        assert_eq!(cursor.current(), Some(parse_key("a/c")?));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn deep_multiple_parameters_and_long_key_preserve_order_and_provenance(
+    ) -> Result<(), Error> {
+        const DEPTH: usize = 32;
+        const KEY_PARTS: usize = 128;
+
+        let raw_key = (0..KEY_PARTS)
+            .map(|index| format!("part{index}"))
+            .collect::<Vec<_>>()
+            .join("/");
+        let mut linked_query = parse_query(&format!("-R/./{raw_key}"))?;
+        linked_query.source = QuerySource::Other("deep multiple leaf".to_owned());
+        let expected_link_position = linked_query.position();
+
+        let mut nested = ParameterValue::OverrideLink("leaf".to_owned(), linked_query);
+        for depth in 0..DEPTH {
+            nested = ParameterValue::MultipleParameters(vec![
+                ParameterValue::DefaultValue(format!("before-{depth}"), serde_json::json!(depth)),
+                nested,
+                ParameterValue::OverrideValue(format!("after-{depth}"), serde_json::json!(depth)),
+            ]);
+        }
+
+        let action_position = Position::new(500, 1, 501);
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("base")?),
+            Step::Action {
+                realm: String::new(),
+                ns: String::new(),
+                action_name: "deep".to_owned(),
+                position: action_position.clone(),
+                parameters: ResolvedParameterValues(vec![nested]),
+            },
+        ];
+
+        let envref = ImmediateEnvironment::<crate::value::Value>::new().to_ref();
+        let mut stack = Vec::new();
+        let mut cursor = CwdCursor::default();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, &mut cursor).await?;
+
+        assert!(plan_dependencies_contain(
+            &dependencies,
+            &format!("-R/base/{raw_key}"),
+            &DependencyRelation::OverrideLink("leaf".to_owned()),
+        ));
+        assert_eq!(
+            dependencies
+                .iter()
+                .filter(|dependency| matches!(
+                    dependency.relation,
+                    DependencyRelation::OverrideLink(ref name) if name == "leaf"
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(cursor.current(), Some(parse_key("base")?));
+
+        let Step::Action {
+            position,
+            parameters,
+            ..
+        } = &plan.steps[1]
+        else {
+            panic!("expected action step");
+        };
+        assert_eq!(position, &action_position);
+        let mut current = &parameters.0[0];
+        for depth in (0..DEPTH).rev() {
+            let ParameterValue::MultipleParameters(values) = current else {
+                panic!("expected nesting level {depth}");
+            };
+            assert_eq!(values.len(), 3);
+            assert!(matches!(
+                &values[0],
+                ParameterValue::DefaultValue(name, value)
+                    if name == &format!("before-{depth}") && value == &serde_json::json!(depth)
+            ));
+            assert!(matches!(
+                &values[2],
+                ParameterValue::OverrideValue(name, value)
+                    if name == &format!("after-{depth}") && value == &serde_json::json!(depth)
+            ));
+            current = &values[1];
+        }
+        let ParameterValue::OverrideLink(name, query) = current else {
+            panic!("expected deeply nested override link");
+        };
+        assert_eq!(name, "leaf");
+        assert_eq!(query.encode(), format!("-R/./{raw_key}"));
+        assert_eq!(
+            query.source,
+            QuerySource::Other("deep multiple leaf".to_owned())
+        );
+        assert_eq!(query.position(), expected_link_position);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_dependencies_child_query_cwd_does_not_leak() -> Result<(), Error> {
+        let envref = ImmediateEnvironment::<crate::value::Value>::new().to_ref();
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::Evaluate(parse_query("-R-cwd/../child/-R/./inside.txt")?),
+            Step::GetAsset(parse_key("./outside.txt")?),
+        ];
+
+        let mut stack = Vec::new();
+        let mut cursor = CwdCursor::default();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, &mut cursor).await?;
+
+        assert!(plan_dependencies_contain(
+            &dependencies,
+            "-R/a/child/inside.txt",
+            &DependencyRelation::StateArgument,
+        ));
+        assert!(plan_dependencies_contain(
+            &dependencies,
+            "-R/a/b/outside.txt",
+            &DependencyRelation::StateArgument,
+        ));
+        assert!(!dependencies
+            .iter()
+            .any(|dependency| dependency.key.as_str() == "-R/a/child/outside.txt"));
+        assert_eq!(cursor.current(), Some(parse_key("a/b")?));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_dependencies_nested_plan_propagates_cwd() -> Result<(), Error> {
+        let envref = ImmediateEnvironment::<crate::value::Value>::new().to_ref();
+        let mut nested = Plan::new();
+        nested.steps = vec![
+            Step::SetCwd(parse_key("../c")?),
+            Step::GetAsset(parse_key("./inside.txt")?),
+        ];
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::Plan(nested),
+            Step::GetAsset(parse_key("./outside.txt")?),
+        ];
+
+        let mut stack = Vec::new();
+        let mut cursor = CwdCursor::default();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, &mut cursor).await?;
+
+        for key in ["-R/a/c/inside.txt", "-R/a/c/outside.txt"] {
+            assert!(plan_dependencies_contain(
+                &dependencies,
+                key,
+                &DependencyRelation::StateArgument,
+            ));
+        }
+        assert_eq!(cursor.current(), Some(parse_key("a/c")?));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_dependencies_respects_nested_recipe_cwd() -> Result<(), Error> {
+        let output_key = parse_key("recipe/folder/result.txt")?;
+        let mut recipe = Recipe::new(
+            "use/result.txt".to_owned(),
+            "Recipe CWD".to_owned(),
+            String::new(),
+        )?
+        .with_link("input".to_owned(), "-R/./source.txt".to_owned());
+        recipe.cwd = Some("recipe/folder".to_owned());
+        let provider = CountingRecipeProvider::new([(output_key.clone(), recipe)]);
+        let mut env = ImmediateEnvironment::<crate::value::Value>::new();
+        env.command_registry.command_metadata_registry.add_command(
+            CommandMetadata::new("use").with_argument(ArgumentInfo::any_argument("input")),
+        );
+        env.with_recipe_provider(Box::new(provider));
+        let envref = env.to_ref();
+        let mut plan = Plan::new();
+        plan.steps.push(Step::GetAsset(output_key));
+
+        let mut stack = Vec::new();
+        let mut cursor = CwdCursor::default();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, &mut cursor).await?;
+
+        assert!(plan_dependencies_contain(
+            &dependencies,
+            "-R/recipe/folder/source.txt",
+            &DependencyRelation::OverrideLink("input".to_owned()),
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_dependencies_non_dependency_value_steps_do_not_warn_early() -> Result<(), Error> {
+        let envref = ImmediateEnvironment::<crate::value::Value>::new().to_ref();
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::UseKeyValue(parse_key("./key.txt")?),
+            Step::UseQueryValue(parse_query("-R/./query.txt")?),
+            Step::GetResource(parse_key("./stored.txt")?),
+            Step::GetResourceMetadata(parse_key("./metadata.txt")?),
+            Step::GetResourceDirectory(parse_key("./directory")?),
+        ];
+
+        has_volatile_dependencies(envref, &mut plan, None).await?;
+
+        assert!(plan.dependencies.is_empty());
+        assert!(!plan.init_steps.iter().any(
+            |step| matches!(step, Step::Warning(message) if message == RELATIVE_WITHOUT_CWD_WARNING)
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn volatility_populates_dependencies_once_and_expiration_reuses_them() -> Result<(), Error>
+    {
+        let dependency_key = parse_key("inputs/source.txt")?;
+        let mut recipe = Recipe::default();
+        recipe.expires = Expires::InDuration(std::time::Duration::from_secs(30));
+        let provider = CountingRecipeProvider::new([(dependency_key.clone(), recipe)]);
+        let mut env = ImmediateEnvironment::<crate::value::Value>::new();
+        env.with_recipe_provider(Box::new(provider.clone()));
+        let envref = env.to_ref();
+        let mut plan = Plan::new();
+        plan.steps.push(Step::GetAsset(dependency_key));
+
+        has_volatile_dependencies(envref.clone(), &mut plan, None).await?;
+        let dependency_info_count = plan
+            .init_steps
+            .iter()
+            .filter(|step| matches!(step, Step::Info(message) if message.starts_with("Dependency detected:")))
+            .count();
+        assert_eq!(provider.recipe_opt_calls(), 2);
+        assert_eq!(dependency_info_count, plan.dependencies.len());
+
+        has_expirable_dependencies(envref, &mut plan).await?;
+
+        assert_eq!(provider.recipe_opt_calls(), 3);
+        assert_eq!(
+            plan.init_steps
+                .iter()
+                .filter(|step| matches!(step, Step::Info(message) if message.starts_with("Dependency detected:")))
+                .count(),
+            dependency_info_count,
+        );
+        assert_eq!(
+            plan.expires,
+            Expires::InDuration(std::time::Duration::from_secs(30))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn expiration_nested_recipe_uses_keyed_recipe_plan() -> Result<(), Error> {
+        let output_key = parse_key("recipe/folder/result.txt")?;
+        let source_key = parse_key("recipe/folder/source.txt")?;
+        let mut output_recipe = Recipe::new(
+            "use/result.txt".to_owned(),
+            "Keyed override".to_owned(),
+            String::new(),
+        )?
+        .with_link("input".to_owned(), "-R/./source.txt".to_owned());
+        output_recipe.cwd = Some("recipe/folder".to_owned());
+        let mut source_recipe = Recipe::default();
+        source_recipe.expires = Expires::InDuration(std::time::Duration::from_secs(45));
+        let provider = CountingRecipeProvider::new([
+            (output_key.clone(), output_recipe),
+            (source_key, source_recipe),
+        ]);
+        let mut env = ImmediateEnvironment::<crate::value::Value>::new();
+        env.command_registry.command_metadata_registry.add_command(
+            CommandMetadata::new("use").with_argument(ArgumentInfo::any_argument("input")),
+        );
+        env.with_recipe_provider(Box::new(provider));
+        let envref = env.to_ref();
+        let mut plan = Plan::new();
+        plan.steps.push(Step::GetAsset(output_key));
+
+        has_volatile_dependencies(envref.clone(), &mut plan, None).await?;
+        has_expirable_dependencies(envref, &mut plan).await?;
+
+        assert!(plan_dependencies_contain(
+            &plan.dependencies,
+            "-R/recipe/folder/source.txt",
+            &DependencyRelation::OverrideLink("input".to_owned()),
+        ));
+        assert_eq!(
+            plan.expires,
+            Expires::InDuration(std::time::Duration::from_secs(45))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn d4_link_becomes_parameter_link_dependency() -> Result<(), Error> {
         // find_dependencies is pub(crate), so this lives here rather than in
         // tests/action_parameter_link.rs alongside the other end-to-end checks.
@@ -3437,7 +3904,8 @@ mod tests {
         let plan = PlanBuilder::new(parse_query("greet-~X~world~E")?, &cr).build()?;
 
         let mut stack = Vec::new();
-        let dependencies = find_dependencies(envref, &plan, &mut stack, None).await?;
+        let mut cursor = CwdCursor::default();
+        let dependencies = find_dependencies(envref, &plan, &mut stack, &mut cursor).await?;
 
         let links: Vec<_> = dependencies
             .iter()

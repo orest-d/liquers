@@ -682,8 +682,11 @@ impl<E: Environment> AssetData<E> {
 
                 let type_identifier = metadata.type_identifier()?;
                 let data_format = metadata.get_data_format();
-                let value = match deserialize_stored_value::<E>(&binary, &type_identifier, &data_format)
-                {
+                let value = match deserialize_stored_value::<E>(
+                    &binary,
+                    &type_identifier,
+                    &data_format,
+                ) {
                     Ok(value) => value,
                     Err(e) => {
                         eprintln!(
@@ -1231,6 +1234,41 @@ impl<E: Environment> AssetRef<E> {
         (*lock.query).clone()
     }
 
+    /// Returns the key identity captured when this asset was constructed.
+    ///
+    /// Provider resolution may replace [`AssetData::recipe`] while the asset is being
+    /// evaluated, so ownership checks must use this immutable source identity instead.
+    pub(crate) async fn bound_key_candidate(&self) -> Option<Key> {
+        self.query().await.and_then(|query| query.key())
+    }
+
+    /// Returns the immutable key owned by this asset manager entry, if this asset is keyed.
+    ///
+    /// Provider evaluation replaces the mutable recipe, so ownership cannot be inferred from
+    /// `AssetData::recipe` alone. The recipe identity remains a consistency check, while the
+    /// manager registration distinguishes a keyed asset from an ad-hoc query whose resource
+    /// prefix happens to look like a key.
+    pub(crate) async fn bound_owner_key(&self) -> Result<Option<Key>, Error> {
+        let Some(candidate) = self.bound_key_candidate().await else {
+            return Ok(None);
+        };
+
+        let recipe = { self.data.read().await.recipe.clone() };
+        let recipe_identity = match recipe.store_to_key()? {
+            Some(key) => Some(key),
+            None => recipe.key()?,
+        };
+        if recipe_identity.as_ref() != Some(&candidate) {
+            return Ok(None);
+        }
+
+        let manager = self.get_envref().await.get_asset_manager();
+        let Some(owner) = manager.owned_key_asset(&candidate).await else {
+            return Ok(None);
+        };
+        Ok((owner.id() == self.id()).then_some(candidate))
+    }
+
     /// Create a weak reference to this asset.
     pub fn downgrade(&self) -> WeakAssetRef<E> {
         WeakAssetRef {
@@ -1430,7 +1468,8 @@ impl<E: Environment> AssetRef<E> {
         // synchronously so immediate evaluation stays fully spawn-free (runnable with no runtime).
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let inline = self.get_envref().await.get_asset_manager().eval_mode() == EvalMode::Inline;
+            let inline =
+                self.get_envref().await.get_asset_manager().eval_mode() == EvalMode::Inline;
             let assetref = self.clone();
             if save_in_background && !inline {
                 tokio::spawn(async move {
@@ -1765,7 +1804,10 @@ impl<E: Environment> AssetRef<E> {
     /// the evaluate/wait race uses `futures::select!` — both executor-agnostic, so this compiles
     /// and runs on `wasm32` with no tokio runtime. Sound because the psm loop terminates on the
     /// `JobFinishing` message sent below (see `finish_run_with_result` note).
-    pub(crate) async fn run_with_future_inline<Fut>(&self, evaluate_future: Fut) -> Result<(), Error>
+    pub(crate) async fn run_with_future_inline<Fut>(
+        &self,
+        evaluate_future: Fut,
+    ) -> Result<(), Error>
     where
         Fut: core::future::Future<Output = Result<(), Error>>,
     {
@@ -2295,10 +2337,7 @@ impl<E: Environment> AssetRef<E> {
     /// `Expired` is idempotent. A `Source` cannot expire because it has no recipe
     /// from which to recover. Other statuses return an error.
     pub async fn expire(&self) -> Result<(), Error> {
-        let key_opt = {
-            let lock = self.data.read().await;
-            lock.recipe.key().ok().flatten()
-        };
+        let key_opt = self.bound_owner_key().await?;
 
         let transitioned_to_expired = self.mark_expired_status().await?;
 
@@ -2315,6 +2354,7 @@ impl<E: Environment> AssetRef<E> {
     }
 
     async fn mark_expired_status(&self) -> Result<bool, Error> {
+        let owner_key = self.bound_owner_key().await?;
         let mut lock = self.data.write().await;
         let mut transitioned_to_expired = false;
         let result = match lock.status {
@@ -2353,11 +2393,7 @@ impl<E: Environment> AssetRef<E> {
         // that happens after eviction. Collected while still holding the lock; the store write
         // itself happens after dropping it.
         let persist_info = if transitioned_to_expired {
-            lock.recipe
-                .key()
-                .ok()
-                .flatten()
-                .map(|key| (key, lock.metadata.clone(), lock.get_envref()))
+            owner_key.map(|key| (key, lock.metadata.clone(), lock.get_envref()))
         } else {
             None
         };
@@ -3258,8 +3294,12 @@ pub trait AssetManager<E: Environment>:
         }
 
         let recipe: Recipe = key.into();
-        let mut asset_data =
-            AssetData::new_ext(self.next_id_for_asset(), recipe, State::new(), self.get_envref());
+        let mut asset_data = AssetData::new_ext(
+            self.next_id_for_asset(),
+            recipe,
+            State::new(),
+            self.get_envref(),
+        );
         asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
         asset_data.metadata = metadata.clone();
         asset_data.status = final_status;
@@ -5562,19 +5602,13 @@ impl<E: Environment> ImmediateAssetManager<E> {
             return Ok(self.make_volatile(query.into()).await);
         }
         {
-            let map = self
-                .query_assets
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = map.get(query) {
                 return Ok(existing.clone());
             }
         }
         let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), self.envref());
-        let mut map = self
-            .query_assets
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(query) {
             return Ok(existing.clone());
         }
@@ -5618,10 +5652,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 let asset_id = assetref.id();
-                let mut map = self
-                    .query_assets
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
+                let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(existing) = map.get(query) {
                     if existing.id() == asset_id {
                         map.remove(query);
@@ -5634,10 +5665,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 // Lazy expiration-on-access (replaces the monitor task).
                 if status == Status::Ready && assetref.is_expired().await {
                     let _ = assetref.expire_without_cascade().await;
-                    let mut map = self
-                        .query_assets
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
+                    let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
                     let asset_id = assetref.id();
                     if let Some(existing) = map.get(query) {
                         if existing.id() == asset_id {
@@ -5814,10 +5842,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     ) -> bool {
         let mut removed = false;
         if let Some(query) = query {
-            let mut map = self
-                .query_assets
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = map.get(query) {
                 if existing.id() == asset_id {
                     map.remove(query);
@@ -5851,7 +5876,7 @@ mod tests {
 
     use super::*;
     use crate::command_metadata::CommandKey;
-    use crate::context::{SimpleEnvironment, SimpleEnvironmentWithPayload};
+    use crate::context::{ImmediateEnvironment, SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::metadata::{DependencyRecord, Metadata, MetadataRecord, Version};
     use crate::parse::{parse_key, parse_query};
     use crate::query::Key;
@@ -6010,10 +6035,7 @@ mod tests {
         let bin = asset_data.poll_binary();
         assert!(bin.is_some());
         assert_eq!(bin.unwrap().0.as_ref(), b"Hello, world!");
-        assert_eq!(
-            state.unwrap().try_into_string().unwrap(),
-            "Hello, world!"
-        );
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -6129,10 +6151,7 @@ mod tests {
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
-        assert_eq!(
-            state.unwrap().try_into_string().unwrap(),
-            "Hello, world!"
-        );
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -6154,10 +6173,7 @@ mod tests {
 
         let state = assetref.poll_state().await;
         assert!(state.is_some());
-        assert_eq!(
-            state.unwrap().try_into_string().unwrap(),
-            "Hello, world!"
-        );
+        assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
     }
 
     #[tokio::test]
@@ -6874,9 +6890,18 @@ recipes:
         queue.push_local_dependency(100, &d1).await; // dedup by id
         queue.push_local_dependency(100, &d3).await;
 
-        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(11));
-        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(12));
-        assert_eq!(queue.pop_local_dependency(100).await.map(|a| a.id()), Some(13));
+        assert_eq!(
+            queue.pop_local_dependency(100).await.map(|a| a.id()),
+            Some(11)
+        );
+        assert_eq!(
+            queue.pop_local_dependency(100).await.map(|a| a.id()),
+            Some(12)
+        );
+        assert_eq!(
+            queue.pop_local_dependency(100).await.map(|a| a.id()),
+            Some(13)
+        );
         assert!(queue.pop_local_dependency(100).await.is_none());
 
         queue.push_local_dependency(200, &d1).await;
@@ -7479,11 +7504,12 @@ recipes:
             .await;
 
         let parent = manager.create_asset(parse_query("dep_error_parent").unwrap().into());
-        let fresh = manager
-            .get_dependency_asset(&parent, &query)
-            .await
-            .unwrap();
-        assert_ne!(fresh.id(), stale.id(), "stale Error dependency must be evicted");
+        let fresh = manager.get_dependency_asset(&parent, &query).await.unwrap();
+        assert_ne!(
+            fresh.id(),
+            stale.id(),
+            "stale Error dependency must be evicted"
+        );
         assert_ne!(fresh.status().await, Status::Error);
     }
 
@@ -7507,10 +7533,7 @@ recipes:
             .await;
 
         let parent = manager.create_asset(parse_query("dep_cancelled_parent").unwrap().into());
-        let fresh = manager
-            .get_dependency_asset(&parent, &query)
-            .await
-            .unwrap();
+        let fresh = manager.get_dependency_asset(&parent, &query).await.unwrap();
         assert_ne!(
             fresh.id(),
             stale.id(),
@@ -7743,7 +7766,9 @@ recipes:
     async fn test_poll_state_directory_keeps_dir_type_identifier() {
         let envref = test_envref();
         let d = asset_with_binary(9210, Status::Directory, false, envref.clone());
-        let st = d.poll_state().expect("Directory yields a metadata-only state");
+        let st = d
+            .poll_state()
+            .expect("Directory yields a metadata-only state");
         // The identifier is stamped on the METADATA; `State::type_identifier` reports the value's,
         // which is `none` for every metadata-only state.
         assert_eq!(
@@ -7861,14 +7886,15 @@ recipes:
     /// U9 — `get` gets the same pre-wait check, so it errors instead of blocking forever.
     /// The timeout is the assertion: before this change the test hangs rather than fails.
     #[tokio::test]
-    async fn test_get_on_expired_errors_instead_of_blocking()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_get_on_expired_errors_instead_of_blocking(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let assetref = asset_with_binary(9290, Status::Ready, true, envref).to_ref();
         assetref.expire().await?;
 
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), assetref.get()).await;
-        let result = outcome.map_err(|_| "get() blocked on an expired asset instead of erroring")?;
+        let result =
+            outcome.map_err(|_| "get() blocked on an expired asset instead of erroring")?;
         assert!(result.is_err(), "get() on Expired must return Err");
         Ok(())
     }
@@ -7877,8 +7903,8 @@ recipes:
     /// Every other test here reaches Expired via a populated `binary`; this one does not,
     /// which is the case a strict alias implementation would have failed.
     #[tokio::test]
-    async fn test_binary_recovery_serializes_when_nothing_cached()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_binary_recovery_serializes_when_nothing_cached(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/retained_no_bytes.txt")?;
         let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.into(), envref);
@@ -7960,8 +7986,8 @@ recipes:
     /// serialization had broken, and `Cancelled`/`Directory` have no value error, so they
     /// fabricate bytes out of a `none` value.
     #[tokio::test]
-    async fn test_binary_recovery_declines_statuses_with_no_binary()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_binary_recovery_declines_statuses_with_no_binary(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         for (i, status) in ALL_STATUSES.into_iter().enumerate() {
             match status.read_exposure() {
@@ -7970,8 +7996,11 @@ recipes:
             }
             // A retained value but no cached bytes: the shape that would tempt serialization.
             let key = parse_key("gate/no_binary_form.txt")?;
-            let mut d =
-                AssetData::<SimpleEnvironment<Value>>::new(9340 + i as u64, key.into(), envref.clone());
+            let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+                9340 + i as u64,
+                key.into(),
+                envref.clone(),
+            );
             d.data = Some(Arc::new(Value::from("not serializable via this path")));
             d.binary = None;
             d.status = status;
@@ -7989,8 +8018,8 @@ recipes:
     /// U10 — the gate is not "binary required": a Value-exposure asset with no cached bytes
     /// still yields bytes, by serializing on demand.
     #[tokio::test]
-    async fn test_get_binary_serializes_when_nothing_cached()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_get_binary_serializes_when_nothing_cached(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/value_no_bytes.txt")?;
         let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.into(), envref);
@@ -8010,8 +8039,8 @@ recipes:
     /// the status-blind accessor. Before Part B of Step 3 this test fails with
     /// "Failed to obtain binary value for storing".
     #[tokio::test]
-    async fn test_persistence_works_at_non_value_status()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_persistence_works_at_non_value_status() -> Result<(), Box<dyn std::error::Error>>
+    {
         let key = parse_key("gate/persist_at_storing.txt")?;
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
@@ -8049,6 +8078,21 @@ recipes:
     ///
     /// The counter is per-environment rather than a `static`, so these tests do not
     /// interfere when the harness runs them in parallel.
+    #[tokio::test]
+    async fn bound_key_candidate_uses_immutable_original_query() {
+        let envref = ImmediateEnvironment::<Value>::new().to_ref();
+        let original = parse_key("bound/original.txt").expect("original key");
+        let replacement = parse_key("provider/replacement.txt").expect("replacement key");
+        let asset = AssetRef::new_from_recipe(1, original.clone().into(), envref);
+
+        {
+            let mut data = asset.data.write().await;
+            data.recipe = replacement.into();
+        }
+
+        assert_eq!(asset.bound_key_candidate().await, Some(original));
+    }
+
     async fn ownership_env() -> (EnvRef<SimpleEnvironment<Value>>, Arc<AtomicUsize>) {
         use crate::context::Environment;
         use crate::recipes::DefaultRecipeProvider;
@@ -8120,8 +8164,18 @@ recipes:
             "asking who owns a key must not evaluate its recipe"
         );
 
-        manager.get(&key).await.expect("get").get().await.expect("value");
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "precondition: evaluated once");
+        manager
+            .get(&key)
+            .await
+            .expect("get")
+            .get()
+            .await
+            .expect("value");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "precondition: evaluated once"
+        );
 
         assert!(manager.owned_key_asset(&key).await.is_some());
         assert_eq!(
@@ -8173,7 +8227,10 @@ recipes:
             manager.lookup_key_asset(&key).is_none(),
             "and it is removed rather than left to be found again"
         );
-        assert!(volatile.is_volatile().await, "sanity: it really was volatile");
+        assert!(
+            volatile.is_volatile().await,
+            "sanity: it really was volatile"
+        );
     }
 
     /// T12 — an asset that turns out volatile is used once, then dropped from the key map.
@@ -8201,7 +8258,12 @@ recipes:
 
         let first = manager.get(&key).await.expect("first get");
         assert_eq!(
-            first.get().await.expect("value").try_into_string().expect("string"),
+            first
+                .get()
+                .await
+                .expect("value")
+                .try_into_string()
+                .expect("string"),
             "counted",
             "the caller that computed the value still receives it"
         );
@@ -8225,7 +8287,12 @@ recipes:
             "and the replacement is a fresh, non-volatile asset"
         );
         assert_eq!(
-            second.get().await.expect("value").try_into_string().expect("string"),
+            second
+                .get()
+                .await
+                .expect("value")
+                .try_into_string()
+                .expect("string"),
             "counted"
         );
     }
@@ -8270,7 +8337,12 @@ recipes:
         for expected in 1..=2 {
             let asset = manager.get(&key).await.expect("get");
             assert_eq!(
-                asset.get().await.expect("value").try_into_string().expect("string"),
+                asset
+                    .get()
+                    .await
+                    .expect("value")
+                    .try_into_string()
+                    .expect("string"),
                 "vol"
             );
             assert_eq!(
@@ -8326,7 +8398,12 @@ recipes:
         assert_ne!(second.id(), first.id());
         assert!(!second.is_volatile().await);
         assert_eq!(
-            second.get().await.expect("value").try_into_string().expect("string"),
+            second
+                .get()
+                .await
+                .expect("value")
+                .try_into_string()
+                .expect("string"),
             "counted"
         );
     }

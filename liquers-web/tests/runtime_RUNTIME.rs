@@ -42,7 +42,11 @@ async fn runtime02_wasm_accepts_non_send_callback() {
     register_command_on(&spec.into()).expect("a !Send callback must be registrable on wasm");
 
     assert_eq!(
-        eval_to_js("nonsend").await.expect("evaluate").as_string().as_deref(),
+        eval_to_js("nonsend")
+            .await
+            .expect("evaluate")
+            .as_string()
+            .as_deref(),
         Some("ran")
     );
     assert_eq!(captured.as_string().as_deref(), Some("captured"));
@@ -107,10 +111,8 @@ async fn runtime04_nested_evaluation_does_not_deadlock() {
         with(
             decl("case1", ""),
             "run",
-            js_sys::eval(
-                "(async () => 'awaited:' + await globalThis.__liquersEvaluate('hello'))",
-            )
-            .expect("async fn"),
+            js_sys::eval("(async () => 'awaited:' + await globalThis.__liquersEvaluate('hello'))")
+                .expect("async fn"),
         ),
         "async",
         JsValue::TRUE,
@@ -118,11 +120,15 @@ async fn runtime04_nested_evaluation_does_not_deadlock() {
     .expect("register case1");
 
     assert_eq!(
-        with_timeout(2000, "case 1 (async command awaits evaluate)", eval_to_js("case1"))
-            .await
-            .expect("case 1 must resolve")
-            .as_string()
-            .as_deref(),
+        with_timeout(
+            2000,
+            "case 1 (async command awaits evaluate)",
+            eval_to_js("case1")
+        )
+        .await
+        .expect("case 1 must resolve")
+        .as_string()
+        .as_deref(),
         Some("awaited:Hello, world!"),
         "an async command awaiting a nested evaluation must resolve with the nested result"
     );
@@ -136,11 +142,15 @@ async fn runtime04_nested_evaluation_does_not_deadlock() {
     .expect("register case2");
 
     assert_eq!(
-        with_timeout(2000, "case 2 (sync command returns the Promise)", eval_to_js("case2"))
-            .await
-            .expect("case 2 must resolve")
-            .as_string()
-            .as_deref(),
+        with_timeout(
+            2000,
+            "case 2 (sync command returns the Promise)",
+            eval_to_js("case2")
+        )
+        .await
+        .expect("case 2 must resolve")
+        .as_string()
+        .as_deref(),
         Some("returned:Hello, world!"),
         "IsAsync::Auto must await a returned Promise rather than yielding it as a value"
     );
@@ -156,11 +166,15 @@ async fn runtime04_nested_evaluation_does_not_deadlock() {
     .expect("register case3");
 
     assert_eq!(
-        with_timeout(2000, "case 3 (sync command ignores the Promise)", eval_to_js("case3"))
-            .await
-            .expect("case 3 must resolve")
-            .as_string()
-            .as_deref(),
+        with_timeout(
+            2000,
+            "case 3 (sync command ignores the Promise)",
+            eval_to_js("case3")
+        )
+        .await
+        .expect("case 3 must resolve")
+        .as_string()
+        .as_deref(),
         Some("ignored"),
         "an ignored nested evaluation must not hold up the outer query"
     );
@@ -176,7 +190,10 @@ async fn runtime04_nested_evaluation_does_not_deadlock() {
     )
     .await;
     assert_eq!(
-        settled.expect("the abandoned evaluation must settle").as_string().as_deref(),
+        settled
+            .expect("the abandoned evaluation must settle")
+            .as_string()
+            .as_deref(),
         Some("Hello, world!"),
         "an ignored nested evaluation must still reach a terminal status"
     );
@@ -247,7 +264,11 @@ async fn runtime06_panic_and_exception_containment() {
 
     // The instance is still usable afterwards — this is the containment claim.
     assert_eq!(
-        eval_to_js("hello").await.expect("still works").as_string().as_deref(),
+        eval_to_js("hello")
+            .await
+            .expect("still works")
+            .as_string()
+            .as_deref(),
         Some("Hello, world!")
     );
 
@@ -260,7 +281,11 @@ async fn runtime06_panic_and_exception_containment() {
         err.message
     );
     assert_eq!(
-        eval_to_js("hello").await.expect("still works").as_string().as_deref(),
+        eval_to_js("hello")
+            .await
+            .expect("still works")
+            .as_string()
+            .as_deref(),
         Some("Hello, world!")
     );
     reset_global();

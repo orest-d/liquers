@@ -12,7 +12,7 @@ use std::sync::Arc;
 use liquers_core::{
     assets::AssetManager,
     command_metadata::CommandKey,
-    context::{Environment, EnvRef, ImmediateEnvironment, SimpleEnvironment},
+    context::{EnvRef, Environment, ImmediateEnvironment, SimpleEnvironment},
     error::Error,
     metadata::{Metadata, Status},
     parse::parse_key,
@@ -177,7 +177,11 @@ where
 
     let owner = manager.get(&key).await?;
     assert_eq!(owner.get().await?.try_into_string()?, "counted");
-    assert_eq!(calls.load(Ordering::SeqCst), 1, "precondition: evaluated once");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "precondition: evaluated once"
+    );
 
     // The failure surfaces at different points on the two managers, and both are correct:
     // the inline manager runs the asset during `apply` and returns the error there, while the
@@ -225,10 +229,8 @@ async fn counted_recipe_store() -> Result<AsyncMemoryStore, Error> {
     Ok(store)
 }
 
-fn register_counted<E>(
-    cr: &mut liquers_core::commands::CommandRegistry<E>,
-    calls: Arc<AtomicUsize>,
-) where
+fn register_counted<E>(cr: &mut liquers_core::commands::CommandRegistry<E>, calls: Arc<AtomicUsize>)
+where
     E: Environment<Value = Value>,
 {
     cr.register_command(
@@ -442,7 +444,11 @@ async fn immediate_concurrent_same_query_runs_once() -> Result<(), Error> {
     let (a, b) = futures::join!(m.get_asset(&query), m.get_asset(&query));
     a?.get().await?;
     b?.get().await?;
-    assert_eq!(COUNT.load(Ordering::SeqCst), 1, "command body must run once");
+    assert_eq!(
+        COUNT.load(Ordering::SeqCst),
+        1,
+        "command body must run once"
+    );
     Ok(())
 }
 

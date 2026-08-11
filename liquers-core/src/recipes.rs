@@ -38,7 +38,7 @@ use crate::{
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
-    plan::{has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder},
+    plan::{has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder, Step},
     query::{Key, Query, ResourceName},
 };
 
@@ -208,7 +208,9 @@ impl Recipe {
     ///
     /// Placeholders are allowed during the initial build. Every override name must resolve on the
     /// last action or this returns an error; earlier actions are deliberately not searched. Link
-    /// text is parsed here. This method neither finalizes dependencies nor executes the plan.
+    /// text is parsed here. When `cwd` is present, the resulting plan records it as one leading
+    /// executable [`Step::SetCwd`] and one planning [`Step::Info`] without resolving any
+    /// query-derived operand. This method neither finalizes dependencies nor executes the plan.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
         let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
@@ -232,6 +234,11 @@ impl Recipe {
                 ))
                 .with_query(&query));
             }
+        }
+
+        if let Some(cwd) = self.get_cwd()? {
+            plan.steps.insert(0, Step::SetCwd(cwd.clone()));
+            plan.init_info(format!("Recipe set CWD to '{}'", cwd.encode()));
         }
 
         Ok(plan)
@@ -484,7 +491,7 @@ async fn create_plan_with_init_metadata<E: Environment>(
         Some(key) => recipe.to_plan_for_key(cmr, key)?,
         None => recipe.to_plan(cmr)?,
     };
-    let _ = has_volatile_dependencies(envref.clone(), &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
+    let _ = has_volatile_dependencies(envref.clone(), &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
     if plan.error.is_none() {
         let _ = has_expirable_dependencies(envref, &mut plan).await; // TODO: looks suspicious, this should be done in plan building or checking
     }
@@ -698,8 +705,10 @@ impl RecipeList {
 mod test {
     use crate::{
         command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry},
-        plan::{ParameterValue, Step},
-        query::Key,
+        error::ErrorType,
+        parse::parse_key,
+        plan::{ParameterValue, Plan, Step},
+        query::{Key, QuerySource},
     };
 
     use super::RecipeList;
@@ -760,6 +769,385 @@ mod test {
     }
 
     #[test]
+    fn recipe_to_plan_preserves_programmatic_cwd() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmr = CommandMetadataRegistry::new();
+        cmr.add_command(&CommandMetadata::new("identity"));
+
+        let mut recipe = super::Recipe::new(
+            "-R-stored/./input.txt/-/identity/result.txt".to_owned(),
+            "Relative input".to_owned(),
+            "Read input relative to the recipe folder".to_owned(),
+        )?;
+        recipe.cwd = Some("programmatic".to_owned());
+
+        let plan = recipe.to_plan(&cmr)?;
+        let Some(Step::SetCwd(cwd)) = plan.steps.first() else {
+            panic!(
+                "expected a recipe SetCwd prefix, got {:?}",
+                plan.steps.first()
+            );
+        };
+        assert_eq!(cwd.encode(), "programmatic");
+        let Some(Step::GetResource(key)) = plan.steps.get(1) else {
+            panic!(
+                "expected a source-relative GetResource after the prefix, got {:?}",
+                plan.steps.get(1)
+            );
+        };
+        assert_eq!(key.encode(), "./input.txt");
+        assert_eq!(
+            plan.steps
+                .iter()
+                .filter(|step| matches!(step, Step::SetCwd(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            plan.init_steps
+                .iter()
+                .filter(|step| matches!(step, Step::Info(message) if message == "Recipe set CWD to 'programmatic'"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            plan.query.encode(),
+            "-R-stored/./input.txt/-/identity/result.txt"
+        );
+
+        let keyed_plan = recipe.to_plan_for_key(&cmr, &parse_key("programmatic/result.txt")?)?;
+        assert!(matches!(
+            keyed_plan.steps.first(),
+            Some(Step::SetCwd(cwd)) if cwd.encode() == "programmatic"
+        ));
+        assert!(matches!(
+            keyed_plan.steps.get(1),
+            Some(Step::GetResource(key)) if key.encode() == "./input.txt"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn recipe_prefix_info_is_exactly_once_and_precedes_query_steps(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmr = CommandMetadataRegistry::new();
+        cmr.add_command(
+            CommandMetadata::new("action").with_argument(ArgumentInfo::any_argument("use_link")),
+        );
+
+        let mut recipe = super::Recipe::new(
+            "-R-cwd/../c/-/action-~X~-R/./hello.txt~E".to_owned(),
+            "Ordered CWD".to_owned(),
+            "Resolve an explicit CWD before a linked query".to_owned(),
+        )?;
+        recipe.cwd = Some("a/b".to_owned());
+
+        let plan = recipe.to_plan(&cmr)?;
+        assert!(matches!(
+            plan.steps.first(),
+            Some(Step::SetCwd(cwd)) if cwd.encode() == "a/b"
+        ));
+        assert!(matches!(
+            plan.steps.get(1),
+            Some(Step::SetCwd(cwd)) if cwd.encode() == "../c"
+        ));
+        let Some(Step::Action { parameters, .. }) = plan.steps.get(2) else {
+            panic!(
+                "expected the raw action at step 2, got {:?}",
+                plan.steps.get(2)
+            );
+        };
+        let Some(ParameterValue::ParameterLink(name, link, _)) = parameters.0.first() else {
+            panic!(
+                "expected the raw linked action parameter, got {:?}",
+                parameters.0.first()
+            );
+        };
+        assert_eq!(name, "use_link");
+        assert_eq!(link.encode(), "-R/./hello.txt");
+        assert_eq!(
+            plan.steps
+                .iter()
+                .filter(|step| matches!(step, Step::SetCwd(_)))
+                .count(),
+            2
+        );
+        assert_eq!(
+            plan.init_steps
+                .iter()
+                .filter(|step| matches!(step, Step::Info(message) if message == "Recipe set CWD to 'a/b'"))
+                .count(),
+            1
+        );
+        assert!(!plan.steps.iter().any(
+            |step| matches!(step, Step::Info(message) if message == "Recipe set CWD to 'a/b'")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn recipe_to_plan_rejects_invalid_programmatic_cwd() -> Result<(), Box<dyn std::error::Error>> {
+        let mut recipe = super::Recipe::new(
+            "".to_owned(),
+            "Invalid CWD".to_owned(),
+            "Invalid programmatic working key".to_owned(),
+        )?;
+        recipe.cwd = Some("/invalid".to_owned());
+
+        let error = recipe
+            .to_plan(&CommandMetadataRegistry::new())
+            .expect_err("an absolute key is invalid in Recipe::cwd");
+        assert_eq!(error.error_type, ErrorType::ParseError);
+        Ok(())
+    }
+
+    #[test]
+    fn recipe_plan_round_trip_keeps_raw_operands_and_prefix(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmr = CommandMetadataRegistry::new();
+        cmr.add_command(
+            CommandMetadata::new("action").with_argument(ArgumentInfo::any_argument("use_link")),
+        );
+
+        let mut recipe = super::Recipe::new(
+            "-R-stored/./input.txt/-/action-~X~-R/./original.txt~E/result.txt".to_owned(),
+            "Round trip".to_owned(),
+            "Keep source-relative plan operands".to_owned(),
+        )?
+        .with_link("use_link".to_owned(), "-R/../linked.txt".to_owned());
+        recipe.cwd = Some("a/b".to_owned());
+
+        let recipe_json = serde_json::to_string(&recipe)?;
+        let recipe_from_json: super::Recipe = serde_json::from_str(&recipe_json)?;
+        assert_eq!(recipe_from_json, recipe);
+        let recipe_yaml = serde_yaml::to_string(&recipe)?;
+        let recipe_from_yaml: super::Recipe = serde_yaml::from_str(&recipe_yaml)?;
+        assert_eq!(recipe_from_yaml, recipe);
+
+        let mut plan = recipe.to_plan(&cmr)?;
+        plan.query.source = QuerySource::String("recipe round trip".to_owned());
+        let action = plan
+            .steps
+            .iter_mut()
+            .find(|step| matches!(step, Step::Action { .. }))
+            .expect("round-trip fixture should contain an action");
+        let Step::Action {
+            position,
+            parameters,
+            ..
+        } = action
+        else {
+            unreachable!("the preceding search selected an action");
+        };
+        let expected_action_position = position.clone();
+        let parameter = parameters
+            .0
+            .iter_mut()
+            .find(|parameter| {
+                matches!(parameter, ParameterValue::OverrideLink(name, _) if name == "use_link")
+            })
+            .expect("round-trip fixture should contain the link override");
+        let ParameterValue::OverrideLink(_, linked_query) = parameter else {
+            unreachable!("the preceding search selected an override link");
+        };
+        linked_query.source = QuerySource::Other("recipe override".to_owned());
+        let expected_link_position = linked_query.position();
+
+        let plan_json = serde_json::to_string(&plan)?;
+        let plan_yaml = serde_yaml::to_string(&plan)?;
+        for serialized in [&plan_json, &plan_yaml] {
+            assert!(!serialized.contains("cwd_cursor"));
+            assert!(!serialized.contains("defaulted_to_root"));
+            assert!(!serialized.contains("context_cwd"));
+        }
+        let decoded_plans: Vec<Plan> = vec![
+            serde_json::from_str(&plan_json)?,
+            serde_yaml::from_str(&plan_yaml)?,
+        ];
+        for decoded in decoded_plans {
+            assert_eq!(
+                decoded.query.encode(),
+                "-R-stored/./input.txt/-/action-~X~-R/./original.txt~E/result.txt"
+            );
+            assert_eq!(
+                decoded.query.source,
+                QuerySource::String("recipe round trip".to_owned())
+            );
+            assert!(matches!(
+                decoded.steps.first(),
+                Some(Step::SetCwd(cwd)) if cwd.encode() == "a/b"
+            ));
+            assert!(matches!(
+                decoded.steps.get(1),
+                Some(Step::GetResource(key)) if key.encode() == "./input.txt"
+            ));
+            assert_eq!(
+                decoded
+                    .init_steps
+                    .iter()
+                    .filter(|step| matches!(step, Step::Info(message) if message == "Recipe set CWD to 'a/b'"))
+                    .count(),
+                1
+            );
+
+            let decoded_action = decoded
+                .steps
+                .iter()
+                .find(|step| matches!(step, Step::Action { .. }))
+                .expect("decoded plan should contain an action");
+            let Step::Action {
+                position,
+                parameters,
+                ..
+            } = decoded_action
+            else {
+                unreachable!("the preceding search selected an action");
+            };
+            assert_eq!(position, &expected_action_position);
+            let decoded_parameter = parameters
+                .0
+                .iter()
+                .find(|parameter| {
+                    matches!(parameter, ParameterValue::OverrideLink(name, _) if name == "use_link")
+                })
+                .expect("decoded plan should contain the link override");
+            let ParameterValue::OverrideLink(_, linked_query) = decoded_parameter else {
+                unreachable!("the preceding search selected an override link");
+            };
+            assert_eq!(linked_query.encode(), "-R/../linked.txt");
+            assert_eq!(
+                linked_query.source,
+                QuerySource::Other("recipe override".to_owned())
+            );
+            assert_eq!(linked_query.position(), expected_link_position);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn serialization_keeps_raw_cwd_links_positions_and_no_runtime_schema(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmr = CommandMetadataRegistry::new();
+        cmr.add_command(
+            CommandMetadata::new("action").with_argument(ArgumentInfo::any_argument("use_link")),
+        );
+        let mut recipe = super::Recipe::new(
+            "-R-cwd/../c/-/action-~X~-R/./hello.txt~E/result.txt".to_owned(),
+            "Raw ordered CWD".to_owned(),
+            "Preserve source-relative plan data during serialization".to_owned(),
+        )?;
+        recipe.cwd = Some("a/b".to_owned());
+
+        let recipe_json = serde_json::to_value(&recipe)?;
+        let recipe_yaml = serde_yaml::to_value(&recipe)?;
+        let recipe_json_text = serde_json::to_string(&recipe_json)?;
+        let recipe_yaml_text = serde_yaml::to_string(&recipe_yaml)?;
+        for serialized in [&recipe_json_text, &recipe_yaml_text] {
+            assert!(!serialized.contains("cwd_cursor"));
+            assert!(!serialized.contains("defaulted_to_root"));
+            assert!(!serialized.contains("context_cwd"));
+        }
+        let decoded_recipes: Vec<super::Recipe> = vec![
+            serde_json::from_value(recipe_json)?,
+            serde_yaml::from_value(recipe_yaml)?,
+        ];
+        assert!(decoded_recipes.iter().all(|decoded| decoded == &recipe));
+
+        let mut plan = recipe.to_plan(&cmr)?;
+        plan.query.source = QuerySource::String("raw serialization".to_owned());
+        let action = plan
+            .steps
+            .iter_mut()
+            .find(|step| matches!(step, Step::Action { .. }))
+            .expect("serialized plan should contain an action");
+        let Step::Action {
+            position,
+            parameters,
+            ..
+        } = action
+        else {
+            unreachable!("the preceding search selected an action");
+        };
+        let expected_action_position = position.clone();
+        let ParameterValue::ParameterLink(_, linked_query, parameter_position) =
+            &mut parameters.0[0]
+        else {
+            panic!("expected parsed parameter link");
+        };
+        linked_query.source = QuerySource::Other("raw linked query".to_owned());
+        let expected_parameter_position = parameter_position.clone();
+        let expected_link_position = linked_query.position();
+
+        let plan_json = serde_json::to_value(&plan)?;
+        let plan_yaml = serde_yaml::to_value(&plan)?;
+        let plan_json_text = serde_json::to_string(&plan_json)?;
+        let plan_yaml_text = serde_yaml::to_string(&plan_yaml)?;
+        for serialized in [&plan_json_text, &plan_yaml_text] {
+            assert!(!serialized.contains("cwd_cursor"));
+            assert!(!serialized.contains("defaulted_to_root"));
+            assert!(!serialized.contains("context_cwd"));
+        }
+
+        let decoded_plans: Vec<Plan> = vec![
+            serde_json::from_value(plan_json)?,
+            serde_yaml::from_value(plan_yaml)?,
+        ];
+        for decoded in decoded_plans {
+            assert_eq!(
+                decoded.query.encode(),
+                "-R-cwd/../c/-/action-~X~-R/./hello.txt~E/result.txt"
+            );
+            assert_eq!(
+                decoded.query.source,
+                QuerySource::String("raw serialization".to_owned())
+            );
+            assert!(matches!(
+                decoded.steps.first(),
+                Some(Step::SetCwd(cwd)) if cwd.encode() == "a/b"
+            ));
+            assert!(matches!(
+                decoded.steps.get(1),
+                Some(Step::SetCwd(cwd)) if cwd.encode() == "../c"
+            ));
+            assert_eq!(
+                decoded
+                    .init_steps
+                    .iter()
+                    .filter(|step| matches!(step, Step::Info(message) if message == "Recipe set CWD to 'a/b'"))
+                    .count(),
+                1
+            );
+
+            let action = decoded
+                .steps
+                .iter()
+                .find(|step| matches!(step, Step::Action { .. }))
+                .expect("decoded plan should contain an action");
+            let Step::Action {
+                position,
+                parameters,
+                ..
+            } = action
+            else {
+                unreachable!("the preceding search selected an action");
+            };
+            assert_eq!(position, &expected_action_position);
+            let ParameterValue::ParameterLink(_, linked_query, parameter_position) =
+                &parameters.0[0]
+            else {
+                panic!("expected decoded parameter link");
+            };
+            assert_eq!(parameter_position, &expected_parameter_position);
+            assert_eq!(linked_query.encode(), "-R/./hello.txt");
+            assert_eq!(
+                linked_query.source,
+                QuerySource::Other("raw linked query".to_owned())
+            );
+            assert_eq!(linked_query.position(), expected_link_position);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn recipefile() {
         let recipe = super::Recipe::new("a".to_string(), "test title".to_string(), "".to_string())
             .unwrap()
@@ -807,6 +1195,17 @@ mod test {
         let yaml_content = serde_yaml::to_string(&recipe_list).unwrap();
         eprintln!("recipes.yaml content:\n{}", yaml_content);
 
+        let mut authored_cwd_recipe = super::Recipe::new(
+            "-R/data/authored.json".to_owned(),
+            "Authored CWD".to_owned(),
+            "CWD must be supplied by the provider".to_owned(),
+        )
+        .unwrap();
+        authored_cwd_recipe.cwd = Some("yaml-authored".to_owned());
+        let mut authored_cwd_list = RecipeList::new();
+        authored_cwd_list.add_recipe(authored_cwd_recipe);
+        let authored_cwd_yaml = serde_yaml::to_string(&authored_cwd_list).unwrap();
+
         // Store the recipes.yaml in memory at folder/recipes.yaml
         let recipes_key = parse_key("folder/recipes.yaml").unwrap();
         let metadata = Metadata::new();
@@ -818,6 +1217,14 @@ mod test {
             .set(
                 &parse_key("hello/test.txt").unwrap(),
                 "Hello, world!".as_bytes(),
+                &metadata,
+            )
+            .await
+            .unwrap();
+        memory_store
+            .set(
+                &parse_key("invalid/recipes.yaml").unwrap(),
+                authored_cwd_yaml.as_bytes(),
                 &metadata,
             )
             .await
@@ -868,6 +1275,12 @@ mod test {
 
         // Verify CWD was set correctly
         assert_eq!(recipe.cwd, Some("folder".to_string()));
+
+        let authored_cwd_error = provider
+            .get_recipes(&parse_key("invalid").unwrap(), envref.clone())
+            .await
+            .expect_err("recipes.yaml must not author cwd");
+        assert_eq!(authored_cwd_error.error_type, ErrorType::NotSupported);
 
         // Test recipe_opt with existing recipe
         let recipe_opt =

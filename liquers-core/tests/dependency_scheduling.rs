@@ -42,12 +42,17 @@ async fn test_shared_dependency_runs_once() -> Result<(), Box<dyn std::error::Er
         _state: State<Value>,
         context: Context<CommandEnvironment>,
     ) -> Result<Value, Error> {
-        let _a = context.get_dependency_state(&parse_query("counted")?).await?;
-        let _b = context.get_dependency_state(&parse_query("counted")?).await?;
+        let _a = context
+            .get_dependency_state(&parse_query("counted")?)
+            .await?;
+        let _b = context
+            .get_dependency_state(&parse_query("counted")?)
+            .await?;
         Ok(Value::from("done"))
     }
     let cr = &mut env.command_registry;
-    register_command!(cr, async fn use_twice(state, context) -> result).expect("register use_twice");
+    register_command!(cr, async fn use_twice(state, context) -> result)
+        .expect("register use_twice");
 
     let envref = env.to_ref();
     let state = tokio::time::timeout(GUARD, evaluate(envref, "use_twice", None)).await??;
@@ -74,14 +79,18 @@ async fn test_nested_dependency_chain_completes() -> Result<(), Box<dyn std::err
         _state: State<Value>,
         context: Context<CommandEnvironment>,
     ) -> Result<Value, Error> {
-        let s = context.get_dependency_state(&parse_query("level_c")?).await?;
+        let s = context
+            .get_dependency_state(&parse_query("level_c")?)
+            .await?;
         Ok(Value::from(format!("b({})", s.try_into_string()?)))
     }
     async fn level_a(
         _state: State<Value>,
         context: Context<CommandEnvironment>,
     ) -> Result<Value, Error> {
-        let s = context.get_dependency_state(&parse_query("level_b")?).await?;
+        let s = context
+            .get_dependency_state(&parse_query("level_b")?)
+            .await?;
         Ok(Value::from(format!("a({})", s.try_into_string()?)))
     }
     let cr = &mut env.command_registry;

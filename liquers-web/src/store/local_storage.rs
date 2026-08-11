@@ -354,7 +354,9 @@ fn index_key(dirs: &mut BTreeMap<Key, BTreeSet<String>>, key: &Key) {
     for depth in 0..key.len() {
         let parent = key.prefix_of_size(depth).unwrap_or_default();
         if let Some(child) = key.iter().nth(depth) {
-            dirs.entry(parent).or_default().insert(child.encode().to_string());
+            dirs.entry(parent)
+                .or_default()
+                .insert(child.encode().to_string());
         }
     }
 }
@@ -381,7 +383,11 @@ impl AsyncStore for LocalStorageStore {
             .ok_or_else(|| Error::key_not_found(key))?;
         let data = decode_envelope(&envelope, key, &self.store_name())?;
 
-        let metadata = match storage.get_item(&self.entry_name(EntryKind::Metadata, key)).ok().flatten() {
+        let metadata = match storage
+            .get_item(&self.entry_name(EntryKind::Metadata, key))
+            .ok()
+            .flatten()
+        {
             Some(json) => Metadata::from_json(&json).map_err(|e| {
                 Error::key_read_error(key, &self.store_name(), &format!("corrupt metadata: {e}"))
             })?,
@@ -399,12 +405,21 @@ impl AsyncStore for LocalStorageStore {
             return Ok(Metadata::MetadataRecord(record));
         }
         let storage = self.storage()?;
-        match storage.get_item(&self.entry_name(EntryKind::Metadata, key)).ok().flatten() {
+        match storage
+            .get_item(&self.entry_name(EntryKind::Metadata, key))
+            .ok()
+            .flatten()
+        {
             Some(json) => Metadata::from_json(&json).map_err(|e| {
                 Error::key_read_error(key, &self.store_name(), &format!("corrupt metadata: {e}"))
             }),
             None => {
-                if storage.get_item(&self.entry_name(EntryKind::Data, key)).ok().flatten().is_some() {
+                if storage
+                    .get_item(&self.entry_name(EntryKind::Data, key))
+                    .ok()
+                    .flatten()
+                    .is_some()
+                {
                     Ok(Metadata::MetadataRecord(self.default_metadata(key, false)))
                 } else {
                     Err(Error::key_not_found(key))
@@ -420,7 +435,11 @@ impl AsyncStore for LocalStorageStore {
         let mut finalized = metadata.clone();
         self.finalize_metadata(&mut finalized, key, data, true);
         let json = finalized.to_json().map_err(|e| {
-            Error::key_write_error(key, &self.store_name(), &format!("metadata is not serializable: {e}"))
+            Error::key_write_error(
+                key,
+                &self.store_name(),
+                &format!("metadata is not serializable: {e}"),
+            )
         })?;
 
         // Both entries are budgeted together, then written metadata-first so that a failure of
@@ -444,7 +463,11 @@ impl AsyncStore for LocalStorageStore {
         self.check(key)?;
         let storage = self.storage()?;
         let json = metadata.to_json().map_err(|e| {
-            Error::key_write_error(key, &self.store_name(), &format!("metadata is not serializable: {e}"))
+            Error::key_write_error(
+                key,
+                &self.store_name(),
+                &format!("metadata is not serializable: {e}"),
+            )
         })?;
         self.put_all(
             &storage,

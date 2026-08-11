@@ -378,7 +378,11 @@ mod tests {
         let typo = validate_query("-R/data/report.txt/to_text", 1, ValidationLevel::Plan, &cmr);
 
         assert_eq!(intended.status, ValidationStatus::Ok);
-        assert_eq!(typo.status, ValidationStatus::Ok, "the typo is NOT an error");
+        assert_eq!(
+            typo.status,
+            ValidationStatus::Ok,
+            "the typo is NOT an error"
+        );
 
         let intended_plan = intended.plan.expect("plan");
         let typo_plan = typo.plan.expect("plan");
@@ -386,11 +390,9 @@ mod tests {
         assert_eq!(typo_plan.steps.len(), 1, "everything became one key");
 
         match &typo_plan.steps[0] {
-            crate::plan::Step::GetAsset(key) => assert_eq!(
-                key.len(),
-                3,
-                "to_text was swallowed into the key: {key:?}"
-            ),
+            crate::plan::Step::GetAsset(key) => {
+                assert_eq!(key.len(), 3, "to_text was swallowed into the key: {key:?}")
+            }
             other => panic!("expected GetAsset, got {other:?}"),
         }
     }
@@ -466,11 +468,7 @@ mod tests {
     fn recipes_preserve_order_and_index() {
         let cmr = registry_with("to_text", "root");
         let mut list = RecipeList::new();
-        for query in [
-            "-R/a.txt/-/to_text",
-            "bad query",
-            "-R/b.txt/-/to_text",
-        ] {
+        for query in ["-R/a.txt/-/to_text", "bad query", "-R/b.txt/-/to_text"] {
             list.add_recipe(recipe(query));
         }
 
@@ -561,9 +559,9 @@ mod tests {
         assert_eq!(lines[1], (5, "to_text".to_string()), "true source line");
     }
 
-    /// U26 — cwd changes the reported key, never the plan.
+    /// U26 — cwd changes the reported key and recipe prefix, never the raw query plan.
     #[test]
-    fn cwd_changes_key_not_plan() -> Result<(), Error> {
+    fn cwd_changes_key_and_plan_prefix_only() -> Result<(), Error> {
         let cmr = registry_with("to_text", "root");
         let build = |cwd: &str| -> Result<ValidationResult, Error> {
             let mut list = RecipeList::new();
@@ -575,13 +573,36 @@ mod tests {
         let reports = build("reports")?;
         let archive = build("archive")?;
 
-        let reports_steps = serde_json::to_string(&reports.plan.expect("plan"))
-            .map_err(|e| Error::from_error(ErrorType::General, e))?;
-        let archive_steps = serde_json::to_string(&archive.plan.expect("plan"))
-            .map_err(|e| Error::from_error(ErrorType::General, e))?;
+        let reports_plan = reports.plan.expect("reports plan");
+        let archive_plan = archive.plan.expect("archive plan");
 
-        assert_eq!(reports_steps, archive_steps, "the plan does not depend on cwd");
-        assert_ne!(reports.key, archive.key, "only the key differs");
+        assert!(matches!(
+            reports_plan.steps.first(),
+            Some(crate::plan::Step::SetCwd(key)) if key.encode() == "reports"
+        ));
+        assert!(matches!(
+            archive_plan.steps.first(),
+            Some(crate::plan::Step::SetCwd(key)) if key.encode() == "archive"
+        ));
+        let reports_tail = serde_json::to_string(&reports_plan.steps[1..])
+            .map_err(|error| Error::from_error(ErrorType::General, error))?;
+        let archive_tail = serde_json::to_string(&archive_plan.steps[1..])
+            .map_err(|error| Error::from_error(ErrorType::General, error))?;
+        assert_eq!(
+            reports_tail, archive_tail,
+            "query-derived steps remain source-relative and independent of recipe cwd"
+        );
+        assert_eq!(reports_plan.query.encode(), archive_plan.query.encode());
+        assert!(reports_plan.init_steps.iter().any(
+            |step| matches!(step, crate::plan::Step::Info(message) if message == "Recipe set CWD to 'reports'")
+        ));
+        assert!(archive_plan.init_steps.iter().any(
+            |step| matches!(step, crate::plan::Step::Info(message) if message == "Recipe set CWD to 'archive'")
+        ));
+        assert_ne!(
+            reports.key, archive.key,
+            "the keyed recipe output also moves"
+        );
         Ok(())
     }
 }

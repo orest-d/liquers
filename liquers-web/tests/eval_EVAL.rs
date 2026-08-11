@@ -23,12 +23,23 @@ async fn eval01_evaluate_builtin_query() {
     register_fixture_commands();
 
     assert_eq!(
-        eval_to_js("hello").await.expect("hello").as_string().as_deref(),
+        eval_to_js("hello")
+            .await
+            .expect("hello")
+            .as_string()
+            .as_deref(),
         Some("Hello, world!")
     );
-    assert_eq!(eval_to_js("number-42").await.expect("number").as_f64(), Some(42.0));
     assert_eq!(
-        eval_to_js("hello/shout").await.expect("shout").as_string().as_deref(),
+        eval_to_js("number-42").await.expect("number").as_f64(),
+        Some(42.0)
+    );
+    assert_eq!(
+        eval_to_js("hello/shout")
+            .await
+            .expect("shout")
+            .as_string()
+            .as_deref(),
         Some("HELLO, WORLD!")
     );
     reset_global();
@@ -45,7 +56,11 @@ async fn eval02_string_and_wrapped_query_agree() {
 
     let text = "hello/repeat-3";
     let wrapped = LiquersQuery::parse(text).expect("parse");
-    assert_eq!(wrapped.encode(), text, "the wrapper must round-trip the query");
+    assert_eq!(
+        wrapped.encode(),
+        text,
+        "the wrapper must round-trip the query"
+    );
 
     let envref = shared_env().expect("env");
     let from_string = eval_to_js(text).await.expect("evaluate the string form");
@@ -79,7 +94,10 @@ async fn eval03_metadata_and_logs_available() {
 
     // Metadata is a plain object with the fields a page needs.
     let metadata = wrapped.metadata().expect("metadata");
-    assert!(metadata.is_object(), "metadata must cross as a plain object");
+    assert!(
+        metadata.is_object(),
+        "metadata must cross as a plain object"
+    );
     assert!(
         !get(&metadata, "type_identifier").is_undefined(),
         "metadata must carry the value's type identifier"
@@ -87,7 +105,10 @@ async fn eval03_metadata_and_logs_available() {
 
     // The log is always an array — absent entries are an empty log, not a missing field.
     let log = wrapped.log().expect("log");
-    assert!(js_sys::Array::is_array(&log), "the log must always be an array");
+    assert!(
+        js_sys::Array::is_array(&log),
+        "the log must always be an array"
+    );
 
     // And the value is reachable from the same state.
     assert_eq!(
@@ -126,7 +147,10 @@ async fn eval04_invalid_query_maps_through_error() {
 
     // Parses and plans, but the command throws: rejected at execution.
     register_command_on(&decl("boom", "throw new Error('bang');")).expect("register");
-    let exec_error = eval_to_js("boom").await.err().expect("a throwing command must fail");
+    let exec_error = eval_to_js("boom")
+        .await
+        .err()
+        .expect("a throwing command must fail");
     assert!(
         exec_error.message.contains("bang"),
         "the JavaScript message must survive: {}",
@@ -161,7 +185,8 @@ async fn eval05_payload_and_context_reach_a_command() {
     // The documented payload behaviour: this environment declares `Payload = ()`, and no command
     // requires one, so evaluation proceeds without a payload being supplied.
     let envref = shared_env().expect("env");
-    let _: &() = &<liquers_web::WebEnvironment as liquers_core::context::Environment>::Payload::default();
+    let _: &() =
+        &<liquers_web::WebEnvironment as liquers_core::context::Environment>::Payload::default();
     let query = liquers_core::parse::parse_query("hello").expect("parse");
     assert!(
         get_asset_for(envref, query).await.is_ok(),
@@ -311,8 +336,8 @@ async fn web_evaluate_structured_result() {
 #[wasm_bindgen_test]
 async fn eval07_keyed_query_evaluates() {
     use liquers_core::metadata::{Metadata, MetadataRecord};
-    use liquers_web::environment::{configure_store_on, register_store_object_on};
     use liquers_store::config::StoreRouterConfig;
+    use liquers_web::environment::{configure_store_on, register_store_object_on};
     use wasm_bindgen::JsCast;
 
     // A minimal writable JS store, local to this test. `store_js_STORE.rs` has a fuller one,

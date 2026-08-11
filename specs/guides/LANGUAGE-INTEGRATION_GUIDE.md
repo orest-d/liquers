@@ -2,8 +2,8 @@
 title: Language Integration Guide
 kind: guide
 audience: internal
-area: [web, py, core/commands]
-reviewed: 2026-08-09
+area: [web, py, core/commands, core/plan, core/assets]
+reviewed: 2026-08-11
 ---
 # Liquers Language Integration Guide
 
@@ -23,6 +23,27 @@ Short-term priorities are:
 Longer-term candidates include Rhai, JavaScript/TypeScript on Node or Deno, RustPython, generic Wasm guests, C/C++, and GDScript.
 
 `liquers-py` is a useful but partial reference, not the conformance definition. In particular, it contains many basic wrappers and an experimental `pycall`, but also incomplete paths. See [PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md](PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md), [PYTHON-WRAPPER-ARCHITECTURE.md](PYTHON-WRAPPER-ARCHITECTURE.md), and [FEATURES/PYTHON-BASIC-OBJECTS.md](FEATURES/PYTHON-BASIC-OBJECTS.md).
+
+### Supplying a recipe working directory
+
+A language integration that exposes recipes must preserve the distinction between authored recipe
+data and host-provided execution context:
+
+- For a recipe loaded from `recipes.yaml`, let `DefaultRecipeProvider` set `Recipe::cwd` to the
+  logical key of the file's containing directory. Do not add `cwd` to authored YAML; the provider
+  rejects an authored value so it cannot conflict with provenance.
+- For a recipe constructed by the integration, set the public `Recipe::cwd` field when relative
+  keys or linked queries should be anchored somewhere other than logical root `/`.
+- Pass the recipe through the normal recipe/asset APIs. Do not rewrite its query or links to
+  absolute strings in the wrapper. `Recipe::to_plan` records one leading `SetCwd`, and the
+  interpreter applies that CWD in execution order, including later `-R-cwd` changes and nested
+  links.
+
+If no CWD is supplied, the first relative operand uses logical root `/` and the evaluation records
+the warning `Relative key/query has no CWD; using logical root '/'.` once. Absolute operands are
+independent of that fallback. The executable examples in
+[`recipe_cwd_resolution.rs`](../../liquers-core/tests/recipe_cwd_resolution.rs) cover provider and
+programmatic recipes, nested recipes, context entry points, dependency identity, and root fallback.
 
 ## 2. Terminology and Conventions
 
@@ -764,7 +785,7 @@ whether it applies.
 
 The synchronous/asynchronous mismatch is the central technical problem. Python's import system is synchronous while the Liquers store is `AsyncStore`, so a store-backed finder invoked from inside an async worker can deadlock in exactly the way `ASYNCQ` describes. Prefetching module bytes before entering the *language runtime* is usually safer than bridging an async store into a synchronous import hook.
 
-Module caches are a staleness hazard: `sys.modules` will happily retain a module whose store key has since changed. State whether reload is automatic, explicit, or never, and register loaded module keys as dependencies so that editing a module expires the assets whose commands it defined — otherwise a code change silently produces stale results. `Recipe::cwd` is already set automatically when recipes are loaded from a folder (`liquers-core/src/recipes.rs`), which makes it the natural default base for relative resolution; note that ownership of the `Context` `cwd_key` is still marked as an open question in `liquers-core/src/context.rs`, so a design should not assume that surface is stable. A sandboxed *integrated language* such as Starlark should map this feature onto its own `load()` resolver rather than exposing a general filesystem-like path.
+Module caches are a staleness hazard: `sys.modules` will happily retain a module whose store key has since changed. State whether reload is automatic, explicit, or never, and register loaded module keys as dependencies so that editing a module expires the assets whose commands it defined — otherwise a code change silently produces stale results. `Recipe::cwd` is set automatically when recipes are loaded from a folder (`liquers-core/src/recipes.rs`), which makes it the natural default base for relative resolution. `Context` owns the live runtime CWD; integrations should read it through `Context::get_cwd_key` rather than duplicate resolution state or depend on its private storage representation. A sandboxed *integrated language* such as Starlark should map this feature onto its own `load()` resolver rather than exposing a general filesystem-like path.
 
 **Meaningful tests:** `MODULE01` module loads from a configured store prefix; `MODULE02` module outside the search path is not loaded; `MODULE03` relative import resolves against *cwd*; `MODULE04` absent *cwd* follows the documented policy; `MODULE05` package/submodule resolution; `MODULE06` native and standard-library modules take the documented precedence; `MODULE07` changed module bytes follow the reload policy; `MODULE08` a loaded module key is registered as a dependency and expires dependent assets; `MODULE09` an untrusted prefix is refused with a typed `ERROR`; `MODULE10` store failure maps through `ERROR`; `MODULE11` import from inside a running command does not deadlock; `MODULE12` a command registered by a store module is executable end to end.
 
@@ -1899,8 +1920,9 @@ async def test_RECIPE02_list_and_contains_are_consistent(env):
 
 async def test_RECIPE03_recipe_produces_a_valid_plan(env):
     r = await env.recipes.recipe(lq.parse_key("d/known.txt"))
-    # hello -> greet -> Filename[known.txt]
-    assert len(r.to_plan().steps) == 3
+    # provider SetCwd[d] -> hello -> greet -> Filename[known.txt]
+    assert r.cwd == "d"
+    assert len(r.to_plan().steps) == 4
 
 async def test_RECIPE04_provider_error_maps_through_error(env):
     env.recipes = lq.FailingRecipeProvider()
@@ -2352,6 +2374,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
+| 2026-08-11 | Documented provider-owned and programmatic recipe CWD setup, interpreter-owned relative resolution, root fallback, and executable integration evidence. | phase-5 |
 | 2026-08-09 | Reviewed against a completed `STORE` integration. Added a `BLOCKED` implementation state; harness question 7 (one test dragging the whole suite into the heavy harness) and "let the harness shape the design"; the mutation check for high-risk assertions; a shared "Service adapters — two rules" section; the `ERROR` question of whether the *language* can *construct* an error, plus `ERROR06`; `STORE`'s second direction (integration-provided stores and configuration) with `STORE08`–`STORE11`; and blueprint improvements to `VALUE04` (byte corpus), `STORE05` and `ERROR05`. | `design/liquers-web-store/` |
 | 2026-08-09 | `STORE` gained composition and configuration as an explicit third direction: router semantics an *integration* inherits (`is_supported` defaulting to false, no fall-through on refusal, overlap order, whether a store sees the stripped key), configuration questions (naming an object a document cannot hold, re-application, variable substitution), and "Taking only part of the store support crate" — the enable/disable design choice, why an optional default-on feature beats duplicating or relocating the configuration types, and its three costs. Added `STORE12`/`STORE13` and a disposition table by selected direction. | `design/liquers-web-store/` |
+| 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

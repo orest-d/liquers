@@ -135,7 +135,11 @@ pub fn register_fixture_commands() {
             JsValue::from_str("text"),
         ),
         "arguments",
-        args(vec![arg("count", Some("int"), Some(JsValue::from_f64(2.0)))]),
+        args(vec![arg(
+            "count",
+            Some("int"),
+            Some(JsValue::from_f64(2.0)),
+        )]),
     ))
     .expect("repeat");
 
@@ -169,9 +173,8 @@ impl WarnSpy {
 
         // The replacement closure is created in JavaScript rather than as a Rust `Closure`, so
         // there is no handle to keep alive across the call and nothing to leak if a test panics.
-        let installer: js_sys::Function = func(
-            "(captured) => function (...a) { captured.push(a.map(String).join(' ')); }",
-        );
+        let installer: js_sys::Function =
+            func("(captured) => function (...a) { captured.push(a.map(String).join(' ')); }");
         let spy = installer
             .call1(&JsValue::NULL, &captured)
             .expect("build the spy");
@@ -182,10 +185,7 @@ impl WarnSpy {
 
     /// Every message captured so far.
     pub fn messages(&self) -> Vec<String> {
-        self.captured
-            .iter()
-            .filter_map(|v| v.as_string())
-            .collect()
+        self.captured.iter().filter_map(|v| v.as_string()).collect()
     }
 
     /// Whether any captured message contains `needle`.

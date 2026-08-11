@@ -2470,8 +2470,9 @@ mod tests {
         };
         let tokens = sig.command_registration();
         let tokens_str = tokens.to_string();
-        assert!(tokens_str
-            .contains("cm . impl_version = liquers_core :: metadata :: Version :: from_time_now () ;"));
+        assert!(tokens_str.contains(
+            "cm . impl_version = liquers_core :: metadata :: Version :: from_time_now () ;"
+        ));
     }
 
     #[test]

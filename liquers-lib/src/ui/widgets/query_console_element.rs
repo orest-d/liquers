@@ -377,7 +377,8 @@ impl UIElement for QueryConsoleElement {
                 // Preserve value when only expiration status changes to avoid UI flicker.
                 let previous_value = self.value.clone();
                 let is_expired = snapshot.status == Status::Expired;
-                let is_volatile = snapshot.status == Status::Volatile || snapshot.metadata.is_volatile();
+                let is_volatile =
+                    snapshot.status == Status::Volatile || snapshot.metadata.is_volatile();
 
                 if (is_volatile || is_expired) && snapshot.value.is_none() {
                     self.value = previous_value;

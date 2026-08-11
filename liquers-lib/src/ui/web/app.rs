@@ -58,7 +58,9 @@ mod browser {
     fn read_input_value(input_id: &str) -> Option<String> {
         let doc = web_sys::window()?.document()?;
         let el = doc.get_element_by_id(input_id)?;
-        el.dyn_into::<web_sys::HtmlInputElement>().ok().map(|i| i.value())
+        el.dyn_into::<web_sys::HtmlInputElement>()
+            .ok()
+            .map(|i| i.value())
     }
 
     /// Walk up from `node` to the nearest `ui-element-{n}` and parse its handle.
@@ -79,7 +81,10 @@ mod browser {
                 _ => return,
             }
         }
-        let target = match ev.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+        let target = match ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        {
             Some(t) => t,
             None => return,
         };
@@ -96,7 +101,11 @@ mod browser {
             Err(_) => return,
         };
         match &action {
-            UiAction::Apply { handle, input_id, query } => {
+            UiAction::Apply {
+                handle,
+                input_id,
+                query,
+            } => {
                 let value = read_input_value(input_id).unwrap_or_default();
                 ctx.send_message(AppMessage::ApplyToInput {
                     handle: *handle,
@@ -133,10 +142,12 @@ mod browser {
         }
         let selection = active
             .dyn_ref::<web_sys::HtmlInputElement>()
-            .and_then(|input| match (input.selection_start(), input.selection_end()) {
-                (Ok(Some(start)), Ok(Some(end))) => Some((start, end)),
-                _ => None,
-            });
+            .and_then(
+                |input| match (input.selection_start(), input.selection_end()) {
+                    (Ok(Some(start)), Ok(Some(end))) => Some((start, end)),
+                    _ => None,
+                },
+            );
         Some(FocusSnapshot {
             element_id,
             selection,
@@ -151,9 +162,10 @@ mod browser {
         if let Some(html_el) = element.dyn_ref::<web_sys::HtmlElement>() {
             let _ = html_el.focus();
         }
-        if let (Some(input), Some((start, end))) =
-            (element.dyn_ref::<web_sys::HtmlInputElement>(), snapshot.selection)
-        {
+        if let (Some(input), Some((start, end))) = (
+            element.dyn_ref::<web_sys::HtmlInputElement>(),
+            snapshot.selection,
+        ) {
             let _ = input.set_selection_range(start, end);
         }
     }
@@ -362,7 +374,10 @@ mod browser {
         E::Payload: UIPayload + From<SimpleUIPayload>,
     {
         if let Some(q) = initial_query {
-            let _ = sender.send(AppMessage::SubmitQuery { handle: None, query: q });
+            let _ = sender.send(AppMessage::SubmitQuery {
+                handle: None,
+                query: q,
+            });
         }
 
         let ctx = UIContext::new(app_state.clone(), sender.clone());

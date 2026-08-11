@@ -1636,7 +1636,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod link_tests {
     use super::*;
@@ -1736,12 +1735,16 @@ mod link_tests {
 
     #[test]
     fn a5_link_embedded_entities() -> Result<(), Error> {
-        let inner = params("action-~X~cmd-x~_y~E")?[0].link_value().expect("link");
+        let inner = params("action-~X~cmd-x~_y~E")?[0]
+            .link_value()
+            .expect("link");
         assert_eq!(
             inner.action().expect("inner").parameters[0].string_value(),
             Some("x-y".to_owned())
         );
-        let inner = params("action-~X~cmd-x~.y~E")?[0].link_value().expect("link");
+        let inner = params("action-~X~cmd-x~.y~E")?[0]
+            .link_value()
+            .expect("link");
         assert_eq!(
             inner.action().expect("inner").parameters[0].string_value(),
             Some("x y".to_owned())
@@ -1867,7 +1870,7 @@ mod link_tests {
         let err = parse_query("caf\u{e9}-~X~cmd~E").expect_err("non-ASCII must be rejected");
         assert_eq!(err.error_type, ErrorType::ParseError);
         assert_eq!(err.position.offset, 3); // the 'é'
-        // The ASCII prefix alone parses, link and all.
+                                            // The ASCII prefix alone parses, link and all.
         assert!(parse_query("caf-~X~cmd~E").is_ok());
         Ok(())
     }
@@ -1946,8 +1949,8 @@ mod link_tests {
         // The other side of b4: every body whose reading WOULD diverge is refused.
         for body in SHORTHAND {
             let text = format!("act-~X~{body}~E");
-            let err = parse_query(&text)
-                .expect_err(&format!("shorthand body {body:?} must be rejected"));
+            let err =
+                parse_query(&text).expect_err(&format!("shorthand body {body:?} must be rejected"));
             assert_eq!(err.error_type, ErrorType::ParseError);
             assert!(
                 err.message.contains("-R/"),
@@ -2211,7 +2214,11 @@ mod link_tests {
             "~E".repeat(MAX_LINK_DEPTH + 1)
         );
         let err = parse_simple_template(&over).expect_err("expansion is still bounded");
-        assert!(err.message.contains("nested too deeply"), "got: {}", err.message);
+        assert!(
+            err.message.contains("nested too deeply"),
+            "got: {}",
+            err.message
+        );
 
         // Prose over the limit plus a legal expansion: still accepted.
         let mixed = format!("{prose} and $a-~X~b~E$");
@@ -2222,7 +2229,10 @@ mod link_tests {
 
     #[test]
     fn c12b_template_query_spans_skips_escaped_dollars() -> Result<(), Error> {
-        assert_eq!(template_query_spans("no expansion here"), Vec::<&str>::new());
+        assert_eq!(
+            template_query_spans("no expansion here"),
+            Vec::<&str>::new()
+        );
         assert_eq!(template_query_spans("a $q$ b"), vec!["q"]);
         assert_eq!(template_query_spans("$a$ text $b$"), vec!["a", "b"]);
         // `$$` is an escaped dollar and must not open a span.
@@ -2231,4 +2241,3 @@ mod link_tests {
         Ok(())
     }
 }
-

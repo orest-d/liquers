@@ -1586,11 +1586,17 @@ mod tests {
             Expires::InDuration(std::time::Duration::from_secs(300))
         );
         assert_eq!(
-            Expires::EndOfDay { tz_offset: None } | Expires::EndOfWeek { tz_offset: Some(3600) },
+            Expires::EndOfDay { tz_offset: None }
+                | Expires::EndOfWeek {
+                    tz_offset: Some(3600)
+                },
             Expires::EndOfDay { tz_offset: None }
         );
         assert_eq!(
-            Expires::EndOfDay { tz_offset: None } | Expires::EndOfMonth { tz_offset: Some(3600) },
+            Expires::EndOfDay { tz_offset: None }
+                | Expires::EndOfMonth {
+                    tz_offset: Some(3600)
+                },
             Expires::EndOfDay { tz_offset: None }
         );
     }

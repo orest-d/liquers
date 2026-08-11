@@ -147,7 +147,11 @@ async fn store02_missing_key_error() {
         Ok(_) => panic!("a throwing store must not resolve"),
         Err(e) => {
             assert_eq!(e.error_type, ErrorType::KeyReadError, "{}", e.message);
-            assert!(e.message.contains("boom"), "the thrown text is kept: {}", e.message);
+            assert!(
+                e.message.contains("boom"),
+                "the thrown text is kept: {}",
+                e.message
+            );
         }
     }
 }
@@ -156,8 +160,14 @@ async fn store02_missing_key_error() {
 #[wasm_bindgen_test]
 async fn store03_directory_listing_invariants() {
     let store = full_store("d");
-    store.set(&key("d/a"), b"1", &Metadata::new()).await.expect("set a");
-    store.set(&key("d/b"), b"2", &Metadata::new()).await.expect("set b");
+    store
+        .set(&key("d/a"), b"1", &Metadata::new())
+        .await
+        .expect("set a");
+    store
+        .set(&key("d/b"), b"2", &Metadata::new())
+        .await
+        .expect("set b");
 
     let mut names = store.listdir(&key("d")).await.expect("listdir");
     names.sort();
@@ -165,7 +175,10 @@ async fn store03_directory_listing_invariants() {
 
     for name in &names {
         assert!(
-            store.contains(&key("d").join(name)).await.expect("contains"),
+            store
+                .contains(&key("d").join(name))
+                .await
+                .expect("contains"),
             "{name} is listed and must be contained"
         );
     }
@@ -182,7 +195,10 @@ async fn store04_remove_and_removedir() {
     store.remove(&k).await.expect("remove");
     assert!(!store.contains(&k).await.expect("contains"));
 
-    store.set(&key("d/y"), b"2", &Metadata::new()).await.expect("set y");
+    store
+        .set(&key("d/y"), b"2", &Metadata::new())
+        .await
+        .expect("set y");
     store.removedir(&key("d")).await.expect("removedir");
     assert!(!store.contains(&key("d/y")).await.expect("contains y"));
 }
@@ -235,7 +251,10 @@ async fn store09_read_only_refuses_and_router_does_not_fall_through() {
     router.add_store(Box::new(writable));
 
     // A read through the router reaches the read-only store.
-    let (data, _) = router.get(&key("ro/fixed.txt")).await.expect("read-only get");
+    let (data, _) = router
+        .get(&key("ro/fixed.txt"))
+        .await
+        .expect("read-only get");
     assert_eq!(data, b"hi");
 
     match router.set(&key("ro/new.txt"), b"x", &Metadata::new()).await {
@@ -281,9 +300,15 @@ stores:
         .set(&key("a/one.txt"), b"1", &Metadata::new())
         .await
         .expect("write to a");
-    assert!(router.contains(&key("a/one.txt")).await.expect("contains a"));
+    assert!(router
+        .contains(&key("a/one.txt"))
+        .await
+        .expect("contains a"));
     assert!(
-        !router.contains(&key("b/one.txt")).await.expect("contains b"),
+        !router
+            .contains(&key("b/one.txt"))
+            .await
+            .expect("contains b"),
         "the two prefixes must be separate stores"
     );
 
@@ -339,7 +364,11 @@ fn c12_unregistered_object_fails_with_its_name() {
 /// A store without `get` is refused at construction: it is the one method with no fallback.
 #[wasm_bindgen_test]
 fn js_store_requires_get() {
-    match JsStore::new(&key("d"), "broken", object("({ contains(_k) { return false; } })")) {
+    match JsStore::new(
+        &key("d"),
+        "broken",
+        object("({ contains(_k) { return false; } })"),
+    ) {
         Ok(_) => panic!("a store with no `get` must not adapt"),
         Err(e) => assert!(e.message.contains("get"), "got: {}", e.message),
     }
@@ -363,7 +392,10 @@ async fn absent_optional_methods_error_rather_than_default() {
         Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
     }
     // But `getMetadata` is derived from `get`, because a store that serves data can always answer.
-    let metadata = store.get_metadata(&k).await.expect("metadata is derived from get");
+    let metadata = store
+        .get_metadata(&k)
+        .await
+        .expect("metadata is derived from get");
     assert_eq!(metadata.get_media_type(), "text/plain");
 }
 
@@ -435,7 +467,10 @@ fn reset_clears_the_store() {
     init_global().expect("init");
     register_store_object_on("mystore", object(FULL_STORE)).expect("register object");
     configure_store_on(js_store_config("d", "mystore")).expect("configure");
-    assert!(global_store().expect("store").store_name().contains("Store router"));
+    assert!(global_store()
+        .expect("store")
+        .store_name()
+        .contains("Store router"));
 
     reset_global();
     init_global().expect("re-init");
@@ -462,11 +497,13 @@ fn object_may_be_registered_after_the_configuration() {
     // ...and registering the object then re-configuring succeeds.
     register_store_object_on("late", object(FULL_STORE)).expect("register object");
     configure_store_on(js_store_config("d", "late")).expect("configure after registering");
-    assert!(global_store().expect("store").store_name().contains("Store router"));
+    assert!(global_store()
+        .expect("store")
+        .store_name()
+        .contains("Store router"));
 
     reset_global();
 }
-
 
 // ---------------------------------------------------------------------------
 // Review follow-up (PR #24).
@@ -521,7 +558,10 @@ fn explicit_instance_is_not_the_singleton() {
     init_global().expect("init");
     let instance = LiquersEnvironment::new().expect("instance");
     let shared = liquers_web::environment::shared_env().expect("shared");
-    assert!(!std::sync::Arc::ptr_eq(&instance.resolve().expect("resolve").0, &shared.0));
+    assert!(!std::sync::Arc::ptr_eq(
+        &instance.resolve().expect("resolve").0,
+        &shared.0
+    ));
 
     register_store_object_on("mine", object(FULL_STORE)).expect("register object");
     configure_store_on(js_store_config("mem", "mine")).expect("configure");
@@ -550,7 +590,10 @@ fn failed_reconfiguration_keeps_the_previous_store() {
 
     // An invalid replacement: it names an object nobody registered.
     let invalid = configure_store_on(js_store_config("mem", "never_registered"));
-    assert!(invalid.is_err(), "a configuration naming an unknown object must fail");
+    assert!(
+        invalid.is_err(),
+        "a configuration naming an unknown object must fail"
+    );
 
     // Still installed…
     assert!(global_store()

@@ -82,7 +82,11 @@ async fn command04_defaults_enums_and_variadics_bind() {
             JsValue::from_str("text"),
         ),
         "arguments",
-        args(vec![arg("count", Some("int"), Some(JsValue::from_f64(2.0)))]),
+        args(vec![arg(
+            "count",
+            Some("int"),
+            Some(JsValue::from_f64(2.0)),
+        )]),
     ))
     .expect("register rep");
 
@@ -116,7 +120,10 @@ fn command05_metadata_matches_the_declaration() {
     .expect("register");
 
     let described = describe_command_on("documented").expect("describe");
-    assert!(!described.is_null(), "a registered command must be describable");
+    assert!(
+        !described.is_null(),
+        "a registered command must be describable"
+    );
     let doc = js_sys::Reflect::get(&described, &"doc".into())
         .expect("doc")
         .as_string();
@@ -139,7 +146,9 @@ fn command05_metadata_matches_the_declaration() {
     );
 
     // An unregistered command describes as null rather than throwing.
-    assert!(describe_command_on("nope").expect("describe absent").is_null());
+    assert!(describe_command_on("nope")
+        .expect("describe absent")
+        .is_null());
     reset_global();
 }
 
@@ -149,14 +158,22 @@ async fn command06_duplicate_and_unregister_policy() {
     fresh();
     register_command_on(&decl("dup", "return 'first';")).expect("first");
     assert_eq!(
-        eval_to_js("dup").await.expect("first eval").as_string().as_deref(),
+        eval_to_js("dup")
+            .await
+            .expect("first eval")
+            .as_string()
+            .as_deref(),
         Some("first")
     );
 
     // Duplicate registration replaces.
     register_command_on(&decl("dup", "return 'second';")).expect("replace");
     assert_eq!(
-        eval_to_js("dup").await.expect("second eval").as_string().as_deref(),
+        eval_to_js("dup")
+            .await
+            .expect("second eval")
+            .as_string()
+            .as_deref(),
         Some("second"),
         "re-registering must replace the previous implementation"
     );
@@ -182,7 +199,11 @@ async fn command06_duplicate_and_unregister_policy() {
     // frozen once shared fails only here — every other COMMAND test registers before evaluating.
     register_command_on(&decl("late", "return 'late';")).expect("register after use");
     assert_eq!(
-        eval_to_js("late").await.expect("late eval").as_string().as_deref(),
+        eval_to_js("late")
+            .await
+            .expect("late eval")
+            .as_string()
+            .as_deref(),
         Some("late")
     );
     reset_global();
@@ -200,7 +221,11 @@ async fn command07_context_injection() {
     // Executing at all proves the command ran inside a context created by the asset manager;
     // without one, the interpreter could not have invoked it.
     assert_eq!(
-        eval_to_js("ctx").await.expect("evaluate").as_string().as_deref(),
+        eval_to_js("ctx")
+            .await
+            .expect("evaluate")
+            .as_string()
+            .as_deref(),
         Some("ran")
     );
     reset_global();
@@ -216,7 +241,10 @@ async fn command08_returned_opaque_value_follows_value_rules() {
         Err(e) => e,
         Ok(_) => panic!("an un-opted-in class instance must not convert"),
     };
-    assert_eq!(err.error_type, liquers_core::error::ErrorType::ConversionError);
+    assert_eq!(
+        err.error_type,
+        liquers_core::error::ErrorType::ConversionError
+    );
     reset_global();
 }
 
@@ -262,7 +290,10 @@ fn command10_complete_declaration_preserves_every_field() {
     register_command_on(&spec).expect("register");
 
     // Namespaced commands are not found under the root name.
-    assert!(!has_command("complete"), "a namespaced command is not a root command");
+    assert!(
+        !has_command("complete"),
+        "a namespaced command is not a root command"
+    );
     reset_global();
 }
 
@@ -273,15 +304,18 @@ async fn command11_closure_captures_retained_per_runtime_rules() {
     // A closure over a local, created and dropped inside this block. The registry must keep it
     // alive: if the capture were not retained, the call would fail or observe a freed value.
     {
-        let counter = js_sys::eval("(function(){ let n = 0; return () => ++n; })()")
-            .expect("build closure");
+        let counter =
+            js_sys::eval("(function(){ let n = 0; return () => ++n; })()").expect("build closure");
         let spec = obj();
         set(&spec, "name", &JsValue::from_str("counter"));
         set(&spec, "run", &counter);
         register_command_on(&spec.into()).expect("register");
     }
 
-    assert_eq!(eval_to_js("counter").await.expect("first").as_f64(), Some(1.0));
+    assert_eq!(
+        eval_to_js("counter").await.expect("first").as_f64(),
+        Some(1.0)
+    );
     reset_global();
 }
 
@@ -343,8 +377,12 @@ fn command05_infer_accepted_shapes() {
         .expect("zero args")
         .is_empty());
     assert_eq!(
-        infer("i5", "function (state /*, hidden */, count) { return 0; }", Some("value"))
-            .expect("comment in params"),
+        infer(
+            "i5",
+            "function (state /*, hidden */, count) { return 0; }",
+            Some("value")
+        )
+        .expect("comment in params"),
         vec!["count"],
         "comments inside the parameter list must be stripped"
     );
@@ -357,17 +395,24 @@ fn command05_infer_refused_shapes() {
     // Each of these is refused with a specific reason rather than mangled into metadata.
     for (name, source, expect) in [
         ("r1", "(state, count = 2) => 0", "not a plain identifier"),
-        ("r2", "(state, f = (x,y) => x) => 0", "not a plain identifier"),
+        (
+            "r2",
+            "(state, f = (x,y) => x) => 0",
+            "not a plain identifier",
+        ),
         ("r3", "(state, {a, b}) => 0", "not a plain identifier"),
         ("r4", "(state, ...rest) => 0", "not a plain identifier"),
     ] {
-        let err = infer(name, source, Some("value"))
-            .expect_err(&format!("{source} must be refused"));
+        let err =
+            infer(name, source, Some("value")).expect_err(&format!("{source} must be refused"));
         assert!(
             err.contains(expect),
             "{source}: expected a reason mentioning {expect:?}, got {err:?}"
         );
-        assert!(!has_command(name), "a refused declaration must not register");
+        assert!(
+            !has_command(name),
+            "a refused declaration must not register"
+        );
     }
 
     // A bound function exposes no parameter list at all.
@@ -389,7 +434,11 @@ fn command05_explicit_arguments_override_inference() {
     set(&spec, "name", &JsValue::from_str("explicit"));
     set(&spec, "run", &func("(state, count = 2) => 0"));
     set(&spec, "state", &JsValue::from_str("value"));
-    set(&spec, "arguments", &args(vec![arg("count", Some("int"), None)]));
+    set(
+        &spec,
+        "arguments",
+        &args(vec![arg("count", Some("int"), None)]),
+    );
     register_command_on(&spec.into()).expect("explicit arguments must win over inference");
 
     assert!(has_command("explicit"));
@@ -412,8 +461,14 @@ fn command05_explicit_arguments_override_inference() {
 async fn command06_ns_root_is_the_default() {
     fresh();
     register_command_on(&decl("rooted", "return 1;")).expect("register");
-    assert!(has_command("rooted"), "no namespace means the root namespace");
-    assert_eq!(eval_to_js("rooted").await.expect("evaluate").as_f64(), Some(1.0));
+    assert!(
+        has_command("rooted"),
+        "no namespace means the root namespace"
+    );
+    assert_eq!(
+        eval_to_js("rooted").await.expect("evaluate").as_f64(),
+        Some(1.0)
+    );
     reset_global();
 }
 
@@ -446,8 +501,15 @@ fn command06_ns_reserved_namespace_is_refused() {
         JsValue::from_str("web"),
     );
     let err = register_command_on(&spec).expect_err("the web namespace is reserved");
-    assert_eq!(err.error_type, liquers_core::error::ErrorType::ParameterError);
-    assert!(err.message.contains("reserved"), "unexpected message: {}", err.message);
+    assert_eq!(
+        err.error_type,
+        liquers_core::error::ErrorType::ParameterError
+    );
+    assert!(
+        err.message.contains("reserved"),
+        "unexpected message: {}",
+        err.message
+    );
     reset_global();
 }
 
@@ -475,7 +537,9 @@ async fn command12_declared_planner_flags_take_effect() {
 
     let volatile = describe_command_on("vol").expect("describe vol");
     assert_eq!(
-        js_sys::Reflect::get(&volatile, &"volatile".into()).ok().and_then(|v| v.as_bool()),
+        js_sys::Reflect::get(&volatile, &"volatile".into())
+            .ok()
+            .and_then(|v| v.as_bool()),
         Some(true),
         "a declared volatile flag must reach the metadata the planner reads"
     );
@@ -503,7 +567,10 @@ async fn command12_declared_planner_flags_take_effect() {
     .expect("register counter");
     js_sys::eval("globalThis.__c = 0").expect("reset counter");
 
-    assert_eq!(eval_to_js("counter").await.expect("first").as_f64(), Some(1.0));
+    assert_eq!(
+        eval_to_js("counter").await.expect("first").as_f64(),
+        Some(1.0)
+    );
     assert_eq!(
         eval_to_js("counter").await.expect("second").as_f64(),
         Some(2.0),
@@ -522,12 +589,17 @@ async fn command08_returned_opaque_value_is_retained() {
     fresh();
     let original = js_sys::Date::new_0();
     let wrapped = liquers_web::opaque(original.clone().into()).expect("opaque");
-    set(&js_sys::global().unchecked_into(), "__opaqueFixture", &JsValue::from(wrapped));
+    set(
+        &js_sys::global().unchecked_into(),
+        "__opaqueFixture",
+        &JsValue::from(wrapped),
+    );
 
-    register_command_on(&decl("carry", "return globalThis.__opaqueFixture;"))
-        .expect("register");
+    register_command_on(&decl("carry", "return globalThis.__opaqueFixture;")).expect("register");
 
-    let result = eval_to_js("carry").await.expect("an opaque return must evaluate");
+    let result = eval_to_js("carry")
+        .await
+        .expect("an opaque return must evaluate");
     assert!(
         result.loose_eq(&original),
         "the original object must come back by identity, not a copy"
@@ -559,7 +631,11 @@ async fn command13_every_state_mode_delivers_its_content() {
     .expect("register inspect");
 
     assert_eq!(
-        eval_to_js("src/inspect").await.expect("evaluate").as_string().as_deref(),
+        eval_to_js("src/inspect")
+            .await
+            .expect("evaluate")
+            .as_string()
+            .as_deref(),
         Some("payload|object|true|true"),
         "state mode must carry the value, metadata, log and status"
     );
@@ -572,13 +648,21 @@ async fn command14_retained_declaration_is_immune_to_caller_mutation() {
     fresh();
     let spec = obj();
     set(&spec, "name", &JsValue::from_str("snap"));
-    set(&spec, "run", &js_sys::Function::new_no_args("return 'original';"));
+    set(
+        &spec,
+        "run",
+        &js_sys::Function::new_no_args("return 'original';"),
+    );
     let spec: JsValue = spec.into();
     register_command_on(&spec).expect("register");
 
     // Share the environment, so the next registration rebuilds and replays `snap`.
     assert_eq!(
-        eval_to_js("snap").await.expect("first").as_string().as_deref(),
+        eval_to_js("snap")
+            .await
+            .expect("first")
+            .as_string()
+            .as_deref(),
         Some("original")
     );
 
@@ -591,7 +675,11 @@ async fn command14_retained_declaration_is_immune_to_caller_mutation() {
     register_command_on(&decl("other", "return 1;")).expect("register other, forcing a rebuild");
 
     assert_eq!(
-        eval_to_js("snap").await.expect("after rebuild").as_string().as_deref(),
+        eval_to_js("snap")
+            .await
+            .expect("after rebuild")
+            .as_string()
+            .as_deref(),
         Some("original"),
         "a rebuild must replay the declaration as it was at registration"
     );

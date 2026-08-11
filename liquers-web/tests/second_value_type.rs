@@ -111,7 +111,11 @@ impl DefaultValueSerializer for MatrixExt {
         ))
     }
 
-    fn deserialize_from_bytes(_b: &[u8], _type_identifier: &str, _fmt: &str) -> Result<Self, Error> {
+    fn deserialize_from_bytes(
+        _b: &[u8],
+        _type_identifier: &str,
+        _fmt: &str,
+    ) -> Result<Self, Error> {
         Err(Error::from_error(
             ErrorType::SerializationError,
             "a matrix is not deserialized from bytes in this test".to_string(),
@@ -150,10 +154,16 @@ impl JsExtensionBridge for MatrixExt {
         };
 
         let rows = rows.as_f64().ok_or_else(|| {
-            Error::from_error(ErrorType::ConversionError, "matrix rows must be a number".to_string())
+            Error::from_error(
+                ErrorType::ConversionError,
+                "matrix rows must be a number".to_string(),
+            )
         })? as usize;
         let cols = cols.as_f64().ok_or_else(|| {
-            Error::from_error(ErrorType::ConversionError, "matrix cols must be a number".to_string())
+            Error::from_error(
+                ErrorType::ConversionError,
+                "matrix cols must be a number".to_string(),
+            )
         })? as usize;
 
         let array = js_sys::Array::from(&data);
@@ -169,7 +179,10 @@ impl JsExtensionBridge for MatrixExt {
         if values.len() != rows * cols {
             return Err(Error::from_error(
                 ErrorType::ConversionError,
-                format!("matrix is {rows}x{cols} but carries {} values", values.len()),
+                format!(
+                    "matrix is {rows}x{cols} but carries {} values",
+                    values.len()
+                ),
             ));
         }
 
@@ -292,8 +305,12 @@ fn value01_primitive_roundtrip_second_value_type() {
         let value = conv(&js).expect("convert into TestValue");
         let back = value_to_js(&value).expect("convert back");
         assert_eq!(
-            js_sys::JSON::stringify(&back).ok().and_then(|s| s.as_string()),
-            js_sys::JSON::stringify(&js).ok().and_then(|s| s.as_string()),
+            js_sys::JSON::stringify(&back)
+                .ok()
+                .and_then(|s| s.as_string()),
+            js_sys::JSON::stringify(&js)
+                .ok()
+                .and_then(|s| s.as_string()),
             "round trip changed the value"
         );
     }
@@ -350,7 +367,9 @@ fn value09_checked_upcast_and_downcast_second_value_type() {
     // And it survives the return trip structurally, which is what Tier 1 could not do.
     let back = value_to_js(&value).expect("convert back");
     assert_eq!(
-        js_sys::Reflect::get(&back, &"rows".into()).ok().and_then(|v| v.as_f64()),
+        js_sys::Reflect::get(&back, &"rows".into())
+            .ok()
+            .and_then(|v| v.as_f64()),
         Some(2.0)
     );
 
@@ -419,7 +438,9 @@ async fn web_second_value_type_evaluates_a_javascript_command() {
     // The command's plain object came back as a *matrix*: the downstream hook claimed it on the
     // way in, and rendered it on the way out.
     assert_eq!(
-        js_sys::Reflect::get(&result, &"rows".into()).ok().and_then(|v| v.as_f64()),
+        js_sys::Reflect::get(&result, &"rows".into())
+            .ok()
+            .and_then(|v| v.as_f64()),
         Some(1.0)
     );
     assert_eq!(

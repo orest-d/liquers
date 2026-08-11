@@ -457,9 +457,9 @@ fn unwrap_value_wrapper<V: JsValueBridge>(
             )
         })?;
     let to_js: js_sys::Function = to_js.unchecked_into();
-    let inner = to_js.call0(js).map_err(|e| {
-        crate::error::js_error_to_liquers(e, ErrorType::ConversionError)
-    })?;
+    let inner = to_js
+        .call0(js)
+        .map_err(|e| crate::error::js_error_to_liquers(e, ErrorType::ConversionError))?;
 
     let is_opaque = js_sys::Reflect::get(js, &JsValue::from_str("isOpaque"))
         .ok()
@@ -484,7 +484,9 @@ pub fn opaque_value<V: JsValueBridge>(js: JsValue) -> Result<V, Error> {
 ///
 /// `Err` when the value belongs to another language runtime, naming its origin — the cross-language
 /// rejection path that `POLYGLOT03`/`POLYGLOT04` require.
-pub fn downcast_js(value: &Arc<dyn liquers_lib::value::foreign::ForeignValue>) -> Result<&JsOpaque, Error> {
+pub fn downcast_js(
+    value: &Arc<dyn liquers_lib::value::foreign::ForeignValue>,
+) -> Result<&JsOpaque, Error> {
     value.as_any().downcast_ref::<JsOpaque>().ok_or_else(|| {
         Error::conversion_error(
             value.origin(),

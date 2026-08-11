@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-08-09
+reviewed: 2026-08-11
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -196,7 +196,8 @@ This precedence has important consequences:
 - `file.txt` is a filename-only transform query.
 - A pure textual resource query requires `-R/path`; `parse_key("path")` is the
   headerless key parser.
-- `/` sets `Query::absolute`; it is not a filesystem root marker.
+- `/` sets `Query::absolute`. At runtime it roots the outer query's source
+  resource at the empty logical key; it never denotes an operating-system path.
 
 ## Verified semantic contract
 
@@ -255,6 +256,32 @@ header, parameter, and parse-precedence rules.
 `Query::to_absolute` applies the same operation independently to every resource
 segment. It neither reads nor changes `Query::absolute`.
 
+Runtime resolution is ordered and non-destructive. Plans retain their parsed keys
+and queries, while dependency analysis and the interpreter resolve copies against
+a working-key cursor. A `cwd` resource instruction resolves its own key first and
+then changes the cursor for every subsequent key, query, and nested plan. For
+example, entry CWD `a/b` plus
+`-R-cwd/../c/-/action-~X~-R/./hello.txt~E` supplies the action from
+`a/c/hello.txt`.
+
+Each linked query has its own child scope. A `cwd` inside the link affects the
+remainder of that link but does not leak into its parent or sibling links. A
+nested executable `Plan`, by contrast, runs in the same ordered context, so its
+CWD changes remain visible to later outer steps. All `ParameterValue` link
+variants, including recursively nested `MultipleParameters`, follow the same
+resolution rule.
+
+If a relative operand is consumed with no CWD, resolution installs the empty
+logical root and records exactly one warning for the shared evaluation context:
+`Relative key/query has no CWD; using logical root '/'.` Context clones observe
+that installed root, so later relative operands do not warn again.
+
+`Query::absolute` is scoped to the outer query, not inherited by linked queries.
+The outer query's own source resource is resolved from logical root even when a
+recipe-added `SetCwd` precedes it in the plan. A relative link inside that query
+still uses the active CWD (or the root fallback), while a link with its own leading
+`/` uses its private logical-root scope.
+
 ### Headers
 
 - The resource flag distinguishes resource and transform headers.
@@ -303,13 +330,6 @@ to `transform_query` and therefore succeeds only for a query containing exactly 
 transform segment. The reference documents this implemented boundary and does not
 generalize it to multi-segment queries.
 
-### Absolute is a stored syntax flag
-
-No execution use of `Query::absolute` was found in the inspected code. Relative
-resolution uses `.` and `..` resource names and a supplied `cwd`; it does not use
-the flag. The reference therefore describes what the flag stores, encodes, compares,
-and hashes, without assigning it an unverified execution meaning.
-
 ### Programmatic construction is not validation
 
 Public constructors such as `ResourceName::new`, `ActionRequest::new`, and
@@ -336,7 +356,6 @@ documentation can promise.
 | P1 | Public constructors allow non-round-trippable values | Medium | High | Add validated constructors or clearly named unchecked constructors |
 | P1 | `ActionParameter::set_value` pre-encodes its stored value, which `encode` then escapes again | Medium | High | Clarify/fix the method contract and add a round-trip test |
 | P2 | `v` parameters are silently ignored | Medium | Medium | Decide whether to reject them like `q`, then test and document |
-| P2 | `absolute` has no verified runtime interpretation | Medium | Medium | Define intended semantics or rename/document it strictly as syntax metadata |
 | P2 | Some query helpers return owned clones where borrowing could be clearer | Low | Medium | Consider borrowed accessors in a later API review |
 
 The `ActionParameter::set_value` behavior is recorded as a gap rather than described
@@ -403,6 +422,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-11 | Documented ordered logical-CWD resolution, nested link and plan scope, root fallback, and absolute outer-query behavior against the implementation and regression tests. | phase-5 |
 | 2026-08-09 | Reviewed query parsing, link parameters, encoding, and planner instructions against HEAD; corrected links after the reference reorganization. | quarterly |
 | 2026-08-06 | Documented and verified textual action-parameter links and their planning behavior. | QUERY-ACTION-PARAMETER-LINK-PARSER |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

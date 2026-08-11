@@ -15,7 +15,8 @@ use liquers_lib::ui::widgets::ui_spec_element::{
     LayoutSpec, MenuAction, MenuBarSpec, MenuItem, TopLevelItem, UISpec, UISpecElement,
 };
 use liquers_lib::ui::{
-    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState, ElementSource, Invalidation, UIContext, UIElement,
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    ElementSource, Invalidation, UIContext, UIElement,
 };
 use liquers_lib::value::Value;
 use liquers_macro::register_command;

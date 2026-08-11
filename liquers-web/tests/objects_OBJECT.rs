@@ -42,7 +42,12 @@ const ALL_ERROR_TYPES: &[ErrorType] = &[
 /// OBJECT01 — query parse/encode round-trips.
 #[wasm_bindgen_test]
 fn object01_query_parse_encode_roundtrip() {
-    for text in ["hello", "hello/greet", "hello/repeat-3", "hello/ns-myapp/shout"] {
+    for text in [
+        "hello",
+        "hello/greet",
+        "hello/repeat-3",
+        "hello/ns-myapp/shout",
+    ] {
         let q = LiquersQuery::parse(text).expect("parse");
         assert_eq!(q.encode(), text, "round trip changed the query");
         assert_eq!(q.to_string_js(), text, "toString must agree with encode");
@@ -73,8 +78,14 @@ fn object02_key_equality_and_hash() {
 #[wasm_bindgen_test]
 fn object03_command_metadata_roundtrip() {
     let v = liquers_web::version();
-    assert!(v.contains("liquers-web"), "version should name the crate: {v}");
-    assert!(v.contains("liquers-core"), "version should name the core: {v}");
+    assert!(
+        v.contains("liquers-web"),
+        "version should name the crate: {v}"
+    );
+    assert!(
+        v.contains("liquers-core"),
+        "version should name the core: {v}"
+    );
 }
 
 /// OBJECT04 — invalid parse produces a structured error, not a panic or a bare string.
@@ -129,7 +140,10 @@ fn object06_every_enum_variant_roundtrips() {
         );
     }
     // Names must be distinct, or the mapping is not a bijection.
-    let mut names: Vec<&str> = ALL_ERROR_TYPES.iter().map(|t| error_type_name(*t)).collect();
+    let mut names: Vec<&str> = ALL_ERROR_TYPES
+        .iter()
+        .map(|t| error_type_name(*t))
+        .collect();
     names.sort_unstable();
     let count = names.len();
     names.dedup();
@@ -179,10 +193,8 @@ fn error01_every_error_type_maps() {
 /// ERROR02 — fields survive Rust → JavaScript → Rust.
 #[wasm_bindgen_test]
 fn error02_fields_survive_rust_language_rust() {
-    let err = liquers_core::error::Error::from_error(
-        ErrorType::KeyNotFound,
-        "no such key".to_string(),
-    );
+    let err =
+        liquers_core::error::Error::from_error(ErrorType::KeyNotFound, "no such key".to_string());
     let js = liquers_web::error::liquers_error_to_js(err);
 
     // Out to JavaScript.
@@ -225,16 +237,27 @@ fn error03_language_exception_includes_class_and_stack() {
 #[wasm_bindgen_test]
 fn error04_non_error_throw_has_safe_fallback() {
     // `throw 42`
-    let e = liquers_web::error::js_error_to_liquers(JsValue::from_f64(42.0), ErrorType::ExecutionError);
+    let e =
+        liquers_web::error::js_error_to_liquers(JsValue::from_f64(42.0), ErrorType::ExecutionError);
     assert_eq!(e.error_type, ErrorType::ExecutionError);
-    assert!(e.message.contains("42"), "the thrown value should be reported: {}", e.message);
+    assert!(
+        e.message.contains("42"),
+        "the thrown value should be reported: {}",
+        e.message
+    );
 
     // `throw undefined` — no useful string form, so it must say what happened instead of empty.
     let e = liquers_web::error::js_error_to_liquers(JsValue::UNDEFINED, ErrorType::ExecutionError);
-    assert!(!e.message.is_empty(), "undefined throw must still produce a message");
+    assert!(
+        !e.message.is_empty(),
+        "undefined throw must still produce a message"
+    );
 
     // A conversion boundary reports a conversion failure, not an execution failure.
-    let e = liquers_web::error::js_error_to_liquers(JsValue::from_str("nope"), ErrorType::ConversionError);
+    let e = liquers_web::error::js_error_to_liquers(
+        JsValue::from_str("nope"),
+        ErrorType::ConversionError,
+    );
     assert_eq!(
         e.error_type,
         ErrorType::ConversionError,
@@ -272,7 +295,11 @@ fn error03_thrown_error_class_and_stack_reach_the_message() {
         liquers_core::error::ErrorType::ExecutionError,
     );
 
-    assert!(err.message.contains("TypeError"), "the class must survive: {}", err.message);
+    assert!(
+        err.message.contains("TypeError"),
+        "the class must survive: {}",
+        err.message
+    );
 
     // The stack's first line is "Name: message", which the message already is. Appending it
     // verbatim printed that line twice.

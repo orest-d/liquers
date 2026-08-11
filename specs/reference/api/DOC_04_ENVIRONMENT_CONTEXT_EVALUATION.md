@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-08-09
+reviewed: 2026-08-11
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -164,6 +164,52 @@ deliberately contain `Arc`, mutexes, or other interior-shared application state.
 `clone_context` is behaviorally equivalent to `Clone::clone`, despite being an
 async method.
 
+## Working-key and relative-resolution contract
+
+`Context::get_cwd_key` returns the live logical working key and
+`Context::set_cwd_key` replaces it. The value is a Liquers `Key`, not a filesystem
+directory. Because the storage is shared, actions and interpreter steps operating
+on different context clones observe one ordered CWD.
+
+The interpreter resolves raw plan operands when it consumes them. `SetCwd`
+resolves a relative operand against the current CWD before installing the result;
+the new value applies to every subsequent key, query, action link, and nested
+plan. A nested `Step::Plan` uses the same context, so its final CWD remains active
+after control returns to the outer plan. Direct `Context::evaluate`,
+`get_dependency_state`, and `apply` resolve their query arguments against this
+same live CWD before scheduling or applying them.
+
+Linked queries are independently scoped. A link starts from the parent's current
+CWD, but a `cwd` instruction inside it does not modify the parent or a sibling
+link. An absolute outer query roots only its own source resource. Its relative
+nested links still use the active context CWD, while absolute nested links have
+their own logical-root scope. During plan execution, source-query-to-step matching
+keeps a recipe-added CWD prefix distinct from the absolute outer source step.
+
+When the first consumed relative operand has no CWD, the context atomically
+installs the empty logical root and emits this warning exactly once across all its
+clones:
+
+```text
+Relative key/query has no CWD; using logical root '/'.
+```
+
+Dependency discovery and pre-scheduling simulate the same ordered rules with a
+private cursor initialized from the context's entry snapshot. This simulation does
+not advance the live CWD to its final value before execution. The sole shared side
+effect is installing the logical-root fallback, if needed, through the same atomic
+context operation so concurrent first resolutions cannot duplicate the warning.
+
+Resolved identities are used consistently for dependency records, cycle checks,
+manager lookup, and cache reuse. Thus `./input.txt` under `a/c` is tracked and
+cached as `a/c/input.txt`, not under its raw spelling or a sibling CWD.
+
+A Context is registered as a keyed dependency owner only when its asset's immutable
+construction-time query yields the same key as the current recipe and a
+non-evaluating manager lookup returns that exact `AssetRef` id. Temporary, ad-hoc,
+volatile/evicted, provider-mismatched, and differently owned assets are not treated
+as keyed owners.
+
 ## Dependency and apply methods
 
 | Context method | Schedules | Waits | Records dependency | Payload behavior |
@@ -313,6 +359,8 @@ The following executable evidence covers this reference:
 - Payload inheritance, missing-payload, keyed-boundary, and payload-cycle tests
 - Context volatility propagation tests
 - Expiration and asset finalization tests
+- Ordered CWD, nested scope, absolute outer-query, root-warning, and concurrent
+  context-clone tests
 
 Review verification on 2026-08-09:
 
@@ -334,5 +382,6 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-11 | Documented the shared live CWD, interpreter and context resolution boundaries, scoped links, nested-plan propagation, root fallback, and resolved dependency and owner identity. | phase-5 |
 | 2026-08-09 | Reviewed environment construction, context sharing, dependency evaluation, and payload propagation against HEAD; documented payload-aware nested evaluation and the inline payload environment, and corrected links. | PAYLOAD-INHERITANCE |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

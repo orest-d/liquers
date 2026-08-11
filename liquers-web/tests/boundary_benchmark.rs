@@ -30,9 +30,13 @@ use wasm_bindgen_test::*;
 fn now() -> f64 {
     let global = js_sys::global();
     let performance = js_sys::Reflect::get(&global, &"performance".into()).expect("performance");
-    let now: js_sys::Function =
-        js_sys::Reflect::get(&performance, &"now".into()).expect("now").unchecked_into();
-    now.call0(&performance).ok().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    let now: js_sys::Function = js_sys::Reflect::get(&performance, &"now".into())
+        .expect("now")
+        .unchecked_into();
+    now.call0(&performance)
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
 }
 
 fn log(line: &str) {
@@ -90,7 +94,11 @@ fn web_boundary_benchmark() {
             let _ = value_to_js(&value).expect("back to JavaScript");
         });
 
-        let ratio = if opaque > 0.0 { structural / opaque } else { f64::INFINITY };
+        let ratio = if opaque > 0.0 {
+            structural / opaque
+        } else {
+            f64::INFINITY
+        };
         log(&format!(
             "  object, {n:>6} properties  {iterations:>5}  {structural:>9.3}ms  {opaque:>7.3}ms  {ratio:>6.0}x"
         ));
@@ -110,7 +118,11 @@ fn web_boundary_benchmark() {
         let value: Value = opaque_value(js_bytes.clone()).expect("opaque retention");
         let _ = value_to_js(&value).expect("back to JavaScript");
     });
-    let ratio = if opaque > 0.0 { structural / opaque } else { f64::INFINITY };
+    let ratio = if opaque > 0.0 {
+        structural / opaque
+    } else {
+        f64::INFINITY
+    };
     log(&format!(
         "  Uint8Array, 1 MB             20  {structural:>9.3}ms  {opaque:>7.3}ms  {ratio:>6.0}x"
     ));

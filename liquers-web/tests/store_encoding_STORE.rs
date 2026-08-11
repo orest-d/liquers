@@ -42,7 +42,11 @@ fn corpus() -> Vec<(&'static str, Vec<u8>, ByteEncoding)> {
         ("emoji", "🦀".as_bytes().to_vec(), ByteEncoding::Utf8),
         ("embedded nul", b"a\0b".to_vec(), ByteEncoding::Utf8),
         ("invalid utf8", vec![0xFF, 0xFE], ByteEncoding::Base64),
-        ("lone surrogate", vec![0xED, 0xA0, 0x80], ByteEncoding::Base64),
+        (
+            "lone surrogate",
+            vec![0xED, 0xA0, 0x80],
+            ByteEncoding::Base64,
+        ),
         (
             "png header",
             vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],

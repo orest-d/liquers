@@ -639,8 +639,7 @@ async fn test_chained_commands_with_payload() -> Result<(), Box<dyn std::error::
 }
 
 #[tokio::test]
-async fn test_payload_inherited_in_nested_evaluation() -> Result<(), Box<dyn std::error::Error>>
-{
+async fn test_payload_inherited_in_nested_evaluation() -> Result<(), Box<dyn std::error::Error>> {
     // Payload IS inherited by a nested evaluation whose plan requires one. The child
     // declares `payload: required`, which makes the requirement visible in its plan; the
     // parent's payload is then forwarded and the child is evaluated inline.
@@ -769,4 +768,3 @@ async fn test_unannotated_payload_command_is_payload_free_when_nested(
     );
     Ok(())
 }
-

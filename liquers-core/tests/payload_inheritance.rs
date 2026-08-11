@@ -10,7 +10,9 @@ use std::sync::Arc;
 use liquers_core::{
     command_metadata::PayloadRequirement,
     commands::{InjectedFromContext, PayloadType},
-    context::{Context, Environment, ImmediateEnvironmentWithPayload, SimpleEnvironmentWithPayload},
+    context::{
+        Context, Environment, ImmediateEnvironmentWithPayload, SimpleEnvironmentWithPayload,
+    },
     error::Error,
     metadata::Metadata,
     parse::{parse_key, parse_query},
@@ -95,8 +97,8 @@ where
 /// `payload: required` implies `volatile` and a volatile keyed recipe failed with a spurious
 /// dependency cycle before any recipe check ran.
 #[tokio::test]
-async fn test_keyed_recipe_requiring_payload_is_rejected(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_keyed_recipe_requiring_payload_is_rejected() -> Result<(), Box<dyn std::error::Error>>
+{
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -146,7 +148,10 @@ async fn test_keyed_recipe_requiring_payload_is_rejected(
     );
 
     // The same rejection reaches asset introspection, which is a user-visible surface.
-    let info = envref.get_recipe_provider().get_asset_info(&key, envref.clone()).await?;
+    let info = envref
+        .get_recipe_provider()
+        .get_asset_info(&key, envref.clone())
+        .await?;
     assert!(
         info.is_error,
         "asset info for an invalid keyed recipe should be marked as an error"
@@ -174,8 +179,8 @@ async fn test_keyed_recipe_requiring_payload_is_rejected(
 
 /// The mirror of the above: the same command evaluated directly (not through a key) is fine.
 #[tokio::test]
-async fn test_same_command_works_when_evaluated_directly(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_same_command_works_when_evaluated_directly() -> Result<(), Box<dyn std::error::Error>>
+{
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -256,15 +261,18 @@ async fn test_volatile_keyed_recipe_evaluates() -> Result<(), Box<dyn std::error
 
 /// `Context::get_dependency_state` inherits the payload.
 #[tokio::test]
-async fn test_payload_inherited_via_get_dependency_state(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_payload_inherited_via_get_dependency_state() -> Result<(), Box<dyn std::error::Error>>
+{
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
     async fn parent(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
         let q = parse_query("/-/child")?;
         let state = context.get_dependency_state(&q).await?;
-        Ok(Value::from(format!("via_state:{}", state.try_into_string()?)))
+        Ok(Value::from(format!(
+            "via_state:{}",
+            state.try_into_string()?
+        )))
     }
     fn child(_s: &State<Value>, window_id: WindowId) -> Result<Value, Error> {
         Ok(Value::from(format!("window:{}", window_id.0)))
@@ -326,8 +334,7 @@ async fn test_payload_inherited_via_apply() -> Result<(), Box<dyn std::error::Er
 /// A payload-free dependency of a payload-requiring parent goes through the asset manager
 /// and is cached and reused, unaffected by the parent's payload.
 #[tokio::test]
-async fn test_payload_free_child_is_cached_and_shared(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_payload_free_child_is_cached_and_shared() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -426,8 +433,11 @@ async fn test_inline_manager_payload_inheritance() -> Result<(), Box<dyn std::er
     type CommandEnvironment = InlineEnv;
     let mut env = InlineEnv::new();
 
-    async fn parent(_s: State<Value>, user_id: UserId, context: Context<InlineEnv>)
-        -> Result<Value, Error> {
+    async fn parent(
+        _s: State<Value>,
+        user_id: UserId,
+        context: Context<InlineEnv>,
+    ) -> Result<Value, Error> {
         let q = parse_query("/-/child")?;
         let asset = context.evaluate(&q).await?;
         Ok(Value::from(format!(
@@ -465,11 +475,17 @@ async fn test_deep_nesting_payload_propagation() -> Result<(), Box<dyn std::erro
 
     async fn l1(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
         let a = context.evaluate(&parse_query("/-/l2")?).await?;
-        Ok(Value::from(format!("l1>{}", a.get().await?.try_into_string()?)))
+        Ok(Value::from(format!(
+            "l1>{}",
+            a.get().await?.try_into_string()?
+        )))
     }
     async fn l2(_s: State<Value>, context: Context<QueuedEnv>) -> Result<Value, Error> {
         let a = context.evaluate(&parse_query("/-/l3")?).await?;
-        Ok(Value::from(format!("l2>{}", a.get().await?.try_into_string()?)))
+        Ok(Value::from(format!(
+            "l2>{}",
+            a.get().await?.try_into_string()?
+        )))
     }
     fn l3(_s: &State<Value>, user_id: UserId, window_id: WindowId) -> Result<Value, Error> {
         Ok(Value::from(format!("l3:{}:{}", user_id.0, window_id.0)))
@@ -548,14 +564,20 @@ async fn test_payload_clone_shares_interior_state() -> Result<(), Box<dyn std::e
     let envref = env.to_ref();
     let payload = TestPayload::new("vic", 0);
     let shared = payload.log.clone();
-    envref.evaluate_immediately("/-/note", payload).await?
-        .get().await?;
+    envref
+        .evaluate_immediately("/-/note", payload)
+        .await?
+        .get()
+        .await?;
 
     let count = shared
         .lock()
         .map_err(|e| Error::general_error(format!("lock poisoned: {e}")))?
         .len();
-    assert_eq!(count, 1, "the caller's Arc must observe the command's write");
+    assert_eq!(
+        count, 1,
+        "the caller's Arc must observe the command's write"
+    );
     Ok(())
 }
 
@@ -588,11 +610,11 @@ async fn test_toplevel_required_payload_is_enforced() -> Result<(), Box<dyn std:
     let envref = env.to_ref();
     let asset = envref.evaluate("/-/tolerant").await?;
     let state = asset.get().await?;
-    let err = state
-        .value_state()
-        .err()
-        .ok_or_else(|| Error::general_error(
-            "a payload-required command must not run without a payload".to_string()))?;
+    let err = state.value_state().err().ok_or_else(|| {
+        Error::general_error(
+            "a payload-required command must not run without a payload".to_string(),
+        )
+    })?;
 
     assert!(
         err.to_string().contains("requires an evaluation payload"),
@@ -632,8 +654,8 @@ async fn test_toplevel_required_payload_runs_when_supplied(
 /// ancestor cycle (PR #14 review, comment 2). The path is copied per branch rather than
 /// shared, so one sibling never sees the other's entry.
 #[tokio::test]
-async fn test_sibling_payload_evaluations_are_not_a_cycle(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_sibling_payload_evaluations_are_not_a_cycle() -> Result<(), Box<dyn std::error::Error>>
+{
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -663,4 +685,3 @@ async fn test_sibling_payload_evaluations_are_not_a_cycle(
     assert_eq!(asset.get().await?.try_into_string()?, "a=w5 b=w5");
     Ok(())
 }
-

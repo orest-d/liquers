@@ -33,9 +33,7 @@ impl Version {
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let hash = blake3::hash(bytes);
         Version(u128::from_be_bytes(
-            hash.as_bytes()[0..16]
-                .try_into()
-                .unwrap_or([0u8; 16]),
+            hash.as_bytes()[0..16].try_into().unwrap_or([0u8; 16]),
         ))
     }
 
@@ -69,15 +67,13 @@ impl Version {
     }
 
     pub fn new_unique() -> Self {
-        static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 =
-            std::sync::atomic::AtomicU64::new(0);
+        static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .ok()
             .unwrap_or_default()
             .as_nanos();
-        let counter =
-            UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
+        let counter = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u128;
         Version(nanos.wrapping_shl(64) | counter)
     }
 }
@@ -2376,9 +2372,15 @@ mod tests {
         assert_eq!(Status::Override.read_exposure(), ReadExposure::Value);
         assert_eq!(Status::Volatile.read_exposure(), ReadExposure::Value);
 
-        assert_eq!(Status::Directory.read_exposure(), ReadExposure::MetadataOnly);
+        assert_eq!(
+            Status::Directory.read_exposure(),
+            ReadExposure::MetadataOnly
+        );
         assert_eq!(Status::Error.read_exposure(), ReadExposure::MetadataOnly);
-        assert_eq!(Status::Cancelled.read_exposure(), ReadExposure::MetadataOnly);
+        assert_eq!(
+            Status::Cancelled.read_exposure(),
+            ReadExposure::MetadataOnly
+        );
 
         assert_eq!(Status::Expired.read_exposure(), ReadExposure::Expired);
 
@@ -2645,8 +2647,14 @@ mod tests {
     #[test]
     fn test_add_dependency_replaces_version() {
         let mut mr = MetadataRecord::new();
-        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(1)));
-        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(42)));
+        mr.add_dependency(DependencyRecord::new(
+            DependencyKey::new("dep-a"),
+            Version::new(1),
+        ));
+        mr.add_dependency(DependencyRecord::new(
+            DependencyKey::new("dep-a"),
+            Version::new(42),
+        ));
         assert_eq!(mr.get_dependencies().len(), 1);
         assert_eq!(mr.get_dependencies()[0].version, Version::new(42));
     }
@@ -2654,12 +2662,19 @@ mod tests {
     #[test]
     fn test_set_dependencies_replaces_all() {
         let mut mr = MetadataRecord::new();
-        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-a"), Version::new(1)));
-        mr.add_dependency(DependencyRecord::new(DependencyKey::new("dep-b"), Version::new(2)));
+        mr.add_dependency(DependencyRecord::new(
+            DependencyKey::new("dep-a"),
+            Version::new(1),
+        ));
+        mr.add_dependency(DependencyRecord::new(
+            DependencyKey::new("dep-b"),
+            Version::new(2),
+        ));
         assert_eq!(mr.get_dependencies().len(), 2);
-        mr.set_dependencies(vec![
-            DependencyRecord::new(DependencyKey::new("dep-c"), Version::new(3)),
-        ]);
+        mr.set_dependencies(vec![DependencyRecord::new(
+            DependencyKey::new("dep-c"),
+            Version::new(3),
+        )]);
         assert_eq!(mr.get_dependencies().len(), 1);
         assert_eq!(mr.get_dependencies()[0].key, DependencyKey::new("dep-c"));
     }

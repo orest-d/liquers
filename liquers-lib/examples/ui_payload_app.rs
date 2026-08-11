@@ -15,7 +15,8 @@ use liquers_macro::register_command;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::ui::{
-    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState, ElementSource, Invalidation, UIContext,
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    ElementSource, Invalidation, UIContext,
 };
 use liquers_lib::value::Value;
 

@@ -39,7 +39,10 @@ fn end_to_end_parse_only() -> Result<(), Error> {
     let json = report.to_json()?;
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
     assert_eq!(parsed["level"], "Parse");
-    assert_eq!(parsed["results"][0]["encoded"], "-R/data/report.txt/-/to_text");
+    assert_eq!(
+        parsed["results"][0]["encoded"],
+        "-R/data/report.txt/-/to_text"
+    );
     assert!(
         parsed["results"][0]["plan"].is_null(),
         "no plan at level Parse"
@@ -68,7 +71,9 @@ fn end_to_end_plan_with_merged_registry() -> Result<(), Error> {
     let plan = result.plan.expect("plan built");
     assert_eq!(plan.steps.len(), 2);
     match &plan.steps[1] {
-        Step::Action { ns, action_name, .. } => {
+        Step::Action {
+            ns, action_name, ..
+        } => {
             assert_eq!(ns, "pl", "the resolved namespace rides along in the step");
             assert_eq!(action_name, "head");
         }
@@ -102,7 +107,12 @@ fn swallowing_trap_plans_differ() -> Result<(), Error> {
     );
 
     // Neither is an error. That is the point.
-    assert_eq!(intended.status, ValidationStatus::Ok, "{:?}", intended.error);
+    assert_eq!(
+        intended.status,
+        ValidationStatus::Ok,
+        "{:?}",
+        intended.error
+    );
     assert_eq!(typo.status, ValidationStatus::Ok, "{:?}", typo.error);
 
     let intended_plan = intended.plan.expect("plan");
@@ -154,7 +164,12 @@ fn permissive_commands_validate_undesigned_queries() -> Result<(), Error> {
     // CommandKey::new normalizes the default namespace `root` to the empty string.
     assert_eq!(provenance.cli_commands[0].namespace, "");
 
-    for query in ["greet", "greet-world", "greet-a-b-c-d-e", "ns-custom/greet-world"] {
+    for query in [
+        "greet",
+        "greet-world",
+        "greet-a-b-c-d-e",
+        "ns-custom/greet-world",
+    ] {
         let result = validate_query(query, 0, ValidationLevel::Plan, &registry);
         assert_eq!(
             result.status,

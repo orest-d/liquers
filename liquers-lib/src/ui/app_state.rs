@@ -1314,7 +1314,10 @@ mod tests {
         s.set_element(p, Box::new(Placeholder::new())).unwrap();
         let c1 = s.add_node(Some(p), 0, ElementSource::None).unwrap();
 
-        let state = State::from_parts(Arc::new(Value::from("replaced")), Arc::new(liquers_core::metadata::Metadata::new()));
+        let state = State::from_parts(
+            Arc::new(Value::from("replaced")),
+            Arc::new(liquers_core::metadata::Metadata::new()),
+        );
         s.insert_state(&InsertionPoint::Instead(p), &state).unwrap();
 
         assert!(!s.node_exists(c1));
@@ -1346,7 +1349,10 @@ mod tests {
         let mut s = DirectAppState::new();
         let p = s.add_node(None, 0, ElementSource::None).unwrap();
 
-        let state = State::from_parts(Arc::new(Value::from("test value")), Arc::new(liquers_core::metadata::Metadata::new()));
+        let state = State::from_parts(
+            Arc::new(Value::from("test value")),
+            Arc::new(liquers_core::metadata::Metadata::new()),
+        );
         let h = s
             .insert_state(&InsertionPoint::LastChild(p), &state)
             .unwrap();
@@ -1361,7 +1367,10 @@ mod tests {
         let h = s.add_node(None, 0, ElementSource::None).unwrap();
         s.set_element(h, Box::new(Placeholder::new())).unwrap();
 
-        let state = State::from_parts(Arc::new(Value::from("replaced")), Arc::new(liquers_core::metadata::Metadata::new()));
+        let state = State::from_parts(
+            Arc::new(Value::from("replaced")),
+            Arc::new(liquers_core::metadata::Metadata::new()),
+        );
         let returned = s.insert_state(&InsertionPoint::Instead(h), &state).unwrap();
         assert_eq!(returned, h);
         let elem = s.get_element(h).unwrap().unwrap();
@@ -1786,15 +1795,23 @@ mod tests {
     #[test]
     fn invalidation_records_in_order() {
         let mut inv = Invalidation::default();
-        inv.record(UIChange::Replaced { handle: UIHandle(1) });
-        inv.record(UIChange::Replaced { handle: UIHandle(2) });
+        inv.record(UIChange::Replaced {
+            handle: UIHandle(1),
+        });
+        inv.record(UIChange::Replaced {
+            handle: UIHandle(2),
+        });
 
         match inv {
             Invalidation::Changes(changes) => assert_eq!(
                 changes,
                 vec![
-                    UIChange::Replaced { handle: UIHandle(1) },
-                    UIChange::Replaced { handle: UIHandle(2) },
+                    UIChange::Replaced {
+                        handle: UIHandle(1)
+                    },
+                    UIChange::Replaced {
+                        handle: UIHandle(2)
+                    },
                 ]
             ),
             Invalidation::None | Invalidation::All => panic!("expected recorded changes"),
@@ -1804,7 +1821,9 @@ mod tests {
     #[test]
     fn invalidation_take_clears() {
         let mut inv = Invalidation::default();
-        inv.record(UIChange::Replaced { handle: UIHandle(1) });
+        inv.record(UIChange::Replaced {
+            handle: UIHandle(1),
+        });
 
         let taken = inv.take();
         assert!(!taken.is_empty());
@@ -1815,10 +1834,14 @@ mod tests {
     #[test]
     fn invalidation_set_all_absorbs_further_changes() {
         let mut inv = Invalidation::default();
-        inv.record(UIChange::Replaced { handle: UIHandle(1) });
+        inv.record(UIChange::Replaced {
+            handle: UIHandle(1),
+        });
         inv.set_all();
         // A change recorded after All is already covered by it.
-        inv.record(UIChange::Replaced { handle: UIHandle(2) });
+        inv.record(UIChange::Replaced {
+            handle: UIHandle(2),
+        });
         assert_eq!(inv, Invalidation::All);
         assert!(!inv.is_empty());
     }

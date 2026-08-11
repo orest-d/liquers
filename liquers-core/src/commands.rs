@@ -508,8 +508,7 @@ impl<E: Environment> CommandRegistry<E> {
                 State<E::Value>,
                 CommandArguments<E>,
                 Context<E>,
-            )
-                -> crate::maybe_send::BoxFuture<'static, Result<E::Value, Error>>)
+            ) -> crate::maybe_send::BoxFuture<'static, Result<E::Value, Error>>)
             + crate::maybe_send::MaybeSync
             + crate::maybe_send::MaybeSend
             + 'static,
@@ -736,7 +735,10 @@ mod unregister_tests {
             "precondition: `hello` should plan while registered"
         );
 
-        assert!(registry.unregister(key.clone()), "unregister reported no removal");
+        assert!(
+            registry.unregister(key.clone()),
+            "unregister reported no removal"
+        );
 
         // After: planning itself must fail. A plan that still builds would mean the metadata
         // survived, which is exactly the partial-removal bug this test exists to catch.
@@ -749,7 +751,10 @@ mod unregister_tests {
         );
 
         // And the executors are gone too.
-        assert!(registry.executors.get(&key).is_none(), "sync executor survived");
+        assert!(
+            registry.executors.get(&key).is_none(),
+            "sync executor survived"
+        );
         assert!(
             registry.async_executors.get(&key).is_none(),
             "async executor survived"
@@ -830,9 +835,7 @@ mod unregister_tests {
             .register_command(key.clone(), |_, _, _| Ok(Value::none()))
             .expect("register_command failed");
         registry
-            .register_async_command(key.clone(), |_, _, _| {
-                Box::pin(async { Ok(Value::none()) })
-            })
+            .register_async_command(key.clone(), |_, _, _| Box::pin(async { Ok(Value::none()) }))
             .expect("register_async_command failed");
 
         assert!(registry.executors.contains_key(&key));
@@ -840,7 +843,10 @@ mod unregister_tests {
 
         assert!(registry.unregister(key.clone()));
 
-        assert!(!registry.executors.contains_key(&key), "sync executor survived");
+        assert!(
+            !registry.executors.contains_key(&key),
+            "sync executor survived"
+        );
         assert!(
             !registry.async_executors.contains_key(&key),
             "async executor survived"

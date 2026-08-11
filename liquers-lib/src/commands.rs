@@ -220,11 +220,11 @@ pub fn command_metadata<E: Environment>(
     let ck = liquers_core::command_metadata::CommandKey::new(&realm, &namespace, &name);
     let envref = context.get_envref();
     let cmr = envref.get_command_metadata_registry();
-    let cmd_meta = cmr.get(ck.clone()).ok_or_else(|| {
-        Error::general_error(format!("Command not found: {}", ck))
-    })?;
-    let json = serde_json::to_string_pretty(cmd_meta)
-        .map_err(|e| Error::general_error(e.to_string()))?;
+    let cmd_meta = cmr
+        .get(ck.clone())
+        .ok_or_else(|| Error::general_error(format!("Command not found: {}", ck)))?;
+    let json =
+        serde_json::to_string_pretty(cmd_meta).map_err(|e| Error::general_error(e.to_string()))?;
     Ok(E::Value::from_string(json))
 }
 
@@ -242,11 +242,11 @@ pub fn command_implementation<E: Environment>(
     let ck = liquers_core::command_metadata::CommandKey::new(&realm, &namespace, &name);
     let envref = context.get_envref();
     let cmr = envref.get_command_metadata_registry();
-    let cmd_meta = cmr.get(ck.clone()).ok_or_else(|| {
-        Error::general_error(format!("Command not found: {}", ck))
-    })?;
-    let json = serde_json::to_string_pretty(cmd_meta)
-        .map_err(|e| Error::general_error(e.to_string()))?;
+    let cmd_meta = cmr
+        .get(ck.clone())
+        .ok_or_else(|| Error::general_error(format!("Command not found: {}", ck)))?;
+    let json =
+        serde_json::to_string_pretty(cmd_meta).map_err(|e| Error::general_error(e.to_string()))?;
     Ok(E::Value::from_string(json))
 }
 

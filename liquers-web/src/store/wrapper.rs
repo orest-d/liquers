@@ -132,9 +132,7 @@ impl LiquersStore {
     pub fn contains(&self, key: &str) -> js_sys::Promise {
         let inner = self.inner.clone();
         let key = key.to_string();
-        promise(async move {
-            Ok(JsValue::from_bool(inner.contains(&key_of(&key)?).await?))
-        })
+        promise(async move { Ok(JsValue::from_bool(inner.contains(&key_of(&key)?).await?)) })
     }
 
     #[wasm_bindgen(js_name = isDir)]

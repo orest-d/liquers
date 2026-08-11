@@ -10,8 +10,8 @@ use liquers_web::environment::{
     build_environment, has_command, init_global, is_initialized, register_command_on, reset_global,
     shared_env, unregister_command_on, with_global,
 };
-use wasm_bindgen::prelude::*;
 use liquers_web::LiquersEnvironment;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
 /// ENVIRON01 — a default environment exposes its services and evaluates a command.
@@ -31,7 +31,9 @@ async fn environ01_default_environment_evaluates_builtin() {
         envref
             .0
             .get_command_metadata_registry()
-            .get(liquers_core::command_metadata::CommandKey::new("", "", "to_text"))
+            .get(liquers_core::command_metadata::CommandKey::new(
+                "", "", "to_text"
+            ))
             .is_some(),
         "a default environment must carry the built-in Rust commands"
     );
@@ -171,17 +173,12 @@ fn environ06_shutdown_is_idempotent() {
     reset_global();
 }
 
-
 /// Builds a minimal declaration object: `{ name, run: () => <literal> }`.
 fn decl(name: &str, body: &str) -> JsValue {
     let spec = js_sys::Object::new();
     js_sys::Reflect::set(&spec, &"name".into(), &name.into()).expect("set name");
-    js_sys::Reflect::set(
-        &spec,
-        &"run".into(),
-        &js_sys::Function::new_no_args(body),
-    )
-    .expect("set run");
+    js_sys::Reflect::set(&spec, &"run".into(), &js_sys::Function::new_no_args(body))
+        .expect("set run");
     spec.into()
 }
 
@@ -229,13 +226,19 @@ fn web_unregister_after_sharing_rebuilds() {
     register_command_on(&decl("drop", "return 2;")).expect("register drop");
     shared_env().expect("share");
 
-    assert!(unregister_command_on("drop").expect("unregister"), "should report removal");
+    assert!(
+        unregister_command_on("drop").expect("unregister"),
+        "should report removal"
+    );
     assert!(!has_command("drop"), "the command must be gone");
     assert!(has_command("keep"), "unrelated commands must survive");
 
     // A later registration rebuilds again; the dropped command must not come back.
     register_command_on(&decl("third", "return 3;")).expect("register third");
-    assert!(!has_command("drop"), "a rebuild must not resurrect an unregistered command");
+    assert!(
+        !has_command("drop"),
+        "a rebuild must not resurrect an unregistered command"
+    );
     assert!(has_command("keep"));
     assert!(has_command("third"));
 
@@ -285,11 +288,16 @@ async fn environ07_documented_operations_are_callable() {
     // The built-in Rust command set is present on an instance.
     let names = env.command_names();
     assert!(
-        names.iter().any(|n| n.as_string().as_deref() == Some("to_text")),
+        names
+            .iter()
+            .any(|n| n.as_string().as_deref() == Some("to_text")),
         "an instance must carry the built-in commands"
     );
     assert!(!env.describe_command("to_text").expect("describe").is_null());
-    assert!(env.describe_command("nope").expect("describe absent").is_null());
+    assert!(env
+        .describe_command("nope")
+        .expect("describe absent")
+        .is_null());
 
     // And it evaluates — against its own environment, with no singleton in play.
     assert!(!liquers_web::is_initialized());
@@ -304,7 +312,10 @@ async fn environ07_documented_operations_are_callable() {
         .await
         .expect_err("an unknown command must not evaluate");
     assert_eq!(
-        js_sys::Reflect::get(&err, &"errorType".into()).ok().and_then(|v| v.as_string()).as_deref(),
+        js_sys::Reflect::get(&err, &"errorType".into())
+            .ok()
+            .and_then(|v| v.as_string())
+            .as_deref(),
         Some("action_not_registered")
     );
 

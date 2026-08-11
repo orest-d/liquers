@@ -18,7 +18,8 @@ use liquers_core::store::AsyncStore;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::ui::{
-    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState, Invalidation, UIContext,
+    app_message_channel, render_element, try_sync_lock, AppRunner, AppState, DirectAppState,
+    Invalidation, UIContext,
 };
 use liquers_lib::value::Value;
 use liquers_macro::register_command;

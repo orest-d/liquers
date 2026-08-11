@@ -14,8 +14,8 @@ use clap::{Parser, ValueEnum};
 // types unqualified, so they must be in scope here even where this file never mentions them.
 #[allow(unused_imports)]
 use liquers_core::{
-    command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue},
     command_metadata::CommandMetadataRegistry,
+    command_metadata::{ArgumentType, CommandDefinition, CommandParameterValue},
     context::{Context, Environment},
     error::{Error, ErrorType},
     state::State,
@@ -151,9 +151,8 @@ fn run() -> Result<(), Error> {
     let body = match cli.format {
         OutputFormat::Json => serde_json::to_string_pretty(&registry)
             .map_err(|e| Error::from_error(ErrorType::General, e))?,
-        OutputFormat::Yaml => {
-            serde_yaml::to_string(&registry).map_err(|e| Error::from_error(ErrorType::General, e))?
-        }
+        OutputFormat::Yaml => serde_yaml::to_string(&registry)
+            .map_err(|e| Error::from_error(ErrorType::General, e))?,
     };
 
     match &cli.output {
@@ -267,9 +266,7 @@ fn header(groups: &[Group], command_count: usize, path: &Path) -> String {
         .collect();
 
     let changelog = existing_changelog(path).unwrap_or_else(|| {
-        format!(
-            "{CHANGELOG_BEGIN}\n# (add a dated line here when regenerating)\n{CHANGELOG_END}\n"
-        )
+        format!("{CHANGELOG_BEGIN}\n# (add a dated line here when regenerating)\n{CHANGELOG_END}\n")
     });
 
     format!(

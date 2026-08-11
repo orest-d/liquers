@@ -2154,6 +2154,118 @@ pub struct Query {
     pub source: QuerySource,
 }
 
+pub(crate) const RELATIVE_WITHOUT_CWD_WARNING: &str =
+    "Relative key/query has no CWD; using logical root '/'.";
+
+/// Pure, ordered working-key state used while resolving query AST copies.
+///
+/// Runtime ownership of the working key remains with `Context`; this cursor is
+/// cloned when entering a linked query so an explicit child `cwd` cannot leak
+/// back to its parent.
+#[derive(Clone, Default)]
+pub(crate) struct CwdCursor {
+    cwd: Option<Key>,
+    defaulted_to_root: bool,
+}
+
+#[allow(dead_code)]
+impl CwdCursor {
+    pub(crate) fn new(cwd: Option<Key>) -> Self {
+        Self {
+            cwd,
+            defaulted_to_root: false,
+        }
+    }
+
+    fn is_relative(key: &Key) -> bool {
+        key.0
+            .first()
+            .is_some_and(|name| name.is_cwd() || name.is_parent())
+    }
+
+    fn is_cwd_resource(resource: &ResourceQuerySegment) -> bool {
+        resource
+            .header
+            .as_ref()
+            .and_then(|header| header.parameters.first())
+            .is_some_and(|parameter| parameter.value == "cwd")
+    }
+
+    pub(crate) fn resolve_key(&mut self, key: &Key) -> Key {
+        if !Self::is_relative(key) {
+            return key.clone();
+        }
+
+        let cwd = self.cwd.get_or_insert_with(|| {
+            self.defaulted_to_root = true;
+            Key::new()
+        });
+        key.to_absolute(cwd)
+    }
+
+    pub(crate) fn resolve_query_scoped(&mut self, query: &Query) -> Query {
+        let mut resolved = query.clone();
+        let mut scoped = self.clone();
+        let mut absolute_resource_cursor = query.absolute.then(|| CwdCursor::new(Some(Key::new())));
+
+        for segment in &mut resolved.segments {
+            match segment {
+                QuerySegment::Resource(resource) => {
+                    let is_cwd = Self::is_cwd_resource(resource);
+                    if let Some(resource_cursor) = &mut absolute_resource_cursor {
+                        let key = if is_cwd {
+                            resource_cursor.set_cwd_from(&resource.key)
+                        } else {
+                            resource_cursor.resolve_key(&resource.key)
+                        };
+                        resource.key = key.clone();
+                        if is_cwd {
+                            scoped.cwd = Some(key);
+                        }
+                    } else if is_cwd {
+                        resource.key = scoped.set_cwd_from(&resource.key);
+                    } else {
+                        resource.key = scoped.resolve_key(&resource.key);
+                    }
+                }
+                QuerySegment::Transform(transform) => {
+                    for action in &mut transform.query {
+                        for parameter in &mut action.parameters {
+                            match parameter {
+                                ActionParameter::String(_, _) => {}
+                                ActionParameter::Link(link, _) => {
+                                    *link = scoped.resolve_query_scoped(link);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.cwd.is_none() && scoped.defaulted_to_root {
+            self.cwd = Some(Key::new());
+            self.defaulted_to_root = true;
+        }
+
+        resolved
+    }
+
+    pub(crate) fn set_cwd_from(&mut self, key: &Key) -> Key {
+        let resolved = self.resolve_key(key);
+        self.cwd = Some(resolved.clone());
+        resolved
+    }
+
+    pub(crate) fn current(&self) -> Option<Key> {
+        self.cwd.clone()
+    }
+
+    pub(crate) fn take_root_fallback(&mut self) -> bool {
+        std::mem::take(&mut self.defaulted_to_root)
+    }
+}
+
 #[allow(dead_code)]
 impl Query {
     /// Creates an empty query.
@@ -2694,6 +2806,249 @@ mod tests {
     use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
+
+    fn resource_key(query: &Query, segment: usize) -> &Key {
+        match &query.segments[segment] {
+            QuerySegment::Resource(resource) => &resource.key,
+            QuerySegment::Transform(_) => panic!("expected resource segment"),
+        }
+    }
+
+    fn link_query(query: &Query, segment: usize, action: usize, parameter: usize) -> &Query {
+        match &query.segments[segment] {
+            QuerySegment::Transform(transform) => {
+                match &transform.query[action].parameters[parameter] {
+                    ActionParameter::Link(link, _) => link,
+                    ActionParameter::String(_, _) => panic!("expected linked query"),
+                }
+            }
+            QuerySegment::Resource(_) => panic!("expected transform segment"),
+        }
+    }
+
+    #[test]
+    fn cwd_cursor_resolves_only_leading_dot_and_parent() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cursor = CwdCursor::new(Some(parse_key("a/b")?));
+
+        assert_eq!(cursor.resolve_key(&parse_key("./c")?).encode(), "a/b/c");
+        assert_eq!(cursor.resolve_key(&parse_key("../c")?).encode(), "a/c");
+        assert_eq!(
+            cursor.resolve_key(&parse_key("plain/./c")?).encode(),
+            "plain/./c"
+        );
+        assert_eq!(
+            cursor.resolve_key(&parse_key("plain/../c")?).encode(),
+            "plain/../c"
+        );
+        assert!(!cursor.take_root_fallback());
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_resolves_ordered_cwd_changes() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cursor = CwdCursor::new(Some(parse_key("a/b")?));
+
+        assert_eq!(cursor.set_cwd_from(&parse_key("..")?).encode(), "a");
+        assert_eq!(cursor.set_cwd_from(&parse_key("./c")?).encode(), "a/c");
+        assert_eq!(cursor.current().expect("current CWD").encode(), "a/c");
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_missing_relative_base_uses_root_once() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cursor = CwdCursor::default();
+
+        assert_eq!(
+            RELATIVE_WITHOUT_CWD_WARNING,
+            "Relative key/query has no CWD; using logical root '/'."
+        );
+        assert_eq!(cursor.resolve_key(&parse_key("./one")?).encode(), "one");
+        assert_eq!(cursor.current().expect("logical root"), Key::new());
+        assert!(cursor.take_root_fallback());
+        assert!(!cursor.take_root_fallback());
+        assert_eq!(cursor.resolve_key(&parse_key("../two")?).encode(), "two");
+        assert!(!cursor.take_root_fallback());
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_child_root_fallback_updates_parent_and_sibling(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let query = parse_query("/-/action-~X~-R/./one~E-~X~-R/./two~E")?;
+        let mut cursor = CwdCursor::default();
+
+        let resolved = cursor.resolve_query_scoped(&query);
+
+        assert_eq!(
+            resource_key(link_query(&resolved, 0, 0, 0), 0).encode(),
+            "one"
+        );
+        assert_eq!(
+            resource_key(link_query(&resolved, 0, 0, 1), 0).encode(),
+            "two"
+        );
+        assert_eq!(cursor.current().expect("logical root"), Key::new());
+        assert!(cursor.take_root_fallback());
+        assert!(!cursor.take_root_fallback());
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_absolute_query_uses_private_root_without_fallback(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let query = parse_query("/-R/./data/-/action-~X~-R/./linked~E")?;
+        let mut cursor = CwdCursor::new(Some(parse_key("a/b")?));
+
+        let resolved = cursor.resolve_query_scoped(&query);
+
+        assert!(resolved.absolute);
+        assert_eq!(resource_key(&resolved, 0).encode(), "data");
+        assert_eq!(
+            resource_key(link_query(&resolved, 1, 0, 0), 0).encode(),
+            "a/b/linked"
+        );
+        assert_eq!(cursor.current().expect("original CWD").encode(), "a/b");
+        assert!(!cursor.take_root_fallback());
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_scopes_child_cwd() -> Result<(), Box<dyn std::error::Error>> {
+        let query = parse_query("/-/action-~X~-R-cwd/./child/-R/./one~E-~X~-R/./two~E")?;
+        let mut cursor = CwdCursor::new(Some(parse_key("a/b")?));
+
+        let resolved = cursor.resolve_query_scoped(&query);
+        let first = link_query(&resolved, 0, 0, 0);
+        let second = link_query(&resolved, 0, 0, 1);
+
+        assert_eq!(resource_key(first, 0).encode(), "a/b/child");
+        assert_eq!(resource_key(first, 1).encode(), "a/b/child/one");
+        assert_eq!(resource_key(second, 0).encode(), "a/b/two");
+        assert_eq!(cursor.current().expect("parent CWD").encode(), "a/b");
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_preserves_query_source_and_positions() -> Result<(), Box<dyn std::error::Error>> {
+        let mut query = parse_query("/-R/./data/-/action-~X~-R/./child~E")?;
+        query.source = QuerySource::Other("outer provenance".to_owned());
+        let link = match &mut query.segments[1] {
+            QuerySegment::Transform(transform) => match &mut transform.query[0].parameters[0] {
+                ActionParameter::Link(link, _) => link,
+                ActionParameter::String(_, _) => panic!("expected linked query"),
+            },
+            QuerySegment::Resource(_) => panic!("expected transform segment"),
+        };
+        link.source = QuerySource::Key(parse_key("provenance/link")?);
+
+        let outer_resource_position = resource_key(&query, 0)
+            .filename()
+            .expect("outer resource filename")
+            .position
+            .clone();
+        let (action_position, parameter_position) = match &query.segments[1] {
+            QuerySegment::Transform(transform) => (
+                transform.query[0].position.clone(),
+                transform.query[0].parameters[0].position(),
+            ),
+            QuerySegment::Resource(_) => panic!("expected transform segment"),
+        };
+        let linked_resource_position = resource_key(link_query(&query, 1, 0, 0), 0)
+            .filename()
+            .expect("linked resource filename")
+            .position
+            .clone();
+
+        let mut cursor = CwdCursor::new(Some(parse_key("a/b")?));
+        let resolved = cursor.resolve_query_scoped(&query);
+
+        assert_eq!(resolved.source, query.source);
+        assert!(resolved.absolute);
+        assert_eq!(
+            resource_key(&resolved, 0)
+                .filename()
+                .expect("resolved outer resource filename")
+                .position,
+            outer_resource_position
+        );
+        match &resolved.segments[1] {
+            QuerySegment::Transform(transform) => {
+                assert_eq!(transform.query[0].position, action_position);
+                assert_eq!(
+                    transform.query[0].parameters[0].position(),
+                    parameter_position
+                );
+            }
+            QuerySegment::Resource(_) => panic!("expected transform segment"),
+        }
+        let resolved_link = link_query(&resolved, 1, 0, 0);
+        assert_eq!(
+            resolved_link.source,
+            QuerySource::Key(parse_key("provenance/link")?)
+        );
+        assert_eq!(
+            resource_key(resolved_link, 0)
+                .filename()
+                .expect("resolved linked resource filename")
+                .position,
+            linked_resource_position
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cwd_cursor_resolves_deep_links_and_long_key_without_reparse(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut names =
+            vec![ResourceName::new(".".to_owned()).with_position(Position::new(1, 1, 2))];
+        names.extend((0..128).map(|index| {
+            ResourceName::new(format!("part{index}")).with_position(Position::new(
+                index + 2,
+                1,
+                index + 3,
+            ))
+        }));
+        let final_position = names.last().expect("long key element").position.clone();
+        let mut nested = Query {
+            segments: vec![QuerySegment::Resource(ResourceQuerySegment {
+                header: Some(SegmentHeader::new_resource_header()),
+                key: Key(names),
+            })],
+            source: QuerySource::Other("leaf".to_owned()),
+            ..Default::default()
+        };
+
+        for depth in 0..32 {
+            nested =
+                Query {
+                    segments: vec![QuerySegment::Transform(TransformQuerySegment {
+                        query: vec![ActionRequest::new(format!("level{depth}")).with_parameters(
+                            vec![ActionParameter::Link(
+                                nested,
+                                Position::new(depth + 200, 1, depth + 201),
+                            )],
+                        )],
+                        ..Default::default()
+                    })],
+                    source: QuerySource::Other(format!("level{depth}")),
+                    ..Default::default()
+                };
+        }
+
+        let mut cursor = CwdCursor::new(Some(parse_key("base")?));
+        let resolved = cursor.resolve_query_scoped(&nested);
+        let mut leaf = &resolved;
+        for depth in (0..32).rev() {
+            assert_eq!(leaf.source, QuerySource::Other(format!("level{depth}")));
+            leaf = link_query(leaf, 0, 0, 0);
+        }
+        assert_eq!(leaf.source, QuerySource::Other("leaf".to_owned()));
+        assert_eq!(resource_key(leaf, 0).len(), 129);
+        assert_eq!(resource_key(leaf, 0)[0].name, "base");
+        assert_eq!(resource_key(leaf, 0)[128].position, final_position);
+        assert!(!cursor.take_root_fallback());
+        Ok(())
+    }
 
     #[test]
     fn test_has_key_prefix() -> Result<(), Box<dyn std::error::Error>> {

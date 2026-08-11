@@ -117,7 +117,11 @@ impl JsStore {
     }
 
     /// Calls a protocol method, awaiting the result when it is thenable.
-    async fn call(&self, function: &js_sys::Function, args: &js_sys::Array) -> Result<JsValue, Error> {
+    async fn call(
+        &self,
+        function: &js_sys::Function,
+        args: &js_sys::Array,
+    ) -> Result<JsValue, Error> {
         let result = function
             .apply(&self.object, args)
             .map_err(|e| js_error_to_liquers(e, ErrorType::KeyReadError))?;
@@ -181,9 +185,8 @@ impl AsyncStore for JsStore {
         if result.is_undefined() || result.is_null() {
             return Err(Error::key_not_found(key));
         }
-        let data = js_sys::Reflect::get(&result, &JsValue::from_str("data")).map_err(|e| {
-            js_error_to_liquers(e, ErrorType::KeyReadError)
-        })?;
+        let data = js_sys::Reflect::get(&result, &JsValue::from_str("data"))
+            .map_err(|e| js_error_to_liquers(e, ErrorType::KeyReadError))?;
         let metadata = js_sys::Reflect::get(&result, &JsValue::from_str("metadata"))
             .unwrap_or(JsValue::UNDEFINED);
         Ok((
@@ -207,7 +210,11 @@ impl AsyncStore for JsStore {
 
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         check_key(key, &self.store_name())?;
-        let function = self.methods.set.as_ref().ok_or_else(|| self.missing(key, "set"))?;
+        let function = self
+            .methods
+            .set
+            .as_ref()
+            .ok_or_else(|| self.missing(key, "set"))?;
         let args = js_sys::Array::new();
         args.push(&JsValue::from_str(&key.encode()));
         args.push(&js_sys::Uint8Array::from(data).into());
@@ -230,7 +237,11 @@ impl AsyncStore for JsStore {
 
     async fn remove(&self, key: &Key) -> Result<(), Error> {
         check_key(key, &self.store_name())?;
-        let function = self.methods.remove.as_ref().ok_or_else(|| self.missing(key, "remove"))?;
+        let function = self
+            .methods
+            .remove
+            .as_ref()
+            .ok_or_else(|| self.missing(key, "remove"))?;
         self.call(function, &self.args1(key)).await.map(|_| ())
     }
 
@@ -246,7 +257,11 @@ impl AsyncStore for JsStore {
 
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
         check_key(key, &self.store_name())?;
-        let function = self.methods.makedir.as_ref().ok_or_else(|| self.missing(key, "makedir"))?;
+        let function = self
+            .methods
+            .makedir
+            .as_ref()
+            .ok_or_else(|| self.missing(key, "makedir"))?;
         self.call(function, &self.args1(key)).await.map(|_| ())
     }
 
@@ -263,7 +278,11 @@ impl AsyncStore for JsStore {
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         check_key(key, &self.store_name())?;
-        let function = self.methods.is_dir.as_ref().ok_or_else(|| self.missing(key, "isDir"))?;
+        let function = self
+            .methods
+            .is_dir
+            .as_ref()
+            .ok_or_else(|| self.missing(key, "isDir"))?;
         let value = self.call(function, &self.args1(key)).await?;
         Ok(Self::truthy(&value))
     }

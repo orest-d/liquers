@@ -333,9 +333,7 @@ fn infer_arguments(
     if tokens.len() < skip {
         return Err(Error::from_error(
             ErrorType::ParameterError,
-            format!(
-                "Command {command:?}: declares a state argument but `run` takes no parameters"
-            ),
+            format!("Command {command:?}: declares a state argument but `run` takes no parameters"),
         ));
     }
 

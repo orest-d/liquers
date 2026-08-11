@@ -9,8 +9,7 @@ use liquers_core::command_metadata::{CommandKey, CommandMetadataRegistry};
 use liquers_core::context::Environment;
 use liquers_core::error::Error;
 use liquers_core::validate::{
-    from_json_or_yaml, validate_query, ValidationLevel, ValidationRegistryBuilder,
-    ValidationStatus,
+    from_json_or_yaml, validate_query, ValidationLevel, ValidationRegistryBuilder, ValidationStatus,
 };
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
@@ -132,9 +131,8 @@ fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> St
 #[tokio::test]
 async fn committed_registry_is_fresh() -> Result<(), Error> {
     let path = committed_registry_path();
-    let text = std::fs::read_to_string(&path).map_err(|e| {
-        Error::general_error(format!("Cannot read '{}': {}", path.display(), e))
-    })?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| Error::general_error(format!("Cannot read '{}': {}", path.display(), e)))?;
     let committed: CommandMetadataRegistry = from_json_or_yaml(&path.display().to_string(), &text)?;
     let current = full_registry()?;
 

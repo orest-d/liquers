@@ -85,7 +85,10 @@ fn value02_nested_array_object_roundtrip() {
         "an object must return as a plain object, not a Map"
     );
     let items = js_sys::Reflect::get(&back, &"items".into()).expect("items");
-    assert!(js_sys::Array::is_array(&items), "an array must return as an Array");
+    assert!(
+        js_sys::Array::is_array(&items),
+        "an array must return as an Array"
+    );
     let items = js_sys::Array::from(&items);
     assert_eq!(items.get(0).as_f64(), Some(1.0));
     let nested = items.get(1);
@@ -94,7 +97,9 @@ fn value02_nested_array_object_roundtrip() {
         "a nested object must also be a plain object"
     );
     assert_eq!(
-        js_sys::Reflect::get(&nested, &"n".into()).expect("n").as_f64(),
+        js_sys::Reflect::get(&nested, &"n".into())
+            .expect("n")
+            .as_f64(),
         Some(7.0)
     );
 
@@ -114,7 +119,10 @@ fn value02_nested_array_object_roundtrip() {
 fn value03_integer_boundaries() {
     // Exactly representable integers become integers.
     let max_exact = conv(&JsValue::from_f64(9_007_199_254_740_992.0)).expect("2^53");
-    assert_eq!(max_exact.try_into_i64().expect("as i64"), 9_007_199_254_740_992);
+    assert_eq!(
+        max_exact.try_into_i64().expect("as i64"),
+        9_007_199_254_740_992
+    );
 
     // BigInt is the lossless path.
     let big = js_sys::BigInt::from(1_234_567_890_123_456_789i64);
@@ -125,7 +133,10 @@ fn value03_integer_boundaries() {
     let too_big = js_sys::BigInt::new(&JsValue::from_str("99999999999999999999999999"))
         .expect("construct huge bigint");
     let err = conv(&too_big.into()).expect_err("huge bigint must be refused");
-    assert_eq!(err.error_type, liquers_core::error::ErrorType::ConversionError);
+    assert_eq!(
+        err.error_type,
+        liquers_core::error::ErrorType::ConversionError
+    );
 }
 
 /// VALUE04 — bytes are never confused with text.
@@ -141,11 +152,18 @@ fn value04_bytes_are_not_confused_with_text() {
     // asserted: `try_into_string()` on a Bytes value succeeds, decoding it lossily as UTF-8 —
     // that is the value type's documented permissiveness, not a bridge decision, and asserting
     // against it here would be testing the wrong component.
-    assert_eq!(value.identifier(), "bytes", "a Uint8Array must map to bytes, not text");
+    assert_eq!(
+        value.identifier(),
+        "bytes",
+        "a Uint8Array must map to bytes, not text"
+    );
 
     // Round trip back to a Uint8Array, not an array of numbers.
     let js = value_to_js(&value).expect("to js");
-    assert!(js.is_instance_of::<js_sys::Uint8Array>(), "bytes lost their type");
+    assert!(
+        js.is_instance_of::<js_sys::Uint8Array>(),
+        "bytes lost their type"
+    );
 }
 
 /// VALUE05 — an unknown object follows the configured policy: refused by default, retained only
@@ -155,10 +173,16 @@ fn value05_unknown_object_uses_opaque_value() {
     let date = js_sys::Date::new_0();
 
     let err = conv(&date).expect_err("a Date must not convert structurally by default");
-    assert_eq!(err.error_type, liquers_core::error::ErrorType::ConversionError);
+    assert_eq!(
+        err.error_type,
+        liquers_core::error::ErrorType::ConversionError
+    );
 
     let retained = js_to_value::<Value>(&date, OPAQUE_OK).expect("opaque policy retains");
-    assert!(matches!(retained, Value::Extended(ExtValue::Foreign { .. })));
+    assert!(matches!(
+        retained,
+        Value::Extended(ExtValue::Foreign { .. })
+    ));
 }
 
 /// VALUE06 — an opaque value refuses byte serialization, with a *serialization* error rather than
@@ -169,7 +193,9 @@ fn value06_opaque_serialization_fails_or_uses_its_codec() {
 
     let obj = js_sys::Date::new_0();
     let value = opaque_value::<Value>(obj.into()).expect("opaque");
-    let err = value.as_bytes("json").expect_err("opaque must refuse serialization");
+    let err = value
+        .as_bytes("json")
+        .expect_err("opaque must refuse serialization");
     assert_eq!(
         err.error_type,
         liquers_core::error::ErrorType::SerializationError,
@@ -184,7 +210,10 @@ fn value07_cycles_follow_policy() {
     js_sys::Reflect::set(&obj, &"self".into(), &obj).expect("create cycle");
 
     let err = conv(&obj).expect_err("a cyclic object must be refused");
-    assert_eq!(err.error_type, liquers_core::error::ErrorType::ConversionError);
+    assert_eq!(
+        err.error_type,
+        liquers_core::error::ErrorType::ConversionError
+    );
     assert!(
         err.message.contains("cyclic") || err.message.contains("depth"),
         "the error should say why: {}",
@@ -213,9 +242,8 @@ fn value08_representative_extvalue_roundtrip() {
     );
 
     let key = parse_key("d/f").expect("parse key");
-    let key_value = Value::Base(liquers_lib::value::simple::SimpleValue::Key {
-        value: key.clone(),
-    });
+    let key_value =
+        Value::Base(liquers_lib::value::simple::SimpleValue::Key { value: key.clone() });
     assert_eq!(
         key_value.try_into_key().expect("back to key").encode(),
         key.encode()
@@ -228,7 +256,8 @@ fn value08_representative_extvalue_roundtrip() {
 
     let back = value_to_js(&value).expect("back to js");
     assert_eq!(
-        back, JsValue::from(original),
+        back,
+        JsValue::from(original),
         "the retained object should come back as itself"
     );
 }
@@ -279,10 +308,16 @@ fn value11_callable_retention_or_rejection_follows_policy() {
     let f = js_sys::Function::new_no_args("return 1;");
 
     let err = conv(&f).expect_err("a bare function must not convert structurally");
-    assert_eq!(err.error_type, liquers_core::error::ErrorType::ConversionError);
+    assert_eq!(
+        err.error_type,
+        liquers_core::error::ErrorType::ConversionError
+    );
 
     let retained = opaque_value::<Value>(f.into()).expect("explicit opaque retains a callable");
-    assert!(matches!(retained, Value::Extended(ExtValue::Foreign { .. })));
+    assert!(matches!(
+        retained,
+        Value::Extended(ExtValue::Foreign { .. })
+    ));
 }
 
 /// VALUE12 — the documented scalar behaviour: conversions are explicit, and a failed one is an
@@ -306,6 +341,10 @@ fn value12_scalar_operators_produce_documented_result() {
 fn value13_state_operations_preserve_or_discard_metadata() {
     let value = opaque_value::<Value>(js_sys::Date::new_0().into()).expect("opaque");
     assert_eq!(value.identifier(), "js");
-    assert_eq!(value.type_name(), "Date", "the constructor name should survive");
+    assert_eq!(
+        value.type_name(),
+        "Date",
+        "the constructor name should survive"
+    );
     assert_eq!(value.default_media_type(), "application/json");
 }

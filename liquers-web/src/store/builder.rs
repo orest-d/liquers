@@ -77,7 +77,11 @@ impl WebStoreFactory {
             })?),
             None => None,
         };
-        Ok(Box::new(LocalStorageStore::new(&prefix, &namespace, quota_bytes)?))
+        Ok(Box::new(LocalStorageStore::new(
+            &prefix,
+            &namespace,
+            quota_bytes,
+        )?))
     }
 
     fn create_fetch(config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
@@ -115,9 +119,9 @@ fn parse_key_list(config: &StoreConfig, prefix: &Key) -> Result<Vec<Key>, Error>
     let Some(value) = config.config.get("keys") else {
         return Ok(Vec::new());
     };
-    let array = value.as_array().ok_or_else(|| {
-        Error::general_error("`keys` must be a list of key strings".to_string())
-    })?;
+    let array = value
+        .as_array()
+        .ok_or_else(|| Error::general_error("`keys` must be a list of key strings".to_string()))?;
     let mut keys = Vec::with_capacity(array.len());
     for entry in array {
         let text = entry.as_str().ok_or_else(|| {

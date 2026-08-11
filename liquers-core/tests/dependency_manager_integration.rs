@@ -6,6 +6,7 @@
 //! NOTE: DependencyManager and dependency_manager() are pub(crate), so integration tests
 //! exercise them indirectly via the public AssetManager API.
 
+use liquers_core::parse::parse_key;
 use liquers_core::{
     context::{Context, Environment, SimpleEnvironment},
     error::Error,
@@ -13,7 +14,6 @@ use liquers_core::{
     query::Key,
     value::Value,
 };
-use liquers_core::parse::parse_key;
 
 type TestEnv = SimpleEnvironment<Value>;
 

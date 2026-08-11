@@ -178,7 +178,10 @@ mod tests {
     #[test]
     fn bare_string_deserializes_to_query() {
         let a: UiAction = serde_json::from_str("\"dashboard/q/ns-lui/add-child\"").unwrap();
-        assert_eq!(a, UiAction::Query("dashboard/q/ns-lui/add-child".to_string()));
+        assert_eq!(
+            a,
+            UiAction::Query("dashboard/q/ns-lui/add-child".to_string())
+        );
     }
 
     #[test]
@@ -223,6 +226,9 @@ mod tests {
         let q: UiAction = serde_yaml::from_str("{ query: \"text-hello\" }").unwrap();
         assert_eq!(q, UiAction::Query("text-hello".to_string()));
         let bare: UiAction = serde_yaml::from_str("\"text-hello/ns-lui/markdown\"").unwrap();
-        assert_eq!(bare, UiAction::Query("text-hello/ns-lui/markdown".to_string()));
+        assert_eq!(
+            bare,
+            UiAction::Query("text-hello/ns-lui/markdown".to_string())
+        );
     }
 }

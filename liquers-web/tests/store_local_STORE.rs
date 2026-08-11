@@ -124,8 +124,14 @@ async fn store02_missing_key_error() {
 #[wasm_bindgen_test]
 async fn store03_directory_listing_invariants() {
     let store = store("t_store03");
-    store.set(&key("d/a"), b"1", &Metadata::new()).await.expect("set a");
-    store.set(&key("d/b"), b"2", &Metadata::new()).await.expect("set b");
+    store
+        .set(&key("d/a"), b"1", &Metadata::new())
+        .await
+        .expect("set a");
+    store
+        .set(&key("d/b"), b"2", &Metadata::new())
+        .await
+        .expect("set b");
     store
         .set(&key("d/sub/c"), b"3", &Metadata::new())
         .await
@@ -157,7 +163,10 @@ async fn store04_remove_and_removedir() {
     store.remove(&k).await.expect("remove");
     assert!(!store.contains(&k).await.expect("contains"));
 
-    store.set(&key("d/y"), b"2", &Metadata::new()).await.expect("set y");
+    store
+        .set(&key("d/y"), b"2", &Metadata::new())
+        .await
+        .expect("set y");
     store.removedir(&key("d")).await.expect("removedir");
     assert!(!store.contains(&key("d")).await.expect("contains d"));
     assert!(
@@ -209,7 +218,11 @@ async fn store06_concurrent_update_policy() {
 
     let (data, _) = store.get(&k).await.expect("get");
     assert_eq!(data.len(), 1, "the value must not be torn");
-    assert_eq!(data, vec![9u8], "the last write must be the one that survives");
+    assert_eq!(
+        data,
+        vec![9u8],
+        "the last write must be the one that survives"
+    );
 }
 
 /// STORE04b / C8 — `makedir` creates a directory that has no contents, and it persists.
@@ -253,7 +266,10 @@ async fn quota_refuses_write_and_leaves_store_unchanged() {
     let store = LocalStorageStore::new(&Key::new(), namespace, Some(4000)).expect("store opens");
 
     let small = key("d/small.txt");
-    store.set(&small, b"ok", &Metadata::new()).await.expect("small write fits");
+    store
+        .set(&small, b"ok", &Metadata::new())
+        .await
+        .expect("small write fits");
     let used_before = store.used_bytes();
 
     let big = key("d/big.bin");
@@ -266,7 +282,10 @@ async fn quota_refuses_write_and_leaves_store_unchanged() {
         !store.contains(&big).await.expect("contains"),
         "a refused write must leave nothing behind"
     );
-    let (data, _) = store.get(&small).await.expect("the earlier value is intact");
+    let (data, _) = store
+        .get(&small)
+        .await
+        .expect("the earlier value is intact");
     assert_eq!(data, b"ok");
     assert_eq!(
         store.used_bytes(),

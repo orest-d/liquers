@@ -103,7 +103,12 @@ where
         }
     });
 
-    let shared = Rc::new(CallableSpec::new(run, state_mode, is_async, key.name.clone()));
+    let shared = Rc::new(CallableSpec::new(
+        run,
+        state_mode,
+        is_async,
+        key.name.clone(),
+    ));
 
     let for_async = shared.clone();
     registry.register_async_command(key.clone(), move |state, args, context| {
@@ -192,7 +197,10 @@ where
                     })
             };
             set("value", &value_to_js(state.data_unchecked().as_ref())?)?;
-            set("metadata", &crate::asset::metadata_to_js(state.metadata.as_ref())?)?;
+            set(
+                "metadata",
+                &crate::asset::metadata_to_js(state.metadata.as_ref())?,
+            )?;
             set(
                 "status",
                 &JsValue::from_str(crate::asset::status_name(state.metadata.status())),

@@ -7,15 +7,15 @@
 use std::collections::HashMap;
 
 use liquers_core::error::Error;
-use liquers_core::store::{AsyncMemoryStore, AsyncStore, AsyncStoreRouter};
 #[cfg(not(target_arch = "wasm32"))]
 use liquers_core::store::AsyncFileStore;
+use liquers_core::store::{AsyncMemoryStore, AsyncStore, AsyncStoreRouter};
 #[cfg(feature = "opendal")]
 use opendal::Operator;
 
-use crate::config::{is_opendal_store_type, StoreConfig, StoreRouterConfig};
 #[cfg(feature = "opendal")]
 use crate::config::get_opendal_scheme;
+use crate::config::{is_opendal_store_type, StoreConfig, StoreRouterConfig};
 #[cfg(feature = "opendal")]
 use crate::opendal_store::AsyncOpenDALStore;
 

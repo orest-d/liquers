@@ -61,7 +61,9 @@ fn simple_to_html(simple: &SimpleValue) -> String {
         SimpleValue::I32 { value } => labelled("int", &value.to_string()),
         SimpleValue::I64 { value } => labelled("int", &value.to_string()),
         SimpleValue::F64 { value } => labelled("float", &value.to_string()),
-        SimpleValue::Text { value } => format!("<span class=\"lq-text\">{}</span>", escape_html(value)),
+        SimpleValue::Text { value } => {
+            format!("<span class=\"lq-text\">{}</span>", escape_html(value))
+        }
         SimpleValue::Array { .. } => labelled("array", "Array"),
         SimpleValue::Object { .. } => labelled("object", "Object"),
         SimpleValue::Bytes { value } => labelled("bytes", &format!("{} bytes", value.len())),
@@ -70,7 +72,10 @@ fn simple_to_html(simple: &SimpleValue) -> String {
             if value.is_empty() {
                 labelled("asset-info", "Asset Info: <empty>")
             } else {
-                labelled("asset-info", &format!("Asset Info ({} entries)", value.len()))
+                labelled(
+                    "asset-info",
+                    &format!("Asset Info ({} entries)", value.len()),
+                )
             }
         }
         SimpleValue::Recipe { .. } => labelled("recipe", "Recipe"),
@@ -115,7 +120,10 @@ fn image_to_html(image: &image::DynamicImage) -> String {
                 b64
             )
         }
-        Err(e) => format!("<div class=\"lq-error\">Image encode error: {}</div>", escape_html(&e.to_string())),
+        Err(e) => format!(
+            "<div class=\"lq-error\">Image encode error: {}</div>",
+            escape_html(&e.to_string())
+        ),
     }
 }
 
@@ -127,7 +135,10 @@ mod tests {
 
     #[test]
     fn escape_html_escapes_all_five() {
-        assert_eq!(escape_html("<a href=\"x\">&'"), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
+        assert_eq!(
+            escape_html("<a href=\"x\">&'"),
+            "&lt;a href=&quot;x&quot;&gt;&amp;&#39;"
+        );
     }
 
     #[test]

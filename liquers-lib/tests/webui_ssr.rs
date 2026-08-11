@@ -37,7 +37,10 @@ async fn ssr_renders_tree_to_html() -> Result<(), Box<dyn std::error::Error>> {
     let html = render_app_ssr(&app_state).await?;
 
     // Root element carries its stable id, and the markdown child rendered to HTML.
-    assert!(html.contains(&format!("id=\"ui-element-{}\"", root.0)), "html: {html}");
+    assert!(
+        html.contains(&format!("id=\"ui-element-{}\"", root.0)),
+        "html: {html}"
+    );
     assert!(html.contains("lq-UISpecElement"));
     assert!(html.contains("<h1>Title</h1>"), "html: {html}");
     assert!(html.contains("Body"));
@@ -67,7 +70,10 @@ async fn ssr_escapes_hostile_text_value() -> Result<(), Box<dyn std::error::Erro
     let app_state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(state));
 
     let html = render_app_ssr(&app_state).await?;
-    assert!(!html.contains("<script>alert(1)</script>"), "raw script leaked: {html}");
+    assert!(
+        !html.contains("<script>alert(1)</script>"),
+        "raw script leaked: {html}"
+    );
     assert!(html.contains("&lt;script&gt;"), "html: {html}");
     Ok(())
 }

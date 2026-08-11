@@ -37,9 +37,11 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 
 - **Query language and Key encoding** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Plan building and evaluation** — documented → [`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`](reference/api/DOC_01_ARCHITECTURE_REFERENCE.md)
+- **Recipes and plan contracts** — documented → [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md)
 - **Offline query and recipe validation** — built → [`design/query-validation/`](design/query-validation/)
 - **Action-parameter links (`~X~~E`)** — built → [`design/query-link-parser/`](design/query-link-parser/)
 - **Payload inheritance in nested evaluation** — built → [`design/payload-nested-evaluation-inheritance/`](design/payload-nested-evaluation-inheritance/)
+- **CWD-relative nested query resolution** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Programmatic query builder** — planned → [`issues/QUERY-BUILDER-TOOLING.md`](issues/QUERY-BUILDER-TOOLING.md)
 - **Multi-realm dispatch** — planned → [`issues/CORE-MULTI-REALM-INTERPRETER.md`](issues/CORE-MULTI-REALM-INTERPRETER.md)
 
@@ -166,6 +168,7 @@ question are both measure-first items.
 |---|---|---|---|
 | [`DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE`](issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md) | P1 | S | `expired-binary-read-safety` |
 | [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P1 | M | `metadata-consistency` |
+| [`CORE-PLAN-RELATIVE-RESOLUTION-MISSING`](issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md) | P1 | M | `plan-relative-resolution` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -175,7 +178,7 @@ deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
-- `reference/api/DOC_08_RECIPES_PLANS.md`
+- design `plan-relative-resolution`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 

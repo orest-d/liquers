@@ -482,9 +482,17 @@ mod tests {
         let lines = report.diagnostic_lines();
         assert_eq!(lines.len(), 2, "an Ok result emits nothing: {lines:?}");
         assert!(lines[0].starts_with("WARNING"), "{}", lines[0]);
-        assert!(lines[0].contains("[3]") && lines[0].contains("oops"), "{}", lines[0]);
+        assert!(
+            lines[0].contains("[3]") && lines[0].contains("oops"),
+            "{}",
+            lines[0]
+        );
         assert!(lines[1].starts_with("ERROR"), "{}", lines[1]);
-        assert!(lines[1].contains("[7]") && lines[1].contains("nope"), "{}", lines[1]);
+        assert!(
+            lines[1].contains("[7]") && lines[1].contains("nope"),
+            "{}",
+            lines[1]
+        );
     }
 
     /// U20 — both formats round-trip.
@@ -546,7 +554,10 @@ mod tests {
             "\"query\"",
             "\"plan\"",
         ] {
-            assert!(!json.contains(absent), "{absent} should be omitted:\n{json}");
+            assert!(
+                !json.contains(absent),
+                "{absent} should be omitted:\n{json}"
+            );
         }
         assert!(json.contains("\"status\""));
         assert!(json.contains("\"source\""));
@@ -568,8 +579,7 @@ mod tests {
     /// U3 — position fidelity is what makes the diagnostic useful.
     #[test]
     fn failed_result_preserves_error_position() {
-        let error = Error::general_error("x".to_string())
-            .with_position(&Position::new(5, 1, 6));
+        let error = Error::general_error("x".to_string()).with_position(&Position::new(5, 1, 6));
         let result = ValidationResult::failed(0, "q".to_string(), error);
 
         let error = result.error.expect("error present");

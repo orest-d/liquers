@@ -265,7 +265,11 @@ async fn error_then_retry_reaches_ready() {
         runner.element_status(&*state, handle),
         ElementStatusInfo::Ready
     );
-    assert_eq!(state.roots(), vec![handle], "retry must not add a second root");
+    assert_eq!(
+        state.roots(),
+        vec![handle],
+        "retry must not add a second root"
+    );
 }
 
 // ─── 4. Serialization round trip ─────────────────────────────────────────────
@@ -279,7 +283,10 @@ async fn app_state_round_trip_preserves_tree_and_sources() {
         .add_node(None, 0, ElementSource::None)
         .expect("add root");
     direct_state
-        .set_element(root, Box::new(MarkdownElement::new("Doc".into(), "# Title".into())))
+        .set_element(
+            root,
+            Box::new(MarkdownElement::new("Doc".into(), "# Title".into())),
+        )
         .expect("set root element");
     let ready_child = direct_state
         .add_node(Some(root), 0, ElementSource::Query("hello".to_string()))
@@ -304,11 +311,17 @@ async fn app_state_round_trip_preserves_tree_and_sources() {
     );
     assert_eq!(restored.active_handle(), Some(ready_child));
     assert_eq!(
-        restored.get_element(root).expect("get root").map(|e| e.type_name()),
+        restored
+            .get_element(root)
+            .expect("get root")
+            .map(|e| e.type_name()),
         Some("MarkdownElement")
     );
     assert!(
-        restored.get_element(pending_child).expect("get pending").is_none(),
+        restored
+            .get_element(pending_child)
+            .expect("get pending")
+            .is_none(),
         "a pending node stays pending across a round trip"
     );
     assert_eq!(restored.pending_nodes(), vec![pending_child]);

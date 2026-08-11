@@ -36,15 +36,15 @@
 pub mod asset;
 pub mod bridge;
 pub mod builtins;
+pub mod command;
+pub mod default_value;
 pub mod encode;
-pub mod error;
 pub mod environment;
+pub mod error;
 pub mod eval;
 pub mod objects;
 pub mod store;
 pub mod typescript;
-pub mod command;
-pub mod default_value;
 pub mod value;
 
 pub use asset::{LiquersAsset, LiquersState};

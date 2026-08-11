@@ -88,12 +88,9 @@ impl ExtValueInterface for ExtValue {
     fn as_polars_dataframe(&self) -> Result<Arc<polars::frame::DataFrame>, Error> {
         match self {
             ExtValue::PolarsDataFrame { value } => Ok(value.clone()),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
-                Err(Error::conversion_error(
-                    self.identifier().as_ref(),
-                    "Polars dataframe",
-                ))
-            }
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => Err(
+                Error::conversion_error(self.identifier().as_ref(), "Polars dataframe"),
+            ),
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),
@@ -107,13 +104,15 @@ impl ExtValueInterface for ExtValue {
     fn as_ui_element(&self) -> Result<Arc<dyn crate::ui::element::UIElement>, Error> {
         match self {
             ExtValue::UIElement { value } => Ok(value.clone()),
-            ExtValue::Image { .. } | ExtValue::Foreign { .. } => {
-                Err(Error::conversion_error(self.identifier().as_ref(), "UIElement"))
-            }
+            ExtValue::Image { .. } | ExtValue::Foreign { .. } => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "UIElement",
+            )),
             #[cfg(feature = "polars")]
-            ExtValue::PolarsDataFrame { .. } => {
-                Err(Error::conversion_error(self.identifier().as_ref(), "UIElement"))
-            }
+            ExtValue::PolarsDataFrame { .. } => Err(Error::conversion_error(
+                self.identifier().as_ref(),
+                "UIElement",
+            )),
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => Err(Error::conversion_error(
                 self.identifier().as_ref(),

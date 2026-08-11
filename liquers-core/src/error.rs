@@ -357,10 +357,7 @@ impl Error {
         let key_str = store_key.as_ref().map(|k| k.encode());
         Error {
             error_type: ErrorType::DependencyCycle,
-            message: format!(
-                "Dependency cycle detected involving '{}'",
-                dep_key.as_str()
-            ),
+            message: format!("Dependency cycle detected involving '{}'", dep_key.as_str()),
             position: Position::unknown(),
             query: key_str.clone(),
             key: key_str,

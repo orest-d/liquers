@@ -64,7 +64,10 @@ pub trait ForeignValue:
     /// The default refuses: a coercion such as JavaScript's `String(obj)` is lossy and usually not
     /// what a caller means by "the text of this value".
     fn try_into_string(&self) -> Result<String, Error> {
-        Err(Error::conversion_error(self.identifier().as_ref(), "string"))
+        Err(Error::conversion_error(
+            self.identifier().as_ref(),
+            "string",
+        ))
     }
 
     /// JSON conversion, if the language can provide a faithful one. Refuses by default.

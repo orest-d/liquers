@@ -21,8 +21,12 @@ const STORE: &str = "test store";
 
 /// Asserts that a key shape is refused as unsupported, not merely that something went wrong.
 fn assert_refused(key_text: &str) {
-    let key = parse_key(key_text)
-        .unwrap_or_else(|e| panic!("{key_text:?} must parse before it can be refused: {}", e.message));
+    let key = parse_key(key_text).unwrap_or_else(|e| {
+        panic!(
+            "{key_text:?} must parse before it can be refused: {}",
+            e.message
+        )
+    });
     match check_key(&key, STORE) {
         Ok(()) => panic!("{key_text:?} must be refused by the key guard"),
         Err(e) => assert_eq!(
@@ -83,7 +87,10 @@ fn keyguard04_ordinary_keys_accepted() {
 #[wasm_bindgen_test]
 fn keyguard05_empty_key_accepted() {
     let root = liquers_core::query::Key::new();
-    assert!(check_key(&root, STORE).is_ok(), "the root key must be accepted");
+    assert!(
+        check_key(&root, STORE).is_ok(),
+        "the root key must be accepted"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -202,12 +209,20 @@ fn store03_directory_index_is_consistent() {
     assert_eq!(root_children, vec!["data".to_string()]);
 
     let data = parse_key("data").expect("key");
-    let mut children: Vec<String> = dirs.get(&data).expect("data is a directory").iter().cloned().collect();
+    let mut children: Vec<String> = dirs
+        .get(&data)
+        .expect("data is a directory")
+        .iter()
+        .cloned()
+        .collect();
     children.sort();
     assert_eq!(children, vec!["a.txt", "b.txt", "sub"]);
 
     let sub = parse_key("data/sub").expect("key");
-    assert!(dirs.contains_key(&sub), "an intermediate directory must exist");
+    assert!(
+        dirs.contains_key(&sub),
+        "an intermediate directory must exist"
+    );
     assert!(
         !dirs.contains_key(&parse_key("data/a.txt").expect("key")),
         "a leaf key must not be a directory"
@@ -280,7 +295,11 @@ async fn fetch_escaping_key_is_unsupported_not_merely_unlisted() {
 /// A store configured with no keys serves nothing at all.
 #[wasm_bindgen_test]
 async fn fetch_store_with_no_keys_serves_nothing() {
-    let store = FetchStore::new(&parse_key("data").expect("prefix"), "https://example.org/", vec![])
-        .expect("store");
+    let store = FetchStore::new(
+        &parse_key("data").expect("prefix"),
+        "https://example.org/",
+        vec![],
+    )
+    .expect("store");
     assert!(!store.is_supported(&parse_key("data/anything").expect("key")));
 }

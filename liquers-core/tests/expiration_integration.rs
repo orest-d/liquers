@@ -399,8 +399,11 @@ async fn test_dependent_expiration2() -> Result<(), Box<dyn std::error::Error>> 
     assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
     assert_eq!(asset.status().await, Status::Ready);
     let state = asset.get().await?;
-    assert_eq!(state.metadata.expires(), Expires::InDuration(std::time::Duration::from_millis(500)));
-  
+    assert_eq!(
+        state.metadata.expires(),
+        Expires::InDuration(std::time::Duration::from_millis(500))
+    );
+
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(asset.status().await, Status::Expired);
 
@@ -438,7 +441,10 @@ async fn test_commands_chain_expiration() -> Result<(), Box<dyn std::error::Erro
     assert_eq!(asset.get().await?.try_into_string()?, "Hello, world!");
     assert_eq!(asset.status().await, Status::Ready);
     let state = asset.get().await?;
-    assert_eq!(state.metadata.expires(), Expires::InDuration(std::time::Duration::from_millis(500)));
+    assert_eq!(
+        state.metadata.expires(),
+        Expires::InDuration(std::time::Duration::from_millis(500))
+    );
 
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(asset.status().await, Status::Expired);
@@ -548,8 +554,7 @@ async fn test_expired_status_poll_state_none() -> Result<(), Box<dyn std::error:
 /// Shared setup: a keyed resource `"wp3_counter.txt"` backed by a recipe that runs an
 /// incrementing counter command, so every real recomputation is observable.
 async fn wp3_keyed_counter_env(
-) -> Result<(EnvRef<SimpleEnvironment<Value>>, Key, Arc<AtomicUsize>), Box<dyn std::error::Error>>
-{
+) -> Result<(EnvRef<SimpleEnvironment<Value>>, Key, Arc<AtomicUsize>), Box<dyn std::error::Error>> {
     type CommandEnvironment = SimpleEnvironment<Value>;
     let calls = Arc::new(AtomicUsize::new(0));
     let calls_for_cmd = calls.clone();
@@ -688,7 +693,10 @@ async fn test_expired_dependency_is_recomputed_before_dependent_evaluation(
         Ok(Value::from_string(n.to_string()))
     }
     fn wp3_parent(state: &State<Value>) -> Result<Value, Error> {
-        Ok(Value::from_string(format!("parent({})", state.try_into_string()?)))
+        Ok(Value::from_string(format!(
+            "parent({})",
+            state.try_into_string()?
+        )))
     }
 
     let mut env = CommandEnvironment::new();
@@ -785,7 +793,10 @@ async fn test_dependency_expiring_during_parent_evaluation_is_allowed(
         }
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
-    assert!(child_ready, "child dependency never reached Ready within the bounded wait");
+    assert!(
+        child_ready,
+        "child dependency never reached Ready within the bounded wait"
+    );
     child_asset.expire().await?;
     let _ = gate_tx.send(());
 
@@ -865,8 +876,7 @@ impl AsyncStore for WP3CountingStore {
 /// `set_metadata` exactly once more and does NOT call `set` again — proving no re-serialization
 /// happened, not just that the end value looks right.
 #[tokio::test]
-async fn test_to_override_metadata_only_when_persisted() -> Result<(), Box<dyn std::error::Error>>
-{
+async fn test_to_override_metadata_only_when_persisted() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = SimpleEnvironment<Value>;
     fn wp3_persisted_counter() -> Result<Value, Error> {
         Ok(Value::from_string("1".to_string()))
@@ -898,7 +908,10 @@ async fn test_to_override_metadata_only_when_persisted() -> Result<(), Box<dyn s
 
     let asset = manager.get(&key).await?;
     assert_eq!(asset.get().await?.try_into_string()?, "1");
-    assert_eq!(asset.persistence_status().await, PersistenceStatus::Persisted);
+    assert_eq!(
+        asset.persistence_status().await,
+        PersistenceStatus::Persisted
+    );
     asset.expire().await?;
     // Snapshot AFTER expire(): expire() itself now persists the Expired status via
     // set_metadata (so a subsequent store-load can't fast-track the stale Ready bytes back in
@@ -1068,16 +1081,28 @@ async fn test_to_override_skips_store_write_when_nonserializable(
         "the unrecognized data_format must fail as_bytes() on the very first save attempt"
     );
     assert!(
-        !manager.get_envref().get_async_store().contains(&key).await?,
+        !manager
+            .get_envref()
+            .get_async_store()
+            .contains(&key)
+            .await?,
         "nothing should have been persisted for an unrecognized data_format"
     );
     asset.expire().await?;
 
     manager.to_override(&key).await?;
 
-    assert_eq!(asset.status().await, Status::Override, "in-memory promotion still happens");
+    assert_eq!(
+        asset.status().await,
+        Status::Override,
+        "in-memory promotion still happens"
+    );
     assert!(
-        !manager.get_envref().get_async_store().contains(&key).await?,
+        !manager
+            .get_envref()
+            .get_async_store()
+            .contains(&key)
+            .await?,
         "to_override must not write anything to the store when the value was never serializable"
     );
     Ok(())
@@ -1234,8 +1259,8 @@ async fn test_binary_read_matrix_end_to_end() -> Result<(), Box<dyn std::error::
 /// rebuilds. Without this, the fix could silently convert "expired -> recompute" into
 /// "expired -> error" for every caller.
 #[tokio::test]
-async fn test_manager_re_request_still_rebuilds_after_gate()
--> Result<(), Box<dyn std::error::Error>> {
+async fn test_manager_re_request_still_rebuilds_after_gate(
+) -> Result<(), Box<dyn std::error::Error>> {
     let (envref, key, calls) = wp3_keyed_counter_env().await?;
     let manager = envref.get_asset_manager();
 
@@ -1317,7 +1342,10 @@ async fn test_get_asset_binary_agrees_with_get_asset() -> Result<(), Box<dyn std
         state_result.is_ok(),
         binary_result.is_ok()
     );
-    assert!(state_result.is_ok(), "both should resolve for a fresh asset");
+    assert!(
+        state_result.is_ok(),
+        "both should resolve for a fresh asset"
+    );
     assert_eq!(binary_result?.try_into_string()?, "1");
     Ok(())
 }
@@ -1329,8 +1357,8 @@ async fn test_get_asset_binary_agrees_with_get_asset() -> Result<(), Box<dyn std
 /// direct `AssetData` built from the same store entry must refuse — otherwise the read gate could
 /// be bypassed entirely by eviction plus reload.
 #[tokio::test]
-async fn test_expired_keyed_asset_does_not_fast_track_back()
--> Result<(), Box<dyn std::error::Error>> {
+async fn test_expired_keyed_asset_does_not_fast_track_back(
+) -> Result<(), Box<dyn std::error::Error>> {
     let (envref, key, _calls) = wp3_keyed_counter_env().await?;
     let manager = envref.get_asset_manager();
 

@@ -1,7 +1,9 @@
 // Integration tests for volatility system
 use liquers_core::{
     assets::AssetManager,
-    command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry, PayloadRequirement},
+    command_metadata::{
+        ArgumentInfo, CommandMetadata, CommandMetadataRegistry, PayloadRequirement,
+    },
     commands::{CommandArguments, CommandRegistry},
     context::{Context, EnvRef, Environment, SimpleEnvironment},
     error::Error,
@@ -283,8 +285,8 @@ async fn test_asset_to_override() -> Result<(), Box<dyn std::error::Error>> {
 
 /// The `payload: required` statement must set both `payload_required` and `volatile`.
 #[tokio::test]
-async fn test_payload_required_sets_metadata_and_volatile(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_payload_required_sets_metadata_and_volatile() -> Result<(), Box<dyn std::error::Error>>
+{
     type CommandEnvironment = SimpleEnvironment<Value>;
     let mut env = SimpleEnvironment::<Value>::new();
 
@@ -401,4 +403,3 @@ async fn test_payload_command_marks_plan() -> Result<(), Box<dyn std::error::Err
     );
     Ok(())
 }
-

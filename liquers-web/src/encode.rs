@@ -167,7 +167,9 @@ mod tests {
     fn object09_encode_param_refuses_what_it_cannot_represent() {
         // Every one of these is a character `encode_token` would pass through verbatim, producing
         // text the parser rejects. Refusing is the whole point.
-        for value in ["12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本"] {
+        for value in [
+            "12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本",
+        ] {
             let err = encode_param(value)
                 .err()
                 .unwrap_or_else(|| panic!("{value:?} must be refused, not silently encoded"));

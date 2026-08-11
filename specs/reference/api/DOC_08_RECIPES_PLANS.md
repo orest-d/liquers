@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-08-09
+reviewed: 2026-08-11
 ---
 # DOC-08: Recipes and Plans
 
@@ -57,7 +57,8 @@ Query
 
 A `Query` is syntax. A `Recipe` adds human metadata, named parameter overrides,
 logical working directory, volatility, expiration, and provider validation state.
-A `Plan` contains resolved interpreter operations. An asset owns the runtime state,
+A `Plan` contains ordered interpreter operations whose key and query operands may
+remain source-relative until analysis or execution. An asset owns the runtime state,
 metadata, waiting, persistence, and notification lifecycle.
 
 Neither `Recipe::to_plan` nor `PlanBuilder::build` executes commands. Neither
@@ -83,7 +84,10 @@ fields and Serde deserialization do not validate strings eagerly, so
 
 `Recipe::to_plan` enables placeholders, builds the query, and applies overrides to
 the last action step only. An override whose name is not present on that action is
-an error. Link strings are parsed during conversion.
+an error. Link strings are parsed during conversion. When `cwd` is present,
+`to_plan` prepends one raw executable `Step::SetCwd` and adds one non-executable
+`Step::Info` to `init_steps` with the exact text
+`Recipe set CWD to '<encoded-key>'`. It does not rewrite relative query operands.
 
 `has_arguments` includes both value and link overrides. Consequently `key` returns
 a key only when the recipe has no overrides and its query is a key query. When
@@ -98,6 +102,19 @@ logical destination implied by the recipe; it does not write data.
 assigns the directory containing `recipes.yaml` to recipes that it loads.
 Execution installs the recipe working directory on `Context`, after which relative
 keys and links can resolve against it.
+
+YAML authors must not specify `cwd`. `DefaultRecipeProvider` derives it from the
+containing `recipes.yaml` and rejects a loaded recipe that already has the field.
+The field remains public and deserializable because programmatic recipe creation
+may set it; `Recipe::to_plan` validates that string as a `Key` and preserves it as
+the plan prefix described above.
+
+The prefix and query-authored `cwd` instructions compose in execution order. For
+recipe CWD `a/b`, the raw query
+`-R-cwd/../c/-/action-~X~-R/./hello.txt~E` first installs `a/b`, then resolves
+`../c` to `a/c`, and finally evaluates the relative link as
+`-R/a/c/hello.txt`. Recipe conversion deliberately keeps both `SetCwd` operands
+and the link source-relative.
 
 `RecipeList::set_cwd` is all-or-error in intent but mutates in iteration order. It
 sets missing values until it encounters an explicitly populated `cwd`, then
@@ -154,6 +171,11 @@ produces a query value and accepts no arguments.
 Recipe value and link overrides affect only the last `Step::Action`. They do not
 provide general substitution across every action in a plan.
 
+`PlanBuilder` is syntax- and command-metadata-driven; it does not choose an entry
+CWD or rewrite relative operands. Runtime and dependency-analysis cursors interpret
+the raw steps in order. This avoids freezing one builder-time CWD before a later
+`SetCwd` can take effect.
+
 ## Plan fields and execution
 
 | Field | Meaning |
@@ -178,6 +200,18 @@ and each data-producing step replaces the current value. Context modifiers retai
 the current value. `apply_plan` rejects a payload-required plan when its context has
 no payload.
 
+Every key-bearing executable step and every query/link operand is resolved when it
+is analyzed or consumed. `SetCwd` resolves and installs its operand before later
+steps. Nested plans share the live CWD and can change it for following outer steps;
+linked queries inherit an entry snapshot but keep their own internal CWD changes
+scoped. An absolute source query is aligned with its own generated resource step,
+so a recipe prefix is not mistaken for that source step and does not override the
+outer query's logical-root meaning.
+
+Static dependency discovery, pre-scheduling, runtime lookup, cycle registration,
+and asset caching use the same resolved key identity. Planning cursors operate on
+copies and do not mutate the raw plan or prematurely advance the live context.
+
 ## Finalization and expiration
 
 Synchronous build results are incomplete for environment-backed dependencies.
@@ -201,6 +235,20 @@ inline assets.
 `interpreter::make_plan` is the dependency-aware helper for an ad-hoc query, but it
 has no `Context`, so it performs volatility and expiration analysis without the
 context seeding and dependency-manager registration performed by `finalize_plan`.
+
+## Serialization and future plan rewriting
+
+Recipe and plan JSON/YAML preserve source-relative query text, ordered raw
+`SetCwd` steps, links, `QuerySource`, and source positions. Runtime-only cursor
+state and root-fallback bookkeeping are not serialized. This is a current data
+contract, not a versioned stable wire-format guarantee.
+
+There is no plan optimizer, substitution pass, or CWD-elimination pass today.
+Because callers can inspect and serialize `Plan::steps` and `init_steps`, a future
+optimizer must treat their ordering and diagnostics as observable: it may replace
+relative operands with absolute ones and remove `SetCwd` only when it preserves
+execution, dependency identity, source provenance, and the recipe CWD `Info`
+diagnostic.
 
 ## Public versus framework APIs
 
@@ -241,7 +289,9 @@ Public visibility does not enforce this distinction.
 
 The reference is covered by existing recipe and plan unit tests, keyed recipe
 asset tests, namespace-resolution tests, and expiration/dependency integration
-tests.
+tests. CWD-specific coverage includes provider and programmatic provenance, raw
+plan serialization, ordered dependency traversal, interpreter execution, nested
+link/plan scope, absolute-source alignment, and root-fallback concurrency.
 
 Review verification on 2026-08-09:
 
@@ -260,6 +310,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-11 | Documented provider and programmatic recipe CWD provenance, raw plan prefixes and diagnostics, ordered runtime resolution, serialization, identity, and optimizer constraints. | phase-5 |
 | 2026-08-09 | Applied the verified recipe and planning contracts to comprehensive module and public-API Rustdoc in `plan.rs` and `recipes.rs`. | DOC-08 |
 | 2026-08-09 | Reviewed recipe resolution, plan building, payload requirements, finalization, and execution against HEAD; documented `Plan::payload_required` and corrected links. | PAYLOAD-INHERITANCE |
 | 2026-07-29 | Verified recipe resolution, planning, finalization, and execution against the implementation and focused tests. | DOC-08 |

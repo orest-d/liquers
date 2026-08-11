@@ -418,7 +418,10 @@ async fn test_state_with_metadata() {
 /// Test State cloning for async task movement
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_state_cloning() {
-    let state = State::from_parts(Arc::new(Value::from("shareable data")), Arc::new(Metadata::new()));
+    let state = State::from_parts(
+        Arc::new(Value::from("shareable data")),
+        Arc::new(Metadata::new()),
+    );
 
     // Both tasks can hold Arc references
     let state1 = state.clone();

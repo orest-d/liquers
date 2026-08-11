@@ -190,12 +190,12 @@ enum Replaced {
 }
 
 fn existing_command_kind(key: &liquers_core::command_metadata::CommandKey) -> Replaced {
-    let lookup = |registry: &liquers_core::command_metadata::CommandMetadataRegistry| {
-        match registry.get(key.clone()) {
-            Some(m) if m.module == "javascript" => Replaced::JavaScriptCommand,
-            Some(_) => Replaced::RustCommand,
-            None => Replaced::Nothing,
-        }
+    let lookup = |registry: &liquers_core::command_metadata::CommandMetadataRegistry| match registry
+        .get(key.clone())
+    {
+        Some(m) if m.module == "javascript" => Replaced::JavaScriptCommand,
+        Some(_) => Replaced::RustCommand,
+        None => Replaced::Nothing,
     };
     let pending = PENDING_ENV.with(|cell| {
         cell.borrow()
@@ -273,9 +273,7 @@ fn rebuild_with(additional: JsValue) -> Result<(), Error> {
 /// is still un-shared, and otherwise by rebuilding and replaying. The rebuild discards the asset
 /// cache, which is correct rather than merely tolerable — assets computed against the previous
 /// store are stale the moment it is replaced, and nothing else invalidates them.
-pub fn configure_store_on(
-    config: liquers_store::config::StoreRouterConfig,
-) -> Result<(), Error> {
+pub fn configure_store_on(config: liquers_store::config::StoreRouterConfig) -> Result<(), Error> {
     // Retain the replacement *and keep the predecessor*, because applying it can fail and the
     // retained copy is what every later rebuild replays. Leaving a failed replacement retained
     // would make the next command registration rebuild into a broken store; clearing retention
@@ -555,16 +553,12 @@ pub fn shared_env() -> Result<EnvRef<WebEnvironment>, Error> {
 /// keep.
 pub fn with_global() -> Result<EnvRef<WebEnvironment>, Error> {
     GLOBAL_ENV.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| {
-                Error::from_error(
-                    ErrorType::NotAvailable,
-                    "Liquers is not initialized — await liquers.init() before evaluating"
-                        .to_string(),
-                )
-            })
+        cell.borrow().as_ref().cloned().ok_or_else(|| {
+            Error::from_error(
+                ErrorType::NotAvailable,
+                "Liquers is not initialized — await liquers.init() before evaluating".to_string(),
+            )
+        })
     })
 }
 
@@ -599,8 +593,9 @@ pub fn init_global() -> Result<(), Error> {
 
 /// Whether a command is registered on the pending environment. Test support.
 pub fn has_command(name: &str) -> bool {
-    existing_command_kind(&liquers_core::command_metadata::CommandKey::new("", "", name))
-        != Replaced::Nothing
+    existing_command_kind(&liquers_core::command_metadata::CommandKey::new(
+        "", "", name,
+    )) != Replaced::Nothing
 }
 
 /// Clears the singleton. Test support, and the shutdown path.

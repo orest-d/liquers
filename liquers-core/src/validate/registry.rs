@@ -5,9 +5,7 @@
 
 use serde::de::DeserializeOwned;
 
-use crate::command_metadata::{
-    ArgumentInfo, CommandKey, CommandMetadata, CommandMetadataRegistry,
-};
+use crate::command_metadata::{ArgumentInfo, CommandKey, CommandMetadata, CommandMetadataRegistry};
 use crate::error::Error;
 
 use super::report::RegistryProvenance;
@@ -227,7 +225,11 @@ mod tests {
         builder.merge_str("overlay.yaml", &registry_yaml("head", "pl"))?;
         let (registry, _) = builder.build();
 
-        assert_eq!(registry.commands.len(), 1, "overwrite replaces, not appends");
+        assert_eq!(
+            registry.commands.len(),
+            1,
+            "overwrite replaces, not appends"
+        );
         Ok(())
     }
 
@@ -241,7 +243,10 @@ mod tests {
         let (_, provenance) = builder.build();
 
         // CommandKey::new normalizes the default namespace `root` to the empty string.
-        assert_eq!(provenance.cli_commands[0], CommandKey::new("", "root", "greet"));
+        assert_eq!(
+            provenance.cli_commands[0],
+            CommandKey::new("", "root", "greet")
+        );
         assert_eq!(provenance.cli_commands[0].namespace, "");
         assert_eq!(
             provenance.cli_commands[1],

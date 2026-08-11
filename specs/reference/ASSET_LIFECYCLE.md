@@ -3,7 +3,7 @@ title: Asset Lifecycle Map
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-07-07
+reviewed: 2026-08-11
 ---
 # Asset Lifecycle — Comprehensive Map
 
@@ -384,6 +384,27 @@ The dependency tracking has two overlapping paths:
 
 Both are registered into the DM, but at different times and via different mechanisms.
 
+### CWD normalization and dependency identity
+
+Recipe and plan operands remain source-relative until interpretation. A recipe with `cwd` produces
+a leading `SetCwd`; the interpreter keeps the active logical CWD in the shared evaluation
+`Context`, applies each later `SetCwd` in order, and resolves relative resource keys, linked
+queries, nested plans, and the `Context::evaluate`, `Context::get_dependency_state`, and
+`Context::apply` boundaries against that state. A linked evaluation receives the active CWD as a
+scoped starting point, but changes made inside the link do not leak back to its parent.
+
+Dependency discovery simulates the same ordered CWD transitions without mutating the live Context.
+It registers resolved query/key identities, so `./hello.txt` reached from `a/c` is tracked and
+cached as `a/c/hello.txt`, not as the raw relative spelling or a sibling key. Keyed-recipe owner
+registration starts from the asset's immutable construction-time query, requires the current
+recipe to identify the same key, and confirms the exact `AssetRef` id through a non-evaluating
+manager ownership lookup. Temporary, ad-hoc, volatile/evicted, provider-mismatched, and differently
+owned assets are not registered as keyed owners. Dependency tracking and expiration persistence
+use this same verified owner identity; they do not infer ownership from the mutable provider
+recipe. If a relative operand has no CWD, the Context
+atomically installs logical root `/` and logs one warning; absolute operands neither use that
+fallback nor emit the warning.
+
 ### Cascade Expiration
 
 When a dependency changes:
@@ -626,4 +647,5 @@ pub struct Context<E: Environment> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-11 | Reviewed runtime recipe execution and documented ordered CWD normalization, scoped nested evaluation, resolved dependency/owner identity, and root fallback. | phase-5 |
 | 2026-07-07 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

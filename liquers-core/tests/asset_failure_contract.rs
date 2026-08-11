@@ -25,13 +25,10 @@ fn boom_env() -> SimpleEnvironment<Value> {
     let mut env = SimpleEnvironment::<Value>::new();
     let key = liquers_core::command_metadata::CommandKey::new_name("boom");
     env.command_registry
-        .register_command(
-            key,
-            |_state, _args, ctx| -> Result<Value, Error> {
-                ctx.info("step1")?;
-                Err(Error::general_error("boom".to_string()))
-            },
-        )
+        .register_command(key, |_state, _args, ctx| -> Result<Value, Error> {
+            ctx.info("step1")?;
+            Err(Error::general_error("boom".to_string()))
+        })
         .expect("register boom failed");
     env
 }
@@ -117,7 +114,11 @@ async fn test_error_asset_reevaluated_on_rerequest() {
     // A fresh manager request treats the Error as a cache miss and re-evaluates -> success.
     let asset2 = envref.get_asset_manager().get_asset(&query).await.unwrap();
     let s2 = asset2.get().await.unwrap();
-    assert_eq!(s2.status(), Status::Ready, "stale Error must be re-evaluated");
+    assert_eq!(
+        s2.status(),
+        Status::Ready,
+        "stale Error must be re-evaluated"
+    );
     assert_eq!(s2.value_state().unwrap().try_into_string().unwrap(), "ok");
 }
 
@@ -131,7 +132,9 @@ fn test_value_state_mapping() {
 
     // Error state (via from_error): value extraction returns the stored error.
     let err_state: State<Value> = State::from_error(Error::general_error("kaboom".to_string()));
-    let e = err_state.value_error().expect("error state must have a value_error");
+    let e = err_state
+        .value_error()
+        .expect("error state must have a value_error");
     assert!(e.message.contains("kaboom"));
     // error_result mirrors the stored error for an error state.
     assert!(err_state.error_result().is_err());
@@ -142,7 +145,9 @@ fn test_value_state_mapping() {
     cancelled.set_status(Status::Cancelled).unwrap();
     // error_result is Ok for a cancelled state (no stored error) — the subtlety WP-2 fixes.
     assert!(cancelled.error_result().is_ok());
-    let ce = cancelled.value_error().expect("cancelled must have a value_error");
+    let ce = cancelled
+        .value_error()
+        .expect("cancelled must have a value_error");
     assert_eq!(ce.error_type, ErrorType::Cancelled);
     assert!(cancelled.value_state().is_err());
 }

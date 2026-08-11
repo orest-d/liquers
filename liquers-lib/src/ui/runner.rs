@@ -217,8 +217,10 @@ where
             UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
         let payload: E::Payload = SimpleUIPayload::new(ui_context.clone()).into();
 
-        let input_state =
-            State::from_parts(Arc::new(Value::from(input.as_str())), Arc::new(Metadata::new()));
+        let input_state = State::from_parts(
+            Arc::new(Value::from(input.as_str())),
+            Arc::new(Metadata::new()),
+        );
 
         let result = match parse_query(&query) {
             Ok(q) => {
@@ -406,7 +408,8 @@ where
                 let snapshot = Self::build_snapshot(&asset_ref).await;
 
                 // 4. Deliver snapshot to element
-                let outcome = Self::deliver_snapshot(handle, snapshot, app_state, &self.sender).await;
+                let outcome =
+                    Self::deliver_snapshot(handle, snapshot, app_state, &self.sender).await;
 
                 // 5. Store in monitoring map (replaces existing if any).
                 //    If the element doesn't exist, don't start monitoring.

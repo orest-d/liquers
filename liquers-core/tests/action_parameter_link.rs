@@ -62,12 +62,7 @@ async fn evaluate_nested_textual_link() -> Result<(), Box<dyn std::error::Error>
     let envref = environment()?.to_ref();
 
     // greet-~X~ world/greet-~X~greeting~E ~E  =>  argument is "Hello, world!"
-    let state = evaluate(
-        envref,
-        "world/greet-~X~world/greet-~X~greeting~E~E",
-        None,
-    )
-    .await?;
+    let state = evaluate(envref, "world/greet-~X~world/greet-~X~greeting~E~E", None).await?;
     assert_eq!(state.try_into_string()?, "Hello, world!, world!");
     Ok(())
 }
@@ -77,9 +72,13 @@ async fn evaluate_nested_textual_link() -> Result<(), Box<dyn std::error::Error>
 async fn evaluate_rejects_shorthand_inside_link() -> Result<(), Box<dyn std::error::Error>> {
     let envref = environment()?.to_ref();
 
-    let err = evaluate(envref.clone(), "world/greet-~X~data/report/-/to_text~E", None)
-        .await
-        .expect_err("shorthand must be rejected inside a link");
+    let err = evaluate(
+        envref.clone(),
+        "world/greet-~X~data/report/-/to_text~E",
+        None,
+    )
+    .await
+    .expect_err("shorthand must be rejected inside a link");
     assert!(
         err.message.contains("-R/"),
         "message must name the explicit form, got: {}",
