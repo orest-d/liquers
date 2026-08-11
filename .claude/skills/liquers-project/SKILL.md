@@ -365,9 +365,12 @@ the design history.
    `DOCS_STRUCTURE_GUIDE.md` §9
 7. Add or update links in `specs/README.md` and other documentation so readers enter through the
    current reference/guide rather than stale design artifacts where appropriate
-8. Run documentation validation, perform the Phase 5 critical review, and present the results at
+8. Update every issue or feature completed by this work to `status: closed` (or
+   `closed_not_planned` for that outcome), with a concise resolution or decision note, following
+   `DOCS_STRUCTURE_GUIDE.md` §4.3. This is required even when `github:` is present.
+9. Run documentation validation, perform the Phase 5 critical review, and present the results at
    the approval gate
-9. If a later rebase or merge conflict changes code or documentation, review the affected material
+10. If a later rebase or merge conflict changes code or documentation, review the affected material
    again after merge and fix any inconsistency
 
 **Output:** `specs/design/<feature-name>/phase5-documentation.md`, plus any new or updated files in

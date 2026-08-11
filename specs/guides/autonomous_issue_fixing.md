@@ -3,7 +3,7 @@ title: Autonomous Issue Fixing Procedure
 kind: guide
 audience: internal
 area: [docs, build]
-reviewed: 2026-08-10
+reviewed: 2026-08-11
 ---
 
 # Autonomous Issue Fixing Procedure
@@ -35,8 +35,8 @@ The agent MUST read the issue, relevant source and tests, linked design material
 current documentation before choosing a solution. The
 [`DOCS_STRUCTURE_GUIDE.md`](../DOCS_STRUCTURE_GUIDE.md) is authoritative for issue metadata,
 design state, documentation placement, and index maintenance. The agent MUST preserve that guide's
-ownership rules, including GitHub-owned status and the rule against changing the status of an issue
-it did not just file.
+ownership rules, including the issue/feature document's authoritative local status even when it
+has a `github:` number.
 
 ## 2. Non-negotiable invariants
 
@@ -100,8 +100,8 @@ Before Phase 1, the agent MUST:
 2. confirm priority and complexity are within the authorized scope;
 3. inspect repository instructions and the current worktree without discarding unrelated changes;
 4. switch to or create a dedicated branch from the intended base;
-5. when the issue is GitHub-tracked and synchronization is available, synchronize before relying
-   on remote status; otherwise state that remote state was not verified;
+5. when GitHub metadata matters and synchronization is available, synchronize before relying on
+   that remote metadata; the issue document's local status remains authoritative either way;
 6. read linked designs and the current documentation for every affected area;
 7. locate the implementation, existing tests, call sites, and recent equivalent patterns; and
 8. reproduce the defect or explain why reproduction is not feasible.
@@ -244,6 +244,9 @@ simplified issue workflow, assume that no new guide or reference document is nee
 2. review affected existing documentation and the Phase 1 documentation assessment; and
 3. make only small necessary updates to existing documents, such as correcting or adding links,
    linking a new or existing design, or changing one or two sentences to keep current facts true.
+4. update the canonical issue or feature document's `status:` as required by
+   `DOCS_STRUCTURE_GUIDE.md` §4.3: set `closed` when the work is done and verified, or
+   `closed_not_planned` when that is the outcome, and add a concise resolution or decision note.
 
 If truthful documentation would benefit from a new reference or guide, a substantive rewrite, a
 new section, or similarly larger work, the agent MUST NOT silently expand this issue. It MUST
@@ -261,8 +264,9 @@ permission for a substantive follow-up proposal does not create another gate in 
 
 Repository records MUST comply with `specs/DOCS_STRUCTURE_GUIDE.md`:
 
-- Do not invent or overwrite issue status. GitHub-tracked status is synchronized; status changes
-  to pre-existing local issues remain human-owned under the guide's rules.
+- The canonical issue or feature document owns its status, even with `github:`. The agent fixing or
+  otherwise concluding the work MUST update it during Phase 5 under the guide's §4.3 rules; GitHub
+  metadata never overwrites that status.
 - If a linked design exists, keep its `DESIGN.md`, phase, status, issue links, PR links, and
   `affects_docs` truthful. Do not create a design merely because this workflow has five phases, and
   do not add or replace its `workflow` marker merely to match this procedure.
@@ -313,6 +317,7 @@ that could not be run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-11 | Made Phase 5 close the authoritative local issue/feature status and treated GitHub data as optional metadata. | documentation |
 | 2026-08-10 | Clarified that the simplified workflow does not opt designs into the canonical artifact contract, made substantive documentation a non-blocking follow-up proposal, and ordered record maintenance before PR handoff. | review |
 | 2026-08-10 | Aligned the autonomous procedure with the five `liquers-project` phases, retained one post-Phase-2 gate, and constrained Phase 5 to a summary and small existing-document maintenance. | documentation |
 | 2026-08-09 | Added the binding four-phase procedure, risk-based approval gate, and successful-completion PR handoff for autonomous S/M issue fixes. | documentation |

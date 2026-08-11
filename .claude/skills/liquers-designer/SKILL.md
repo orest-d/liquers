@@ -562,7 +562,10 @@ Two obligations that are easy to skip because they fall outside the four phases:
 1. **Review the documentation the change affected.** See `references/phase5-documentation.md`. Not
    yet wired into the workflow, so run it by hand: a shipped change is the moment a `reference/`
    document becomes wrong, and the moment someone still has the context to fix it.
-2. **Update the capability map** in `specs/README.md`. A design reaching `complete` moves its
+2. **Update issue and feature status.** Before closing the design, update every issue or feature
+   completed by the work under `DOCS_STRUCTURE_GUIDE.md` §4.3, including its resolution note. This
+   remains required when the item has a `github:` link.
+3. **Update the capability map** in `specs/README.md`. A design reaching `complete` moves its
    capability up a maturity stage, and a capability that gains a `reference/` document should link
    that instead of the design folder (`specs/DOCS_STRUCTURE_GUIDE.md` §8.1).
 

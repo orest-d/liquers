@@ -136,8 +136,8 @@ PHASE2_TEMPLATE = """# Phase 2: Solution & Architecture - {feature_name}
 ## Known-Issue Preflight
 
 [Search issues linked to the design, overlapping affected areas, and touching integration points,
-dependencies, public APIs, or architecture assumptions. Include local open issues and GitHub-owned
-`tracked`/`in_progress` issues from `specs/index.csv`.]
+dependencies, public APIs, or architecture assumptions. Include relevant locally open issues,
+including `accepted` and `in_progress` items, from `specs/index.csv`.]
 
 | Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|

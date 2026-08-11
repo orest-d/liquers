@@ -8,7 +8,7 @@ Modes (§7):
     docs_index.py                       regenerate specs/index.csv and the README blocks
     docs_index.py new "<title>" ...     scaffold an issue file (§7.1)
     docs_index.py --check               validate; non-zero exit on failure, never writes
-    docs_index.py --sync                refresh GitHub-owned columns (not implemented yet)
+    docs_index.py --sync                refresh GitHub metadata (not implemented yet)
 
 No third-party dependencies: this has to run in a sandbox with no network and no pip.
 """
@@ -35,7 +35,7 @@ AREAS = {
     "axum", "web", "py", "docs", "build",
 }
 ISSUE_STATUS = {"draft", "accepted", "rejected", "duplicate",
-                "tracked", "in_progress", "closed", "closed_not_planned"}
+                "in_progress", "closed", "closed_not_planned"}
 DESIGN_STATUS = {"draft", "in_review", "approved", "in_implementation",
                  "implemented", "complete", "superseded", "abandoned"}
 DESIGN_STATUS_NEEDING_PHASE = {"draft", "in_review", "approved", "in_implementation", "implemented"}
@@ -159,7 +159,9 @@ def collect() -> list[dict]:
         rows.append({
             "id": f.get("id", path.stem), "kind": f.get("kind", "issue"),
             "title": f.get("title", ""), "status": f.get("status", ""),
-            "status_source": "github" if f.get("github") else "local",
+            # Issue and feature documents always own their status (§4.3). `github` is a link,
+            # not a transfer of authority.
+            "status_source": "local",
             "phase": "", "priority": f.get("priority", ""),
             "complexity": f.get("complexity", ""), "area": ";".join(_list(f, "area")),
             "gh_issue": f.get("github", ""), "gh_pr": ";".join(_list(f, "gh_pr")),
@@ -304,12 +306,9 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
                 errors.append(f"{where}: unknown area '{a}' (see guide §3)")
 
         if r["kind"] in ("issue", "feature"):
-            # CHECK 5 — github ownership transfers the status field
-            if f.get("github") and "status" in f and f.get("status"):
-                errors.append(f"{where}: has github:{f['github']} and a status field (§4.3)")
-            if not f.get("github"):
-                if f.get("status") not in ISSUE_STATUS:
-                    errors.append(f"{where}: status '{f.get('status')}' not in §4.3")
+            # CHECK 5 — issue and feature status is always local, including when github: is set.
+            if f.get("status") not in ISSUE_STATUS:
+                errors.append(f"{where}: status '{f.get('status')}' not in §4.3")
             if f.get("priority") not in PRIORITIES:
                 errors.append(f"{where}: priority '{f.get('priority')}' not in §4.4")
             if f.get("complexity") not in COMPLEXITIES:
@@ -493,7 +492,7 @@ def main() -> int:
     n.add_argument("--id", default="")
     n.add_argument("--force", action="store_true", help="file despite near-duplicates")
     ap.add_argument("--check", action="store_true", help="validate only; never writes")
-    ap.add_argument("--sync", action="store_true", help="refresh GitHub-owned columns")
+    ap.add_argument("--sync", action="store_true", help="refresh GitHub metadata; never issue status")
     args = ap.parse_args()
 
     if args.cmd == "new":
@@ -501,8 +500,8 @@ def main() -> int:
 
     if args.sync:
         print("--sync is not implemented yet: it needs the GitHub API and a token.\n"
-              "Until it exists, gh_pr on a design is hand-written once (guide §5.5) and no\n"
-              "issue carries a github: number.", file=sys.stderr)
+              "When implemented, it may refresh GitHub metadata but never overwrites the\n"
+              "authoritative local status of an issue or feature (guide §4.3).", file=sys.stderr)
         return 2
 
     rows = collect()

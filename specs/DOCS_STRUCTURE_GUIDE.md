@@ -12,9 +12,9 @@ Read this when you are **writing or filing** a document. To find out what exists
 
 ## 1. Principles
 
-1. **One owner per fact.** Prose, priority, complexity and area are owned by the repository.
-   Open/closed state, PR and branch are owned by GitHub, because git already knows them and any
-   copy would eventually lie. Nothing is authoritative in two places.
+1. **One owner per fact.** Prose, priority, complexity, area, and issue/feature status are owned
+   by the repository document. PR and branch facts are owned by GitHub. A GitHub issue is useful
+   evidence and a cross-reference, but it is not a second authority for repository status.
 2. **Location encodes genre, front-matter encodes state.** A path tells you what kind of document
    this is and whether you may believe it. It never encodes status — status changes, paths should
    not.
@@ -22,8 +22,9 @@ Read this when you are **writing or filing** a document. To find out what exists
    the pattern `specs/command_registry.yaml` already uses successfully.
 4. **Cheap capture.** Filing an issue must require no network, no auth and no judgement call.
    Anything that raises the cost of recording a problem means problems go unrecorded.
-5. **Cached status is good enough to read from, never good enough to decide from.** Before acting
-   on a GitHub-tracked item, sync.
+5. **Status is maintained with the work.** The person or agent who fixes, abandons, or otherwise
+   changes an issue or feature updates its document in the same change. No network, GitHub access,
+   or synchronization is required to make that record true.
 
 ---
 
@@ -131,18 +132,19 @@ five without the columns colliding — a design has a `phase` and no `priority`,
 
 ### 4.3 Status
 
-There is **one status vocabulary**. `status_source` says who owns the value.
+There is **one local status vocabulary**. The issue or feature document is authoritative whether or
+not it links to a GitHub issue. The person or agent changing the work is responsible for changing
+the status in the same change and for leaving enough body text to explain a terminal outcome.
 
 | Status | Source | Meaning |
 |---|---|---|
 | `draft` | local | Filed but not reviewed. The default for anything an agent creates. May be wrong, may be a duplicate, may be out of scope. |
-| `accepted` | local | Reviewed by a human. The problem is real and in scope. Nobody is working on it, and there is no GitHub issue. **This is where most of the backlog lives.** |
+| `accepted` | local | Reviewed by a human. The problem is real and in scope, but work has not started. **This is where most of the backlog lives.** |
 | `rejected` | local | Reviewed and declined. Terminal. The body must state why — this record is what stops the same issue being refiled. |
 | `duplicate` | local | The same problem as another issue. Terminal. `duplicate_of` names it. |
-| `tracked` | github | A GitHub issue exists and is open. No open PR yet. |
-| `in_progress` | github | A GitHub issue is open and at least one open PR references it. |
-| `closed` | either | Done. `local` for items resolved before they were ever tracked on GitHub; `github` for anything with a `github` number. |
-| `closed_not_planned` | github | Closed on GitHub without being fixed. |
+| `in_progress` | local | Work has started. A GitHub issue or PR may exist, but neither is required. |
+| `closed` | local | Done and verified sufficiently for the issue's scope. The body records the resolution and its evidence, such as a test, commit, or PR. |
+| `closed_not_planned` | local | Work will not be done. The body states why; a GitHub issue may independently remain open or closed. |
 
 **Transitions**
 
@@ -154,19 +156,15 @@ draft ────┼─────────► duplicate (terminal)
   │       └─────────► closed    (terminal — found already fixed during triage)
   │
   └──► accepted ──┐
-                  │   creating the GitHub issue is the ONE-WAY DOOR
-  (either) ───────┴──► tracked ──► in_progress ──► closed
-                                              └──► closed_not_planned
+                  │   `github:` may be added at any point; it does not change local status ownership
+  (either) ───────┴──► in_progress ──► closed
+                                    └──► closed_not_planned
 ```
 
-**Once `github:` is set, the repository may never change the status again.** The status of a
-GitHub-tracked issue is written only by `scripts/docs_index.py --sync`, only into
-`specs/index.csv`, and it is informational there. There is no path back to a local status.
-
-To make that structural rather than a rule someone has to remember: **an issue file whose
-front-matter has `github:` must not have a `status:` field at all.** Having both is a validation
-error. The file carries the GitHub number, which tells any reader exactly where truth lives; the
-CSV carries the cached value so the repository still answers "what is open" offline.
+`github:` is optional external context. It does not alter the required `status:` field, its
+meaning, or its owner. GitHub may lag because the work was completed without a PR, tools were not
+available, or a maintainer chose not to update the remote issue; local status remains authoritative
+in all of those cases. Do not infer or overwrite local status from GitHub synchronization.
 
 ### 4.4 Priority
 
@@ -203,7 +201,7 @@ and the design tracker, and it replaces the ad-hoc overlap that existed before.
 id: ASSET-EXPIRED-CACHED-BINARY-READ
 kind: issue
 title: Expired asset returns stale cached binary on read
-status: accepted            # OMITTED once `github` is set — see §4.3
+status: accepted            # required even when `github` is set — see §4.3
 priority: P0
 complexity: M
 area: [core/assets, core/store]
@@ -216,16 +214,17 @@ duplicate_of:               # issue ID, when status is `duplicate`
 
 Required always: `id`, `kind`, `title`, `area`, `created`.
 Required for `issue`/`feature`: `priority`, `complexity`.
-Required while local: `status`. Forbidden once `github` is set.
+Required always: `status`. `github` is optional and never changes status ownership.
 
 The body is free-form. A useful default: **Problem**, **Impact**, **Expected behaviour**,
 **Discovery**. Keep the reasoning; it is the reason the file exists rather than a CSV row.
 
 ### 4.7 GitHub-originated issues
 
-An issue filed directly on GitHub skips `draft` and `accepted` — it is `tracked` from the start.
-A local file is still created, so that the repository holds a complete overview and any reader can
-see every issue without opening a browser.
+An issue filed directly on GitHub receives a local file, so the repository holds a complete overview
+and any reader can see every issue without opening a browser. Its local status is set by the person
+or agent importing or taking responsibility for it: normally `draft` until reviewed, then `accepted`
+or `in_progress`. GitHub's open or closed state does not choose that value.
 
 The import is performed by `scripts/docs_index.py --sync`, **never by an agent**, and it copies the
 GitHub body **byte for byte**. An agent asked to move prose will paraphrase it; a script will not.
@@ -316,8 +315,10 @@ How this surfaced. A failing test, a review, a user report, an audit.
 
 - **Everything an agent files is `draft`.** Not `accepted` — that is a human's judgement that the
   problem is real and in scope, and it is the whole reason `draft` exists.
-- **Never change the status of an issue you did not just file**, and never edit a file carrying a
-  `github:` number (§4.3).
+- **When you work on an issue or feature, maintain its status.** Set `in_progress` when work begins
+  if that state is useful, and in the same change set `closed` or `closed_not_planned` when the
+  outcome is known. Add a short resolution or decision note to the body. Do not change another
+  item's status merely because you encountered it.
 - **`complexity: L` or `XL` requires a `design`** (§4.5). If no design folder exists yet, file the
   issue anyway with `design:` empty and say in the body that one is needed — `--check` will flag
   it, which is the correct outcome, not a reason to understate the complexity.
@@ -563,8 +564,8 @@ id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr
 | Column | Notes |
 |---|---|
 | `id`, `kind`, `title` | From front-matter. |
-| `status` | Front-matter for local items; GitHub for tracked ones. |
-| `status_source` | `local` or `github`. Makes the ownership rule visible in the data. It tracks *who determined this status*, not whether the item is linked to GitHub: a design that has reached a hand-written terminal status (§5.5) reads `local` while still carrying its `gh_pr`. |
+| `status` | Front-matter for issues, features, and local design states; derived from GitHub only for a design's PR-derived states (§5.5). |
+| `status_source` | `local` for issues and features, which always own their status locally. Designs may read `github` only while their PR-derived status is cached. |
 | `phase` | `kind: design` only, and only in a status that carries one (§5.1). Empty otherwise. |
 | `priority`, `complexity` | Empty for `kind: design`. |
 | `area` | `;`-separated. |
@@ -587,7 +588,7 @@ sort, so whatever order it is written in is the order everyone reads. Row 2 shou
 the thing most worth picking up, and the settled record — every `complete` design, every closed
 issue — belongs below it. Finished means `closed`, `closed_not_planned`, `rejected` or
 `duplicate` for an issue and `complete`, `superseded` or `abandoned` for a design; an **empty**
-status is never finished, since on a GitHub-owned row it means "not synced yet".
+status is never finished, since it means the local record is incomplete.
 
 Within each half, by `kind`: **issues, then designs, then guides, then reference documents** —
 open questions above the answers. `kind: feature` sorts with the issues; it is an issue whose
@@ -632,9 +633,9 @@ Four modes.
 
 | Mode | Does | Network |
 |---|---|---|
-| *(default)* | Regenerates `index.csv` from front-matter, preserving the GitHub-derived columns already present. | No |
+| *(default)* | Regenerates `index.csv` from front-matter. | No |
 | `new` | Scaffolds an issue file (§7.1). | No |
-| `--sync` | Additionally refreshes `status`, `gh_pr`, `branch` from the GitHub API for every row with a `gh_issue`; imports GitHub issues not yet present locally (§4.7); re-hashes imported bodies. | Yes |
+| `--sync` | Refreshes GitHub metadata such as `gh_pr` and `branch`, imports GitHub issues not yet present locally (§4.7), and re-hashes imported bodies. It never writes issue or feature status. | Yes |
 | `--check` | Validates and exits non-zero on failure. Never writes. | Optional |
 
 ### 7.1 `new` — scaffolding an issue
@@ -666,9 +667,9 @@ tooling, no network and no Python can still record what it found.
 2. IDs are unique and match the filename.
 3. `design`, `duplicate_of` and `superseded_by` resolve to something that exists.
 4. `complexity` in `L`/`XL` has a `design` — **warning**, per §4.5.
-5. A file with `github:` (issue) has no `status:` field. A design with `gh_pr:` carries no
-   *derived* status — `in_implementation` or `implemented` — but may carry one of the three
-   terminal ones, `complete`, `abandoned` or `superseded` (§5.5).
+5. Every issue and feature has a valid local `status:` even when it carries `github:`. A design
+   with `gh_pr:` carries no *derived* status — `in_implementation` or `implemented` — but may
+   carry one of the three terminal ones, `complete`, `abandoned` or `superseded` (§5.5).
 6. `phase` is present exactly when §5.1 requires it, and names a phase from §5.2. A `retired`
    phase name is accepted on a file that already carried it and rejected on a new one — so the
    check must compare against `HEAD`, not just the working tree.
@@ -699,12 +700,11 @@ prose cannot be validated; the links, the stages and the omissions can.
 
 ### 7.3 When sync runs
 
-1. **Before acting.** An agent about to work on, close or reopen a tracked item syncs first. This
-   is the trigger that matters: the data is refreshed exactly when it is about to inform a
-   decision.
-2. **Post-merge, in CI.** So the committed CSV reflects reality after every landing.
-3. **Weekly, scheduled.** Catches issues closed by hand in the GitHub UI, and opens or updates the
-   standing issue listing documents overdue for review (§9.4).
+1. **Before relying on GitHub metadata.** An agent may sync to inspect linked PRs, branches, or
+   imported issue bodies, but the local issue or feature status remains the decision record.
+2. **Post-merge, in CI.** When GitHub metadata is collected, this refreshes the committed index.
+3. **Weekly, scheduled.** Refreshes GitHub metadata and opens or updates the standing issue listing
+   documents overdue for review (§9.4).
 
 Not on session start — that is an API call per session for data most sessions never read.
 

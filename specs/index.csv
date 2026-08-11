@@ -66,7 +66,7 @@ VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,overdue,local,,,,core/commands;macro,,,,,2026-03-02,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-11,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-10,,specs/guides/autonomous_issue_fixing.md
+autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,overdue,local,,,,lib/polars,,,,,2026-03-02,,specs/reference/POLARS_COMMAND_LIBRARY.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md

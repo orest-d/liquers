@@ -66,6 +66,11 @@ Set `status: complete` and drop `phase`. Guide check 12 enforces the interlock: 
 reach `complete` while a document in its `affects_docs` has a `reviewed:` earlier than the merge
 date of its last PR.
 
+Before closing the design, update every issue or feature completed by this work to `status: closed`
+and add a concise resolution note with its evidence. Use `closed_not_planned` for work deliberately
+not pursued. Follow `DOCS_STRUCTURE_GUIDE.md` §4.3: this local status is authoritative even when
+the document carries `github:`.
+
 Then update the capability map in `specs/README.md` — a capability that has just gained a
 `reference/` document moves up a maturity stage, and its link should now point at the reference
 rather than at this design folder (guide §8.1).

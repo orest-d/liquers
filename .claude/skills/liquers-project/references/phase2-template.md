@@ -44,14 +44,13 @@ Search before finalizing the solution:
 1. Inspect issues already linked from `DESIGN.md` or Phase 1.
 2. Search `specs/issues/` for issue and feature records whose `area` overlaps the design or whose
    problem affects an integration point, dependency, public API, or architectural assumption.
-3. Use `specs/index.csv` to include GitHub-owned issues whose derived status is `tracked` or
-   `in_progress`. Treat local `draft` and `accepted` issues as open; exclude terminal or closed
-   records. When external status cannot be verified, record that uncertainty rather than assuming
-   the issue is closed.
+3. Use `specs/index.csv` to include locally open `draft`, `accepted`, and `in_progress` issues.
+   Exclude terminal or closed records. GitHub metadata is optional context, not a source of issue
+   status.
 
 | Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
-| `<ISSUE-ID>` | draft/accepted/tracked/in_progress | P0-P3 | <Architecture assumption, interface, dependency, or behavior affected> | yes/no | yes/no | <Resolve first, change architecture, or monitor> | <Keep or recommend new priority> |
+| `<ISSUE-ID>` | draft/accepted/in_progress | P0-P3 | <Architecture assumption, interface, dependency, or behavior affected> | yes/no | yes/no | <Resolve first, change architecture, or monitor> | <Keep or recommend new priority> |
 
 If none are relevant, write `None found` and list the areas, integration points, and issue sources
 searched. Do not merely search by the project name.

@@ -85,6 +85,13 @@ File an issue for intentionally omitted design scope, newly discovered defects, 
 or follow-up work. A design is never partially complete: shipped work belongs to the completed
 design and unfinished work belongs to linked issues.
 
+### Status maintenance
+
+For every issue or feature this work completes, update its front-matter to `status: closed` during
+Phase 5 and add a concise resolution note with its evidence (for example, tests, a commit, or a
+PR). Use `closed_not_planned` when work is deliberately not pursued. This local record is
+authoritative even when `github:` is present; GitHub metadata must not overwrite it.
+
 ## Summary Template
 
 ```markdown
@@ -144,6 +151,7 @@ deferred remainder must have an issue rather than a partial design status.>
 - [ ] Requested, approved, and implemented scope are compared explicitly
 - [ ] Every omission or addition has a reason
 - [ ] New issues are listed, including all deferred work
+- [ ] Every completed issue or feature has its authoritative local status and resolution note updated
 - [ ] Important learning, corrections, and connections are captured
 - [ ] Planned reference/guide documents exist, or a justified decision records why not
 - [ ] Reference documents state current behavior and meaning without relying on the design

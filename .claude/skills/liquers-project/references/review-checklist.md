@@ -136,7 +136,7 @@ This document provides phase-specific checklists for conducting critical reviews
 - [ ] **Relevant open known issues were searched**
   - Issues linked to the design or Phase 1 checked?
   - `specs/issues/` searched by affected area, integration point, dependency, and assumption?
-  - `specs/index.csv` checked for GitHub-owned `tracked` or `in_progress` issues?
+  - `specs/index.csv` checked for relevant locally open `accepted` or `in_progress` issues?
 
 - [ ] **Solution impact is assessed for every relevant issue**
   - Does the issue invalidate or constrain an architectural choice?
@@ -750,6 +750,8 @@ documentation without requiring readers to inspect the design.
 - [ ] Requested, approved, and implemented scope are compared explicitly
 - [ ] Every omission or addition has a reason
 - [ ] New issues and all deferred work are listed
+- [ ] Every completed issue or feature has `status: closed` (or `closed_not_planned`) and a concise
+  resolution or decision note, per `DOCS_STRUCTURE_GUIDE.md` §4.3
 - [ ] Important learning, corrections, meaning, and connections are captured
 
 ### Reference and Guide Documents

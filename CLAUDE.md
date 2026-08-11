@@ -42,8 +42,9 @@ Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE
 needs no network, no account and no permission — record what you found and carry on.
 
 Also:
-- Never edit a file under `specs/archive/`, and never change the status of an issue that has a
-  `github:` number.
+- Never edit a file under `specs/archive/`. An issue or feature document owns its `status:` even
+  when it has a `github:` number; the person or agent concluding work updates it under
+  `DOCS_STRUCTURE_GUIDE.md` §4.3.
 - A PR that adds a design folder, or moves one to `complete`, updates `specs/README.md`.
 - A change to a `reference/` or `guides/` document adds a `## History` row and bumps `reviewed:`
   in the same commit (§9.2).
