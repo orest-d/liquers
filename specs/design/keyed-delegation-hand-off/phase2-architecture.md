@@ -3,10 +3,15 @@
 ## Overview
 
 One rule, added in one place: **an asset never records a dependency edge onto an asset that shares
-its own dependency-graph node.** `DependencyKey` is the node identity, so "shares the node" means
-`DependencyKey::from(self.recipe.key()) == DependencyKey::from(dependency.recipe.key())`. When that
-holds, `record_dependency_on_asset` returns `Ok(())` without touching metadata or the
-`DependencyManager`, and the caller proceeds to `wait_for_dependency`.
+its own dependency-graph node.** When that holds, `record_dependency_on_asset` returns `Ok(())`
+without touching metadata or the `DependencyManager`, and the caller proceeds to
+`wait_for_dependency`.
+
+Node identity is `AssetRef::bound_key_candidate()` — the key each asset was *constructed* with —
+falling back to the recipe-derived `DependencyKey`. `AssetData::recipe` is mutable (provider
+resolution replaces it mid-evaluation), so it cannot be the primary identity; this matches
+`Context::schedule_dependency_asset`, which classifies a keyed dependent by `owner_key()` for the
+same reason. *(Revised after PR 32 review — the first implementation compared recipe keys only.)*
 
 This is option (1) of the issue's *Expected behaviour*. Option (2) — delete the branch and always
 self-evaluate — is rejected: it loses value sharing in the stale-owner case, and it makes two
@@ -45,19 +50,31 @@ New structure: derive `dep_key`, then derive `current_dep_key` **before** the me
 return early when the two are equal. Concretely:
 
 ```rust
+// Immutable identity first: this is the authoritative same-node test.
+let bound_node = self.bound_key_candidate().await;
+if bound_node.is_some() && bound_node == dependency.bound_key_candidate().await {
+    return Ok(());          // same graph node — hand-off, not a dependency
+}
 let dep_key = /* unchanged */;
 let current_dep_key = {
     let lock = self.data.read().await;
     lock.recipe.key().ok().flatten().map(|k| DependencyKey::from(&k))
 };
+// Recipe-derived fallback, for assets with no bound key candidate.
 if current_dep_key.as_ref() == Some(&dep_key) {
-    return Ok(());          // same graph node — hand-off, not a dependency
+    return Ok(());
 }
 /* version read, metadata upsert, cycle check, add_dependency — unchanged,
    reusing `current_dep_key` instead of re-reading the lock */
 ```
 
-Three consequences, all intended:
+`bound_key_candidate()` is `query().and_then(|q| q.key())`, and `AssetData::query` is set once at
+construction and never replaced. It is `Some` for both ends of every delegation, because both
+assets are built from a bare-key recipe (which `is_pure_query()` accepts). The recipe-derived test
+is kept as a fallback for assets built from a recipe carrying no pure query, which have no bound
+key candidate at all.
+
+Four consequences, all intended:
 
 1. **No metadata record.** A `DependencyRecord` naming the asset's own key is not merely useless:
    `DependencyManager::track_asset` feeds persisted records back through `load_from_records`, which
@@ -66,11 +83,22 @@ Three consequences, all intended:
    `Error::dependency_cycle` is not returned. The cycle check itself is *correct* and is left alone
    — `would_create_cycle` returning `true` for `dependent == dependency` is the right answer to the
    question it was asked; the fix is to stop asking it.
-3. **The guard is general, not delegation-specific.** It is placed in
+3. **Identity survives provider resolution.** `evaluate_recipe` overwrites the owner's
+   `AssetData::recipe` with the recipe the provider resolved. When that recipe is a pure-key
+   *alias* `L`, the owner's `recipe.key()` becomes `L` while the delegate still holds `K`, so a
+   recipe-only test misses the hand-off. It would then record `K -> L` carrying the owner's
+   metadata version — a version for `K` — and `add_dependency` compares that against `L`'s
+   registered version and expires `K` when they differ. Comparing construction-time keys avoids
+   this entirely.
+4. **The guard is general, not delegation-specific.** It is placed in
    `record_dependency_on_asset` rather than at the call site because the invariant belongs to the
    dependency graph, not to delegation. `record_dependency_on_asset` has exactly one production
    caller (the delegation branch) and one test caller, so the blast radius is the same either way;
-   the general placement is the one that stays true if a second caller appears.
+   the general placement is the one that stays true if a second caller appears. It does **not**
+   weaken genuine cycle detection: a runtime self-dependency (a command calling `Context::evaluate`
+   on its own key) never reaches this function — it goes through
+   `Context::schedule_dependency_asset` → `DependencyManager::register_scheduled_dependency` →
+   `would_create_cycle`, which still rejects `K -> K`.
 
 Ordering note: moving the `current_dep_key` read above the metadata upsert takes the `data` read
 lock once more in the non-equal path and releases it before the write lock is taken. No lock is

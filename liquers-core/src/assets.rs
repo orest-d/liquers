@@ -1106,17 +1106,30 @@ impl<E: Environment> AssetRef<E> {
     /// Record a direct dependency on another asset in metadata and the dependency manager.
     ///
     /// **Assets that share a key are one dependency-graph node**, and a node has no edge to
-    /// itself: `DependencyKey` is the node identity, so when this asset and `dependency` resolve
-    /// to the same key there is nothing to record and this is a no-op. That is the *hand-off*
-    /// case — an asset holding a keyed recipe it does not own waits for the key's registered
-    /// owner (see [`Self::evaluate_recipe`]) — and recording it would be wrong twice over: the
-    /// metadata record replays as a self-edge through `DependencyManager::load_from_records` on
-    /// every reload, and `would_create_cycle` correctly reports the self-edge, which used to make
-    /// the delegation branch fail unconditionally (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`).
+    /// itself: `DependencyKey` is the node identity, so when this asset and `dependency` are the
+    /// same node there is nothing to record and this is a no-op. That is the *hand-off* case —
+    /// an asset holding a keyed recipe it does not own waits for the key's registered owner (see
+    /// [`Self::evaluate_recipe`]) — and recording it would be wrong twice over: the metadata
+    /// record replays as a self-edge through `DependencyManager::load_from_records` on every
+    /// reload, and `would_create_cycle` correctly reports the self-edge, which used to make the
+    /// delegation branch fail unconditionally (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`).
+    ///
+    /// Node identity for that test is taken from [`Self::bound_key_candidate`] — the key each
+    /// asset was *constructed* with — and only falls back to the recipe. `AssetData::recipe` is
+    /// mutable: provider resolution replaces it mid-evaluation, so an owner whose recipe resolved
+    /// to a pure-key alias `L` would otherwise look like a different node than the delegate still
+    /// holding `K`, and the edge `K -> L` would be recorded carrying the *owner's* version, which
+    /// is a version for `K`. `DependencyManager::add_dependency` compares that against `L`'s and
+    /// can expire `K` outright when they differ.
     pub(crate) async fn record_dependency_on_asset(
         &self,
         dependency: &AssetRef<E>,
     ) -> Result<(), Error> {
+        // Immutable identity first: this is the authoritative same-node test.
+        let bound_node = self.bound_key_candidate().await;
+        if bound_node.is_some() && bound_node == dependency.bound_key_candidate().await {
+            return Ok(());
+        }
         let dep_key = {
             let dep_lock = dependency.data.read().await;
             if let Ok(Some(key)) = dep_lock.recipe.key() {
@@ -1135,8 +1148,8 @@ impl<E: Environment> AssetRef<E> {
                 .flatten()
                 .map(|key| DependencyKey::from(&key))
         };
-        // Same node: a hand-off, not a dependency. Nothing is recorded in metadata and no edge
-        // is offered to the dependency manager.
+        // Recipe-derived fallback, for assets built from a recipe that carries no pure query and
+        // therefore has no bound key candidate. Same rule, weaker evidence.
         if current_dep_key.as_ref() == Some(&dep_key) {
             return Ok(());
         }
@@ -6346,6 +6359,49 @@ mod tests {
         assert!(
             expired.keys.is_empty(),
             "the hand-off must not add a self-edge to the dependency graph"
+        );
+    }
+
+    /// The hand-off exemption survives provider resolution replacing the owner's recipe.
+    ///
+    /// `AssetData::recipe` is mutable — `evaluate_recipe` overwrites it with the recipe the
+    /// provider resolved (which is why `bound_key_candidate` exists). When that recipe is a pure
+    /// *key alias* the owner's `recipe.key()` becomes the alias target, so a recipe-derived
+    /// same-node test would miss the hand-off and record `K -> L` carrying the owner's version —
+    /// a version for `K` — which `DependencyManager::add_dependency` can read as staleness on
+    /// `L` and expire `K` for.
+    #[tokio::test]
+    async fn record_dependency_on_asset_hand_off_survives_owner_recipe_resolution() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let key = parse_key("alias.txt").unwrap();
+        let alias_target = parse_key("source/data.txt").unwrap();
+
+        let delegating =
+            AssetData::<SimpleEnvironment<Value>>::new(2244, key.clone().into(), envref.clone())
+                .to_ref();
+        let owner =
+            AssetData::<SimpleEnvironment<Value>>::new(2245, key.clone().into(), envref.clone())
+                .to_ref();
+
+        // What provider resolution does to the owner: the recipe is replaced, the `query` it was
+        // constructed from is not.
+        {
+            let mut lock = owner.data.write().await;
+            lock.recipe = alias_target.clone().into();
+        }
+        assert_eq!(
+            owner.bound_key_candidate().await,
+            Some(key.clone()),
+            "precondition: the owner's constructed identity is still the delegated key"
+        );
+
+        delegating.record_dependency_on_asset(&owner).await.unwrap();
+
+        let metadata = delegating.get_metadata().await.unwrap();
+        assert!(
+            metadata.get_dependencies().is_empty(),
+            "still one node: the owner's resolved recipe is not its identity"
         );
     }
 

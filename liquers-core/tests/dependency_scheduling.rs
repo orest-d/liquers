@@ -10,12 +10,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use liquers_core::{
+    assets::AssetManager,
     command_metadata::CommandKey,
     context::{Context, Environment, SimpleEnvironment},
     error::Error,
     interpreter::evaluate,
-    parse::parse_query,
+    metadata::Metadata,
+    parse::{parse_key, parse_query},
+    query::Key,
+    recipes::DefaultRecipeProvider,
     state::State,
+    store::{AsyncMemoryStore, AsyncStore},
     value::Value,
 };
 use liquers_macro::register_command;
@@ -136,6 +141,73 @@ async fn test_dynamic_expression_cycle_does_not_hang() -> Result<(), Box<dyn std
     assert!(
         result.is_err(),
         "a dynamic dependency cycle must fail, not produce a value"
+    );
+    Ok(())
+}
+
+/// A **keyed** asset whose command evaluates its own key must be rejected as a cycle.
+///
+/// This is the self-dependency that matters most, and it is deliberately kept distinct from
+/// the delegation hand-off. `specs/design/keyed-delegation-hand-off/` exempts the same-node
+/// case from `AssetRef::record_dependency_on_asset`, so it is worth pinning that this
+/// exemption does **not** reach genuine self-dependency: a runtime dependency discovered by a
+/// command travels a different path entirely — `Context::evaluate` →
+/// `schedule_dependency_asset` → `DependencyManager::register_scheduled_dependency` →
+/// `would_create_cycle` — which still reports `K -> K` and fails fast.
+///
+/// The hang guard is the second half of the assertion: before schedule-time cycle detection
+/// existed this arrangement deadlocked rather than erroring.
+#[tokio::test]
+async fn test_keyed_asset_evaluating_its_own_key_is_a_cycle(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+
+    // `self_ref.txt` is produced by `self_cycle`, which asks for `self_ref.txt`.
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("recipes.yaml")?,
+            b"recipes:\n  - query: self_cycle/self_ref.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+
+    async fn self_cycle(
+        _state: State<Value>,
+        context: Context<CommandEnvironment>,
+    ) -> Result<Value, Error> {
+        let s = context
+            .get_dependency_state(&parse_query("-R/self_ref.txt")?)
+            .await?;
+        Ok(Value::from(format!("self:{}", s.try_into_string()?)))
+    }
+    let cr = &mut env.command_registry;
+    register_command!(cr, async fn self_cycle(state, context) -> result)
+        .expect("register self_cycle");
+
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+    let envref = env.to_ref();
+
+    let asset = envref
+        .get_asset_manager()
+        .get(&parse_key("self_ref.txt")?)
+        .await?;
+    let outcome = tokio::time::timeout(GUARD, asset.get()).await;
+    let result = outcome.expect("a keyed self-dependency must not hang");
+
+    let err: Error = match result {
+        Ok(state) => match state.value_state() {
+            Ok(_) => panic!("a keyed asset depending on itself must not produce a value"),
+            Err(e) => e,
+        },
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().to_lowercase().contains("cycle"),
+        "expected a dependency cycle for a keyed asset evaluating its own key, got: {}",
+        err
     );
     Ok(())
 }

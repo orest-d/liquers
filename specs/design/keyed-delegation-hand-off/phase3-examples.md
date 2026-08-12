@@ -20,6 +20,8 @@ paths that already exist in the codebase, and every assertion below lands in a r
 | S3 | Pitfall | Reading the counter, not the value | conceptual | Why the call counter is the load-bearing assertion: a fix that turned delegation into self-evaluation would pass a value-only assertion and silently double-compute. |
 | T1 | Unit | `record_dependency_on_asset_skips_same_node_hand_off` | `liquers-core/src/assets.rs` tests | Same key on both ends ⇒ `Ok(())`, no metadata record, no graph edge. |
 | T2 | Unit | `record_dependency_on_asset_records_distinct_key` | `liquers-core/src/assets.rs` tests | Different keys ⇒ the record is still written (the guard is not over-broad). |
+| T2b | Unit | `record_dependency_on_asset_hand_off_survives_owner_recipe_resolution` | `liquers-core/src/assets.rs` tests | The owner's recipe resolved to a pure-key alias ⇒ still one node, still nothing recorded. |
+| T3b | Integration | `test_keyed_asset_evaluating_its_own_key_is_a_cycle` | `liquers-core/tests/dependency_scheduling.rs` | A *genuine* keyed self-dependency via `Context::evaluate` is still rejected as a cycle, and does not hang. |
 | T3 | Unit (existing) | `test_record_dependency_on_asset_does_not_downgrade_known_metadata_version_to_unknown` | same | Regression: version-preservation behaviour survives the reordering. |
 | T4 | Integration | `keyed_delegation_default` | `liquers-core/tests/manager_parametric.rs` | Queued manager: delegation yields the owner's value; recipe runs once. |
 | T5 | Integration | `keyed_delegation_immediate` | same | Inline manager: same contract through the trait-default `wait_for_dependency`. |
@@ -136,7 +138,9 @@ the registered owner, the test would pass trivially without ever entering the br
 | Owner `Expired` with a stale value | Stale value used, `note_expired_dependency` marks the delegate expired. Unchanged policy. | existing expiration suite |
 | Volatile key | Never registered as an owner, so `owned_key_asset` returns `None` and the asset self-evaluates — the branch is not entered at all. | T6 `volatile_keyed_eval_immediate` |
 | Dependency has a query but no key | `dep_key` comes from the query; a keyed parent's `current_dep_key` cannot equal it, so the guard does not fire. | T2 shape, `test_context_add_dependency_*` |
-| Parent has no key | `current_dep_key` is `None`; the guard does not fire and the metadata record is still written, as before. | T3 |
+| Parent has no key | Neither identity resolves; the guard does not fire and the metadata record is still written, as before. | T3 |
+| Owner's recipe resolved to a pure-key alias `L` | Identity is the construction-time key on both sides, so the hand-off is still recognised. A recipe-only test would record `K -> L` with the owner's version *for `K`*, which `add_dependency` can read as staleness on `L` and expire `K` for. | T2b |
+| Genuine keyed self-dependency (`Context::evaluate` on own key) | Untouched: a different path (`schedule_dependency_asset` → `register_scheduled_dependency` → `would_create_cycle`) still returns `Error::dependency_cycle`. | T3b |
 | Serialization / reload | No new `DependencyRecord` shape. The guard *prevents* a self-record from being persisted and replayed through `load_from_records`. | reasoning; `load_from_records_registers_known` unchanged |
 | Concurrency | Two delegates waiting on one owner is the ordinary many-dependents case; no new lock is held across an await. | existing manager concurrency tests |
 

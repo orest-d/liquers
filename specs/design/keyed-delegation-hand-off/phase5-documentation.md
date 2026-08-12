@@ -11,11 +11,16 @@ and tested behaviour rather than against the plan.
 ## Implementation Summary
 
 One rule, in one place. `AssetRef::record_dependency_on_asset`
-(`liquers-core/src/assets.rs`) now derives `current_dep_key` before it writes anything and returns
-`Ok(())` when it equals the dependency's `dep_key`:
+(`liquers-core/src/assets.rs`) now tests node identity before it writes anything and returns
+`Ok(())` on a match:
 
 > **Two assets that resolve to the same key are one node of the dependency graph, and a node has no
 > edge to itself.** Waiting on such an asset is a hand-off, not a dependency.
+
+Node identity is `AssetRef::bound_key_candidate()` — the key each asset was *constructed* with —
+falling back to the recipe-derived `DependencyKey`. `AssetData::recipe` is mutable, so it cannot be
+the primary identity; `Context::schedule_dependency_asset` already classifies keyed dependents by
+`owner_key()` for the same reason.
 
 That single early return unblocks the keyed-delegation branch of `AssetRef::evaluate_recipe`, which
 could never succeed before: the branch is only entered when the delegate is registered under the
@@ -34,7 +39,9 @@ method's doc comment now carries the rule.
 | `keyed_delegation_default`, `keyed_delegation_immediate` | `liquers-core/tests/manager_parametric.rs` | Inverted from asserting `Dependency cycle` to asserting the owner's value with the call counter still at `1`. Both pass. |
 | `record_dependency_on_asset_skips_same_node_hand_off` | `liquers-core/src/assets.rs` | New. Nothing recorded in metadata, no self-edge in the graph. |
 | `record_dependency_on_asset_records_distinct_key` | same | New. The guard is not over-broad. |
-| Full core suite | `cargo test -p liquers-core --lib --tests` | 635 passed, 0 failed. |
+| `record_dependency_on_asset_hand_off_survives_owner_recipe_resolution` | same | New (PR 32 review). The owner's recipe resolved to a pure-key alias — still one node. Verified to fail without the `bound_key_candidate` identity. |
+| `test_keyed_asset_evaluating_its_own_key_is_a_cycle` | `liquers-core/tests/dependency_scheduling.rs` | New. A genuine keyed self-dependency via `Context::evaluate` is still rejected, and does not hang. |
+| Full core suite | `cargo test -p liquers-core --lib --tests` | 637 passed, 0 failed. |
 | Standard loop | `cargo test -p liquers-lib --lib --tests` | 369 passed, 0 failed. |
 
 Not run: the `liquers-web` wasm loops. They require a `cargo clean` between them and the native
@@ -52,6 +59,26 @@ Phase 1's two open questions were both answered in Phase 2 (guard placement; re-
 excluded and filed).
 
 **Added beyond the plan:** nothing. **Omitted:** the redundant re-persist, deliberately — see below.
+
+**Review round (PR 32).** Codex found that the first implementation compared *recipe* keys, and
+`AssetData::recipe` is mutable: when a provider resolves `K` to a pure-key alias `L`, owner
+evaluation replaces the owner's recipe, so its `recipe.key()` becomes `L` while the delegate still
+holds `K`. The same-node test then missed the hand-off and recorded `K -> L` carrying the owner's
+metadata version — a version for `K` — which `DependencyManager::add_dependency` compares against
+`L`'s registered version and can expire `K` for. Confirmed and fixed by taking identity from
+`bound_key_candidate()` (the immutable construction-time key), with the recipe comparison retained
+as a fallback for assets that have no bound key. The finding is sound and the fix matches an
+existing convention: `Context::schedule_dependency_asset` already carries the comment "Provider
+resolution can replace the mutable recipe, so deriving this identity from `AssetData::recipe` would
+register edges under the wrong key."
+
+**Genuine self-dependency is unaffected**, which was worth pinning explicitly rather than arguing.
+`record_dependency_on_asset` has one production caller, the delegation branch. A command calling
+`Context::evaluate` on its own asset's key travels `schedule_dependency_asset` →
+`register_scheduled_dependency` → `would_create_cycle` and still fails fast.
+`test_keyed_asset_evaluating_its_own_key_is_a_cycle` now covers that end to end; the existing
+coverage was a `register_scheduled_dependency` unit test and an *expression* cycle, neither of
+which would catch a future change that moved this exemption into the shared path.
 
 One correction during implementation: T1 as sketched in Phase 3 used
 `DependencyManager::expire(&key)` to prove no edge exists, which always fails — `expire` includes
@@ -83,11 +110,17 @@ skipped only the cycle check while still offering the edge.
    `DependencyManager::load_from_records` by `track_asset`, so a self-record would have reinstalled
    the self-edge on every reload. The guard therefore had to move *above* the metadata write, which
    is why `current_dep_key` is now derived early.
-3. **`bound_owner_key()` already encodes ownership correctly**, so `track_asset` needed no change: a
+3. **Identity must come from an immutable field.** `AssetData::recipe` is replaced by provider
+   resolution mid-evaluation, so any identity test built on it is only correct until the asset
+   evaluates. The codebase already knew this in two places — `bound_key_candidate` exists for it,
+   and `Context::schedule_dependency_asset` classifies keyed dependents by `owner_key()` for it —
+   and the first version of this fix still reached for the recipe. Review caught it. When adding a
+   comparison over asset identity, check which field the codebase already trusts.
+4. **`bound_owner_key()` already encodes ownership correctly**, so `track_asset` needed no change: a
    delegating asset is not the registered owner, does not re-register a version for the key, and
    does not expire the owner's dependents. Persistence has no equivalent check — that asymmetry is
    `DELEGATED-VALUE-REPERSISTED`.
-4. **The test that caught this was written to be inverted.** `scenario_keyed_delegation` asserted
+5. **The test that caught this was written to be inverted.** `scenario_keyed_delegation` asserted
    the broken outcome and panicked with instructions if it ever produced a value. That is what made
    this a fifteen-minute change rather than an investigation, and it is worth copying when a branch
    is known-broken but its *selection* still needs pinning. The call-counter assertion is the
