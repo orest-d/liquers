@@ -2,7 +2,7 @@
 id: DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE
 kind: issue
 title: Execution-time expired dependency always fails its dependent; the stale-value branch is dead
-status: accepted
+status: closed
 priority: P0
 complexity: S
 area: [core/assets]
@@ -70,3 +70,11 @@ documented: use the stale value, call `note_expired_dependency`, and let the dep
 Found during the cross-phase review of the `expired-binary-read-safety` design, while auditing
 which internal callers of a gated read need the ungated one. That design fixes the same mistake for
 `poll_binary`/`save_to_store`; this one predates it and is out of its scope.
+
+## Resolution
+
+Fixed `DefaultAssetManager::wait_for_dependency` to use the explicit
+`poll_state_any_status()` recovery read for execution-time expired dependencies. Regression tests
+exercise the production wait path and verify both outcomes: a retained stale value lets the
+dependent complete and become `Expired`, while an expired dependency with no retained value still
+fails with the existing eviction error.

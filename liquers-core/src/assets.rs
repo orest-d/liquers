@@ -4427,7 +4427,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     // so we do NOT recompute the dependency (that risks unbounded re-execution
                     // when its freshness window is shorter than this asset's evaluation time —
                     // scheduling-time refresh happens only in `get_dependency_asset`).
-                    match dependency.poll_state().await {
+                    match dependency.poll_state_any_status().await {
                         // Stale value still present: use it and propagate staleness — this
                         // dependent is labeled expired at completion (see finish_run_with_result).
                         Some(state) => {
@@ -6800,11 +6800,11 @@ recipes:
         );
     }
 
-    /// An asset that consumed a dependency which expired mid-execution must be labeled
-    /// `Expired` at completion (staleness propagation): the produced value is kept but the
-    /// asset is recomputed on next access. (PR #6 review, comment 3.)
+    /// An asset that consumed a retained dependency which expired mid-execution must complete
+    /// through the production dependency wait path and be labeled `Expired` (staleness
+    /// propagation): the produced value is kept but the asset is recomputed on next access.
     #[tokio::test]
-    async fn test_stale_dependency_labels_asset_expired_on_completion() {
+    async fn test_wait_for_retained_expired_dependency_labels_asset_expired_on_completion() {
         let query = parse_query("test").unwrap();
         let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
         let key = CommandKey::new_name("test");
@@ -6815,14 +6815,23 @@ recipes:
 
         let asset =
             AssetData::<SimpleEnvironment<Value>>::new(32, query.into(), envref.clone()).to_ref();
-        // A throwaway dependency, only used for its id in the diagnostic warning.
         let dep = AssetData::<SimpleEnvironment<Value>>::new(
             33,
             parse_query("dep").unwrap().into(),
             envref.clone(),
         )
         .to_ref();
-        asset.note_expired_dependency(&dep).await.unwrap();
+        dep.set_value(Value::from("stale dependency"))
+            .await
+            .unwrap();
+        dep.set_status(Status::Expired).await.unwrap();
+
+        let stale_state = envref
+            .get_asset_manager()
+            .wait_for_dependency(&asset, &dep)
+            .await
+            .expect("a retained expired dependency should remain usable mid-evaluation");
+        assert_eq!(stale_state.try_into_string().unwrap(), "stale dependency");
 
         asset.run().await.unwrap();
 
@@ -6842,6 +6851,36 @@ recipes:
         let state = asset.poll_state_any_status().await;
         assert!(state.is_some(), "the produced value must be retained");
         assert_eq!(state.unwrap().try_into_string().unwrap(), "Hello, world!");
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_evicted_expired_dependency_fails_parent() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let parent = AssetData::<SimpleEnvironment<Value>>::new(
+            34,
+            parse_query("parent").unwrap().into(),
+            envref.clone(),
+        )
+        .to_ref();
+        let dependency = AssetData::<SimpleEnvironment<Value>>::new(
+            35,
+            parse_query("dependency").unwrap().into(),
+            envref.clone(),
+        )
+        .to_ref();
+        dependency.set_status(Status::Expired).await.unwrap();
+
+        let error = envref
+            .get_asset_manager()
+            .wait_for_dependency(&parent, &dependency)
+            .await
+            .expect_err("an evicted expired dependency has no stale value to use");
+
+        assert!(error
+            .to_string()
+            .contains("expired and was evicted before its value could be used"));
+        assert_eq!(parent.status().await, Status::Error);
     }
 
     #[tokio::test]
