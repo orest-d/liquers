@@ -96,7 +96,13 @@ this design.
    *every parameter written must be consumed*.
 4. **`pl/select_columns` and `pl/drop_columns` become variadic** (`multiple`), so
    `select_columns-a-b` selects two columns — the behaviour their documentation always claimed.
-   This is the prerequisite work described in Q3.
+   This is the prerequisite work described in Q1.
+5. **The header's misreported fallback is fixed here.** An unrecognised instruction such as
+   `-R-xyz/data` currently returns "Resource header parameters must be string or link"
+   (`plan.rs:1296`) — a parse-shape complaint for what is really an unknown instruction, and with no
+   position. It gains an accurate message and the position of the offending parameter. In scope
+   because this design already rewrites the surrounding arm and the two errors must read
+   consistently.
 
 ## Open Questions
 
@@ -111,18 +117,22 @@ this design.
    command signatures from `columns: String` to `Vec<String>`, and regenerating
    `specs/command_registry.yaml`. Confirm this scope is wanted inside this design rather than split
    into its own.
-2. **Must a `multiple` argument be last?** It consumes the iterator's remainder, so any argument
-   declared after one is unreachable. Nothing enforces this today because nothing uses `multiple`.
-   Enforce at registration (macro or registry validation) or leave as an author's hazard?
-3. **The header's `_` arm reports the wrong thing.** An unrecognised instruction such as
-   `-R-xyz/data` returns "Resource header parameters must be string or link" (`plan.rs:1296`),
-   which describes a different failure. Fix the message while touching this code — and it wants a
-   position too.
-4. **Does the header's ignored *name* stay a warning?** `plan.rs:1237` warns that a non-empty
+2. **Does the header's ignored *name* stay a warning?** `plan.rs:1237` warns that a non-empty
    header name is ignored. Decision 3 covers surplus *parameters* only; the name is a separate
    ignored input and is left warning unless stated otherwise.
-5. How much existing test, example and recipe material relies on the current silent truncation? To
+3. How much existing test, example and recipe material relies on the current silent truncation? To
    be measured in Phase 2 by running the suites and validating the committed registry.
+
+## Deferred to issues
+
+- `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS` (P2) — an argument declared after a `multiple` one is
+  unreachable, and nothing rejects the declaration. Latent until this design makes `multiple`
+  declarable, then live. The constraint belongs to the command model rather than to this subject,
+  so it is filed rather than absorbed; this design must simply not declare such a signature.
+- `COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED` (P3) — `CommandRegistryIssue::{warning,error}`
+  transpose two fields, misattributing every issue built through them. Found while locating where
+  the check above would live. Harmless today (`CommandMetadata::check()` has no caller) and
+  independent of this design.
 
 ## References
 
