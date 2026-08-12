@@ -31,9 +31,10 @@ the result is not what the signature suggests:
 
 1. `Recipe::key()` returns the key, so `evaluate_recipe` takes the keyed path and the supplied
    input state is never applied to anything. It is silently dropped.
-2. The ad-hoc asset then delegates to the key's registered owner, which currently fails with a
-   spurious cycle (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`), or evaluates the key's recipe itself
-   when nothing is registered.
+2. The ad-hoc asset then delegates to the key's registered owner — which since 2026-08-12 hands it
+   the owner's value (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`, closed; at the time this issue was
+   written it instead failed with a spurious cycle) — or evaluates the key's recipe itself when
+   nothing is registered.
 3. Either way `evaluate_and_store` persists, and `save_to_store` targets
    `recipe.key().or(recipe.store_to_key())` (`:2105`) — so the ad-hoc result is **written to the
    store under that key**, with status `Ready`, which `try_fast_track` will later accept as the

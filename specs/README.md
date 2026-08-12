@@ -63,15 +63,17 @@ volatility work all landed in `assets.rs`.
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
+- **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)
 - **Persistence, eviction safety and upload limits** — planned → [`issues/ASSETS-IMPROVEMENTS.md`](issues/ASSETS-IMPROVEMENTS.md)
 
-Nine designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
+Ten designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
 only settled description and it predates most of them, though `keyed-recipe-ownership` did fold its
-ownership and volatility rules back into it. **That is the largest documentation gap in the
+ownership and volatility rules back into it, and `keyed-delegation-hand-off` folded the
+same-key hand-off rule into `DEPENDENCIES_STATUS.md`. **That is the largest documentation gap in the
 project.** Two structural issues sit on top: `CORE-EVALUATE-PATH-CONSOLIDATION` (P1), which is
 the conclusion `ASSETS-FIX1` reaches from the other direction, and nothing collects assets that
 simply stop being wanted.

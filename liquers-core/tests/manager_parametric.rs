@@ -148,19 +148,20 @@ where
 }
 
 /// An asset holding a key recipe it does not own takes the **delegation** branch rather than
-/// evaluating the recipe itself.
+/// evaluating the recipe itself, and that branch hands it the owner's value.
 ///
-/// This pins branch *selection*, which is what the ownership test controls: a fix that turned
-/// every case into self-evaluation would silently double-evaluate shared keys, and this test
-/// is what catches that. The counter proves it: the recipe runs once, for the owner.
+/// Two contracts are pinned here, and both assertions are load-bearing:
 ///
-/// **The branch's outcome is a separate, pre-existing defect.** Delegation always fails with
-/// a spurious `DependencyCycle`, and cannot do otherwise: `owned_key_asset` is queried with
-/// the key from *this* asset's own recipe, so the delegate is always registered under this
-/// asset's own key, and `record_dependency_on_asset` compares those two keys and sees a
-/// self-edge. See `ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`. This test asserts the current broken
-/// outcome so that fixing it fails loudly here — the same arrangement that
-/// `test_volatile_keyed_recipe_cycles_preexisting_defect` used before it was inverted.
+/// - **Branch selection**, which the ownership test controls (`specs/design/keyed-recipe-ownership/`).
+///   A change that turned every case into self-evaluation would still produce `"counted"` — the
+///   recipe genuinely computes it — so the *counter* is what catches it. A shared key must be
+///   computed once, not once per reader.
+/// - **The hand-off itself** (`specs/design/keyed-delegation-hand-off/`). Delegation used to fail
+///   unconditionally with a spurious `DependencyCycle`: `owned_key_asset` is queried with the key
+///   from *this* asset's own recipe, so the delegate is always registered under this asset's own
+///   key, and `record_dependency_on_asset` saw a self-edge. Two assets sharing a key are one
+///   dependency-graph node, so nothing is recorded and the wait proceeds
+///   (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`).
 ///
 /// `apply` builds the untracked asset: it constructs one from the recipe it is given and runs
 /// it without registering it, so a bare key recipe reaches `evaluate_recipe` with an id the
@@ -183,35 +184,20 @@ where
         "precondition: evaluated once"
     );
 
-    // The failure surfaces at different points on the two managers, and both are correct:
-    // the inline manager runs the asset during `apply` and returns the error there, while the
-    // queued manager submits and the error appears when the value is read.
-    let err = match manager.apply((&key).into(), State::new()).await {
-        Ok(adhoc) => {
-            assert_ne!(adhoc.id(), owner.id(), "precondition: a different asset");
-            match adhoc.get().await {
-                Ok(state) => match state.value_state() {
-                    Ok(_) => panic!(
-                        "delegation unexpectedly produced a value - \
-                         ASSET-KEYED-DELEGATION-ALWAYS-CYCLES may have been fixed; invert this \
-                         test to assert the owner's value and a still-unchanged call count"
-                    ),
-                    Err(e) => e,
-                },
-                Err(e) => e,
-            }
-        }
-        Err(e) => e,
-    };
-    assert!(
-        err.to_string().contains("Dependency cycle"),
-        "expected the known self-edge cycle from the delegation branch, got: {}",
-        err
+    let adhoc = manager.apply((&key).into(), State::new()).await?;
+    // Without this the test could pass trivially: were `apply` ever to return the registered
+    // owner, the delegation branch would never be entered at all.
+    assert_ne!(adhoc.id(), owner.id(), "precondition: a different asset");
+
+    assert_eq!(
+        adhoc.get().await?.try_into_string()?,
+        "counted",
+        "delegation must hand the owner's value to the delegating asset"
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),
         1,
-        "whatever delegation does with the value, it must not re-run the recipe"
+        "the hand-off takes the owner's value; it must not re-run the recipe"
     );
     Ok(())
 }

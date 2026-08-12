@@ -1104,6 +1104,15 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Record a direct dependency on another asset in metadata and the dependency manager.
+    ///
+    /// **Assets that share a key are one dependency-graph node**, and a node has no edge to
+    /// itself: `DependencyKey` is the node identity, so when this asset and `dependency` resolve
+    /// to the same key there is nothing to record and this is a no-op. That is the *hand-off*
+    /// case — an asset holding a keyed recipe it does not own waits for the key's registered
+    /// owner (see [`Self::evaluate_recipe`]) — and recording it would be wrong twice over: the
+    /// metadata record replays as a self-edge through `DependencyManager::load_from_records` on
+    /// every reload, and `would_create_cycle` correctly reports the self-edge, which used to make
+    /// the delegation branch fail unconditionally (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`).
     pub(crate) async fn record_dependency_on_asset(
         &self,
         dependency: &AssetRef<E>,
@@ -1118,6 +1127,19 @@ impl<E: Environment> AssetRef<E> {
                 return Ok(());
             }
         };
+        let current_dep_key = {
+            let lock = self.data.read().await;
+            lock.recipe
+                .key()
+                .ok()
+                .flatten()
+                .map(|key| DependencyKey::from(&key))
+        };
+        // Same node: a hand-off, not a dependency. Nothing is recorded in metadata and no edge
+        // is offered to the dependency manager.
+        if current_dep_key.as_ref() == Some(&dep_key) {
+            return Ok(());
+        }
         let version = {
             let dep_lock = dependency.data.read().await;
             dep_lock.metadata.version()
@@ -1151,11 +1173,7 @@ impl<E: Environment> AssetRef<E> {
             }
         }
 
-        if let Some(current_key) = {
-            let lock = self.data.read().await;
-            lock.recipe.key().ok().flatten()
-        } {
-            let current_dep_key = DependencyKey::from(&current_key);
+        if let Some(current_dep_key) = current_dep_key {
             if manager
                 .dependency_manager()
                 .would_create_cycle(&current_dep_key, &dep_key)
@@ -1884,9 +1902,17 @@ impl<E: Environment> AssetRef<E> {
                             self.id(),
                             asset.id()
                         );
-                        // Record delegation as a dependency wait, then delegate the F-1 inline
-                        // guard onto the shared, claim-based wait primitive: it drains this
-                        // asset's own local queue, direct-claims the child if still runnable
+                        // Delegation is a *hand-off*, not a dependency: the owner was looked up
+                        // with this asset's own recipe key, so both assets are the same node of
+                        // the dependency graph and there is no edge to record. The call is kept
+                        // because it stays correct if a delegate is ever registered under a key
+                        // other than its own recipe key; the same-node case is exempted inside
+                        // `record_dependency_on_asset`, which is what used to fail the whole
+                        // branch with a spurious cycle (ASSET-KEYED-DELEGATION-ALWAYS-CYCLES).
+                        //
+                        // The wait itself still goes through the shared, claim-based primitive
+                        // rather than a bare `get()` — that is the F-1 inline guard: it drains
+                        // this asset's own local queue, direct-claims the child if still runnable
                         // (no queue slot consumed), or subscribes — guaranteeing progress for
                         // pure-key delegation chains without the old ad-hoc inline run.
                         self.record_dependency_on_asset(&asset).await?;
@@ -6278,6 +6304,72 @@ mod tests {
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].key, dependency_record_key);
         assert_eq!(deps[0].version, Version::new(42));
+    }
+
+    /// Two assets holding the same key are one dependency-graph node, so the hand-off from a
+    /// delegating asset to the key's registered owner records nothing at all.
+    ///
+    /// Before `ASSET-KEYED-DELEGATION-ALWAYS-CYCLES` was fixed, this call returned
+    /// `Error::dependency_cycle` — `would_create_cycle` was asked about a self-edge and answered
+    /// correctly — so the `unwrap()` below is itself the regression assertion.
+    #[tokio::test]
+    async fn record_dependency_on_asset_skips_same_node_hand_off() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let key = parse_key("shared.txt").unwrap();
+        let delegating = AssetData::<SimpleEnvironment<Value>>::new(
+            2240,
+            key.clone().into(),
+            envref.clone(),
+        )
+        .to_ref();
+        let owner =
+            AssetData::<SimpleEnvironment<Value>>::new(2241, key.clone().into(), envref.clone())
+                .to_ref();
+
+        delegating.record_dependency_on_asset(&owner).await.unwrap();
+
+        let metadata = delegating.get_metadata().await.unwrap();
+        assert!(
+            metadata.get_dependencies().is_empty(),
+            "a self-record would replay as a self-edge through load_from_records on reload"
+        );
+
+        // No graph edge either. `expire_dependents` excludes the root, so a self-edge would show
+        // up as the key expiring itself — which is what a fix that only skipped the cycle check,
+        // while still offering the edge, would produce.
+        let manager = envref.get_asset_manager();
+        let expired = manager
+            .dependency_manager()
+            .expire_dependents(&DependencyKey::from(&key))
+            .await;
+        assert!(
+            expired.keys.is_empty(),
+            "the hand-off must not add a self-edge to the dependency graph"
+        );
+    }
+
+    /// The complement of the hand-off exemption: a genuinely different key is still recorded.
+    /// Without this, a guard that returned early unconditionally would look correct.
+    #[tokio::test]
+    async fn record_dependency_on_asset_records_distinct_key() {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let parent_key = parse_key("parent.txt").unwrap();
+        let dep_key = parse_key("dep.txt").unwrap();
+        let parent =
+            AssetData::<SimpleEnvironment<Value>>::new(2242, parent_key.into(), envref.clone())
+                .to_ref();
+        let dependency =
+            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), envref)
+                .to_ref();
+
+        parent.record_dependency_on_asset(&dependency).await.unwrap();
+
+        let metadata = parent.get_metadata().await.unwrap();
+        let deps = metadata.get_dependencies();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].key, DependencyKey::from(&dep_key));
     }
 
     #[tokio::test]
