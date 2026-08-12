@@ -44,6 +44,26 @@ are `pl/select_columns` and `pl/drop_columns`, documented as taking "column name
 dashes" while declaring a single `String`: because `-` separates parameters, the dash-separated
 spelling never reached the command as written.
 
+### Affected commands — fixing these is part of this issue
+
+Both live in `liquers-lib/src/polars/selection.rs` and both work around the missing feature the same
+way: they declare one `String` argument and split it on `-` internally.
+
+| Command | Declaration | Internal workaround | Registration |
+|---|---|---|---|
+| `pl/select_columns` | `columns: String` (`selection.rs:15`) | `columns.split('-')` (`:18`) | `:105` |
+| `pl/drop_columns` | `columns: String` (`selection.rs:37`) | `columns.split('-')` (`:40`) | `:114` |
+
+These two are the whole set. Verified by searching `liquers-lib/src/` for dash-splitting and for
+list-shaped documentation: no other command in any namespace takes a delimited list in a single
+argument, and no other `polars` module (`aggregation`, `filtering`, `info`, `io`, `sorting`) has a
+multi-value argument.
+
+The internal `split('-')` is the workaround, not the feature, and it must be **removed** when the
+arguments become variadic — leaving it would make `select_columns-a~_b` (one escaped argument) and
+`select_columns-a-b` (two arguments) both work but by two different mechanisms, and would silently
+keep splitting a legitimate column name that contains a dash.
+
 Until `PLAN-EXCESS-ACTION-PARAMETERS-DROPPED` was fixed this failed silently — `select_columns-a-b`
 selected only `a`. It now raises a positioned error instead, so the defect is loud rather than
 silent, and the working spelling is the escaped `select_columns-a~_b`, which resolves to the single
@@ -74,9 +94,23 @@ Then, in `liquers-macro/src/registration.rs`:
   compares it to `"injected"`, so `fn f(state, a: i32 foobar)` silently swallows `foobar`. Adding a
   second flag without this fix makes a typo between `multiple` and `injected` fail silently.
 
-Finally, declare `pl/select_columns` and `pl/drop_columns` variadic, drop their internal
-`split('-')`, regenerate `specs/command_registry.yaml`, and correct
-`specs/reference/POLARS_COMMAND_LIBRARY.md`.
+Finally — and this is required for the issue to be closed, not optional follow-up — fix the two
+affected commands listed above:
+
+1. declare `columns` variadic in both `register_command!` invocations (`selection.rs:105`, `:114`);
+2. change both signatures to `columns: Vec<String>` and **delete** the internal `split('-')`;
+3. update both doc comments and the `doc:` metadata, which currently describe the workaround
+   ("separated by dashes") rather than the behaviour;
+4. regenerate `specs/command_registry.yaml` — `cargo test -p liquers-lib --test registry_export`
+   enforces this;
+5. correct `specs/reference/POLARS_COMMAND_LIBRARY.md`, which
+   `specs/design/excess-action-parameters-error/` will by then have set to the escaped `a~_b`
+   spelling; it becomes the plain `a-b` spelling again.
+
+A column name that genuinely contains a dash is expressible after this and is not today: as a
+variadic argument each element is escaped independently, so `select_columns-a~_b` selects the single
+column `a-b` while `select_columns-a-b` selects two. Under the current `split('-')` those two are
+indistinguishable. Worth a test.
 
 `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS` should be fixed in the same effort or immediately
 after: it becomes reachable the moment this one lands.
