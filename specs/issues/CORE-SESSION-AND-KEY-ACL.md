@@ -2,7 +2,7 @@
 id: CORE-SESSION-AND-KEY-ACL
 kind: issue
 title: No session model, and no way to authorize writes per key
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/context, core/store, axum]

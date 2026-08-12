@@ -2,7 +2,7 @@
 id: CORE-ASSET-GC
 kind: issue
 title: Assets are never garbage collected
-status: draft
+status: accepted
 priority: P3
 complexity: L
 area: [core/assets, core/store]

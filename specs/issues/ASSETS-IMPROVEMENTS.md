@@ -2,7 +2,7 @@
 id: ASSETS-IMPROVEMENTS
 kind: feature
 title: Asset persistence, eviction safety and upload limits
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/assets, core/store]

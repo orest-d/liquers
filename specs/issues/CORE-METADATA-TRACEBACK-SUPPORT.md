@@ -2,7 +2,7 @@
 id: CORE-METADATA-TRACEBACK-SUPPORT
 kind: issue
 title: Metadata has no place for an error traceback
-status: draft
+status: accepted
 priority: P2
 complexity: S
 area: [core/value, core/error]

@@ -2,7 +2,7 @@
 id: BENCHMARK-SUITE
 kind: feature
 title: No reproducible benchmarks for core runtime paths
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [build]

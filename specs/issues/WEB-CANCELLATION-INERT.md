@@ -2,7 +2,7 @@
 id: WEB-CANCELLATION-INERT
 kind: issue
 title: Web cancellation surface exists but does nothing
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [web]

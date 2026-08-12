@@ -2,8 +2,8 @@
 id: CORE-RECIPES-EXPAND-PREDECESSORS-CRASH
 kind: issue
 title: `disable_expand_predecessors` crashes an evaluation test
-status: draft
-priority: P1
+status: accepted
+priority: P0
 complexity: M
 area: [core/assets, core/plan]
 design: 

@@ -2,7 +2,7 @@
 id: CORE-TRACING-MIGRATION
 kind: issue
 title: Diagnostics use `eprintln!` rather than structured logging
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [core/error, build]

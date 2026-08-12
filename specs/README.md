@@ -166,9 +166,8 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE`](issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md) | P1 | S | `expired-binary-read-safety` |
-| [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P1 | M | `metadata-consistency` |
-| [`CORE-PLAN-RELATIVE-RESOLUTION-MISSING`](issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md) | P1 | M | `plan-relative-resolution` |
+| [`DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE`](issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md) | P0 | S | `expired-binary-read-safety` |
+| [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P0 | M | `metadata-consistency` |
 <!-- END generated: issues -->
 
 ## Not yet placed

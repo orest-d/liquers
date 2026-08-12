@@ -2,7 +2,7 @@
 id: EXTENDED-FAST-TRACK
 kind: feature
 title: Fast-track covers only simple loading
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/assets]

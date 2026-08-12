@@ -2,7 +2,7 @@
 id: ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE
 kind: issue
 title: insert_key_asset silently does nothing on the queued manager when the key is taken
-status: draft
+status: accepted
 priority: P2
 complexity: S
 area: [core/assets]

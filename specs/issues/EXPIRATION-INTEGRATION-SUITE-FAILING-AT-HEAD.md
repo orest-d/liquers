@@ -2,8 +2,8 @@
 id: EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD
 kind: issue
 title: Five expiration_integration tests fail at HEAD
-status: draft
-priority: P1
+status: closed
+priority: P0
 complexity: M
 area: [core/assets]
 design:
@@ -63,3 +63,10 @@ Note for whoever picks this up: `CLAUDE.md`'s documented loop is
 `cargo test -p liquers-lib --lib --tests`, which does not run this suite. That is a plausible
 explanation for how five failures went unnoticed, and an argument for the loop including
 `-p liquers-core --lib --tests`.
+
+## Resolution
+
+Closed during triage on 2026-08-12. The suite now passes at HEAD: `cargo test -p
+liquers-core --test expiration_integration` reports 32 passed and 0 failed. The relative-resolution
+implementation in commit `48422dc` updated the expiration analysis paths and the suite's stale
+expectations, so the reported five-failure state no longer exists.

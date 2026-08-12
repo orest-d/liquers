@@ -1,8 +1,8 @@
 ---
 id: WEB-NATIVE-IO-TIER2
 kind: issue
-title: No browser-native store or command backend
-status: draft
+title: Browser storage has no IndexedDB backend
+status: accepted
 priority: P3
 complexity: L
 area: [web]
@@ -12,19 +12,20 @@ github:
 ---
 ## Problem
 
-The conditional-`Send` groundwork from `async-wasm-refactor` permits a `BrowserEnvironment` with an
-IndexedDB/`fetch` `AsyncStore` and a JavaScript-closure command backend — the core already does not
-preclude `!Send` closures. None of it is implemented.
+The browser bindings provide `localStorage`, `fetch`, and host-object store adapters, but no
+IndexedDB-backed `AsyncStore`. The existing `localStorage` backend is synchronous, string-only, and
+subject to small browser quotas, so it is not suitable for larger persisted assets.
 
 ## Impact
 
-A browser deployment cannot persist to browser-native storage or fetch over the network through the
-store abstraction; it is limited to what the host page passes in.
+Browser deployments cannot use the store abstraction for larger, asynchronous, transactional
+browser-native persistence. They can still use the delivered `localStorage`, `fetch`, and `JsStore`
+backends.
 
 ## Expected behaviour
 
-A tier-2 `BrowserEnvironment` providing an IndexedDB-backed `AsyncStore` and a `fetch`-backed
-read-only store, plus a command backend accepting JavaScript closures.
+An IndexedDB-backed `AsyncStore` with the same observable store contract as the existing browser
+backends, including directory operations and binary round trips.
 
 ## Partially delivered, 2026-08-09
 
@@ -35,19 +36,14 @@ Delivered: a `localStorage`-backed `AsyncStore` (full contract, directories incl
 `fetch`-backed read-only store, a `JsStore` adapting a page object, and declarative composition
 through `liquers-store`'s configuration and a new `StoreFactory` seam.
 
-Not delivered, and still what this issue asks for:
+Not delivered, and now the sole scope of this issue, is **IndexedDB**. It is Promise-based and a
+genuinely different store from `localStorage`.
 
-- **IndexedDB.** `localStorage` is synchronous, string-only and capped at a few megabytes; anything
-  larger than a few documents needs IndexedDB, which is Promise-based and a genuinely different
-  store.
-- **A command backend accepting JavaScript closures.** Delivered separately by
-  `specs/design/liquers-web/` (`registerCommand`), so this half is arguably done — confirm before
-  closing.
-- **A `BrowserEnvironment` type.** Not built and, as it turned out, not needed:
-  `DefaultEnvironment` was already sufficient once a store could be configured on it.
-
-One thing to know before building on this: `-R/` queries still do not evaluate in a browser, for a
-reason unrelated to stores — `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION` (P1).
+The other originally proposed capabilities no longer belong to this issue: JavaScript closure
+commands were delivered by `specs/design/liquers-web/` (`registerCommand`), and a dedicated
+`BrowserEnvironment` proved unnecessary because `DefaultEnvironment` can be configured with the
+browser store adapters. Browser `-R/` evaluation was subsequently unblocked by the fixes recorded
+in `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION` and `IMMEDIATE-MANAGER-NO-FAST-TRACK`.
 
 ## Discovery
 

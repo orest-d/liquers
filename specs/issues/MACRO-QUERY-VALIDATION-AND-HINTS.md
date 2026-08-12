@@ -2,7 +2,7 @@
 id: MACRO-QUERY-VALIDATION-AND-HINTS
 kind: issue
 title: `register_command!` does not validate queries or implement hints
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [macro]

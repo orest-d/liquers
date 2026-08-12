@@ -2,7 +2,7 @@
 id: REPO-DEAD-CODE-HYGIENE
 kind: issue
 title: Dead modules and untracked files in the repository
-status: draft
+status: accepted
 priority: P3
 complexity: S
 area: [build]

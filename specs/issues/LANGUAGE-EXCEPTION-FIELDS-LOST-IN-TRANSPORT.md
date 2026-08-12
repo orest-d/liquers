@@ -2,7 +2,7 @@
 id: LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT
 kind: issue
 title: Language exception class and stack are lost in transport
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [core/error, web, py]

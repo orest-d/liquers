@@ -2,7 +2,7 @@
 id: COMBINED-VALUE-DISCRIMINATION
 kind: feature
 title: Deserialization cannot discriminate base from extended values
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [core/value, lib/value]

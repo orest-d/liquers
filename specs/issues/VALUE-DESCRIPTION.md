@@ -2,9 +2,9 @@
 id: VALUE-DESCRIPTION
 kind: feature
 title: Value types have no auto-generated description
-status: draft
+status: accepted
 priority: P3
-complexity: M
+complexity: L
 area: [core/value, lib/value]
 design:
 created: 2026-08-08

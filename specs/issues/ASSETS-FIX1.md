@@ -2,7 +2,7 @@
 id: ASSETS-FIX1
 kind: feature
 title: Unresolved TODO and FIXME markers in the asset lifecycle
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/assets]

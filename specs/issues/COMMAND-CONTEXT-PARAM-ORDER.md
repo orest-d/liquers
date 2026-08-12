@@ -2,7 +2,7 @@
 id: COMMAND-CONTEXT-PARAM-ORDER
 kind: issue
 title: The context parameter must come last, as a workaround
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [core/commands, macro]

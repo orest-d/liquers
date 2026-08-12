@@ -2,7 +2,7 @@
 id: AXUM-WEBSOCKET-HARDENING
 kind: issue
 title: WebSocket endpoint is not hardened
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [axum]

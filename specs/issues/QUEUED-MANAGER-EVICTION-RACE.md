@@ -2,7 +2,7 @@
 id: QUEUED-MANAGER-EVICTION-RACE
 kind: issue
 title: The queued manager's cache evictions can delete a replacement asset
-status: draft
+status: accepted
 priority: P2
 complexity: S
 area: [core/assets]

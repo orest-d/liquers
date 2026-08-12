@@ -2,7 +2,7 @@
 id: COMBINED-EXPIRES
 kind: feature
 title: No algebra for combining expiration across dependencies
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/assets]

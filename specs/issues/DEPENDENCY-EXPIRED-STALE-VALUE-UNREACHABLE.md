@@ -2,8 +2,8 @@
 id: DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE
 kind: issue
 title: Execution-time expired dependency always fails its dependent; the stale-value branch is dead
-status: draft
-priority: P1
+status: accepted
+priority: P0
 complexity: S
 area: [core/assets]
 design: expired-binary-read-safety

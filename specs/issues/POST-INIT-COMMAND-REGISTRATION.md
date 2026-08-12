@@ -2,7 +2,7 @@
 id: POST-INIT-COMMAND-REGISTRATION
 kind: issue
 title: Registering a command after Environment::to_ref requires a rebuild
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [core/commands, web]

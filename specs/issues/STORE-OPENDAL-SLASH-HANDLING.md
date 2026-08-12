@@ -2,7 +2,7 @@
 id: STORE-OPENDAL-SLASH-HANDLING
 kind: issue
 title: OpenDAL store mishandles keys containing slashes
-status: draft
+status: accepted
 priority: P1
 complexity: M
 area: [store/backends]

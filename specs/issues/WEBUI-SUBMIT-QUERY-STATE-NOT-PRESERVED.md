@@ -2,7 +2,7 @@
 id: WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED
 kind: issue
 title: Submitted query state is not preserved in the browser
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [lib/ui]

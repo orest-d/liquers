@@ -2,8 +2,8 @@
 id: PLAN-EXCESS-ACTION-PARAMETERS-DROPPED
 kind: issue
 title: Plan builder silently drops excess action parameters
-status: draft
-priority: P2
+status: accepted
+priority: P0
 complexity: M
 area: [core/plan]
 design: 

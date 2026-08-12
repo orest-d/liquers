@@ -2,7 +2,7 @@
 id: STORE-COMMAND-NAMESPACE-MISSING
 kind: feature
 title: Store contents cannot be read or written from a query
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [lib/commands, core/store]

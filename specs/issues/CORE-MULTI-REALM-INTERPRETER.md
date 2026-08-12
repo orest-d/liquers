@@ -2,7 +2,7 @@
 id: CORE-MULTI-REALM-INTERPRETER
 kind: issue
 title: The interpreter supports a single realm
-status: draft
+status: accepted
 priority: P3
 complexity: XL
 area: [core/plan, core/commands]
