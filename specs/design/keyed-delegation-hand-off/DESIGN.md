@@ -5,7 +5,7 @@ title: Keyed delegation is a hand-off, not a dependency
 workflow: liquers-project
 status: complete
 area: [core/assets]
-gh_pr: []
+gh_pr: [32]
 issues: [ASSET-KEYED-DELEGATION-ALWAYS-CYCLES]
 affects_docs: [specs/reference/DEPENDENCIES_STATUS.md]
 created: 2026-08-12
