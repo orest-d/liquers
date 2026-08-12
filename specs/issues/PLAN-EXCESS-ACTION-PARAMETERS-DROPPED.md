@@ -2,11 +2,11 @@
 id: PLAN-EXCESS-ACTION-PARAMETERS-DROPPED
 kind: issue
 title: Plan builder silently drops excess action parameters
-status: accepted
+status: closed
 priority: P0
 complexity: M
 area: [core/plan]
-design: 
+design: excess-action-parameters-error
 created: 2026-08-08
 github:
 ---
@@ -82,3 +82,29 @@ arguments produces exactly one warning naming the ignored values; an action whos
 argument is `multiple` produces none; an exactly-saturated action produces none. Add a
 `liquers-core/src/validate` test asserting such a query reports `status: Warning` with exit 0,
 which is what pins the validator's contract.
+
+## Resolution
+
+Closed by `specs/design/excess-action-parameters-error/`. Surplus parameters now raise an error
+carrying the position of the first surplus parameter, on both the action path
+(`ResolvedParameterValues::from_action_extended`) and the resource-header path
+(`PlanBuilder::process_resource_query`).
+
+**The resolution is an error, not the warning proposed above, and the reason is structural.** A
+planning warning is `Step::Warning(String)` — a bare message with no `Position` field — whereas
+`Error` carries `position: Position`. Naming *which* parameter is excess is therefore inexpressible
+as a warning without first extending the diagnostic type. The position is what feeds the query
+console's existing highlight path (`StyledQuery::from_query` -> `to_highlight_if_matching` -> an
+underlined token), so an error is what makes the surplus parameter highlightable while editing.
+
+Consequences for the "Verification" section above: the validator reports `status: Error` and exits
+**1** for such a query, not `status: Warning` and exit 0.
+
+The `fix direction` section is superseded: neither option was needed. Because the resolution is an
+error, the check returns `Err` from `from_action_extended`, which already returns `Result` — so
+there is no signature change and no `Plan` handle required.
+
+Two related defects were filed rather than absorbed:
+`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE` (the `multiple` escape hatch this issue names cannot
+actually be declared) and `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS`.
+
