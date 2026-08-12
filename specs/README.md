@@ -42,6 +42,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Action-parameter links (`~X~~E`)** — built → [`design/query-link-parser/`](design/query-link-parser/)
 - **Payload inheritance in nested evaluation** — built → [`design/payload-nested-evaluation-inheritance/`](design/payload-nested-evaluation-inheritance/)
 - **CWD-relative nested query resolution** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
+- **Excess action parameters rejected** — designing → [`design/excess-action-parameters-error/`](design/excess-action-parameters-error/)
 - **Programmatic query builder** — planned → [`issues/QUERY-BUILDER-TOOLING.md`](issues/QUERY-BUILDER-TOOLING.md)
 - **Multi-realm dispatch** — planned → [`issues/CORE-MULTI-REALM-INTERPRETER.md`](issues/CORE-MULTI-REALM-INTERPRETER.md)
 
