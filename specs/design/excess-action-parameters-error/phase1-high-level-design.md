@@ -12,6 +12,21 @@ selects one column. Plan building must instead fail with an error that names the
 excess parameter and **its position in the query text**, so the mistake surfaces where it was
 written rather than as a wrong result later.
 
+## Why an error rather than the warning the issue proposed
+
+The deciding fact is structural, not stylistic: **the warning channel cannot carry a position.**
+A planning warning is `Step::Warning(String)` (`plan.rs:1712`, `init_warning`) — a bare message with
+no `Position` field — whereas `Error` carries `position: Position` and `.with_position()`. Naming
+*which* parameter is excess is therefore not merely better served by an error; as a warning it is
+inexpressible without first extending the diagnostic type.
+
+That matters because the editor's highlight path is already built and is driven entirely by a
+`Position`: `StyledQuery::from_query(x, &position)` (`query.rs:253`) → `to_highlight_if_matching`
+(`query.rs:319`) → `StyledQueryToken::Highlight` → red underline in egui
+(`liquers-lib/src/egui/widgets.rs:411`). An `Error` supplies the one input that path needs; a
+warning supplies nothing. The interactive query console can then underline the offending parameter
+while the user types.
+
 ## Core Interactions
 
 ### Query System
@@ -67,7 +82,11 @@ this design.
    regardless, so the intent is yes — confirm in Phase 2.
 2. Is any lenient/opt-out mode wanted for backward compatibility, or is the break accepted
    outright? Intent: no opt-out; `CORE-PLAN-POLICY-AND-DEFAULTS` is where a policy knob would
-   belong if one is ever needed.
+   belong if one is ever needed. The cost is real and one-sided — queries that build a plan today
+   stop building one — so this is the question the break hinges on.
+2b. The resource-header path (`plan.rs:1242`) keeps warning-and-ignoring for its own excess
+   parameters, so the two paths will disagree. Accept and document the asymmetry, or align them
+   later? Aligning is out of scope here; the reference wording must not pretend they match.
 3. `pl/select_columns` and `pl/drop_columns` document "separated by dashes" but declare one
    `String`; after this change `select_columns-a-b` errors. Declare them `multiple`, or leave them
    scalar and fix the documentation to the `~_` escape (`select_columns-a~_b`)?

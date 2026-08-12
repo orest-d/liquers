@@ -114,3 +114,4 @@ WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,loca
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 EXCESS-ACTION-PARAMETERS-ERROR,design,Excess action parameters raise an error during plan building,draft,local,high-level,,,core/plan;core/error,,,claude/excess-action-params-error-4q26r3,excess-action-parameters-error,,2026-08-12,specs/design/excess-action-parameters-error/DESIGN.md
+UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT,issue,Query console never highlights the erroring token despite complete plumbing,draft,local,,P2,S,lib/ui;core/query,,,,,,2026-08-12,specs/issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md
