@@ -17,7 +17,7 @@ return inside a function that already returns `Result`.
 **Deliberate scope change from Phase 1, decision 4.** Declaring `pl/select_columns` variadic turns
 out to be blocked at a layer Phase 1 did not see. The evidence is in
 [Variadic arguments: why decision 4 is deferred](#variadic-arguments-why-decision-4-is-deferred);
-the recommendation is to split it into its own issue and land the strict check now, because the
+it is split into `COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE` and the strict check lands now, because the
 escape form `select_columns-name~_price` **already** gives those commands their documented
 behaviour and is verified below.
 
@@ -174,9 +174,13 @@ fn process_resource_query(&mut self, rqs: &ResourceQuerySegment) -> Result<(), E
 
 Two edits inside it:
 
-1. **`plan.rs:1250`** — the `if header.parameters.len() > 1 { self.plan.init_warning(...) }` block
-   becomes an `Err` return built from `header.parameters[1]`'s `value` and `position`, with
-   `accepted = 1` and `excess_index = 2`.
+1. **`plan.rs:1250-1255`** — the `if header.parameters.len() > 1 { self.plan.init_warning(…) }` block
+   (message text at `:1252`) becomes an `Err` return built from `header.parameters[1]`'s `value` and
+   `position`, with `accepted = 1` and `excess_index = 2`.
+
+   The *other* warning in this function — `plan.rs:1242-1245`, "Resource header name is ignored" —
+   is **left untouched**. See resolved question 2: the name is reserved for a future realm
+   interpretation, so warn-and-ignore is correct there.
 2. **`plan.rs:1298`** — the `_` arm currently returns *"Resource header parameters must be string or
    link"*, which describes a parse-shape failure for what is really an unrecognised instruction, and
    carries no position. It becomes an unknown-instruction message that lists the accepted
@@ -231,7 +235,7 @@ only for the pre-materialised fast path that a variadic argument never uses. The
 `get_multiple` for a `multiple` argument.
 
 That is a three-crate feature with a trait-design decision inside it — properly its own design, not
-a rider on a leftover check. **Recommendation: defer it to a new issue and keep this design to the
+a rider on a leftover check. **Deferred to `COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE` (P1/M); this design keeps to the
 strict check.** The cost of deferring is bounded and known: `select_columns-a-b` becomes an error
 instead of silently selecting one column, and the correct spelling is `select_columns-a~_b`, which
 works today.
@@ -248,14 +252,16 @@ unknown ones would make typos between `multiple` and `injected` fail silently.
 | `specs/reference/PROJECT_OVERVIEW.md` | reference | query writers, command authors | Add the arity rule to the query/plan description: *every action parameter must be consumed by a declared argument; a `multiple` argument consumes the remainder; surplus is an error carrying the parameter's position*. State that the resource header follows the same rule. Add `## History` row, bump `reviewed:` | yes |
 | `specs/reference/POLARS_COMMAND_LIBRARY.md` | reference | users of the `pl` namespace | Correct the `select_columns` / `drop_columns` documentation: the dash-separated form must be written `a~_b`, because `-` separates parameters. Under the recommended scope this is the *only* liquers-lib change | yes |
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | command authors | Add a short subsection: a command that accepts a variable-length list needs a `multiple` argument, and — under the recommended scope — a note that the flag is not yet declarable, linking the deferred issue | yes |
-| `specs/reference/REGISTER_COMMAND_FSD.md` | reference | macro users | **Only if decision 4 is kept in scope.** Documents the new `multiple` DSL flag | conditional |
-| `CLAUDE.md` | guide | agents | **Only if decision 4 is kept in scope.** Its DSL syntax summary lists argument attributes and would gain `multiple` | conditional |
 | `specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md` | issue | — | Close in Phase 5; record that the resolution is an error, not the proposed warning, and why | n/a |
 | `specs/README.md` | index | — | Link this design folder | n/a |
 
-Proposed authoritative `affects_docs`: `[specs/reference/PROJECT_OVERVIEW.md,
-specs/reference/POLARS_COMMAND_LIBRARY.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]`, plus the
-two conditional entries if decision 4 stays in scope.
+Authoritative `affects_docs`: `[specs/reference/PROJECT_OVERVIEW.md,
+specs/reference/POLARS_COMMAND_LIBRARY.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]`.
+`REGISTER_COMMAND_FSD.md` and `CLAUDE.md` moved to `COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE` with
+the deferred decision 4.
+
+The `PROJECT_OVERVIEW.md` wording must distinguish the header's two ignored inputs rather than
+claiming the header is uniformly strict — see resolved question 2.
 
 The `liquers-validate` skill references were checked: they describe a clean result as meaning "your
 query means this", not "no parameter was dropped, " so no correction is required. Its documented
@@ -334,7 +340,7 @@ Checked this document against Phase 1, decision by decision.
 | Decision 1 — error regardless of `allow_placeholders` | Held. The check does not read the flag |
 | Decision 2 — no opt-out | Held. No policy or configuration added |
 | Decision 3 — header errors too, one rule | Held. Same constructor, same message shape |
-| Decision 4 — polars commands become variadic | **Deferred, with evidence.** Recommendation and cost stated; user decision required |
+| Decision 4 — polars commands become variadic | **Deferred**, with evidence, to `COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE` (P1/M) |
 | Decision 5 — header `_` arm message fixed | Held. In scope, with position added |
 | Positioned error is the point | Held. `Position` is a required constructor parameter |
 | Documentation intent | Held and made specific with exact paths and changes |
@@ -359,12 +365,26 @@ Verified each claim against HEAD rather than assuming.
   (`:2656-2668` construct exactly-saturated actions). The three suites still have to be run;
   that is Phase 3 work, not an assumption made here.
 
-## Open Questions for the User
+## Resolved Questions
 
-1. **Does decision 4 (variadic polars commands) stay in this design, or become its own issue?**
-   Recommendation: **its own issue.** It is a three-crate feature gated on a trait-design decision
-   (`get_multiple` vs. reworking the `Vec` impl), and deferring costs only the unescaped spelling of
-   two commands, whose escaped spelling works today.
-2. **Header ignored *name*** — carried over from Phase 1 and still open. `plan.rs:1243` warns that a
-   non-empty header name is ignored. Decision 3 covered surplus *parameters*; the name is a separate
-   ignored input. Left as a warning unless you want it strict.
+1. **Decision 4 is deferred**, as recommended. Filed as `COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`
+   (P1/M), carrying the trait-layer evidence and the `get_multiple` fix direction. This design's
+   only `liquers-lib` change is therefore documentation: correcting
+   `POLARS_COMMAND_LIBRARY.md` to the escaped spelling. `REGISTER_COMMAND_FSD.md` and `CLAUDE.md`
+   drop out of this design's documentation set and move to that issue.
+
+2. **The header *name* warning stays a warning** (`plan.rs:1242-1245`). The name is *reserved*, not
+   meaningless: it is intended to be interpreted as the realm, which is what
+   `// TODO: RQS realm should should be supported` (`plan.rs:1238`) records. Warn-and-ignore is the
+   correct treatment of an input that will acquire meaning later — an error would reject queries
+   that a future version accepts.
+
+   This is the substantive distinction between the header's two warnings, and it is why only one of
+   them becomes an error:
+
+   | Warning | Ignored input | Treatment | Why |
+   |---|---|---|---|
+   | `plan.rs:1242` name ignored | reserved for a future realm | **stays a warning** | Will become meaningful; rejecting it now forecloses that |
+   | `plan.rs:1251` surplus parameters | nothing will ever consume them | **becomes an error** | Nothing to reserve; the writer meant something the header cannot express |
+
+   The reference wording must carry this distinction rather than stating "the header is strict".

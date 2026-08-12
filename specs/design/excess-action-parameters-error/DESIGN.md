@@ -7,7 +7,7 @@ status: draft
 phase: architecture
 area: [core/plan, core/error, macro, lib/commands]
 gh_pr: []
-issues: [PLAN-EXCESS-ACTION-PARAMETERS-DROPPED]
+issues: [PLAN-EXCESS-ACTION-PARAMETERS-DROPPED, COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE, VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS]
 affects_docs: []
 created: 2026-08-12
 superseded_by:
