@@ -5,7 +5,7 @@ title: Excess action parameters raise an error during plan building
 workflow: liquers-project
 status: draft
 phase: high-level
-area: [core/plan, core/error]
+area: [core/plan, core/error, macro, lib/commands]
 gh_pr: []
 issues: [PLAN-EXCESS-ACTION-PARAMETERS-DROPPED]
 affects_docs: []
