@@ -2,7 +2,7 @@
 id: CONTEXT-APPLY-BARE-KEY-ILL-DEFINED
 kind: issue
 title: Context::apply with a bare key discards the input state and writes to the store
-status: accepted
+status: rejected
 priority: P0
 complexity: S
 area: [core/assets]
@@ -10,6 +10,18 @@ design:
 created: 2026-08-09
 github:
 ---
+
+## Decision
+
+Rejected. `apply` is not required to consume or transform its input state. A query may validly
+ignore that state: reading a state from the store is one example, and invoking a command that
+ignores its state argument is another. A bare-key query therefore does not make
+`Context::apply` ill-defined merely because the supplied initial state has no effect.
+
+Ignoring an initial state is a valid way to apply a query to that state, so `Context::apply` must
+not reject bare-key queries on this basis. The store behavior described below follows from the
+query being evaluated; it is not evidence that the apply operation has a stronger state-consumption
+contract.
 
 ## Problem
 
@@ -37,7 +49,7 @@ queries. But nothing rejects it, the failure is silent in the most important res
 state simply vanishes), and step 3 is a **store write**, which is the part that turns a confused
 call into a durable one.
 
-## Expected behaviour
+## Proposed behaviour (rejected)
 
 Pick one and make it explicit:
 
@@ -48,8 +60,9 @@ Pick one and make it explicit:
    ignored, and the ad-hoc asset must not persist — writing back a value it did not compute is
    never right.
 
-(1) is preferable: the query language already has a way to ask for a key, and the second reading
-gives `apply` two unrelated meanings depending on its argument.
+The original report preferred (1), but that preference relied on the incorrect premise that
+applying a query must use the supplied state. Both a store read and a command that ignores its
+state argument demonstrate why that premise does not hold.
 
 ## Discovery
 
