@@ -181,6 +181,35 @@ impl Error {
             command_key: None,
         }
     }
+    /// An action or resource header supplied a parameter beyond what is accepted.
+    ///
+    /// The dual of [`Self::missing_argument`]. `subject` names what rejected the parameter
+    /// ("command 'select_columns'", "resource header"), `accepted` is how many parameters that
+    /// subject consumes, and `excess_index` is the 1-based position of the first surplus
+    /// parameter in the written parameter list.
+    ///
+    /// The position is required rather than applied afterwards with
+    /// [`Self::with_position`]: pointing at the offending parameter is the purpose of this
+    /// error, and an unpositioned one would be of little use to an editor or a validator.
+    pub fn too_many_parameters(
+        subject: &str,
+        accepted: usize,
+        excess_index: usize,
+        excess_value: &str,
+        position: &Position,
+    ) -> Self {
+        Error {
+            error_type: ErrorType::TooManyParameters,
+            message: format!(
+                "Too many parameters for {subject}: accepts {accepted}, \
+                 but parameter #{excess_index} '{excess_value}' was supplied"
+            ),
+            position: position.clone(),
+            query: None,
+            key: None,
+            command_key: None,
+        }
+    }
     pub fn conversion_error<W: Display, T: Display>(what: W, to: T) -> Self {
         Error {
             error_type: ErrorType::ConversionError,
@@ -467,5 +496,21 @@ mod tests {
 
         assert_eq!(err.command_key, None);
         assert_eq!(err.to_string(), "No command context");
+    }
+
+    /// T1 - the constructor carries every fact needed to point at the surplus parameter.
+    #[test]
+    fn too_many_parameters_constructor() {
+        let pos = Position::new(21, 1, 22);
+        let err = Error::too_many_parameters("command 'select_columns'", 1, 2, "price", &pos);
+
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        // The position is the feature: it is what an editor highlights.
+        assert_eq!(err.position, pos);
+
+        assert!(err.message.contains("select_columns"));
+        assert!(err.message.contains("accepts 1"));
+        assert!(err.message.contains("#2"));
+        assert!(err.message.contains("price"));
     }
 }

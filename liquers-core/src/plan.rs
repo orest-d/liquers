@@ -845,6 +845,22 @@ impl ParameterValue {
     }
 }
 
+/// Number of action parameters a command can consume, from argument slot `skip` onward.
+///
+/// This is deliberately not `arguments.len()`. Injected arguments are excluded because they are
+/// supplied by the execution context and consume no query parameter, and `skip` accounts for
+/// alias head parameters, which fill leading slots before the action is consulted. Reporting the
+/// raw length would tell the author of an aliased or injected command that their query accepts
+/// more parameters than it does.
+fn accepted_parameter_count(command_metadata: &CommandMetadata, skip: usize) -> usize {
+    command_metadata
+        .arguments
+        .iter()
+        .skip(skip)
+        .filter(|a| !a.injected)
+        .count()
+}
+
 /// Ordered command arguments resolved for an action [`Step`].
 ///
 /// Entries correspond to command metadata order. Injected arguments remain represented by
@@ -884,6 +900,25 @@ impl ResolvedParameterValues {
         for a in command_metadata.arguments.iter().skip(n) {
             let pv = ParameterValue::pop_value(a, &mut parameters, allow_placeholders)?;
             values.push(pv);
+        }
+
+        // Every declared argument has been served. Anything the action still holds is surplus:
+        // no argument will consume it, so accepting it silently would discard what was written.
+        //
+        // The leftover is discovered by asking the iterator rather than by comparing counts.
+        // That is what keeps the two exemptions correct without special-casing either: a
+        // `multiple` argument has already drained the iterator, and an injected argument never
+        // took a parameter from it.
+        if let Some(excess) = parameters.next() {
+            return Err(Error::too_many_parameters(
+                &format!("command '{}'", command_metadata.name),
+                accepted_parameter_count(command_metadata, n),
+                // `next()` increments before returning, so this is already the 1-based index
+                // of `excess` in the written parameter list.
+                parameters.parameter_number,
+                &excess.encode(),
+                &excess.position(),
+            ));
         }
         Ok(ResolvedParameterValues(values))
     }
@@ -1244,17 +1279,21 @@ impl<'c> PlanBuilder<'c> {
                     header.name
                 ));
             }
-            if header.parameters.is_empty() {
-                self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
-            } else {
-                if header.parameters.len() > 1 {
-                    self.plan.init_warning(format!(
-                        "Resource header has too many parameters: {}, extra parameters are ignored",
-                        header.parameters.len()
+            if let Some(first) = header.parameters.first() {
+                // A header takes exactly one instruction. Unlike the header *name* above,
+                // which is reserved for a future realm interpretation and so is warned about
+                // rather than rejected, nothing will ever consume a second parameter.
+                if let Some(excess) = header.parameters.get(1) {
+                    return Err(Error::too_many_parameters(
+                        "resource header",
+                        1,
+                        2,
+                        &excess.value,
+                        &excess.position,
                     ));
                 }
 
-                match header.parameters.first().unwrap().value.as_str() {
+                match first.value.as_str() {
                     "b" | "bin" | "binary" => {
                         self.plan.steps.push(Step::GetAssetBinary(rqs.key.clone()));
                     }
@@ -1294,11 +1333,19 @@ impl<'c> PlanBuilder<'c> {
                         self.plan.steps.push(Step::UseKeyValue(rqs.key.clone()));
                     }
                     _ => {
-                        return Err(Error::not_supported(
-                            "Resource header parameters must be string or link".to_string(),
-                        ));
+                        return Err(Error::not_supported(format!(
+                            "Unknown resource header instruction '{}'. Valid instructions: \
+                             b, bin, binary, meta, metadata, dir, directory, sdir, \
+                             store_directory, r, recipe, data, value, stored, stored_binary, \
+                             stored_bin, sbin, stored_meta, stored_metadata, cwd, key",
+                            first.value
+                        ))
+                        .with_position(&first.position));
                     }
                 }
+            } else {
+                // A header with no parameters at all is the plain asset request.
+                self.plan.steps.push(Step::GetAsset(rqs.key.clone()));
             }
         } else {
             //self.plan.steps.push(Step::GetResource(rqs.key.clone()));
@@ -3916,6 +3963,205 @@ mod tests {
             1,
             "the embedded query must appear as a ParameterLink dependency: {dependencies:?}"
         );
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Excess action parameters (design: excess-action-parameters-error)
+    // ---------------------------------------------------------------------------------
+
+    /// Builds a plan for `q` against a registry holding the given commands.
+    fn plan_for(q: &str, cr: &command_metadata::CommandMetadataRegistry) -> Result<Plan, Error> {
+        PlanBuilder::new(parse_query(q)?, cr).build()
+    }
+
+    fn action_of(q: &str) -> ActionRequest {
+        parse_query(q)
+            .expect("query must parse")
+            .action()
+            .expect("query must be a single action")
+    }
+
+    /// E1 - the primary case: one parameter more than the command declares.
+    #[test]
+    fn excess_action_parameter_is_rejected() -> Result<(), Error> {
+        let cm = CommandMetadata::new("to_text"); // declares no arguments
+        let action = action_of("to_text-extra");
+
+        let err = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("an excess parameter must not build a plan");
+
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        // The position is the point of the design: it is what an editor highlights.
+        assert_eq!(err.position, action.parameters[0].position());
+        assert!(err.message.contains("to_text"), "message: {}", err.message);
+        assert!(err.message.contains("extra"), "message: {}", err.message);
+        Ok(())
+    }
+
+    /// E2 - the exemptions. The rule is only correct if it stays silent in all of these.
+    #[test]
+    fn arity_boundaries_still_build() -> Result<(), Error> {
+        let mut cm = CommandMetadata::new("cmd");
+        cm.with_argument(ArgumentInfo::string_argument("a"));
+        cm.with_argument(ArgumentInfo::string_argument("b").with_default("bee"));
+
+        // Exactly saturated - the boundary itself.
+        assert!(ResolvedParameterValues::from_action(&action_of("cmd-x-y"), &cm, false).is_ok());
+
+        // Under-supplied - `b` falls back to its default. Unchanged behaviour.
+        assert!(ResolvedParameterValues::from_action(&action_of("cmd-x"), &cm, false).is_ok());
+
+        // No parameters at all, against a command that declares none. (Omitting a *required*
+        // argument is still ArgumentMissing, which this design does not touch.)
+        let empty = CommandMetadata::new("empty");
+        assert!(ResolvedParameterValues::from_action(&action_of("empty"), &empty, false).is_ok());
+
+        // Variadic - `multiple` drains the iterator, so nothing is ever left over. This must
+        // hold WITHOUT a special case in the check; an implementation that compares
+        // parameters.len() against arguments.len() fails here and nowhere else.
+        let mut vcm = CommandMetadata::new("vcmd");
+        vcm.with_argument(ArgumentInfo::string_argument("items").set_multiple());
+        assert!(ResolvedParameterValues::from_action(&action_of("vcmd-a-b-c-d"), &vcm, false).is_ok());
+
+        Ok(())
+    }
+
+    /// T2 - the *first* surplus parameter is reported, not the last and not a count.
+    #[test]
+    fn excess_reports_first_surplus_only() -> Result<(), Error> {
+        let mut cm = CommandMetadata::new("cmd");
+        cm.with_argument(ArgumentInfo::string_argument("a"));
+        let action = action_of("cmd-a-b-c-d");
+
+        let err = ResolvedParameterValues::from_action(&action, &cm, false)
+            .expect_err("surplus must not build");
+
+        // `b` is parameter #2 and the first one no argument can consume.
+        assert_eq!(err.position, action.parameters[1].position());
+        assert!(err.message.contains("#2"), "message: {}", err.message);
+        assert!(err.message.contains("'b'"), "message: {}", err.message);
+        Ok(())
+    }
+
+    /// T2 variant - an empty parameter is still a parameter (`parse.rs` documents `action-`
+    /// as one empty string parameter), so it is still surplus.
+    #[test]
+    fn empty_excess_parameter_is_still_excess() -> Result<(), Error> {
+        let cm = CommandMetadata::new("cmd");
+        let err = ResolvedParameterValues::from_action(&action_of("cmd-"), &cm, false)
+            .expect_err("an empty surplus parameter must not build");
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        Ok(())
+    }
+
+    /// T3 - a link in excess position is reported through `encode()`, not a debug form.
+    #[test]
+    fn excess_link_parameter_encodes() -> Result<(), Error> {
+        let cm = CommandMetadata::new("cmd");
+        let err = ResolvedParameterValues::from_action(&action_of("cmd-~X~hello~E"), &cm, false)
+            .expect_err("surplus link must not build");
+
+        assert!(err.message.contains("~X~hello~E"), "message: {}", err.message);
+        Ok(())
+    }
+
+    /// T4 - injected arguments consume no query parameter, so they are not counted as accepted.
+    #[test]
+    fn accepted_count_excludes_injected() -> Result<(), Error> {
+        let mut cm = CommandMetadata::new("cmd");
+        cm.with_argument(ArgumentInfo::string_argument("a"));
+        cm.with_argument(ArgumentInfo::string_argument("ctx").set_injected());
+
+        // Two declared arguments, but only one can be supplied by the query.
+        let err = ResolvedParameterValues::from_action(&action_of("cmd-x-y"), &cm, false)
+            .expect_err("the injected argument must not absorb a parameter");
+
+        assert!(err.message.contains("accepts 1"), "message: {}", err.message);
+        Ok(())
+    }
+
+    /// T5 - alias head parameters fill leading slots, so they too are excluded from `accepted`.
+    #[test]
+    fn accepted_count_excludes_head_parameters() -> Result<(), Error> {
+        let mut cm = CommandMetadata::new("cmd");
+        cm.with_argument(ArgumentInfo::string_argument("head"));
+        cm.with_argument(ArgumentInfo::string_argument("tail"));
+
+        let head = vec![CommandParameterValue::Value(Value::String("h".to_string()))];
+        let err = ResolvedParameterValues::from_action_extended(
+            &action_of("cmd-x-y"),
+            &cm,
+            &head,
+            false,
+        )
+        .expect_err("only one slot is left for the action to fill");
+
+        assert!(err.message.contains("accepts 1"), "message: {}", err.message);
+        Ok(())
+    }
+
+    /// T6 - decision 1: placeholders concern missing arguments, never surplus ones.
+    #[test]
+    fn excess_errors_under_allow_placeholders() -> Result<(), Error> {
+        let cm = CommandMetadata::new("cmd");
+        let err = ResolvedParameterValues::from_action(&action_of("cmd-extra"), &cm, true)
+            .expect_err("the recipe path is equally strict");
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        Ok(())
+    }
+
+    /// E3 - the resource header has two ignored inputs and they are treated differently.
+    /// Surplus parameters can never be consumed, so they error. The header *name* is reserved
+    /// for a future realm interpretation (see the TODO above `process_resource_query`), so it
+    /// keeps warning - rejecting it would refuse queries a later version accepts.
+    #[test]
+    fn header_surplus_errors_but_ignored_name_only_warns() -> Result<(), Error> {
+        let cr = command_metadata::CommandMetadataRegistry::new();
+
+        let err = plan_for("-R-meta-extra/data/x.txt", &cr)
+            .expect_err("surplus header parameters must not build");
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        assert!(!err.position.is_unknown(), "the excess must be positioned");
+
+        let plan = plan_for("-Rname/data/x.txt", &cr)?;
+        assert!(plan.has_warning(), "an ignored header name still warns");
+        assert!(!plan.has_error(), "an ignored header name is not an error");
+
+        // One parameter is the normal case and stays unaffected.
+        assert!(plan_for("-R-meta/data/x.txt", &cr).is_ok());
+        Ok(())
+    }
+
+    /// T7 - decision 5: the fallback arm described a parse-shape failure and carried no
+    /// position. It now names the instruction and points at it.
+    #[test]
+    fn unknown_header_instruction_is_positioned() -> Result<(), Error> {
+        let cr = command_metadata::CommandMetadataRegistry::new();
+        let err = plan_for("-R-nosuch/data/x.txt", &cr)
+            .expect_err("an unknown instruction must not build");
+
+        assert!(err.message.contains("nosuch"), "message: {}", err.message);
+        assert!(
+            !err.message.contains("must be string or link"),
+            "the old, misleading message must be gone: {}",
+            err.message
+        );
+        assert!(!err.position.is_unknown(), "the instruction must be positioned");
+        Ok(())
+    }
+
+    /// T8 - the check reaches a full query through PlanBuilder, not only the helper.
+    #[test]
+    fn plan_builder_rejects_excess_end_to_end() -> Result<(), Error> {
+        let mut cr = command_metadata::CommandMetadataRegistry::new();
+        cr.add_command(CommandMetadata::new("a").with_argument(ArgumentInfo::any_argument("x")));
+
+        assert!(plan_for("a-1", &cr).is_ok(), "the saturated query still builds");
+
+        let err = plan_for("a-1-2", &cr).expect_err("the over-supplied query must not build");
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        assert!(!err.position.is_unknown());
         Ok(())
     }
 }
