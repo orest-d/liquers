@@ -2,7 +2,7 @@
 id: WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT
 kind: issue
 title: Enter key does not submit in the browser query console
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [lib/ui]

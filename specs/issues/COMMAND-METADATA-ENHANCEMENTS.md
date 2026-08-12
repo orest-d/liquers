@@ -2,7 +2,7 @@
 id: COMMAND-METADATA-ENHANCEMENTS
 kind: feature
 title: Command metadata lacks enums, specialization and IO typing
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/commands, macro]

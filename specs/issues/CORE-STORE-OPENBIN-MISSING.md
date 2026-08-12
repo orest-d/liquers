@@ -2,7 +2,7 @@
 id: CORE-STORE-OPENBIN-MISSING
 kind: issue
 title: `openbin` is unimplemented in every store
-status: draft
+status: accepted
 priority: P3
 complexity: M
 area: [core/store, store/backends]

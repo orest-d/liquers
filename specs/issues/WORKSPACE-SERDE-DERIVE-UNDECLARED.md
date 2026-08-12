@@ -2,9 +2,9 @@
 id: WORKSPACE-SERDE-DERIVE-UNDECLARED
 kind: issue
 title: Three crates use serde derive macros without declaring the `derive` feature
-status: draft
+status: accepted
 priority: P2
-complexity: S
+complexity: L
 area: [build, core/value, lib/ui, axum]
 design:
 created: 2026-08-09

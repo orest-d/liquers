@@ -2,7 +2,7 @@
 id: AXUM-HANDLER-TEST-COVERAGE
 kind: issue
 title: liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [axum]

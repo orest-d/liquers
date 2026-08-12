@@ -2,7 +2,7 @@
 id: CORE-VALUE-INTERFACE-CAPABILITY-SPLIT
 kind: issue
 title: `ValueInterface` bundles capabilities every implementor must provide
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/value, lib/value, py]

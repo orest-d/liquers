@@ -2,7 +2,7 @@
 id: CORE-PLAN-RELATIVE-RESOLUTION-MISSING
 kind: issue
 title: Queries are not resolved relative to the current working directory
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/plan]

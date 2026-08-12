@@ -2,7 +2,7 @@
 id: QUEUED-MANAGER-STARTUP-READINESS
 kind: issue
 title: Queued asset manager accepts work before it is ready to run it
-status: draft
+status: accepted
 priority: P1
 complexity: M
 area: [core/assets]

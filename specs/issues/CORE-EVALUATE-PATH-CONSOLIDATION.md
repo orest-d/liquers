@@ -2,7 +2,7 @@
 id: CORE-EVALUATE-PATH-CONSOLIDATION
 kind: issue
 title: Several evaluation paths duplicate each other
-status: draft
+status: accepted
 priority: P1
 complexity: L
 area: [core/assets, core/plan]

@@ -2,7 +2,7 @@
 id: QUERY-BUILDER-TOOLING
 kind: issue
 title: No programmatic builder for constructing queries
-status: draft
+status: accepted
 priority: P2
 complexity: L
 area: [core/query, core/validate]

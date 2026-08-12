@@ -2,7 +2,7 @@
 id: WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE
 kind: issue
 title: JavaScript cannot construct a LiquersError, so a page cannot raise a typed error
-status: draft
+status: accepted
 priority: P3
 complexity: S
 area: [web, core/error]

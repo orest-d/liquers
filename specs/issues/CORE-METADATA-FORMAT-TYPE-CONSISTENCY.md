@@ -2,8 +2,8 @@
 id: CORE-METADATA-FORMAT-TYPE-CONSISTENCY
 kind: issue
 title: Metadata data format and type can disagree with the value
-status: draft
-priority: P1
+status: accepted
+priority: P0
 complexity: M
 area: [core/value]
 design: metadata-consistency

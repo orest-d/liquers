@@ -2,7 +2,7 @@
 id: CORE-ERROR-PAYLOAD-SIZE
 kind: issue
 title: `Error` is large enough to bloat every `Result`
-status: draft
+status: accepted
 priority: P2
 complexity: S
 area: [core/error]

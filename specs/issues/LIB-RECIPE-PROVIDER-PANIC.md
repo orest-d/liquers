@@ -2,8 +2,8 @@
 id: LIB-RECIPE-PROVIDER-PANIC
 kind: issue
 title: DefaultEnvironment panics when no recipe provider is configured
-status: draft
-priority: P2
+status: accepted
+priority: P0
 complexity: S
 area: [lib/commands, core/assets, web]
 design:

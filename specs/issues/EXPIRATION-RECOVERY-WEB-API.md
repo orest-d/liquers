@@ -2,7 +2,7 @@
 id: EXPIRATION-RECOVERY-WEB-API
 kind: issue
 title: Expiration recovery has no web API surface
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [axum, core/assets]

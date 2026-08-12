@@ -2,8 +2,8 @@
 id: ASSET-KEYED-DELEGATION-ALWAYS-CYCLES
 kind: issue
 title: The keyed delegation branch cannot succeed - it always records a self-dependency
-status: draft
-priority: P2
+status: accepted
+priority: P0
 complexity: M
 area: [core/assets]
 design:

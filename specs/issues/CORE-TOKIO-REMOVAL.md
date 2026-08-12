@@ -2,7 +2,7 @@
 id: CORE-TOKIO-REMOVAL
 kind: issue
 title: Core still depends on tokio primitives on wasm
-status: draft
+status: accepted
 priority: P3
 complexity: XL
 area: [core/assets]

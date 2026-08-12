@@ -2,7 +2,7 @@
 id: INLINE-PATH-LACKS-EXECUTE-ONCE
 kind: issue
 title: The inline run path has no execute-once claim, only an is_finished check
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [core/assets, web]

@@ -2,7 +2,7 @@
 id: EGUI-ASSET-MANAGER-INTEGRATION
 kind: feature
 title: No stable adapter between egui widgets and the asset manager
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [lib/egui]

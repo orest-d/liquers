@@ -2,7 +2,7 @@
 id: CORE-PLAN-POLICY-AND-DEFAULTS
 kind: issue
 title: Plan builder has no configuration and questionable defaults
-status: draft
+status: accepted
 priority: P2
 complexity: M
 area: [core/plan]

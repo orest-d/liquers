@@ -2,8 +2,8 @@
 id: PARAMETER-ESCAPING-INCOMPLETE
 kind: issue
 title: Action-parameter escaping cannot express every value
-status: draft
-priority: P1
+status: accepted
+priority: P0
 complexity: M
 area: [core/query]
 design: 

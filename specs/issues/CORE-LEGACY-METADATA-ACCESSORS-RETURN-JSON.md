@@ -2,7 +2,7 @@
 id: CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON
 kind: issue
 title: Metadata accessors return JSON-quoted strings for legacy metadata
-status: draft
+status: accepted
 priority: P2
 complexity: S
 area: [core/value]

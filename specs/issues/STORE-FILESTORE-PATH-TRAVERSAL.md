@@ -2,8 +2,8 @@
 id: STORE-FILESTORE-PATH-TRAVERSAL
 kind: issue
 title: A key containing `..` escapes the file store root
-status: draft
-priority: P1
+status: accepted
+priority: P0
 complexity: M
 area: [core/store, store/backends, axum]
 design:

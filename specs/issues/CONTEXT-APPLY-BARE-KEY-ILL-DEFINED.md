@@ -2,8 +2,8 @@
 id: CONTEXT-APPLY-BARE-KEY-ILL-DEFINED
 kind: issue
 title: Context::apply with a bare key discards the input state and writes to the store
-status: draft
-priority: P2
+status: accepted
+priority: P0
 complexity: S
 area: [core/assets]
 design:

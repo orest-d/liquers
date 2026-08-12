@@ -2,7 +2,7 @@
 id: IMMEDIATE-MANAGER-NO-FAST-TRACK
 kind: issue
 title: ImmediateAssetManager never fast-tracks, so a stored file cannot be read by key on wasm
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets, web]
