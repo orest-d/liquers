@@ -67,7 +67,10 @@ All three verification points are met:
 `test_keyed_recipe_requiring_payload_is_rejected`; and non-volatile keyed recipes are unchanged,
 covered by `manager_parametric.rs::keyed_eval_{default,immediate}`.
 
-**What this did not fix.** The delegation branch itself still cannot succeed — it is only reached
-when the delegate is registered under the caller's own key, so `record_dependency_on_asset` always
-sees a self-edge. This issue's diagnosis of that mechanism was right and broader than the volatile
-case; it is now tracked as `ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`.
+**What this did not fix.** The delegation branch itself still could not succeed — it is only
+reached when the delegate is registered under the caller's own key, so
+`record_dependency_on_asset` always saw a self-edge. This issue's diagnosis of that mechanism was
+right and broader than the volatile case; it was tracked as
+`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES` and closed on 2026-08-12 by
+`specs/design/keyed-delegation-hand-off/`, which exempts the same-key case from dependency
+recording. Volatile keys still do not reach that branch at all.

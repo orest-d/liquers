@@ -2,11 +2,11 @@
 id: ASSET-KEYED-DELEGATION-ALWAYS-CYCLES
 kind: issue
 title: The keyed delegation branch cannot succeed - it always records a self-dependency
-status: accepted
+status: closed
 priority: P0
 complexity: M
 area: [core/assets]
-design:
+design: keyed-delegation-hand-off
 created: 2026-08-09
 github:
 ---
@@ -86,3 +86,64 @@ They also assert the recipe still runs exactly once, so branch *selection* stays
 Found on 2026-08-09 while implementing `specs/design/keyed-recipe-ownership/`. The test written to
 prove the delegation branch still fires after the ownership change found that it fires and then
 always fails.
+
+## Resolution
+
+Fixed by `specs/design/keyed-delegation-hand-off/`, taking option (1) of *Expected behaviour*.
+
+The rule now stated in code is that **two assets holding the same key are one node of the
+dependency graph**, and a node has no edge to itself. `AssetRef::record_dependency_on_asset`
+tests node identity before it writes anything and returns `Ok(())` on a match: no
+`DependencyRecord` in metadata, no edge offered to the `DependencyManager`, so
+`would_create_cycle` is never asked about the self case and the delegation branch reaches
+`AssetManager::wait_for_dependency` for the first time.
+
+Identity is `AssetRef::bound_key_candidate()` — the key each asset was *constructed* with — with
+the recipe-derived `DependencyKey` as a fallback. `AssetData::recipe` is mutable: provider
+resolution replaces it mid-evaluation, so an owner whose recipe resolved to a pure-key alias `L`
+would otherwise look like a different node than the delegate still holding `K`, and the edge
+`K -> L` would be recorded carrying the owner's version *for `K`* — which `add_dependency`
+compares against `L`'s and can expire `K` for. (Raised in review on PR 32.)
+
+**This does not weaken cycle detection.** `record_dependency_on_asset` has a single production
+caller, the delegation branch. A genuine self-dependency — a command calling `Context::evaluate`
+on its own asset's key — goes through `Context::schedule_dependency_asset` →
+`DependencyManager::register_scheduled_dependency` → `would_create_cycle` and still fails with
+`Error::dependency_cycle`.
+
+The exemption lives in `record_dependency_on_asset` rather than at the delegation call site because
+the invariant belongs to the dependency graph, not to delegation. `would_create_cycle` is
+unchanged — returning `true` for `dependent == dependency` is the correct answer to the question it
+was asked; the fix is to stop asking it. The call site keeps calling
+`record_dependency_on_asset`, which stays correct should a delegate ever be registered under a key
+other than its own recipe key.
+
+`DependencyManager::track_asset` was checked and needed no change: it resolves the delegating
+asset's key through `bound_owner_key()`, which returns `None` for a non-owner, so a delegating
+asset does not re-register a version for the key or expire the owner's dependents.
+
+### Verification
+
+The two verification tests are inverted as instructed:
+`manager_parametric.rs::keyed_delegation_{default,immediate}` now assert that the delegating asset
+receives the owner's value (`"counted"`) while the call counter stays at `1`. Both the
+`assert_ne!` on asset ids and the counter are kept, so branch *selection* remains pinned — a
+regression to self-evaluation would still produce the right value but would run the recipe twice.
+
+Three unit tests were added in `liquers-core/src/assets.rs`:
+`record_dependency_on_asset_skips_same_node_hand_off` (nothing recorded in metadata, no self-edge
+in the graph), `record_dependency_on_asset_records_distinct_key` (the guard is not over-broad) and
+`record_dependency_on_asset_hand_off_survives_owner_recipe_resolution` (the alias case above;
+verified to fail without the `bound_key_candidate` identity).
+
+`liquers-core/tests/dependency_scheduling.rs::test_keyed_asset_evaluating_its_own_key_is_a_cycle`
+pins the converse end to end: a keyed asset whose command evaluates its own key is still rejected
+as a cycle and does not hang. The previous coverage was a `register_scheduled_dependency` unit test
+plus an *expression* cycle, neither of which would catch a future change moving this exemption into
+the shared path.
+
+### Known remainder
+
+The delegating asset still re-persists the owner's value to the store under the same key —
+idempotent but wasteful, and a property of `evaluate_and_store` rather than of the cycle check.
+Filed separately as `DELEGATED-VALUE-REPERSISTED`.

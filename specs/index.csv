@@ -1,5 +1,4 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot succeed - it always records a self-dependency,accepted,local,,P0,M,core/assets,,,,,,2026-08-09,specs/issues/ASSET-KEYED-DELEGATION-ALWAYS-CYCLES.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,accepted,local,,P0,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
 CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crashes an evaluation test,accepted,local,,P0,M,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md
 PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,accepted,local,,P0,M,core/query,,,,,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
@@ -32,6 +31,7 @@ CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilitie
 EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
+DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,draft,local,,P3,S,core/assets,,,,,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,accepted,local,,P3,S,docs,,,,,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
@@ -70,7 +70,7 @@ API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,
 ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-08-11,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSET_SET_OPERATION.md
-DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-07-15,,specs/reference/DEPENDENCIES_STATUS.md
+DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-08-12,,specs/reference/DEPENDENCIES_STATUS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,core/query,,,,,2026-08-11,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
@@ -83,6 +83,7 @@ CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,closed,local,,P0,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
+ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot succeed - it always records a self-dependency,closed,local,,P0,M,core/assets,,,,keyed-delegation-hand-off,,2026-08-09,specs/issues/ASSET-KEYED-DELEGATION-ALWAYS-CYCLES.md
 EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration tests fail at HEAD,closed,local,,P0,M,core/assets,,,,,,2026-08-09,specs/issues/EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD.md
 CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",closed,local,,P1,M,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,closed,local,,P1,M,core/plan,,,,plan-relative-resolution,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
@@ -97,6 +98,7 @@ EXPIRATION-MECHANISM,design,Asset expiration mechanism,complete,local,,,,core/as
 EXPIRATION-MONITOR-ASSETREF,design,Weak references in the expiration monitor,complete,local,,,,core/assets,,9;11,,expiration-monitor-assetref,,2026-03-02,specs/design/expiration-monitor-assetref/DESIGN.md
 EXPIRATION-SAFETY,design,Timing and race safety in asset expiration,complete,local,,,,core/assets,,11,,expiration-safety,,2026-03-02,specs/design/expiration-safety/DESIGN.md
 KEYBOARD-SHORTCUTS,design,Keyboard shortcuts in UISpec,complete,local,,,,lib/ui,,,,keyboard-shortcuts,,2026-03-02,specs/design/keyboard-shortcuts/DESIGN.md
+KEYED-DELEGATION-HAND-OFF,design,"Keyed delegation is a hand-off, not a dependency",complete,local,,,,core/assets,,32,,keyed-delegation-hand-off,,2026-08-12,specs/design/keyed-delegation-hand-off/DESIGN.md
 KEYED-RECIPE-OWNERSHIP,design,Non-evaluating ownership test for keyed recipes,complete,local,,,,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/design/keyed-recipe-ownership/DESIGN.md
 LIQUERS-WEB,design,Browser and JavaScript integration via WebAssembly,complete,local,,,,web,,19,,liquers-web,,2026-03-02,specs/design/liquers-web/DESIGN.md
 LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md

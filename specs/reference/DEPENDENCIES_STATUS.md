@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-07-15
+reviewed: 2026-08-12
 ---
 # Dependencies Status Specification
 
@@ -28,10 +28,11 @@ Review issue **F-1** identified a hard deadlock in pure-key recipe delegation:
 4. If the queue was already at capacity, `B` stayed `Submitted` and could not start. A delegation
    chain deeper than queue capacity therefore hung forever.
 
-The current implementation solves F-1 by making delegation an explicit dependency wait:
+The current implementation solves F-1 by routing delegation through the ordinary dependency-wait
+machinery:
 
-- `AssetRef::record_dependency_on_asset(&child)` records the delegated child in parent metadata and
-  in `DependencyManager` before waiting.
+- `AssetRef::record_dependency_on_asset(&child)` is called before waiting, but **records nothing in
+  the delegation case**. See "Delegation is a hand-off, not a dependency" below.
 - `AssetRef::enter_dependencies(&child)` moves the parent to `Status::Dependencies` and notifies
   observers that the parent is blocked on the child.
 - If the delegated child is still only queued, the parent path runs that child job inline. This is
@@ -46,8 +47,52 @@ The current implementation solves F-1 by making delegation an explicit dependenc
   regression coverage, and `shutdown()` stops queue/expiration background tasks.
 
 The result is that the parent no longer waits invisibly in `Processing`; consumers see
-`Dependencies`, dependency metadata/graph edges exist, and a queued child can progress even under
-queue-capacity pressure.
+`Dependencies`, and a queued child can progress even under queue-capacity pressure.
+
+## Delegation is a hand-off, not a dependency
+
+**Two assets that resolve to the same key are one node of the dependency graph.** `DependencyKey`
+is the node identity, so a wait between two such assets has no edge to record.
+
+This is exactly the delegation case. `AssetRef::evaluate_recipe` asks
+`AssetManager::owned_key_asset(&key)` — with the key taken from *its own* recipe — whether some
+other asset is the registered owner. When one is, the delegate is by construction registered under
+the caller's own key, so both ends of any edge would be that same key.
+
+`AssetRef::record_dependency_on_asset` therefore tests node identity before it writes anything and
+returns `Ok(())` on a match: no `DependencyRecord` in parent metadata, and no edge offered to
+`DependencyManager`. Both omissions matter.
+
+**Identity comes from `AssetRef::bound_key_candidate()`** — the key each asset was *constructed*
+with — and only falls back to the recipe-derived `DependencyKey`. `AssetData::recipe` is mutable:
+provider resolution replaces it mid-evaluation, which is the same reason
+`Context::schedule_dependency_asset` classifies a keyed dependent by `owner_key()` rather than by
+its recipe. An owner whose recipe resolved to a pure-key alias `L` would otherwise look like a
+different node than the delegate still holding `K`, and the edge `K -> L` would be recorded
+carrying the *owner's* version — a version for `K` — which `DependencyManager::add_dependency`
+compares against `L`'s and can expire `K` for.
+
+- A self-record in metadata is persisted, and `DependencyManager::track_asset` feeds persisted
+  records back through `load_from_records`, so it would reinstall a self-edge on every reload.
+- `DependencyManager::would_create_cycle` returns `true` whenever `dependent == dependency`. That
+  is the correct answer to the question it is asked; the fix is to stop asking it. Until 2026-08-12
+  the delegation branch did ask, and so returned `Error::dependency_cycle` unconditionally — it
+  could never succeed (`ASSET-KEYED-DELEGATION-ALWAYS-CYCLES`,
+  `specs/design/keyed-delegation-hand-off/`).
+
+The wait itself is unchanged: `AssetManager::wait_for_dependency` still provides the F-1 progress
+guarantee. `DependencyManager::track_asset` needs no special case, because it resolves a key
+through `AssetRef::bound_owner_key()`, which returns `None` for a non-owner — a delegating asset
+does not re-register a version for the key or expire the owner's dependents.
+
+Genuine dependencies between *different* keys are recorded exactly as before, and **genuine
+self-dependency is still rejected**. The exemption is narrow in two ways: it applies only when the
+two assets are the same node, and it lives only in `record_dependency_on_asset`, whose sole
+production caller is the delegation branch. A runtime self-dependency — a command calling
+`Context::evaluate` on its own asset's key — travels a different path entirely
+(`schedule_dependency_asset` → `register_scheduled_dependency` → `would_create_cycle`) and still
+fails fast with `Error::dependency_cycle`. That is pinned by
+`liquers-core/tests/dependency_scheduling.rs::test_keyed_asset_evaluating_its_own_key_is_a_cycle`.
 
 ## Current contract
 
@@ -83,14 +128,18 @@ This is the F-1 path.
      to `A` itself, this is the normal self-recipe path and steps 3-8 are skipped.
 
 3. **Discover delegated child**
-   - `evaluate_recipe()` finds child asset `B` for the same key/delegation target.
-   - `record_dependency_on_asset(B)` computes the child `DependencyKey`, finds the best available
-     version (child metadata version, `DependencyManager` version, or `Version::unknown()`), and
-     upserts the parent metadata dependency.
-   - If parent `A` is keyed, `record_dependency_on_asset(B)` checks `would_create_cycle(A, B)` and
-     then calls `DependencyManager::add_dependency(A, B, version)`.
-   - If `version == Version::unknown()`, `DependencyManager` still records the edge but skips stale
-     version comparison. This preserves graph shape without pretending to know a concrete version.
+   - `evaluate_recipe()` finds child asset `B` registered as the owner of the key in `A`'s recipe.
+   - `record_dependency_on_asset(B)` computes the child `DependencyKey` and compares it with `A`'s
+     own. In this flow they are equal — `B` was looked up with `A`'s key — so the two assets are
+     one graph node — compared by construction-time key, not by the owner's mutable resolved
+     recipe — so nothing is recorded and `Ok(())` is returned. See "Delegation is a hand-off, not
+     a dependency".
+   - For any *other* caller, where the keys differ, the recorder behaves as documented in the
+     glossary: it finds the best available version (child metadata version, `DependencyManager`
+     version, or `Version::unknown()`), upserts the parent metadata dependency, and — if parent `A`
+     is keyed — checks `would_create_cycle(A, B)` before `DependencyManager::add_dependency(A, B,
+     version)`. With `Version::unknown()` the edge is still recorded, but stale-version comparison
+     is skipped: graph shape is preserved without pretending to know a concrete version.
 
 4. **Enter dependency wait**
    - If `B.poll_state()` is `None`, `A.enter_dependencies(B)` sets `A` to
@@ -204,7 +253,10 @@ This path handles dependencies known before command execution.
 - `Context::take_pending_dependencies()`: drains runtime/static dependency records for metadata
   assembly after evaluation.
 - `AssetRef::record_dependency_on_asset(child)`: direct asset dependency recorder used by pure-key
-  delegation. It updates parent metadata and keyed `DependencyManager` edges.
+  delegation. It updates parent metadata and keyed `DependencyManager` edges — **except** when
+  parent and child resolve to the same `DependencyKey`, which is one graph node and therefore a
+  hand-off with nothing to record. Identity is the construction-time key
+  (`bound_key_candidate()`), not the mutable resolved recipe.
 - `AssetRef::enter_dependencies(child)`: status/metadata/notification helper for entering the
   dependency wait state.
 - `AssetRef::leave_dependencies_for_resubmit()`: helper for leaving `Dependencies` before parent
@@ -243,4 +295,5 @@ Dependency evaluation is now non-blocking and deadlock-free (see
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-12 | Delegation no longer records a dependency: two assets sharing a key are one graph node, compared by construction-time key rather than by the mutable resolved recipe (PR 32 review). New section "Delegation is a hand-off, not a dependency"; F-1 bullet, Flow A step 3 and the `record_dependency_on_asset` glossary entry corrected. Reviewed only for the delegation-recording claim — Flow A steps 5, 7 and 8 still describe the pre-2026-07-15 wait mechanics and are superseded by "Non-blocking dependency scheduling"; not re-verified here. | `specs/design/keyed-delegation-hand-off/` |
 | 2026-07-15 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
