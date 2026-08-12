@@ -4,7 +4,7 @@ kind: design
 title: Excess action parameters raise an error during plan building
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/plan, core/error, macro, lib/commands]
 gh_pr: []
 issues: [PLAN-EXCESS-ACTION-PARAMETERS-DROPPED, COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE, VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [x] Phase 3: Examples & Testing (awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [x] Phase 4: Implementation Plan (awaiting approval)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
