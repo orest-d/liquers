@@ -2,7 +2,7 @@
 id: LIB-RECIPE-PROVIDER-PANIC
 kind: issue
 title: DefaultEnvironment panics when no recipe provider is configured
-status: accepted
+status: closed
 priority: P0
 complexity: S
 area: [lib/commands, core/assets, web]
@@ -68,3 +68,11 @@ hung, and the wasm stack trace ended in `get_recipe_provider`. Worked around in 
 calling `with_default_recipe_provider()` in `new_environment()`, with a comment pointing here. The
 workaround revealed a second defect immediately behind it —
 `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`.
+
+## Resolution
+
+Resolved on 2026-08-12. `DefaultEnvironment::new` now installs `DefaultRecipeProvider`, and its
+private provider field is always populated rather than representing an invalid optional state.
+Explicit provider configuration still replaces that default. The focused
+`default_environment_has_a_recipe_provider` regression test reproduces the former
+default-constructor panic and verifies that provider access now succeeds.

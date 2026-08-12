@@ -7,7 +7,7 @@ use liquers_core::{
     context::{Context, EnvRef, Environment, SimpleSession, User},
     error::Error,
     maybe_send::MaybeBoxed,
-    recipes::{AsyncRecipeProvider, Recipe},
+    recipes::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
     state::State,
     store::{AsyncStore, NoAsyncStore},
     value::ValueInterface,
@@ -31,7 +31,7 @@ pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> {
     async_store: Arc<dyn AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<SelectedAssetManager<Self>>,
-    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<Self>>>,
+    recipe_provider: Arc<dyn AsyncRecipeProvider<Self>>,
     _payload: std::marker::PhantomData<P>,
 }
 
@@ -53,7 +53,7 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(NoAsyncStore),
             asset_store: Arc::new(SelectedAssetManager::new()),
-            recipe_provider: None,
+            recipe_provider: Arc::new(DefaultRecipeProvider),
             _payload: std::marker::PhantomData,
         }
     }
@@ -66,20 +66,18 @@ impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
         &mut self,
         provider: Arc<dyn AsyncRecipeProvider<Self>>,
     ) -> &mut Self {
-        self.recipe_provider = Some(provider);
+        self.recipe_provider = provider;
         self
     }
 
     pub fn with_default_recipe_provider(&mut self) -> &mut Self {
-        let provider: Arc<dyn AsyncRecipeProvider<Self>> =
-            Arc::new(liquers_core::recipes::DefaultRecipeProvider);
-        self.recipe_provider = Some(provider);
+        self.recipe_provider = Arc::new(DefaultRecipeProvider);
         self
     }
     pub fn with_trivial_recipe_provider(&mut self) -> &mut Self {
         let provider: Arc<dyn AsyncRecipeProvider<Self>> =
             Arc::new(liquers_core::recipes::TrivialRecipeProvider);
-        self.recipe_provider = Some(provider);
+        self.recipe_provider = provider;
         self
     }
 }
@@ -146,10 +144,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
     }
 
     fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<Self>> {
-        if let Some(provider) = &self.recipe_provider {
-            return provider.clone();
-        }
-        panic!("No recipe provider configured in DefaultEnvironment");
+        self.recipe_provider.clone()
     }
 
     fn init_with_envref(&self, envref: EnvRef<Self>) {
@@ -164,5 +159,19 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
                 am.start().await;
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DefaultEnvironment;
+    use crate::value::Value;
+    use liquers_core::context::Environment;
+
+    #[tokio::test]
+    async fn default_environment_has_a_recipe_provider() {
+        let environment = DefaultEnvironment::<Value>::new();
+
+        let _provider = environment.get_recipe_provider();
     }
 }
