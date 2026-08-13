@@ -141,6 +141,10 @@ declared `multiple` consumes every remaining parameter, so a command with one is
 `register_command!` is not yet possible; see
 [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md).)
 
+The special instructions resolve no command metadata, so each carries its own rule: `v` and `q` take
+no parameters and reject any, while **`ns` is variadic by design** — every parameter names a
+namespace, so `ns-one-two` is correct and must keep working.
+
 A resource header takes exactly one instruction, and surplus header parameters are an error on the
 same terms. Its *name*, by contrast, is only warned about and then ignored — the name is reserved
 for a future realm interpretation, and rejecting it now would refuse queries a later version
@@ -467,4 +471,4 @@ Session (user session - currently minimal)
 |---|---|---|
 | 2026-08-11 | Reviewed recipe planning and execution; documented provider/programmatic CWD provenance, interpreter-owned ordered resolution, scoped nested evaluation, and resolved identities. | phase-5 |
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
-| 2026-08-12 | Documented parameter arity: surplus action parameters are a positioned error, `multiple` consumes the remainder, and the resource header errors on surplus parameters while still only warning about its reserved name. | design/excess-action-parameters-error |
+| 2026-08-12 | Documented parameter arity: surplus action parameters are a positioned error, `multiple` consumes the remainder, the `v`/`q` instructions take none while `ns` is variadic, and the resource header errors on surplus parameters while still only warning about its reserved name. | design/excess-action-parameters-error |

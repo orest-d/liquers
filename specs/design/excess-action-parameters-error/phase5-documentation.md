@@ -5,7 +5,7 @@
 | Criterion | State |
 |---|---|
 | Steps 1-7 of the Phase 4 plan complete | Yes |
-| `cargo test -p liquers-core` | 525 unit + 111 integration, all pass |
+| `cargo test -p liquers-core` | 526 unit + 111 integration, all pass |
 | `cargo test -p liquers-lib --lib --tests` | 297 unit + 65 integration, all pass |
 | Manual `liquers-validate` before/after check | Run; transcript below |
 | Review comments answered | None outstanding |
@@ -32,7 +32,7 @@ ns-pl/head-10-99            Error  col 15  Too many parameters for command 'head
 | Location | Change |
 |---|---|
 | `liquers-core/src/error.rs` | `Error::too_many_parameters(subject, accepted, excess_index, excess_value, position)`, the dual of `missing_argument`. **No new `ErrorType` variant** — `TooManyParameters` already existed and had never been constructed |
-| `liquers-core/src/plan.rs` | Leftover check at the end of `ResolvedParameterValues::from_action_extended`; `accepted_parameter_count` helper |
+| `liquers-core/src/plan.rs` | Leftover check at the end of `ResolvedParameterValues::from_action_extended`; `accepted_parameter_count` helper; arity rules for the `v` and `q` instructions, which bypass metadata resolution |
 | `liquers-core/src/plan.rs` | `process_resource_query`: surplus header parameters error; the `unwrap` on `parameters.first()` removed; the fallback arm names the unknown instruction and carries its position |
 | `liquers-core/tests/validate_integration.rs` | One fixture corrected — see below |
 
@@ -131,6 +131,22 @@ Five, all found while doing the work and none absorbed silently.
 | Error names the position of the excess parameter | Yes — `Position` is a required constructor argument, verified at column precision |
 | During plan building | Yes — both the action and resource-header paths |
 
+### Added after review
+
+PR #33 review (Codex) observed that the special instructions bypass command-metadata resolution, so
+the leftover check never sees them — `v-extra` still discarded `extra` silently, contrary to the
+guarantee this design documents. Correct, and fixed. But the suggestion to "apply the same rule to
+other instruction shortcuts" would have been wrong applied uniformly; the three instructions differ:
+
+| Instruction | Rule | Change |
+|---|---|---|
+| `v` | takes no parameters | **Was silently dropping them.** Now `TooManyParameters`, positioned |
+| `q` | takes no parameters | Already rejected (`process_query`); gained a position |
+| `ns` | **variadic by design** — each parameter names a namespace | **No change.** `ns-one-two` is correct and must keep working |
+
+`special_instructions_enforce_their_own_arity` pins all three, including the `ns` case, so a later
+attempt at uniformity fails a test rather than silently breaking namespace selection.
+
 ### Added beyond the request
 
 - The resource header made strict on surplus parameters (user decision).
@@ -153,11 +169,11 @@ representable when they are declared variadic and the internal split is removed.
 ## Validation
 
 ```
-cargo test -p liquers-core              525 unit + 3+5+5+5+4+32+15+16+14+8+6+13+5 integration — all pass
+cargo test -p liquers-core              526 unit + 3+5+5+5+4+32+15+16+14+8+6+13+5 integration — all pass
 cargo test -p liquers-lib --lib --tests 297 unit + 65 integration — all pass
 ```
 
-15 tests added: 12 in `plan.rs`, 1 in `error.rs`, 2 in `validate/mod.rs`.
+16 tests added: 13 in `plan.rs`, 1 in `error.rs`, 2 in `validate/mod.rs`.
 
 Manual check against the real registry, which is also the transcript quoted in
 `POLARS_COMMAND_LIBRARY.md`:

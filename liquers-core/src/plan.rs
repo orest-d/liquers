@@ -1361,6 +1361,18 @@ impl<'c> PlanBuilder<'c> {
     ) -> Result<(), Error> {
         // Intercept 'v' instruction BEFORE normal action processing
         if action_request.name == "v" {
+            // `v` resolves no command metadata, so the arity check in
+            // `ResolvedParameterValues::from_action_extended` never sees it. It takes no
+            // parameters, so anything written here would be silently discarded.
+            if let Some(excess) = action_request.parameters.first() {
+                return Err(Error::too_many_parameters(
+                    "instruction 'v'",
+                    0,
+                    1,
+                    &excess.encode(),
+                    &excess.position(),
+                ));
+            }
             self.mark_volatile("Volatile due to instruction 'v'");
             return Ok(()); // Don't create Step::Action for 'v'
         }
@@ -1484,10 +1496,12 @@ impl<'c> PlanBuilder<'c> {
             // Validate that "q" has no arguments
             if let Some(QuerySegment::Transform(tqs)) = query.segments.last() {
                 if let Some(q_action) = tqs.query.last() {
-                    if q_action.is_q() && !q_action.parameters.is_empty() {
+                    if let (true, Some(excess)) = (q_action.is_q(), q_action.parameters.first()) {
+                        // Already rejected before this design; it only lacked a position.
                         return Err(Error::not_supported(
                             "The 'q' instruction does not accept any arguments".to_string(),
-                        ));
+                        )
+                        .with_position(&excess.position()));
                     }
                 }
             }
@@ -4148,6 +4162,45 @@ mod tests {
             err.message
         );
         assert!(!err.position.is_unknown(), "the instruction must be positioned");
+        Ok(())
+    }
+
+    /// The special instructions bypass command-metadata resolution, so the arity check in
+    /// `from_action_extended` never sees them. Each needs its own rule, and they are not the
+    /// same rule:
+    ///
+    /// - `v` takes no parameters -> surplus is an error (it was silently dropped before);
+    /// - `q` takes no parameters -> already rejected, now positioned;
+    /// - `ns` is legitimately variadic - every parameter names a namespace - so it must keep
+    ///   accepting any number of them.
+    #[test]
+    fn special_instructions_enforce_their_own_arity() -> Result<(), Error> {
+        let mut cr = command_metadata::CommandMetadataRegistry::new();
+        cr.add_command(&CommandMetadata::new("a"));
+
+        // `v` alone is fine.
+        assert!(plan_for("a/v", &cr).is_ok());
+
+        let err = plan_for("a/v-extra", &cr).expect_err("'v' takes no parameters");
+        assert_eq!(err.error_type, ErrorType::TooManyParameters);
+        assert!(err.message.contains("instruction 'v'"), "message: {}", err.message);
+        assert!(!err.position.is_unknown(), "the surplus must be positioned");
+
+        // `q` was already rejected; it now carries a position too.
+        let err = plan_for("a/q-extra", &cr).expect_err("'q' takes no parameters");
+        assert!(err.message.contains("does not accept any arguments"));
+        assert!(!err.position.is_unknown(), "the surplus must be positioned");
+
+        // `ns` is variadic by design: each parameter is a namespace name. Making the special
+        // instructions uniformly strict would break this.
+        let mut nscr = command_metadata::CommandMetadataRegistry::new();
+        let mut cm = CommandMetadata::new("b");
+        cm.namespace = "two".to_string();
+        nscr.add_command(&cm);
+        assert!(
+            plan_for("ns-one-two/b", &nscr).is_ok(),
+            "'ns' must keep accepting several namespaces"
+        );
         Ok(())
     }
 
