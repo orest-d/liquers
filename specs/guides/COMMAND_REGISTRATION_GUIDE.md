@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-03-02
+reviewed: 2026-08-12
 ---
 # Command Registration Guide
 
@@ -78,6 +78,30 @@ See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification
 - Parameter types and defaults
 - Injected parameters
 - Metadata statements (label, doc, namespace, realm, etc.)
+
+### Accepting a variable number of parameters
+
+A command's declared arity is binding: a query that supplies more parameters than the command
+declares fails at plan build with a positioned error. The only way to accept a variable-length list
+is an argument marked `multiple`, which consumes every remaining parameter.
+
+**This cannot currently be declared through `register_command!`** — the macro hardcodes
+`multiple: false`, and the argument's value could not be retrieved even if it could be declared.
+See [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md)
+for the full picture and the intended fix.
+
+Until then, a command that needs a list takes a single `String` argument and splits it itself, and
+its callers must escape the separator. `-` separates *parameters* in the query language, so a
+literal dash inside one parameter is written `~_`:
+
+```
+ns-pl/select_columns-a~_b     one argument, the string "a-b"   -> two columns
+ns-pl/select_columns-a-b      two parameters, one declared     -> error
+```
+
+Do not design a command around the second spelling. Before arity was enforced it silently discarded
+everything after the first parameter, which is how `pl/select_columns` came to be documented as
+accepting a form it never received.
 
 ### Return Type Requirement
 
@@ -617,3 +641,4 @@ fn apply(...) -> Result<...> { ... }
 | Date | Change | Source |
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
+| 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |

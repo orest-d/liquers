@@ -2,7 +2,7 @@
 //!
 //! See `specs/design/query-validation/phase3-examples.md` for the scenarios these cover.
 
-use liquers_core::command_metadata::{CommandMetadata, CommandMetadataRegistry};
+use liquers_core::command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry};
 use liquers_core::error::Error;
 use liquers_core::plan::Step;
 use liquers_core::validate::{
@@ -16,6 +16,20 @@ fn registry_text(names: &[(&str, &str)]) -> String {
         cm.namespace = namespace.to_string();
         cmr.add_command(&cm);
     }
+    serde_yaml::to_string(&cmr).expect("serialize registry")
+}
+
+/// Registry text for one command that declares a single integer argument.
+///
+/// `registry_text` declares commands with no arguments at all, which is fine for a query that
+/// supplies none. A query such as `head-10` needs the argument to exist: an action may not
+/// supply more parameters than its command declares.
+fn registry_text_with_int_arg(name: &str, namespace: &str, argument: &str) -> String {
+    let mut cmr = CommandMetadataRegistry::new();
+    let mut cm = CommandMetadata::new(name);
+    cm.namespace = namespace.to_string();
+    cm.arguments = vec![ArgumentInfo::integer_argument(argument, false)];
+    cmr.add_command(&cm);
     serde_yaml::to_string(&cmr).expect("serialize registry")
 }
 
@@ -54,7 +68,7 @@ fn end_to_end_parse_only() -> Result<(), Error> {
 #[test]
 fn end_to_end_plan_with_merged_registry() -> Result<(), Error> {
     let mut builder = ValidationRegistryBuilder::new();
-    builder.merge_str("test.yaml", &registry_text(&[("head", "pl")]))?;
+    builder.merge_str("test.yaml", &registry_text_with_int_arg("head", "pl", "n"))?;
     let (registry, provenance) = builder.build();
 
     assert_eq!(provenance.command_count, 1);

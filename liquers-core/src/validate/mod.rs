@@ -605,4 +605,45 @@ mod tests {
         );
         Ok(())
     }
+
+    /// T9 - the validator contract for an over-supplied query.
+    ///
+    /// The issue this design resolves anticipated `Warning` with exit 0. Because the
+    /// resolution is an error rather than the proposed warning, an over-supplied query is
+    /// `Error` and the CLI exits 1. `ValidationStatus::Warning` is untouched and keeps its
+    /// meaning for the header-name case and the other `init_warning` sources.
+    #[test]
+    fn over_supplied_query_reports_error() {
+        let cmr = registry_with("to_text", "");
+
+        let ok = validate_query("to_text", 0, ValidationLevel::Plan, &cmr);
+        assert_eq!(ok.status, ValidationStatus::Ok);
+
+        let result = validate_query("to_text-extra", 0, ValidationLevel::Plan, &cmr);
+        assert_eq!(result.status, ValidationStatus::Error);
+        let error = result.error.expect("an over-supplied query reports an error");
+        assert_eq!(error.error_type, ErrorType::TooManyParameters);
+        assert!(
+            !error.position.is_unknown(),
+            "the excess parameter must be positioned so a caller can point at it"
+        );
+    }
+
+    /// A permissive command - what `--command` declares - takes a `multiple` argument, so it
+    /// must keep accepting any number of parameters. This is the variadic exemption in
+    /// production use, not merely in test fixtures.
+    #[test]
+    fn permissive_command_still_accepts_any_arguments() {
+        let cmr = permissive_registry("anything");
+
+        for query in ["anything", "anything-a", "anything-a-b-c-d-e"] {
+            let result = validate_query(query, 0, ValidationLevel::Plan, &cmr);
+            assert_eq!(
+                result.status,
+                ValidationStatus::Ok,
+                "permissive command must accept '{}'",
+                query
+            );
+        }
+    }
 }

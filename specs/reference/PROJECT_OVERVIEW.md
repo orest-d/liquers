@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-08-11
+reviewed: 2026-08-12
 ---
 # Liquers Project Overview
 
@@ -123,6 +123,33 @@ liquers-core (foundation - all core abstractions)
 **Legacy shorthand**: If a query has exactly two parts and the second is a transform, the first is treated as a resource (may be phased out due to confusion).
 
 **Segment Headers**: Queries can specify realm in the segment header. Realm applies to the whole segment. Namespace can change within a segment using `ns` instruction.
+
+**Parameter arity**: every parameter written in a query must be consumed. An action supplying more
+parameters than its command declares is an **error** at plan build time, carrying the position of
+the first surplus parameter so an editor or validator can point at it:
+
+```
+ns-pl/select_columns-a-b
+Too many parameters for command 'select_columns': accepts 1, but parameter #2 'b' was supplied
+```
+
+The count a command accepts is not simply its number of arguments. *Injected* arguments are supplied
+by the execution context and consume no query parameter, and an alias's head parameters fill leading
+argument slots before the action is consulted; neither is available to the writer. An argument
+declared `multiple` consumes every remaining parameter, so a command with one is never over-supplied
+— that is the sanctioned way to accept a variable-length list. (Declaring one through
+`register_command!` is not yet possible; see
+[`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md).)
+
+The special instructions resolve no command metadata, so each carries its own rule: `v` and `q` take
+no parameters and reject any, while **`ns` is variadic by design** — every parameter names a
+namespace, so `ns-one-two` is correct and must keep working.
+
+A resource header takes exactly one instruction, and surplus header parameters are an error on the
+same terms. Its *name*, by contrast, is only warned about and then ignored — the name is reserved
+for a future realm interpretation, and rejecting it now would refuse queries a later version
+accepts. The two are treated differently on purpose: an input that will acquire meaning is warned
+about, an input nothing can ever consume is rejected.
 
 **Special encoding** (for URL compatibility):
 - `~~` → `~`
@@ -444,3 +471,4 @@ Session (user session - currently minimal)
 |---|---|---|
 | 2026-08-11 | Reviewed recipe planning and execution; documented provider/programmatic CWD provenance, interpreter-owned ordered resolution, scoped nested evaluation, and resolved identities. | phase-5 |
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
+| 2026-08-12 | Documented parameter arity: surplus action parameters are a positioned error, `multiple` consumes the remainder, the `v`/`q` instructions take none while `ns` is variadic, and the resource header errors on surplus parameters while still only warning about its reserved name. | design/excess-action-parameters-error |
