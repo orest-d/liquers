@@ -5,7 +5,7 @@ title: Excess action parameters raise an error during plan building
 workflow: liquers-project
 status: complete
 area: [core/plan, core/error]
-gh_pr: []
+gh_pr: [33]
 issues: [PLAN-EXCESS-ACTION-PARAMETERS-DROPPED, COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE, VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT, COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED, POLARS-DOC-EXAMPLES-OMIT-NAMESPACE]
 affects_docs: [specs/reference/PROJECT_OVERVIEW.md, specs/reference/POLARS_COMMAND_LIBRARY.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-08-12
