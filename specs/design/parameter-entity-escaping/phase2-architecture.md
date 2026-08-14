@@ -20,7 +20,7 @@ a P1 defect that had never been filed.
 | Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
 | `PARAMETER-ESCAPING-INCOMPLETE` | accepted | P0 | The defect this resolves | n/a | no | Close in Phase 5 | keep P0 |
-| `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES` | draft | P1 | **Filed during this phase.** `set_value` stores `encode_token(v)` where every other path stores the decoded value, so `encode` escapes twice. It *worsens* here: today it corrupts only values containing `~ / -` or space; after this change it corrupts everything outside `[A-Za-z0-9_+.]`. It also falsifies this design's `parse(encode(s)) == s` promise through a public method | no | **no** — but see below | **Fix inside this design** (S, three lines + a test) | keep P1 |
+| `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES` | draft | P1 | **Filed during this phase.** `set_value` stores `encode_token(v)` where every other path stores the decoded value, so `encode` escapes twice. It *worsens* here: today it corrupts only values containing `~ / -` or space; after this change it corrupts everything outside `[A-Za-z0-9_+.]`. It also falsifies this design's `parse(encode(s)) == s` promise through a public method | no | no — but **in scope**, see below | **Fixed by this design**; close in Phase 5 | keep P1 |
 | `STORE-FILESTORE-PATH-TRAVERSAL` | accepted | P0 | Would become blocking if resource names gained entities: a decoded `~U2F~` is a `/`, which is path injection into `key_to_path`. **D10 keeps resource names ASCII-alphanumeric with no entity production**, so this design does not touch that surface | no | no | Monitor; do not add entities to `resource_name` | keep P0 |
 | `RESOURCE-NAME-ASCII-ONLY` | draft | P2 | Created by this design's D10. Records the deferred limitation and the option space | no | no | Leave open | keep P2 |
 | `QUERY-AST-DISCARDS-ENTITIES` | draft | P2 | Out of scope, but Phase 1 requires this design not make it harder. `escape::segments` (below) is the hook | no | no | Provide the segment API; do not change `ActionParameter` | keep P2 |
@@ -36,10 +36,95 @@ decoded `/` can reach `key_to_path` through this change. If a later design takes
 `RESOURCE-NAME-ASCII-ONLY` to option B or C, the traversal fix becomes a hard prerequisite; that is
 recorded in both issues.
 
-`ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES` is not a blocker in the "cannot proceed" sense, but
-shipping around it would mean publishing a round-trip guarantee that a public setter on the same
-type violates, and making the corruption wider at the same time. It is three lines and a test, so
-**the recommendation is to fix it here**; this is the one scope question for the approval gate.
+`ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES` is **fixed inside this design** (maintainer). Not as a
+courtesy: leaving it would ship a round-trip guarantee that a public setter on the same type
+violates, over a wider input set than today, and — the maintainer's point — it would be hard to test
+around and easy to break later. `liquers-web`'s encoder is replaced in the same change for the same
+reason. Both follow from the value/encoding invariant below, which is the rule the fix restores
+rather than a special case.
+
+## The value/encoding invariant
+
+The maintainer's framing, which this design adopts as its central architectural rule:
+
+> **A user must be able to build a query programmatically by giving an arbitrary string as a
+> parameter value, and encoding must happen only when `encode()` is called.**
+
+### The invariant, stated exactly
+
+The invariant is a property of **stored state**, and it is one sentence:
+
+> **In every `ActionParameter::String(s, _)`, `s` is the decoded parameter value, unconstrained.**
+
+"Decoded" means `s` is the value itself and not query text: it is never escaped. "Unconstrained"
+means `s` ranges over *all* of `String` — any sequence of Unicode scalar values, including the empty
+string, and including `~`, `/`, `-`, spaces, punctuation, astral-plane characters and text that
+looks like an entity. No grammar rule restricts it, because the grammar applies to query text and
+`s` is not query text.
+
+Everything else in this section is a **consequence**, not part of the invariant:
+
+| Consequence | Statement |
+|---|---|
+| Constructors do not encode | `new_string(v).string_value() == Some(v)` for every `v: String` |
+| Setters do not encode | after `p.set_value(v)`, `p.string_value() == Some(v.to_owned())` for every `v: &str` |
+| The parser decodes | parsing text `t` stores `decode_token(t)`, not `t` |
+| Encoding is a boundary, not a state | `encode()` is `encode_token(string_value())`, computed on the way out and never stored |
+| There are exactly three encode sites | `encode`, `render`, `styled_tokens` |
+| Round trip | `parse(encode(p)) == p` for every programmatically built `p` — this is what the invariant buys, and it is what `PARAMETER-ESCAPING-INCOMPLETE` asks for |
+
+And two things that are deliberately **not** invariants, so nobody reads more into it:
+
+- **`encode(parse(t)) == t` does not hold**, and is not meant to. Decoding is many-to-one — `~I` and
+  `~/` both give `/` — so re-encoding normalises to the canonical spelling. That is the intended
+  behaviour, not a defect.
+- **The original spelling is not preserved.** `s` is the value; how it was written is gone. That is
+  `QUERY-AST-DISCARDS-ENTITIES`, and it is out of scope.
+
+### Why `set_value` looks the way it does, and why that model is rejected
+
+`set_value` is a relic of a different model, in which a string parameter was an **elementary,
+already-encoded token**. That model was reached while thinking about
+`QUERY-AST-DISCARDS-ENTITIES` — if a parameter becomes a list of "string or entity" enums, it is
+tempting to treat the string arm as pre-encoded text that needs no further processing.
+
+It is the wrong model, and the reason is the invariant above. Pre-encoded storage means the caller
+must know the grammar to set a value, which is exactly the burden a query builder exists to remove;
+it makes `string_value()` return something other than what was set; and it is not what the parser
+does, so the same variant means two different things depending on how it was created. **That
+divergence is the whole of `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`** — the bug is a symptom of
+the model, not a typo.
+
+This is recorded here because it constrains the *future* AST work: whatever
+`QUERY-AST-DISCARDS-ENTITIES` does with segments, the value a caller sets must stay arbitrary and
+un-encoded, with the spelling derived at encode time.
+
+### Audit: every path into and out of `ActionParameter::String`
+
+Checked against the invariant, not assumed.
+
+| Path | Stores/returns | Verdict |
+|---|---|---|
+| `ActionParameter::new_string` (`query.rs:565`) | argument verbatim | correct — decoded. Gets a doc comment saying so, which it lacks |
+| parser (`parse.rs:406`, `:479`) | the decoded join of text and entities | correct |
+| `plan.rs:146` | `requested_ns.to_string()`, raw | correct |
+| `liquers-py/src/query.rs:66` | a raw Python `String` | correct, and **becomes correct for free** — the Python path already obeys the invariant, so it gains full-Unicode parameters with no change to `liquers-py` |
+| `string_value()` (`query.rs:577`) | stored value | correct |
+| `encode` / `render` / `styled_tokens` | `encode_token(stored)` | correct — the three encode boundaries |
+| **`set_value` (`query.rs:614`)** | `encode_token(argument)` | **violates the invariant. Fixed here.** |
+
+### The two encoders, and their removal
+
+"All the old encoding is replaced by the current solution" (maintainer). Searched the workspace for
+hand-rolled tilde escaping; there are exactly **two**, and both go:
+
+| Location | Disposition |
+|---|---|
+| `liquers-core/src/query.rs:511-521` | The body of `encode_token`. **Replaced** by the table-driven encoder in `escape.rs`. The name and signature survive, so no call site changes |
+| `liquers-web/src/encode.rs:67-80` | A second, independent implementation of the same four escapes, written to raise an error where it could not proceed. **Deleted**; `encode_param` delegates |
+
+No third implementation exists — a useful result, because it means the invariant has exactly one
+enforcement point once these two are resolved.
 
 ## Data Structures
 
@@ -514,15 +599,21 @@ or similar query-construction helpers. Those would belong to `QUERY-BUILDER-TOOL
 
 ## Open Questions
 
-1. **Does the `set_value` fix land here?** Recommended yes: three lines and a test, and leaving it
-   means shipping a round-trip guarantee that a public setter on the same type breaks, over a wider
-   input set than today. The alternative is to leave
-   `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES` open and note the interaction in `DOC_02`.
-2. **Is `escape::segments` in the public API now, or `pub(crate)` until the AST design needs it?**
-   Recommended public: it is the Phase 1 "must remain reachable" constraint, it costs one function,
-   and publishing it later is not a breaking change either way. Making it public now means the AST
-   design starts from a stable base rather than a private helper.
-3. **Confirm no command-level work** (above).
+All three questions raised at the Phase 2 gate are resolved.
+
+| Was | Resolution |
+|---|---|
+| Does the `set_value` fix land here? | **Yes** — and `liquers-web`'s encoder with it. Both follow from the value/encoding invariant; deferring either risks re-breaking and is hard to test around |
+| Is `escape::segments` public? | **Public** |
+| Any command-level work? | **None.** No new commands, no namespace change, no `register_command!` signature change, so `specs/command_registry.yaml` needs no regeneration |
+
+Carried into Phase 3 as measurements rather than decisions:
+
+1. Confirm the entity count and the blob payload against the real WHATWG `entities.json`, against
+   the ≈2100-name and ≈40 KB estimates.
+2. Confirm `cut` reports the position the diagnostics assume, including inside a nested link.
+3. Confirm no query in the repository's own tests, examples or recipes changes its canonical
+   encoding — and if any does, that the change is the intended one.
 
 ## References
 

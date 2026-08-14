@@ -83,6 +83,25 @@ working. Several shapes are plausible and the choice is not obvious:
 Whichever is chosen, the encoder should then be able to reproduce the recorded spelling, with
 canonical re-encoding available as an explicit operation rather than the only behaviour.
 
+**A constraint this design must not break, and which it is unusually likely to.** The
+`parameter-entity-escaping` design establishes the invariant that
+
+> `ActionParameter::String` holds a **decoded, arbitrary** string; no constructor or setter encodes;
+> encoding happens only in `encode`, `render` and `styled_tokens`.
+
+The reason to state it here is that this issue's own framing pulls the other way. Once a parameter
+becomes a list of "text or entity" segments, it is tempting to treat the text arm as an
+**elementary, already-encoded token** that needs no further processing — and that is precisely the
+model that produced `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`, where `set_value` stored
+`encode_token(v)` because a string was assumed to arrive pre-encoded.
+
+It is the wrong model. A caller building a query programmatically must be able to supply an
+arbitrary value without knowing the grammar, and the spelling must be derived when `encode()` is
+called, not when the value is set. So `ParameterSegment::Text` holds decoded text, and any
+`spelling` field is a *record of how the source was written*, never the storage form of the value.
+A segment list that cannot represent a value the caller never spelled — one built programmatically,
+with no source text at all — has taken the wrong shape.
+
 `ActionParameter` is public and appears in `liquers-py/src/query.rs` and `liquers-web/src/encode.rs`
 as well as throughout `liquers-core`, so this is a cross-crate API change: **complexity `L`, which
 requires a design folder** (`DOCS_STRUCTURE_GUIDE.md` §4.5). None exists yet; one is needed before

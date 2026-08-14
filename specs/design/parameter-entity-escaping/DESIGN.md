@@ -60,6 +60,26 @@ Key Phase 1 findings, for anyone picking this up cold:
   scalar value has a `~U<hex>~` spelling, so no input is unrepresentable. Errors belong to the
   decoder (out-of-range, surrogate, unknown name, missing terminator).
 
+### The invariant this design establishes
+
+The invariant is a property of stored state, and it is one sentence: **in every
+`ActionParameter::String(s, _)`, `s` is the decoded parameter value, unconstrained** — the value
+itself, never query text, ranging over all of `String`.
+
+Everything else is consequence: constructors and setters do not encode, the parser stores the
+decoded result, and `encode`/`render`/`styled_tokens` are the only three sites that encode, computing
+it on the way out and never storing it. What it buys is `parse(encode(p)) == p` for any
+programmatically built parameter. What it does *not* claim: `encode(parse(t)) == t` (decoding is
+many-to-one, so re-encoding normalises), and preservation of the original spelling (that is
+`QUERY-AST-DISCARDS-ENTITIES`).
+
+`set_value` violated this because it came from a different model — a string parameter as an
+*elementary, already-encoded token*, reached while thinking about `QUERY-AST-DISCARDS-ENTITIES`.
+That model is rejected: it makes the caller learn the grammar, makes `string_value()` return
+something other than what was set, and makes the same variant mean two things depending on how it
+was built. The constraint is recorded in `QUERY-AST-DISCARDS-ENTITIES` too, since that design is the
+one most likely to reintroduce it.
+
 ### Phase 2 findings
 
 - **`liquers-web/src/encode.rs` must change**, contradicting Phase 1's "Web: no change". It is a
