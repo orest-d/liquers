@@ -4,7 +4,7 @@ kind: design
 title: Parameter entity escaping (numeric and named tilde entities)
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/query]
 gh_pr: []
 issues: [PARAMETER-ESCAPING-INCOMPLETE, ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES]
@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 2: Solution & Architecture (approved)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -79,6 +79,25 @@ That model is rejected: it makes the caller learn the grammar, makes `string_val
 something other than what was set, and makes the same variant mean two things depending on how it
 was built. The constraint is recorded in `QUERY-AST-DISCARDS-ENTITIES` too, since that design is the
 one most likely to reintroduce it.
+
+### Phase 3: the properties were executed, not argued
+
+A prototype of the encoder and decoder was run over **4 130 inputs** — every printable ASCII
+character, Latin-1 and CJK, astral code points, U+0000, U+10FFFF, controls, adversarial strings and
+4 000 random strings. Round trip, idempotence and ASCII-only output: **4 130 / 4 130** each, plus
+30 / 30 hand-written valid tokens for idempotence from decode-only spellings. Every expected value
+in the Phase 3 document is that prototype's output; the legacy spellings were additionally checked
+against the real parser.
+
+Two things this turned up:
+
+- **Today's `E` is not merely non-idempotent, it is undefined.** The current encoder turns
+  `f-~Hapi.example.com~/data` into `f-https:~/~/api.example.com~/data`, which does not parse. The
+  design does not improve idempotence; it makes it exist.
+- **A hand-written octal constant in the design was wrong** (`~O11746~` for U+1F600, correct is
+  `~O373000~`). Hence the rule recorded for implementation: every radix example in the reference and
+  guide is generated from the code path it documents, and the `escape.rs` doc examples are
+  `assert_eq!` doctests so a wrong constant fails the build.
 
 ### Idempotence and error positions (verified)
 
