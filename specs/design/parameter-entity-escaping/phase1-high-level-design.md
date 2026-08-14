@@ -8,7 +8,7 @@ Parameter Entity Escaping (long-form tilde entities: numeric and named)
 
 Extend the query grammar's `~` escape with two **variable-length, `~`-terminated** entity forms — a
 numeric one covering every Unicode code point (`~U0041~`) and a named one covering the HTML/XML
-entity vocabulary (`~xamp~`) — and rewrite the encoder on top of them, so that an arbitrary string
+entity vocabulary (`~namp~`) — and rewrite the encoder on top of them, so that an arbitrary string
 can be carried in an action parameter and `parse(encode(s)) == s` holds for every `s`. Resolves
 `PARAMETER-ESCAPING-INCOMPLETE` (P0).
 
@@ -56,7 +56,7 @@ from `escape.rs` so no downstream import path changes.
 
 ## Chosen Syntax (decided)
 
-Radix-in-opener (Annex A-1, option 1a) and the `x` prefix (Annex A-2, option 2a), confirmed by the
+Radix-in-opener (Annex A-1, option 1a) and the `n` prefix (Annex A-2, option 2a), confirmed by the
 maintainer.
 
 | Form | Meaning | Example | Emitted by encoder |
@@ -64,10 +64,10 @@ maintainer.
 | `~U<hex>~` | Unicode code point, hexadecimal | `~U41~` → `A`, `~U1F600~` → 😀 | **yes — canonical** |
 | `~D<dec>~` | Unicode code point, decimal | `~D65~` → `A` | no |
 | `~O<oct>~` `~B<bin>~` | octal / binary | `~O101~`, `~B1000001~` | no |
-| `~x<name>~` | named entity | `~xamp~` → `&`, `~xcolon~` → `:` | see "Canonical encoding" |
+| `~n<name>~` | named entity | `~namp~` → `&`, `~ncolon~` → `:` | **curated names only** |
 
 **Case rule** (as proposed): an **uppercase** letter after `~` opens a liquers-structural entity
-(`U D O B`, joining the existing `I H P X E`); a **lowercase** letter opens a text entity (`x`,
+(`U D O B`, joining the existing `I H P X E`); a **lowercase** letter opens a text entity (`n`,
 joining `h f`). Entity bodies are `[A-Za-z0-9_-]+`; no non-alphanumeric character is introduced
 into the grammar and `;` is *not* admitted — the closing `~` is the terminator, which the existing
 `~X~` already establishes as a shape.
@@ -75,54 +75,95 @@ into the grammar and `;` is *not* admitted — the closing `~` is the terminator
 **Why the long form is entered only on an unclaimed opener.** Measured at HEAD:
 `f-~Hexampledotcom~~` parses today and means `https://exampledotcom~`. A bare `~<name>~` form would
 silently re-read it as a named entity, so backward compatibility *requires* a prefix that legacy
-text cannot produce. `~U ~D ~O ~B ~x` are all rejected by the parser today (verified), so no
+text cannot produce. `~U ~D ~O ~B ~n` are all rejected by the parser today (verified), so no
 existing query changes meaning and the `alt` order stays insensitive.
 
 ## Canonical encoding
 
-**Requirement (maintainer):** the encoder emits the *shortest* representation, and once decided the
-choice is *stable*, so the canonical query representation is stable. Query text is identity in
-liquers — asset keys, cache keys and links are query strings — so a later change to the encoder
-invalidates caches and breaks stored links. Stability is therefore a compatibility guarantee, not a
-preference.
+**Stability is a compatibility guarantee, not a preference** (maintainer). Query text is identity in
+liquers — asset keys, cache keys and links are query strings — so once a spelling is chosen for a
+character, changing it invalidates derived keys and breaks stored links.
 
-Three rules follow, and the third is the one that is easy to get wrong:
+**Readability beats brevity where a curated name exists** (maintainer): a character that has a
+curated entity is *always* encoded as that entity, even when the numeric form is shorter — `:`
+encodes as `~ncolon~`, not the three-characters-shorter `~U3A~`. Brevity governs only the choices
+that remain.
 
-1. **Shortest is computed, not approximated.** Encoding runs a shortest-path pass over the
-   character positions of the token rather than a greedy left-to-right scan, so the result is
-   provably minimal. Ties break by a fixed repertoire order (literal ▸ legacy mnemonic ▸ numeric
-   hex ▸ named), which makes the output deterministic.
-2. **The canonical repertoire is frozen**, and versioned if it ever has to change. It contains
-   the literal characters, the legacy mnemonics (`~~ ~_ ~. ~/ ~<digit> ~h ~H ~f ~P`) and `~U<hex>~`.
-   `~D ~O ~B` exist for people writing queries by hand and are never emitted.
-3. **The canonical repertoire must not depend on cargo features.** This is forced by the
-   feature decision below: if a `default-features = false` build compiled a smaller name table *and*
-   the encoder drew on that table, two builds of the same library would produce different canonical
-   text for the same value, and the smaller build could not even decode the larger build's output.
-   The feature therefore gates **decoding only**. See Open Question 1 for whether named entities
-   belong in the encoder's repertoire at all.
+**The encoder output is pure ASCII** (maintainer): a non-ASCII character is escaped even though the
+parser would accept it literally, so that a query survives transport through ASCII-only systems.
+
+Encoding is therefore a deterministic left-to-right scan with a **fixed priority order** at each
+position, not a shortest-path search — the priority is what makes it stable, and length only breaks
+ties inside step 1:
+
+| Step | Rule | Example |
+|---|---|---|
+| 1 | longest matching **legacy mnemonic** | `https://` → `~H`, ` ` → `~.`, `/` → `~/`, `-4` → `~4` |
+| 2 | **literal**, if the character is ASCII-accepted `[A-Za-z0-9_+.]` | `a` → `a` |
+| 3 | **curated named entity** | `:` → `~ncolon~`, `&` → `~namp~`, `°` → `~ndeg~` |
+| 4 | **`~U<hex>~`** | `😀` → `~U1F600~` |
+
+Step 1 outranks step 3, so `/` stays `~/` rather than `~nsol~` and URLs keep the compact `~H` form
+the issue requires. Step 2 outranks step 3, so `+`, `.` and `_` stay literal despite having the
+names `plus`, `period` and `lowbar`.
+
+**Two tables are now frozen compatibility surfaces, not just one.** The canonical repertoire spans
+the legacy mnemonics, the ASCII-accepted class, **the curated entity set** and `~U<hex>~`. Adding a
+name to the curated set later would change the canonical text of that character and so invalidate
+derived keys and stored links — the curated set can therefore gain names only with a version bump,
+which is the price of the readability decision. `~D ~O ~B` and the non-curated HTML5 names are
+decode-only and can grow freely.
 
 **The encoder is infallible.** `encode_token` takes `&str`, which is UTF-8 by construction, so every
 `char` in it is a Unicode scalar value and every scalar value has a `~U<hex>~` spelling — lone
 surrogates cannot occur in the input. There is no failure case left, so the signature stays
 `fn encode_token<S: AsRef<str>>(s: S) -> String`. Fallibility belongs entirely to the **decoder**,
-which must reject `~U110000~` (out of range), `~UD800~` (surrogate), `~xfoo~` (unknown name),
+which must reject `~U110000~` (out of range), `~UD800~` (surrogate), `~nfoo~` (unknown name),
 `~U~` (empty body) and a missing terminator.
 
-## Named-entity table
+## Named-entity table: full on native, curated on wasm
 
-Full HTML5 by default; the curated subset is what remains when the feature is switched off.
+**Requirement (maintainer):** the full table is available by default in native builds, where its
+size does not matter, and absent from `liquers-web`.
 
-| Build | Names decoded | Rationale |
-|---|---|---|
-| default (`entities-html5` on) | all ≈2100 HTML5 named references | the maintainer's default; nothing surprises a user who knows HTML |
-| `default-features = false` | the curated set of Annex B (≈200) | wasm and embedded builds; `liquers-web` ships to browsers, where the full table is real payload |
+**A cargo feature cannot deliver this, and it is worth being precise about why** — the obvious
+mechanism is the wrong one. Features unify across the dependency graph, and `liquers-web` reaches
+`liquers-core` by four paths:
 
-**The feature adds, it never removes** — the curated set is compiled unconditionally and
-`entities-html5` extends it. This matters because cargo features unify across a dependency graph: a
-"restrict" feature that deleted names would be non-additive, and one crate enabling it would silently
-change another crate's behaviour. With the additive form, `default-features = false` is the
-documented restriction mechanism and every build decodes a superset of what any build encodes.
+```
+liquers-web ─┬─────────────────────────────► liquers-core   (Cargo.toml:13, defaults ON)
+             ├─ liquers-lib  ──────────────► liquers-core   (Cargo.toml:25, defaults ON)
+             ├─ liquers-store ─────────────► liquers-core   (Cargo.toml:11, defaults ON)
+             └─ liquers-macro ─────────────► liquers-core
+```
+
+`liquers-web` already writes `default-features = false` for `liquers-lib` and `liquers-store`, and
+it would do the same for `liquers-core` — but `liquers-lib` and `liquers-store` pull `liquers-core`
+with its defaults regardless, so unification switches the feature back on and the table lands in the
+wasm bundle anyway. Delivering it through a feature would mean turning `default-features = false` on
+`liquers-core` in *every* crate of the workspace and re-forwarding `async_store` through each, which
+is a large edit whose only purpose is to be defeated by the next dependency someone adds.
+
+**Mechanism: `#[cfg(not(target_arch = "wasm32"))]`.** It states the requirement directly, cannot be
+defeated by unification, needs no plumbing, and follows an established pattern in this crate
+(`liquers-core/src/assets.rs:214`). `liquers-web` is wasm32-only, so the two coincide exactly.
+
+| Target | Names decoded |
+|---|---|
+| native | curated set + all ≈2100 HTML5 named references |
+| `wasm32` | curated set (Annex B, ≈205) |
+
+An **additive** escape hatch feature (`entities-html5-wasm`) restores the full table on wasm for
+anyone who wants it; being additive, it is a well-behaved cargo feature in a way its inverse is not.
+
+**The asymmetry this creates, and its bound.** A hand-written query using a non-curated name — say
+`~nhellip~` — decodes on the server and fails in the browser. Machine-generated queries are
+unaffected, because the encoder only ever emits curated names (step 3 above) and the curated set is
+compiled on every target: **everything any build encodes, every build decodes.** The gap is bounded
+to hand-written exotic names, and the browser's error for one must say so explicitly — "named entity
+`hellip` is not available in this build; write `~U2026~`" — rather than reporting a generic parse
+failure. If that residual asymmetry is unwanted, the alternative is curated-everywhere, at the cost
+of the maintainer's stated default.
 
 ## Documentation Intent
 
@@ -151,34 +192,39 @@ design is invisible and someone will assume `encode(parse(t)) == t`.
 | # | Decision | By |
 |---|---|---|
 | D1 | Radix in the opener: `~U` hex, `~D` decimal, `~O` octal, `~B` binary (Annex A-1a) | maintainer |
-| D2 | Named entities take the `x` prefix: `~x<name>~` (Annex A-2a) | maintainer |
-| D3 | Full HTML5 table by default; curated set via `default-features = false`, additive | maintainer |
-| D4 | Encoder emits the shortest representation, and the canonical repertoire is frozen and feature-independent | maintainer |
-| D5 | `~<digit>` (compact negative number) stays | maintainer |
-| D6 | Every entity table documents which spellings the encoder emits | maintainer |
-| D7 | `encode_token` stays **infallible** — `&str` guarantees every `char` is a scalar value, so every input is representable. Fallibility is the decoder's | resolved; the Phase 1 question was unfounded |
+| D2 | Named entities take the `n` prefix: `~n<name>~` (Annex A-2a) | maintainer |
+| D3 | `~<digit>` (compact negative number) stays | maintainer |
+| D4 | Every entity table documents which spellings the encoder emits | maintainer |
+| D5 | A character with a curated entity is **always** encoded as that entity, even when `~U<hex>~` is shorter — readability wins. The curated set thereby becomes a frozen compatibility surface | maintainer |
+| D6 | **The parser accepts any Unicode alphanumeric; the encoder emits pure ASCII.** Widening keeps every currently-parsing query (`f-Ł` parses today); ASCII-only output keeps queries safe through ASCII-only systems | maintainer |
+| D7 | Full HTML5 table on native, curated set on wasm — gated by `cfg(not(target_arch = "wasm32"))`, not by a cargo feature, because feature unification cannot express it | maintainer's requirement; mechanism follows from the dependency graph |
+| D8 | `encode_token` stays **infallible** — `&str` guarantees every `char` is a scalar value, so every input is representable. Fallibility is the decoder's | resolved; the Phase 1 question was unfounded |
+
+D6 also settles the normalization worry: since encoder output is ASCII, canonical text never
+contains a composed-or-decomposed choice. Liquers does **not** normalize, so hand-written `café`
+(U+00E9) and `café` (`e` + U+0301) remain two different values that encode to two different
+canonical strings. That is defensible — they are different strings — but it must be documented
+rather than discovered.
 
 ## Open Questions
 
-1. **Does the encoder's canonical repertoire include the curated named entities, or numeric only?**
-   D4 says shortest; numeric hex and short names are frequently the *same* length (`~U3C~` and
-   `~xlt~` are both 5 characters), and names win above U+00FF (`~xpi~` = 5 beats `~U3C0~` = 6).
-   Recommend **numeric only**: it keeps the frozen repertoire tiny and independent of a name table
-   that will otherwise be unable to gain a shorter alias for the rest of time without changing
-   canonical text. Cost is 1–2 characters on non-ASCII values. If readability wins instead, the
-   curated set must be frozen as strictly as the encoder is.
-2. **`c as u8` decision (issue item 3)** — still open. Recommend widening to
-   `char::is_alphanumeric()` rather than narrowing to ASCII: widening keeps every currently-parsing
-   query (`f-Ł` parses today) whereas narrowing breaks them. Consequence to settle in Phase 2:
-   whether encode normalizes to NFC, since query text is identity and `é` has two spellings.
-3. **How is the full table represented?** ≈2100 entries as `&[(&str, &str)]` costs roughly 95 KB of
-   static data, mostly fat pointers; a concatenated blob with an offset index is nearer 40 KB. This
-   decides whether the default feature is comfortable for `liquers-web`. Phase 2 to measure, and to
-   confirm the entity count and payload against the WHATWG `entities.json` rather than the estimate
-   used here.
-4. **Is the curated set of Annex B the right one?** It is derived from a rule (everything the
-   grammar rejects, plus what a data-processing query plausibly carries) rather than from usage
-   data.
+1. **Do the ≈60 Latin-1 accented letters join the curated set?** Annex B excludes them, and the
+   maintainer approved Annex B — but the stated reason for excluding them was that widening the
+   parser makes them literal, and D6 only half-holds that: they parse literally yet are always
+   *escaped* on encode. So the exclusion now decides whether `café` encodes as `caf~UE9~` or
+   `caf~neacute~`. Recommend **keep them out**: D5's readability argument is strong for punctuation
+   and symbols, where `~ncolon~` genuinely beats `~U3A~`, and nil for letters, where `~neacute~` is
+   no more legible than `~UE9~` to anyone who does not already know HTML entity names — and it is
+   4 characters longer, on a class of character that appears in bulk in non-English text.
+2. **How is the full table represented?** ≈2100 entries as `&[(&str, &str)]` costs roughly 95 KB of
+   static data, mostly fat pointers; a concatenated blob with an offset index is nearer 40 KB. Less
+   critical now that wasm is excluded by target, but it still lands in every native binary. Phase 2
+   to measure, and to confirm the entity count against the WHATWG `entities.json` rather than the
+   estimate used here.
+3. **Does `resource_name` widen too?** It carries the identical `c as u8` truncation
+   (`parse.rs:340`) and feeds store keys, so it is the same defect in a different production — but
+   keys reach real filesystems, where the Unicode question has different consequences. Phase 2 to
+   decide whether D6 extends to it or whether it is deliberately left ASCII.
 
 ## References
 
@@ -206,7 +252,7 @@ design is invisible and someone will assume `encode(parse(t)) == t`.
 
 | # | Syntax | `&` | Assessment |
 |---|---|---|---|
-| **2a** | **Prefix letter** — `~x<name>~` | `~xamp~` | **Recommended.** Deterministic, no lookahead, provably backward compatible. Alternative prefixes: `~n<name>~` ("named", no hex connotation) or `~e<name>~` ("entity", but easy to confuse with `~E`). |
+| **2a** | **Prefix letter** — `~n<name>~` | `~namp~` | **Chosen**, with `n` for "named". Deterministic, no lookahead, provably backward compatible. `x` and `e` were the other free candidates; `n` avoids both the hex connotation of `x` and the confusability of `e` with `~E`. |
 | 2b | Bare `~<name>~`, table-driven disambiguation | `~amp~` | Prettiest, and closest to HTML. But `~h…~`/`~f…~`/`~H…~` must be resolved by consulting the name table, and `f-~Hexampledotcom~~` — a query that parses today — changes meaning. Rejected: measured, not hypothetical. |
 | 2c | Bare, but names starting with `h`/`f` forbidden | `~amp~` | Same break as 2b for uppercase openers, and `&hellip;`/`&frac12;` become second-class. Inconsistent. |
 | 2d | Case as the discriminator — uppercase name = liquers, lowercase = HTML, no prefix | `~amp~` | This is the user's case rule taken literally. It does not by itself remove the `~h`/`~f`/`~H` collisions, so it must be combined with 2a or 2b; here it is kept as the *namespace* rule while 2a supplies determinism. |
@@ -266,9 +312,9 @@ never fails. They decode to the literal character; the encoder never emits them.
 
 **Two traps to document, both of them HTML's fault:**
 
-- `~xtilde~` is **not** `~`. `&tilde;` is U+02DC ˜ (small tilde) and `&Tilde;` is U+223C ∼; ASCII
+- `~ntilde~` is **not** `~`. `&tilde;` is U+02DC ˜ (small tilde) and `&Tilde;` is U+223C ∼; ASCII
   `~` U+007E has no HTML5 name. Use `~~`.
-- `~xhyphen~` is **not** `-`. `&hyphen;` and `&dash;` are both U+2010 ‐; ASCII hyphen-minus U+002D
+- `~nhyphen~` is **not** `-`. `&hyphen;` and `&dash;` are both U+2010 ‐; ASCII hyphen-minus U+002D
   has no HTML5 name. Use `~_`.
 
 Getting either wrong produces a valid query that means something subtly different, which is the
@@ -285,9 +331,10 @@ the realistic content of a parameter derived from user data.
 `eth` `thorn` — plus `ndash` `mdash` `horbar` `lsquo` `rsquo` `sbquo` `ldquo` `rdquo` `bdquo`
 `dagger` `Dagger` `bull` `hellip` `permil` `prime` `Prime` `trade` `euro`
 
-Accented letters (`eacute`, `uuml`, …) are **excluded**: under Open Question 2's recommended
-widening they are ordinary literal characters and need no entity at all. If the parser narrows to
-ASCII instead, this tier must grow by the ≈60 Latin-1 letter names — the two decisions are coupled.
+Accented letters (`eacute`, `uuml`, …) are **excluded** — see Open Question 1, which is now the
+live form of this question. The original reason was that a widened parser makes them literal; D6
+only half-holds that, since they parse literally but are always escaped on encode. The exclusion
+therefore decides whether `café` encodes as `caf~UE9~` (recommended) or `caf~neacute~`.
 
 ## B-3. Greek, mathematics and arrows (≈110)
 
@@ -312,8 +359,9 @@ build needs to be smaller still, since everything in it is reachable as `~U<hex>
 | B-2 Latin-1 and typography | ~55 | ~95 |
 | B-3 Greek, maths, arrows | ~110 | ~205 |
 
-≈205 of ≈2100, so roughly a tenth of the full table's payload. **Nothing is lost by cutting a
-tier** — every character remains writable as `~U<hex>~`, and under the recommended encoder
-repertoire (Open Question 1) the encoder's output does not reference this table at all. The tiers
-therefore trade only hand-writing convenience against binary size, which is the right thing for a
-cargo feature to trade.
+≈205 of ≈2100, so roughly a tenth of the full table's payload. Under D5 the encoder emits these names, so **this set is a frozen compatibility surface**: cutting
+or extending a tier after release changes the canonical text of the affected characters and
+invalidates derived keys and stored links. The tiers are therefore a decision to take now, not a
+knob to turn later — which is the opposite of the earlier reading, where the set was decode-only and
+free to move. Nothing is *unrepresentable* either way: every character omitted from the set remains
+writable as `~U<hex>~`.

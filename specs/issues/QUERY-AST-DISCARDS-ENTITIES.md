@@ -44,7 +44,7 @@ fidelity and tooling limitation rather than a wrong result.
 - **Diagnostics.** An error concerning one entity in a long parameter can only point at the
   parameter's start position. With the long-form entities of `PARAMETER-ESCAPING-INCOMPLETE` —
   which can fail for their own reasons, such as an out-of-range code point or an unknown name — the
-  gap becomes more visible: the natural message is "unknown entity `~xfoo~` at column 23" and that
+  gap becomes more visible: the natural message is "unknown entity `~nfoo~` at column 23" and that
   column is not available.
 - **Round-trip fidelity.** Re-encoding a parsed query does not reproduce the original spelling.
   This is acceptable and arguably desirable for canonicalisation, but it means the AST cannot back
@@ -92,7 +92,7 @@ implementation.
 
 Raised by the maintainer during Phase 1 of the `parameter-entity-escaping` design
 (`specs/design/parameter-entity-escaping/`), which resolves `PARAMETER-ESCAPING-INCOMPLETE` by
-adding variable-length numeric (`~U0041~`) and named (`~xamp~`) entities. Those entities make the
+adding variable-length numeric (`~U0041~`) and named (`~namp~`) entities. Those entities make the
 missing AST representation more valuable — they are longer, more numerous, and can fail
 individually — but representing them in the AST is a separable change with a much wider API blast
 radius, so it was deliberately left out of that design's scope and recorded here instead.
