@@ -66,12 +66,44 @@ maintainer.
 | `~D<dec>~` | Unicode code point, decimal | `~D65~` → `A` | no |
 | `~O<oct>~` `~B<bin>~` | octal / binary | `~O101~`, `~B1000001~` | no |
 | `~n<name>~` | named entity | `~namp~` → `&`, `~ncolon~` → `:` | **curated names only** |
+| `~<opener>~<body>~` | the same four, with an optional separator tilde | `~U~41~`, `~n~amp~` | no — decode-only |
 
 **Case rule** (as proposed): an **uppercase** letter after `~` opens a liquers-structural entity
 (`U D O B`, joining the existing `I H P X E`); a **lowercase** letter opens a text entity (`n`,
 joining `h f`). Entity bodies are `[A-Za-z0-9_-]+`; no non-alphanumeric character is introduced
 into the grammar and `;` is *not* admitted — the closing `~` is the terminator, which the existing
 `~X~` already establishes as a shape.
+
+### The optional separator tilde
+
+**Requirement (maintainer):** where an entity has a unique one-letter prefix, both spellings parse
+and mean the same thing — `~nnbsp~` and `~n~nbsp~`, `~U41~` and `~U~41~`. The encoder emits the
+compact form. The general rule is that **both syntaxes are supported wherever no syntax ambiguity
+arises**, and the motivation is `~X~`, which already carries a separator because its opener needs
+one.
+
+This costs nothing in canonical stability: the separator form is decode-only, so canonical text is
+untouched and the frozen repertoire does not grow. It also makes every long form read uniformly as
+`~ <opener> ~ <body> ~`, the shape `~X~` established.
+
+**Why it is unambiguous** — the precondition holds for all five long-form openers, and the argument
+is short enough to check. A body character is `[A-Za-z0-9_-]`, which excludes `~`. So after an
+opener letter, a `~` can only be the separator: it cannot begin a body, and it cannot terminate one
+that has not started, because an empty body is an error in both spellings. The parse is
+`~` opener `~`? body `~` with a single optional token, and no backtracking is needed.
+
+**Where the rule does *not* reach**, both by its own precondition:
+
+- **The short entities** `~~ ~_ ~. ~/ ~I ~h ~H ~f ~P` are complete entities, not prefixes, so there
+  is nothing for a separator to separate. Admitting `~h~` as a spelling of `http://` *would* be
+  ambiguous — `~h~~` could then read as `http://~` or as the separator form followed by a dangling
+  tilde — so they keep their exact current form.
+- **`~X` keeps its separator mandatory.** Making it optional is the one case where the precondition
+  is not obviously met: the body is an arbitrary *query*, not a restricted name, so the reasoning
+  above does not transfer, and the link parser is already the most delicate part of the grammar —
+  `specs/design/query-link-parser/` records that its first bound was itself a DoS vector through
+  exponential backtracking. Extending the rule to `~X` needs its own ambiguity proof, which is out
+  of scope here.
 
 **Why the long form is entered only on an unclaimed opener.** Measured at HEAD:
 `f-~Hexampledotcom~~` parses today and means `https://exampledotcom~`. A bare `~<name>~` form would
@@ -191,37 +223,44 @@ not available in this build; write `~U2026~`" — rather than reporting a generi
 
 ## Documentation Intent
 
-**Reference:** extend `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md` §"Action-parameter
-entities" — it already owns the normative entity table, and a second reference would split it. Also
-update `specs/reference/PROJECT_OVERVIEW.md`, since this is a grammar change (CLAUDE.md).
+**Reference: extend `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`** (maintainer). It is
+the query documentation, it already owns the normative entity table in §"Action-parameter entities",
+and a second reference would split it. Also update `specs/reference/PROJECT_OVERVIEW.md`, since this
+is a grammar change (CLAUDE.md).
 
-**Guide: create `specs/guides/QUERY_ESCAPING_GUIDE.md`.** This **reverses the first draft's
-"no new guide"**, at the maintainer's request that the feature be documented "in the query guide".
-There is no query guide today — `specs/guides/` holds only `COMMAND_REGISTRATION_GUIDE.md`,
-`LANGUAGE-INTEGRATION_GUIDE.md`, `UNITTEST_GUIDE.md` and `autonomous_issue_fixing.md`, and
-`DOC_02_QUERY_LANGUAGE_REFERENCE.md` is a reference, not a guide. The distinction matters here
-because the two documents answer different questions: the reference states *what each entity means*,
-while the guide answers *how do I put arbitrary text into a query*, *when do I need the
-`entities-html5` feature and how do I turn it on*, and *why did my query stop parsing*. Per
-`DOCS_STRUCTURE_GUIDE.md` §2, that is guide material, and the template's instruction to reconsider a
-`neither` decision when substantial material accumulates applies exactly here.
+**Guide: create `specs/guides/QUERY_ESCAPING_GUIDE.md`** (maintainer, approved as proposed). This
+reverses the first draft's "no new guide". The two documents answer different questions: the
+reference states *what each entity means*, while the guide answers *how do I put arbitrary text into
+a query*, *when do I need the `entities-html5` feature and how do I turn it on*, and *why did my
+query stop parsing*. Per `DOCS_STRUCTURE_GUIDE.md` §2 that is guide material, and the Phase 1
+template's instruction to reconsider a `neither` decision when substantial material accumulates
+applies here.
+
+**Link it from two places** (maintainer): `DOC_02_QUERY_LANGUAGE_REFERENCE.md` and
+`specs/README.md`. The reference points at the guide for the how-to; the capability map carries it
+as an entry.
+
+**API documentation in the relevant modules** (maintainer): rustdoc on `entities.rs` and
+`escape.rs`, carrying the same tables and the same "emitted by encoder" column as the reference, so
+a reader working in the code does not have to leave it.
 
 **Also update `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`** — it currently tells integrators to
 raise an error for unrepresentable values *because of this issue*, and that paragraph becomes wrong.
 
 **Other documents to create:** None beyond the guide above.
 
-**Specific documents to update:** the two references and `LANGUAGE-INTEGRATION_GUIDE.md`, plus
-`specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md` → `closed`, and `specs/README.md` for the new guide.
-Audience: anyone writing a query by hand or building one programmatically, in any host language.
+**Specific documents to update:** `DOC_02_QUERY_LANGUAGE_REFERENCE.md`, `PROJECT_OVERVIEW.md`,
+`LANGUAGE-INTEGRATION_GUIDE.md`, `specs/README.md`, and
+`specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md` → `closed`. Audience: anyone writing a query by hand
+or building one programmatically, in any host language.
 
-**Content requirement (maintainer):** every entity table — in `DOC_02_QUERY_LANGUAGE_REFERENCE.md`,
-in the new guide, and in the rustdoc on the tables in `entities.rs` and `escape.rs` — carries an
-explicit **"emitted by encoder"** column, so a reader can tell at a glance which spelling is
-canonical and which is accepted-but-never-produced. Without it the decode-superset design is
-invisible and someone will assume `encode(parse(t)) == t`. The **`entities-html5` feature** is
-documented in the same places: which names it adds, that no crate enables it by default, and what
-the diagnostic looks like without it.
+**Content requirement (maintainer):** every entity table — in the reference, in the new guide, and
+in the module rustdoc — carries an explicit **"emitted by encoder"** column, so a reader can tell at
+a glance which spelling is canonical and which is accepted-but-never-produced. Without it the
+decode-superset design is invisible and someone will assume `encode(parse(t)) == t`. The
+**`entities-html5` feature** is documented in the same places: which names it adds, that no crate
+enables it by default, and what the diagnostic looks like without it. The **separator tilde** (D13)
+appears as an accepted-but-not-emitted spelling on the same footing.
 
 ## Decisions Taken
 
@@ -238,6 +277,7 @@ the diagnostic looks like without it.
 | D10 | `resource_name` narrows to **ASCII alphanumeric** for now, rather than following D6's widening | maintainer |
 | D11 | The full table is stored as a **concatenated blob with an offset index**, not `&[(&str, &str)]` | maintainer |
 | D12 | `entities-html5` is optional **everywhere** — no crate carries it in a `default`, `liquers-lib` included. It must be **tested in both states** and **documented**, including in the query guide | maintainer |
+| D13 | Every long-form entity accepts an **optional separator tilde** — `~n~nbsp~` = `~nnbsp~`, `~U~41~` = `~U41~`. Decode-only; the encoder emits the compact form. Short entities and `~X` are excluded, by the rule's own no-ambiguity precondition | maintainer |
 | D8 | `encode_token` stays **infallible** — `&str` guarantees every `char` is a scalar value, so every input is representable. Fallibility is the decoder's | resolved; the Phase 1 question was unfounded |
 
 D6 also settles the normalization worry: since encoder output is ASCII, canonical text never
