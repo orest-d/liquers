@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-11
+reviewed: 2026-08-14
 ---
 # Liquers Language Integration Guide
 
@@ -276,7 +276,7 @@ Recommended minimum profiles:
 
 **Issues and patterns.** Reimplementing the Liquers query/key parser in the *integrated language* can produce different results and can fall out of date when the Rust grammar changes; route strings through the Liquers parser instead.
 
-The **encode direction needs the same discipline and is easier to overlook.** Any *integration* that lets host code supply a string parameter must turn that string into query text, and query text has its own escaping (tilde entities: `~~`, `~_`, `~.`, `~/`, `~h`, `~H`, `~f`, `~P`, and `~<digit>` for a negative number). Percent-encoding is *not* part of the grammar and will not parse. Do not hand-roll an encoder in the *integrated language*: build the `Query` programmatically and call `encode()`, so the escaping comes from Rust. Two open issues bound what is currently possible — `PARAMETER-ESCAPING-INCOMPLETE` (values containing a colon or any non-ASCII character cannot be encoded at all today) and `QUERY-BUILDER-TOOLING` (there is no supported query-construction utility yet) — so an *integration* should raise a typed error for values it cannot represent rather than emit text that will not parse. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
+The **encode direction needs the same discipline and is easier to overlook.** Any *integration* that lets host code supply a string parameter must turn that string into query text, and query text has its own escaping (tilde entities: `~~`, `~_`, `~.`, `~/`, `~h`, `~H`, `~f`, `~P`, `~<digit>` for a negative number, `~U<hex>~` for any code point, and `~n<name>~` for a named entity). Percent-encoding is *not* part of the grammar and will not parse. Do not hand-roll an encoder in the *integrated language*: build the `Query` programmatically and call `encode()`, so the escaping comes from Rust — `liquers-web` used to carry its own encoder and it was deleted rather than corrected, because two implementations of one grammar is how the original escaping defect went unnoticed. **Every value is now representable**: `encode_token` is total, so an *integration* no longer needs a refusal path for unencodable characters. Pass the host string through unchanged and let `encode()` escape it; the parameter holds the *decoded* value, so nothing should be pre-escaped on the way in. `QUERY-BUILDER-TOOLING` remains open — there is still no supported query-construction utility — so assembling the `Query` is the integration's job. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
 
 **Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions; `OBJECT09` a host string that cannot be represented in query text **raises** rather than producing text that will not parse.
 
@@ -1162,16 +1162,16 @@ def test_OBJECT08_wrappers_follow_naming_and_ownership_conventions():
     for name in lq.public_surface():
         assert not name.startswith("_")
 
-def test_OBJECT09_unrepresentable_parameter_raises(env):
-    # The encode direction. A host string that the query grammar cannot express must RAISE,
-    # not produce text that fails to parse somewhere else, later. The core `encode_token`
-    # does the latter today (PARAMETER-ESCAPING-INCOMPLETE), which is what makes this test
-    # worth prescribing rather than assuming.
-    assert lq.parse_query(f"filter-{lq.encode_param('two words')}") is not None
-    for hostile in ["12:30", "a,b", "a?b", "caf\u00e9", "\u65e5\u672c"]:
-        with pytest.raises(lq.Error) as e:
-            lq.encode_param(hostile)
-        assert e.value.error_type == lq.ErrorType.ParameterError
+def test_OBJECT09_any_parameter_value_round_trips(env):
+    # The encode direction. Every host string must survive the trip through query text —
+    # PARAMETER-ESCAPING-INCOMPLETE made that true, so an integration no longer needs a
+    # refusal path. Round-trip through the REAL parser, not through a second copy of the
+    # escaping rules: an encoder checked against its own table agrees with itself by
+    # construction.
+    for value in ["two words", "12:30", "a,b", "a?b", "caf\u00e9", "\u65e5\u672c",
+                  "-5", "~X~", "a/b", "\U0001F600"]:
+        query = lq.parse_query(f"filter-{lq.encode_param(value)}")
+        assert query.action().parameters[0].string_value() == value
 ```
 
 ### ERROR
@@ -2374,6 +2374,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-14 | Every parameter value is now encodable, so the encode-direction guidance drops the refusal path; OBJECT09 becomes a round-trip test. Added the numeric and named entities to the escaping summary. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Documented provider-owned and programmatic recipe CWD setup, interpreter-owned relative resolution, root fallback, and executable integration evidence. | phase-5 |
 | 2026-08-09 | Reviewed against a completed `STORE` integration. Added a `BLOCKED` implementation state; harness question 7 (one test dragging the whole suite into the heavy harness) and "let the harness shape the design"; the mutation check for high-risk assertions; a shared "Service adapters — two rules" section; the `ERROR` question of whether the *language* can *construct* an error, plus `ERROR06`; `STORE`'s second direction (integration-provided stores and configuration) with `STORE08`–`STORE11`; and blueprint improvements to `VALUE04` (byte corpus), `STORE05` and `ERROR05`. | `design/liquers-web-store/` |
 | 2026-08-09 | `STORE` gained composition and configuration as an explicit third direction: router semantics an *integration* inherits (`is_supported` defaulting to false, no fall-through on refusal, overlap order, whether a store sees the stripped key), configuration questions (naming an object a document cannot hold, re-application, variable substitution), and "Taking only part of the store support crate" — the enable/disable design choice, why an optional default-on feature beats duplicating or relocating the configuration types, and its three costs. Added `STORE12`/`STORE13` and a disposition table by selected direction. | `design/liquers-web-store/` |

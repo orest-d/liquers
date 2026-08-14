@@ -2,7 +2,7 @@
 id: ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES
 kind: issue
 title: ActionParameter::set_value double-encodes its value
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [core/query]
@@ -10,6 +10,21 @@ design: parameter-entity-escaping
 created: 2026-08-14
 github:
 ---
+## Resolution
+
+Fixed in `specs/design/parameter-entity-escaping/`. `set_value` stores the decoded value, like
+every other path into `ActionParameter::String`, so `encode` escapes exactly once and
+`string_value()` returns what was set.
+
+The fix landed with the entity redesign rather than separately, because the defect is a symptom of
+a rejected model — a string parameter as an elementary, already-encoded token — and the redesign
+established the opposite as an invariant: the stored value is decoded and unconstrained, and
+escaping happens only in `encode` / `render` / `styled_tokens`.
+
+`liquers-core/tests/action_parameter_invariant.rs` holds it there, asserting that `set_value` and
+`new_string` are indistinguishable over 21 values. The method had **zero callers** in the
+workspace, so nothing else needed adjusting.
+
 ## Problem
 
 `ActionParameter::set_value` stores an **encoded** token where every other constructor and reader of
