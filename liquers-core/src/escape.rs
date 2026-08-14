@@ -288,6 +288,17 @@ pub fn segments(text: &str) -> Result<Vec<TokenSegment<'_>>, Error> {
         };
         if !rest.starts_with('~') {
             let Some(c) = rest.chars().next() else { break };
+            if !is_unescaped_parameter_char(c) {
+                // Not merely unusual — the parser would not accept it here, and this
+                // function is documented as the exact inverse of what the parser accepts.
+                // Letting it through would let a caller "successfully" decode a token that
+                // means something else, or nothing, once placed in a query.
+                return Err(entity_error(format!(
+                    "{c:?} at offset {i} cannot appear unescaped in a parameter; \
+                     write it as an entity, for example ~U{:X}~",
+                    c as u32
+                )));
+            }
             i += c.len_utf8();
             continue;
         }
@@ -418,17 +429,28 @@ fn decode_numeric(radix: Radix, body: &str) -> Result<char, Error> {
 }
 
 fn unknown_name_error(name: &str) -> Error {
-    // The two diagnostics differ, because the fix differs. A name that exists in HTML5 but is not
-    // compiled is a build-configuration problem; a name that exists nowhere is a typo.
-    if entities::lookup(name).is_none() && !entities::is_curated(name) {
+    // The two diagnostics differ because the fix differs, and the discriminator is the *build*,
+    // not the name: this is only reached after `lookup` returned `None`, so no test on `name`
+    // can tell "missing from this build" from "does not exist". With the full table compiled,
+    // an unknown name can only be a typo, and suggesting a feature that is already enabled
+    // would send the reader in the wrong direction.
+    #[cfg(feature = "entities-html5")]
+    {
+        entity_error(format!(
+            "~n{name}~ is not a named entity. This build has the full HTML5 table \
+             ({} names), so the name does not exist — check the spelling, which is \
+             case-sensitive, or write the character numerically as ~U<hex>~.",
+            entities::compiled_count()
+        ))
+    }
+    #[cfg(not(feature = "entities-html5"))]
+    {
         entity_error(format!(
             "~n{name}~ is not a named entity available in this build. This build decodes {} \
              names; enable the `entities-html5` feature for the full HTML5 table, or write the \
              character numerically as ~U<hex>~.",
             entities::compiled_count()
         ))
-    } else {
-        entity_error(format!("~n{name}~ is not a known named entity"))
     }
 }
 

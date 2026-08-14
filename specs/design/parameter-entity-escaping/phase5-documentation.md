@@ -125,6 +125,11 @@ pre-change commit — rather than reading them — turned a broken test into a s
 halves are now asserted, and an entity change that made a malformed link *start* parsing would be
 caught.
 
+**A pre-scan is a parser too.** The P1 finding above is the sharpest lesson here: the design's whole
+premise is that one function decides what an entity is, and a lexical guard that merely *counts*
+markers looked exempt. It was not, and the cost was a reintroduced DoS. Anything that walks query
+text looking for `~` belongs on `match_entity`.
+
 **One of my own claims was too strong.** `parse(encode(t)) == parse(t)` is false for the
 resource/transform shorthand: `a/b/-/c/d` re-encodes to `-R/a/b/-/c/d` and
 `ResourceQuerySegment`'s equality includes the header. Pre-existing and already documented in
@@ -142,6 +147,43 @@ exception pinned separately.
 | `cargo test -p liquers-web --target wasm32-unknown-unknown` | whole suite green under Node |
 | `python3 scripts/docs_index.py --check` | 0 errors |
 | Backward-compatibility corpus | 147 still parse, 9 still rejected |
+
+## Post-review corrections
+
+Three findings from the automated review on PR #34, all legitimate, all fixed on the branch.
+
+**P1 — the new entities could defeat the link depth guard.** `link_bounds_exceeded` is a lexical
+pre-scan that bounds link nesting *before* parsing, because parsing is exponential in depth. It
+honoured `~~` but knew nothing about the long entities, so in `~U26~E` it saw the entity's closing
+tilde followed by `E` and counted a link terminator the parser does not. One such value per level
+kept its depth at zero while the real nesting grew.
+
+Measured on the broken build before fixing:
+
+| Real nesting | Query length | Parse time |
+|---|---|---|
+| 8 | 113 B | 17 ms |
+| 16 | 225 B | 4.4 s |
+| 20 | 281 B | **84 s** |
+
+That is the denial-of-service `MAX_LINK_DEPTH` exists to prevent, reintroduced by this change and
+missed by every test written for it. The scan now skips entities as whole units via
+`escape::match_entity` — **the same function the parser uses**, so the two cannot disagree about
+where a `~` belongs. The `~~` special case is gone, subsumed by the mnemonic table.
+
+The general lesson is the one this design was built on and still got wrong in one place: *any*
+component that reasons about `~` must go through the single matcher. The pre-scan was easy to
+overlook because it is not a parser.
+
+**P2 — `decode_token` accepted literals the parser rejects.** It advanced over any non-`~`
+character, so `":"` and `"a/b"` decoded "successfully" despite being invalid or structural in a
+real query — contradicting its documented contract as the exact inverse of what the parser accepts.
+Literal runs are now validated against `is_unescaped_parameter_char`.
+
+**P2 — an unreachable diagnostic branch.** `unknown_name_error` tested the name to choose between
+"enable `entities-html5`" and "unknown name", but it is only reached after `lookup` returned
+`None`, so the test was always true and a full-feature build still recommended a feature it already
+had. The discriminator is the *build*, not the name, so it is now `#[cfg]`.
 
 ## Conformance and Remaining Work
 

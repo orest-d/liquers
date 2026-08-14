@@ -924,33 +924,48 @@ pub fn parse_query(query: &str) -> Result<Query, Error> {
 /// Returns the diagnostic to report, or `None` when the input is within bounds.
 ///
 /// This is a lexical pre-check, never a parse: it decides only whether parsing may be
-/// attempted, and the grammar alone decides what the text *means*. The scan honours the
-/// `~~` escape so that `a~~E` — an escaped tilde followed by `E` — is not mistaken for a
-/// terminator, matching how `entities` consumes it.
+/// attempted, and the grammar alone decides what the text *means*.
+///
+/// **The scan must consume entities exactly as [`entities`] does.** It skips every entity
+/// as one unit via [`crate::escape::match_entity`], which is the same function the parser
+/// uses, so the two cannot disagree about where a `~` belongs. Getting this wrong is not a
+/// cosmetic mismatch: if the scan sees a `~E` the parser does not, its depth falls back to
+/// zero and arbitrarily deep nesting slips past [`MAX_LINK_DEPTH`].
+///
+/// `~U26~E` is the case that showed this. The parser reads `~U26~` as an entity and `E` as
+/// literal text; a scan that walked byte by byte saw the entity's closing tilde followed by
+/// `E` and decremented depth. One such value per level defeated the guard entirely — 20
+/// real levels in 281 bytes took 84 seconds to parse.
 ///
 /// Both counts are upper bounds on what the parser can actually consume, which is the
 /// safe direction: overestimating rejects a query the parser would have survived, while
-/// underestimating would let an exponential parse through.
+/// underestimating would let an exponential parse through. Skipping a malformed entity one
+/// byte at a time keeps that direction, since the parser rejects it anyway.
 fn link_bounds_exceeded(text: &str) -> Option<&'static str> {
     let bytes = text.as_bytes();
     let (mut i, mut count, mut depth, mut max_depth) = (0usize, 0usize, 0usize, 0usize);
     while i < bytes.len() {
         if bytes[i] == b'~' {
-            let rest = &bytes[i..];
-            if rest.starts_with(b"~~") {
-                i += 2; // escaped tilde: neither marker nor terminator
-                continue;
-            }
-            if rest.starts_with(b"~X~") {
+            // `~` is ASCII, so this index is always a char boundary.
+            let rest = text.get(i..).unwrap_or("");
+            // The link markers are checked first: they are structural, and `match_entity`
+            // does not recognise them.
+            if rest.starts_with("~X~") {
                 count += 1;
                 depth += 1;
                 max_depth = max_depth.max(depth);
                 i += 3;
                 continue;
             }
-            if rest.starts_with(b"~E") {
+            if rest.starts_with("~E") {
                 depth = depth.saturating_sub(1);
                 i += 2;
+                continue;
+            }
+            // Everything else that starts with `~` is an entity or nothing. This covers the
+            // `~~` escape — so `a~~E` is still not a terminator — and every long form.
+            if let Ok(Some((len, _))) = escape::match_entity(rest) {
+                i += len;
                 continue;
             }
         }

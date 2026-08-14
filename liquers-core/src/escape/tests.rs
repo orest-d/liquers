@@ -111,6 +111,28 @@ fn every_radix_spells_the_same_code_point() -> Result<(), Error> {
     Ok(())
 }
 
+/// `decode_token` is the exact inverse of what the parser accepts, so a literal the parser would
+/// reject must not decode either. Reported by review: the scan used to advance over any non-`~`
+/// character, so `":"` and `"a/b"` decoded "successfully" into tokens that mean something else —
+/// or nothing — once placed in a query.
+#[test]
+fn decode_token_rejects_literals_the_parser_would_not_accept() {
+    for (text, offending) in [(":", ':'), ("a-b", '-'), ("a/b", '/'), ("a b", ' '), ("a,b", ',')] {
+        let Err(e) = decode_token(text) else {
+            panic!("{text:?} must not decode: {offending:?} is not valid unescaped");
+        };
+        assert!(
+            e.message.contains("cannot appear unescaped"),
+            "decoding {text:?} gave {:?}",
+            e.message
+        );
+    }
+    // The widened class still passes: these are alphanumeric, so the parser accepts them.
+    for text in ["café", "日本", "Ł", "a_b+c.d"] {
+        assert!(decode_token(text).is_ok(), "{text:?} must decode");
+    }
+}
+
 /// T3 — each malformed entity produces its own message.
 #[test]
 fn malformed_entities_are_diagnosed_specifically() {
@@ -119,7 +141,9 @@ fn malformed_entities_are_diagnosed_specifically() {
         ("~UD800~", "surrogate"),
         ("~U~", "empty body"),
         ("~Uzz~", "not a valid base-16 number"),
-        ("~nfoo~", "not a named entity available in this build"),
+        // Feature-independent substring: the rest of the sentence differs by build, and
+        // the two cfg-gated tests below cover each wording.
+        ("~nfoo~", "not a named entity"),
         ("~U41", "is not terminated"),
         ("~", "escapes nothing"),
     ] {

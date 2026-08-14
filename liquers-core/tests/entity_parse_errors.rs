@@ -22,7 +22,8 @@ fn malformed_entities_report_a_specific_message_at_the_offending_tilde() {
         ("f-~UD800~", "surrogate", 2),
         ("f-~U~", "empty body", 2),
         ("f-~Uzz~", "not a valid base-16 number", 2),
-        ("f-~nfoo~", "not a named entity available in this build", 2),
+        // Feature-independent substring: the advice that follows differs by build.
+        ("f-~nfoo~", "not a named entity", 2),
         ("f-~U41", "is not terminated", 2),
         // Not at the start of the parameter: the offset must follow the literal text.
         ("f-abc~U110000~", "beyond the maximum code point", 5),
@@ -111,4 +112,58 @@ fn an_entity_error_is_not_masked_by_a_later_alternative() {
         "the specific entity message must survive, got {:?}",
         e.message
     );
+}
+
+/// The link-bound scan must consume entities exactly as the parser does.
+///
+/// Reported by review, and confirmed by measurement before the fix: `~U26~E` is an entity followed
+/// by a literal `E`, but a scan that walked byte by byte saw the entity's closing tilde followed by
+/// `E` and took it for a link terminator. Its depth then fell back to zero at every level, so
+/// arbitrarily deep nesting passed the `MAX_LINK_DEPTH` guard — and parsing is exponential in
+/// depth, which is the whole reason the guard exists.
+///
+/// Measured on the broken build: 20 real levels in 281 bytes took **84 seconds**. The assertion is
+/// therefore both "rejected" and "quickly": either failing alone would leave the DoS open.
+#[test]
+fn a_long_entity_before_e_cannot_defeat_the_depth_guard() {
+    let depth = 20;
+    let mut text = String::from("a");
+    for _ in 0..depth {
+        text.push_str("-~X~b-~U26~E");
+    }
+    for _ in 0..depth {
+        text.push_str("~E");
+    }
+
+    let started = std::time::Instant::now();
+    let result = parse_query(&text);
+    let elapsed = started.elapsed();
+
+    let Err(e) = result else {
+        panic!("{depth} levels of nesting must be rejected by the depth guard");
+    };
+    assert!(
+        e.message.contains("nested too deeply"),
+        "expected the depth guard to fire, got {:?}",
+        e.message
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "the guard must reject *before* parsing: took {elapsed:?}"
+    );
+}
+
+/// The counterpart: the scan must not over-count either, so a genuine escaped tilde before `E`
+/// still behaves, and legal nesting still parses.
+#[test]
+fn entities_next_to_link_markers_still_parse() -> Result<(), Box<dyn std::error::Error>> {
+    for (query, note) in [
+        ("f-~X~g-~U26~E~E", "an entity inside a link, then the real terminator"),
+        ("f-~U26~E", "an entity followed by a literal E"),
+        ("f-~~E", "an escaped tilde followed by a literal E"),
+        ("f-~X~g~E-~U26~E", "a link, then an entity and a literal E"),
+    ] {
+        parse_query(query).map_err(|e| format!("{note}: {query:?} -> {}", e.message))?;
+    }
+    Ok(())
 }
