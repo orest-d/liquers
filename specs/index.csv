@@ -32,6 +32,7 @@ COMMAND-METADATA-ENHANCEMENTS,feature,"Command metadata lacks enums, specializat
 CORE-SESSION-AND-KEY-ACL,issue,"No session model, and no way to authorize writes per key",accepted,local,,P2,L,core/context;core/store;axum,,,,,,2026-08-08,specs/issues/CORE-SESSION-AND-KEY-ACL.md
 CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilities every implementor must provide,accepted,local,,P2,L,core/value;lib/value;py,,,,,,2026-08-08,specs/issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md
 EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
+QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,P2,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,draft,local,,P3,S,core/commands,,,,,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
@@ -56,6 +57,7 @@ CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
 METADATA-CONSISTENCY,design,Metadata format and type consistency,draft,local,architecture,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
+PARAMETER-ENTITY-ESCAPING,design,Parameter entity escaping (numeric and named tilde entities),draft,local,high-level,,,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/design/parameter-entity-escaping/DESIGN.md
 PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,in_review,local,documentation,,,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
