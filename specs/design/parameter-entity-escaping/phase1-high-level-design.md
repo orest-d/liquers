@@ -166,6 +166,22 @@ carry it in *its* default, which reaches native consumers while `liquers-web` �
 | `entities-html5` on (native crates opt in) | curated set + all ≈2100 HTML5 named references |
 | default, including every wasm build | curated set (Annex B, ≈205) |
 
+**No crate enables it in a `default`** (D12) — not `liquers-lib`, not `liquers-axum`, not
+`liquers-py`. A consumer that wants the full table asks for it, which keeps the feature honest: its
+absence is the norm, so the curated set is what the test suite and the documentation treat as
+baseline behaviour rather than as a degraded mode.
+
+**Representation** (D11): a concatenated blob plus an offset index, not `&[(&str, &str)]`. The
+slice-of-pairs form spends roughly 32 bytes per entry on fat pointers alone — about 95 KB across
+≈2100 entries — where a blob with `u32` offsets is nearer 40 KB and keeps the names contiguous for
+binary search. Phase 2 confirms both figures against the real WHATWG `entities.json`.
+
+**Testing** (D12): the suite runs in **both** feature states. `cargo test -p liquers-core --lib` and
+the same with `--features entities-html5`; the second configuration must show a non-curated name
+such as `~nhellip~` decoding, and the first must show it producing the specific diagnostic rather
+than a generic parse error. Phase 3 owns the matrix; note that it is a second build configuration,
+though a cheap one, since it is confined to `liquers-core`.
+
 **The asymmetry this creates, and its bound.** A hand-written query using a non-curated name — say
 `~nhellip~` — decodes where the feature is on and fails where it is off. Machine-generated queries
 are unaffected, because the encoder only ever emits curated names and the curated set is compiled
@@ -176,24 +192,36 @@ not available in this build; write `~U2026~`" — rather than reporting a generi
 ## Documentation Intent
 
 **Reference:** extend `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md` §"Action-parameter
-entities" — it already owns the normative entity table; a second reference would split it.
-Also update `specs/reference/PROJECT_OVERVIEW.md` (grammar change, per CLAUDE.md).
+entities" — it already owns the normative entity table, and a second reference would split it. Also
+update `specs/reference/PROJECT_OVERVIEW.md`, since this is a grammar change (CLAUDE.md).
 
-**Guide:** extend `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` — it currently tells integrators to
-raise an error for unrepresentable values *because of this issue*; that paragraph becomes wrong.
+**Guide: create `specs/guides/QUERY_ESCAPING_GUIDE.md`.** This **reverses the first draft's
+"no new guide"**, at the maintainer's request that the feature be documented "in the query guide".
+There is no query guide today — `specs/guides/` holds only `COMMAND_REGISTRATION_GUIDE.md`,
+`LANGUAGE-INTEGRATION_GUIDE.md`, `UNITTEST_GUIDE.md` and `autonomous_issue_fixing.md`, and
+`DOC_02_QUERY_LANGUAGE_REFERENCE.md` is a reference, not a guide. The distinction matters here
+because the two documents answer different questions: the reference states *what each entity means*,
+while the guide answers *how do I put arbitrary text into a query*, *when do I need the
+`entities-html5` feature and how do I turn it on*, and *why did my query stop parsing*. Per
+`DOCS_STRUCTURE_GUIDE.md` §2, that is guide material, and the template's instruction to reconsider a
+`neither` decision when substantial material accumulates applies exactly here.
 
-**Other documents to create:** None — this is a defect fix, and the entity table is reference
-material, not a repeatable workflow.
+**Also update `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`** — it currently tells integrators to
+raise an error for unrepresentable values *because of this issue*, and that paragraph becomes wrong.
 
-**Specific documents to update:** the two references and one guide above, plus
-`specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md` → `closed`. Audience: anyone writing a query by
-hand or building one programmatically, in any host language.
+**Other documents to create:** None beyond the guide above.
 
-**Content requirement (maintainer):** every entity table — the one in
-`DOC_02_QUERY_LANGUAGE_REFERENCE.md` and the rustdoc on the tables in `entities.rs` and `escape.rs`
-— carries an explicit **"emitted by encoder"** column, so a reader can tell at a glance which
-spelling is canonical and which is accepted-but-never-produced. Without it the decode-superset
-design is invisible and someone will assume `encode(parse(t)) == t`.
+**Specific documents to update:** the two references and `LANGUAGE-INTEGRATION_GUIDE.md`, plus
+`specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md` → `closed`, and `specs/README.md` for the new guide.
+Audience: anyone writing a query by hand or building one programmatically, in any host language.
+
+**Content requirement (maintainer):** every entity table — in `DOC_02_QUERY_LANGUAGE_REFERENCE.md`,
+in the new guide, and in the rustdoc on the tables in `entities.rs` and `escape.rs` — carries an
+explicit **"emitted by encoder"** column, so a reader can tell at a glance which spelling is
+canonical and which is accepted-but-never-produced. Without it the decode-superset design is
+invisible and someone will assume `encode(parse(t)) == t`. The **`entities-html5` feature** is
+documented in the same places: which names it adds, that no crate enables it by default, and what
+the diagnostic looks like without it.
 
 ## Decisions Taken
 
@@ -208,6 +236,8 @@ design is invisible and someone will assume `encode(parse(t)) == t`.
 | D7 | The full HTML5 table is an **optional cargo feature** (`entities-html5`), deliberately not in `liquers-core`'s `default`; native crates opt in, every wasm build gets the curated set | maintainer |
 | D9 | Latin-1 accented letters stay **out** of the curated set — `café` encodes as `caf~UE9~` | maintainer |
 | D10 | `resource_name` narrows to **ASCII alphanumeric** for now, rather than following D6's widening | maintainer |
+| D11 | The full table is stored as a **concatenated blob with an offset index**, not `&[(&str, &str)]` | maintainer |
+| D12 | `entities-html5` is optional **everywhere** — no crate carries it in a `default`, `liquers-lib` included. It must be **tested in both states** and **documented**, including in the query guide | maintainer |
 | D8 | `encode_token` stays **infallible** — `&str` guarantees every `char` is a scalar value, so every input is representable. Fallibility is the decoder's | resolved; the Phase 1 question was unfounded |
 
 D6 also settles the normalization worry: since encoder output is ASCII, canonical text never
@@ -218,20 +248,21 @@ rather than discovered.
 
 ## Open Questions
 
-1. **How is the full table represented?** ≈2100 entries as `&[(&str, &str)]` costs roughly 95 KB of
-   static data, mostly fat pointers; a concatenated blob with an offset index is nearer 40 KB. It
-   lands only in builds that enable `entities-html5`, so this is now a size question rather than a
-   feasibility one. Phase 2 to measure, and to confirm the entity count against the WHATWG
-   `entities.json` rather than the estimate used here.
-2. **Does `liquers-lib` carry `entities-html5` in its `default`?** It would reach native consumers
-   automatically while leaving `liquers-web` — which already takes `liquers-lib` with
-   `default-features = false` — unaffected. `liquers-axum` and `liquers-py` bypass `liquers-lib` and
-   depend on `liquers-core` directly, so they opt in either way. Phase 2 detail.
+None blocking. Phase 2 carries three measurements and confirmations rather than decisions:
+
+1. Confirm the entity count and the blob-plus-offset payload against the real WHATWG
+   `entities.json`, rather than the ≈2100 / ≈40 KB estimates used here.
+2. Confirm that `escape.rs` exposing its segment information satisfies the "must not make
+   `QUERY-AST-DISCARDS-ENTITIES` harder" constraint in Scope.
+3. Settle where the two-feature-state test matrix runs, given the workspace's build-size
+   constraints (CLAUDE.md, "Building and testing").
 
 ### Resolved since the first draft
 
 | Was | Resolution |
 |---|---|
+| Does `liquers-lib` carry `entities-html5` in its default? | **No** (D12) — optional everywhere, no crate defaults it on |
+| Full-table representation | **Blob plus offset index** (D11) |
 | Does the encoder emit curated named entities, or numeric only? | **Curated names always** (D5) — readability wins; the curated set becomes a frozen compatibility surface |
 | `c as u8`: widen or narrow? | **Both** — parameters widen to Unicode alphanumerics, resource names narrow to ASCII (D6, D10) |
 | Do Latin-1 accented letters join the curated set? | **No** (D9) — `café` encodes as `caf~UE9~` |
