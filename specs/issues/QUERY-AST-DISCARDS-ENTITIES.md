@@ -3,7 +3,7 @@ id: QUERY-AST-DISCARDS-ENTITIES
 kind: issue
 title: Parsed entities are decoded away, so the AST cannot show them
 status: draft
-priority: P2
+priority: P3
 complexity: L
 area: [core/query]
 design: 
@@ -33,26 +33,64 @@ URL written `~Hhost` comes back as `https:~/~/host`.
 
 ## Impact
 
-Three consumers are affected, none fatally — the decoded value is always correct, so this is a
-fidelity and tooling limitation rather than a wrong result.
+**One consumer is left, after `parameter-entity-escaping`.** The decoded value is always correct,
+so this was never a wrong result; it is a fidelity and tooling limitation, and that design removed
+two of the three motivations it originally had. The surviving one is syntax highlighting.
 
 - **Syntax highlighting and rendering.** `QueryRenderer::styled_tokens`
   (`query.rs:643`) emits one `StyledQueryToken::StringParameter` per parameter, holding
   `encode_token(s)`. `StyledQueryToken::Entity` exists and is used for `~X~`/`~E`, but an entity
   *inside* a string parameter can never be tagged with it. A query console cannot colour `~U1F600~`
   differently from the surrounding literal text, and cannot offer a hover that explains it.
-- **Diagnostics.** An error concerning one entity in a long parameter can only point at the
-  parameter's start position. With the long-form entities of `PARAMETER-ESCAPING-INCOMPLETE` —
-  which can fail for their own reasons, such as an out-of-range code point or an unknown name — the
-  gap becomes more visible: the natural message is "unknown entity `~nfoo~` at column 23" and that
-  column is not available.
-- **Round-trip fidelity.** Re-encoding a parsed query does not reproduce the original spelling.
-  This is acceptable and arguably desirable for canonicalisation, but it means the AST cannot back
-  an editor that preserves what the user typed.
+- **Diagnostics — largely addressed elsewhere, and no longer a reason to do this.** The original
+  worry was that an error concerning one entity could only point at the parameter's start. The
+  `parameter-entity-escaping` design resolves that without touching the AST: the entity parser
+  captures the span at the opening `~` and raises the failure with it, and measurement at HEAD
+  confirms nom reports the raising span exactly — `a-x~X~q~E` already reports offset 3, the `~X~`
+  itself, not the end of input. So "unknown named entity `foo`" arrives with the column of its `~`.
+  This bullet is retained only to record that it was considered and settled.
+- **Round-trip fidelity — reframed, and mostly not a defect.** Re-encoding a parsed query does not
+  reproduce the original spelling. That is canonicalisation working, not failing: with
+  `E = encode ∘ parse`, `parameter-entity-escaping` establishes `parse(encode(v)) == v` and hence
+  `E(E(t)) == E(t)`, so `E` is a projection onto canonical text and one pass reaches a fixed point.
+  What remains is narrow: an **editor that wants to preserve what the user typed** cannot be backed
+  by this AST. That is a real want, but it is not correctness.
 
 Workaround: consumers that need the original spelling keep the source text alongside the parsed
 `Query` and re-slice it themselves. `liquers-web/src/encode.rs` and the query-console element are
 the places that would.
+
+## A cheaper route that may settle it entirely
+
+Before changing `ActionParameter`, try the option that needs no AST change at all.
+
+`parameter-entity-escaping` makes `liquers_core::escape::segments` public — it splits a token into
+`Text` and `Entity { spelling, decoded }` pieces. `QueryRenderer::styled_tokens` for a string
+parameter currently emits one `StyledQueryToken::StringParameter(encode_token(s))`. It could
+instead encode, run `segments` over the result, and emit interleaved `StringParameter` and
+`Entity` tokens:
+
+```rust
+// sketch, not a proposal for this issue's resolution
+let encoded = encode_token(s);
+for seg in escape::segments(&encoded)? {
+    match seg {
+        TokenSegment::Text(t)          => StyledQueryToken::StringParameter(t.to_owned()),
+        TokenSegment::Entity { spelling, .. } => StyledQueryToken::Entity(spelling.to_owned()),
+    }
+}
+```
+
+That delivers **entity syntax highlighting**, the one surviving motivation, for a few lines and no
+API change — because the encoded form is derivable from the stored value at any time. `Entity`
+already exists as a variant and is already used for `~X~`/`~E`.
+
+What it cannot do is highlight the *user's original* spelling: a hand-typed `~I` would be shown as
+the canonical `~/`, and `~n~amp~` as `~namp~`. Whether that matters is the real question this issue
+now turns on, and it is a much smaller question than the one it was filed with. **Answer it before
+committing to the segment-list redesign below** — if canonical highlighting is acceptable, this
+issue is closeable without an API change, and its `complexity: L` and its need for a design folder
+go with it.
 
 ## Expected behaviour
 
@@ -115,3 +153,8 @@ adding variable-length numeric (`~U0041~`) and named (`~namp~`) entities. Those 
 missing AST representation more valuable — they are longer, more numerous, and can fail
 individually — but representing them in the AST is a separable change with a much wider API blast
 radius, so it was deliberately left out of that design's scope and recorded here instead.
+
+**Revised after Phase 2 of that design**, at the maintainer's prompting: with entity errors now
+reporting accurate positions and canonicalisation shown to be idempotent, two of the three original
+motivations are gone. Priority lowered `P2` → `P3`, and the cheaper highlighting route above was
+added — it may close this issue without any AST change.

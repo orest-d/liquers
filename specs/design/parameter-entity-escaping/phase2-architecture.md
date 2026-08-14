@@ -72,6 +72,37 @@ Everything else in this section is a **consequence**, not part of the invariant:
 | Encoding is a boundary, not a state | `encode()` is `encode_token(string_value())`, computed on the way out and never stored |
 | There are exactly three encode sites | `encode`, `render`, `styled_tokens` |
 | Round trip | `parse(encode(p)) == p` for every programmatically built `p` — this is what the invariant buys, and it is what `PARAMETER-ESCAPING-INCOMPLETE` asks for |
+| **Canonicalisation is idempotent** | `E(E(t)) == E(t)`, where `E = encode ∘ parse`. See below |
+
+#### Idempotence of `E = encode ∘ parse`
+
+Raised by the maintainer, and it is a **corollary of the round trip rather than a separate
+requirement** — worth writing down because it is the property that makes "canonical form" mean
+anything.
+
+```
+E(E(t)) = encode(parse(encode(parse(t))))
+        = encode(parse(encode(v)))          where v = parse(t)
+        = encode(v)                          by parse(encode(v)) == v
+        = E(t)
+```
+
+The step that carries the weight is `parse(encode(v)) == v`, which holds because `encode` is total
+and deterministic and `parse` inverts it. Equality is on the parsed value, and `Query`'s `PartialEq`
+ignores `Position`, so a re-parsed query compares equal to the original despite different spans.
+
+`E` is therefore a **projection**: one pass reaches canonical text, and further passes are
+no-ops. Note that `E(t) == t` is *false* in general, which is exactly why idempotence and not
+identity is the right property — the shorthand is the clearest case:
+
+```
+t       = data/report/-/to_text
+E(t)    = -R/data/report/-/to_text     the explicit form Query::encode always emits
+E(E(t)) = -R/data/report/-/to_text     fixed point reached
+```
+
+Same for spelling: `E("f-~I")` is `f-~/` and `E("f-~/")` is `f-~/`. This is a **property test in
+Phase 3**: for every generated input, one round of `E` equals two.
 
 And two things that are deliberately **not** invariants, so nobody reads more into it:
 
@@ -409,11 +440,56 @@ type is a file-wide refactor. Three options were weighed:
 |---|---|---|
 | **A. Re-inspect at the reported position** | `cut` commits the parse once an opener is seen, so the failure position *is* the entity start; `describe_query_failure` calls `escape::explain_entity_error(e.input)` | **Chosen.** No type surgery, accurate positions, and the explanation lives beside the table that knows the answer |
 | B. Custom nom error type | `impl ParseError + FromExternalError` carrying an `Error` | Principled, and the right move if a fourth or fifth error kind appears. Rewrites every signature in a 2000-line file for one feature |
-| C. Distinct `nom::ErrorKind` markers | As `Verify`/`Fail` are used today | Rejected: `ErrorKind` is nom's enum and the unused-code argument that holds for two markers gets fragile at six |
+| C. Distinct `nom::ErrorKind` markers | As `Verify`/`Fail` are used today | **Partly adopted** — one additional kind (`Escaped`) dispatches to option A's explainer. Rejected only as a *table* of kinds, one per message, which is where the unused-code argument gets fragile |
 
 Option A depends on `cut`, which the file already imports and uses. Once `~U`, `~D`, `~O`, `~B` or
-`~n` is recognised, the entity cannot be anything else, so committing is correct on its own terms
-and is what makes the position accurate.
+`~n` is recognised, the entity cannot be anything else, so committing is correct on its own terms.
+
+### Error positions, verified
+
+The maintainer asked for verification that a malformed or unrecognised entity reports the **right
+position**. Measured against the existing machinery at HEAD, since the same mechanism carries the
+new errors:
+
+| Input | Reported offset | What is there |
+|---|---|---|
+| `a-~X~q` | 6 | end of input — where `~E` was expected |
+| `abc-def-~X~q` | 12 | end of input, same case, longer prefix |
+| `a-~X~b-~X~c~E` | 13 | end of input; the inner link consumed the only `~E` |
+| `a-x~X~q~E` | **3** | the `~X~` itself — "a link may not follow parameter text" |
+
+The result: **nom reports the position of the span the failure was raised with, exactly.** The last
+row is the important one — it lands on the offending construct, not at the end of input — so
+position accuracy is entirely under the raising code's control, and there is no drift to work
+around.
+
+**Two corrections to the option-A sketch above** follow from that:
+
+1. **`cut` alone does not choose the position.** It converts `Err::Error` into `Err::Failure`
+   without rewriting the span, so it reports wherever the *inner* parser stopped. The entity parser
+   must therefore capture the span at the opening `~` before consuming anything, and construct the
+   failure with the span it wants — which is what `link_parameter` already does
+   (`parse.rs:432`, `:457`).
+2. **Dispatch on a distinct `ErrorKind`, not by sniffing the input.** `describe_query_failure`
+   already matches `ErrorKind::Verify` and `ErrorKind::Fail`; entity errors take
+   `ErrorKind::Escaped`, which no combinator used in this file can produce (only
+   `nom::bytes::complete::escaped` emits it, and the file does not use it). The arm is
+   `ErrorKind::Escaped => escape::explain_entity_error(e.input)`. This is a **third** hand-picked
+   kind, not a sixth — the objection recorded against option C above was to a table of them, and
+   three with a documented uniqueness argument is the pattern the file already uses.
+
+**Position per error kind**, chosen rather than left to fall out:
+
+| Error | Span used | Why |
+|---|---|---|
+| unknown name `~nfoo~` | the opening `~` | the whole entity is wrong; the message quotes it |
+| unavailable name `~nhellip~` without the feature | the opening `~` | same |
+| bad digit `~Uzz~` | the opening `~` | the message names the radix, which lives in the opener |
+| out of range `~U110000~`, surrogate `~UD800~` | the opening `~` | the value is a property of the whole body |
+| missing terminator `~U41` | where `~` was expected | matches the measured `~E` convention above |
+
+Phase 3 asserts each of these positions explicitly, including one inside a nested link, rather than
+asserting only that an error occurred.
 
 ### The errors
 

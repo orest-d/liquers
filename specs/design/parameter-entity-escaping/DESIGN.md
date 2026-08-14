@@ -80,6 +80,22 @@ something other than what was set, and makes the same variant mean two things de
 was built. The constraint is recorded in `QUERY-AST-DISCARDS-ENTITIES` too, since that design is the
 one most likely to reintroduce it.
 
+### Idempotence and error positions (verified)
+
+- `E = encode ∘ parse` is **idempotent**: `E(E(t)) == E(t)`, a corollary of `parse(encode(v)) == v`,
+  which makes `E` a projection onto canonical text. `E(t) == t` is false in general — the shorthand
+  `data/report/-/to_text` canonicalises to `-R/data/report/-/to_text` — which is why idempotence and
+  not identity is the property to assert. Phase 3 tests one pass against two.
+- **Entity errors report accurate positions.** Measured at HEAD: nom reports the span the failure
+  was raised with, exactly — `a-x~X~q~E` already reports offset 3, the `~X~` itself. So the entity
+  parser captures the span at the opening `~` and raises with it. Two corrections to the Phase 2
+  sketch followed: `cut` does not choose the position (it preserves the inner parser's span), and
+  dispatch uses a distinct `ErrorKind::Escaped` rather than sniffing the input.
+- **Consequence for `QUERY-AST-DISCARDS-ENTITIES`:** two of its three motivations are gone.
+  Lowered to `P3`, and a cheaper route recorded — `styled_tokens` can call the now-public
+  `escape::segments` on the encoded form to highlight entities with no AST change, at the cost of
+  showing canonical rather than typed spelling.
+
 ### Phase 2 findings
 
 - **`liquers-web/src/encode.rs` must change**, contradicting Phase 1's "Web: no change". It is a
