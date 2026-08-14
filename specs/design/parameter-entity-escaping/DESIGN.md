@@ -4,10 +4,10 @@ kind: design
 title: Parameter entity escaping (numeric and named tilde entities)
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/query]
 gh_pr: []
-issues: [PARAMETER-ESCAPING-INCOMPLETE]
+issues: [PARAMETER-ESCAPING-INCOMPLETE, ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES]
 affects_docs: [specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-08-14
 superseded_by:
@@ -18,7 +18,7 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design
+- [x] Phase 1: High-Level Design (approved)
 - [ ] Phase 2: Solution & Architecture
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
@@ -59,6 +59,24 @@ Key Phase 1 findings, for anyone picking this up cold:
 - **`encode_token` stays infallible.** `&str` guarantees every `char` is a scalar value and every
   scalar value has a `~U<hex>~` spelling, so no input is unrepresentable. Errors belong to the
   decoder (out-of-range, surrogate, unknown name, missing terminator).
+
+### Phase 2 findings
+
+- **`liquers-web/src/encode.rs` must change**, contradicting Phase 1's "Web: no change". It is a
+  hand-written encoder that exists only because of this defect, and its test
+  `web_core_encode_token_still_produces_unparseable_text` asserts the defect still exists — it will
+  fail when this lands, by design.
+- **`ActionParameter::set_value` double-encodes** (`query.rs:614`): it stores `encode_token(v)`
+  where every other path stores the decoded value. Documented as a P1 risk in `DOC_02` but never
+  filed; now `ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`. It gets worse under the new encoder, and
+  it falsifies the round-trip guarantee through a public method. Recommended to fix here.
+- **`STORE-FILESTORE-PATH-TRAVERSAL` (P0) is avoided by architecture, not tolerated.** D10 leaves
+  `resource_name` with no entity production, so no decoded `/` can reach `key_to_path`. It becomes
+  a hard prerequisite if `RESOURCE-NAME-ASCII-ONLY` ever goes to option B or C.
+- **Entity errors use nom's existing error type**, with `cut` committing at the opener so the
+  reported position is the entity start, and `describe_query_failure` consulting
+  `escape::explain_entity_error`. A custom nom error type would rewrite every signature in a
+  2000-line file for one feature.
 
 ## Links
 

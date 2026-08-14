@@ -170,6 +170,7 @@ question are both measure-first items.
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
 | [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P0 | M | `metadata-consistency` |
+| [`ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`](issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md) | P1 | S | `parameter-entity-escaping` |
 <!-- END generated: issues -->
 
 ## Not yet placed
