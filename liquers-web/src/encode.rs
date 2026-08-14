@@ -1,50 +1,46 @@
 //! `encodeParam` — turning an arbitrary string into a query parameter token.
 //!
-//! # Why this does not call `encode_token`
+//! # This delegates to the core encoder
 //!
-//! `liquers_core::query::encode_token` escapes exactly four characters (`~`, space, `/`, `-`) and
-//! passes everything else through **unchanged**. The parser's unescaped parameter set is much
-//! narrower — ASCII alphanumerics plus `_`, `+` and `.` — so everything in the gap encodes to text
-//! the parser later rejects, with no error raised at encode time. `a:b`, `a,b`, `a?b`, `café` and
-//! `日本` all encode "successfully" and produce a query that fails to parse somewhere else, later.
-//! See `specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md`.
-//!
-//! Mirroring that behaviour into JavaScript would export the defect. So this encoder is written
-//! against the **parser's** accepted set rather than against `encode_token`, and it **raises a
-//! typed error** for any character it cannot represent.
-//!
-//! # The limitation, stated plainly
-//!
-//! The entity table (`liquers_core::parse`) offers `~~` `~_` `~<digit>` `~.` `~I` `~/` `~h` `~H`
-//! `~f` `~P`. There is no entity for a lone colon, `?`, `=`, `&`, `#`, `,`, `(`, `)`, `%`, **or any
-//! non-ASCII character**. Those values are therefore not encodable by *any* correct encoder today,
-//! and `encodeParam` reports that rather than producing a broken query:
+//! `liquers_core::escape::encode_token` (re-exported as `liquers_core::query::encode_token`)
+//! escapes every character the grammar cannot carry literally, so **any** string is representable:
+//! `12:30`, `a,b`, `café`, `日本`, `😀`. This module is a thin wrapper that adds one thing the core
+//! encoder deliberately does not have — a check for the empty string.
 //!
 //! ```javascript
 //! liquers.encodeParam("hello world");   // "hello~.world"
 //! liquers.encodeParam("-5");            // "~5"
-//! liquers.encodeParam("12:30");         // throws: ':' cannot be encoded
-//! liquers.encodeParam("café");          // throws: 'é' cannot be encoded
+//! liquers.encodeParam("12:30");         // "12~ncolon~30"
+//! liquers.encodeParam("café");          // "caf~UE9~"
 //! ```
 //!
-//! Refusing is the requirement, not a shortcoming of this implementation: silently emitting
-//! unparseable text is the exact defect being avoided. When the entity redesign lands,
-//! `encodeParam` delegates to the fixed `encode_token` and the limitation disappears — the API does
-//! not change, only the set of inputs it accepts widens.
+//! # Why there is no second implementation any more
+//!
+//! This module used to contain its own encoder, written against the parser's accepted set, which
+//! raised a typed error for any character it could not represent — the entity table offered no
+//! escape for a lone colon, `?`, `=`, `&`, `#`, `,`, `(`, `)`, `%`, or any non-ASCII character, so
+//! no correct encoder could exist. Refusing was better than emitting text that would fail to parse
+//! somewhere else, later.
+//!
+//! `PARAMETER-ESCAPING-INCOMPLETE` removed that limitation, and with it the reason for a second
+//! copy of the escaping rules. Two implementations of one grammar is exactly how the original
+//! defect went unnoticed, so this one is gone rather than merely corrected.
+//!
+//! # The one build-configuration caveat
+//!
+//! `liquers-web` does not enable `entities-html5`, so it decodes the **curated** ~203 names rather
+//! than the full HTML5 table. This cannot affect anything encoded here: the core encoder emits
+//! only curated names, and the curated table is compiled unconditionally, so everything any build
+//! encodes, every build decodes. Only a *hand-written* query using an exotic name — `~ncheck~` —
+//! differs, and the parser says so by name when it does.
 
 use liquers_core::error::{Error, ErrorType};
-
-/// Characters the parser accepts unescaped inside a parameter, beyond ASCII alphanumerics.
-///
-/// From `liquers_core::parse::parameter_text`. Kept in sync by
-/// `encode_param_matches_the_parser`, which round-trips every encodable character through the real
-/// parser rather than trusting this list.
-const UNESCAPED_EXTRA: [char; 3] = ['_', '+', '.'];
+use liquers_core::escape::encode_token;
 
 /// Encodes a string as an action-parameter token.
 ///
-/// Returns a typed `ParameterError` naming the offending character when the value contains
-/// anything the grammar cannot represent.
+/// Infallible except for the empty string: every other value is representable, because
+/// `encode_token` escapes anything the grammar cannot carry.
 pub fn encode_param(text: &str) -> Result<String, Error> {
     if text.is_empty() {
         return Err(Error::from_error(
@@ -54,56 +50,7 @@ pub fn encode_param(text: &str) -> Result<String, Error> {
                 .to_string(),
         ));
     }
-
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if c.is_ascii_alphanumeric() || UNESCAPED_EXTRA.contains(&c) {
-            out.push(c);
-        } else {
-            match c {
-                '~' => out.push_str("~~"),
-                ' ' => out.push_str("~."),
-                '/' => out.push_str("~/"),
-                '-' => {
-                    // The compact form: `~<digit>` decodes to `-<digit>`, one character shorter
-                    // than `~_` followed by the digit. Both are correct; this matches what
-                    // `encode_token` emits, so encoded queries look the same from either side.
-                    match chars.get(i + 1) {
-                        Some(next) if next.is_ascii_digit() => {
-                            out.push('~');
-                            out.push(*next);
-                            i += 1;
-                        }
-                        Some(_) | None => out.push_str("~_"),
-                    }
-                }
-                other => return Err(unencodable(text, other)),
-            }
-        }
-        i += 1;
-    }
-    Ok(out)
-}
-
-fn unencodable(text: &str, c: char) -> Error {
-    let escape = if c.is_ascii() {
-        format!("{c:?}")
-    } else {
-        format!("{c:?} (U+{:04X})", c as u32)
-    };
-    Error::from_error(
-        ErrorType::ParameterError,
-        format!(
-            "Cannot encode {text:?} as a query parameter: the character {escape} has no entity in \
-             the Liquers query grammar. Encodable characters are ASCII letters and digits, \
-             '_', '+', '.', and the escapable '~', ' ', '/' and '-'. See \
-             specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md — a general entity mechanism is \
-             designed but not yet implemented."
-        ),
-    )
+    Ok(encode_token(text))
 }
 
 #[cfg(test)]
@@ -136,7 +83,7 @@ mod tests {
         decoded_parameter(&query)
     }
 
-    /// OBJECT09 (accepting half) — everything the encoder accepts parses back unchanged.
+    /// OBJECT09 — everything the encoder accepts parses back unchanged.
     #[wasm_bindgen_test]
     fn object09_encode_param_roundtrip() {
         for value in [
@@ -161,51 +108,37 @@ mod tests {
         }
     }
 
-    /// OBJECT09 (refusing half) — an unrepresentable value raises rather than producing text
-    /// that will not parse.
+    /// The values this module used to refuse. Each one is a case from
+    /// `PARAMETER-ESCAPING-INCOMPLETE`; all of them now round-trip through the real parser.
+    ///
+    /// This test replaces `object09_encode_param_refuses_what_it_cannot_represent`, which asserted
+    /// the opposite, and `web_core_encode_token_still_produces_unparseable_text`, which asserted
+    /// that the core encoder was broken.
     #[wasm_bindgen_test]
-    fn object09_encode_param_refuses_what_it_cannot_represent() {
-        // Every one of these is a character `encode_token` would pass through verbatim, producing
-        // text the parser rejects. Refusing is the whole point.
+    fn web_previously_unrepresentable_values_now_round_trip() {
         for value in [
-            "12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本",
+            "12:30", "a,b", "a?b", "a=b", "a&b", "a#b", "a%b", "a(b", "café", "日本", "😀",
+            "a;b", "a[b", "a@b", "a!b", "a*b", "a:b/c",
         ] {
-            let err = encode_param(value)
-                .err()
-                .unwrap_or_else(|| panic!("{value:?} must be refused, not silently encoded"));
-            assert_eq!(err.error_type, ErrorType::ParameterError);
-            assert!(
-                err.message.contains(value),
-                "the error must quote the offending value: {}",
-                err.message
-            );
+            assert_eq!(roundtrip(value), value, "round trip failed for {value:?}");
         }
+    }
+
+    /// A curated-only build decodes everything a full build encodes. This is the claim that bounds
+    /// the `entities-html5` asymmetry, and `liquers-web` is the build where it matters.
+    #[wasm_bindgen_test]
+    fn web_encoder_output_is_decodable_without_the_full_entity_table() {
+        assert_eq!(encode_param("12:30").ok(), Some("12~ncolon~30".to_owned()));
+        assert_eq!(encode_param("café").ok(), Some("caf~UE9~".to_owned()));
+        // `hellip` is curated, so the ellipsis has a name even here; `check` is not, so its
+        // character encodes numerically rather than to a name this build could not read back.
+        assert_eq!(roundtrip("…"), "…");
+        assert_eq!(roundtrip("✓"), "✓");
     }
 
     #[wasm_bindgen_test]
     fn web_encode_param_refuses_the_empty_string() {
         let err = encode_param("").err().expect("empty must be refused");
         assert_eq!(err.error_type, ErrorType::ParameterError);
-    }
-
-    /// The defect this encoder exists to avoid, demonstrated on the core encoder.
-    ///
-    /// If this test ever fails, `encode_token` has been fixed — at which point `encode_param`
-    /// should delegate to it and this test should be replaced by one asserting they agree.
-    #[wasm_bindgen_test]
-    fn web_core_encode_token_still_produces_unparseable_text() {
-        let broken = liquers_core::query::encode_token("12:30");
-        assert_eq!(broken, "12:30", "encode_token passes ':' through unchanged");
-
-        let round_trips = liquers_core::parse::parse_query(&format!("cmd-{broken}"))
-            .ok()
-            .and_then(|q| q.action().map(|a| (q, a)))
-            .map(|(q, a)| a.parameters.len() == 1 && decoded_parameter(&q) == "12:30")
-            .unwrap_or(false);
-        assert!(
-            !round_trips,
-            "encode_token's output for '12:30' must not round-trip — if it now does, \
-             PARAMETER-ESCAPING-INCOMPLETE has been fixed and encode_param should delegate to it"
-        );
     }
 }

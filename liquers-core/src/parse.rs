@@ -251,11 +251,12 @@ use nom::error::ErrorKind;
 use nom::sequence::{preceded, terminated};
 use nom_locate::LocatedSpan;
 
-use nom::bytes::complete::{tag, take_while, take_while1};
+use nom::bytes::complete::{tag, take, take_while, take_while1};
 use nom::multi::{many0, many1, separated_list0, separated_list1};
 use nom::*;
 
 use crate::error::{Error, ErrorType};
+use crate::escape;
 use crate::query::{
     ActionParameter, ActionRequest, HeaderParameter, Key, Position, Query, QuerySegment,
     ResourceName, ResourceQuerySegment, SegmentHeader, TransformQuerySegment,
@@ -328,76 +329,54 @@ fn slash_filename(text: Span) -> IResult<Span, String> {
 
 fn resource_name(text: Span) -> IResult<Span, ResourceName> {
     let position: Position = text.into();
-    let (text, a) = take_while1(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '.')(text)?;
-    let (text, b) =
-        take_while(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '.' || c == '-')(text)?;
+    let (text, a) = take_while1(escape::is_resource_name_char)(text)?;
+    let (text, b) = take_while(|c| escape::is_resource_name_char(c) || c == '-')(text)?;
     Ok((
         text,
         ResourceName::new(format!("{}{}", a, b)).with_position(position),
     ))
 }
 fn parameter_text(text: Span) -> IResult<Span, String> {
-    let (text, a) =
-        take_while1(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '+' || c == '.')(text)?;
+    let (text, a) = take_while1(escape::is_unescaped_parameter_char)(text)?;
     Ok((text, a.to_string()))
 }
 
-fn tilde_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~~")(text)?;
-    Ok((text, "~".to_owned()))
-}
-fn minus_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~_")(text)?;
-    Ok((text, "-".to_owned()))
-}
-fn islash_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~I")(text)?;
-    Ok((text, "/".to_owned()))
-}
-fn slash_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~/")(text)?;
-    Ok((text, "/".to_owned()))
-}
-fn https_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~H")(text)?;
-    Ok((text, "https://".to_owned()))
-}
-fn http_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~h")(text)?;
-    Ok((text, "http://".to_owned()))
-}
-fn file_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~f")(text)?;
-    Ok((text, "file://".to_owned()))
-}
-fn protocol_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~P")(text)?;
-    Ok((text, "://".to_owned()))
-}
-fn negative_number_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~")(text)?;
-    let (text, n) = digit1(text)?;
-    Ok((text, format!("-{n}")))
-}
-fn space_entity(text: Span) -> IResult<Span, String> {
-    let (text, _) = tag("~.")(text)?;
-    Ok((text, " ".to_owned()))
-}
+/// One entity, of any form.
+///
+/// This function contains no knowledge of what an entity *means*: it recognises that one starts
+/// here and delegates the whole decision to [`crate::escape::match_entity`], which is also what
+/// the encoder is built on. That is the point — the previous ten single-purpose parsers here and
+/// their encoder counterpart in `query.rs` were separated by a whole module and drifted, which is
+/// the structural reason `PARAMETER-ESCAPING-INCOMPLETE` went unnoticed.
+///
+/// # Errors and their position
+///
+/// A malformed entity is a **committed failure**, not a backtrack: once `~U`, `~D`, `~O`, `~B` or
+/// `~n` is seen the text cannot be anything else, so failing here gives a better message than
+/// letting `alt` fall through to "unexpected input" somewhere later.
+///
+/// The failure carries the span of the **opening `~`**, captured before anything is consumed.
+/// `cut` would not do this: it converts `Error` into `Failure` without rewriting the span, so it
+/// reports wherever the inner parser stopped. [`describe_query_failure`] recovers the message from
+/// that span via [`crate::escape::explain_entity_error`].
 fn entities(text: Span) -> IResult<Span, String> {
-    alt((
-        tilde_entity,
-        minus_entity,
-        negative_number_entity,
-        space_entity,
-        islash_entity,
-        slash_entity,
-        http_entity,
-        https_entity,
-        file_entity,
-        protocol_entity,
-    ))
-    .parse(text)
+    let start = text;
+    match escape::match_entity(text.fragment()) {
+        Ok(Some((len, decoded))) => {
+            let (text, _) = take(len)(text)?;
+            Ok((text, decoded.into_owned()))
+        }
+        Ok(None) => Err(nom::Err::Error(nom::error::Error::new(
+            text,
+            ErrorKind::Tag,
+        ))),
+        Err(_) => Err(nom::Err::Failure(nom::error::Error::new(
+            start,
+            ErrorKind::Escaped,
+        ))),
+    }
 }
+
 fn parameter(text: Span) -> IResult<Span, ActionParameter> {
     let position: Position = text.into();
     let (text, par) = many0(alt((parameter_text, entities))).parse(text)?;
@@ -1006,6 +985,11 @@ fn describe_query_failure(err: &nom::Err<nom::error::Error<Span>>) -> String {
             // True whether the terminator is missing or merely displaced by a body that
             // stopped early; a malformed body has no error of its own.
             ErrorKind::Fail => "Expected ~E here to close ~X~".to_owned(),
+            // Set only by `entities`, with the span of the offending `~`. No combinator used in
+            // this file produces `Escaped` — only `nom::bytes::complete::escaped` does, and it is
+            // not used — so this code cannot arrive from anywhere else.
+            ErrorKind::Escaped => crate::escape::explain_entity_error(e.input.fragment())
+                .unwrap_or_else(|| "malformed entity".to_owned()),
             // ErrorKind is nom's enum, not ours, so a catch-all arm is correct here.
             // Not "Can't parse query": query_parse_error already prefixes that.
             _ => "unexpected input".to_owned(),

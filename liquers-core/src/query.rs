@@ -497,36 +497,9 @@ impl Display for Position {
 
 /// Encode a string value for use as an action parameter token.
 ///
-/// This escapes `~`, spaces, `/`, and `-`. A minus sign followed by a decimal
-/// digit uses the compact `~<digit>` form. See [`crate::parse`] for the full
-/// table of accepted entities.
-pub fn encode_token<S: AsRef<str>>(text: S) -> String {
-    let text = text.as_ref();
-    let mut res = String::new();
-    let chars: Vec<char> = text.chars().collect();
-
-    let mut i = 0;
-    while i < chars.len() {
-        match chars[i] {
-            '~' => res.push_str("~~"),
-            ' ' => res.push_str("~."),
-            '/' => res.push_str("~/"),
-            '-' => {
-                // Check if minus is followed by a number
-                if i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
-                    res.push('~');
-                    res.push(chars[i + 1]);
-                    i += 1; // Skip the digit
-                } else {
-                    res.push_str("~_");
-                }
-            }
-            c => res.push(c),
-        }
-        i += 1;
-    }
-    res
-}
+/// Re-exported from [`crate::escape`], which owns the escaping tables in both directions. The
+/// path `liquers_core::query::encode_token` is unchanged.
+pub use crate::escape::encode_token;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// A value supplied after an action name.
@@ -562,6 +535,10 @@ pub enum ActionParameter {
 
 #[allow(dead_code)]
 impl ActionParameter {
+    /// A string parameter holding `parameter` as its **decoded** value.
+    ///
+    /// The argument is the value itself, not query text: it may contain `~`, `/`, `-`, spaces, or
+    /// anything else. [`ActionParameter::encode`] escapes it on the way out.
     pub fn new_string(parameter: String) -> ActionParameter {
         ActionParameter::String(parameter, Position::unknown())
     }
@@ -611,8 +588,27 @@ impl ActionParameter {
         }
     }
 
+    /// Replace this parameter with a string value.
+    ///
+    /// `value` is the **decoded** value, like every other path into
+    /// [`ActionParameter::String`] — pass the string you mean, not query text. Escaping happens in
+    /// [`ActionParameter::encode`] and nowhere else.
+    ///
+    /// ```
+    /// use liquers_core::query::ActionParameter;
+    /// let mut p = ActionParameter::new_string(String::new());
+    /// p.set_value("12:30");
+    /// assert_eq!(p.string_value(), Some("12:30".to_owned()));
+    /// assert_eq!(p.encode(), "12~ncolon~30");
+    /// ```
+    ///
+    /// This used to store `encode_token(value)`, so `encode` escaped a second time and
+    /// `string_value` returned something other than what was set
+    /// (`ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`). That came from a different model, in which a
+    /// string parameter was an elementary, already-encoded token; it is rejected because a caller
+    /// building a query should not have to know the grammar.
     pub fn set_value(&mut self, value: &str) {
-        *self = Self::String(encode_token(value), Position::unknown())
+        *self = Self::String(value.to_owned(), Position::unknown())
     }
     /*
     pub fn to_html(&self, mark_position:&Position) -> String {
@@ -674,7 +670,10 @@ impl PartialEq for ActionParameter {
         match (self, other) {
             (Self::String(s1, _), Self::String(s2, _)) => s1 == s2,
             (Self::Link(q1, _), Self::Link(q2, _)) => q1.encode() == q2.encode(),
-            _ => false,
+            // Explicit rather than `_ =>`, so a new variant is a compile error here.
+            (Self::String(_, _), Self::Link(_, _)) | (Self::Link(_, _), Self::String(_, _)) => {
+                false
+            }
         }
     }
 }

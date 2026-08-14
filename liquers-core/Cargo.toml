@@ -15,6 +15,16 @@ tokio_exec=["futures", "async-trait", "async_store"]
 # library consumer (liquers-py, wasm builds) while still shipping the validator.
 cli=["dep:clap"]
 
+# The full WHATWG HTML5 named-entity table (~2125 names, ~28 KB of static data).
+# Deliberately NOT in `default`: cargo features unify across the dependency graph, and
+# `liquers-lib` and `liquers-store` both depend on this crate with its defaults on, so anything
+# in `default` is unavoidable for the wasm bundle whatever `liquers-web` declares. Keeping it
+# out means unification can only ever add it, and nothing in the wasm graph asks for it.
+# Without it, a build decodes the curated set of ~203 names, which is what the encoder emits —
+# so everything any build encodes, every build decodes.
+# See specs/design/parameter-entity-escaping/.
+entities-html5=[]
+
 # The `liquers-validate` query validation utility. See specs/design/query-validation/.
 # An explicit [[bin]] block is required: auto-discovered binaries in src/bin/
 # cannot carry `required-features`, so without this the crate would try to build
@@ -22,6 +32,13 @@ cli=["dep:clap"]
 [[bin]]
 name = "liquers-validate"
 path = "src/bin/liquers_validate.rs"
+required-features = ["cli"]
+
+# Regenerates src/entities_data.rs from data/entities.json. Same `required-features` reason as
+# above: an auto-discovered binary in src/bin/ cannot carry one, so the block is explicit.
+[[bin]]
+name = "generate-entities"
+path = "src/bin/generate_entities.rs"
 required-features = ["cli"]
 
 [dependencies]
