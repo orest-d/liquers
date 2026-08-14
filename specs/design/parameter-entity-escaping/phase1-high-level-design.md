@@ -29,8 +29,9 @@ though `ActionParameter` keeps its current flat shape here.
 ### Query System
 The only system touched. Adds two productions to the `entities` combinator
 (`liquers-core/src/parse.rs:386`), rewrites `encode_token` (`query.rs:503`) to emit them, and fixes
-the `c as u8` truncation in the accepted-character class (`parse.rs:340`, and the same bug in
-`resource_name`).
+the `c as u8` truncation in the accepted-character class (`parse.rs:340`) and, differently, in
+`resource_name` — parameters widen to Unicode alphanumerics (D6), resource names narrow to ASCII
+(D10).
 
 ### Store / Command / Asset / Value / Web / UI
 No change. Every one of them benefits indirectly: keys, links and recipes derived from user data
@@ -84,10 +85,14 @@ existing query changes meaning and the `alt` order stays insensitive.
 liquers — asset keys, cache keys and links are query strings — so once a spelling is chosen for a
 character, changing it invalidates derived keys and breaks stored links.
 
-**Readability beats brevity where a curated name exists** (maintainer): a character that has a
-curated entity is *always* encoded as that entity, even when the numeric form is shorter — `:`
-encodes as `~ncolon~`, not the three-characters-shorter `~U3A~`. Brevity governs only the choices
-that remain.
+**Readability beats brevity where a curated name exists** (maintainer): *a character with a curated
+entity is always represented as that curated entity, unless it has a liquers shortcut; every other
+character is represented in hex.* So `:` encodes as `~ncolon~`, not the three-characters-shorter
+`~U3A~`, while `/` keeps its shortcut `~/` rather than becoming `~nsol~`.
+
+This governs characters that **must** be escaped. Characters the grammar accepts literally stay
+literal even where a curated name exists — `+`, `.` and `_` encode as themselves, not as
+`~nplus~`, `~nperiod~`, `~nlowbar~` — since escaping them would serve nothing.
 
 **The encoder output is pure ASCII** (maintainer): a non-ASCII character is escaped even though the
 parser would accept it literally, so that a query survives transport through ASCII-only systems.
@@ -121,14 +126,22 @@ surrogates cannot occur in the input. There is no failure case left, so the sign
 which must reject `~U110000~` (out of range), `~UD800~` (surrogate), `~nfoo~` (unknown name),
 `~U~` (empty body) and a missing terminator.
 
-## Named-entity table: full on native, curated on wasm
+## Named-entity table: an optional feature
 
-**Requirement (maintainer):** the full table is available by default in native builds, where its
-size does not matter, and absent from `liquers-web`.
+**Requirement (maintainer):** the full HTML5 table is an **optional cargo feature**; the curated set
+of Annex B is what a build has without it.
 
-**A cargo feature cannot deliver this, and it is worth being precise about why** — the obvious
-mechanism is the wrong one. Features unify across the dependency graph, and `liquers-web` reaches
-`liquers-core` by four paths:
+```toml
+# liquers-core/Cargo.toml
+[features]
+default = ["async_store"]        # deliberately NOT including entities-html5
+entities-html5 = []              # the ~2100-name table; additive
+```
+
+**This formulation is what makes the requirement expressible.** The earlier reading — full table
+*by default*, restricted by `default-features = false` — cannot work here, and the reason is worth
+recording so nobody reintroduces it. Features unify across the dependency graph, and `liquers-web`
+reaches `liquers-core` four ways:
 
 ```
 liquers-web ─┬─────────────────────────────► liquers-core   (Cargo.toml:13, defaults ON)
@@ -137,33 +150,28 @@ liquers-web ─┬────────────────────�
              └─ liquers-macro ─────────────► liquers-core
 ```
 
-`liquers-web` already writes `default-features = false` for `liquers-lib` and `liquers-store`, and
-it would do the same for `liquers-core` — but `liquers-lib` and `liquers-store` pull `liquers-core`
-with its defaults regardless, so unification switches the feature back on and the table lands in the
-wasm bundle anyway. Delivering it through a feature would mean turning `default-features = false` on
-`liquers-core` in *every* crate of the workspace and re-forwarding `async_store` through each, which
-is a large edit whose only purpose is to be defeated by the next dependency someone adds.
+`liquers-web` already writes `default-features = false` for `liquers-lib` and `liquers-store`, but
+those two pull `liquers-core` with *its* defaults regardless, so anything in that default set is
+unavoidable for the wasm bundle. Keeping the table **out of `default`** sidesteps the whole problem:
+unification only ever adds, nothing in the wasm graph asks for it, and the table cannot arrive by
+accident. No `cfg(target_arch)` and no cross-workspace `default-features = false` edits are needed.
 
-**Mechanism: `#[cfg(not(target_arch = "wasm32"))]`.** It states the requirement directly, cannot be
-defeated by unification, needs no plumbing, and follows an established pattern in this crate
-(`liquers-core/src/assets.rs:214`). `liquers-web` is wasm32-only, so the two coincide exactly.
+Native crates opt in explicitly. `liquers-axum` (`Cargo.toml:11`) and `liquers-py` (`Cargo.toml:13`)
+depend on `liquers-core` directly, so each adds `features = ["entities-html5"]`; `liquers-lib` may
+carry it in *its* default, which reaches native consumers while `liquers-web` — which already takes
+`liquers-lib` with `default-features = false` — stays lean.
 
-| Target | Names decoded |
+| Build | Names decoded |
 |---|---|
-| native | curated set + all ≈2100 HTML5 named references |
-| `wasm32` | curated set (Annex B, ≈205) |
-
-An **additive** escape hatch feature (`entities-html5-wasm`) restores the full table on wasm for
-anyone who wants it; being additive, it is a well-behaved cargo feature in a way its inverse is not.
+| `entities-html5` on (native crates opt in) | curated set + all ≈2100 HTML5 named references |
+| default, including every wasm build | curated set (Annex B, ≈205) |
 
 **The asymmetry this creates, and its bound.** A hand-written query using a non-curated name — say
-`~nhellip~` — decodes on the server and fails in the browser. Machine-generated queries are
-unaffected, because the encoder only ever emits curated names (step 3 above) and the curated set is
-compiled on every target: **everything any build encodes, every build decodes.** The gap is bounded
-to hand-written exotic names, and the browser's error for one must say so explicitly — "named entity
-`hellip` is not available in this build; write `~U2026~`" — rather than reporting a generic parse
-failure. If that residual asymmetry is unwanted, the alternative is curated-everywhere, at the cost
-of the maintainer's stated default.
+`~nhellip~` — decodes where the feature is on and fails where it is off. Machine-generated queries
+are unaffected, because the encoder only ever emits curated names and the curated set is compiled
+unconditionally: **everything any build encodes, every build decodes.** The gap is bounded to
+hand-written exotic names, and the error for one must say so explicitly — "named entity `hellip` is
+not available in this build; write `~U2026~`" — rather than reporting a generic parse failure.
 
 ## Documentation Intent
 
@@ -197,7 +205,9 @@ design is invisible and someone will assume `encode(parse(t)) == t`.
 | D4 | Every entity table documents which spellings the encoder emits | maintainer |
 | D5 | A character with a curated entity is **always** encoded as that entity, even when `~U<hex>~` is shorter — readability wins. The curated set thereby becomes a frozen compatibility surface | maintainer |
 | D6 | **The parser accepts any Unicode alphanumeric; the encoder emits pure ASCII.** Widening keeps every currently-parsing query (`f-Ł` parses today); ASCII-only output keeps queries safe through ASCII-only systems | maintainer |
-| D7 | Full HTML5 table on native, curated set on wasm — gated by `cfg(not(target_arch = "wasm32"))`, not by a cargo feature, because feature unification cannot express it | maintainer's requirement; mechanism follows from the dependency graph |
+| D7 | The full HTML5 table is an **optional cargo feature** (`entities-html5`), deliberately not in `liquers-core`'s `default`; native crates opt in, every wasm build gets the curated set | maintainer |
+| D9 | Latin-1 accented letters stay **out** of the curated set — `café` encodes as `caf~UE9~` | maintainer |
+| D10 | `resource_name` narrows to **ASCII alphanumeric** for now, rather than following D6's widening | maintainer |
 | D8 | `encode_token` stays **infallible** — `&str` guarantees every `char` is a scalar value, so every input is representable. Fallibility is the decoder's | resolved; the Phase 1 question was unfounded |
 
 D6 also settles the normalization worry: since encoder output is ASCII, canonical text never
@@ -208,23 +218,34 @@ rather than discovered.
 
 ## Open Questions
 
-1. **Do the ≈60 Latin-1 accented letters join the curated set?** Annex B excludes them, and the
-   maintainer approved Annex B — but the stated reason for excluding them was that widening the
-   parser makes them literal, and D6 only half-holds that: they parse literally yet are always
-   *escaped* on encode. So the exclusion now decides whether `café` encodes as `caf~UE9~` or
-   `caf~neacute~`. Recommend **keep them out**: D5's readability argument is strong for punctuation
-   and symbols, where `~ncolon~` genuinely beats `~U3A~`, and nil for letters, where `~neacute~` is
-   no more legible than `~UE9~` to anyone who does not already know HTML entity names — and it is
-   4 characters longer, on a class of character that appears in bulk in non-English text.
-2. **How is the full table represented?** ≈2100 entries as `&[(&str, &str)]` costs roughly 95 KB of
-   static data, mostly fat pointers; a concatenated blob with an offset index is nearer 40 KB. Less
-   critical now that wasm is excluded by target, but it still lands in every native binary. Phase 2
-   to measure, and to confirm the entity count against the WHATWG `entities.json` rather than the
-   estimate used here.
-3. **Does `resource_name` widen too?** It carries the identical `c as u8` truncation
-   (`parse.rs:340`) and feeds store keys, so it is the same defect in a different production — but
-   keys reach real filesystems, where the Unicode question has different consequences. Phase 2 to
-   decide whether D6 extends to it or whether it is deliberately left ASCII.
+1. **How is the full table represented?** ≈2100 entries as `&[(&str, &str)]` costs roughly 95 KB of
+   static data, mostly fat pointers; a concatenated blob with an offset index is nearer 40 KB. It
+   lands only in builds that enable `entities-html5`, so this is now a size question rather than a
+   feasibility one. Phase 2 to measure, and to confirm the entity count against the WHATWG
+   `entities.json` rather than the estimate used here.
+2. **Does `liquers-lib` carry `entities-html5` in its `default`?** It would reach native consumers
+   automatically while leaving `liquers-web` — which already takes `liquers-lib` with
+   `default-features = false` — unaffected. `liquers-axum` and `liquers-py` bypass `liquers-lib` and
+   depend on `liquers-core` directly, so they opt in either way. Phase 2 detail.
+
+### Resolved since the first draft
+
+| Was | Resolution |
+|---|---|
+| Does the encoder emit curated named entities, or numeric only? | **Curated names always** (D5) — readability wins; the curated set becomes a frozen compatibility surface |
+| `c as u8`: widen or narrow? | **Both** — parameters widen to Unicode alphanumerics, resource names narrow to ASCII (D6, D10) |
+| Do Latin-1 accented letters join the curated set? | **No** (D9) — `café` encodes as `caf~UE9~` |
+| Full table by default, restricted by `default-features = false`? | Replaced by an **optional feature** (D7); the original form is defeated by feature unification |
+| Is Annex B's tiering right? | **Yes**, confirmed by the maintainer |
+| Should `encode_token` become fallible? | **No** (D8) — every `&str` is representable |
+
+### Deferred, and filed
+
+- **Non-ASCII resource names.** D10 makes `resource_name` ASCII-only "for now", so a stored file
+  called `café.csv` remains unaddressable. It already is today — `-R/data/café.csv` does not parse —
+  but D10 also *narrows*: `-R/data/ŁŁ.csv` parses at HEAD and will stop, because `Ł`'s low byte is
+  `0x41`. Filed as `RESOURCE-NAME-ASCII-ONLY`.
+- **Entities in the AST** — `QUERY-AST-DISCARDS-ENTITIES`, filed earlier, out of scope here.
 
 ## References
 

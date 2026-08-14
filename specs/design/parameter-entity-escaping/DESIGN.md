@@ -48,12 +48,14 @@ Key Phase 1 findings, for anyone picking this up cold:
 - **A character with a curated entity is always encoded as that entity**, even when `~U<hex>~` is
   shorter. This makes the curated set a frozen compatibility surface — adding a name later changes
   canonical text and invalidates derived keys — so the tier boundaries in Annex B are a decision to
-  take now, not a knob to turn later.
-- **The full/curated split is `cfg(not(target_arch = "wasm32"))`, not a cargo feature.** A feature
-  cannot express it: `liquers-lib` and `liquers-store` both pull `liquers-core` with defaults on, so
-  unification puts the table back in the wasm bundle whatever `liquers-web` declares. Everything any
-  build encodes, every build decodes, because the encoder only emits curated names and those are
-  compiled on every target.
+  take now, not a knob to turn later. Latin-1 accented letters stay out: `café` → `caf~UE9~`.
+- **The full HTML5 table is an optional feature, deliberately not in `liquers-core`'s `default`.**
+  That placement is what makes it work: `liquers-lib` and `liquers-store` both pull `liquers-core`
+  with defaults on, so anything in that default set is unavoidable for the wasm bundle, and
+  unification only ever adds. Native crates opt in. Everything any build encodes, every build
+  decodes, because the encoder emits only curated names and those are compiled unconditionally.
+- **`resource_name` narrows to ASCII alphanumeric.** Coherent, but `-R/data/ŁŁ.csv` parses at HEAD
+  and will stop, and non-ASCII filenames stay unaddressable — filed as `RESOURCE-NAME-ASCII-ONLY`.
 - **`encode_token` stays infallible.** `&str` guarantees every `char` is a scalar value and every
   scalar value has a `~U<hex>~` spelling, so no input is unrepresentable. Errors belong to the
   decoder (out-of-range, surrogate, unknown name, missing terminator).
