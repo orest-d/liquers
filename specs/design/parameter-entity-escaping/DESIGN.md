@@ -4,7 +4,7 @@ kind: design
 title: Parameter entity escaping (numeric and named tilde entities)
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/query]
 gh_pr: []
 issues: [PARAMETER-ESCAPING-INCOMPLETE, ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES]
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 3: Examples & Testing (approved)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -79,6 +79,26 @@ That model is rejected: it makes the caller learn the grammar, makes `string_val
 something other than what was set, and makes the same variant mean two things depending on how it
 was built. The constraint is recorded in `QUERY-AST-DISCARDS-ENTITIES` too, since that design is the
 one most likely to reintroduce it.
+
+### Phase 4: the entity table measured offline
+
+No network is needed at any point — Python's standard library ships the HTML5 table
+(`from html.entities import html5`), so the vendored `entities.json` is generated locally. Measured
+against the real data:
+
+| Estimate | Measured |
+|---|---|
+| ≈2100 names | **2125** distinct semicolon-terminated names (2231 incl. legacy forms) |
+| ~40 KB blob | **36.4 KB** with `u32` offsets, **28.1 KB** with `u16` — `u16` adopted |
+| ~95 KB slice-of-pairs | **86.2 KB** |
+
+Also confirmed from the real table: 93 names decode to more than one character; the longest name is
+31 characters; **no HTML5 name exists for `~` or `-`**, and **all 26 ASCII punctuation characters
+the grammar rejects do have names** — which is what Annex B tier B-1 claims. `tilde` is U+02DC,
+`Tilde` U+223C, `hyphen`/`dash` U+2010, exactly as the traps were documented.
+
+`ActionParameter::set_value` has **zero callers in this workspace** — every `set_value` hit belongs
+to `CommandArguments` or `Asset`. The fix therefore risks only out-of-tree code.
 
 ### Phase 3: the properties were executed, not argued
 
