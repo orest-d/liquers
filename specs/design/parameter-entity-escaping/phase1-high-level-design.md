@@ -54,14 +54,17 @@ from `escape.rs` so no downstream import path changes.
 > requirement — that encoder and decoder derive from a single definition — because each of the two
 > tables is defined once and used in both directions.
 
-## Chosen Syntax (recommendation)
+## Chosen Syntax (decided)
 
-| Form | Meaning | Example |
-|---|---|---|
-| `~U<hex>~` | Unicode code point, hexadecimal | `~U41~` → `A`, `~U1F600~` → 😀 |
-| `~D<dec>~` | Unicode code point, decimal | `~D65~` → `A` |
-| `~O<oct>~` `~B<bin>~` | octal / binary | `~O101~`, `~B1000001~` |
-| `~x<name>~` | named entity | `~xamp~` → `&`, `~xcolon~` → `:` |
+Radix-in-opener (Annex A-1, option 1a) and the `x` prefix (Annex A-2, option 2a), confirmed by the
+maintainer.
+
+| Form | Meaning | Example | Emitted by encoder |
+|---|---|---|---|
+| `~U<hex>~` | Unicode code point, hexadecimal | `~U41~` → `A`, `~U1F600~` → 😀 | **yes — canonical** |
+| `~D<dec>~` | Unicode code point, decimal | `~D65~` → `A` | no |
+| `~O<oct>~` `~B<bin>~` | octal / binary | `~O101~`, `~B1000001~` | no |
+| `~x<name>~` | named entity | `~xamp~` → `&`, `~xcolon~` → `:` | see "Canonical encoding" |
 
 **Case rule** (as proposed): an **uppercase** letter after `~` opens a liquers-structural entity
 (`U D O B`, joining the existing `I H P X E`); a **lowercase** letter opens a text entity (`x`,
@@ -74,6 +77,52 @@ into the grammar and `;` is *not* admitted — the closing `~` is the terminator
 silently re-read it as a named entity, so backward compatibility *requires* a prefix that legacy
 text cannot produce. `~U ~D ~O ~B ~x` are all rejected by the parser today (verified), so no
 existing query changes meaning and the `alt` order stays insensitive.
+
+## Canonical encoding
+
+**Requirement (maintainer):** the encoder emits the *shortest* representation, and once decided the
+choice is *stable*, so the canonical query representation is stable. Query text is identity in
+liquers — asset keys, cache keys and links are query strings — so a later change to the encoder
+invalidates caches and breaks stored links. Stability is therefore a compatibility guarantee, not a
+preference.
+
+Three rules follow, and the third is the one that is easy to get wrong:
+
+1. **Shortest is computed, not approximated.** Encoding runs a shortest-path pass over the
+   character positions of the token rather than a greedy left-to-right scan, so the result is
+   provably minimal. Ties break by a fixed repertoire order (literal ▸ legacy mnemonic ▸ numeric
+   hex ▸ named), which makes the output deterministic.
+2. **The canonical repertoire is frozen**, and versioned if it ever has to change. It contains
+   the literal characters, the legacy mnemonics (`~~ ~_ ~. ~/ ~<digit> ~h ~H ~f ~P`) and `~U<hex>~`.
+   `~D ~O ~B` exist for people writing queries by hand and are never emitted.
+3. **The canonical repertoire must not depend on cargo features.** This is forced by the
+   feature decision below: if a `default-features = false` build compiled a smaller name table *and*
+   the encoder drew on that table, two builds of the same library would produce different canonical
+   text for the same value, and the smaller build could not even decode the larger build's output.
+   The feature therefore gates **decoding only**. See Open Question 1 for whether named entities
+   belong in the encoder's repertoire at all.
+
+**The encoder is infallible.** `encode_token` takes `&str`, which is UTF-8 by construction, so every
+`char` in it is a Unicode scalar value and every scalar value has a `~U<hex>~` spelling — lone
+surrogates cannot occur in the input. There is no failure case left, so the signature stays
+`fn encode_token<S: AsRef<str>>(s: S) -> String`. Fallibility belongs entirely to the **decoder**,
+which must reject `~U110000~` (out of range), `~UD800~` (surrogate), `~xfoo~` (unknown name),
+`~U~` (empty body) and a missing terminator.
+
+## Named-entity table
+
+Full HTML5 by default; the curated subset is what remains when the feature is switched off.
+
+| Build | Names decoded | Rationale |
+|---|---|---|
+| default (`entities-html5` on) | all ≈2100 HTML5 named references | the maintainer's default; nothing surprises a user who knows HTML |
+| `default-features = false` | the curated set of Annex B (≈200) | wasm and embedded builds; `liquers-web` ships to browsers, where the full table is real payload |
+
+**The feature adds, it never removes** — the curated set is compiled unconditionally and
+`entities-html5` extends it. This matters because cargo features unify across a dependency graph: a
+"restrict" feature that deleted names would be non-additive, and one crate enabling it would silently
+change another crate's behaviour. With the additive form, `default-features = false` is the
+documented restriction mechanism and every build decodes a superset of what any build encodes.
 
 ## Documentation Intent
 
@@ -91,24 +140,45 @@ material, not a repeatable workflow.
 `specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md` → `closed`. Audience: anyone writing a query by
 hand or building one programmatically, in any host language.
 
+**Content requirement (maintainer):** every entity table — the one in
+`DOC_02_QUERY_LANGUAGE_REFERENCE.md` and the rustdoc on the tables in `entities.rs` and `escape.rs`
+— carries an explicit **"emitted by encoder"** column, so a reader can tell at a glance which
+spelling is canonical and which is accepted-but-never-produced. Without it the decode-superset
+design is invisible and someone will assume `encode(parse(t)) == t`.
+
+## Decisions Taken
+
+| # | Decision | By |
+|---|---|---|
+| D1 | Radix in the opener: `~U` hex, `~D` decimal, `~O` octal, `~B` binary (Annex A-1a) | maintainer |
+| D2 | Named entities take the `x` prefix: `~x<name>~` (Annex A-2a) | maintainer |
+| D3 | Full HTML5 table by default; curated set via `default-features = false`, additive | maintainer |
+| D4 | Encoder emits the shortest representation, and the canonical repertoire is frozen and feature-independent | maintainer |
+| D5 | `~<digit>` (compact negative number) stays | maintainer |
+| D6 | Every entity table documents which spellings the encoder emits | maintainer |
+| D7 | `encode_token` stays **infallible** — `&str` guarantees every `char` is a scalar value, so every input is representable. Fallibility is the decoder's | resolved; the Phase 1 question was unfounded |
+
 ## Open Questions
 
-1. **Radix default.** Recommendation above gives each radix its own opener. Alternative: one opener
-   `~U…~` with the radix inside (`~Ux41~`/`~Ud65~`, HTML-style). See Annex A-1.
-2. **`~x` prefix letter.** `x`, `n` ("named") and `e` ("entity") are all free. Annex A-2.
-3. **`c as u8` decision (issue item 3).** Recommend widening to `char::is_alphanumeric()` rather
-   than narrowing to ASCII: widening keeps every currently-parsing query (`Ł` parses today) whereas
-   narrowing breaks them. Consequence: Unicode normalization becomes a live question for keys.
-4. **Named-entity table size.** Full HTML5 (2231 names, ~30 KB static) vs the 5 XML predefined
-   names plus a curated liquers set. Feature-gate the large table?
-5. **Does the encoder ever emit named entities?** Recommend **no** — numeric is canonical, named is
-   decode-only (except the legacy `~H ~h ~f ~P` mnemonics, which the issue requires be kept).
-6. Should `~<digit>` (negative number) be retired, or kept as the compact special case? Recommend
-   **kept** — the prefix scheme removes the collision the issue feared.
-7. **Does the public API gain a fallible encoder?** Today `encode_token` cannot fail and silently
-   emits unparseable text. After this change it can always succeed, so the answer may be "no" — but
-   surrogate/`char`-boundary edge cases should be checked before committing to an infallible
-   signature.
+1. **Does the encoder's canonical repertoire include the curated named entities, or numeric only?**
+   D4 says shortest; numeric hex and short names are frequently the *same* length (`~U3C~` and
+   `~xlt~` are both 5 characters), and names win above U+00FF (`~xpi~` = 5 beats `~U3C0~` = 6).
+   Recommend **numeric only**: it keeps the frozen repertoire tiny and independent of a name table
+   that will otherwise be unable to gain a shorter alias for the rest of time without changing
+   canonical text. Cost is 1–2 characters on non-ASCII values. If readability wins instead, the
+   curated set must be frozen as strictly as the encoder is.
+2. **`c as u8` decision (issue item 3)** — still open. Recommend widening to
+   `char::is_alphanumeric()` rather than narrowing to ASCII: widening keeps every currently-parsing
+   query (`f-Ł` parses today) whereas narrowing breaks them. Consequence to settle in Phase 2:
+   whether encode normalizes to NFC, since query text is identity and `é` has two spellings.
+3. **How is the full table represented?** ≈2100 entries as `&[(&str, &str)]` costs roughly 95 KB of
+   static data, mostly fat pointers; a concatenated blob with an offset index is nearer 40 KB. This
+   decides whether the default feature is comfortable for `liquers-web`. Phase 2 to measure, and to
+   confirm the entity count and payload against the WHATWG `entities.json` rather than the estimate
+   used here.
+4. **Is the curated set of Annex B the right one?** It is derived from a rule (everything the
+   grammar rejects, plus what a data-processing query plausibly carries) rather than from usage
+   data.
 
 ## References
 
@@ -149,3 +219,101 @@ opener is one of the long-form openers, read to the closing `~`.** Legacy short 
 untouched because their opener letters are disjoint from the long-form set. That disjointness —
 not `alt` ordering — is what makes the extension safe, and it is checkable by a test that asserts
 the two opener sets do not intersect.
+
+---
+
+# Annex B: Proposed Curated Entity Set
+
+The set compiled unconditionally, and therefore the whole vocabulary of a
+`default-features = false` build. Proposed at **≈200 names in four tiers**, each tier justified by a
+rule rather than by taste, so the boundary is arguable rather than arbitrary.
+
+## B-0. XML predefined (5)
+
+`amp` `lt` `gt` `quot` `apos`
+
+The only five entities every XML processor knows. Present in any conceivable build.
+
+## B-1. ASCII punctuation (26) — the tier that actually matters
+
+Exactly the printable ASCII characters that the parameter grammar rejects and that no legacy
+mnemonic covers. Computed, not guessed: the accepted set is `[A-Za-z0-9_+.]` and the mnemonics
+cover `~`, space, `/` and `-`, which leaves
+
+```
+! " # $ % & ' ( ) * , : ; < = > ? @ [ \ ] ^ ` { | }
+```
+
+| Char | Name | Char | Name | Char | Name |
+|---|---|---|---|---|---|
+| `!` | `excl` | `,` | `comma` | `\` | `bsol` |
+| `"` | `quot` | `:` | `colon` | `]` | `rsqb` |
+| `#` | `num` | `;` | `semi` | `^` | `Hat` |
+| `$` | `dollar` | `<` | `lt` | `` ` `` | `grave` |
+| `%` | `percnt` | `=` | `equals` | `{` | `lcub` |
+| `&` | `amp` | `>` | `gt` | `\|` | `verbar` |
+| `'` | `apos` | `?` | `quest` | `}` | `rcub` |
+| `(` | `lpar` | `@` | `commat` | | |
+| `)` | `rpar` | `[` | `lsqb` | | |
+| `*` | `ast` | | | | |
+
+All 26 have HTML5 names, so this tier introduces no liquers invention. Add the HTML5 aliases
+`lbrack` `rbrack` `lbrace` `rbrace` `vert` `midast` as decode-only synonyms.
+
+Also include the names for characters that *are* accepted literally — `sol` (`/`), `lowbar` (`_`),
+`plus` (`+`), `period` (`.`), `num`, `commat` — so that a mechanical HTML-to-liquers translation
+never fails. They decode to the literal character; the encoder never emits them.
+
+**Two traps to document, both of them HTML's fault:**
+
+- `~xtilde~` is **not** `~`. `&tilde;` is U+02DC ˜ (small tilde) and `&Tilde;` is U+223C ∼; ASCII
+  `~` U+007E has no HTML5 name. Use `~~`.
+- `~xhyphen~` is **not** `-`. `&hyphen;` and `&dash;` are both U+2010 ‐; ASCII hyphen-minus U+002D
+  has no HTML5 name. Use `~_`.
+
+Getting either wrong produces a valid query that means something subtly different, which is the
+worst failure mode available here. Both belong in the reference table with a warning.
+
+## B-2. Latin-1 and typography (≈55)
+
+The characters that appear in ordinary European text and in text copied out of word processors —
+the realistic content of a parameter derived from user data.
+
+`nbsp` `iexcl` `cent` `pound` `curren` `yen` `brvbar` `sect` `uml` `copy` `ordf` `laquo` `not`
+`shy` `reg` `macr` `deg` `plusmn` `sup2` `sup3` `acute` `micro` `para` `middot` `cedil` `sup1`
+`ordm` `raquo` `frac14` `frac12` `frac34` `iquest` `times` `divide` `szlig` `aelig` `oslash`
+`eth` `thorn` — plus `ndash` `mdash` `horbar` `lsquo` `rsquo` `sbquo` `ldquo` `rdquo` `bdquo`
+`dagger` `Dagger` `bull` `hellip` `permil` `prime` `Prime` `trade` `euro`
+
+Accented letters (`eacute`, `uuml`, …) are **excluded**: under Open Question 2's recommended
+widening they are ordinary literal characters and need no entity at all. If the parser narrows to
+ASCII instead, this tier must grow by the ≈60 Latin-1 letter names — the two decisions are coupled.
+
+## B-3. Greek, mathematics and arrows (≈110)
+
+`alpha`…`omega` and `Alpha`…`Omega` (48), then the operators a scientific or data-processing query
+plausibly carries:
+
+`minus` `lowast` `radic` `prop` `infin` `ang` `and` `or` `cap` `cup` `int` `there4` `sim` `cong`
+`asymp` `ne` `equiv` `le` `ge` `sub` `sup` `nsub` `sube` `supe` `oplus` `otimes` `perp` `sdot`
+`part` `exist` `forall` `empty` `nabla` `isin` `notin` `ni` `prod` `sum` `larr` `uarr` `rarr`
+`darr` `harr` `crarr` `lArr` `uArr` `rArr` `dArr` `hArr` `loz` `spades` `clubs` `hearts` `diams`
+`ensp` `emsp` `thinsp` `zwnj` `zwj` `lrm` `rlm`
+
+This tier is the most arguable and the easiest to cut: it is the one to drop first if the curated
+build needs to be smaller still, since everything in it is reachable as `~U<hex>~`.
+
+## Totals
+
+| Tier | Names | Cumulative |
+|---|---|---|
+| B-0 XML predefined | 5 | 5 |
+| B-1 ASCII punctuation + aliases | ~35 | ~40 |
+| B-2 Latin-1 and typography | ~55 | ~95 |
+| B-3 Greek, maths, arrows | ~110 | ~205 |
+
+≈205 of ≈2100, so roughly a tenth of the full table's payload. **Nothing is lost by cutting a
+tier** — every character remains writable as `~U<hex>~`, and under the recommended encoder
+repertoire (Open Question 1) the encoder's output does not reference this table at all. The tiers
+therefore trade only hand-writing convenience against binary size, which is the right thing for a
+cargo feature to trade.
