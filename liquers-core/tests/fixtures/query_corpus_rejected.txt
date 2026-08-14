@@ -1,0 +1,17 @@
+# Query literals collected mechanically from `parse_query("...")` across the workspace,
+# then classified against the pre-change grammar (commit d5fb272) rather than by eye.
+#
+# Used by tests/query_backward_compatibility.rs. Checked in rather than re-scraped per run,
+# so the corpus is reviewable and a change to it is visible in a diff.
+# These 9 were REJECTED before the entity redesign and must still be rejected.
+# They are negative cases from the workspace's own tests - malformed links, the
+# shorthand inside a link, and unbalanced tildes.
+-R/data-~X~q~E
+action-abc~X~q~E
+action-a~E
+action-a~Eb
+action-~X~a b~E
+action-~X~hello
+hello/~~~broken~~~
+invalid//syntax
+to_text-~X~data/report/-/to_text~E

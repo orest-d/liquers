@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-08-12
+reviewed: 2026-08-14
 ---
 # Liquers Project Overview
 
@@ -412,8 +412,11 @@ Session (user session - currently minimal)
 **Code Quality**:
 - Query encoding: only string action parameters are escaped (`encode_token`).
   Resource names, action names, header names and values, and filenames are
-  emitted raw, so a programmatically-set token containing `~X~` or `~E` breaks
-  the encode/parse round-trip. Not reachable from parsed input.
+  emitted raw, so a programmatically constructed value in one of *those*
+  positions can still break the encode/parse round-trip. Not reachable from
+  parsed input. String action parameters are no longer part of this caveat:
+  `encode_token` escapes every character the grammar cannot carry, including
+  `~`, so `parse(encode(p)) == p` holds for any parameter value.
 - Query parsing is exponential in link nesting depth, currently contained by a
   depth bound rather than fixed; see `QUERY-LINK-EXPONENTIAL-BACKTRACKING` in
   `specs/issues/` (indexed by `specs/index.csv`)
@@ -469,6 +472,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-14 | Recorded that string action parameters now escape every character, so a parameter round-trips for any value; the raw-emission caveat is narrowed to resource names, action names, headers and filenames. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Reviewed recipe planning and execution; documented provider/programmatic CWD provenance, interpreter-owned ordered resolution, scoped nested evaluation, and resolved identities. | phase-5 |
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
 | 2026-08-12 | Documented parameter arity: surplus action parameters are a positioned error, `multiple` consumes the remainder, the `v`/`q` instructions take none while `ns` is variadic, and the resource header errors on surplus parameters while still only warning about its reserved name. | design/excess-action-parameters-error |

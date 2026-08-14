@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-08-11
+reviewed: 2026-08-14
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -93,24 +93,93 @@ code.
 
 ### Action-parameter entities
 
-| Text | Decoded string |
+`~` is the escape character. Every escape is an **entity**, and the table is the same in both
+directions: [`liquers_core::escape`](../../../liquers-core/src/escape.rs) owns the general
+mechanism and [`liquers_core::entities`](../../../liquers-core/src/entities.rs) the named half,
+with [`liquers_core::parse`] holding only the plumbing that calls them.
+
+The **Emitted** column is the one to read first. The decoder accepts a **superset** of what the
+encoder produces, so `encode(parse(t)) == t` does not hold, and is not meant to.
+
+| Text | Decoded string | Emitted |
+|---|---|---|
+| `~~` | `~` | yes |
+| `~_` | `-` | yes |
+| `~.` | space | yes |
+| `~/` | `/` | yes |
+| `~I` | `/` | no — `~/` is canonical |
+| `~` plus decimal digits | `-` plus those digits | yes |
+| `~H` | `https://` | yes |
+| `~h` | `http://` | yes |
+| `~f` | `file://` | yes |
+| `~P` | `://` | yes |
+| `~U<hex>~` | that code point | **yes — canonical for anything else** |
+| `~D<dec>~`, `~O<oct>~`, `~B<bin>~` | the same code point in another radix | no |
+| `~n<name>~` | the named entity's text | only for **curated** names |
+| `~<opener>~<body>~` | the same long form, with a separator tilde | no |
+
+`~X~` and `~E` are **not** entities and must not be read as rows of this table. They do not decode
+to a character within a string parameter; they delimit a different kind of parameter. See the next
+section.
+
+#### What the encoder emits
+
+`encode_token` picks, at each position, in this fixed order:
+
+1. the longest matching **mnemonic** — `https://` → `~H`, `-4` → `~4`, `/` → `~/`;
+2. the character **literally**, if ASCII-accepted `[A-Za-z0-9_+.]`;
+3. the **curated named entity** — `:` → `~ncolon~` — even when the numeric form is shorter;
+4. `~U<hex>~`, uppercase digits, no leading zeros.
+
+The priority, not the length, is what makes the output stable, and stability is a compatibility
+guarantee: query text is identity in Liquers, so changing a spelling would invalidate derived keys
+and stored links. Step 1 outranks step 3, so `/` stays `~/` rather than becoming `~nsol~`; step 2
+outranks step 3, so `+`, `.` and `_` stay literal despite having the names `plus`, `period` and
+`lowbar`.
+
+Output is **pure ASCII**: a non-ASCII character is escaped even though the parser accepts it
+literally, so that a query survives transport through ASCII-only systems.
+
+`encode_token` is **infallible**. `&str` guarantees every `char` is a Unicode scalar value, and
+every scalar value has a `~U<hex>~` spelling, so every string is representable.
+
+#### Named entities and the `entities-html5` feature
+
+`~n<name>~` uses the HTML5 named character references, case-sensitively — `~nprime~` is `′` and
+`~nPrime~` is `″`.
+
+| Build | Names decoded |
 |---|---|
-| `~~` | `~` |
-| `~_` | `-` |
-| `~I` or `~/` | `/` |
-| `~.` | space |
-| `~` plus decimal digits | `-` plus those digits |
-| `~H` | `https://` |
-| `~h` | `http://` |
-| `~f` | `file://` |
-| `~P` | `://` |
+| default | the curated set, 203 names |
+| `entities-html5` | the full HTML5 table, 2125 names |
 
-`encode_token` emits the general escapes for tilde, space, slash, and hyphen. It
-does not emit the protocol abbreviations, although the parser accepts them.
+The feature is **not** in any crate's `default`, so `liquers-web` and other wasm builds decode the
+curated set. That cannot affect machine-generated queries: the encoder emits only curated names,
+and the curated table is compiled unconditionally, so **everything any build encodes, every build
+decodes**. Only a hand-written query using an uncurated name differs, and the parser says so by
+name — `~ncheck~` reports that the entity is unavailable in this build and suggests `~U2713~`.
 
-`~X~` and `~E` are **not** entities and must not be read as rows of this table. They
-do not decode to a character within a string parameter; they delimit a different kind
-of parameter. See the next section.
+**Two names do not mean what they look like.** HTML5 has no name for ASCII `~` (U+007E) or ASCII
+`-` (U+002D): `~ntilde~` is `˜` U+02DC, `~nTilde~` is `∼` U+223C, and `~nhyphen~` and `~ndash~` are
+`‐` U+2010. Write `~~` and `~_`. Neither is curated, so a default build rejects them rather than
+decoding to the wrong character.
+
+#### Diagnostics
+
+A malformed entity is a committed parse failure reported at the offending `~`, not a generic
+"cannot parse" further along:
+
+| Text | Reported |
+|---|---|
+| `~U110000~` | beyond the maximum code point U+10FFFF |
+| `~UD800~` | a surrogate, which is not a Unicode scalar value |
+| `~U~` | empty entity body |
+| `~Uzz~` | not a valid base-16 number |
+| `~nfoo~` | not a named entity available in this build |
+| `~U41` | not terminated; a `~` must close it |
+
+For how to escape a value, when to enable the feature, and why a query stopped parsing, see
+[`QUERY_ESCAPING_GUIDE`](../../guides/QUERY_ESCAPING_GUIDE.md).
 
 ### Link action parameters
 
@@ -339,10 +408,15 @@ constructed value round-trips.
 
 `encode_token` is the only escaping path in the encoder, and it is applied only to
 string action parameters. Resource names, action names, header names and values, and
-filenames are emitted raw. A programmatically-set token containing `~X~` or `~E`
-therefore breaks the encode/parse round-trip, and may re-parse as a *different valid
-query* rather than failing. None of this is reachable from parsed input, since those
-productions all exclude `~`.
+filenames are emitted raw, so a programmatically constructed value in one of *those*
+positions may still fail to round-trip. None of it is reachable from parsed input,
+since those productions all exclude `~`.
+
+**String action parameters are no longer part of that caveat.** A parameter holds the
+decoded value, unconstrained — including `~X~`, `~E`, `/`, `-`, spaces and any code
+point — and `encode` escapes `~`, so a value that *looks* like a link stays a string
+and re-parses as one. `parse(encode(p)) == p` holds for every programmatically built
+parameter. See `specs/design/parameter-entity-escaping/`.
 
 ## Prioritized remaining improvements
 
@@ -354,13 +428,14 @@ documentation can promise.
 | P1 | Realm behavior is limited and partly documented as future work | Medium | High | Define intended multi-segment semantics, implement them, then update reference |
 | P1 | Resource selector error text does not list valid selectors | Medium | High | Return a precise diagnostic with accepted values |
 | P1 | Public constructors allow non-round-trippable values | Medium | High | Add validated constructors or clearly named unchecked constructors |
-| P1 | `ActionParameter::set_value` pre-encodes its stored value, which `encode` then escapes again | Medium | High | Clarify/fix the method contract and add a round-trip test |
 | P2 | `v` parameters are silently ignored | Medium | Medium | Decide whether to reject them like `q`, then test and document |
 | P2 | Some query helpers return owned clones where borrowing could be clearer | Low | Medium | Consider borrowed accessors in a later API review |
 
-The `ActionParameter::set_value` behavior is recorded as a gap rather than described
-as intended semantics: it stores `encode_token(value)`, while `encode()` applies
-`encode_token` again.
+`ActionParameter::set_value` used to appear in this table: it stored
+`encode_token(value)` while `encode()` applied `encode_token` again. Fixed by
+`ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES`; the setter now stores the decoded value
+like every other path into the variant, and
+`liquers-core/tests/action_parameter_invariant.rs` holds it there.
 
 ## Coding-agent performance assessment
 
@@ -422,6 +497,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-14 | Rewrote the action-parameter entity table with numeric (`~U ~D ~O ~B`) and named (`~n`) entities, the separator tilde, the encoder's priority order, the `entities-html5` feature and the entity diagnostics; recorded that a string parameter holds the decoded value and that `set_value` no longer double-encodes. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Documented ordered logical-CWD resolution, nested link and plan scope, root fallback, and absolute outer-query behavior against the implementation and regression tests. | phase-5 |
 | 2026-08-09 | Reviewed query parsing, link parameters, encoding, and planner instructions against HEAD; corrected links after the reference reorganization. | quarterly |
 | 2026-08-06 | Documented and verified textual action-parameter links and their planning behavior. | QUERY-ACTION-PARAMETER-LINK-PARSER |

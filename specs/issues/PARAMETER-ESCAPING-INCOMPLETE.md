@@ -2,14 +2,40 @@
 id: PARAMETER-ESCAPING-INCOMPLETE
 kind: issue
 title: Action-parameter escaping cannot express every value
-status: accepted
+status: closed
 priority: P0
 complexity: M
 area: [core/query]
-design: 
+design: parameter-entity-escaping
 created: 2026-08-08
 github:
 ---
+## Resolution
+
+Fixed by `specs/design/parameter-entity-escaping/`. Two entity forms were added — numeric
+`~U<hex>~` / `~D<dec>~` / `~O<oct>~` / `~B<bin>~`, and named `~n<name>~` over the HTML5 table — and
+the encoder was rewritten on top of them.
+
+Against the three defects as filed:
+
+1. **`encode_token` is round-trip safe.** It escapes every character the grammar cannot carry, so
+   `decode_token(&encode_token(s)) == s` for every `s`, asserted over ~4050 generated inputs.
+   `12:30` is `12~ncolon~30`, `café` is `caf~UE9~`, `日本` is `~U65E5~~U672C~`.
+2. **Every Unicode character is representable**, via `~U<hex>~` when nothing shorter applies.
+3. **The `c as u8` truncation is gone**, replaced by a deliberate decision in each direction:
+   parameters widened to `char::is_alphanumeric()`, resource names narrowed to
+   `is_ascii_alphanumeric()`. Widening is the backward-compatible direction; the narrowing is
+   intended and recorded in `RESOURCE-NAME-ASCII-ONLY`.
+
+Beyond the filed scope: `entities.rs` and `escape.rs` now own both directions, so `parse.rs`
+contains no entity table and cannot drift from the encoder again — the structural cause the issue
+identified. `liquers-web`'s parallel encoder was deleted rather than corrected, and
+`ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES` was fixed in the same change because it violated the
+same invariant.
+
+Not fixed, deliberately, and recorded separately: non-ASCII resource names
+(`RESOURCE-NAME-ASCII-ONLY`) and entities in the AST (`QUERY-AST-DISCARDS-ENTITIES`).
+
 ## Problem
 
 Most characters cannot appear in a string action parameter at all, and `encode_token` silently
