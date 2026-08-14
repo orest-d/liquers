@@ -5,7 +5,7 @@ title: Parameter entity escaping (numeric and named tilde entities)
 workflow: liquers-project
 status: complete
 area: [core/query]
-gh_pr: []
+gh_pr: [34]
 issues: [PARAMETER-ESCAPING-INCOMPLETE, ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES, RESOURCE-NAME-ASCII-ONLY, QUERY-AST-DISCARDS-ENTITIES]
 affects_docs: [specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/guides/QUERY_ESCAPING_GUIDE.md, specs/README.md]
 created: 2026-08-14
