@@ -3,12 +3,11 @@ id: PARAMETER-ENTITY-ESCAPING
 kind: design
 title: Parameter entity escaping (numeric and named tilde entities)
 workflow: liquers-project
-status: draft
-phase: implementation
+status: complete
 area: [core/query]
 gh_pr: []
-issues: [PARAMETER-ESCAPING-INCOMPLETE, ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES]
-affects_docs: [specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
+issues: [PARAMETER-ESCAPING-INCOMPLETE, ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES, RESOURCE-NAME-ASCII-ONLY, QUERY-AST-DISCARDS-ENTITIES]
+affects_docs: [specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/guides/QUERY_ESCAPING_GUIDE.md, specs/README.md]
 created: 2026-08-14
 superseded_by:
 ---
@@ -21,9 +20,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [ ] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan (approved)
+- [x] Phase 5: Documentation
+- [x] Implementation Complete (2026-08-14)
 
 ## Notes
 
