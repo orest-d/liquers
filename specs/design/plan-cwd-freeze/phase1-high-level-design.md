@@ -41,9 +41,10 @@ referenced from many folders keeps **one** cache entry.
 CWD reaches a command as **data**, not ambient context: a default link argument `-R-key/.` resolves
 to the current directory as a key value, is overridable, and is visible to the plan builder.
 `Context::get_cwd_key` and `set_cwd_key` become `pub(crate)` — verified to have zero users outside
-`liquers-core`. `Context::evaluate`/`apply` keep accepting relative queries: after freeze the
-interpreter installs each step's frozen CWD, so dynamic evaluation resolves against a
-statically-known value. `payload: required` is added to the `word` test command (R1).
+`liquers-core`. `Context::evaluate`/`apply` **reject relative queries**: nothing can tell which
+commands consume the CWD dynamically, so tolerating them would force every boundary query to carry
+a CWD and multiply cache entries per folder. A command that needs the directory takes it as a
+`-R-key/.` link argument and builds an absolute query itself. `payload: required` is added to the `word` test command (R1).
 
 ### Asset System
 The payoff: a frozen plan yields a CWD-free `Step::Evaluate` query, so a predecessor becomes a
@@ -51,6 +52,26 @@ first-class asset with a correct cache key — cached, independently expiring, s
 
 ### Store System / Value Types / Web / UI
 Not applicable.
+
+## Plan builder traversal
+
+`PlanBuilder::process_query` splits with `Query::predecessor()` and recurses into the predecessor
+first, so steps are emitted front-to-back while the traversal runs back-to-front, and it keeps no
+forward-accumulated state. Namespace resolution shows the pattern: `namespaces_for_query` calls
+`last_ns`, which is `query.iter().rev().find_map(..)` — a backward scan over the AST, redone for
+every action. CWD needs the same prefix knowledge and is harder in two ways: it is **ordered** (a
+mid-query `-R-cwd` changes everything after it) and it **branches** (a link parameter is its own
+scope, which `resolve_query_scoped` already handles by cloning the cursor).
+
+The consequence shapes this design: **the cut decision moves out of `PlanBuilder`.** The builder
+always expands, in one traversal, as it does today. Cutting becomes a transformation applied
+*after* freeze, when the step list is in execution order and every CWD is resolved. That is the
+only point at which the "does this predecessor consume the CWD" test (open question 1) can be
+answered, and it makes two of the four HEAD failures disappear rather than be fixed: R2 cannot
+occur because the builder never mistakes a filename for an action, and R4 cannot occur because
+volatility, payload and expiration are computed over the full expanded plan before anything is cut.
+The pass decides *whether* to cut from the frozen steps, and renders the boundary query from
+`plan.query` via the predecessor split.
 
 ## Crate Placement
 
@@ -86,43 +107,45 @@ plan stops being CWD-relative and why cutting a predecessor is not free.
 
 1. **Freeze** — `Plan::freeze_cwd(entry: &Key)`, called from `finalize_plan` *before* dependency
    analysis so `find_dependencies` and `schedule_plan_dependencies_from` need no cursor. Explicit,
-   never folded into `build()`. Recurses into `Step::Plan` and link parameters.
-2. **Boundary** — strip the filename before consulting `predecessor()`; materialize `DefaultLink`
-   into explicit relative links in the emitted query; harvest the sub-plan's volatility, payload and
-   expiration; leave `Step::SetCwd` behind in the parent when cutting.
-3. **Policy** — the option stays off by default. Flipping it belongs to
+   never folded into `build()`. Recurses into `Step::Plan` and into every link parameter, including
+   `DefaultLink`.
+2. **Self-contained boundary query** — a `DefaultLink` is invisible to the query text, so a default
+   that freeze actually rewrote (i.e. it was relative, `-R-key/.` being the case that matters) is
+   promoted to an explicit query link. A default that freeze left alone stays implicit, since
+   command metadata reproduces it — so the query does not grow in the common case.
+3. **Recipe overrides never enter a query.** Overrides can carry long text or binary data, so they
+   must not be re-represented. This holds by construction: `Plan::override_value`/`override_link`
+   patch only the *last* action, and a cut removes only the predecessor, so a boundary query is
+   override-free. Recipes carrying overrides are keyed, and a keyed asset is cached under its key;
+   an ad-hoc recipe with overrides is evaluated without query-level caching.
+4. **Context surface** — `get_cwd_key`/`set_cwd_key` become `pub(crate)`; `evaluate`/`apply` reject
+   relative queries.
+5. **Policy** — the boundary transform stays off by default. Flipping it belongs to
    `CORE-PLAN-POLICY-AND-DEFAULTS` and needs its own evidence.
 
 ## Open Questions
 
-1. At a cut, does the boundary query carry the frozen CWD? Freeze makes the CWD deterministic at
-   every step, and the interpreter installs it, so `Context::evaluate` keeps accepting relative
-   queries and resolves them against the frozen value — execution is correct either way. What
-   freeze does *not* do is remove the CWD from the *value*: for `load_sibling-data`, whose text has
-   no relative operand, the boundary query is byte-identical in every folder while the value is not.
-   Either prefix it with `-R-cwd/<frozen>` (always correct, one entry per folder — the waste this
-   design otherwise avoids) or hand over the bare query (one shared entry, correct only if the
-   sub-plan never consumes the CWD). Leading option: prefix only when consumption is **statically
-   visible** — freeze already knows whether a static operand resolved relatively and whether an
-   action carries a `-R-key/.` link argument, both precise and needing no new metadata — and cover
-   the runtime residue with a **poison flag** at `CwdCursor::resolve_key`'s existing `is_relative`
-   branch, marking the asset non-shareable so it skips the `query_assets` map exactly as a volatile
-   asset does. Caveat to settle in Phase 2: the poison is late, so it prevents wrong *reuse* but not
-   a concurrent join to the first in-flight evaluation. A hard guarantee for the dynamic residue
-   needs a declaration or an API restriction instead.
-2. A **default** link is invisible to the cache key — verified: with default `-R-key/.`,
-   `plan.query.encode()` stays `list_stuff` under every CWD, while an explicit link normalizes to
-   `list_stuff-~X~-R-key/proj/a~E`. Materialize all default links at a cut, or only relative ones?
-   Materializing all is simpler and does not split entries, since absolute defaults render
-   identically everywhere.
-3. Does `freeze_cwd` **remove** now-inert `Step::SetCwd` steps, or keep them? Keeping them is
-   required while relative `evaluate` is allowed (question 1) and is useful for provenance. The
-   prior design's ordering-barrier argument applies only to removal.
-4. Migration: land freeze while **leaving** the runtime cursors in place and assert they become
+1. Confirmed direction: `evaluate`/`apply` reject relative queries, which closes the dynamic CWD
+   channel and makes the earlier "runtime poison flag" unnecessary as a correctness mechanism — at
+   most a debug assertion at `CwdCursor::resolve_key`'s `is_relative` branch. Remaining detail for
+   Phase 2: is rejection unconditional, or only once a plan is frozen? Unconditional is simpler and
+   catches mistakes earlier, but `Context::apply` currently resolves relative queries
+   (`context.rs:595`) and any existing caller relying on that breaks.
+2. Should the cut pass render the boundary query from `plan.query` via the predecessor split, or
+   should `PlanBuilder` annotate which step range corresponds to which query prefix? The former is
+   less machinery; the latter is exact when the builder emits steps that no longer map cleanly onto
+   query segments (aliases expand to `Step::Info` plus a renamed action).
+3. A `-R-key/.` link argument is evaluated like any link — through `get_dependency_state`, so a
+   whole asset per CWD-consuming action. Should `Step::UseKeyValue` links be resolved inline
+   instead? The value is a key already present in the plan, so the asset round-trip buys nothing.
+4. Does `freeze_cwd` **remove** now-inert `Step::SetCwd` steps or keep them? Keeping them preserves
+   provenance and the ordering barrier described in `plan-relative-resolution`; removing them
+   simplifies the cut. Rejecting relative `evaluate` removes the argument for keeping them live.
+5. Migration: land freeze while **leaving** the runtime cursors in place and assert they become
    no-ops (`resolve_key` already early-returns on absolute keys), or remove them in the same
    change? The former turns any residual disagreement into a test failure instead of a silent
    behaviour change.
-5. Should `schedule_plan_dependencies_from` pre-schedule non-keyed `Step::Evaluate` queries? Today
+6. Should `schedule_plan_dependencies_from` pre-schedule non-keyed `Step::Evaluate` queries? Today
    it schedules only keyed ones, so the parallelism half of the motivation is unrealized. Fix here
    or file separately?
 

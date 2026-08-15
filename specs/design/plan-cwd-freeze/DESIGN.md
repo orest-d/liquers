@@ -51,6 +51,15 @@ Verified during Phase 1:
 - `resolve_query_from_cwd` and `resolve_key_from_cwd` are the only two dynamic resolution
   functions, with two production call sites in `context.rs`; `CwdCursor::resolve_key` already
   branches on `is_relative`, so a "consumed the CWD" flag has one natural home.
+- `PlanBuilder` keeps no forward state: `namespaces_for_query` resolves `ns` through `last_ns`,
+  which is a backward `rev().find_map(..)` scan redone per action. CWD needs the same prefix
+  knowledge but is ordered and branches at links.
+
+Decided in discussion: `Context::evaluate`/`apply` reject relative queries (nothing identifies
+CWD-dynamic commands, so tolerating them forces a CWD into every boundary query and multiplies
+cache entries per folder); the cut moves out of `PlanBuilder` into a post-freeze pass, which makes
+R2 and R4 unreachable rather than fixed; recipe overrides never enter a query, which holds by
+construction since overrides patch only the last action and a cut removes only the predecessor.
 
 Folder renamed from `predecessor-evaluation-boundary`; nothing referenced the old slug.
 
