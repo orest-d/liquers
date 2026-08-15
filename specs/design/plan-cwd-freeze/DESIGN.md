@@ -4,7 +4,7 @@ kind: design
 title: Freeze CWD in the plan and cut correct predecessor boundaries
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/plan, core/query, core/context, core/assets]
 gh_pr: []
 issues: [CORE-RECIPES-EXPAND-PREDECESSORS-CRASH, CORE-PLAN-POLICY-AND-DEFAULTS]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [x] Phase 3: Examples & Testing (awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -75,6 +75,12 @@ Phase 2 cost to confirm: rejecting relative `evaluate`/`apply` removes a capabil
 (`recipe_cwd_resolution.rs` `via_evaluate`/`via_state`/`via_apply`, and `context.rs:1601`). They are
 rewritten to take the directory as a `-R-key/.` link, not deleted. No liquers-lib/axum/web command
 is affected.
+
+Phase 3: 12-shape equivalence suite is the primary deliverable, discharging the Phase 2 claim that
+cutting is policy rather than correctness. E8 is deliberately an *inequivalence* test, pinning the
+one case the two forms differ (an undeclared payload command) so the claim stays falsifiable. All
+queries checked with `liquers-validate` before being written down. Runnable tests rather than
+`examples/*.rs`: there is no user-facing API here, only internal behaviour to pin.
 
 ## Links
 
