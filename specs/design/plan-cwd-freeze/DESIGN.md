@@ -4,11 +4,11 @@ kind: design
 title: Freeze CWD in the plan and cut correct predecessor boundaries
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/plan, core/query, core/context, core/assets]
 gh_pr: []
 issues: [CORE-RECIPES-EXPAND-PREDECESSORS-CRASH, CORE-PLAN-POLICY-AND-DEFAULTS]
-affects_docs: []
+affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/PAYLOAD_GUIDE.md]
 created: 2026-08-14
 superseded_by:
 ---
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved)
+- [x] Phase 2: Solution & Architecture (awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -62,6 +62,17 @@ R2 and R4 unreachable rather than fixed; recipe overrides never enter a query, w
 construction since overrides patch only the last action and a cut removes only the predecessor.
 
 Folder renamed from `predecessor-evaluation-boundary`; nothing referenced the old slug.
+
+Phase 2 preflight: no blocker. `PARAMETER-ESCAPING-INCOMPLETE` (P0) is adjacent — `DependencyKey`
+is `query.encode()`, so dependency identity already rides a round trip that is not safe — but this
+design carries boundary queries as `Query` ASTs and keys `query_assets` by AST, so it adds no new
+dependence on encoding. Constraint adopted: build queries as ASTs, never by concatenation.
+
+Phase 2 cost to confirm: rejecting relative `evaluate`/`apply` removes a capability
+`plan-relative-resolution` explicitly blessed, with four tests pinning it
+(`recipe_cwd_resolution.rs` `via_evaluate`/`via_state`/`via_apply`, and `context.rs:1601`). They are
+rewritten to take the directory as a `-R-key/.` link, not deleted. No liquers-lib/axum/web command
+is affected.
 
 ## Links
 
