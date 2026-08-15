@@ -155,7 +155,7 @@ plan stops being CWD-relative and why cutting a predecessor is not free.
   Optimization" — anticipates this pass and names what blocks *removing* `SetCwd`
 - `specs/issues/CORE-RECIPES-EXPAND-PREDECESSORS-CRASH.md` (P0), `CORE-PLAN-POLICY-AND-DEFAULTS.md` (P2)
 - `specs/reference/api/DOC_08_RECIPES_PLANS.md` §"Planning contract"; `specs/reference/PAYLOAD_GUIDE.md`
-- `liquers-core/src/plan.rs:1559-1604` (cut site), `:1191-1210` (existing sub-plan harvest pattern),
+- `liquers-core/src/plan.rs:1571` (cut site), `:1191-1210` (existing sub-plan harvest pattern),
   `:1701` (positional resource-step derivation that freeze makes unnecessary)
 - `liquers-core/src/interpreter.rs:41` (entry CWD snapshot), `src/context.rs:423` (relative
   resolution inside `schedule_dependency_asset`)

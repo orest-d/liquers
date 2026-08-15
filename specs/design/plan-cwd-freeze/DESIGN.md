@@ -63,10 +63,12 @@ construction since overrides patch only the last action and a cut removes only t
 
 Folder renamed from `predecessor-evaluation-boundary`; nothing referenced the old slug.
 
-Phase 2 preflight: no blocker. `PARAMETER-ESCAPING-INCOMPLETE` (P0) is adjacent — `DependencyKey`
-is `query.encode()`, so dependency identity already rides a round trip that is not safe — but this
-design carries boundary queries as `Query` ASTs and keys `query_assets` by AST, so it adds no new
-dependence on encoding. Constraint adopted: build queries as ASTs, never by concatenation.
+Phase 2 preflight: no blocker. `PARAMETER-ESCAPING-INCOMPLETE` (P0) closed on `main` mid-Phase 2 via
+`parameter-entity-escaping` (PR #34); re-measured after rebasing and all eleven round-trip probes now
+pass, so `parse(encode(q)) == q` holds and the concern it raised no longer applies. Two new draft
+issues assessed: `QUERY-AST-DISCARDS-ENTITIES` (P3) is mildly favourable — AST and `DependencyKey`
+identity are both canonical over decoded semantics — and `RESOURCE-NAME-ASCII-ONLY` (P2) adds no
+exposure, since freeze concatenates existing `ResourceName`s rather than parsing new text.
 
 Phase 2 cost to confirm: rejecting relative `evaluate`/`apply` removes a capability
 `plan-relative-resolution` explicitly blessed, with four tests pinning it

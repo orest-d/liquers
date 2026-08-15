@@ -20,7 +20,9 @@ Searched `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues wh
 | Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
 | `CORE-RECIPES-EXPAND-PREDECESSORS-CRASH` | accepted | P0 | The issue this design resolves. Its four root causes are addressed or made unreachable. | no | no | Close in Phase 5 | Keep P0 |
-| `PARAMETER-ESCAPING-INCOMPLETE` | accepted | P0 | **Measured**: `parse(encode(q))` fails on the *first* cycle for queries using the protocol mnemonics — `f-~Hapi.example.com~/data` encodes to `f-https:~/~/api.example.com~/data`, which the parser rejects at position 8 (also `~h`, `~P`). Everything else tested is stable and idempotent, including link parameters and resource keys. So encoding preserves semantics on the common path but is **not** universally idempotent, and `DependencyKey::from(&Query)` is `query.encode()` (`metadata.rs:250`) — those dependency keys cannot be parsed back. This design adds boundaries and therefore more query-derived dependency keys, but introduces no new dependence on encoding: `Step::Evaluate` carries a `Query` AST and `query_assets` is keyed by the AST (`entry_async(query.clone())`), not by text. Reproducer added to the issue. | no | **no** | Carry `Query` ASTs, never text — load-bearing, not stylistic. Build queries as ASTs (also `QUERY-BUILDER-TOOLING`'s stated workaround); do not widen text-keyed identity. | Keep P0 |
+| `PARAMETER-ESCAPING-INCOMPLETE` | **closed** | P0 | Resolved on `main` by `parameter-entity-escaping` (PR #34). **Re-measured after rebase:** all eleven probes now round-trip with `ast_eq=true txt_stable=true`, including the three that failed before — `f-~Hapi.example.com~/data`, `f-~hexample.com~/x` and `f-~P` now encode back to themselves rather than expanding the mnemonic into an unescapable `:`. `parse(encode(q)) == q` holds and encoding is idempotent. | no | no | None. The AST-construction constraint below is kept as good practice, not as a defect workaround. | n/a |
+| `QUERY-AST-DISCARDS-ENTITIES` | draft | P3 | The AST keeps the *decoded* value, so `encode(parse(t))` normalises spelling (measured: `~I` encodes as `~/`). Mildly **favourable** here: `query_assets` is keyed by AST and `DependencyKey` by `encode()`, so both mechanisms are canonical over the same decoded semantics and cannot disagree about whether two spellings name one asset. | no | no | Monitor; note the canonical-identity property in the reference update | Keep P3 |
+| `RESOURCE-NAME-ASCII-ONLY` | draft | P2 | Resource names are ASCII-only with no entity production. Freeze never parses new resource text — `Key::to_absolute` concatenates existing `ResourceName`s — so a key that parsed once stays representable and no new exposure is added. | no | no | Monitor | Keep P2 |
 | `CORE-PLAN-POLICY-AND-DEFAULTS` | accepted | P2 | Owns the `expand_predecessors` default. This design makes the option viable and moves it from `PlanBuilder` to a plan transformation, so the issue's framing changes. | no | no | Update its text in Phase 5; the default flip stays its decision | Keep P2 |
 | `CORE-EVALUATE-PATH-CONSOLIDATION` | accepted | P1 | Several evaluation paths exist, and freeze must apply on all of them. Verified: `apply_recipe` has 6 implementations in `liquers-core` plus one in `liquers-lib/src/environment.rs:120` (calls `finalize_plan`) and one `todo!()` stub in `liquers-py/src/context.rs:115`. Putting freeze **inside** `finalize_plan` inherits the existing "must be called in every `apply_recipe`" contract instead of adding a second one. | no | no | Freeze inside `finalize_plan`; add no new mandatory call | Keep P1 |
 | `QUERY-BUILDER-TOOLING` | accepted | P2 | This design constructs queries (promoted default links, boundary query). Its guidance — build programmatically and encode, do not concatenate — is adopted as a constraint. | no | no | Follow the AST-construction constraint | Keep P2 |
@@ -28,8 +30,8 @@ Searched `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues wh
 | `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS` | draft | P2 | Touches `ResolvedParameterValues::from_action`, which freeze also traverses. Independent: freeze rewrites link queries inside parameters and does not change arity resolution. | no | no | Monitor | Keep P2 |
 | `CORE-MULTI-REALM-INTERPRETER` | accepted | P3 | Freeze matches on `Step` exhaustively, so a future realm-carrying step forces a compile error here — which is the intended effect of the no-default-arm rule. | no | no | Monitor | Keep P3 |
 
-**No blocker.** `PARAMETER-ESCAPING-INCOMPLETE` is P0 and adjacent, but the design is arranged so it
-does not depend on encode round-tripping; the mitigation is the AST-construction constraint above.
+**No blocker.** The one P0 in the table closed on `main` while this design was in Phase 2, and the
+re-measurement above confirms the concern it raised no longer applies. Nothing else is blocking.
 
 ## Data Structures
 
@@ -84,7 +86,7 @@ impl CwdCursor {
 ```
 
 **Rationale:** one flag set in the existing `is_relative` branch of `resolve_key`
-(`query.rs:2194-2204`). It exists so the migration step (Q5) can assert that the runtime cursors do
+(`query.rs:2193-2203`). It exists so the migration step (Q5) can assert that the runtime cursors do
 no work on a frozen plan, and is not load-bearing for correctness.
 
 ### New Enums
@@ -241,7 +243,7 @@ Relative-query rejection is applied at the two choke points that cover all three
 fn reject_relative_query(query: &Query) -> Result<(), Error>;
 ```
 
-The test is **"contains a resource segment whose key is relative"** (`CwdCursor::is_relative`: first
+The test is **"contains a resource segment whose key is relative"** (`CwdCursor::is_relative`, `query.rs:2179`: first
 component is `.` or `..`), recursively including link parameters — *not* `!query.absolute`. A query
 such as `greet-Hello` has no key operand at all and stays valid.
 
@@ -251,7 +253,7 @@ such as `greet-Hello` has no key operand at all and stays valid.
 
 | File | Change |
 |---|---|
-| `src/plan.rs` | `Plan::{frozen_cwd, predecessor, predecessor_steps}`; `freeze_cwd`, `cut_predecessor`; `PlanBuilder` records the predecessor instead of cutting; remove the `Step::Evaluate` branch at `:1574` and the `expand_predecessors` flag at `:1064`/`:1089` |
+| `src/plan.rs` | `Plan::{frozen_cwd, predecessor, predecessor_steps}`; `freeze_cwd`, `cut_predecessor`; `PlanBuilder` records the predecessor instead of cutting; remove the `Step::Evaluate` branch at `:1571` and the `expand_predecessors` flag at `:1064`/`:1089` |
 | `src/query.rs` | `CwdCursor::consumed_cwd` + `take_consumed_cwd` |
 | `src/interpreter.rs` | `finalize_plan` calls `freeze_cwd`; `apply_plan` skips `resolve_absolute_query_resource_step` on a frozen plan; `word` test command gains `payload: required` |
 | `src/context.rs` | accessor visibility; `reject_relative_query` at both choke points |
@@ -419,5 +421,14 @@ universal; (ii) `find_dependencies_nested_plan_propagates_cwd` requires `Step::P
 cursor, not clone it, while links must clone — the asymmetry is now explicit in the traversal table;
 (iii) `finalize_plan` holds `Option<Key>` while freeze needs a concrete key, so the root-fallback
 warning path must be reused rather than reimplemented; (iv) `DependencyKey` is `String`-based via
-`query.encode()`, which is why `PARAMETER-ESCAPING-INCOMPLETE` had to be assessed rather than
-waved through.
+`query.encode()` (`metadata.rs:250`), which is why `PARAMETER-ESCAPING-INCOMPLETE` had to be
+assessed rather than waved through — and, after the rebase onto `parameter-entity-escaping`,
+re-measured rather than assumed still broken.
+
+**Rebase, 2026-08-15.** Branch rebased onto `origin/main` (PR #34, `parameter-entity-escaping`).
+Conflicts were confined to `specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md` and `specs/index.csv`,
+both resolved to `main`'s versions — the reproducer this design had added to that issue is obsolete
+now that it is closed. Every other code reference in this document was re-verified against the new
+tree; two shifted (`query.rs` `is_relative` 2180→2179, `resolve_key` 2194→2193) and the
+`Step::Evaluate` branch is at `plan.rs:1571`, not `:1574`. `CORE-RECIPES-EXPAND-PREDECESSORS-CRASH`
+is still `accepted`. Baseline `cargo test -p liquers-core --lib`: 548 passed, 0 failed.
