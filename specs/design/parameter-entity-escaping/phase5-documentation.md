@@ -140,13 +140,18 @@ exception pinned separately.
 
 | Check | Result |
 |---|---|
-| `cargo test -p liquers-core --lib --tests` | 547 + all integration suites, green |
-| the same `--features entities-html5` | 548 + all, green |
-| `cargo test -p liquers-core --doc` | 11 green |
-| `cargo test -p liquers-lib --lib --tests` | 297 + `registry_export`, green **unchanged** |
-| `cargo test -p liquers-web --target wasm32-unknown-unknown` | whole suite green under Node |
+| `cargo test -p liquers-core --lib --tests` | **all tests passed** |
+| the same `--features entities-html5` | **all tests passed** |
+| `cargo test -p liquers-core --doc` | **all passed** |
+| `cargo test -p liquers-lib --lib --tests` | **all passed, unchanged** — `registry_export` included, which proves no command signature moved |
+| `cargo test -p liquers-web --target wasm32-unknown-unknown` | **all passed** under Node |
 | `python3 scripts/docs_index.py --check` | 0 errors |
 | Backward-compatibility corpus | 147 still parse, 9 still rejected |
+
+Nothing is failing in either configuration. Totals are deliberately not quoted: five tests are
+`#[cfg]`-gated, so the two feature states run different test *sets* and two bare numbers would
+invite the reading that one test failed. That misreading actually happened when this summary first
+quoted counts, and the rule it produced is now in the skill (SKILL.md, "Reporting Test Results").
 
 ## Post-review corrections
 

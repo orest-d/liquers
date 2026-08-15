@@ -141,7 +141,10 @@ deferred remainder must have an issue rather than a partial design status.>
 
 ## Validation
 
-<Documentation checks run and outcomes.>
+<Documentation checks and test suites run, with outcomes. State explicitly whether **all tests
+passed**; if any failed, name them and give the reason — a design is not complete with a failing
+test. Report a count only where one number is obviously correct, and never as a ratio such as
+`548/549`, which reads as a failure. See SKILL.md, "Reporting Test Results".>
 ```
 
 ## Review Checklist
@@ -160,6 +163,8 @@ deferred remainder must have an issue rather than a partial design status.>
 - [ ] Every reviewed document has matching `reviewed:` and newest History dates
 - [ ] `specs/README.md` and other relevant links point to the highest-stage current document
 - [ ] Documentation checks pass
+- [ ] Test outcomes state unambiguously that all tests passed, or name every failure and its reason
+- [ ] No test count is written as a ratio, and any count given is from a run at the current commit
 - [ ] If integration changed relevant content, post-merge consistency was rechecked
 
 ## Completion Gate

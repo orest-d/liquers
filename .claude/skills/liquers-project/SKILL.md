@@ -382,6 +382,33 @@ documentation history are current.
 
 **Detailed guidance:** See `references/phase5-documentation.md`
 
+## Reporting Test Results
+
+Every phase, every progress report and every summary that mentions tests must make **one thing
+unambiguous: did all tests pass?** Everything else about test reporting is optional.
+
+**Required.** State the outcome in words, not only numbers:
+
+> `cargo test -p liquers-core --lib --tests` — **all tests passed**
+
+If anything failed, say so first, name the failing tests, and give the reason for each. A phase is
+not complete and work is not "green" while a test fails. "Mostly passing" is a failure report.
+
+**Optional, and omit it when it is not trivially true.** A total count is only worth reporting when
+one number is obviously correct. Do not compute, estimate or reconcile counts:
+
+- **Never write a ratio.** `548/549` reads as "one test failed" and will be understood that way.
+  Write `548 passed, 0 failed`, or write nothing.
+- **Two configurations usually have two different totals**, because `#[cfg]`-gated tests change the
+  test *set*. Reporting both bare numbers invites the same misreading. Either say
+  "both configurations: all tests passed", or state each as `N passed, 0 failed` and say in one
+  clause why the totals differ.
+- **Numbers go stale within the session.** A count quoted from an earlier run after later commits
+  is simply wrong. Re-run or drop the number.
+
+The failure mode this rule exists to prevent is a reader spending time investigating a test failure
+that never happened.
+
 ## Critical Review Process
 
 Before each approval gate, conduct a thorough review using the appropriate checklist. Phases 2-4 use **multi-agent reviews** for deeper, parallelized analysis.
