@@ -20,7 +20,7 @@ Searched `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues wh
 | Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
 | `CORE-RECIPES-EXPAND-PREDECESSORS-CRASH` | accepted | P0 | The issue this design resolves. Its four root causes are addressed or made unreachable. | no | no | Close in Phase 5 | Keep P0 |
-| `PARAMETER-ESCAPING-INCOMPLETE` | accepted | P0 | `encode_token` is not round-trip safe, so `Query::encode()` can emit unparseable text. `DependencyKey::from(&Query)` is `DependencyKey(query.encode())`, so **dependency identity already depends on that round trip today**. This design adds boundaries, which increases the number of query-derived dependency keys, but introduces no new dependency on encoding: `Step::Evaluate` carries a `Query` AST, and `query_assets` is keyed by the AST (`entry_async(query.clone())`), not by text. | no | **no** | Build every query as an AST, never by string concatenation (also `QUERY-BUILDER-TOOLING`'s stated workaround). Do not widen text-keyed identity. | Keep P0 |
+| `PARAMETER-ESCAPING-INCOMPLETE` | accepted | P0 | **Measured**: `parse(encode(q))` fails on the *first* cycle for queries using the protocol mnemonics — `f-~Hapi.example.com~/data` encodes to `f-https:~/~/api.example.com~/data`, which the parser rejects at position 8 (also `~h`, `~P`). Everything else tested is stable and idempotent, including link parameters and resource keys. So encoding preserves semantics on the common path but is **not** universally idempotent, and `DependencyKey::from(&Query)` is `query.encode()` (`metadata.rs:250`) — those dependency keys cannot be parsed back. This design adds boundaries and therefore more query-derived dependency keys, but introduces no new dependence on encoding: `Step::Evaluate` carries a `Query` AST and `query_assets` is keyed by the AST (`entry_async(query.clone())`), not by text. Reproducer added to the issue. | no | **no** | Carry `Query` ASTs, never text — load-bearing, not stylistic. Build queries as ASTs (also `QUERY-BUILDER-TOOLING`'s stated workaround); do not widen text-keyed identity. | Keep P0 |
 | `CORE-PLAN-POLICY-AND-DEFAULTS` | accepted | P2 | Owns the `expand_predecessors` default. This design makes the option viable and moves it from `PlanBuilder` to a plan transformation, so the issue's framing changes. | no | no | Update its text in Phase 5; the default flip stays its decision | Keep P2 |
 | `CORE-EVALUATE-PATH-CONSOLIDATION` | accepted | P1 | Several evaluation paths exist, and freeze must apply on all of them. Verified: `apply_recipe` has 6 implementations in `liquers-core` plus one in `liquers-lib/src/environment.rs:120` (calls `finalize_plan`) and one `todo!()` stub in `liquers-py/src/context.rs:115`. Putting freeze **inside** `finalize_plan` inherits the existing "must be called in every `apply_recipe`" contract instead of adding a second one. | no | no | Freeze inside `finalize_plan`; add no new mandatory call | Keep P1 |
 | `QUERY-BUILDER-TOOLING` | accepted | P2 | This design constructs queries (promoted default links, boundary query). Its guidance — build programmatically and encode, do not concatenate — is adopted as a constraint. | no | no | Follow the AST-construction constraint | Keep P2 |
@@ -256,6 +256,7 @@ such as `greet-Hello` has no key operand at all and stays valid.
 | `src/interpreter.rs` | `finalize_plan` calls `freeze_cwd`; `apply_plan` skips `resolve_absolute_query_resource_step` on a frozen plan; `word` test command gains `payload: required` |
 | `src/context.rs` | accessor visibility; `reject_relative_query` at both choke points |
 | `src/recipes.rs` | delete the commented `disable_expand_predecessors` call at `:217` |
+| `src/assets.rs` | chain the dependency's `Error` into the parent's at `:4446` so a cut does not degrade diagnostics |
 
 ### Crate: liquers-lib
 
@@ -334,6 +335,42 @@ relative query to `Context::evaluate`/`apply`. **Question for the user:** no `li
 does this today (verified — the only callers are in `liquers-core` tests), so I have assumed no
 namespace needs a migration. Confirm if you know of a downstream command that does.
 
+## Cut/No-Cut Equivalence
+
+The cut is a **policy** choice, not a correctness mechanism: given freeze, the relative-query
+rejection, and correct `volatile` / `payload: required` declarations, no probed case changes the
+produced value.
+
+| Candidate difference | Outcome |
+|---|---|
+| Payload | `schedule_payload_dependency_asset` inherits the payload and evaluates the dependency inline when the command declares `payload: required`. An undeclared command differs — that is R1, a command defect, not a reason to keep expansion. |
+| Volatile | A volatile query asset is never inserted into `query_assets` (`get_volatile_query_asset`), so it recomputes; expanded it also recomputes. Identical. |
+| Side-effecting command | Cutting lets two parents with a common prefix share one evaluation. Differs only when a command has side effects and is not declared `volatile` — again a declaration defect. |
+| Cycles | Cutting adds a dependency edge, so a self-referential prefix is caught by cycle detection where expansion would recurse. Cutting is no worse and arguably stricter. |
+
+Two differences are real and must be handled rather than accepted:
+
+- **Error attribution — in scope for this design.** `assets.rs:4446` constructs the parent's failure
+  from scratch and never chains the dependency's error, so a cut replaces `Command 'word' failed: No
+  payload in context for injected parameter payload at position 1` with `Dependency asset 1001 did
+  not produce a value (status Error)`. Observed in the HEAD experiment. The dependency's `Error` must
+  be chained into the parent's, otherwise the two forms are not equivalent in any sense a caller can
+  observe.
+- **Progress and log attribution.** A cut predecessor's progress and log entries land on the
+  sub-asset. `test_evaluate_immediately` asserts `primary_progress().is_done()` on the parent, so
+  Phase 3 must state what the parent is expected to show.
+
+Legitimately different, and not a defect either way: **memory versus recomputation**. A cut retains
+the intermediate in the asset manager, so a large intermediate used once is better left expanded,
+while a slow prefix shared by many parents is much better cut. That is a per-query trade, which
+argues against a single global default and suggests the policy could later move to the asset
+manager — when asked for `a/b/c` it may choose to request `a/b` first. Out of scope here; recorded
+so `CORE-PLAN-POLICY-AND-DEFAULTS` inherits it.
+
+**Consequence for Phase 3:** the equivalence suite is the primary deliverable — every scenario built
+both ways, asserting the same value, the same `is_volatile` / `payload_required` / `expires`, and
+the same surfaced error.
+
 ## Decisions Taken on the Open Questions
 
 These were open at the Phase 1 gate and are resolved here; each is a recommendation to confirm.
@@ -343,7 +380,7 @@ These were open at the Phase 1 gate and are resolved here; each is a recommendat
 | 1 | Rejection is **unconditional**, tested on operand form (a relative resource key), not on `query.absolute`. | Catches mistakes at the call, not at the boundary. Does not conflict with `CONTEXT-APPLY-BARE-KEY-ILL-DEFINED`, which rejects a *state-consumption* objection. **Cost below.** |
 | 2 | The builder **records** `predecessor: Option<Query>` with relative default links already promoted, plus `predecessor_steps`. | Removes any positional step↔segment matching, which is the mechanism that made `absolute_query_resource_step_index` fragile. Promotion is a pure syntax test at build time ("is this default link relative?"). |
 | 3 | A `-R-key/.` link resolves **inline**. | The value is a key already present in the plan; a full dependency asset per CWD-consuming action buys nothing. Implemented as a fast path where a link's plan is a single `Step::UseKeyValue`. |
-| 4 | `freeze_cwd` **keeps** `Step::SetCwd` steps and leaves them executable. | Preserves provenance and the ordering barrier from `plan-relative-resolution`. They become inert once relative `evaluate` is rejected; dropping them is an optimiser's job, not this design's. |
+| 4 | `freeze_cwd` **consumes** `Step::SetCwd` and keeps the steps for provenance. Nothing downstream may depend on them. | With relative `evaluate` rejected, nothing reads the context CWD, so executing them is pure bookkeeping. Keeping them preserves provenance and the ordering barrier from `plan-relative-resolution`; dropping them is an optimiser's job. |
 | 5 | Land freeze with the runtime cursors **in place**, asserting `take_consumed_cwd() == false` on frozen plans in tests; remove them in a follow-up. | Turns residual disagreement into a test failure rather than a silent behaviour change. |
 | 6 | Non-keyed `Step::Evaluate` pre-scheduling is **filed separately**. | It is a throughput optimisation, not correctness, and it wants its own measurement. |
 
