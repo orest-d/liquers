@@ -44,7 +44,13 @@ Verified during Phase 1:
 - A *default* link is invisible to the cache key; an explicit link is not.
 - `Context::get_cwd_key`/`set_cwd_key` are `pub` with zero users outside `liquers-core`.
 - Privatizing the accessors closes CWD *observation* but not *use*: a command can hand a relative
-  query to `Context::evaluate`, which resolves it against the live CWD (`context.rs:423`).
+  query to `Context::evaluate`, which resolves it against the live CWD (`context.rs:423`). This does
+  not affect execution once frozen — the interpreter installs each step's frozen CWD, so dynamic
+  evaluation resolves against a statically-known value. It affects only what identifies a cut
+  boundary's asset (open question 1).
+- `resolve_query_from_cwd` and `resolve_key_from_cwd` are the only two dynamic resolution
+  functions, with two production call sites in `context.rs`; `CwdCursor::resolve_key` already
+  branches on `is_relative`, so a "consumed the CWD" flag has one natural home.
 
 Folder renamed from `predecessor-evaluation-boundary`; nothing referenced the old slug.
 

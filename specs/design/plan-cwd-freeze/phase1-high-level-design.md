@@ -41,7 +41,9 @@ referenced from many folders keeps **one** cache entry.
 CWD reaches a command as **data**, not ambient context: a default link argument `-R-key/.` resolves
 to the current directory as a key value, is overridable, and is visible to the plan builder.
 `Context::get_cwd_key` and `set_cwd_key` become `pub(crate)` — verified to have zero users outside
-`liquers-core`. `payload: required` is added to the `word` test command (R1).
+`liquers-core`. `Context::evaluate`/`apply` keep accepting relative queries: after freeze the
+interpreter installs each step's frozen CWD, so dynamic evaluation resolves against a
+statically-known value. `payload: required` is added to the `word` test command (R1).
 
 ### Asset System
 The payoff: a frozen plan yields a CWD-free `Step::Evaluate` query, so a predecessor becomes a
@@ -93,13 +95,21 @@ plan stops being CWD-relative and why cutting a predecessor is not free.
 
 ## Open Questions
 
-1. Should `Context::evaluate`/`apply` **reject relative queries** on a frozen plan? A command may
-   build `-R/./{name}.csv` at runtime and hand it to `evaluate`, which resolves it against the live
-   CWD — so the value depends on the folder while the query text does not. Private accessors do not
-   close this, because the command never reads the CWD. Rejecting relative queries there, with
-   `-R-key/.` as the supported way to obtain the directory, would make "the normalized query
-   determines the value" an enforced invariant rather than a convention. Leading option; it widens
-   the change and is a breaking API decision.
+1. At a cut, does the boundary query carry the frozen CWD? Freeze makes the CWD deterministic at
+   every step, and the interpreter installs it, so `Context::evaluate` keeps accepting relative
+   queries and resolves them against the frozen value — execution is correct either way. What
+   freeze does *not* do is remove the CWD from the *value*: for `load_sibling-data`, whose text has
+   no relative operand, the boundary query is byte-identical in every folder while the value is not.
+   Either prefix it with `-R-cwd/<frozen>` (always correct, one entry per folder — the waste this
+   design otherwise avoids) or hand over the bare query (one shared entry, correct only if the
+   sub-plan never consumes the CWD). Leading option: prefix only when consumption is **statically
+   visible** — freeze already knows whether a static operand resolved relatively and whether an
+   action carries a `-R-key/.` link argument, both precise and needing no new metadata — and cover
+   the runtime residue with a **poison flag** at `CwdCursor::resolve_key`'s existing `is_relative`
+   branch, marking the asset non-shareable so it skips the `query_assets` map exactly as a volatile
+   asset does. Caveat to settle in Phase 2: the poison is late, so it prevents wrong *reuse* but not
+   a concurrent join to the first in-flight evaluation. A hard guarantee for the dynamic residue
+   needs a declaration or an API restriction instead.
 2. A **default** link is invisible to the cache key — verified: with default `-R-key/.`,
    `plan.query.encode()` stays `list_stuff` under every CWD, while an explicit link normalizes to
    `list_stuff-~X~-R-key/proj/a~E`. Materialize all default links at a cut, or only relative ones?
