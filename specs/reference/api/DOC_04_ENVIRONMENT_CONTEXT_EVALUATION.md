@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-08-11
+reviewed: 2026-08-16
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -166,43 +166,77 @@ async method.
 
 ## Working-key and relative-resolution contract
 
-`Context::get_cwd_key` returns the live logical working key and
-`Context::set_cwd_key` replaces it. The value is a Liquers `Key`, not a filesystem
-directory. Because the storage is shared, actions and interpreter steps operating
-on different context clones observe one ordered CWD.
+The working key is a Liquers `Key`, not a filesystem directory. `Context` owns it,
+and `Context::get_cwd_key` / `set_cwd_key` are **crate-private**: the working key
+is framework state, not a value a command may read or move.
 
-The interpreter resolves raw plan operands when it consumes them. `SetCwd`
-resolves a relative operand against the current CWD before installing the result;
-the new value applies to every subsequent key, query, action link, and nested
-plan. A nested `Step::Plan` uses the same context, so its final CWD remains active
-after control returns to the outer plan. Direct `Context::evaluate`,
-`get_dependency_state`, and `apply` resolve their query arguments against this
-same live CWD before scheduling or applying them.
+### Why the working key is not part of the command-facing API
 
-Linked queries are independently scoped. A link starts from the parent's current
-CWD, but a `cwd` instruction inside it does not modify the parent or a sibling
-link. An absolute outer query roots only its own source resource. Its relative
-nested links still use the active context CWD, while absolute nested links have
-their own logical-root scope. During plan execution, source-query-to-step matching
-keeps a recipe-added CWD prefix distinct from the absolute outer source step.
+The reason is *identity*, not resolution. Since freezing (DOC-08), every operand a
+command receives through its plan is already absolute, so nothing needs the live
+key to resolve. What remains is what a command could do *with* it, and both routes
+break the asset model:
 
-When the first consumed relative operand has no CWD, the context atomically
-installs the empty logical root and emits this warning exactly once across all its
-clones:
+- **Reading it.** A command that varies its result by directory produces a value
+  that its query does not describe. Two directories then share one query text, one
+  `DependencyKey` and one cache entry for results that legitimately differ.
+- **Moving it.** A command that installed a new working key mid-plan would
+  invalidate any ahead-of-time dependency pre-pass, because an opaque action could
+  change the cursor after analysis had already walked past it.
+
+Nothing marks which commands read the directory, so the alternative to closing
+these routes is to carry a CWD in *every* query. That is sound but wasteful: it
+multiplies cache entries per folder for the majority of queries that never consult
+one, and it defeats the sharing that makes a large input feeding many analyses a
+single asset.
+
+The supported replacement is a `-R-key/.` **link argument**, which delivers the
+directory as data: explicit in the query, overridable per call, visible to the
+planner, and part of the identity of the result it affects. See the Command
+Registration Guide, "Passing the working directory (or any relative query) into a
+command".
+
+### Relative queries are refused at the command boundary
+
+`Context::evaluate`, `Context::get_dependency_state` and `Context::apply` reject a
+query carrying a CWD-relative resource operand, recursively including link
+parameters, with `ErrorType::NotSupported`. The error names the offending segment's
+position and points at `-R-key/.`.
+
+The test is **operand form**, not `Query::absolute`. A query with no key operand at
+all — `greet-Hello` — means the same thing in every directory and stays valid. A
+command that needs a sibling takes the directory as a link argument and builds an
+absolute query from it.
+
+### Ordered resolution during execution
+
+The interpreter still installs `SetCwd` in order, and a nested `Step::Plan` shares
+the same context so its final key remains active after control returns. After
+freezing, those steps are provenance rather than a dependency of any operand: the
+operands they once governed are already absolute.
+
+Linked queries remain independently scoped. A link starts from the enclosing
+scope's key, but a `cwd` instruction inside it does not modify its parent or a
+sibling link. Diagnostics are deliberately *not* scoped the same way: a link that
+falls back to logical root still owes the caller its one warning, so freezing
+merges that flag out of the link scope without merging the key.
+
+When a relative operand is resolved with no working key installed, the context
+atomically installs the empty logical root and emits this warning exactly once
+across all its clones:
 
 ```text
 Relative key/query has no CWD; using logical root '/'.
 ```
 
-Dependency discovery and pre-scheduling simulate the same ordered rules with a
-private cursor initialized from the context's entry snapshot. This simulation does
-not advance the live CWD to its final value before execution. The sole shared side
-effect is installing the logical-root fallback, if needed, through the same atomic
-context operation so concurrent first resolutions cannot duplicate the warning.
+Freezing reports whether that fallback was *used* rather than installing it
+eagerly, so a plan with no relative operand stays silent.
 
 Resolved identities are used consistently for dependency records, cycle checks,
 manager lookup, and cache reuse. Thus `./input.txt` under `a/c` is tracked and
-cached as `a/c/input.txt`, not under its raw spelling or a sibling CWD.
+cached as `a/c/input.txt`, not under its raw spelling or a sibling CWD. Conversely
+an operand that was already absolute is returned unchanged, so `-R/data/big.csv`
+referenced from many directories remains **one** asset.
 
 A Context is registered as a keyed dependency owner only when its asset's immutable
 construction-time query yields the same key as the current recipe and a
@@ -300,8 +334,10 @@ Preferred application-facing APIs:
 - `Environment::to_ref`
 - `EnvRef::evaluate` and `evaluate_immediately`
 - Read-only service access through `EnvRef`
-- Command-facing `Context` payload, metadata, log, progress, working-key,
-  dependency, and asset/environment access
+- Command-facing `Context` payload, metadata, log, progress, dependency, and
+  asset/environment access. **Not** the working key: `get_cwd_key` and
+  `set_cwd_key` are crate-private, and `evaluate`/`apply`/`get_dependency_state`
+  require absolute queries
 
 Framework extension and lifecycle APIs:
 
@@ -382,6 +418,7 @@ tracked by DOC-03. No new compiler warning was introduced by DOC-04.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-16 | Recorded that the working key is crate-private and why, that `evaluate`/`apply`/`get_dependency_state` refuse relative queries, and that `-R-key/.` is the supported replacement. Restated ordered resolution for frozen plans. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented the shared live CWD, interpreter and context resolution boundaries, scoped links, nested-plan propagation, root fallback, and resolved dependency and owner identity. | phase-5 |
 | 2026-08-09 | Reviewed environment construction, context sharing, dependency evaluation, and payload propagation against HEAD; documented payload-aware nested evaluation and the inline payload environment, and corrected links. | PAYLOAD-INHERITANCE |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

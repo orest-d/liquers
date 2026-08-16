@@ -8,7 +8,7 @@ phase: documentation
 area: [core/plan, core/query, core/context, core/assets]
 gh_pr: [35]
 issues: [CORE-RECIPES-EXPAND-PREDECESSORS-CRASH, CORE-PLAN-POLICY-AND-DEFAULTS]
-affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/PAYLOAD_GUIDE.md]
+affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-08-14
 superseded_by:
 ---
@@ -23,7 +23,7 @@ superseded_by:
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
 - [x] Implementation: steps 1-13 landed (PR #35)
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation (awaiting approval)
 - [ ] Implementation Complete
 
 ## Notes
