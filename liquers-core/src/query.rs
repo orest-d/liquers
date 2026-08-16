@@ -2165,6 +2165,12 @@ pub(crate) const RELATIVE_WITHOUT_CWD_WARNING: &str =
 pub(crate) struct CwdCursor {
     cwd: Option<Key>,
     defaulted_to_root: bool,
+    /// Set when [`Self::resolve_key`] took its relative branch, i.e. this cursor actually
+    /// consumed the CWD rather than passing an absolute operand through.
+    ///
+    /// Read by the freeze migration assertion: once a plan is frozen, every runtime resolution
+    /// should leave this clear, because an absolute key returns early.
+    consumed_cwd: bool,
 }
 
 #[allow(dead_code)]
@@ -2173,10 +2179,12 @@ impl CwdCursor {
         Self {
             cwd,
             defaulted_to_root: false,
+            consumed_cwd: false,
         }
     }
 
-    fn is_relative(key: &Key) -> bool {
+    /// Whether `key` is expressed relative to a CWD, i.e. it starts with `.` or `..`.
+    pub(crate) fn is_relative(key: &Key) -> bool {
         key.0
             .first()
             .is_some_and(|name| name.is_cwd() || name.is_parent())
@@ -2194,6 +2202,7 @@ impl CwdCursor {
         if !Self::is_relative(key) {
             return key.clone();
         }
+        self.consumed_cwd = true;
 
         let cwd = self.cwd.get_or_insert_with(|| {
             self.defaulted_to_root = true;
@@ -2246,6 +2255,12 @@ impl CwdCursor {
             self.cwd = Some(Key::new());
             self.defaulted_to_root = true;
         }
+        // Resolution runs on clones, so consumption observed by either the scoped cursor or the
+        // absolute-resource cursor has to be reported back to the caller.
+        self.consumed_cwd |= scoped.consumed_cwd
+            || absolute_resource_cursor
+                .as_ref()
+                .is_some_and(|cursor| cursor.consumed_cwd);
 
         resolved
     }
@@ -2262,6 +2277,22 @@ impl CwdCursor {
 
     pub(crate) fn take_root_fallback(&mut self) -> bool {
         std::mem::take(&mut self.defaulted_to_root)
+    }
+
+    /// Whether any resolution performed by this cursor consumed the CWD, clearing the flag.
+    pub(crate) fn take_consumed_cwd(&mut self) -> bool {
+        std::mem::take(&mut self.consumed_cwd)
+    }
+
+    /// Merges the *diagnostic* flags observed by a scoped child cursor back into this one.
+    ///
+    /// Deliberately does not merge the working key: a child scope exists precisely so that a
+    /// `-R-cwd` inside a link cannot move its parent. Whether the child fell back to logical root,
+    /// or consumed a CWD at all, is not scoped — it describes the resolution as a whole, and the
+    /// caller owns the single warning that follows from it.
+    pub(crate) fn absorb_diagnostics(&mut self, child: &CwdCursor) {
+        self.defaulted_to_root |= child.defaulted_to_root;
+        self.consumed_cwd |= child.consumed_cwd;
     }
 }
 
@@ -2447,6 +2478,56 @@ impl Query {
     ///
     /// The remainder is the final action or filename, if available. The predecessor
     /// is the query without that remainder, if available.
+    /// Whether any resource operand in this query is CWD-relative, including inside link
+    /// parameters.
+    ///
+    /// This is the test that decides whether a query can name an asset on its own. It asks about
+    /// **operand form**, not about [`Query::absolute`]: a query with no key operand at all, such as
+    /// `greet-Hello`, means the same thing in every directory and is therefore not relative.
+    pub fn has_relative_operand(&self) -> bool {
+        self.segments.iter().any(|segment| match segment {
+            QuerySegment::Resource(resource) => CwdCursor::is_relative(&resource.key),
+            QuerySegment::Transform(transform) => transform.query.iter().any(|action| {
+                action.parameters.iter().any(|parameter| match parameter {
+                    ActionParameter::Link(link, _) => link.has_relative_operand(),
+                    ActionParameter::String(_, _) => false,
+                })
+            }),
+        })
+    }
+
+    /// Position of the first CWD-relative resource operand, for diagnostics.
+    pub(crate) fn first_relative_operand_position(&self) -> Option<Position> {
+        for segment in self.segments.iter() {
+            match segment {
+                QuerySegment::Resource(resource) => {
+                    if CwdCursor::is_relative(&resource.key) {
+                        return resource
+                            .key
+                            .0
+                            .first()
+                            .map(|name| name.position.clone())
+                            .or_else(|| resource.header.as_ref().map(|h| h.position.clone()));
+                    }
+                }
+                QuerySegment::Transform(transform) => {
+                    for action in transform.query.iter() {
+                        for parameter in action.parameters.iter() {
+                            if let ActionParameter::Link(link, position) = parameter {
+                                if link.has_relative_operand() {
+                                    return link
+                                        .first_relative_operand_position()
+                                        .or_else(|| Some(position.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn predecessor(&self) -> (Option<Query>, Option<QuerySegment>) {
         match &self.segments.last() {
             None => (None, None),

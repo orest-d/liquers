@@ -38,7 +38,16 @@ pub async fn finalize_plan<E: Environment>(
     plan: &mut Plan,
     context: &Context<E>,
 ) -> Result<(), Error> {
+    // Freeze before any analysis: once every operand is absolute, the dependency and
+    // pre-scheduling walks observe exactly what execution will, instead of each re-deriving the
+    // working key with its own cursor.
     let initial_cwd = context.get_cwd_key();
+    let (_, defaulted_to_root) = plan.freeze_cwd(initial_cwd.clone())?;
+    // Warn only when the fallback was actually used, and only once — the same contract
+    // `schedule_plan_dependencies` honours. A plan with no relative operand stays silent.
+    if defaulted_to_root && context.install_logical_root_if_unset() {
+        context.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
+    }
     has_volatile_dependencies(envref.clone(), plan, initial_cwd).await?;
     has_expirable_dependencies(envref.clone(), plan).await?;
 
@@ -1183,9 +1192,13 @@ mod tests {
         recipe.cwd = Some("a/c".to_owned());
         let mut plan = recipe.to_plan(envref.get_command_metadata_registry())?;
         let context = immediate_context(envref.clone(), None).await;
+
+        // The index maps source query segments onto steps positionally, so it is meaningful only
+        // while the operands are still source-relative. Freezing consumes it.
+        assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
+
         finalize_plan(envref.clone(), &mut plan, &context).await?;
 
-        assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
         assert!(plan
             .dependencies
             .iter()
@@ -1198,9 +1211,11 @@ mod tests {
             .dependencies
             .iter()
             .any(|dependency| dependency.key.as_str() == "-R/a/c/hello.txt"));
+        // Frozen: the absolute query's own resource resolved against logical root, not against the
+        // recipe CWD. Before freezing this step read `./data` and was resolved afresh by each pass.
         assert!(matches!(
             &plan.steps[1],
-            Step::GetAsset(key) if key.encode() == "./data"
+            Step::GetAsset(key) if key.encode() == "data"
         ));
 
         let result = apply_plan(plan.clone(), State::new(), context.clone(), envref).await?;
@@ -1210,9 +1225,10 @@ mod tests {
             context.get_cwd_key().map(|key| key.encode()).as_deref(),
             Some("a/c")
         );
+        // Execution does not mutate the frozen plan.
         assert!(matches!(
             &plan.steps[1],
-            Step::GetAsset(key) if key.encode() == "./data"
+            Step::GetAsset(key) if key.encode() == "data"
         ));
         Ok(())
     }
@@ -1866,7 +1882,10 @@ mod tests {
             Ok(Value::from(format!("{greet}, {upper_text}!")))
         }
         let cr = &mut env.command_registry;
-        register_command!(cr, fn word(state, payload: String injected) -> result)
+        // `payload: required` is what carries the payload across an evaluation boundary. Without
+        // it this command works only at top level, where `evaluate_immediately` installs the
+        // payload directly, and silently receives none as a nested dependency.
+        register_command!(cr, fn word(state, payload: String injected) -> result payload: required)
             .expect("register_command failed");
         register_command!(cr, fn upper(state) -> result).expect("register_command failed");
         register_command!(cr, async fn greet(state, greet: String = "Hello", context) -> result)
@@ -2074,4 +2093,164 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
+
+    // --- cut/expand equivalence ------------------------------------------------------------
+
+    /// Evaluates one recipe twice from the same finalized plan: once expanded, once with the
+    /// predecessor cut into a `Step::Evaluate` boundary.
+    ///
+    /// The two forms are meant to differ only in *where* work happens, never in what comes out.
+    /// This harness is what makes that claim checkable rather than argued: every difference found
+    /// so far — a predecessor action running twice, a dependency's error being replaced by "did
+    /// not produce a value" — was invisible to analysis and obvious to a comparison.
+    async fn evaluate_both_ways(
+        envref: EnvRef<ImmediateEnvironment<Value>>,
+        recipe: Recipe,
+        cwd: Option<Key>,
+    ) -> (Result<String, Error>, Result<String, Error>, bool) {
+        let cmr = envref.get_command_metadata_registry();
+        let mut plan = match recipe.to_plan(cmr) {
+            Ok(plan) => plan,
+            Err(error) => return (Err(error.clone()), Err(error), false),
+        };
+        let context = immediate_context(envref.clone(), cwd.clone()).await;
+        if let Err(error) = finalize_plan(envref.clone(), &mut plan, &context).await {
+            return (Err(error.clone()), Err(error), false);
+        }
+
+        let mut cut = plan.clone();
+        let was_cut = cut.cut_predecessor().unwrap_or(false);
+
+        let run = |plan: Plan, context: Context<ImmediateEnvironment<Value>>| {
+            let envref = envref.clone();
+            async move {
+                apply_plan(plan, State::new(), context, envref)
+                    .await
+                    .and_then(|value| value.try_into_string())
+            }
+        };
+
+        let expanded = run(plan, context).await;
+        let cut_context = immediate_context(envref.clone(), cwd).await;
+        let cut_result = run(cut, cut_context).await;
+        (expanded, cut_result, was_cut)
+    }
+
+    fn describe(result: &Result<String, Error>) -> String {
+        match result {
+            Ok(value) => format!("ok:{value}"),
+            Err(error) => format!("err:{}", error.message),
+        }
+    }
+
+    /// A chain of plain actions produces the same value whether or not the predecessor is cut.
+    #[tokio::test]
+    async fn equivalence_transform_chain() -> Result<(), Box<dyn std::error::Error>> {
+        fn seed(_state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from("seed"))
+        }
+        fn upper(state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from(state.try_into_string()?.to_uppercase()))
+        }
+        type CommandEnvironment = ImmediateEnvironment<Value>;
+        let mut environment = ImmediateEnvironment::<Value>::new();
+        let registry = &mut environment.command_registry;
+        register_command!(registry, fn seed(state) -> result)?;
+        register_command!(registry, fn upper(state) -> result)?;
+        let envref = environment.to_ref();
+
+        let recipe = Recipe::new("seed/upper".to_owned(), String::new(), String::new())?;
+        let (expanded, cut, was_cut) = evaluate_both_ways(envref, recipe, None).await;
+
+        assert!(was_cut, "this shape has a predecessor to cut");
+        assert_eq!(describe(&expanded), "ok:SEED");
+        assert_eq!(
+            describe(&expanded),
+            describe(&cut),
+            "cutting the predecessor must not change the result"
+        );
+        Ok(())
+    }
+
+    /// A trailing filename is not an action: cutting must leave the real last action in the
+    /// parent, or a recipe's overrides would have nothing to patch.
+    #[tokio::test]
+    async fn equivalence_keeps_last_action_before_a_filename(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        fn seed(_state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from("seed"))
+        }
+        fn upper(state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from(state.try_into_string()?.to_uppercase()))
+        }
+        type CommandEnvironment = ImmediateEnvironment<Value>;
+        let mut environment = ImmediateEnvironment::<Value>::new();
+        let registry = &mut environment.command_registry;
+        register_command!(registry, fn seed(state) -> result)?;
+        register_command!(registry, fn upper(state) -> result)?;
+        let envref = environment.to_ref();
+
+        let recipe = Recipe::new("seed/upper/out.txt".to_owned(), String::new(), String::new())?;
+        let cmr = envref.get_command_metadata_registry();
+        let mut plan = recipe.to_plan(cmr)?;
+        let context = immediate_context(envref.clone(), None).await;
+        finalize_plan(envref.clone(), &mut plan, &context).await?;
+        plan.cut_predecessor()?;
+
+        assert!(
+            matches!(plan.steps.last(), Some(Step::Filename(_))),
+            "the filename stays in the parent: {:?}",
+            plan.steps
+        );
+        assert!(
+            plan.steps
+                .iter()
+                .any(|step| matches!(step, Step::Action { action_name, .. } if action_name == "upper")),
+            "the last action stays in the parent: {:?}",
+            plan.steps
+        );
+        assert_eq!(
+            plan.steps
+                .iter()
+                .filter(|step| matches!(step, Step::Action { .. }))
+                .count(),
+            1,
+            "the predecessor's own action moved into the boundary rather than being duplicated"
+        );
+        Ok(())
+    }
+
+    /// A failure reports the same cause either way, which is only true because a dependency's
+    /// error is chained into its dependent.
+    #[tokio::test]
+    async fn equivalence_failure_reports_the_same_cause(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        fn boom(_state: &State<Value>) -> Result<Value, Error> {
+            Err(Error::general_error("the real reason".to_owned()))
+        }
+        fn upper(state: &State<Value>) -> Result<Value, Error> {
+            Ok(Value::from(state.try_into_string()?.to_uppercase()))
+        }
+        type CommandEnvironment = ImmediateEnvironment<Value>;
+        let mut environment = ImmediateEnvironment::<Value>::new();
+        let registry = &mut environment.command_registry;
+        register_command!(registry, fn boom(state) -> result)?;
+        register_command!(registry, fn upper(state) -> result)?;
+        let envref = environment.to_ref();
+
+        let recipe = Recipe::new("boom/upper".to_owned(), String::new(), String::new())?;
+        let (expanded, cut, _) = evaluate_both_ways(envref, recipe, None).await;
+
+        for result in [&expanded, &cut] {
+            let Err(error) = result else {
+                panic!("both forms must fail, got {}", describe(result));
+            };
+            assert!(
+                error.message.contains("the real reason"),
+                "the cause must survive either form, got: {error}"
+            );
+        }
+        Ok(())
+    }
+
 }

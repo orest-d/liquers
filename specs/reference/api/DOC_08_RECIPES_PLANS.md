@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-08-11
+reviewed: 2026-08-16
 ---
 # DOC-08: Recipes and Plans
 
@@ -151,15 +151,17 @@ not only a missing file; malformed YAML from successfully read bytes is an error
 
 ## Planning contract
 
-`PlanBuilder::new` borrows a `CommandMetadataRegistry`, rejects placeholders, and
-expands predecessor queries by default.
+`PlanBuilder::new` borrows a `CommandMetadataRegistry` and rejects placeholders.
 
 | Builder setting | Effect |
 |---|---|
-| Default predecessor expansion | Compiles predecessor operations into the same plan |
-| `disable_expand_predecessors` | Emits `Step::Evaluate` boundaries |
 | Default placeholder policy | Missing required values are planning errors |
 | `with_placeholders_allowed` | Allows recipe overrides to fill unresolved parameters |
+
+The builder **always expands** a predecessor into the same plan. Whether a plan is
+later cut at a predecessor boundary is a separate, post-freeze decision — see
+"Freezing" and "Predecessor boundaries" below. The builder records what such a cut
+would need (`Plan::predecessor`, `Plan::predecessor_steps`) without acting on it.
 
 During `build`, the planner resolves command namespaces and aliases, parameters,
 defaults, enum mappings, injected parameters, explicit links, command volatility,
@@ -172,9 +174,136 @@ Recipe value and link overrides affect only the last `Step::Action`. They do not
 provide general substitution across every action in a plan.
 
 `PlanBuilder` is syntax- and command-metadata-driven; it does not choose an entry
-CWD or rewrite relative operands. Runtime and dependency-analysis cursors interpret
-the raw steps in order. This avoids freezing one builder-time CWD before a later
-`SetCwd` can take effect.
+CWD or rewrite relative operands, because it has no environment and no execution
+context to take one from. Operands stay source-relative until `finalize_plan`
+freezes them against the entry key the `Context` actually holds. That ordering is
+what lets a query-authored `SetCwd` take effect before the operands it governs are
+resolved.
+
+## Freezing
+
+### What it is
+
+`Plan::freeze_cwd(entry: Option<Key>) -> Result<(Key, bool), Error>` walks
+`Plan::steps` **in execution order** with a single `CwdCursor` and rewrites every
+CWD-relative operand into absolute form: step keys, `Step::Evaluate` and
+`Step::UseQueryValue` queries, link queries inside action parameters, and nested
+`Step::Plan`s recursively. It records the key it resolved against in
+`Plan::frozen_cwd` and returns the key in effect after the last step, together with
+a flag saying whether the logical-root fallback was actually used.
+
+After freezing, the plan is self-contained: nothing in it depends on a working key
+any more.
+
+### What problem it solves
+
+Before freezing, three separate passes each re-derived the same walk with their own
+cursor — dependency discovery (`find_dependencies`), dependency pre-scheduling
+(`schedule_plan_dependencies_from`), and runtime step execution. All three had to
+agree, and nothing enforced that they did. Any operand form one pass handled
+differently from another produced analysis that did not describe execution:
+dependencies registered under one key and fetched under another, a cycle check that
+did not see the edge the interpreter would take.
+
+Freezing collapses the three into one. The later passes observe operands that are
+already absolute, so their cursors become identities rather than a second opinion.
+
+### When it runs
+
+Inside `finalize_plan`, **before** dependency analysis and expiration, using
+`Context::get_cwd_key()` as the entry. That placement matters twice over: it is
+after the recipe CWD prefix and any recipe overrides are in place, and it is before
+anything reads the plan's dependencies.
+
+`finalize_plan` is already required between `recipe.to_plan()` and `apply_plan()`
+in every `Environment::apply_recipe` implementation, so freezing is inherited by
+all of them — including implementations outside `liquers-core` — without a second
+contract to remember.
+
+Freezing is never folded into `build()`. Plans built for analysis
+(`Query::is_volatile`, `requires_payload`) and by the validation CLI have no
+environment and no entry key; freezing those against a defaulted root would
+silently anchor operands that will later run somewhere else.
+
+### Mechanics
+
+| Element | Rule |
+|---|---|
+| Key-bearing steps | Resolved against the cursor |
+| `Step::SetCwd` | Advances the cursor **and** rewrites its own operand; kept afterwards as provenance |
+| `Step::Evaluate`, `Step::UseQueryValue` | Resolved as scoped queries |
+| Action link parameters | Resolved against a **clone** of the cursor, so a link's own `-R-cwd` cannot move the enclosing plan |
+| Nested `Step::Plan` | **Shares** the cursor, so its final key reaches later outer steps |
+| Absolute query's own resource step | Resolved against logical root; its index is read once, before any rewriting |
+| `Filename`, `Info`, `Warning`, `Error` | Untouched |
+
+The `Step` match is exhaustive with no default arm, so a new step variant is a
+compile error here rather than a silently unfrozen operand.
+
+Two further properties are contractual:
+
+- **Idempotent.** Freezing an already-frozen plan against the same key is a no-op,
+  because a non-relative key is returned unchanged. Freezing against a *different*
+  key is an error: it means a caller reused a finalized plan under another CWD,
+  which `finalize_plan` already forbids. Rebuild from the source query or recipe
+  instead.
+- **Diagnostics are not scoped like keys.** A link scope protects the working key
+  but not the root-fallback flag, which describes the resolution as a whole. The
+  caller owns the single warning that follows.
+
+## Predecessor boundaries
+
+### Cutting, and how it differs from freezing
+
+Freezing decides *what operands mean*. Cutting decides *where work happens*.
+
+`Plan::cut_predecessor()` replaces the leading `predecessor_steps` with one
+`Step::Evaluate(predecessor)` boundary, keeping any `Step::SetCwd` among them and
+leaving the trailing action and filename in the parent. The predecessor then
+becomes an asset in its own right instead of steps inlined into its consumer.
+
+Cutting **requires a frozen plan**. Cutting an unfrozen one would produce a boundary
+query that still depended on a working key — a query that cannot identify the asset
+it names, which is the defect freezing exists to remove.
+
+Volatility, payload requirement, expiration and dependencies are *not* recomputed
+by the cut. They were computed over the fully expanded plan, which is precisely why
+the builder always expands and the cut happens afterwards.
+
+### Why the default should make the predecessor available
+
+An expanded plan computes its intermediates and throws them away. Cutting makes
+each one a first-class asset, which buys three things the framework already knows
+how to do but currently cannot apply to an intermediate:
+
+- **Dependency management.** A boundary is a real dependency edge. The intermediate
+  gets its own version, its own dependents, and participates in cycle detection and
+  invalidation instead of being invisible inside its consumer.
+- **Caching and independent expiration.** Two queries sharing a prefix share the
+  computation rather than repeating it, and an intermediate expires on its own
+  schedule rather than forcing its consumer to recompute wholesale.
+- **Parallel execution.** A dependency can be scheduled alongside its siblings. An
+  inlined predecessor is necessarily sequential — it runs where it sits.
+
+The trade is memory against recomputation, and it is **per query**, not global: an
+intermediate that is large and used once is better inlined, while a slow prefix
+shared by many consumers is much better cut. That is an argument against a single
+global default as much as for cutting; `CORE-PLAN-POLICY-AND-DEFAULTS` owns the
+decision.
+
+### Pitfalls
+
+Every item below was observed, not anticipated. Cutting is currently **off** — no
+caller invokes `cut_predecessor` — and the remaining divergences are tracked in
+`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`.
+
+| Pitfall | What goes wrong |
+|---|---|
+| A trailing filename is not an action | `Query::predecessor` splits a filename off as the remainder. Recording the predecessor at every recursion level lets the outermost overwrite the inner one with the whole action chain, so a cut swallows the last action and a recipe's overrides have nothing to patch. Record only when the remainder is a real action. |
+| A step-range recorded before a prefix is inserted | `Recipe::to_plan` inserts `SetCwd` at index 0 *after* building. A stale `predecessor_steps` then splits in the wrong place and keeps the predecessor's own action, so it runs twice — once in the boundary asset, once inline. |
+| A default link is invisible to the cache key | A default lives in command metadata, not query text. An absolute default is reproduced by metadata everywhere, but a **relative** one resolves differently per directory, so it must be promoted into the query. Promotion appends, which is only correct when every earlier argument slot is already written; at a gap it must be skipped rather than bound to the wrong argument. |
+| A boundary hides the diagnosis | A dependency failure reported as "did not produce a value" discards the cause, which then lives only in the sub-asset's log. The dependent must surface the cause itself — and must not re-wrap an error that already carries its command name and position. |
+| An undeclared payload | A command reading the payload without `payload: required` works inlined and silently receives none across a boundary. This is the documented "declare it, or lose it" rule, not a cutting defect, but a cut is where it first bites. |
 
 ## Plan fields and execution
 
@@ -243,12 +372,21 @@ Recipe and plan JSON/YAML preserve source-relative query text, ordered raw
 state and root-fallback bookkeeping are not serialized. This is a current data
 contract, not a versioned stable wire-format guarantee.
 
-There is no plan optimizer, substitution pass, or CWD-elimination pass today.
-Because callers can inspect and serialize `Plan::steps` and `init_steps`, a future
-optimizer must treat their ordering and diagnostics as observable: it may replace
-relative operands with absolute ones and remove `SetCwd` only when it preserves
-execution, dependency identity, source provenance, and the recipe CWD `Info`
-diagnostic.
+`Plan::frozen_cwd`, `predecessor` and `predecessor_steps` are `serde(default)`, so a
+plan serialized before freezing existed still deserializes — and reads as *not
+frozen* rather than as frozen against the root.
+
+A plan serialized **after** `finalize_plan` carries absolute operands and is
+therefore specific to the CWD it was frozen against. This is not a new restriction:
+`finalize_plan` already forbids re-finalizing a plan under another CWD, and callers
+rebuild from the source query or recipe. Freezing makes that visible in the data
+rather than implicit in the contract.
+
+There is still no plan optimizer or substitution pass. Freezing deliberately keeps
+`SetCwd` steps: removing them is an optimizer's job, and because callers can inspect
+and serialize `Plan::steps` and `init_steps`, such a pass must treat their ordering
+and diagnostics as observable and preserve execution, dependency identity, source
+provenance, and the recipe CWD `Info` diagnostic.
 
 ## Public versus framework APIs
 
@@ -310,6 +448,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-16 | Documented freezing — what it is, the three-cursor problem it solves, when it runs, its mechanics and scope rules — and predecessor boundaries: how cutting differs from freezing, the dependency, caching and parallelism case for making a predecessor available, and five observed pitfalls. Removed `disable_expand_predecessors` from the planning contract. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented provider and programmatic recipe CWD provenance, raw plan prefixes and diagnostics, ordered runtime resolution, serialization, identity, and optimizer constraints. | phase-5 |
 | 2026-08-09 | Applied the verified recipe and planning contracts to comprehensive module and public-API Rustdoc in `plan.rs` and `recipes.rs`. | DOC-08 |
 | 2026-08-09 | Reviewed recipe resolution, plan building, payload requirements, finalization, and execution against HEAD; documented `Plan::payload_required` and corrected links. | PAYLOAD-INHERITANCE |

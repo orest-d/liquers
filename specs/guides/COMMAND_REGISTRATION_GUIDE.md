@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-08-12
+reviewed: 2026-08-16
 ---
 # Command Registration Guide
 
@@ -78,6 +78,80 @@ See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification
 - Parameter types and defaults
 - Injected parameters
 - Metadata statements (label, doc, namespace, realm, etc.)
+
+### Passing the working directory (or any relative query) into a command
+
+A command cannot read the working directory from its `Context`. `get_cwd_key` and
+`set_cwd_key` are crate-private, and `Context::evaluate`, `apply` and
+`get_dependency_state` refuse a query with a CWD-relative operand:
+
+```
+Query '-R/./data.csv' is relative and cannot be evaluated from a command.
+Take the current directory as a link argument (`-R-key/.`) and build an absolute
+query from it.
+```
+
+This is deliberate. A command that varies its result by directory produces a value
+its query does not describe, so two directories share one query text and one cache
+entry for results that legitimately differ. The fix is to make the directory part of
+the query, where it belongs.
+
+**Declare it as a default link argument.** `-R-key/<key>` evaluates to the key
+itself as a `Value::Key`, and `.` resolves to the working directory:
+
+```rust
+use liquers_core::query::Key;
+
+fn where_am_i(state: &State<Value>, dir: Key) -> Result<Value, Error> {
+    Ok(Value::from(format!("dir={}", dir.encode())))
+}
+
+register_command!(cr, fn where_am_i(state, dir: Key = query "-R-key/.") -> result)?;
+```
+
+Evaluated under `-R-cwd/proj/a/-/where_am_i`, `dir` arrives as `proj/a`.
+
+**Build absolute queries from it** when the command needs to reach a sibling:
+
+```rust
+async fn read_sibling(
+    _state: State<Value>,
+    dir: Key,
+    context: Context<CommandEnvironment>,
+) -> Result<Value, Error> {
+    // `dir.join("hello.txt")` is absolute, so this is accepted.
+    let asset = context.evaluate(&Query::from(dir.join("hello.txt"))).await?;
+    asset.get().await?.try_into_string().map(Value::from)
+}
+```
+
+**Any relative query works the same way**, not just the directory. A default link is
+an ordinary query, so `dir: Key = query "-R-key/./config"` yields
+`<cwd>/config`, and a non-key default such as
+`settings: String = query "-R/./settings.json/-/to_text"` reads a file beside the
+recipe. Freezing resolves the relative part against the entry CWD before the link is
+evaluated (see `DOC_08_RECIPES_PLANS.md`, "Freezing").
+
+Three properties follow, and they are the reason to prefer this over ambient state:
+
+- **Explicit.** The dependency appears in the plan and in the asset's dependency
+  records, so invalidation and cycle detection see it.
+- **Overridable.** A caller can supply the argument to point the command somewhere
+  else — `where_am_i-~X~-R-key/other/place~E` — or a recipe can override it by name.
+- **Identifying.** Once promoted into the query, the resolved directory is part of
+  what names the result, so two directories get two cache entries and two callers in
+  the same directory share one.
+
+**Argument types.** A key-valued link arrives through `TryFrom<Value> for Key`; a
+literal `Key` written in the query text is parsed by `FromParameterValue`. Both
+exist, so `dir: Key` is declarable either way. Other argument types convert as
+usual — a link delivering `Value::Text` binds to a `String` parameter.
+
+**Pitfall — argument order.** A relative default is promoted into the query only
+when every earlier argument slot is already written. If an earlier argument is also
+omitted, promotion is skipped for that action rather than binding the link to the
+wrong slot. Declare a relative-default argument **first**, or supply the arguments
+before it explicitly, if you want the promoted form.
 
 ### Accepting a variable number of parameters
 
@@ -642,3 +716,4 @@ fn apply(...) -> Result<...> { ... }
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |
+| 2026-08-16 | Added "Passing the working directory (or any relative query) into a command": `-R-key/.` as a default link argument, why the working key is not readable from `Context`, building absolute queries from it, and the argument-order pitfall. | PLAN-CWD-FREEZE |

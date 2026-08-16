@@ -80,6 +80,63 @@ fn namespaces_for_query(
     Ok(namespaces)
 }
 
+/// Rewrites `query` so every *relative* default link becomes an explicit query link.
+///
+/// A default link lives in command metadata, not in the query text, so it is invisible to anything
+/// that identifies a query — including the asset manager's cache key. That is harmless while the
+/// default is absolute, because the metadata reproduces it identically everywhere. A **relative**
+/// default such as `-R-key/.` is different: it resolves differently per directory, so a query that
+/// leaves it implicit would name one asset for results that legitimately differ.
+///
+/// Promoting keeps the link relative; freezing resolves it afterwards, like any other operand. The
+/// result is built as an AST rather than by concatenating text, per `QUERY-BUILDER-TOOLING`.
+fn promote_relative_default_links(
+    query: &Query,
+    cmr: &CommandMetadataRegistry,
+) -> Result<Query, Error> {
+    let mut promoted = query.clone();
+    for segment in promoted.segments.iter_mut() {
+        let QuerySegment::Transform(transform) = segment else {
+            continue;
+        };
+        for action in transform.query.iter_mut() {
+            let namespaces = namespaces_for_query(query, cmr)?;
+            let realm = query.last_transform_query_name().unwrap_or_default();
+            let Some(metadata) = cmr.find_command_in_namespaces(&realm, &namespaces, &action.name)
+            else {
+                // An unresolvable action is not this function's error to report; plan building
+                // reaches the same command and produces a proper diagnostic with a position.
+                continue;
+            };
+            for (index, argument) in metadata.arguments.iter().enumerate() {
+                if action.parameters.len() > index {
+                    continue; // supplied explicitly; no default in play
+                }
+                let CommandParameterValue::Query(default) = &argument.default else {
+                    continue;
+                };
+                if !default.has_relative_operand() {
+                    continue; // absolute: metadata reproduces it, so leave it implicit
+                }
+                if action.parameters.len() != index {
+                    // An earlier argument was omitted too, so appending would bind the link to
+                    // *that* slot and leave this one implicit — the recorded query would mean
+                    // something other than the plan it was recorded for. Writing the earlier
+                    // defaults out to keep the positions is possible but not always (a
+                    // placeholder or an injected argument has nothing to write), so the query is
+                    // recorded unpromoted instead. That is merely less self-contained, never
+                    // wrong; see PREDECESSOR-CUT-NOT-YET-EQUIVALENT.
+                    break;
+                }
+                action
+                    .parameters
+                    .push(ActionParameter::Link(default.clone(), action.position.clone()));
+            }
+        }
+    }
+    Ok(promoted)
+}
+
 fn append_actions(query: &Query, actions: Vec<ActionRequest>) -> Query {
     let mut q = query.clone();
     match q.segments.last_mut() {
@@ -868,6 +925,51 @@ fn accepted_parameter_count(command_metadata: &CommandMetadata, skip: usize) -> 
 /// parameters.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResolvedParameterValues(pub Vec<ParameterValue>);
+
+impl ResolvedParameterValues {
+    /// Rewrites every link query in these parameters into CWD-absolute form.
+    ///
+    /// Each link is resolved against a **clone** of `cursor`, so a `-R-cwd` inside a link scopes
+    /// only that link and cannot move the enclosing plan's working key. This mirrors the scope rule
+    /// `find_dependencies` already applies, and is what
+    /// `find_dependencies_child_query_cwd_does_not_leak` pins.
+    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) {
+        for parameter in self.0.iter_mut() {
+            parameter.freeze_cwd(cursor);
+        }
+    }
+}
+
+impl ParameterValue {
+    /// Rewrites this parameter's link query, if it has one, into CWD-absolute form.
+    ///
+    /// See [`ResolvedParameterValues::freeze_cwd`] for the scope rule.
+    pub(crate) fn freeze_cwd(&mut self, cursor: &mut CwdCursor) {
+        match self {
+            ParameterValue::DefaultLink(_, query)
+            | ParameterValue::ParameterLink(_, query, _)
+            | ParameterValue::OverrideLink(_, query)
+            | ParameterValue::EnumLink(_, query, _) => {
+                let mut scoped = cursor.clone();
+                *query = scoped.resolve_query_scoped(query);
+                // The scope protects the working key, not the diagnostics: a link that fell back
+                // to logical root still owes the caller its one warning.
+                cursor.absorb_diagnostics(&scoped);
+            }
+            ParameterValue::MultipleParameters(values) => {
+                for value in values.iter_mut() {
+                    value.freeze_cwd(cursor);
+                }
+            }
+            ParameterValue::DefaultValue(_, _)
+            | ParameterValue::ParameterValue(_, _, _)
+            | ParameterValue::OverrideValue(_, _)
+            | ParameterValue::Placeholder(_)
+            | ParameterValue::Injected(_)
+            | ParameterValue::None => {}
+        }
+    }
+}
 impl Default for ResolvedParameterValues {
     fn default() -> Self {
         Self::new()
@@ -1061,7 +1163,6 @@ pub struct PlanBuilder<'c> {
     command_registry: &'c CommandMetadataRegistry,
     plan: Plan,
     allow_placeholders: bool,
-    expand_predecessors: bool,
 
     /// Track volatility during plan building
     is_volatile: bool,
@@ -1086,7 +1187,6 @@ impl<'c> PlanBuilder<'c> {
             command_registry,
             plan: Plan::new(),
             allow_placeholders: false,
-            expand_predecessors: true, // TODO: expand_predecessors should be false by default
             is_volatile: false,
             payload_required: PayloadRequirement::None,
             expires: Expires::Never,
@@ -1099,19 +1199,6 @@ impl<'c> PlanBuilder<'c> {
         self.allow_placeholders = true;
         self
     }
-    /// Enables predecessor expansion into the same plan.
-    ///
-    /// This is already the default and is provided for explicit builder configuration.
-    pub fn expand_predecessors(mut self) -> Self {
-        self.expand_predecessors = true;
-        self
-    }
-    /// Disables predecessor expansion, emitting [`Step::Evaluate`] boundaries instead.
-    pub fn disable_expand_predecessors(mut self) -> Self {
-        self.expand_predecessors = false;
-        self
-    }
-
     /// Mark plan as volatile and add explanatory Step::Info
     fn mark_volatile(&mut self, reason: &str) {
         if !self.is_volatile {
@@ -1559,6 +1646,14 @@ impl<'c> PlanBuilder<'c> {
         //eprintln!("PREDECESOR: {:?}", &p);
         //eprintln!("REMAINDER:  {:?}", &q);
 
+        // Whether the split produced an action to run after the predecessor, as opposed to a
+        // trailing filename, which is a naming instruction rather than a step in the chain.
+        let remainder_is_action = match &q {
+            Some(QuerySegment::Resource(_)) => true,
+            Some(QuerySegment::Transform(tqs)) => tqs.action().is_some(),
+            None => false,
+        };
+
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
                 // Check if predecessor ends with "q" instruction
@@ -1568,10 +1663,22 @@ impl<'c> PlanBuilder<'c> {
                     if !query_without_q.is_empty() {
                         self.plan.steps.push(Step::UseQueryValue(query_without_q));
                     }
-                } else if self.expand_predecessors {
-                    self.process_query(p)?;
                 } else {
-                    self.plan.steps.push(Step::Evaluate(p.clone()));
+                    // The builder always expands. Cutting a boundary is a policy decision made
+                    // after freezing, when the steps are in execution order and every operand is
+                    // absolute; recording the sub-query here is all that pass needs.
+                    //
+                    // Record only when the remainder is a real action. `Query::predecessor` splits
+                    // a trailing *filename* off as the remainder too, and this assignment runs at
+                    // every level of the recursion, so recording there would let the outermost
+                    // level overwrite the inner one with the whole action chain — cutting would
+                    // then swallow the last action, leaving a recipe's overrides nothing to patch.
+                    let recorded = promote_relative_default_links(p, self.command_registry)?;
+                    self.process_query(p)?;
+                    if remainder_is_action {
+                        self.plan.predecessor = Some(recorded);
+                        self.plan.predecessor_steps = self.plan.steps.len();
+                    }
                 }
             }
         }
@@ -1669,6 +1776,26 @@ pub struct Plan {
     /// Dependencies discovered during plan analysis.
     #[serde(default)]
     pub dependencies: Vec<PlanDependency>,
+
+    /// CWD every operand in this plan was resolved against, or `None` while still source-relative.
+    ///
+    /// Set exactly once by [`Self::freeze_cwd`]. A frozen plan is never re-frozen under a different
+    /// CWD; callers rebuild from the source [`Query`] or `Recipe`, which is the contract
+    /// `finalize_plan` already documents.
+    #[serde(default)]
+    pub frozen_cwd: Option<Key>,
+
+    /// Predecessor sub-query the builder descended into, with relative default links promoted to
+    /// explicit query links so the query is self-contained.
+    ///
+    /// `None` when the query has no predecessor. [`Self::cut_predecessor`] turns this into a
+    /// [`Step::Evaluate`] boundary.
+    #[serde(default)]
+    pub predecessor: Option<Query>,
+
+    /// Number of leading [`Self::steps`] emitted for [`Self::predecessor`].
+    #[serde(default)]
+    pub predecessor_steps: usize,
 }
 
 impl Default for Plan {
@@ -1689,7 +1816,149 @@ impl Plan {
             expires: Expires::Never,
             error: None,
             dependencies: Vec::new(),
+            frozen_cwd: None,
+            predecessor: None,
+            predecessor_steps: 0,
         }
+    }
+
+    /// Resolves every CWD-relative operand in this plan against `entry`, in execution order.
+    ///
+    /// After this returns, the plan is self-contained: no step, link parameter or nested plan
+    /// depends on a working key any more, so dependency analysis, pre-scheduling and execution all
+    /// observe the same absolute operands instead of each re-deriving them with its own cursor.
+    ///
+    /// `entry` is optional because a plan may be finalized with no CWD installed. Resolution then
+    /// falls back to logical root, and the returned flag reports whether that fallback was actually
+    /// *used* — a plan with no relative operand does not touch it. Callers own the warning, so that
+    /// a plan needing no CWD stays silent.
+    ///
+    /// Idempotent: freezing an already-frozen plan against the same key is a no-op, because
+    /// [`CwdCursor::resolve_key`] returns a non-relative key unchanged. Returns the CWD in effect
+    /// after the last step together with that fallback flag.
+    ///
+    /// Errors when the plan is already frozen against a *different* key, which means a caller
+    /// reused a finalized plan under another CWD — the case `finalize_plan` already forbids.
+    pub fn freeze_cwd(&mut self, entry: Option<Key>) -> Result<(Key, bool), Error> {
+        let requested = entry.clone().unwrap_or_else(Key::new);
+        if let Some(frozen) = &self.frozen_cwd {
+            if frozen == &requested {
+                return Ok((frozen.clone(), false));
+            }
+            return Err(Error::general_error(format!(
+                "Plan is already frozen against CWD '{}' and cannot be re-frozen against '{}'; \
+                 rebuild it from its source query or recipe instead",
+                frozen.encode(),
+                requested.encode()
+            ))
+            .with_query(&self.query));
+        }
+
+        let mut cursor = CwdCursor::new(entry);
+        self.freeze_cwd_with(&mut cursor)?;
+        let defaulted_to_root = cursor.take_root_fallback();
+        self.frozen_cwd = Some(requested);
+        Ok((cursor.current().unwrap_or_else(Key::new), defaulted_to_root))
+    }
+
+    /// Continues an enclosing freeze walk, sharing the caller's cursor.
+    ///
+    /// A nested [`Step::Plan`] shares the cursor rather than cloning it, so its final working key
+    /// affects later outer steps — the behaviour `find_dependencies_nested_plan_propagates_cwd`
+    /// pins. Link parameters clone instead; see [`ResolvedParameterValues::freeze_cwd`].
+    pub(crate) fn freeze_cwd_with(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
+        // Read before any rewriting: the index is derived by matching the source query's resource
+        // segments against steps, which only holds while the operands are still source-relative.
+        let absolute_resource_step = self.absolute_query_resource_step_index();
+        let mut root_cursor = CwdCursor::new(Some(Key::new()));
+
+        // The predecessor is the leading steps, so it resolves from the entry state of this walk.
+        if let Some(predecessor) = &mut self.predecessor {
+            let mut scoped = cursor.clone();
+            *predecessor = scoped.resolve_query_scoped(predecessor);
+        }
+
+        for (index, step) in self.steps.iter_mut().enumerate() {
+            let at_absolute_resource = absolute_resource_step == Some(index);
+            let step_cursor = if at_absolute_resource {
+                &mut root_cursor
+            } else {
+                &mut *cursor
+            };
+            match step {
+                Step::GetAsset(key)
+                | Step::GetAssetBinary(key)
+                | Step::GetAssetMetadata(key)
+                | Step::GetAssetRecipe(key)
+                | Step::GetAssetDirectory(key)
+                | Step::GetResource(key)
+                | Step::GetResourceMetadata(key)
+                | Step::GetResourceDirectory(key)
+                | Step::UseKeyValue(key) => {
+                    *key = step_cursor.resolve_key(key);
+                }
+                Step::SetCwd(key) => {
+                    // Advances the working key *and* rewrites the operand, so the step remains as
+                    // provenance while nothing downstream depends on executing it.
+                    let resolved = step_cursor.set_cwd_from(key);
+                    if at_absolute_resource {
+                        cursor.set_cwd_from(&resolved);
+                    }
+                    *key = resolved;
+                }
+                Step::Evaluate(query) | Step::UseQueryValue(query) => {
+                    *query = step_cursor.resolve_query_scoped(query);
+                }
+                Step::Action { parameters, .. } => {
+                    parameters.freeze_cwd(step_cursor);
+                }
+                Step::Plan(nested) => {
+                    nested.freeze_cwd_with(step_cursor)?;
+                }
+                Step::Filename(_) | Step::Info(_) | Step::Warning(_) | Step::Error(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Replaces the leading [`Self::predecessor_steps`] with a single [`Step::Evaluate`] boundary,
+    /// so the predecessor becomes its own cached, independently schedulable asset.
+    ///
+    /// Any [`Step::SetCwd`] among those steps is kept in place: it is provenance the boundary query
+    /// cannot carry, and after freezing it has no effect on operands anyway.
+    ///
+    /// Requires a frozen plan — cutting an unfrozen one would produce a CWD-dependent boundary
+    /// query, which is exactly the defect this design removes. Returns `false` when there is no
+    /// predecessor to cut.
+    ///
+    /// Volatility, payload requirement, expiration and dependencies are deliberately **not**
+    /// recomputed: they were computed over the fully expanded plan, which is why the cut happens
+    /// here rather than during building.
+    pub fn cut_predecessor(&mut self) -> Result<bool, Error> {
+        if self.frozen_cwd.is_none() {
+            return Err(Error::general_error(
+                "Plan must be frozen before its predecessor can be cut".to_string(),
+            )
+            .with_query(&self.query));
+        }
+        let Some(predecessor) = self.predecessor.clone() else {
+            return Ok(false);
+        };
+        if self.predecessor_steps == 0 || self.predecessor_steps > self.steps.len() {
+            return Ok(false);
+        }
+
+        let tail = self.steps.split_off(self.predecessor_steps);
+        let mut head: Vec<Step> = self
+            .steps
+            .drain(..)
+            .filter(|step| matches!(step, Step::SetCwd(_)))
+            .collect();
+        head.push(Step::Evaluate(predecessor));
+        self.predecessor_steps = head.len();
+        head.extend(tail);
+        self.steps = head;
+        Ok(true)
     }
 
     /// Locates the first executable step produced by an absolute query's own resource segments.
@@ -2753,6 +3022,7 @@ mod tests {
             expires: crate::expiration::Expires::Never,
             error: None,
             dependencies: vec![],
+            ..Plan::new()
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2778,6 +3048,7 @@ mod tests {
             expires: crate::expiration::Expires::Never,
             error: None,
             dependencies: vec![],
+            ..Plan::new()
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2806,6 +3077,7 @@ mod tests {
             expires: crate::expiration::Expires::Never,
             error: None,
             dependencies: vec![],
+            ..Plan::new()
         };
         assert_eq!(plan.split_index(), 0);
         let (p1, p2) = plan.split();
@@ -2833,6 +3105,7 @@ mod tests {
             expires: crate::expiration::Expires::Never,
             error: None,
             dependencies: vec![],
+            ..Plan::new()
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -2870,6 +3143,7 @@ mod tests {
             expires: crate::expiration::Expires::Never,
             error: None,
             dependencies: vec![],
+            ..Plan::new()
         };
         assert_eq!(plan.split_index(), 2);
         let (p1, p2) = plan.split();
@@ -2888,6 +3162,7 @@ mod tests {
             expires: crate::expiration::Expires::Never,
             error: None,
             dependencies: vec![],
+            ..Plan::new()
         };
         assert_eq!(plan.split_index(), 1);
         let (p1, p2) = plan.split();
@@ -4217,4 +4492,184 @@ mod tests {
         assert!(!err.position.is_unknown());
         Ok(())
     }
+
+    // --- freeze -------------------------------------------------------------------------------
+
+    /// Every key-bearing step is resolved. Written as an exhaustive `match` so that adding a
+    /// `Step` variant fails to compile here rather than silently going unfrozen.
+    #[test]
+    fn freeze_resolves_every_keyed_step() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let relative = parse_key("./x")?;
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::GetAsset(relative.clone()),
+            Step::GetAssetBinary(relative.clone()),
+            Step::GetAssetMetadata(relative.clone()),
+            Step::GetAssetRecipe(relative.clone()),
+            Step::GetAssetDirectory(relative.clone()),
+            Step::GetResource(relative.clone()),
+            Step::GetResourceMetadata(relative.clone()),
+            Step::GetResourceDirectory(relative.clone()),
+            Step::UseKeyValue(relative.clone()),
+        ];
+        plan.freeze_cwd(Some(parse_key("a/b")?))?;
+
+        for step in plan.steps.iter() {
+            let key = match step {
+                Step::GetAsset(key)
+                | Step::GetAssetBinary(key)
+                | Step::GetAssetMetadata(key)
+                | Step::GetAssetRecipe(key)
+                | Step::GetAssetDirectory(key)
+                | Step::GetResource(key)
+                | Step::GetResourceMetadata(key)
+                | Step::GetResourceDirectory(key)
+                | Step::UseKeyValue(key)
+                | Step::SetCwd(key) => key,
+                Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::Action { .. }
+                | Step::Plan(_)
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_) => panic!("unexpected step {step:?}"),
+            };
+            assert_eq!(key.encode(), "a/b/x", "unfrozen operand in {step:?}");
+        }
+        Ok(())
+    }
+
+    /// `SetCwd` takes effect in order, so a later operand sees the most recent working key.
+    #[test]
+    fn freeze_applies_setcwd_in_order() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::GetAsset(parse_key("./first")?),
+            Step::SetCwd(parse_key("../c")?),
+            Step::GetAsset(parse_key("./second")?),
+        ];
+        plan.freeze_cwd(Some(Key::new()))?;
+
+        assert!(matches!(&plan.steps[1], Step::GetAsset(k) if k.encode() == "a/b/first"));
+        assert!(matches!(&plan.steps[2], Step::SetCwd(k) if k.encode() == "a/c"));
+        assert!(matches!(&plan.steps[3], Step::GetAsset(k) if k.encode() == "a/c/second"));
+        Ok(())
+    }
+
+    /// A link parameter is its own scope: an inner `-R-cwd` must not move the enclosing plan.
+    #[test]
+    fn freeze_scopes_link_parameters() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::Action {
+                realm: String::new(),
+                ns: String::new(),
+                action_name: "act".to_owned(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues(vec![ParameterValue::ParameterLink(
+                    "value".to_owned(),
+                    parse_query("-R-cwd/./child/-R/./inside.txt")?,
+                    Position::unknown(),
+                )]),
+            },
+            Step::GetAsset(parse_key("./outside.txt")?),
+        ];
+        plan.freeze_cwd(Some(Key::new()))?;
+
+        let Step::Action { parameters, .. } = &plan.steps[1] else {
+            panic!("expected an action");
+        };
+        let Some(ParameterValue::ParameterLink(_, link, _)) = parameters.0.first() else {
+            panic!("expected a link parameter");
+        };
+        assert_eq!(link.encode(), "-R-cwd/a/b/child/-R/a/b/child/inside.txt");
+        assert!(
+            matches!(&plan.steps[2], Step::GetAsset(k) if k.encode() == "a/b/outside.txt"),
+            "the link's own cwd must not leak into the enclosing plan"
+        );
+        Ok(())
+    }
+
+    /// A nested plan shares the cursor, so its final working key reaches later outer steps.
+    #[test]
+    fn freeze_shares_cursor_with_nested_plan() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let mut nested = Plan::new();
+        nested.steps = vec![Step::SetCwd(parse_key("../c")?)];
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::Plan(nested),
+            Step::GetAsset(parse_key("./after.txt")?),
+        ];
+        plan.freeze_cwd(Some(Key::new()))?;
+
+        assert!(matches!(&plan.steps[2], Step::GetAsset(k) if k.encode() == "a/c/after.txt"));
+        Ok(())
+    }
+
+    /// The new fields are `serde(default)`, so a plan serialized before freezing existed still
+    /// deserializes — and reads as "not frozen" rather than as frozen against the root.
+    #[test]
+    fn frozen_plan_serde_defaults_on_legacy() -> Result<(), Error> {
+        let legacy = r#"{"query":{"segments":[],"absolute":false,"source":"Unspecified"},
+            "steps":[],"is_volatile":false}"#;
+        let plan: Plan = serde_json::from_str(legacy)
+            .map_err(|e| Error::general_error(format!("legacy plan must deserialize: {e}")))?;
+        assert!(plan.frozen_cwd.is_none());
+        assert!(plan.predecessor.is_none());
+        assert_eq!(plan.predecessor_steps, 0);
+        Ok(())
+    }
+
+
+    /// A relative default link is promoted into **its own** argument slot.
+    ///
+    /// Appending to the action AST only lands in the right place when every earlier slot is
+    /// already written. With an omitted argument in front, an appended link would bind to that
+    /// earlier argument instead, so the recorded query would mean something different from the
+    /// plan it was recorded for.
+    #[test]
+    fn promotion_does_not_shift_into_an_earlier_argument_slot() -> Result<(), Error> {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut prefix = ArgumentInfo::string_argument("prefix");
+        prefix.default = CommandParameterValue::Value(serde_json::json!("x"));
+        let mut dir = ArgumentInfo::any_argument("dir");
+        dir.default = CommandParameterValue::Query(parse_query("-R-key/.")?);
+        cmr.add_command(&CommandMetadata::new("seed"));
+        cmr.add_command(
+            CommandMetadata::new("two_args")
+                .with_argument(prefix)
+                .with_argument(dir),
+        );
+
+        let plan = PlanBuilder::new(parse_query("seed/two_args")?, &cmr).build()?;
+        let Some(recorded) = &plan.predecessor else {
+            return Ok(()); // nothing recorded is acceptable; a wrong recording is not
+        };
+        let Some(QuerySegment::Transform(transform)) = recorded.segments.last() else {
+            return Ok(());
+        };
+        for action in transform.query.iter() {
+            if action.name != "two_args" {
+                continue;
+            }
+            if let Some(first) = action.parameters.first() {
+                assert!(
+                    !matches!(first, ActionParameter::Link(_, _)),
+                    "the key link landed in the `prefix` slot: {}",
+                    recorded.encode()
+                );
+            }
+        }
+        Ok(())
+    }
+
 }
+
