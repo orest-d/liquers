@@ -3,10 +3,10 @@ id: PLAN-CWD-FREEZE
 kind: design
 title: Freeze CWD in the plan and cut correct predecessor boundaries
 workflow: liquers-project
-status: draft
-phase: implementation
+status:
+phase: documentation
 area: [core/plan, core/query, core/context, core/assets]
-gh_pr: []
+gh_pr: [35]
 issues: [CORE-RECIPES-EXPAND-PREDECESSORS-CRASH, CORE-PLAN-POLICY-AND-DEFAULTS]
 affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/PAYLOAD_GUIDE.md]
 created: 2026-08-14
@@ -22,7 +22,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
-- [~] Implementation: steps 1-7 and 13 landed; 8-12 blocked
+- [x] Implementation: steps 1-13 landed (PR #35)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 

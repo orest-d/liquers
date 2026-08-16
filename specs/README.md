@@ -173,6 +173,7 @@ question are both measure-first items.
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
 | [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P0 | M | `metadata-consistency` |
+| [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -182,6 +183,7 @@ deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
+- design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
