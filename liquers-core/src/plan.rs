@@ -1636,6 +1636,14 @@ impl<'c> PlanBuilder<'c> {
         //eprintln!("PREDECESOR: {:?}", &p);
         //eprintln!("REMAINDER:  {:?}", &q);
 
+        // Whether the split produced an action to run after the predecessor, as opposed to a
+        // trailing filename, which is a naming instruction rather than a step in the chain.
+        let remainder_is_action = match &q {
+            Some(QuerySegment::Resource(_)) => true,
+            Some(QuerySegment::Transform(tqs)) => tqs.action().is_some(),
+            None => false,
+        };
+
         if let Some(p) = p.as_ref() {
             if !p.is_empty() {
                 // Check if predecessor ends with "q" instruction
@@ -1649,10 +1657,18 @@ impl<'c> PlanBuilder<'c> {
                     // The builder always expands. Cutting a boundary is a policy decision made
                     // after freezing, when the steps are in execution order and every operand is
                     // absolute; recording the sub-query here is all that pass needs.
+                    //
+                    // Record only when the remainder is a real action. `Query::predecessor` splits
+                    // a trailing *filename* off as the remainder too, and this assignment runs at
+                    // every level of the recursion, so recording there would let the outermost
+                    // level overwrite the inner one with the whole action chain — cutting would
+                    // then swallow the last action, leaving a recipe's overrides nothing to patch.
                     let recorded = promote_relative_default_links(p, self.command_registry)?;
                     self.process_query(p)?;
-                    self.plan.predecessor = Some(recorded);
-                    self.plan.predecessor_steps = self.plan.steps.len();
+                    if remainder_is_action {
+                        self.plan.predecessor = Some(recorded);
+                        self.plan.predecessor_steps = self.plan.steps.len();
+                    }
                 }
             }
         }
@@ -4466,5 +4482,141 @@ mod tests {
         assert!(!err.position.is_unknown());
         Ok(())
     }
+
+    // --- freeze -------------------------------------------------------------------------------
+
+    /// Every key-bearing step is resolved. Written as an exhaustive `match` so that adding a
+    /// `Step` variant fails to compile here rather than silently going unfrozen.
+    #[test]
+    fn freeze_resolves_every_keyed_step() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let relative = parse_key("./x")?;
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::GetAsset(relative.clone()),
+            Step::GetAssetBinary(relative.clone()),
+            Step::GetAssetMetadata(relative.clone()),
+            Step::GetAssetRecipe(relative.clone()),
+            Step::GetAssetDirectory(relative.clone()),
+            Step::GetResource(relative.clone()),
+            Step::GetResourceMetadata(relative.clone()),
+            Step::GetResourceDirectory(relative.clone()),
+            Step::UseKeyValue(relative.clone()),
+        ];
+        plan.freeze_cwd(Some(parse_key("a/b")?))?;
+
+        for step in plan.steps.iter() {
+            let key = match step {
+                Step::GetAsset(key)
+                | Step::GetAssetBinary(key)
+                | Step::GetAssetMetadata(key)
+                | Step::GetAssetRecipe(key)
+                | Step::GetAssetDirectory(key)
+                | Step::GetResource(key)
+                | Step::GetResourceMetadata(key)
+                | Step::GetResourceDirectory(key)
+                | Step::UseKeyValue(key)
+                | Step::SetCwd(key) => key,
+                Step::Evaluate(_)
+                | Step::UseQueryValue(_)
+                | Step::Action { .. }
+                | Step::Plan(_)
+                | Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_) => panic!("unexpected step {step:?}"),
+            };
+            assert_eq!(key.encode(), "a/b/x", "unfrozen operand in {step:?}");
+        }
+        Ok(())
+    }
+
+    /// `SetCwd` takes effect in order, so a later operand sees the most recent working key.
+    #[test]
+    fn freeze_applies_setcwd_in_order() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::GetAsset(parse_key("./first")?),
+            Step::SetCwd(parse_key("../c")?),
+            Step::GetAsset(parse_key("./second")?),
+        ];
+        plan.freeze_cwd(Some(Key::new()))?;
+
+        assert!(matches!(&plan.steps[1], Step::GetAsset(k) if k.encode() == "a/b/first"));
+        assert!(matches!(&plan.steps[2], Step::SetCwd(k) if k.encode() == "a/c"));
+        assert!(matches!(&plan.steps[3], Step::GetAsset(k) if k.encode() == "a/c/second"));
+        Ok(())
+    }
+
+    /// A link parameter is its own scope: an inner `-R-cwd` must not move the enclosing plan.
+    #[test]
+    fn freeze_scopes_link_parameters() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::Action {
+                realm: String::new(),
+                ns: String::new(),
+                action_name: "act".to_owned(),
+                position: Position::unknown(),
+                parameters: ResolvedParameterValues(vec![ParameterValue::ParameterLink(
+                    "value".to_owned(),
+                    parse_query("-R-cwd/./child/-R/./inside.txt")?,
+                    Position::unknown(),
+                )]),
+            },
+            Step::GetAsset(parse_key("./outside.txt")?),
+        ];
+        plan.freeze_cwd(Some(Key::new()))?;
+
+        let Step::Action { parameters, .. } = &plan.steps[1] else {
+            panic!("expected an action");
+        };
+        let Some(ParameterValue::ParameterLink(_, link, _)) = parameters.0.first() else {
+            panic!("expected a link parameter");
+        };
+        assert_eq!(link.encode(), "-R-cwd/a/b/child/-R/a/b/child/inside.txt");
+        assert!(
+            matches!(&plan.steps[2], Step::GetAsset(k) if k.encode() == "a/b/outside.txt"),
+            "the link's own cwd must not leak into the enclosing plan"
+        );
+        Ok(())
+    }
+
+    /// A nested plan shares the cursor, so its final working key reaches later outer steps.
+    #[test]
+    fn freeze_shares_cursor_with_nested_plan() -> Result<(), Error> {
+        use crate::parse::parse_key;
+        let mut nested = Plan::new();
+        nested.steps = vec![Step::SetCwd(parse_key("../c")?)];
+        let mut plan = Plan::new();
+        plan.steps = vec![
+            Step::SetCwd(parse_key("a/b")?),
+            Step::Plan(nested),
+            Step::GetAsset(parse_key("./after.txt")?),
+        ];
+        plan.freeze_cwd(Some(Key::new()))?;
+
+        assert!(matches!(&plan.steps[2], Step::GetAsset(k) if k.encode() == "a/c/after.txt"));
+        Ok(())
+    }
+
+    /// The new fields are `serde(default)`, so a plan serialized before freezing existed still
+    /// deserializes — and reads as "not frozen" rather than as frozen against the root.
+    #[test]
+    fn frozen_plan_serde_defaults_on_legacy() -> Result<(), Error> {
+        let legacy = r#"{"query":{"segments":[],"absolute":false,"source":"Unspecified"},
+            "steps":[],"is_volatile":false}"#;
+        let plan: Plan = serde_json::from_str(legacy)
+            .map_err(|e| Error::general_error(format!("legacy plan must deserialize: {e}")))?;
+        assert!(plan.frozen_cwd.is_none());
+        assert!(plan.predecessor.is_none());
+        assert_eq!(plan.predecessor_steps, 0);
+        Ok(())
+    }
+
 }
 

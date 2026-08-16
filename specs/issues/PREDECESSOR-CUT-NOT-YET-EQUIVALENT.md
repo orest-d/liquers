@@ -19,15 +19,25 @@ observable behaviour. Measured by calling it from `finalize_plan` and running
 | Suite | Failures under the cut |
 |---|---|
 | `--lib` | 1 — `absolute_outer_resource_keeps_relative_link_on_live_cwd`, which asserts the **expanded** plan shape (`steps[1]` is a `GetAsset`, an `Evaluate` once cut). Not a defect. |
-| `recipe_cwd_resolution` | 6 — `programmatic_and_provider_cwd_select_their_own_inputs`, `explicit_cwd_overrides_recipe_cwd_for_later_relative_link`, `resolved_dependency_identity_reuses_cached_asset`, `context_boundary_commands_use_active_cwd`, `recursive_links_and_multiple_parameters_use_active_cwd`, `nested_keyed_recipe_cwd_is_not_bypassed` |
-| `expiration_integration` | 3 — `test_expired_dependency_is_recomputed_before_dependent_evaluation`, `test_get_any_status_has_no_side_effects_on_normal_get`, `test_manager_re_request_still_rebuilds_after_gate` |
 | `injection` | 1 — `test_chained_commands_with_payload` |
+| `recipe_cwd_resolution` | 2 — `programmatic_and_provider_cwd_select_their_own_inputs`, `recursive_links_and_multiple_parameters_use_active_cwd` |
 
-Every `recipe_cwd_resolution` failure is CWD-related, which points at a nested **keyed** recipe
-re-deriving its own working key behind the boundary rather than inheriting the frozen one. The
-expiration failures cluster around dependency recomputation and re-request gating, which a boundary
-changes by inserting an extra asset between dependent and dependency. The injection failure is a
-payload crossing one more boundary than before.
+Both remaining `recipe_cwd_resolution` failures are CWD-related, which points at a nested **keyed**
+recipe re-deriving its own working key behind the boundary rather than inheriting the frozen one.
+The `injection` failure is a payload crossing one more boundary than before.
+
+Down from 11 divergences when the design started. Fixed along the way, each found by comparison
+rather than analysis:
+
+- A stale `predecessor_steps` across the recipe CWD prefix made a cut plan run the predecessor's
+  action **twice**, once in the boundary asset and once inline.
+- `Query::predecessor` splits a trailing *filename* off as the remainder, and the builder recorded
+  the predecessor at every level of its recursion, so the outermost level overwrote the inner one
+  with the whole action chain. Cutting then swallowed the last action and a recipe's overrides had
+  nothing to patch. Fixed by recording only when the remainder is a real action. This also cleared
+  the three `expiration_integration` divergences.
+- A dependency's error was replaced by "did not produce a value", so a boundary hid the diagnosis.
+  Fixed by chaining the cause.
 
 ## Impact
 
@@ -46,17 +56,12 @@ are its starting worklist.
 
 ## Notes
 
-Two equivalence differences have already been found and fixed this way, which is why the suite is
-worth building rather than reasoning about:
-
-- A stale `predecessor_steps` across the recipe CWD prefix made a cut plan run the predecessor's
-  action **twice**, once in the boundary asset and once inline. Fixed in `plan-cwd-freeze`.
-- A dependency's error was replaced by "did not produce a value", so a boundary hid the diagnosis.
-  Fixed in the same design by chaining the cause.
-
-Phase 2 of that design concluded cutting was a policy choice rather than a correctness one, on the
-grounds that payload, volatility, side effects and cycles all reduce to declaration defects. Both
-fixes above were differences that analysis did not anticipate.
+`plan-cwd-freeze` Phase 2 concluded that cutting was a policy choice rather than a correctness one,
+on the grounds that payload, volatility, side effects and cycles all reduce to declaration defects.
+All three differences listed above were ones that analysis did not anticipate — which is the case
+for building the comparison harness rather than reasoning about equivalence. The harness lives in
+`liquers-core/src/interpreter.rs` as `evaluate_both_ways`; extending it to the remaining shapes is
+the work this issue tracks.
 
 ## Discovery
 
