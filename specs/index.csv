@@ -125,3 +125,4 @@ WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,loca
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed as a command argument,closed,local,,P1,S,core/commands;core/query,,,,plan-cwd-freeze,,2026-08-15,specs/issues/CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND.md
+PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,draft,local,,P1,M,core/plan;core/assets,,,,plan-cwd-freeze,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md

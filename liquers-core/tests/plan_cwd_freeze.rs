@@ -130,3 +130,38 @@ async fn cut_requires_a_frozen_plan() -> Result<(), Box<dyn std::error::Error>> 
     assert!(matches!(plan.steps.first(), Some(Step::Evaluate(_))));
     Ok(())
 }
+
+/// A dependency's failure is reported with its own cause, not merely as "a dependency failed".
+///
+/// This matters most once an evaluation boundary sits between the caller and the command that
+/// actually failed: without chaining, the diagnosis lives only in the sub-asset's log.
+#[tokio::test]
+async fn dependency_failure_reports_its_cause() -> Result<(), Box<dyn std::error::Error>> {
+    fn always_fails(_state: &State<Value>) -> Result<Value, Error> {
+        Err(Error::general_error("the real reason".to_owned()))
+    }
+    fn takes_a_link(_state: &State<Value>, value: String) -> Result<Value, Error> {
+        Ok(Value::from(value))
+    }
+
+    let mut environment = CommandEnvironment::new();
+    let registry = &mut environment.command_registry;
+    register_command!(registry, fn always_fails(state) -> result)?;
+    register_command!(registry, fn takes_a_link(state, value: String) -> result)?;
+    let envref = environment.to_ref();
+
+    // The immediate environment surfaces the failure from `evaluate` itself; a queued one
+    // surfaces it from `get`. Accept either, since the point is the message, not the path.
+    let error = match envref
+        .evaluate(parse_query("takes_a_link-~X~always_fails~E")?)
+        .await
+    {
+        Err(error) => error,
+        Ok(asset) => asset.get().await.expect_err("the dependency fails"),
+    };
+    assert!(
+        error.to_string().contains("the real reason"),
+        "the cause must survive the dependency boundary, got: {error}"
+    );
+    Ok(())
+}

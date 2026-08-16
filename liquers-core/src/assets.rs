@@ -1419,6 +1419,18 @@ impl<E: Environment> AssetRef<E> {
         Ok(lock.metadata.clone())
     }
 
+    /// The error this asset failed with, if it holds one.
+    ///
+    /// Used to chain a dependency's cause into its dependent, so an evaluation boundary does not
+    /// swallow the diagnosis.
+    pub(crate) async fn stored_error(&self) -> Option<Error> {
+        let lock = self.data.read().await;
+        match &lock.metadata {
+            Metadata::MetadataRecord(record) => record.error_data.clone(),
+            Metadata::LegacyMetadata(_) => None,
+        }
+    }
+
     /// Returns the latest value-persistence outcome.
     pub async fn persistence_status(&self) -> PersistenceStatus {
         let lock = self.data.read().await;
@@ -4443,11 +4455,26 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let status = dependency.status().await;
             match status {
                 Status::Error | Status::Cancelled => {
-                    let e = Error::general_error(format!(
-                        "Dependency asset {} did not produce a value (status {:?})",
-                        dependency.id(),
-                        status
-                    ));
+                    // Carry the dependency's own error up, rather than replacing it with the fact
+                    // that a dependency failed. Which asset failed is the least useful half of the
+                    // story, and it is the only half a caller sees once an evaluation boundary
+                    // sits between them and the command that actually failed.
+                    let e = match dependency.stored_error().await {
+                        Some(cause) => {
+                            let mut chained = Error::from_error(cause.error_type.clone(), &cause)
+                                .with_position(&cause.position);
+                            chained.query = cause.query.clone();
+                            if let Some(command_key) = &cause.command_key {
+                                chained = chained.with_command_key(command_key);
+                            }
+                            chained
+                        }
+                        None => Error::general_error(format!(
+                            "Dependency asset {} did not produce a value (status {:?})",
+                            dependency.id(),
+                            status
+                        )),
+                    };
                     let _ = parent.fail_due_to_dependency(e.clone()).await;
                     return Err(e);
                 }
