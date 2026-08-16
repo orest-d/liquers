@@ -2478,6 +2478,24 @@ impl Query {
     ///
     /// The remainder is the final action or filename, if available. The predecessor
     /// is the query without that remainder, if available.
+    /// Whether any resource operand in this query is CWD-relative, including inside link
+    /// parameters.
+    ///
+    /// This is the test that decides whether a query can name an asset on its own. It asks about
+    /// **operand form**, not about [`Query::absolute`]: a query with no key operand at all, such as
+    /// `greet-Hello`, means the same thing in every directory and is therefore not relative.
+    pub fn has_relative_operand(&self) -> bool {
+        self.segments.iter().any(|segment| match segment {
+            QuerySegment::Resource(resource) => CwdCursor::is_relative(&resource.key),
+            QuerySegment::Transform(transform) => transform.query.iter().any(|action| {
+                action.parameters.iter().any(|parameter| match parameter {
+                    ActionParameter::Link(link, _) => link.has_relative_operand(),
+                    ActionParameter::String(_, _) => false,
+                })
+            }),
+        })
+    }
+
     pub fn predecessor(&self) -> (Option<Query>, Option<QuerySegment>) {
         match &self.segments.last() {
             None => (None, None),

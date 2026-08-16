@@ -115,7 +115,7 @@ fn promote_relative_default_links(
                 let CommandParameterValue::Query(default) = &argument.default else {
                     continue;
                 };
-                if !query_has_relative_operand(default) {
+                if !default.has_relative_operand() {
                     continue; // absolute: metadata reproduces it, so leave it implicit
                 }
                 action
@@ -125,19 +125,6 @@ fn promote_relative_default_links(
         }
     }
     Ok(promoted)
-}
-
-/// Whether any resource operand in `query`, including inside link parameters, is CWD-relative.
-pub(crate) fn query_has_relative_operand(query: &Query) -> bool {
-    query.segments.iter().any(|segment| match segment {
-        QuerySegment::Resource(resource) => CwdCursor::is_relative(&resource.key),
-        QuerySegment::Transform(transform) => transform.query.iter().any(|action| {
-            action.parameters.iter().any(|parameter| match parameter {
-                ActionParameter::Link(link, _) => query_has_relative_operand(link),
-                ActionParameter::String(_, _) => false,
-            })
-        }),
-    })
 }
 
 fn append_actions(query: &Query, actions: Vec<ActionRequest>) -> Query {

@@ -21,7 +21,8 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [x] Phase 4: Implementation Plan (awaiting approval)
+- [x] Phase 4: Implementation Plan (approved)
+- [~] Implementation: steps 1-7 and 13 landed; 8-12 blocked
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -87,6 +88,29 @@ steps 8-10 must land together or `liquers-core/tests` does not compile. The rust
 corrected two Phase 2 statements: `get_cwd_key` *is* used outside the crate (from
 `liquers-core/tests/`, which links core externally), and `Error` has no `cause` field, so chaining is
 message composition plus context carry-over rather than a new recursive field.
+
+### Implementation status, 2026-08-15
+
+**Landed and green** (steps 1-7, 13): `Plan::freeze_cwd`, the builder recording the predecessor with
+promoted default links, `Plan::cut_predecessor`, activation in `finalize_plan`, removal of
+`expand_predecessors` and the `recipes.rs` marker. `cargo test -p liquers-core --tests` all 16 suites
+green; `cargo test -p liquers-lib --lib --tests` green.
+
+**Measured with cutting forced on**: 11 failures at HEAD -> 6 after freeze -> 2 after fixing the
+predecessor step range across the recipe CWD prefix -> 1 after declaring `payload: required` on the
+`word` test command. The last one asserts the expanded plan shape, which is correct for the default.
+
+**Defect found by that measurement**, now fixed: `Recipe::to_plan` inserts `Step::SetCwd` at index 0
+after building, which left `predecessor_steps` stale, so `cut_predecessor` kept the predecessor's own
+action and a cut plan ran it twice. This was a fourth equivalence difference Phase 2 did not
+anticipate, and it hit a plain non-volatile recipe.
+
+**Blocked** (steps 8-12): `CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND` (P1). A command can declare
+neither `dir: Key` (no `FromParameterValue`) nor `dir: String` (no `Value::Key` arm in
+`try_into_string`), so the `-R-key/.` replacement for `Context::get_cwd_key` does not exist yet and
+the accessor cannot be narrowed. Step 8 was written, verified to break `liquers-core/tests` exactly
+as planned, then reverted to keep the tree green. Phase 2's "no new value types" note was wrong:
+existing as a value does not imply being consumable as a command argument.
 
 ## Links
 
