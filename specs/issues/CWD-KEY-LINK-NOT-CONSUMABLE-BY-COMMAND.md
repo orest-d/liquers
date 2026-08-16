@@ -2,7 +2,7 @@
 id: CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND
 kind: issue
 title: A `-R-key/` link cannot be consumed as a command argument
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [core/commands, core/query]
@@ -10,6 +10,26 @@ design: plan-cwd-freeze
 created: 2026-08-15
 github:
 ---
+## Resolution
+
+Fixed in `plan-cwd-freeze`. Two additive impls, no change to existing conversions:
+
+- `impl TryFrom<Value> for Key` (`liquers-core/src/value.rs`), delegating to the existing
+  `try_into_key`. This is the conversion the **link** path uses.
+- `impl FromParameterValue<Key> for Key` (`liquers-core/src/commands.rs`), parsing a key written
+  literally in the query text with `parse_key`. Needed to satisfy the bound on
+  `CommandArguments::get`; the link path never reaches it.
+
+`try_into_string` was **not** changed, and String conversion was not widened. The original analysis
+below overstated the problem: `CommandArguments::get` (`commands.rs:102-109`) converts a
+link-resolved argument through `T::try_from(Value)` and only falls back to `from_parameter_value`
+for a literal parameter, so `try_into_string` was never on the link path — it mattered only for the
+`dir: String` workaround, which is now unnecessary.
+
+Verified end to end in `liquers-core/tests/plan_cwd_freeze.rs`: a `-R-key/.` default link delivers
+the working directory to a command, resolves per directory, and is overridable by an explicit
+argument.
+
 ## Problem
 
 `-R-key/<key>` plans to `Step::UseKeyValue` and evaluates to `Value::Key`. As a **link argument** to

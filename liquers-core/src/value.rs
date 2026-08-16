@@ -749,6 +749,19 @@ impl From<bool> for Value {
     }
 }
 
+/// A key-valued link argument, produced by a `-R-key/<key>` query.
+///
+/// This is how a command receives a *location* rather than a location's contents — most notably
+/// the current directory, via a `-R-key/.` default link. It is the supported replacement for
+/// reading the working key out of `Context`: explicit in the query, overridable per call, and
+/// visible to the planner.
+impl TryFrom<Value> for crate::query::Key {
+    type Error = Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        value.try_into_key()
+    }
+}
+
 impl TryFrom<Value> for String {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {

@@ -13,7 +13,7 @@ use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadata
 use crate::context::{Context, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
-use crate::query::{Position, Query};
+use crate::query::{Key, Position, Query};
 use crate::state::State;
 use crate::value::ValueInterface;
 
@@ -210,6 +210,32 @@ macro_rules! impl_from_parameter_value2_opt {
             }
         }
     };
+}
+
+/// A key written directly in the query text, rather than supplied through a link.
+///
+/// The link path never reaches here — it converts through `TryFrom<Value>` in
+/// [`CommandArguments::get`] — but the bound requires both, and a literal key argument is a
+/// reasonable thing to write, so it is parsed rather than rejected.
+impl FromParameterValue<Key> for Key {
+    fn from_parameter_value(param: &ParameterValue) -> Result<Key, Error> {
+        let Some(ref value) = param.value() else {
+            return Err(Error::conversion_error_with_message(
+                param,
+                "Key",
+                "Parameter value expected",
+            ));
+        };
+        let Some(text) = value.as_str() else {
+            return Err(Error::conversion_error_with_message(
+                value,
+                "Key",
+                "Key parameter value expected",
+            )
+            .with_position(&param.position()));
+        };
+        crate::parse::parse_key(text).map_err(|error| error.with_position(&param.position()))
+    }
 }
 
 impl_from_parameter_value2!(
