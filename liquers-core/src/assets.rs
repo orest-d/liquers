@@ -4460,15 +4460,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                     // story, and it is the only half a caller sees once an evaluation boundary
                     // sits between them and the command that actually failed.
                     let e = match dependency.stored_error().await {
-                        Some(cause) => {
-                            let mut chained = Error::from_error(cause.error_type.clone(), &cause)
-                                .with_position(&cause.position);
-                            chained.query = cause.query.clone();
-                            if let Some(command_key) = &cause.command_key {
-                                chained = chained.with_command_key(command_key);
-                            }
-                            chained
-                        }
+                        // Surface the cause as it stands. Rebuilding it through `from_error` would
+                        // store the cause's *rendered* form — which already carries its command
+                        // name and position — and then re-attach both, so the message would read
+                        // "Command 'x' failed: Command 'x' failed: ... at .. at ..".
+                        Some(cause) => cause,
                         None => Error::general_error(format!(
                             "Dependency asset {} did not produce a value (status {:?})",
                             dependency.id(),

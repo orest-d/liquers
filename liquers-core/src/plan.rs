@@ -118,6 +118,16 @@ fn promote_relative_default_links(
                 if !default.has_relative_operand() {
                     continue; // absolute: metadata reproduces it, so leave it implicit
                 }
+                if action.parameters.len() != index {
+                    // An earlier argument was omitted too, so appending would bind the link to
+                    // *that* slot and leave this one implicit — the recorded query would mean
+                    // something other than the plan it was recorded for. Writing the earlier
+                    // defaults out to keep the positions is possible but not always (a
+                    // placeholder or an injected argument has nothing to write), so the query is
+                    // recorded unpromoted instead. That is merely less self-contained, never
+                    // wrong; see PREDECESSOR-CUT-NOT-YET-EQUIVALENT.
+                    break;
+                }
                 action
                     .parameters
                     .push(ActionParameter::Link(default.clone(), action.position.clone()));
@@ -4615,6 +4625,49 @@ mod tests {
         assert!(plan.frozen_cwd.is_none());
         assert!(plan.predecessor.is_none());
         assert_eq!(plan.predecessor_steps, 0);
+        Ok(())
+    }
+
+
+    /// A relative default link is promoted into **its own** argument slot.
+    ///
+    /// Appending to the action AST only lands in the right place when every earlier slot is
+    /// already written. With an omitted argument in front, an appended link would bind to that
+    /// earlier argument instead, so the recorded query would mean something different from the
+    /// plan it was recorded for.
+    #[test]
+    fn promotion_does_not_shift_into_an_earlier_argument_slot() -> Result<(), Error> {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut prefix = ArgumentInfo::string_argument("prefix");
+        prefix.default = CommandParameterValue::Value(serde_json::json!("x"));
+        let mut dir = ArgumentInfo::any_argument("dir");
+        dir.default = CommandParameterValue::Query(parse_query("-R-key/.")?);
+        cmr.add_command(&CommandMetadata::new("seed"));
+        cmr.add_command(
+            CommandMetadata::new("two_args")
+                .with_argument(prefix)
+                .with_argument(dir),
+        );
+
+        let plan = PlanBuilder::new(parse_query("seed/two_args")?, &cmr).build()?;
+        let Some(recorded) = &plan.predecessor else {
+            return Ok(()); // nothing recorded is acceptable; a wrong recording is not
+        };
+        let Some(QuerySegment::Transform(transform)) = recorded.segments.last() else {
+            return Ok(());
+        };
+        for action in transform.query.iter() {
+            if action.name != "two_args" {
+                continue;
+            }
+            if let Some(first) = action.parameters.first() {
+                assert!(
+                    !matches!(first, ActionParameter::Link(_, _)),
+                    "the key link landed in the `prefix` slot: {}",
+                    recorded.encode()
+                );
+            }
+        }
         Ok(())
     }
 

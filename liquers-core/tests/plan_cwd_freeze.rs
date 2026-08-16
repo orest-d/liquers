@@ -159,9 +159,23 @@ async fn dependency_failure_reports_its_cause() -> Result<(), Box<dyn std::error
         Err(error) => error,
         Ok(asset) => asset.get().await.expect_err("the dependency fails"),
     };
+    let rendered = error.to_string();
     assert!(
-        error.to_string().contains("the real reason"),
-        "the cause must survive the dependency boundary, got: {error}"
+        rendered.contains("the real reason"),
+        "the cause must survive the dependency boundary, got: {rendered}"
+    );
+    // Surfacing the cause must not re-wrap it. Rebuilding through `Error::from_error` would store
+    // the cause's already-rendered form and then re-attach its command and position, giving
+    // "Command 'x' failed: Command 'x' failed: ... at .. at ..".
+    assert_eq!(
+        rendered.matches("failed:").count(),
+        1,
+        "the cause is reported once, not wrapped again: {rendered}"
+    );
+    assert_eq!(
+        rendered.matches(" at ").count(),
+        1,
+        "the position is attached once: {rendered}"
     );
     Ok(())
 }
