@@ -1882,7 +1882,10 @@ mod tests {
             Ok(Value::from(format!("{greet}, {upper_text}!")))
         }
         let cr = &mut env.command_registry;
-        register_command!(cr, fn word(state, payload: String injected) -> result)
+        // `payload: required` is what carries the payload across an evaluation boundary. Without
+        // it this command works only at top level, where `evaluate_immediately` installs the
+        // payload directly, and silently receives none as a nested dependency.
+        register_command!(cr, fn word(state, payload: String injected) -> result payload: required)
             .expect("register_command failed");
         register_command!(cr, fn upper(state) -> result).expect("register_command failed");
         register_command!(cr, async fn greet(state, greet: String = "Hello", context) -> result)

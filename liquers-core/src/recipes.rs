@@ -237,6 +237,12 @@ impl Recipe {
 
         if let Some(cwd) = self.get_cwd()? {
             plan.steps.insert(0, Step::SetCwd(cwd.clone()));
+            // The prefix shifts every step the builder emitted, so the recorded predecessor range
+            // has to move with it. Leaving it stale makes `cut_predecessor` split in the wrong
+            // place and keep the predecessor's own action, which then runs twice.
+            if plan.predecessor.is_some() {
+                plan.predecessor_steps += 1;
+            }
             plan.init_info(format!("Recipe set CWD to '{}'", cwd.encode()));
         }
 
