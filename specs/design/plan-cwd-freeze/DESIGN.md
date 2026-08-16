@@ -4,7 +4,7 @@ kind: design
 title: Freeze CWD in the plan and cut correct predecessor boundaries
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/plan, core/query, core/context, core/assets]
 gh_pr: []
 issues: [CORE-RECIPES-EXPAND-PREDECESSORS-CRASH, CORE-PLAN-POLICY-AND-DEFAULTS]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [x] Phase 3: Examples & Testing (awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [x] Phase 4: Implementation Plan (awaiting approval)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -81,6 +81,12 @@ cutting is policy rather than correctness. E8 is deliberately an *inequivalence*
 one case the two forms differ (an undeclared payload command) so the claim stays falsifiable. All
 queries checked with `liquers-validate` before being written down. Runnable tests rather than
 `examples/*.rs`: there is no user-facing API here, only internal behaviour to pin.
+
+Phase 4: 13 steps. Steps 1-6 are inert, step 7 activates freeze, step 8 is the breaking change;
+steps 8-10 must land together or `liquers-core/tests` does not compile. The rust-best-practices pass
+corrected two Phase 2 statements: `get_cwd_key` *is* used outside the crate (from
+`liquers-core/tests/`, which links core externally), and `Error` has no `cause` field, so chaining is
+message composition plus context carry-over rather than a new recursive field.
 
 ## Links
 
