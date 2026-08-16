@@ -6,7 +6,7 @@ use liquers_core::{
     metadata::{LogEntryKind, Metadata, MetadataRecord, Status},
     parse::{parse_key, parse_query},
     plan::{ParameterValue, Step},
-    query::Key,
+    query::{Key, Query},
     recipes::{DefaultRecipeProvider, Recipe},
     state::State,
     store::{AsyncMemoryStore, AsyncStore},
@@ -26,21 +26,17 @@ fn use_link(_state: &State<Value>, use_link: String) -> Result<Value, Error> {
     Ok(Value::from(use_link))
 }
 
-fn cwd(context: Context<CommandEnvironment>) -> Result<Value, Error> {
-    let key = context
-        .get_cwd_key()
-        .ok_or_else(|| Error::general_error("missing test CWD".to_owned()))?;
-    Ok(Value::from(key.encode()))
+// The directory arrives as data through a `-R-key/.` default link rather than being read out of
+// `Context`. It is explicit in the plan, overridable per call, and visible to the planner.
+fn cwd(dir: Key) -> Result<Value, Error> {
+    Ok(Value::from(dir.encode()))
 }
 
-fn append_cwd(state: &State<Value>, context: Context<CommandEnvironment>) -> Result<Value, Error> {
-    let key = context
-        .get_cwd_key()
-        .ok_or_else(|| Error::general_error("missing test CWD".to_owned()))?;
+fn append_cwd(state: &State<Value>, dir: Key) -> Result<Value, Error> {
     Ok(Value::from(format!(
         "{}|{}",
         state.try_into_string()?,
-        key.encode()
+        dir.encode()
     )))
 }
 
@@ -50,9 +46,12 @@ async fn pass(_state: State<Value>, use_link: String) -> Result<Value, Error> {
 
 async fn via_evaluate(
     _state: State<Value>,
+    dir: Key,
     context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
-    let asset = context.evaluate(&parse_query("-R/./hello.txt")?).await?;
+    // A command builds an absolute query from the directory it was given; a relative one is
+    // refused, because it could not identify the asset it names.
+    let asset = context.evaluate(&Query::from(dir.join("hello.txt"))).await?;
     Ok(Value::from(format!(
         "via_evaluate:{}",
         asset.get().await?.try_into_string()?
@@ -61,10 +60,11 @@ async fn via_evaluate(
 
 async fn via_state(
     _state: State<Value>,
+    dir: Key,
     context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let state = context
-        .get_dependency_state(&parse_query("-R/./hello.txt")?)
+        .get_dependency_state(&Query::from(dir.join("hello.txt")))
         .await?;
     Ok(Value::from(format!(
         "via_state:{}",
@@ -74,11 +74,12 @@ async fn via_state(
 
 async fn via_apply(
     _state: State<Value>,
+    dir: Key,
     context: Context<CommandEnvironment>,
 ) -> Result<Value, Error> {
     let asset = context
         .apply(
-            &parse_query("-R-stored/./identity")?,
+            &parse_query(&format!("-R-stored/{}", dir.join("identity").encode()))?,
             State::new().with_data(Value::from("ignored")),
         )
         .await?;
@@ -94,12 +95,12 @@ fn make_env(store: AsyncMemoryStore) -> Result<EnvRef<CommandEnvironment>, Error
         let registry = &mut env.command_registry;
         register_command!(registry, fn identity(state) -> result)?;
         register_command!(registry, fn use_link(state, use_link: String) -> result)?;
-        register_command!(registry, fn cwd(context) -> result)?;
-        register_command!(registry, fn append_cwd(state, context) -> result)?;
+        register_command!(registry, fn cwd(dir: Key = query "-R-key/.") -> result)?;
+        register_command!(registry, fn append_cwd(state, dir: Key = query "-R-key/.") -> result)?;
         register_command!(registry, async fn pass(state, use_link: String) -> result)?;
-        register_command!(registry, async fn via_evaluate(state, context) -> result)?;
-        register_command!(registry, async fn via_state(state, context) -> result)?;
-        register_command!(registry, async fn via_apply(state, context) -> result)?;
+        register_command!(registry, async fn via_evaluate(state, dir: Key = query "-R-key/.", context) -> result)?;
+        register_command!(registry, async fn via_state(state, dir: Key = query "-R-key/.", context) -> result)?;
+        register_command!(registry, async fn via_apply(state, dir: Key = query "-R-key/.", context) -> result)?;
         let metadata = registry.register_command(
             CommandKey::new_name("collect_links"),
             |_state, arguments, _context| {

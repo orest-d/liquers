@@ -2496,6 +2496,38 @@ impl Query {
         })
     }
 
+    /// Position of the first CWD-relative resource operand, for diagnostics.
+    pub(crate) fn first_relative_operand_position(&self) -> Option<Position> {
+        for segment in self.segments.iter() {
+            match segment {
+                QuerySegment::Resource(resource) => {
+                    if CwdCursor::is_relative(&resource.key) {
+                        return resource
+                            .key
+                            .0
+                            .first()
+                            .map(|name| name.position.clone())
+                            .or_else(|| resource.header.as_ref().map(|h| h.position.clone()));
+                    }
+                }
+                QuerySegment::Transform(transform) => {
+                    for action in transform.query.iter() {
+                        for parameter in action.parameters.iter() {
+                            if let ActionParameter::Link(link, position) = parameter {
+                                if link.has_relative_operand() {
+                                    return link
+                                        .first_relative_operand_position()
+                                        .or_else(|| Some(position.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn predecessor(&self) -> (Option<Query>, Option<QuerySegment>) {
         match &self.segments.last() {
             None => (None, None),

@@ -416,10 +416,38 @@ impl<E: Environment> Context<E> {
     /// part of the dependency key and two evaluations with different payloads would
     /// otherwise share one identity. It still records its own dependencies, and cycles are
     /// detected along the evaluation path via `active_payload_queries`.
+    /// Rejects a query that cannot name an asset on its own.
+    ///
+    /// A plan is frozen before it executes, so every operand a command receives *through the plan*
+    /// is already absolute. A query a command **builds** is not. A relative one would mean
+    /// different things in different directories while looking identical, so it could not be
+    /// identified, cached or shared — and nothing marks which commands read the directory, so the
+    /// alternative is to carry a CWD in every query, multiplying cache entries per folder for the
+    /// majority that need none.
+    ///
+    /// The supported way to reach the current directory is a `-R-key/.` link argument: explicit in
+    /// the query, overridable per call, and visible to the planner.
+    fn reject_relative_query(query: &Query) -> Result<(), Error> {
+        if !query.has_relative_operand() {
+            return Ok(());
+        }
+        let error = Error::not_supported(format!(
+            "Query '{}' is relative and cannot be evaluated from a command. Take the current \
+             directory as a link argument (`-R-key/.`) and build an absolute query from it.",
+            query.encode()
+        ))
+        .with_query(query);
+        Err(match query.first_relative_operand_position() {
+            Some(position) => error.with_position(&position),
+            None => error,
+        })
+    }
+
     pub(crate) async fn schedule_dependency_asset(
         &self,
         query: &Query,
     ) -> Result<AssetRef<E>, Error> {
+        Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
@@ -592,6 +620,7 @@ impl<E: Environment> Context<E> {
     /// [`AssetManager::apply_immediately`]; otherwise it delegates to
     /// [`AssetManager::apply`] as before.
     pub async fn apply(&self, query: &Query, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
+        Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
         let requirement = {
@@ -726,7 +755,7 @@ impl<E: Environment> Context<E> {
         }
     }
     /// Returns the current working key used for relative query resolution.
-    pub fn get_cwd_key(&self) -> Option<Key> {
+    pub(crate) fn get_cwd_key(&self) -> Option<Key> {
         self.cwd_key
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -734,7 +763,7 @@ impl<E: Environment> Context<E> {
     }
 
     /// Replaces the current working key shared by all context clones.
-    pub fn set_cwd_key(&self, key: Option<Key>) {
+    pub(crate) fn set_cwd_key(&self, key: Option<Key>) {
         let mut guard = self
             .cwd_key
             .lock()
@@ -1568,24 +1597,49 @@ mod tests {
         assert!(receiver.try_recv().is_err());
     }
 
+    /// All three command-facing entry points refuse a query that cannot name an asset.
+    ///
+    /// A relative query would mean different things in different directories while looking
+    /// identical, so it could not be identified or cached. The directory reaches a command as a
+    /// `-R-key/.` link argument instead, and the command builds an absolute query from it — which
+    /// is what the positive half of this test exercises.
     #[tokio::test]
-    async fn context_entry_points_resolve_relative_queries() {
+    async fn context_entry_points_reject_relative_queries() {
         let (context, _receiver) = test_context();
         context.set_cwd_key(Some(parse_key("a/b").expect("context cwd")));
 
+        let relative = parse_query("-R-key/./from-state").expect("relative query");
+
+        let state_error = context
+            .get_dependency_state(&relative)
+            .await
+            .expect_err("get_dependency_state must refuse a relative query");
+        let Err(evaluate_error) = context.evaluate(&relative).await else {
+            std::panic!("evaluate must refuse a relative query");
+        };
+        let Err(apply_error) = context.apply(&relative, State::new()).await else {
+            std::panic!("apply must refuse a relative query");
+        };
+
+        for error in [state_error, evaluate_error, apply_error] {
+            assert_eq!(error.error_type, crate::error::ErrorType::NotSupported);
+            assert!(
+                error.message.contains("-R-key/."),
+                "the message must name the supported replacement: {error}"
+            );
+        }
+
+        // The absolute form a command is expected to build still works at all three entry points.
+        let absolute = parse_query("-R-key/a/b/from-state").expect("absolute query");
+        let expected = Value::Key(parse_key("a/b/from-state").expect("expected key"));
+
         let state = context
-            .get_dependency_state(&parse_query("-R-key/./from-state").expect("state query"))
+            .get_dependency_state(&absolute)
             .await
             .expect("dependency state");
-        assert_eq!(
-            state.value().expect("state value").as_ref(),
-            &Value::Key(parse_key("a/b/from-state").expect("state key"))
-        );
+        assert_eq!(state.value().expect("state value").as_ref(), &expected);
 
-        let evaluated = context
-            .evaluate(&parse_query("-R-key/./from-evaluate").expect("evaluate query"))
-            .await
-            .expect("evaluate");
+        let evaluated = context.evaluate(&absolute).await.expect("evaluate");
         assert_eq!(
             evaluated
                 .get()
@@ -1594,14 +1648,11 @@ mod tests {
                 .value()
                 .expect("evaluated value")
                 .as_ref(),
-            &Value::Key(parse_key("a/b/from-evaluate").expect("evaluate key"))
+            &expected
         );
 
         let applied = context
-            .apply(
-                &parse_query("-R-key/./from-apply").expect("apply query"),
-                State::new(),
-            )
+            .apply(&absolute, State::new())
             .await
             .expect("apply");
         assert_eq!(
@@ -1612,7 +1663,7 @@ mod tests {
                 .value()
                 .expect("applied value")
                 .as_ref(),
-            &Value::Key(parse_key("a/b/from-apply").expect("apply key"))
+            &expected
         );
     }
 }
