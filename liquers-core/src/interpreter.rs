@@ -38,7 +38,16 @@ pub async fn finalize_plan<E: Environment>(
     plan: &mut Plan,
     context: &Context<E>,
 ) -> Result<(), Error> {
+    // Freeze before any analysis: once every operand is absolute, the dependency and
+    // pre-scheduling walks observe exactly what execution will, instead of each re-deriving the
+    // working key with its own cursor.
     let initial_cwd = context.get_cwd_key();
+    let (_, defaulted_to_root) = plan.freeze_cwd(initial_cwd.clone())?;
+    // Warn only when the fallback was actually used, and only once — the same contract
+    // `schedule_plan_dependencies` honours. A plan with no relative operand stays silent.
+    if defaulted_to_root && context.install_logical_root_if_unset() {
+        context.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
+    }
     has_volatile_dependencies(envref.clone(), plan, initial_cwd).await?;
     has_expirable_dependencies(envref.clone(), plan).await?;
 
@@ -1183,9 +1192,13 @@ mod tests {
         recipe.cwd = Some("a/c".to_owned());
         let mut plan = recipe.to_plan(envref.get_command_metadata_registry())?;
         let context = immediate_context(envref.clone(), None).await;
+
+        // The index maps source query segments onto steps positionally, so it is meaningful only
+        // while the operands are still source-relative. Freezing consumes it.
+        assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
+
         finalize_plan(envref.clone(), &mut plan, &context).await?;
 
-        assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
         assert!(plan
             .dependencies
             .iter()
@@ -1198,9 +1211,11 @@ mod tests {
             .dependencies
             .iter()
             .any(|dependency| dependency.key.as_str() == "-R/a/c/hello.txt"));
+        // Frozen: the absolute query's own resource resolved against logical root, not against the
+        // recipe CWD. Before freezing this step read `./data` and was resolved afresh by each pass.
         assert!(matches!(
             &plan.steps[1],
-            Step::GetAsset(key) if key.encode() == "./data"
+            Step::GetAsset(key) if key.encode() == "data"
         ));
 
         let result = apply_plan(plan.clone(), State::new(), context.clone(), envref).await?;
@@ -1210,9 +1225,10 @@ mod tests {
             context.get_cwd_key().map(|key| key.encode()).as_deref(),
             Some("a/c")
         );
+        // Execution does not mutate the frozen plan.
         assert!(matches!(
             &plan.steps[1],
-            Step::GetAsset(key) if key.encode() == "./data"
+            Step::GetAsset(key) if key.encode() == "data"
         ));
         Ok(())
     }

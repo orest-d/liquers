@@ -2165,6 +2165,12 @@ pub(crate) const RELATIVE_WITHOUT_CWD_WARNING: &str =
 pub(crate) struct CwdCursor {
     cwd: Option<Key>,
     defaulted_to_root: bool,
+    /// Set when [`Self::resolve_key`] took its relative branch, i.e. this cursor actually
+    /// consumed the CWD rather than passing an absolute operand through.
+    ///
+    /// Read by the freeze migration assertion: once a plan is frozen, every runtime resolution
+    /// should leave this clear, because an absolute key returns early.
+    consumed_cwd: bool,
 }
 
 #[allow(dead_code)]
@@ -2173,10 +2179,12 @@ impl CwdCursor {
         Self {
             cwd,
             defaulted_to_root: false,
+            consumed_cwd: false,
         }
     }
 
-    fn is_relative(key: &Key) -> bool {
+    /// Whether `key` is expressed relative to a CWD, i.e. it starts with `.` or `..`.
+    pub(crate) fn is_relative(key: &Key) -> bool {
         key.0
             .first()
             .is_some_and(|name| name.is_cwd() || name.is_parent())
@@ -2194,6 +2202,7 @@ impl CwdCursor {
         if !Self::is_relative(key) {
             return key.clone();
         }
+        self.consumed_cwd = true;
 
         let cwd = self.cwd.get_or_insert_with(|| {
             self.defaulted_to_root = true;
@@ -2246,6 +2255,12 @@ impl CwdCursor {
             self.cwd = Some(Key::new());
             self.defaulted_to_root = true;
         }
+        // Resolution runs on clones, so consumption observed by either the scoped cursor or the
+        // absolute-resource cursor has to be reported back to the caller.
+        self.consumed_cwd |= scoped.consumed_cwd
+            || absolute_resource_cursor
+                .as_ref()
+                .is_some_and(|cursor| cursor.consumed_cwd);
 
         resolved
     }
@@ -2262,6 +2277,22 @@ impl CwdCursor {
 
     pub(crate) fn take_root_fallback(&mut self) -> bool {
         std::mem::take(&mut self.defaulted_to_root)
+    }
+
+    /// Whether any resolution performed by this cursor consumed the CWD, clearing the flag.
+    pub(crate) fn take_consumed_cwd(&mut self) -> bool {
+        std::mem::take(&mut self.consumed_cwd)
+    }
+
+    /// Merges the *diagnostic* flags observed by a scoped child cursor back into this one.
+    ///
+    /// Deliberately does not merge the working key: a child scope exists precisely so that a
+    /// `-R-cwd` inside a link cannot move its parent. Whether the child fell back to logical root,
+    /// or consumed a CWD at all, is not scoped — it describes the resolution as a whole, and the
+    /// caller owns the single warning that follows from it.
+    pub(crate) fn absorb_diagnostics(&mut self, child: &CwdCursor) {
+        self.defaulted_to_root |= child.defaulted_to_root;
+        self.consumed_cwd |= child.consumed_cwd;
     }
 }
 

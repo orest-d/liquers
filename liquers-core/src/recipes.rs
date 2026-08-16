@@ -214,7 +214,6 @@ impl Recipe {
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
         let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
-        //            .disable_expand_predecessors(); // TODO: fix - evaluate_immediately unittest is crashing with this option
         let mut plan = planbuilder.build()?;
 
         for (name, value) in &self.arguments {
