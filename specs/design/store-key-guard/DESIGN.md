@@ -4,7 +4,7 @@ kind: design
 title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/store, store/backends, core/error, web, axum]
 gh_pr: []
 issues: [STORE-FILESTORE-PATH-TRAVERSAL]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — approved 2026-08-17
-- [x] Phase 2: Solution & Architecture — awaiting approval
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture — approved 2026-08-17
+- [x] Phase 3: Examples & Testing — awaiting approval
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -88,6 +88,7 @@ into are open questions 1 and 2 (`CwdCursor::is_relative` tests only the first s
 | 2026-08-17 | The rule is a precondition — a store requires an absolute key — not a list of refused segments. |
 | 2026-08-17 | The `Key` API is `is_relative`, `as_absolute`, `try_into_absolute`; document the rule in rustdoc and note the gap for DOC-07 rather than writing a new reference. |
 | 2026-08-17 | The new error type is named `KeyNotAbsolute`. |
+| 2026-08-17 | The `AbsoluteKey` newtype is filed as `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` rather than built here. |
 
 ## Open for the user
 
