@@ -1,11 +1,11 @@
 ---
 id: STORE-KEY-GUARD
 kind: design
-title: Store key guard — refuse `..`, `.` and empty key segments at the store boundary
+title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
 status: draft
 phase: high-level
-area: [core/store, store/backends, web, axum]
+area: [core/store, store/backends, core/error, web, axum]
 gh_pr: []
 issues: [STORE-FILESTORE-PATH-TRAVERSAL]
 affects_docs: []
@@ -47,6 +47,12 @@ superseded_by:
   call. To be confirmed properly in Phase 2.
 - `liquers-web/src/store/key_guard.rs` already implements the intended rule and its module docs
   name this issue as the reason it is a temporary local copy.
+
+**Framing set by the user, 2026-08-17:** the rule is not a list of refused segments but a
+precondition — relative keys are a plan-level feature, and a store requires an absolute key. A
+dedicated error names the violation. Phase 1 rewritten around this; two naming collisions it runs
+into are open questions 1 and 2 (`CwdCursor::is_relative` tests only the first segment;
+`Query::absolute` already means "had a leading `/`").
 
 ## Links
 
