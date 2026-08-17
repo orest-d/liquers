@@ -231,8 +231,12 @@ impl AsyncOpenDALStore {
         AsyncOpenDALStore { op, prefix }
     }
 
-    pub fn key_to_path(&self, key: &Key) -> String {
-        key.encode()
+    /// Maps a key onto a backend path.
+    ///
+    /// Fallible because a store requires an absolute key: a `.` or `..` element would address
+    /// something outside the intended namespace. See `liquers_core::store` for the rule.
+    pub fn key_to_path(&self, key: &Key) -> Result<String, Error> {
+        Ok(key.as_absolute()?.encode())
     }
     pub fn path_to_key(&self, path: &str) -> Result<Key, Error> {
         use liquers_core::parse;
@@ -240,8 +244,9 @@ impl AsyncOpenDALStore {
         parse::parse_key(trimmed)
     }
 
-    pub fn key_to_path_metadata(&self, key: &Key) -> String {
-        format!("{}{}", key.encode(), Self::METADATA)
+    /// Maps a key onto its metadata path. Fallible for the same reason as [`Self::key_to_path`].
+    pub fn key_to_path_metadata(&self, key: &Key) -> Result<String, Error> {
+        Ok(format!("{}{}", key.as_absolute()?.encode(), Self::METADATA))
     }
     fn map_read_error<T>(
         &self,
@@ -272,7 +277,7 @@ impl AsyncOpenDALStore {
     async fn make_sub_dirs(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
         for i in 1..=key.len() {
             let sub_key = key.prefix_of_size(i).unwrap();
-            let path = self.key_to_path(&sub_key);
+            let path = self.key_to_path(&sub_key)?;
             let _ignore = self.op.create_dir(&path).await;
         }
         Ok(())
@@ -304,14 +309,14 @@ impl AsyncStore for AsyncOpenDALStore {
 
     /// Get data as bytes
     async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         let buf = self.map_read_error(key, self.op.read(&path).await)?;
         Ok(buf.to_vec())
     }
 
     /// Get metadata
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        let path = self.key_to_path_metadata(key);
+        let path = self.key_to_path_metadata(key)?;
         if self.map_read_error(key, self.op.exists(&path).await)? {
             let buffer = self.map_read_error(key, self.op.read(&path).await)?;
             if let Ok(metadata) = serde_json::from_reader(buffer.reader()) {
@@ -327,7 +332,7 @@ impl AsyncStore for AsyncOpenDALStore {
                 "Metadata parsing error",
             ))
         } else {
-            let path = self.key_to_path(key);
+            let path = self.key_to_path(key)?;
             if self.map_read_error(key, self.op.exists(&path).await)? {
                 let stat = self.map_read_error(key, self.op.stat(&path).await)?;
                 if stat.is_dir() {
@@ -360,7 +365,7 @@ impl AsyncStore for AsyncOpenDALStore {
         self.finalize_metadata(&mut tmp_metadata, key, data, true);
         tmp_metadata.set_status(Status::Storing)?;
         self.set_metadata(key, &tmp_metadata).await?;
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         let buffer = Buffer::from_iter(data.iter().copied());
         self.map_write_error(key, self.op.write(&path, buffer).await)?;
         let mut tmp_metadata = metadata.clone();
@@ -379,18 +384,18 @@ impl AsyncStore for AsyncOpenDALStore {
             Metadata::LegacyMetadata(metadata) => serde_json::to_string_pretty(metadata)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
         };
-        let path = self.key_to_path_metadata(key);
+        let path = self.key_to_path_metadata(key)?;
         self.map_write_error(key, self.op.write(&path, metadata_str).await)?;
         Ok(())
     }
 
     /// Remove data and metadata associated with the key
     async fn remove(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if self.map_read_error(key, self.op.exists(&path).await)? {
             self.map_write_error(key, self.op.delete(&path).await)?;
         }
-        let matadata_path = self.key_to_path_metadata(key);
+        let matadata_path = self.key_to_path_metadata(key)?;
         if self.map_read_error(key, self.op.exists(&matadata_path).await)? {
             self.map_write_error(key, self.op.delete(&matadata_path).await)?;
         }
@@ -401,17 +406,17 @@ impl AsyncStore for AsyncOpenDALStore {
     /// The key must be a directory.
     /// Files are not removed recursively.
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         self.map_write_error(key, self.op.remove_all(&path).await)
     }
 
     /// Returns true if store contains the key.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if self.map_read_error(key, self.op.exists(&path).await)? {
             return Ok(true);
         }
-        let metadata_path = self.key_to_path_metadata(key);
+        let metadata_path = self.key_to_path_metadata(key)?;
         if self.map_read_error(key, self.op.exists(&metadata_path).await)? {
             return Ok(true);
         }
@@ -420,7 +425,7 @@ impl AsyncStore for AsyncOpenDALStore {
 
     /// Returns true if key points to a directory.
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         let stat = self.map_read_error(key, self.op.stat(&path).await)?;
         Ok(stat.is_dir())
     }
@@ -444,7 +449,7 @@ impl AsyncStore for AsyncOpenDALStore {
         }
         */
         let mut list = BTreeSet::new();
-        let path = self.key_to_path(key).trim_end_matches('/').to_string() + "/"; // Ensure trailing slash for directory
+        let path = self.key_to_path(key)?.trim_end_matches('/').to_string() + "/"; // Ensure trailing slash for directory
         let entries = self.map_read_error(key, self.op.list(&path).await)?;
         for entry in entries {
             if self.path_to_key(entry.path())? == *key {
@@ -475,7 +480,7 @@ impl AsyncStore for AsyncOpenDALStore {
     /// as well as in all the subdirectories.
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
         let mut list = BTreeSet::new();
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         let entries = self.map_read_error(key, self.op.list_with(&path).recursive(true).await)?;
         for entry in entries {
             if let Ok(sub) = self.path_to_key(entry.path()) {
@@ -491,7 +496,7 @@ impl AsyncStore for AsyncOpenDALStore {
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let path = format!("{}/", self.key_to_path(key));
+        let path = format!("{}/", self.key_to_path(key)?);
         self.map_write_error(key, self.op.create_dir(&path).await)
     }
 
@@ -507,7 +512,8 @@ impl AsyncStore for AsyncOpenDALStore {
     /// This allows layering Stores, e.g. by with_overlay, with_fallback
     /// and store selectively certain data (keys) in certain stores.
     fn is_supported(&self, key: &Key) -> bool {
-        key.has_key_prefix(&self.prefix)
+        !key.is_relative()
+            && key.has_key_prefix(&self.prefix)
             && (!key
                 .filename()
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
@@ -524,6 +530,43 @@ mod tests {
     use liquers_core::value::Value;
     use opendal::services::Memory;
     use opendal::Operator;
+
+    /// `keyabs16` — the OpenDAL store refuses relative keys.
+    ///
+    /// A `.` or `..` element here is a namespace escape rather than a filesystem one, but the rule
+    /// is the same everywhere: a store requires an absolute key. Asserts the error *type*, so a
+    /// backend that happened to fail for an unrelated reason would not satisfy it.
+    #[tokio::test]
+    async fn keyabs16_opendal_store_refuses_relative_keys() {
+        use liquers_core::error::ErrorType;
+
+        let op = Operator::new(Memory::default())
+            .expect("memory operator")
+            .finish();
+        let store = AsyncOpenDALStore::new(op, Key::new());
+        let metadata = Metadata::new();
+
+        for text in ["../escape", "a/../../etc/passwd", "a/./b", ".."] {
+            let key = parse_key(text).expect("key parses");
+            for error in [
+                store.get(&key).await.err(),
+                store.get_bytes(&key).await.err(),
+                store.set(&key, b"x", &metadata).await.err(),
+                store.set_metadata(&key, &metadata).await.err(),
+                store.remove(&key).await.err(),
+                store.contains(&key).await.err(),
+                store.makedir(&key).await.err(),
+            ] {
+                let error = error.unwrap_or_else(|| panic!("{text} must be refused"));
+                assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            }
+            assert!(!store.is_supported(&key), "{text} must not route here");
+            assert!(store.key_to_path(&key).is_err(), "path builder {text}");
+        }
+
+        let ok = parse_key("data/report.txt").expect("key parses");
+        assert!(store.is_supported(&ok));
+    }
 
     #[tokio::test]
     async fn test_async_opendal_store_memory_basic() {
