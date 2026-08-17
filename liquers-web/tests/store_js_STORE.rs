@@ -207,11 +207,11 @@ async fn store04_remove_and_removedir() {
 #[wasm_bindgen_test]
 async fn store05_unsupported_key() {
     let store = full_store("d");
-    for text in ["../escape", "d/../../etc"] {
+    for text in ["../escape", "d/../../etc", "d/./b"] {
         let k = key(text);
         match store.get(&k).await {
             Ok(_) => panic!("{text} must be refused"),
-            Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
+            Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
         }
         assert!(!store.is_supported(&k), "{text} must not be routed here");
     }

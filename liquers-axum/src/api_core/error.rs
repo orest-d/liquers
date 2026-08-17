@@ -8,6 +8,9 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
     match error_type {
         ErrorType::KeyNotFound => StatusCode::NOT_FOUND,
         ErrorType::KeyNotSupported => StatusCode::NOT_FOUND,
+        // 400, not 404: the caller supplied something that is not a store address at all, which is
+        // a malformed request rather than a resource that happens to be absent.
+        ErrorType::KeyNotAbsolute => StatusCode::BAD_REQUEST,
         ErrorType::ParseError => StatusCode::BAD_REQUEST,
         ErrorType::UnknownCommand => StatusCode::BAD_REQUEST,
         ErrorType::ParameterError => StatusCode::BAD_REQUEST,
@@ -79,6 +82,26 @@ pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `keyabs15` — a relative key is a bad request, not a missing resource.
+    ///
+    /// Asserted at the mapping rather than through a handler: `AXUM-HANDLER-TEST-COVERAGE` records
+    /// that this crate has no handler test scaffolding, and building it is outside the scope of
+    /// the key rule.
+    ///
+    /// The contrast with `KeyNotSupported` is the point of the separate error type — one says the
+    /// address is malformed, the other that no store serves it.
+    #[test]
+    fn keyabs15_key_not_absolute_is_bad_request() {
+        assert_eq!(
+            error_to_status_code(ErrorType::KeyNotAbsolute),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            error_to_status_code(ErrorType::KeyNotSupported),
+            StatusCode::NOT_FOUND
+        );
+    }
 
     #[test]
     fn test_error_to_status_code_not_found() {

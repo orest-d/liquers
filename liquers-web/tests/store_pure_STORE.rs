@@ -19,7 +19,11 @@ use wasm_bindgen_test::*;
 
 const STORE: &str = "test store";
 
-/// Asserts that a key shape is refused as unsupported, not merely that something went wrong.
+/// Asserts that a relative key is refused as such, not merely that something went wrong.
+///
+/// The error type matters: `KeyNotAbsolute` says the address is malformed, while
+/// `KeyNotSupported` — which the guard still returns for an *empty* element — says this store does
+/// not serve it. Asserting `is_err()` would conflate the two.
 fn assert_refused(key_text: &str) {
     let key = parse_key(key_text).unwrap_or_else(|e| {
         panic!(
@@ -31,7 +35,7 @@ fn assert_refused(key_text: &str) {
         Ok(()) => panic!("{key_text:?} must be refused by the key guard"),
         Err(e) => assert_eq!(
             e.error_type,
-            ErrorType::KeyNotSupported,
+            ErrorType::KeyNotAbsolute,
             "{key_text:?}: wrong error type ({})",
             e.message
         ),
@@ -140,7 +144,7 @@ fn url03_escaping_key_is_refused() {
     let key = parse_key("a/../../etc/passwd").expect("key");
     match key_to_url("https://example.org/data/", &prefix, &key, STORE) {
         Ok(url) => panic!("an escaping key must not produce a URL, got {url:?}"),
-        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
     }
 }
 
@@ -279,7 +283,7 @@ async fn fetch_unlisted_key_is_absent_and_not_requested() {
     assert!(store.is_supported(&parse_key("data").expect("key")));
 }
 
-/// A key shape the guard refuses is still `KeyNotSupported`, not merely "unlisted".
+/// A key shape the guard refuses is `KeyNotAbsolute`, not merely "unlisted".
 ///
 /// Order matters: the membership check must not mask the escape check, or `STORE05` would start
 /// reporting `KeyNotFound` and a caller could no longer tell a refused shape from an absent file.
@@ -288,7 +292,7 @@ async fn fetch_escaping_key_is_unsupported_not_merely_unlisted() {
     let store = listed_store();
     match store.get(&parse_key("data/../../etc").expect("key")).await {
         Ok(_) => panic!("an escaping key must be refused"),
-        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
     }
 }
 
