@@ -1520,10 +1520,79 @@ impl Key {
         Key(key)
     }
 
+    /// Returns `true` when any element of the key is `.` or `..`.
+    ///
+    /// Such a key is a *plan-level* construct: it is meaningful only against a current working
+    /// directory, and [`Self::to_absolute`] resolves it while the plan is built. A store never
+    /// resolves one, so a store requires a key for which this returns `false` — see
+    /// [`Self::as_absolute`].
+    ///
+    /// **Every** element is inspected, not only the first. A key such as `a/../../etc` needs no
+    /// working directory and is still not a store address; a check that looked only at the leading
+    /// element would accept it. That is the difference from the cursor-level notion of "relative"
+    /// used while resolving a query, which asks the narrower question of whether a working
+    /// directory is *needed*.
+    ///
+    /// Only the exact elements `.` and `..` count. Names that merely contain or begin with a dot —
+    /// `.hidden`, `a..b`, `...` — are ordinary resource names and are not relative.
+    ///
+    /// ```
+    /// use liquers_core::parse::parse_key;
+    /// assert!(parse_key("../secret").unwrap().is_relative());
+    /// assert!(parse_key("a/../../etc").unwrap().is_relative());
+    /// assert!(!parse_key("a/.hidden").unwrap().is_relative());
+    /// ```
+    pub fn is_relative(&self) -> bool {
+        self.0.iter().any(|name| name.is_cwd() || name.is_parent())
+    }
+
+    /// Returns the key unchanged when it is absolute, otherwise
+    /// [`crate::error::Error::key_not_absolute`].
+    ///
+    /// **This asserts; it does not resolve.** [`Self::to_absolute`] is the neighbouring method that
+    /// *resolves* `.` and `..` against a working directory — one word apart and the opposite
+    /// operation. Resolving at the store layer would silently equate `a/../b` with `b`, making two
+    /// distinct addresses alias one asset, so a store refuses instead of normalizing.
+    ///
+    /// This is the check every store applies before using a key. Shadowing the parameter with the
+    /// result keeps the unchecked key from being used afterwards by accident:
+    ///
+    /// ```
+    /// # use liquers_core::{parse::parse_key, error::Error};
+    /// # fn store_get(key: &liquers_core::query::Key) -> Result<(), Error> {
+    /// let key = key.as_absolute()?;
+    /// // … only the checked `key` is reachable from here
+    /// # Ok(()) }
+    /// # assert!(store_get(&parse_key("../escape").unwrap()).is_err());
+    /// # assert!(store_get(&parse_key("data/x.txt").unwrap()).is_ok());
+    /// ```
+    pub fn as_absolute(&self) -> Result<&Key, Error> {
+        if self.is_relative() {
+            Err(Error::key_not_absolute(self))
+        } else {
+            Ok(self)
+        }
+    }
+
+    /// Consuming form of [`Self::as_absolute`], for call sites that already own the key.
+    ///
+    /// Prefer [`Self::as_absolute`] where the key is borrowed — as it is throughout
+    /// [`crate::store::AsyncStore`] — since this form would require a clone there.
+    pub fn try_into_absolute(self) -> Result<Key, Error> {
+        match self.as_absolute() {
+            Ok(_) => Ok(self),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Resolves `.` and `..` elements relative to a current working-directory key.
     ///
     /// `cwd_key` should be absolute, meaning that it should not contain `.` or
     /// `..`. This function does not check that condition.
+    ///
+    /// **This resolves; it does not assert.** The neighbouring [`Self::as_absolute`] checks that
+    /// there is nothing to resolve and is what a store applies; this one does the resolving, and
+    /// belongs at plan level where a working directory exists.
     pub fn to_absolute(&self, cwd_key: &Key) -> Self {
         let mut result = Vec::new();
         let mut use_cwd = true;
@@ -2183,8 +2252,13 @@ impl CwdCursor {
         }
     }
 
-    /// Whether `key` is expressed relative to a CWD, i.e. it starts with `.` or `..`.
-    pub(crate) fn is_relative(key: &Key) -> bool {
+    /// Whether `key` needs a CWD to be resolved, i.e. it *starts* with `.` or `..`.
+    ///
+    /// Deliberately narrower than [`Key::is_relative`], which inspects every element. The two ask
+    /// different questions and both are right for their layer: this one decides whether a working
+    /// directory has to be consumed, and `a/../b` needs none; `Key::is_relative` decides whether
+    /// the key is a store address, and `a/../b` is not.
+    pub(crate) fn needs_cwd(key: &Key) -> bool {
         key.0
             .first()
             .is_some_and(|name| name.is_cwd() || name.is_parent())
@@ -2199,7 +2273,7 @@ impl CwdCursor {
     }
 
     pub(crate) fn resolve_key(&mut self, key: &Key) -> Key {
-        if !Self::is_relative(key) {
+        if !Self::needs_cwd(key) {
             return key.clone();
         }
         self.consumed_cwd = true;
@@ -2486,7 +2560,7 @@ impl Query {
     /// `greet-Hello`, means the same thing in every directory and is therefore not relative.
     pub fn has_relative_operand(&self) -> bool {
         self.segments.iter().any(|segment| match segment {
-            QuerySegment::Resource(resource) => CwdCursor::is_relative(&resource.key),
+            QuerySegment::Resource(resource) => CwdCursor::needs_cwd(&resource.key),
             QuerySegment::Transform(transform) => transform.query.iter().any(|action| {
                 action.parameters.iter().any(|parameter| match parameter {
                     ActionParameter::Link(link, _) => link.has_relative_operand(),
@@ -2501,7 +2575,7 @@ impl Query {
         for segment in self.segments.iter() {
             match segment {
                 QuerySegment::Resource(resource) => {
-                    if CwdCursor::is_relative(&resource.key) {
+                    if CwdCursor::needs_cwd(&resource.key) {
                         return resource
                             .key
                             .0
@@ -2883,6 +2957,7 @@ impl IndexMut<usize> for Query {
 
 #[cfg(test)]
 mod tests {
+    use crate::error::ErrorType;
     use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
@@ -3249,6 +3324,118 @@ mod tests {
         let q = a + f;
         assert_eq!(q.encode(), "action/file.txt");
         assert_eq!(q.render(&TrivialQueryRenderStyle), "action/file.txt");
+    }
+
+    /// `keyabs01` — `Key::is_relative` inspects every element, and only the exact `.` and `..`.
+    ///
+    /// The negatives matter as much as the positives: a guard written as `starts_with('.')` or
+    /// `contains("..")` would pass the relative cases and break `.hidden` and `a..b`, which are
+    /// ordinary filenames.
+    #[test]
+    fn keyabs01_is_relative_truth_table() -> Result<(), Error> {
+        for text in [
+            "..",
+            ".",
+            "../x",
+            "./x",
+            "a/..",
+            "a/.",
+            "a/./b",
+            "a/../../etc",
+            "a/b/../../../etc/passwd",
+        ] {
+            assert!(
+                parse_key(text)?.is_relative(),
+                "{text} must be relative — every element is inspected, not only the first"
+            );
+        }
+        for text in [
+            "...", "..x", "x..", "a..b", ".hidden", "a.b", "a/b", "a/.hidden/b", "file.txt",
+        ] {
+            assert!(
+                !parse_key(text)?.is_relative(),
+                "{text} is an ordinary resource name, not a relative element"
+            );
+        }
+        assert!(!Key::new().is_relative(), "the empty key is absolute");
+        Ok(())
+    }
+
+    /// `keyabs02` — `as_absolute` returns the key or the dedicated error.
+    #[test]
+    fn keyabs02_as_absolute() -> Result<(), Error> {
+        let absolute = parse_key("data/report.txt")?;
+        assert_eq!(absolute.as_absolute()?, &absolute);
+
+        for text in ["../escape", "a/../../etc/passwd", "a/./b"] {
+            let key = parse_key(text)?;
+            let error = key
+                .as_absolute()
+                .expect_err("a relative key must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            assert_eq!(error.key, Some(key.encode()), "{text}");
+            assert!(error.message.contains(&key.encode()), "{text}");
+        }
+        Ok(())
+    }
+
+    /// `keyabs03` — `try_into_absolute` is the consuming form and agrees with `as_absolute`.
+    #[test]
+    fn keyabs03_try_into_absolute() -> Result<(), Error> {
+        let absolute = parse_key("data/report.txt")?;
+        assert_eq!(absolute.clone().try_into_absolute()?, absolute);
+
+        let error = parse_key("../escape")?
+            .try_into_absolute()
+            .expect_err("a relative key must be refused");
+        assert_eq!(error.error_type, ErrorType::KeyNotAbsolute);
+        Ok(())
+    }
+
+    /// `keyabs04` — `to_absolute` still *resolves*; the new neighbours changed nothing.
+    ///
+    /// Regression guard for the one real hazard the new API introduces: `to_absolute` and
+    /// `as_absolute` are one word apart and do opposite things.
+    #[test]
+    fn keyabs04_to_absolute_still_resolves() -> Result<(), Error> {
+        let cwd = parse_key("A/B")?;
+        assert_eq!(parse_key("./x")?.to_absolute(&cwd).encode(), "A/B/x");
+        assert_eq!(parse_key("../x")?.to_absolute(&cwd).encode(), "A/x");
+        assert_eq!(parse_key("A/B/./x")?.to_absolute(&cwd).encode(), "A/B/x");
+
+        // …and what it produces is then acceptable to a store, which is the point of the pairing.
+        assert!(parse_key("./x")?.to_absolute(&cwd).as_absolute().is_ok());
+        Ok(())
+    }
+
+    /// `keyabs05` — the cursor's `needs_cwd` keeps its first-element-only meaning.
+    ///
+    /// The two predicates are deliberately different: `a/../b` needs no working directory, so
+    /// `needs_cwd` is false, yet it is not a store address, so `is_relative` is true.
+    #[test]
+    fn keyabs05_needs_cwd_is_narrower_than_is_relative() -> Result<(), Error> {
+        for text in ["../b", "./b", ".", ".."] {
+            assert!(CwdCursor::needs_cwd(&parse_key(text)?), "{text}");
+        }
+        for text in ["a/../b", "a/./b", "a/b"] {
+            assert!(!CwdCursor::needs_cwd(&parse_key(text)?), "{text}");
+        }
+        let divergent = parse_key("a/../b")?;
+        assert!(!CwdCursor::needs_cwd(&divergent));
+        assert!(divergent.is_relative());
+        Ok(())
+    }
+
+    /// `keyabs06` — the error constructor carries the key and the right type.
+    #[test]
+    fn keyabs06_key_not_absolute_error() -> Result<(), Error> {
+        let key = parse_key("a/../../etc/passwd")?;
+        let error = Error::key_not_absolute(&key);
+        assert_eq!(error.error_type, ErrorType::KeyNotAbsolute);
+        assert_eq!(error.key, Some(key.encode()));
+        assert!(error.message.contains("not absolute"));
+        assert!(error.message.contains(&key.encode()));
+        Ok(())
     }
 
     #[test]

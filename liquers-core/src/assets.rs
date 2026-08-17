@@ -1469,6 +1469,7 @@ impl<E: Environment> AssetRef<E> {
             | ErrorType::NotAvailable
             | ErrorType::KeyNotFound
             | ErrorType::KeyNotSupported
+            | ErrorType::KeyNotAbsolute
             | ErrorType::KeyReadError
             | ErrorType::KeyWriteError
             | ErrorType::UnexpectedError
