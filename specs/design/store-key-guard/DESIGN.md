@@ -81,6 +81,22 @@ dedicated error names the violation. Phase 1 rewritten around this; two naming c
 into are open questions 1 and 2 (`CwdCursor::is_relative` tests only the first segment;
 `Query::absolute` already means "had a leading `/`").
 
+## Decisions confirmed by the user
+
+| Date | Decision |
+|---|---|
+| 2026-08-17 | The rule is a precondition — a store requires an absolute key — not a list of refused segments. |
+| 2026-08-17 | The `Key` API is `is_relative`, `as_absolute`, `try_into_absolute`; document the rule in rustdoc and note the gap for DOC-07 rather than writing a new reference. |
+| 2026-08-17 | The new error type is named `KeyNotAbsolute`. |
+
+## Open for the user
+
+- **`STORE-FILESTORE-PATH-TRAVERSAL` priority.** Front matter and `index.csv` say P0; the issue's
+  closing paragraph argues P1. Phase 2 recommends keeping P0 and deleting the paragraph. Needed
+  before Phase 5 closes the issue.
+- **Command namespaces.** Phase 2 checked `pl`, `img`, `lui`/`egui` as consumers that build no store
+  keys programmatically. Confirm that is the right set.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

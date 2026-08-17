@@ -61,6 +61,7 @@ pub enum ErrorType {
 
 **Name.** `KeyNotAbsolute`, not `RelativeKey`, for consistency with the existing key family
 (`KeyNotFound`, `KeyNotSupported`, `KeyReadError`, `KeyWriteError`): each reads *Key* + condition.
+**Confirmed by the user, 2026-08-17** — settled, not a Phase 3 open question.
 
 **Why a variant rather than a new constructor over `KeyNotSupported`.** A caller must be able to
 tell "this address is malformed" from "this store does not serve this prefix". They differ in
