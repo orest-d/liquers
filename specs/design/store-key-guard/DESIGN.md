@@ -4,7 +4,7 @@ kind: design
 title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/store, store/backends, core/error, web, axum]
 gh_pr: []
 issues: [STORE-FILESTORE-PATH-TRAVERSAL]
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design — awaiting approval
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design — approved 2026-08-17
+- [x] Phase 2: Solution & Architecture — awaiting approval
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -44,7 +44,9 @@ superseded_by:
   normalized on any path — the recent CWD work (`b4de249`) does not cover it.
 - Preliminary answer to open question 4: every in-tree dot-segment key found is pre-store — CWD
   resolution in `context.rs`/`interpreter.rs`, resolved by `resolve_key_from_cwd` before any store
-  call. To be confirmed properly in Phase 2.
+  call. To be confirmed properly in Phase 2. **Corrected in Phase 2 review (finding B2): this missed
+  recipes.** `Recipe.cwd` is an unvalidated deserialized string that reaches `cwd.join(…)` and
+  `to_absolute`, so a `recipes.yaml` is a second source of a relative store key.
 - `liquers-web/src/store/key_guard.rs` already implements the intended rule and its module docs
   name this issue as the reason it is a temporary local copy.
 
