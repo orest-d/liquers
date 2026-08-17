@@ -4,11 +4,11 @@ kind: design
 title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
 status: draft
-phase: implementation
+phase: documentation
 area: [core/store, store/backends, core/error, web, axum]
 gh_pr: []
-issues: [STORE-FILESTORE-PATH-TRAVERSAL]
-affects_docs: []
+issues: [STORE-FILESTORE-PATH-TRAVERSAL, STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED, QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT]
+affects_docs: [specs/reference/api/API_DOCS_GAP_ANALYSIS.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/WEB_API_SPECIFICATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md]
 created: 2026-08-17
 superseded_by:
 ---
@@ -21,9 +21,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design — approved 2026-08-17
 - [x] Phase 2: Solution & Architecture — approved 2026-08-17
 - [x] Phase 3: Examples & Testing — approved 2026-08-17
-- [x] Phase 4: Implementation Plan — awaiting approval
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan — approved 2026-08-17
+- [x] Phase 5: Documentation — awaiting approval
+- [x] Implementation Complete
 
 ## Notes
 
@@ -99,7 +99,7 @@ into are open questions 1 and 2 (`CwdCursor::is_relative` tests only the first s
   workaround exists" (P1's defining qualifier) while arguing likelihood where §4.4 grades impact.
   Keep P0; Phase 4 Step 11 deletes the paragraph.
 - **Command namespaces.** Phase 2 checked `pl`, `img`, `lui`/`egui` as consumers that build no store
-  keys programmatically. Confirm that is the right set.
+  keys programmatically. Confirm that is the right set. Blocks nothing; none builds store keys.
 
 ## Links
 
