@@ -4,7 +4,7 @@ kind: design
 title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/store, store/backends, core/error, web, axum]
 gh_pr: []
 issues: [STORE-FILESTORE-PATH-TRAVERSAL]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design — approved 2026-08-17
 - [x] Phase 2: Solution & Architecture — approved 2026-08-17
-- [x] Phase 3: Examples & Testing — awaiting approval
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing — approved 2026-08-17
+- [x] Phase 4: Implementation Plan — awaiting approval
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -92,9 +92,12 @@ into are open questions 1 and 2 (`CwdCursor::is_relative` tests only the first s
 
 ## Open for the user
 
-- **`STORE-FILESTORE-PATH-TRAVERSAL` priority.** Front matter and `index.csv` say P0; the issue's
-  closing paragraph argues P1. Phase 2 recommends keeping P0 and deleting the paragraph. Needed
-  before Phase 5 closes the issue.
+- ~~**`STORE-FILESTORE-PATH-TRAVERSAL` priority.**~~ **Resolved by git history, 2026-08-17.** Filed
+  P1 on 9 Aug (`da36b4d`) with the "Marked P1 rather than P0" paragraph written in the same commit;
+  `9c35548` triaged the front matter to P0 on 12 Aug across ~50 issues and left every body
+  untouched. The paragraph is the superseded rationale, and it also contradicts the issue's own "no
+  workaround exists" (P1's defining qualifier) while arguing likelihood where §4.4 grades impact.
+  Keep P0; Phase 4 Step 11 deletes the paragraph.
 - **Command namespaces.** Phase 2 checked `pl`, `img`, `lui`/`egui` as consumers that build no store
   keys programmatically. Confirm that is the right set.
 
