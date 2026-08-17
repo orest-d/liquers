@@ -185,6 +185,7 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
+- design `store-key-guard`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 

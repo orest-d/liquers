@@ -20,18 +20,26 @@ refuses it by name rather than acting on it.
 ### Query System
 
 No change to the language. `.` and `..` stay legal `ResourceName`s, `Key::to_absolute` keeps
-resolving them, and relative queries keep working exactly where they work now. One new predicate on
-`Key` states the store-level rule. Refusal at parse time is rejected — it would break CWD
-resolution, which is the legitimate use of `..`.
+resolving them, and relative queries keep working exactly where they work now. Refusal at parse
+time is rejected — it would break CWD resolution, which is the legitimate use of `..`.
+
+`Key` gains the rule as its own API, so no store has to restate it:
+
+- `Key::is_relative(&self) -> bool` — true when **any** segment is `.` or `..`.
+- `Key::as_absolute(&self) -> Result<&Key, Error>` — the checked accessor stores call.
+- `Key::try_into_absolute(self) -> Result<Key, Error>` — the consuming convenience, one line over
+  the above, for call sites that already own the key.
+
+Both fallible forms return the key unchanged or the new error; neither resolves anything.
 
 ### Store System
 
-The whole change. `Store` and `AsyncStore` state the precondition and refuse a relative key in
-every fallible method, not only in `is_supported`: `is_supported` is consulted **only** by the two
-routers, so a directly-held store would otherwise skip the check entirely. `FileStore` and
-`AsyncFileStore` additionally get the check at their path-building choke point, so the filesystem
-cannot be reached without passing it. `liquers-web`'s private `check_key`
-(`liquers-web/src/store/key_guard.rs`) collapses onto the shared rule.
+The whole change. `Store` and `AsyncStore` state the precondition and every store calls
+`key.as_absolute()?` before the key is used, in every fallible method — not only in `is_supported`,
+which is consulted **only** by the two routers, so a directly-held store would otherwise skip the
+check entirely. `FileStore` and `AsyncFileStore` additionally get the check at their path-building
+choke point, so the filesystem cannot be reached without passing it. `liquers-web`'s private
+`check_key` (`liquers-web/src/store/key_guard.rs`) collapses onto the shared rule.
 
 ### Error System
 
@@ -60,38 +68,49 @@ supplied an address that is not a store address — rather than the `404` that `
 
 ## Documentation Intent
 
-**Reference:** New `specs/reference/STORE_KEY_RULES.md`. Nothing currently states what a key may
-contain at the store boundary — `STORE_CONFIG_FSD.md` is about configuration — and a backend author
-needs the rule where they will find it, not in a design folder.
+**Primary home is rustdoc, not `specs/`.** The precondition is part of the store contract, so it is
+documented where a backend author reads the contract: the `liquers-core::store` module docs, the
+`Store` and `AsyncStore` trait docs, each guarded method, and the three `Key` methods. The `Key`
+docs must say explicitly that `to_absolute(cwd)` *resolves* while `as_absolute` only *asserts* —
+they are one word apart and do opposite things.
 
-**Guide:** Neither. The trait docs plus the reference cover writing a backend; revisit if Phase 3
-shows adoption needs a narrative.
+**Reference:** No new `specs/reference/` document. `specs/reference/api/DOC_07_STORES_PERSISTENCE.md`
+is the reference that would carry this rule, and it does not exist yet — DOC-07 "Stores and
+persistence" is P1 / *Not started* in the `API_DOCS_GAP_ANALYSIS.md` progress tracker. Writing a
+one-rule reference now would pre-empt it and create a second place to keep current, so instead this
+design records the requirement in the gap analysis for whoever writes DOC-07.
+
+**Guide:** Neither. Trait rustdoc plus `STORE05` cover writing a backend.
 
 **Other documents to create:** None.
 
-**Specific documents to update:** `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (`STORE05` gains the
-relative-key case and the direct-call requirement); `specs/reference/PROJECT_OVERVIEW.md` (§5
-Storage points at the new reference); `specs/reference/WEB_API_SPECIFICATION.md` (new error type in
-the status-code table); `specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md` (link, then close in Phase
-5); `specs/README.md`; `specs/index.csv`.
+**Specific documents to update:** `specs/reference/api/API_DOCS_GAP_ANALYSIS.md` (§7 *Stores and
+persistence* gains the absolute-key rule as required DOC-07 content — done now, ahead of the rest of
+this design, since it records a documentation requirement independent of how the fix lands);
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (`STORE05` gains the relative-key case and the
+direct-call requirement); `specs/reference/PROJECT_OVERVIEW.md` (§5 Storage states the
+precondition); `specs/reference/WEB_API_SPECIFICATION.md` (new error type in the status-code table);
+`specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md` (link, then close in Phase 5); `specs/README.md`;
+`specs/index.csv`.
 
 Audience: backend authors and reviewers, who should learn the precondition and where it is enforced
-without reading this folder.
+from the API docs alone, without reading this folder.
 
 ## Open Questions
 
-1. **"Relative" needs a definition that catches `a/../../etc`.** The existing predicate,
-   `CwdCursor::is_relative` (`query.rs:2187`), tests only the **first** segment, because at query
-   level relative means "needs a CWD to resolve". `a/../../etc/passwd` passes that test and is
-   normalized by nothing. The store rule must be *any* segment. Widening the existing predicate is
-   not safe — it would send `a/../b` through `to_absolute` inside `CwdCursor::resolve_key` and make
-   `Context::evaluate` reject it with a message about link arguments that does not fit. So: two
-   predicates with distinct names, and Phase 2 picks them.
-2. **The word "absolute" is already taken.** `Query::absolute` means "the text had a leading `/`",
+1. **Two `is_relative`s will exist, meaning different things.** `Key::is_relative` is *any* segment;
+   the existing `CwdCursor::is_relative` (`query.rs:2187`) is the **first** segment only, because at
+   query level relative means "needs a CWD to resolve". Both are correct for their jobs — widening
+   the cursor's is not safe, as it would send `a/../b` through `to_absolute` inside
+   `CwdCursor::resolve_key` and make `Context::evaluate` reject it with a message about link
+   arguments that does not fit. Two methods with one name is still a trap, so Phase 2 should rename
+   the cursor's to what it actually tests (`needs_cwd`, `starts_relative`). It is `pub(crate)` with
+   three call sites, so the rename is free.
+2. **`Query::absolute` is a third meaning of the word.** It means "the text had a leading `/`",
    documented as independent of `.`/`..` resolution and as having no semantic meaning
-   (`query.rs:67`, `:2148`). A `Key::is_absolute()` meaning "carries no relative segment" would
-   read as the same concept and is not. Phase 2 decides naming, and whether `Query::absolute` is
-   worth renaming or documenting against.
+   (`query.rs:67`, `:2148`). Nothing here changes it, but `as_absolute` on `Key` and `absolute` on
+   `Query` must not be read as the same concept — Phase 2 decides whether that is a doc note or a
+   rename.
 3. **Empty segments are a different wrong.** `liquers-web`'s guard refuses `""` alongside `.` and
    `..`; an empty segment is malformed, not relative, so it does not belong under the new error.
    Recommendation: keep refusing it with plain `key_not_supported`, so collapsing the web guard onto
@@ -103,6 +122,10 @@ without reading this folder.
    found is pre-store — CWD resolution in `context.rs` and `interpreter.rs`, resolved by
    `resolve_key_from_cwd` before any store call. Phase 2 confirms it properly, including recipes and
    `listdir` round-trips.
+6. **Is a borrowing check enough, or should the guarantee be typed?** An `AbsoluteKey` newtype that
+   stores accept instead of `&Key` would make forgetting the call impossible rather than merely
+   visible. Rejected for now — it changes every store signature and both routers — but Phase 2
+   should say so explicitly rather than leave it unconsidered.
 
 ## References
 
