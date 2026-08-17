@@ -155,16 +155,19 @@ pub trait Store: Send + Sync {
 
     /// Store data and metadata.
     fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Store metadata only
     fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove data and metadata associated with the key
     fn remove(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -172,16 +175,19 @@ pub trait Store: Send + Sync {
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
     fn removedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Returns true if store contains the key.
-    fn contains(&self, _key: &Key) -> Result<bool, Error> {
+    fn contains(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
     /// Returns true if key points to a directory.
-    fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
@@ -195,7 +201,8 @@ pub trait Store: Send + Sync {
     /// Return names inside a directory specified by key.
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
-    fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
+    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        key.as_absolute()?;
         Ok(vec![])
     }
 
@@ -250,6 +257,7 @@ pub trait Store: Send + Sync {
 
     /// Make a directory
     fn makedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -411,6 +419,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
 
     /// Store data and metadata.
     async fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -419,6 +428,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
 
     /// Remove data and metadata associated with the key
     async fn remove(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -426,16 +436,19 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Returns true if store contains the key.
-    async fn contains(&self, _key: &Key) -> Result<bool, Error> {
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
     /// Returns true if key points to a directory.
-    async fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
@@ -449,7 +462,8 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     /// Return names inside a directory specified by key.
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
-    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        key.as_absolute()?;
         Ok(vec![])
     }
 
@@ -504,6 +518,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -2346,6 +2361,65 @@ mod key_absolute_tests {
                 .as_nanos()
         );
         std::env::temp_dir().join(unique)
+    }
+
+    /// `keyabs17` — the *trait defaults* refuse relative keys, so the contract holds for a backend
+    /// that overrides nothing.
+    ///
+    /// Raised in review of PR #36: `contains`, `is_dir` and `listdir` default to `Ok(false)` and
+    /// `Ok(vec![])`, permissive values that answered a relative key as though it were an ordinary
+    /// absent one. A backend inheriting them satisfied the documented "every store refuses" contract
+    /// only by accident of which methods it happened to override.
+    ///
+    /// `MinimalStore` implements exactly the two methods that have no default, so every other
+    /// method exercised here is the trait's own body.
+    #[tokio::test]
+    async fn keyabs17_trait_defaults_refuse_relative_keys() -> Result<(), Error> {
+        struct MinimalStore;
+
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncStore for MinimalStore {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                key.as_absolute()?;
+                Err(Error::key_not_found(key))
+            }
+            async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+                key.as_absolute()?;
+                Ok(())
+            }
+        }
+
+        let store = MinimalStore;
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            for (label, error) in [
+                ("contains", store.contains(&key).await.err()),
+                ("is_dir", store.is_dir(&key).await.err()),
+                ("listdir", store.listdir(&key).await.err()),
+                ("set", store.set(&key, b"x", &metadata).await.err()),
+                ("remove", store.remove(&key).await.err()),
+                ("removedir", store.removedir(&key).await.err()),
+                ("makedir", store.makedir(&key).await.err()),
+            ] {
+                let error = error
+                    .unwrap_or_else(|| panic!("{label} default must refuse {text}"));
+                assert_eq!(
+                    error.error_type,
+                    ErrorType::KeyNotAbsolute,
+                    "{label} {text}"
+                );
+            }
+        }
+
+        // The defaults stay permissive for an ordinary key — the guard must not turn them into
+        // blanket refusals.
+        let ok = parse_key("data/report.txt")?;
+        assert!(!store.contains(&ok).await?);
+        assert!(!store.is_dir(&ok).await?);
+        assert!(store.listdir(&ok).await?.is_empty());
+        Ok(())
     }
 
     /// `keyabs07` — the in-memory stores refuse relative keys too.
