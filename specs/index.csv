@@ -50,6 +50,7 @@ STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
+STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED,issue,Store key absoluteness is enforced by convention rather than by the type system,draft,local,,P3,L,core/store;store/backends;core/query,,,,,,2026-08-17,specs/issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md
 VALUE-DESCRIPTION,feature,Value types have no auto-generated description,accepted,local,,P3,L,core/value;lib/value,,,,,,2026-08-08,specs/issues/VALUE-DESCRIPTION.md
 WEB-NATIVE-IO-TIER2,issue,Browser storage has no IndexedDB backend,accepted,local,,P3,L,web,,,,liquers-web-store,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accepted,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
