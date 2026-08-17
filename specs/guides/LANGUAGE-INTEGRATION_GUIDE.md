@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-14
+reviewed: 2026-08-17
 ---
 # Liquers Language Integration Guide
 
@@ -733,7 +733,7 @@ store; an *integration* shipping three must run them against all three, and say 
 test does not apply and why. A suite that exercises only the first store leaves the others
 unasserted while reporting full coverage.
 
-**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` unsupported key; `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and one that overrides a shared type name resolves to the *integration*'s implementation; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible.
+**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` a relative key is refused as `KeyNotAbsolute`, on direct calls and not only through a router (`STORE05b` guards the ENOENT trap that makes this test lie); `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and one that overrides a shared type name resolves to the *integration*'s implementation; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible.
 
 Dispositions by direction, each stated with its reason so that selecting a direction later makes
 the tests required again:
@@ -1765,30 +1765,63 @@ async def test_STORE04_remove_and_removedir(store):
     assert not await store.contains(lq.parse_key("d"))
 
 async def test_STORE05_unsupported_key(store):
-    # `..` is not a parse error — lq.parse_key("../escape") succeeds and
-    # -R/../escape plans as GetAsset[../escape]. The rejection is the store's
-    # job, so the design must name at least one key shape its store refuses.
+    # A store requires an *absolute* key: no segment may be "." or "..". Relative keys are a
+    # plan-level construct, resolved against a working directory while the plan is built; nothing
+    # below that layer resolves them, so one arriving at a store is a malformed address. It is not
+    # a parse error — lq.parse_key("../escape") succeeds and -R/../escape plans as an ordinary
+    # GetAsset — so refusing it is the store's job.
     #
-    # Three things this test has to get right, each of which a shipped store got wrong somewhere:
+    # Five things this test has to get right, each of which a shipped store got wrong somewhere:
     #
     # 1. Check *every* segment, not the first. A guard that inspects only the leading segment
     #    passes on "../escape" and still lets "a/../../etc" through — which is the shape an
-    #    attacker writes. Both cases below, always.
+    #    attacker writes, and the only one that survives query-level CWD resolution.
     # 2. Refuse; do not normalize. A key is an address, not a path: quietly resolving "a/../b" to
     #    "b" makes two distinct addresses alias one asset, which is worse than rejecting a key
     #    nobody meant to write.
     # 3. Refuse on writes too, and refuse routing. A read-only guard leaves the write path open.
+    # 4. Refuse on *direct* calls, not only through a router. is_supported gates routing, and only
+    #    a router consults it, so a store guarded there alone passes a routed test and is wide open
+    #    when held directly — which is how an environment is usually configured. Call the store
+    #    directly here, never through a router.
+    # 5. Assert the error *type*. KeyNotAbsolute says the address is malformed; KeyNotSupported
+    #    says this store does not serve it (an empty segment, or an unrouted prefix). Asserting
+    #    only that an error was raised conflates the two, and would also accept an error raised for
+    #    an entirely unrelated reason — see the trap below.
     for text in ["../escape", "a/../../etc", "a/./b"]:
         k = lq.parse_key(text)
         with pytest.raises(lq.Error) as e:
             await store.get(k)
-        assert e.value.error_type == lq.ErrorType.KeyNotSupported
+        assert e.value.error_type == lq.ErrorType.KeyNotAbsolute
         with pytest.raises(lq.Error):
             await store.set(k, b"x", lq.Metadata())
         assert not store.is_supported(k)
 
-    # The negative half: without it, a store that refuses everything passes the loop above.
+    # The negative half, in two parts. Without it, a store that refuses everything passes the
+    # loop above — and a guard written as `segment.startswith(".")` or `".." in key` would too,
+    # while breaking ordinary dotted filenames. Only the exact segments "." and ".." are relative.
     assert store.is_supported(lq.parse_key("d/ordinary.txt"))
+    for text in ["d/.hidden", "d/a..b", "d/...", "d/..x", "d/v1.2.3"]:
+        assert store.is_supported(lq.parse_key(text)), text
+
+    # An empty segment is malformed rather than relative, so it keeps the store-scoped error.
+    # Only reachable where keys are built programmatically; skip if the language cannot express it.
+
+async def test_STORE05b_the_trap_that_makes_this_test_lie(store):
+    # Read this before trusting a green STORE05 on a filesystem-backed store.
+    #
+    # An operating system resolves ".." by walking *real* directories. So "a/../../etc" against a
+    # store with no directory named "a" fails with ENOENT — an error, from an unguarded store,
+    # which a `pytest.raises(lq.Error)` assertion happily accepts. The test passes, the guard is
+    # absent, and the deep-traversal case looks covered.
+    #
+    # Two corrections, both needed: create the intermediate directory so the traversal genuinely
+    # resolves, and assert the error type so ENOENT (a read error) cannot pass for a refusal.
+    await store.makedir(lq.parse_key("a"))
+    k = lq.parse_key("a/../../etc")
+    with pytest.raises(lq.Error) as e:
+        await store.get(k)
+    assert e.value.error_type == lq.ErrorType.KeyNotAbsolute
 
 async def test_STORE06_concurrent_update_policy(store):
     k = lq.parse_key("d/race")
@@ -2374,6 +2407,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-17 | `STORE05` follows the absolute-key rule: a relative key is `KeyNotAbsolute`, not `KeyNotSupported`; the store must be called directly rather than through a router; dotted-but-ordinary names are explicit negatives; and `STORE05b` records the ENOENT trap that lets a filesystem-backed `STORE05` pass with no guard present. | `design/store-key-guard/` |
 | 2026-08-14 | Every parameter value is now encodable, so the encode-direction guidance drops the refusal path; OBJECT09 becomes a round-trip test. Added the numeric and named entities to the escaping summary. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Documented provider-owned and programmatic recipe CWD setup, interpreter-owned relative resolution, root fallback, and executable integration evidence. | phase-5 |
 | 2026-08-09 | Reviewed against a completed `STORE` integration. Added a `BLOCKED` implementation state; harness question 7 (one test dragging the whole suite into the heavy harness) and "let the harness shape the design"; the mutation check for high-risk assertions; a shared "Service adapters — two rules" section; the `ERROR` question of whether the *language* can *construct* an error, plus `ERROR06`; `STORE`'s second direction (integration-provided stores and configuration) with `STORE08`–`STORE11`; and blueprint improvements to `VALUE04` (byte corpus), `STORE05` and `ERROR05`. | `design/liquers-web-store/` |

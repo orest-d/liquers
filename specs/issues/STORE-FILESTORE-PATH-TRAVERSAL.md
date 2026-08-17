@@ -6,7 +6,7 @@ status: accepted
 priority: P0
 complexity: M
 area: [core/store, store/backends, axum]
-design:
+design: store-key-guard
 created: 2026-08-09
 github:
 ---
@@ -41,9 +41,6 @@ process's privileges. Writes are affected as well as reads: `set` builds its pat
 
 No workaround exists at the store layer. A deployment can only mitigate it upstream, by rejecting
 keys containing `..` before the query reaches Liquers — which requires knowing to do so.
-
-Marked P1 rather than P0 because exploitation requires an exposed query endpoint reachable by an
-untrusted caller, which is a deployment posture rather than the default.
 
 ## Expected behaviour
 

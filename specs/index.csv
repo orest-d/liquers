@@ -1,6 +1,6 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,accepted,local,,P0,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
-STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,accepted,local,,P0,M,core/store;store/backends;axum,,,,,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
+STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,accepted,local,,P0,M,core/store;store/backends;axum,,,,store-key-guard,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
 COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE,issue,Variadic command arguments cannot be declared or retrieved,draft,local,,P1,M,macro;core/commands;lib/commands,,,,,,2026-08-12,specs/issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,draft,local,,P1,M,core/plan;core/assets,,,,plan-cwd-freeze,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
@@ -67,13 +67,12 @@ VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/v
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-16,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-14,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-17,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,overdue,local,,,,axum;web,,,,,2026-03-02,,specs/reference/WEB_API_SPECIFICATION.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-08-11,,specs/reference/ASSET_LIFECYCLE.md
@@ -86,8 +85,9 @@ DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evalua
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-16,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-12,,specs/reference/POLARS_COMMAND_LIBRARY.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-14,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-17,,specs/reference/PROJECT_OVERVIEW.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,closed,local,,P0,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
