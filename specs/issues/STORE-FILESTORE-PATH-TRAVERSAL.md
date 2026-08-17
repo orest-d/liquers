@@ -70,7 +70,7 @@ is worth confirming with a test before fixing.
 
 ## Resolution
 
-Closed 2026-08-17 by `specs/design/store-key-guard/`. A store now requires an absolute key:
+Closed 2026-08-17 by `specs/design/store-key-guard/` (PR #36). A store now requires an absolute key:
 `Key::is_relative` / `as_absolute` / `try_into_absolute` express the rule, `ErrorType::KeyNotAbsolute`
 names the violation, and every store checks before using a key. The file and OpenDAL stores get it
 structurally — their path builders are fallible — so the backend cannot be reached without passing.

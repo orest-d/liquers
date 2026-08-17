@@ -3,10 +3,10 @@ id: STORE-KEY-GUARD
 kind: design
 title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
-status: draft
+status:
 phase: documentation
 area: [core/store, store/backends, core/error, web, axum]
-gh_pr: []
+gh_pr: [36]
 issues: [STORE-FILESTORE-PATH-TRAVERSAL, STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED, QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT]
 affects_docs: [specs/reference/api/API_DOCS_GAP_ANALYSIS.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/WEB_API_SPECIFICATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md]
 created: 2026-08-17
