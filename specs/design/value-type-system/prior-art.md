@@ -134,3 +134,106 @@ Three observations shape Phase 2:
    dispatch key, and every system that round-trips bytes has one.
 3. Extensibility has to be third-party: `liquers-lib`, `liquers-py` and `liquers-web` all add value
    types, so the type tables cannot live in a closed enum in `liquers-core`.
+
+---
+
+## 9. Scalar type systems of the nine target ecosystems
+
+Liquers must exchange scalars with JSON, Python, JavaScript (`js-sys`/`web-sys`), Polars, Pandas,
+Parquet/Arrow, NumPy, GlueSQL and Rust itself. This section inventories what each actually has, so
+that the Liquers scalar set is chosen from evidence rather than guessed. **Rust is the reference
+axis** — every Liquers scalar is a Rust type, and the other systems are recorded as what they map
+onto.
+
+### Sources checked
+
+Variant lists were read from the defining source, not from memory:
+
+| System | Read from |
+|---|---|
+| Arrow | `arrow-schema/src/datatype.rs`, `DataType` (41 variants) |
+| Polars | `polars-core/src/datatypes/dtype.rs`, `DataType` (31 variants) |
+| GlueSQL | `core/src/ast/data_type.rs`, `DataType` (25 variants) |
+| Parquet | `parquet-format/LogicalTypes.md` — 6 physical types, ~20 logical annotations |
+| NumPy | [array scalars reference](https://numpy.org/doc/stable/reference/arrays.scalars.html) |
+
+GlueSQL: `Boolean, Int8, Int16, Int32, Int, Int128, Uint8, Uint16, Uint32, Uint64, Uint128,
+Float32, Float, Text, Bytea, Inet, Date, Timestamp, Time, Interval, Uuid, Map, List, Decimal,
+Point` — note `Int` = i64 and `Float` = f64.
+
+Parquet physical: `BOOLEAN, INT32, INT64, FLOAT, DOUBLE, BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY`, with
+logical annotations `STRING, ENUM, UUID, INT(bits, signed), DECIMAL, FLOAT16, DATE, TIME,
+TIMESTAMP, INTERVAL, JSON, BSON, VARIANT, GEOMETRY, GEOGRAPHY, LIST, MAP, UNKNOWN`. This is the
+clean two-level split — a narrow physical set carrying a wide logical set.
+
+### Correspondence table
+
+`—` means the system has no distinct type and the value must be widened, boxed or refused.
+
+| Liquers scalar | Rust | JSON | Python | JavaScript | NumPy | Polars | Pandas | Arrow | Parquet | GlueSQL |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `none` | `()` / `Option::None` | `null` | `None` | `null` | — | `Null` | `NA`/`NaT` | `Null` | `UNKNOWN` | `NULL` |
+| `bool` | `bool` | `boolean` | `bool` | `boolean` | `bool_` | `Boolean` | `bool`/`boolean` | `Boolean` | `BOOLEAN` | `Boolean` |
+| `i8` | `i8` | number † | `int` | number † | `int8` | `Int8` | `Int8` | `Int8` | `INT(8,true)` | `Int8` |
+| `i16` | `i16` | number † | `int` | number † | `int16` | `Int16` | `Int16` | `Int16` | `INT(16,true)` | `Int16` |
+| `i32` | `i32` | number † | `int` | number † | `int32` | `Int32` | `Int32` | `Int32` | `INT32` | `Int32` |
+| `i64` | `i64` | number ‡ | `int` | `bigint` ‡ | `int64` | `Int64` | `Int64` | `Int64` | `INT64` | `Int` |
+| `i128` | `i128` | — ‡ | `int` | `bigint` | — | `Int128` | — | — | `DECIMAL`/`FLBA` | `Int128` |
+| `u8` | `u8` | number † | `int` | number † | `uint8` | `UInt8` | `UInt8` | `UInt8` | `INT(8,false)` | `Uint8` |
+| `u16` | `u16` | number † | `int` | number † | `uint16` | `UInt16` | `UInt16` | `UInt16` | `INT(16,false)` | `Uint16` |
+| `u32` | `u32` | number † | `int` | number † | `uint32` | `UInt32` | `UInt32` | `UInt32` | `INT(32,false)` | `Uint32` |
+| `u64` | `u64` | number ‡ | `int` | `bigint` ‡ | `uint64` | `UInt64` | `UInt64` | `UInt64` | `INT(64,false)` | `Uint64` |
+| `u128` | `u128` | — ‡ | `int` | `bigint` | — | `UInt128` | — | — | `DECIMAL`/`FLBA` | `Uint128` |
+| `f32` | `f32` | number § | `float` § | number § | `float32` | `Float32` | `float32` | `Float32` | `FLOAT` | `Float32` |
+| `f64` | `f64` | number | `float` | number | `float64` | `Float64` | `float64` | `Float64` | `DOUBLE` | `Float` |
+| `decimal` | `rust_decimal::Decimal` | — | `decimal.Decimal` | — | — | `Decimal(p,s)` | `object` | `Decimal128/256` | `DECIMAL` | `Decimal` |
+| `str` | `String` | `string` | `str` | `string` | `str_` | `String` | `string` | `Utf8` | `STRING` | `Text` |
+| `bytes` | `Vec<u8>` | — ¶ | `bytes` | `Uint8Array` | `bytes_` | `Binary` | `object` | `Binary` | `BYTE_ARRAY` | `Bytea` |
+| `date` | `chrono::NaiveDate` | — ¶ | `datetime.date` | — ¶ | `datetime64[D]` | `Date` | `datetime64` | `Date32` | `DATE` | `Date` |
+| `time` | `chrono::NaiveTime` | — ¶ | `datetime.time` | — | `timedelta64` | `Time` | `object` | `Time64` | `TIME` | `Time` |
+| `datetime` | `chrono::DateTime<Utc>` | — ¶ | `datetime.datetime` | `Date` | `datetime64[ns]` | `Datetime(tu,tz)` | `datetime64[ns,tz]` | `Timestamp` | `TIMESTAMP` | `Timestamp` |
+| `duration` | `chrono::TimeDelta` | — ¶ | `datetime.timedelta` | — | `timedelta64` | `Duration(tu)` | `timedelta64[ns]` | `Duration` | `INTERVAL` ‖ | `Interval` ‖ |
+| `uuid` | `uuid::Uuid` | — ¶ | `uuid.UUID` | — | — | — | `object` | `FixedSizeBinary(16)` | `UUID` | `Uuid` |
+
+† JSON and JavaScript `number` is IEEE-754 double: exact for integers up to 2⁵³, so the narrow
+integer widths round-trip but lose their declared width.
+‡ Beyond 2⁵³ a JSON number and a JavaScript `number` lose precision silently. JavaScript `bigint`
+is exact but does not survive `JSON.stringify`. This is the single most dangerous cell in the
+table and the conversion draft must treat it as lossy-by-default.
+§ `f32 → f64` is exact; `f64 → f32` is lossy. JSON, Python and JavaScript have only the double.
+¶ JSON has no native type; conveyed by convention (base64 string, RFC 3339 string) and therefore
+only recoverable when the *declared* Liquers type says what the string means — which is exactly
+the argument for the type identifier being authoritative over the encoding.
+‖ A Parquet/GlueSQL `INTERVAL` is a calendar interval (months, days, nanos), not the same thing as
+an elapsed `Duration`. Treat them as distinct types that convert only conditionally.
+
+### What this implies for `Value`
+
+`liquers-core::value::Value` today carries exactly `None, Bool, I32, I64, F64, Text, Bytes` among
+scalars. Against the table, it is missing every one of `i8, i16, i128, u8, u16, u32, u64, u128,
+f32, decimal, date, time, datetime, duration, uuid` — fifteen scalars that at least five of the
+nine target systems represent distinctly.
+
+Deliberately **not** proposed, with the reason recorded so the decision is not relitigated:
+
+- `f16` — Arrow, Polars and NumPy have it; Rust std does not, and JSON, Python, JavaScript and
+  GlueSQL cannot express it. Fails the Rust-reference rule.
+- `complex64` / `complex128` — NumPy and Python only.
+- `char` — Rust only; `str` covers it everywhere else.
+- `isize` / `usize` — platform-dependent width, so not portable across a store.
+- `Inet`, `Point` — GlueSQL only; belong in a domain library, not the scalar core.
+- `Categorical` / `Enum` / `Dictionary` — an *encoding* of a string column, not a scalar.
+
+### Consequences the architecture phase must absorb
+
+1. **`Value` is `#[serde(untagged)]`** (`liquers-core/src/value.rs:21`). Adding ten more numeric
+   variants makes untagged deserialization ambiguous — `7` matches `I8`, `I16`, `I32`, `U8` … and
+   serde picks the first. Either the scalars move behind a tagged sub-enum, or serialization stops
+   relying on shape inference and starts relying on the declared type identifier. The latter is
+   what this project argues for anyway.
+2. **Twenty-odd flat variants is the wrong shape.** A `Value::Scalar(Scalar)` sub-enum keeps
+   `Value` small and gives the scalar set its own exhaustive `match`, which the no-`_ =>` rule in
+   `CLAUDE.md` makes valuable.
+3. **`decimal`, temporal and `uuid` need dependencies** (`rust_decimal`, `chrono` or `time`,
+   `uuid`) in `liquers-core`, which is meant to stay minimal. Whether they are optional features is
+   a Phase 2 decision with a real cost either way.

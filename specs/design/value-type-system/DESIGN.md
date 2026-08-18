@@ -5,7 +5,7 @@ title: Liquers value type system
 workflow: liquers-project
 status: draft
 phase: high-level
-area: [core/value, core/commands, lib/value]
+area: [core/value, core/commands, lib/value, py, web]
 gh_pr: []
 issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY]
 affects_docs: [reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md]
@@ -32,6 +32,10 @@ metadata-validation problem. This design treats it as a missing type model inste
 
 Automatic type conversion is **out of scope**; Phase 2 produces `type-conversion-draft.md` for a
 follow-up project.
+
+User decisions, 2026-08-18: no backward compatibility for stored type identifiers and no data
+migration; the write path **rejects** inconsistent metadata rather than normalising; scalars are
+grounded in Rust and the nine-way correspondence table (`prior-art.md` §9) is a required artefact.
 
 ## Supporting documents
 
