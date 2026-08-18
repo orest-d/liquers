@@ -195,6 +195,7 @@ deliberately folded behind a broader line.
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `store-key-guard`
+- design `value-type-system`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 
