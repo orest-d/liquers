@@ -38,12 +38,22 @@ the new fields so a client can tell what an asset is without fetching it.
 `ValueInterface` grows the type-describing methods and loses none; `ExtValue`, `SimpleValue`,
 `CombinedValue`, `ForeignValue`, the Python and JavaScript values all report into one registry.
 
-**The scalar set widens.** `Value` carries `None, Bool, I32, I64, F64, Text, Bytes`; measured
-against the nine ecosystems Liquers exchanges with (`./prior-art.md` §9) it lacks `i8, i16, i128,
-u8, u16, u32, u64, u128, f32, decimal, date, time, datetime, duration, uuid`. Scalars are defined
-**by their Rust type** — a Liquers scalar exists only if Rust has it (or a canonical crate does,
-for `decimal`/temporal/`uuid`) and at least five of the nine systems represent it distinctly. That
-rule excludes `f16`, `complex`, `char`, `isize`/`usize`, and GlueSQL's `Inet`/`Point`.
+**The scalar set widens, in three tiers.** Scalars are defined **by their Rust type** — a Liquers
+scalar exists only if Rust has it (or a canonical crate does) and at least five of the nine target
+systems represent it distinctly (`./prior-art.md` §9). That rule excludes `f16`, `complex`, `char`,
+`isize`/`usize`, and GlueSQL's `Inet`/`Point`. Where each scalar lives:
+
+| Tier | Home | Contents |
+|---|---|---|
+| Core basics | `liquers-core::value::Value` | `none, bool, i32, i64, f64, text, bytes` — unchanged. These are what the query language, action parameters and command metadata actually need. |
+| Extended scalars | `liquers-lib::value::ExtValue`, feature-gated | `i8, i16, i128, u8, u16, u32, u64, u128, f32` behind `ext-scalars`; `decimal, date, time, datetime, duration, uuid` behind `ext-temporal`. |
+| Carrier-specific | the package that owns the carrier | Polars dtypes (`Categorical`, `Enum`, `Struct`, parameterised `Decimal(p,s)`) stay behind the existing `polars` feature; Python-only types (`py:int` arbitrary precision, `py:complex`, `py:bytearray`) live in `liquers-py`; JavaScript-only types (`js:bigint`, `js:symbol`, typed arrays) live in `liquers-web`. |
+
+The tiering is what makes the registry mandatory rather than merely convenient: a scalar can be
+absent from a given build, so the set of known types is a runtime fact each package contributes to,
+not a compile-time enum in `liquers-core`. Reading an asset whose type is not registered in this
+build must be a clean typed error naming the missing type — which is precisely the failure the P0
+currently produces silently.
 
 ### Web/API (if applicable)
 Asset-info responses expose the new fields; content negotiation gains a defensible basis. No new
@@ -56,9 +66,17 @@ No widget work in this project.
 ## Crate Placement
 
 **liquers-core** (`value.rs`, `metadata.rs`, `state.rs`, new `type_system.rs`) — the model, the
-registry trait, the invariants. **liquers-lib** (`value/`) — registration of the rich types.
-**liquers-py**, **liquers-web** — register their foreign types; both are breaking-change surfaces
-and are checked in Phase 2. No `liquers-store` or `liquers-axum` structural change.
+registry trait, the invariants, and only the basic types. It gains no scalar variants and no new
+dependency. **liquers-lib** (`value/`) — the extended scalars behind `ext-scalars` / `ext-temporal`,
+and registration of the rich types. **liquers-py**, **liquers-web** — register their own
+carrier-specific types; both are breaking-change surfaces and are checked in Phase 2. No
+`liquers-store` or `liquers-axum` structural change.
+
+Dependency cost is smaller than it looks: `chrono` is **already** a non-optional dependency of both
+`liquers-core` (`Cargo.toml:55`) and `liquers-lib`, so the temporal scalars add nothing. Only
+`rust_decimal` and `uuid` are new to the workspace, and both land in `liquers-lib` behind
+`ext-temporal`. Keeping the wide scalars out of core is therefore a decision about conceptual
+surface, not about build weight — worth stating so it is not re-argued on dependency grounds.
 
 ## Documentation Intent
 
@@ -93,6 +111,10 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
   normalise-and-warn. The predecessor plan's hybrid option is dropped.
 - **Scalars are grounded in Rust**, and the correspondence table across the nine ecosystems is a
   required artefact.
+- **Three-tier placement.** `liquers-core` keeps only the important basic types; `liquers-lib`
+  carries the fuller set behind one or two features; carrier-specific types belong to the package
+  that supports that carrier (Polars types under the `polars` feature, Python types in
+  `liquers-py`, JavaScript types in `liquers-web`).
 
 ## Open Questions
 
@@ -101,14 +123,15 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
 2. Should the carrier (`native`, `json`, `javascript`, `python`, `polars`) be a separate field or a
    namespace prefix inside the identifier (`py:int`, `js:number`, `core:i32`)?
 3. Where does the registry live at runtime — in `Environment`, or a process-global static?
-4. Do the fifteen new scalars go in as flat `Value` variants, or behind a `Value::Scalar(Scalar)`
-   sub-enum? The sub-enum keeps `Value` small and gives the scalar set its own exhaustive `match`.
-5. `Value` is `#[serde(untagged)]`; ten more numeric variants make shape inference ambiguous —
-   `7` matches `I8`, `I16`, `I32`, `U8`… Does serialization move to the declared type identifier
-   (which this project argues for anyway), or does the enum become tagged?
-6. `decimal`, temporal and `uuid` need `rust_decimal`, `chrono`/`time` and `uuid` in
-   `liquers-core`, which is meant to stay minimal. Mandatory dependencies or optional features?
-   Feature-gating a *scalar* means a value that exists in one build and not another.
+4. Do the extended scalars go in as flat `ExtValue` variants, or behind an
+   `ExtValue::Scalar(ExtScalar)` sub-enum? The sub-enum keeps the variant count and the
+   `#[cfg]`-heavy `match` arms in `value/mod.rs` manageable.
+5. Is `ext-scalars` / `ext-temporal` the right cut, or is one feature enough? `ext-scalars` needs
+   no dependency at all, so gating it buys only a smaller enum; `ext-temporal` costs `rust_decimal`
+   and `uuid`. Should either be in `default`?
+6. When a build encounters a stored type identifier its features do not include, is that a hard
+   error, or does the value degrade to `bytes` with the declared identifier preserved? The second
+   keeps a minimal build able to *move* data it cannot interpret.
 7. Does the guide need `docs/` (user-facing) coverage as well, or is `specs/guides/` enough?
 
 ## References

@@ -234,6 +234,10 @@ Deliberately **not** proposed, with the reason recorded so the decision is not r
 2. **Twenty-odd flat variants is the wrong shape.** A `Value::Scalar(Scalar)` sub-enum keeps
    `Value` small and gives the scalar set its own exhaustive `match`, which the no-`_ =>` rule in
    `CLAUDE.md` makes valuable.
-3. **`decimal`, temporal and `uuid` need dependencies** (`rust_decimal`, `chrono` or `time`,
-   `uuid`) in `liquers-core`, which is meant to stay minimal. Whether they are optional features is
-   a Phase 2 decision with a real cost either way.
+3. **The wide scalars do not belong in `liquers-core`.** Only the basic set stays there; the rest
+   live in `liquers-lib::ExtValue` behind features, and carrier-specific types (Polars dtypes,
+   Python-only, JavaScript-only) belong to the package supporting that carrier. Dependency weight
+   is not the reason — `chrono` is already non-optional in both `liquers-core` and `liquers-lib`,
+   and only `rust_decimal` and `uuid` would be new. The reason is conceptual surface, and the
+   consequence is that the known-type set becomes a runtime fact assembled from the packages in
+   the build rather than a compile-time enum.
