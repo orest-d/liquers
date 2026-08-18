@@ -1,6 +1,5 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,accepted,local,,P0,M,core/value,,,,metadata-consistency,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
-STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,accepted,local,,P0,M,core/store;store/backends;axum,,,,,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
 COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE,issue,Variadic command arguments cannot be declared or retrieved,draft,local,,P1,M,macro;core/commands;lib/commands,,,,,,2026-08-12,specs/issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,draft,local,,P1,M,core/plan;core/assets,,,,plan-cwd-freeze,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
@@ -31,12 +30,14 @@ COMMAND-METADATA-ENHANCEMENTS,feature,"Command metadata lacks enums, specializat
 CORE-SESSION-AND-KEY-ACL,issue,"No session model, and no way to authorize writes per key",accepted,local,,P2,L,core/context;core/store;axum,,,,,,2026-08-08,specs/issues/CORE-SESSION-AND-KEY-ACL.md
 CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilities every implementor must provide,accepted,local,,P2,L,core/value;lib/value;py,,,,,,2026-08-08,specs/issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md
 EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
+LIBRARY-CODE-USES-UNWRAP-AND-EXPECT,issue,Library code uses unwrap and expect despite the no-panic rule,draft,local,,P2,L,core/query;lib/commands;axum,,,,,,2026-08-17,specs/issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 RESOURCE-NAME-ASCII-ONLY,issue,Non-ASCII resource names are unaddressable,draft,local,,P2,L,core/query;core/store,,,,,,2026-08-14,specs/issues/RESOURCE-NAME-ASCII-ONLY.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,draft,local,,P3,S,core/commands,,,,,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,draft,local,,P3,S,core/assets,,,,,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,accepted,local,,P3,S,docs,,,,,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
+QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,P3,S,core/query,,,,,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
@@ -50,6 +51,7 @@ STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
+STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED,issue,Store key absoluteness is enforced by convention rather than by the type system,draft,local,,P3,L,core/store;store/backends;core/query,,,,,,2026-08-17,specs/issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md
 VALUE-DESCRIPTION,feature,Value types have no auto-generated description,accepted,local,,P3,L,core/value;lib/value,,,,,,2026-08-08,specs/issues/VALUE-DESCRIPTION.md
 WEB-NATIVE-IO-TIER2,issue,Browser storage has no IndexedDB backend,accepted,local,,P3,L,web,,,,liquers-web-store,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accepted,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
@@ -65,27 +67,27 @@ VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/v
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-16,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-14,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-17,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,overdue,local,,,,axum;web,,,,,2026-03-02,,specs/reference/WEB_API_SPECIFICATION.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-09,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/ASSETS.md
 ASSET_LIFECYCLE,reference,Asset Lifecycle Map,current,local,,,,core/assets,,,,,2026-08-11,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,core/assets,,,,,2026-08-08,,specs/reference/ASSET_SET_OPERATION.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,core/assets,,,,,2026-08-12,,specs/reference/DEPENDENCIES_STATUS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,core/query,,,,,2026-08-14,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,core/context;core/plan,,,,,2026-08-16,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-16,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-12,,specs/reference/POLARS_COMMAND_LIBRARY.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-14,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-17,,specs/reference/PROJECT_OVERVIEW.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,closed,local,,P0,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
@@ -95,6 +97,7 @@ CORE-RECIPES-EXPAND-PREDECESSORS-CRASH,issue,`disable_expand_predecessors` crash
 EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration tests fail at HEAD,closed,local,,P0,M,core/assets,,,,,,2026-08-09,specs/issues/EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD.md
 PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,closed,local,,P0,M,core/query,,,,parameter-entity-escaping,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
+STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,closed,local,,P0,M,core/store;store/backends;axum,,,,store-key-guard,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
 ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES,issue,ActionParameter::set_value double-encodes its value,closed,local,,P1,S,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md
 CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed as a command argument,closed,local,,P1,S,core/commands;core/query,,,,plan-cwd-freeze,,2026-08-15,specs/issues/CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND.md
 CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",closed,local,,P1,M,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
@@ -122,6 +125,7 @@ PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
+STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
 VOLATILITY-SYSTEM,design,Volatility tracking across the asset graph,complete,local,,,,core/assets,,,,volatility-system,,2026-03-02,specs/design/volatility-system/DESIGN.md
 WEB-API-LIBRARY,design,Web API library,complete,local,,,,axum,,,,web-api-library,,2026-03-02,specs/design/web-api-library/DESIGN.md
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md

@@ -8,6 +8,9 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
     match error_type {
         ErrorType::KeyNotFound => StatusCode::NOT_FOUND,
         ErrorType::KeyNotSupported => StatusCode::NOT_FOUND,
+        // 400, not 404: the caller supplied something that is not a store address at all, which is
+        // a malformed request rather than a resource that happens to be absent.
+        ErrorType::KeyNotAbsolute => StatusCode::BAD_REQUEST,
         ErrorType::ParseError => StatusCode::BAD_REQUEST,
         ErrorType::UnknownCommand => StatusCode::BAD_REQUEST,
         ErrorType::ParameterError => StatusCode::BAD_REQUEST,
@@ -47,11 +50,18 @@ pub fn error_to_detail(error: &Error) -> ErrorDetail {
     }
 }
 
-/// Parse ErrorType from string (for deserialization)
+/// Parses the string form written by [`error_to_detail`] back into an [`ErrorType`].
+///
+/// **This table is not checked by the compiler.** It matches on `&str`, so the `_` arm is
+/// unavoidable and a newly added `ErrorType` variant compiles fine while silently failing to parse
+/// — after which [`crate::axum_integration`] falls back to 500 and the variant's entry in
+/// [`error_to_status_code`] is never reached. `keyabs15b` is the guard: it round-trips every
+/// variant and is kept exhaustive by [`tests::each_error_type`].
 pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
     match type_str {
         "KeyNotFound" => Ok(ErrorType::KeyNotFound),
         "KeyNotSupported" => Ok(ErrorType::KeyNotSupported),
+        "KeyNotAbsolute" => Ok(ErrorType::KeyNotAbsolute),
         "ParseError" => Ok(ErrorType::ParseError),
         "UnknownCommand" => Ok(ErrorType::UnknownCommand),
         "ParameterError" => Ok(ErrorType::ParameterError),
@@ -79,6 +89,105 @@ pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every `ErrorType`, kept complete by the compiler.
+    ///
+    /// The `match` is what does the work: it has no `_` arm, so adding a variant to `ErrorType`
+    /// fails to compile here until the variant is added to the list as well. Without it, `keyabs15b`
+    /// would silently stop covering new variants — which is exactly how `KeyNotAbsolute` reached
+    /// `error_to_status_code` while `parse_error_type` had no arm for it.
+    fn each_error_type() -> Vec<ErrorType> {
+        let all = vec![
+            ErrorType::ArgumentMissing,
+            ErrorType::ActionNotRegistered,
+            ErrorType::CommandAlreadyRegistered,
+            ErrorType::ParseError,
+            ErrorType::ParameterError,
+            ErrorType::TooManyParameters,
+            ErrorType::ConversionError,
+            ErrorType::SerializationError,
+            ErrorType::General,
+            ErrorType::CacheNotSupported,
+            ErrorType::UnknownCommand,
+            ErrorType::NotSupported,
+            ErrorType::NotAvailable,
+            ErrorType::KeyNotFound,
+            ErrorType::KeyNotSupported,
+            ErrorType::KeyNotAbsolute,
+            ErrorType::KeyReadError,
+            ErrorType::KeyWriteError,
+            ErrorType::UnexpectedError,
+            ErrorType::ExecutionError,
+            ErrorType::DependencyVersionMismatch,
+            ErrorType::DependencyCycle,
+            ErrorType::Cancelled,
+        ];
+        for error_type in &all {
+            match error_type {
+                ErrorType::ArgumentMissing
+                | ErrorType::ActionNotRegistered
+                | ErrorType::CommandAlreadyRegistered
+                | ErrorType::ParseError
+                | ErrorType::ParameterError
+                | ErrorType::TooManyParameters
+                | ErrorType::ConversionError
+                | ErrorType::SerializationError
+                | ErrorType::General
+                | ErrorType::CacheNotSupported
+                | ErrorType::UnknownCommand
+                | ErrorType::NotSupported
+                | ErrorType::NotAvailable
+                | ErrorType::KeyNotFound
+                | ErrorType::KeyNotSupported
+                | ErrorType::KeyNotAbsolute
+                | ErrorType::KeyReadError
+                | ErrorType::KeyWriteError
+                | ErrorType::UnexpectedError
+                | ErrorType::ExecutionError
+                | ErrorType::DependencyVersionMismatch
+                | ErrorType::DependencyCycle
+                | ErrorType::Cancelled => {}
+            }
+        }
+        all
+    }
+
+    /// `keyabs15b` — every error type survives the round trip an HTTP response actually makes.
+    ///
+    /// `error_to_detail` writes `format!("{:?}")` and `ApiResponse::into_response` reads it back
+    /// with `parse_error_type` before consulting `error_to_status_code`. A variant missing from
+    /// that table parses as `Err`, is discarded by `.ok()`, and the response falls back to 500 —
+    /// so the status mapping is right and unreachable at the same time. `keyabs15` alone did not
+    /// catch that, because it called `error_to_status_code` directly.
+    #[test]
+    fn keyabs15b_every_error_type_round_trips_through_the_response_path() {
+        for error_type in each_error_type() {
+            let serialized = format!("{:?}", error_type);
+            let parsed = parse_error_type(&serialized).unwrap_or_else(|e| {
+                panic!("{serialized} does not round trip: {e} — the response would fall back to 500")
+            });
+            assert_eq!(parsed, error_type, "{serialized}");
+        }
+    }
+
+    /// `keyabs15` — a relative key is a bad request, not a missing resource.
+    ///
+    /// The contrast with `KeyNotSupported` is the point of the separate error type — one says the
+    /// address is malformed, the other that no store serves it.
+    ///
+    /// This asserts the mapping; `keyabs15b` asserts that the mapping is reachable. Both are
+    /// needed, and `AXUM-HANDLER-TEST-COVERAGE` is why neither goes through a real handler.
+    #[test]
+    fn keyabs15_key_not_absolute_is_bad_request() {
+        assert_eq!(
+            error_to_status_code(ErrorType::KeyNotAbsolute),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            error_to_status_code(ErrorType::KeyNotSupported),
+            StatusCode::NOT_FOUND
+        );
+    }
 
     #[test]
     fn test_error_to_status_code_not_found() {

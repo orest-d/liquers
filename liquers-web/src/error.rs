@@ -1,6 +1,6 @@
 //! The `ERROR` bridge: Liquers `Error` ↔ JavaScript.
 //!
-//! One structured error class rather than a typed hierarchy. `ErrorType` has 22 variants, and 22
+//! One structured error class rather than a typed hierarchy. `ErrorType` has 23 variants, and 23
 //! JavaScript subclasses would be surface without benefit — the discriminant is carried as a
 //! string field instead, which is also what makes it forward-compatible.
 
@@ -29,6 +29,7 @@ pub fn error_type_name(t: ErrorType) -> &'static str {
         ErrorType::NotAvailable => "not_available",
         ErrorType::KeyNotFound => "key_not_found",
         ErrorType::KeyNotSupported => "key_not_supported",
+        ErrorType::KeyNotAbsolute => "key_not_absolute",
         ErrorType::KeyReadError => "key_read_error",
         ErrorType::KeyWriteError => "key_write_error",
         ErrorType::UnexpectedError => "unexpected_error",
@@ -60,6 +61,7 @@ pub fn error_type_from_name(name: &str) -> Option<ErrorType> {
         "not_available" => ErrorType::NotAvailable,
         "key_not_found" => ErrorType::KeyNotFound,
         "key_not_supported" => ErrorType::KeyNotSupported,
+        "key_not_absolute" => ErrorType::KeyNotAbsolute,
         "key_read_error" => ErrorType::KeyReadError,
         "key_write_error" => ErrorType::KeyWriteError,
         "unexpected_error" => ErrorType::UnexpectedError,

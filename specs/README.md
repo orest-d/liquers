@@ -111,9 +111,18 @@ expansion time rather than at runtime. That is the cheapest item here.
 ### Stores
 
 - **Store configuration** — documented → [`reference/STORE_CONFIG_FSD.md`](reference/STORE_CONFIG_FSD.md)
+- **Absolute store keys** — built → `liquers_core::store` module docs; rule summarised in
+  [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
+  store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
+- **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — planned → [`issues/STORE-OPENDAL-SLASH-HANDLING.md`](issues/STORE-OPENDAL-SLASH-HANDLING.md)
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
+
+A key given to a store must be absolute: no element may be `.` or `..`. Relative keys are resolved
+at plan level and a store never resolves them, so one reaching a store is refused with
+`KeyNotAbsolute`. The rule lives in rustdoc until DOC-07 exists; enforcement is by convention per
+method rather than by signature, which is `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`.
 
 `STORE-OPENDAL-SLASH-HANDLING` is P1 and blunt: keys containing `/` are not reliably addressable
 through an OpenDAL backend, which is most real keys. Sessions and ACL are one item because there is
@@ -185,6 +194,7 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
+- design `store-key-guard`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 <!-- END generated: unplaced -->
 

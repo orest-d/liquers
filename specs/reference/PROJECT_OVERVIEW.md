@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-08-14
+reviewed: 2026-08-17
 ---
 # Liquers Project Overview
 
@@ -243,8 +243,14 @@ not `PlanBuilder`, is responsible for resolving subsequent keys, queries, links,
 
 **Key-based abstraction** - Keys are path-like but not filesystem paths:
 - `folder/subfolder/file.txt` - hierarchical structure
-- Safe encoding prevents arbitrary file access
-- Supports relative navigation (`.`, `..`)
+- Relative navigation (`.`, `..`) is a **plan-level** feature: it is resolved against a current
+  working directory while the plan is built (`Key::to_absolute`)
+- **A key given to a store must be absolute** - no element may be `.` or `..`. A store never
+  resolves them, so a relative key reaching one is a malformed address and is refused with
+  `ErrorType::KeyNotAbsolute` (400 over HTTP). Refusal rather than normalization, because a key is
+  an address: quietly equating `a/../b` with `b` would make two addresses alias one asset. This is
+  well-formedness, not authorization. Check with `Key::as_absolute`; see the `liquers_core::store`
+  module documentation, and `specs/reference/api/API_DOCS_GAP_ANALYSIS.md` §7 for what DOC-07 owes
 
 **Operations**:
 - `get(key)` / `get_bytes(key)` / `get_metadata(key)`
@@ -472,6 +478,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-17 | Corrected §5 Storage: it claimed "safe encoding prevents arbitrary file access", which was not true — a key containing `..` escaped the file store root. States the absolute-key precondition, its error and where relative navigation actually belongs. | `design/store-key-guard/` |
 | 2026-08-14 | Recorded that string action parameters now escape every character, so a parameter round-trips for any value; the raw-emission caveat is narrowed to resource names, action names, headers and filenames. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Reviewed recipe planning and execution; documented provider/programmatic CWD provenance, interpreter-owned ordered resolution, scoped nested evaluation, and resolved identities. | phase-5 |
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

@@ -3,7 +3,7 @@ title: API Documentation Gap Analysis
 kind: reference
 audience: internal
 area: [docs]
-reviewed: 2026-08-09
+reviewed: 2026-08-17
 ---
 # API Documentation Gap Analysis
 
@@ -358,6 +358,14 @@ in [`config.rs`](../../../liquers-store/src/config.rs). The underlying `Store` a
 #### Recommended documentation
 
 - Logical key versus backend path semantics
+- **The absolute-key precondition.** A key handed to a store must be absolute — it must contain no
+  `.` or `..` segment. Relative keys are a plan-level feature, resolved against a current working
+  directory while the plan is built; a store never resolves them and refuses one it is given. DOC-07
+  must state the rule, the error a store returns, and that `is_supported` is not where it is
+  enforced, since only the store routers consult that method. Tracked by
+  `specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md` and designed in
+  `specs/design/store-key-guard/`; until DOC-07 exists, the rule lives in the `liquers-core::store`
+  module and `Store`/`AsyncStore` trait rustdoc.
 - Prefix routing and precedence
 - Data and metadata consistency
 - Atomicity guarantees
@@ -623,7 +631,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 | DOC-04 | Environment and context | P0 | [Reference](DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) | Complete | Payload-aware nested evaluation and environment choices reviewed against HEAD |
 | DOC-05 | Commands and registration | P0 | Baseline complete | Not started | Not started |
 | DOC-06 | Values, state, metadata, serialization | P1 | Baseline complete | Not started | Not started |
-| DOC-07 | Stores and persistence | P1 | Baseline complete | Not started | Not started |
+| DOC-07 | Stores and persistence | P1 | Baseline complete | Not started | Must cover the absolute-key precondition (§7) |
 | DOC-08 | Recipes and plans | P1 | [Reference](DOC_08_RECIPES_PLANS.md) | Complete | Planning, payload requirements, finalization, and execution reviewed against HEAD |
 | DOC-09 | Dependencies, expiration, volatility | P1 | Baseline complete | Not started | Not started |
 | DOC-10 | HTTP and WebSocket APIs | P1 | Baseline complete | Not started | Not started |
@@ -653,4 +661,5 @@ Suggested files for further work:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-17 | Recorded the absolute-key precondition as required DOC-07 content in §7 and in the progress tracker. DOC-07 does not exist yet, so the rule is documented in `liquers-core::store` rustdoc meanwhile. | `design/store-key-guard/` |
 | 2026-08-09 | Promoted to current API reference; reviewed the gap inventory against HEAD, updated completed work and documentation-structure findings, and corrected links. | quarterly |

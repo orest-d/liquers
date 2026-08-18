@@ -362,14 +362,17 @@ impl AsyncStore for FetchStore {
     }
 
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        check_key(key, &self.store_name())?;
         Ok(self.knows(key))
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        check_key(key, &self.store_name())?;
         Ok(self.dirs.contains_key(key))
     }
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        check_key(key, &self.store_name())?;
         Ok(self
             .dirs
             .get(key)

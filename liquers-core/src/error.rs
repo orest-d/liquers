@@ -26,6 +26,13 @@ pub enum ErrorType {
     NotAvailable,
     KeyNotFound,
     KeyNotSupported,
+    /// A store was given a key that is not absolute — some segment is `.` or `..`.
+    ///
+    /// Relative keys are a plan-level construct, resolved against a current working directory
+    /// while the plan is built. A store never resolves them, so one that arrives at a store is a
+    /// malformed address rather than a routing miss — which is why this is distinct from
+    /// [`ErrorType::KeyNotSupported`]. See [`crate::query::Key::as_absolute`].
+    KeyNotAbsolute,
     KeyReadError,
     KeyWriteError,
     UnexpectedError,
@@ -321,6 +328,23 @@ impl Error {
         Error {
             error_type: ErrorType::KeyNotSupported,
             message: format!("Key '{}' not supported by store {}", key, store_name),
+            position: Position::unknown(),
+            query: None,
+            key: Some(key.encode()),
+            command_key: None,
+        }
+    }
+    /// The key is not a store address: some segment is `.` or `..`.
+    ///
+    /// Takes no store name, unlike [`Self::key_not_supported`]: a relative key is invalid for
+    /// *every* store, so naming one adds no information.
+    pub fn key_not_absolute(key: &Key) -> Self {
+        Error {
+            error_type: ErrorType::KeyNotAbsolute,
+            message: format!(
+                "Key '{}' is not absolute; a store requires a key without '.' or '..' segments",
+                key
+            ),
             position: Position::unknown(),
             query: None,
             key: Some(key.encode()),

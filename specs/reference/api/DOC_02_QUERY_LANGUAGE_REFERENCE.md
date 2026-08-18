@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-08-14
+reviewed: 2026-08-17
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -54,7 +54,7 @@ Supplementary specifications:
 |---|---|---|
 | Source position | `Position` | Location convention and diagnostic identity |
 | Resource component | `ResourceName` | Logical name, `.`/`..`, extension |
-| Resource key | `Key` | Ordered logical path and relative resolution |
+| Resource key | `Key` | Ordered logical path, relative resolution, and the store-level absoluteness predicate |
 | Action parameter | `ActionParameter` | Decoded string or programmatic link |
 | Action request | `ActionRequest` | Command name and ordered parameters |
 | Header parameter | `HeaderParameter` | Undecoded segment-header value |
@@ -351,6 +351,24 @@ recipe-added `SetCwd` precedes it in the plan. A relative link inside that query
 still uses the active CWD (or the root fallback), while a link with its own leading
 `/` uses its private logical-root scope.
 
+Relative resolution is *not* what protects a store. `Key` carries a second,
+independent notion:
+
+- `Key::is_relative()` is true when **any** element is `.` or `..`, and
+  `Key::as_absolute()` / `Key::try_into_absolute()` return the key or
+  `ErrorType::KeyNotAbsolute`. A store applies this before using a key, because a
+  store never resolves; see the `liquers_core::store` module documentation.
+- The cursor's own test is narrower — it asks whether a key *starts* with `.` or
+  `..`, which is what decides if a CWD must be consumed. The two diverge on an
+  interior element: `a/../b` needs no CWD, so resolution leaves it untouched, and
+  it is still not a store address.
+- Only the exact elements `.` and `..` count. `.hidden`, `a..b`, `...` and `..x`
+  are ordinary resource names.
+
+`..` therefore remains legal syntax with unchanged parsing and planning; the
+refusal belongs to the store layer, not to the language. Executable evidence:
+[`store_key_absolute.rs`](../../../liquers-core/tests/store_key_absolute.rs).
+
 ### Headers
 
 - The resource flag distinguishes resource and transform headers.
@@ -497,6 +515,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-17 | Reviewed against HEAD. Recorded `Key`'s second, store-facing notion of relative — `is_relative`/`as_absolute`/`try_into_absolute` and `KeyNotAbsolute` — and how it diverges from the cursor's narrower "needs a CWD" test on an interior `..`. Query syntax and planning are unchanged. | phase-5 |
 | 2026-08-14 | Rewrote the action-parameter entity table with numeric (`~U ~D ~O ~B`) and named (`~n`) entities, the separator tilde, the encoder's priority order, the `entities-html5` feature and the entity diagnostics; recorded that a string parameter holds the decoded value and that `set_value` no longer double-encodes. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Documented ordered logical-CWD resolution, nested link and plan scope, root fallback, and absolute outer-query behavior against the implementation and regression tests. | phase-5 |
 | 2026-08-09 | Reviewed query parsing, link parameters, encoding, and planner instructions against HEAD; corrected links after the reference reorganization. | quarterly |

@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-03-02
+reviewed: 2026-08-17
 ---
 # Liquers Web API Specification
 
@@ -162,6 +162,8 @@ Mapping from `liquers_core::error::ErrorType` to HTTP status codes:
 |-----------|-------------|-------------|
 | `General` | 500 | Generic server error |
 | `KeyNotFound` | 404 | Resource not found in store |
+| `KeyNotSupported` | 404 | No store serves this key |
+| `KeyNotAbsolute` | 400 | The key is not a store address: some element is `.` or `..` |
 | `KeyAlreadyExists` | 409 | Resource already exists |
 | `ParseError` | 400 | Query parsing failed |
 | `CommandNotFound` | 404 | Command not registered |
@@ -2336,4 +2338,5 @@ Features not included in v1.0 but planned for future versions:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-17 | Added `KeyNotAbsolute` (400) and `KeyNotSupported` (404) to the error-type table: a key containing `.` or `..` is now refused by every store, and the two refusals are deliberately distinct — malformed address versus unrouted key. | `design/store-key-guard/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

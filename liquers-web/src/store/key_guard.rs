@@ -1,33 +1,32 @@
 //! Key shapes the browser stores refuse.
 //!
-//! `..` is a valid [`liquers_core::query::ResourceName`] — the parser accepts `.` as a name
-//! character — so `parse_key("../escape")` succeeds and plans as an ordinary `GetAsset`. Refusing
-//! it is therefore the *store's* job, and both browser stores need it for the same reason: a `..`
-//! segment would let a key escape a URL prefix or a `localStorage` namespace.
+//! Two different wrongs, kept apart because a caller can act on the difference:
 //!
-//! **Refusal, not normalization.** A key is an address, not a path. Silently rewriting `a/../b` to
-//! `b` would make two distinct addresses alias one asset, which is worse than rejecting a key
-//! nobody meant to write. [`liquers_core::query::Key::to_absolute`] does resolve `..`, but it runs
-//! during relative resolution, before a store sees the key; by the time a key reaches a store it
-//! is already absolute and no longer normalized by anything.
+//! - **A relative key** — any element that is `.` or `..`. A store requires an absolute key, and
+//!   here a `..` element would let a key escape a URL prefix or a `localStorage` namespace. The
+//!   rule lives in [`liquers_core::query::Key::as_absolute`] and the refusal is
+//!   [`liquers_core::error::ErrorType::KeyNotAbsolute`]; see the `liquers_core::store` module
+//!   documentation for why refusal rather than normalization.
+//! - **An empty element** — malformed rather than relative, and refused with
+//!   [`liquers_core::error::Error::key_not_supported`]. The store name is informative there, which
+//!   is why it keeps the store-scoped error.
 //!
-//! The same hole exists in `AsyncFileStore` and is exploitable there — see
-//! `specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md`, which proposes hoisting a shared version of
-//! this check into `liquers_core::store` so every backend gets it. This module is the browser's
-//! copy until that lands.
+//! This module used to carry its own copy of the relative-key check while
+//! `specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md` was open. That is fixed, the rule is shared,
+//! and only the empty-element case remains local.
 
 use liquers_core::error::Error;
 use liquers_core::query::Key;
 
-/// Returns an error when `key` has a segment that could escape the store's namespace.
+/// Returns an error when `key` has an element that could escape the store's namespace.
 ///
-/// Refused: `..`, `.`, and empty segments. **Every** segment is inspected, not only the first — a
-/// guard that checks only the leading segment accepts `a/../../etc`, which is the shape an
-/// attacker would actually write.
+/// Called from every `is_supported` **and** from each fallible method, because `is_supported`
+/// gates *routing*, not direct calls: a store used without the router would otherwise skip the
+/// check.
 pub fn check_key(key: &Key, store_name: &str) -> Result<(), Error> {
+    key.as_absolute()?;
     for segment in key.iter() {
-        let name = segment.encode();
-        if name.is_empty() || name == "." || name == ".." {
+        if segment.encode().is_empty() {
             return Err(Error::key_not_supported(key, store_name));
         }
     }

@@ -176,18 +176,22 @@ async fn store04_remove_and_removedir() {
 }
 
 /// STORE05 — a key that could escape the namespace is refused.
+///
+/// A relative key is `KeyNotAbsolute`: a store requires an absolute key, and the refusal names
+/// that rather than the store. `a/../../etc` is included because a guard inspecting only the
+/// leading element would let it through, which is the shape an attacker writes.
 #[wasm_bindgen_test]
 async fn store05_unsupported_key() {
     let store = store("t_store05");
-    for text in ["../escape", "a/../../etc"] {
+    for text in ["../escape", "a/../../etc", "a/./b"] {
         let k = key(text);
         match store.get(&k).await {
             Ok(_) => panic!("{text} must be refused"),
-            Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
+            Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
         }
         match store.set(&k, b"x", &Metadata::new()).await {
             Ok(()) => panic!("{text} must be refused for writes too"),
-            Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotSupported, "{}", e.message),
+            Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
         }
         assert!(!store.is_supported(&k), "{text} must not be routed here");
     }

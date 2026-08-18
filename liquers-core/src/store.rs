@@ -1,3 +1,47 @@
+//! Key-value stores: the [`Store`] and [`AsyncStore`] traits, the routers that compose them, and
+//! the in-memory and filesystem backends.
+//!
+//! # A store key is absolute
+//!
+//! Every key handed to a store must be absolute: no element may be `.` or `..`. Relative keys are
+//! a *plan-level* construct — they are meaningful against a current working directory, and
+//! [`Key::to_absolute`] resolves them while the plan is built. Nothing below that layer resolves
+//! them, so a relative key arriving at a store is a malformed address, and the store refuses it
+//! with [`crate::error::ErrorType::KeyNotAbsolute`].
+//!
+//! **Refusal, not normalization.** A key is an address, not a path. Silently rewriting `a/../b` to
+//! `b` would make two distinct addresses alias one asset, which is worse than rejecting a key
+//! nobody meant to write.
+//!
+//! This is a **well-formedness** rule, not authorization. It says nothing about who may read or
+//! write a key; per-key permission is a separate, orthogonal question (see
+//! `specs/issues/CORE-SESSION-AND-KEY-ACL.md`). That the rule also closes a path-traversal hole in
+//! the filesystem backends is a consequence of it, not its definition.
+//!
+//! ## Implementing a store
+//!
+//! Call [`Key::as_absolute`] at the top of every fallible method that takes a key, shadowing the
+//! parameter so the unchecked key cannot be used afterwards:
+//!
+//! ```ignore
+//! async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+//!     let key = key.as_absolute()?;
+//!     // … only the checked `key` is reachable from here
+//! }
+//! ```
+//!
+//! Writes as well as reads: a read-only guard leaves the write path open.
+//!
+//! [`Store::is_supported`] should *also* reject relative keys, but **it is not the enforcement
+//! point.** Only [`StoreRouter`] and [`AsyncStoreRouter`] consult it, so a store held directly —
+//! which is how an `Environment` is often configured, and how store unit tests construct one —
+//! never runs it. A backend guarded only in `is_supported` therefore passes a routed test and is
+//! wide open when used directly.
+//!
+//! A backend that maps keys onto backend paths gets the check structurally as well: the path
+//! builders of [`FileStore`], [`AsyncFileStore`] and the OpenDAL store are fallible, so the
+//! backend cannot be reached without passing.
+
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -13,6 +57,11 @@ use crate::query::Key;
 #[cfg(all(feature = "async_store", not(target_arch = "wasm32")))]
 use tokio::time::{sleep, Duration};
 
+/// A synchronous key-value store.
+///
+/// **Every key must be absolute** — see the [module documentation](self#a-store-key-is-absolute).
+/// Implementors call [`Key::as_absolute`] at the top of each fallible key-taking method;
+/// [`Self::is_supported`] is consulted only by [`StoreRouter`] and is not sufficient on its own.
 pub trait Store: Send + Sync {
     /// Get store name
     fn store_name(&self) -> String {
@@ -106,16 +155,19 @@ pub trait Store: Send + Sync {
 
     /// Store data and metadata.
     fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Store metadata only
     fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Remove data and metadata associated with the key
     fn remove(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -123,16 +175,19 @@ pub trait Store: Send + Sync {
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
     fn removedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Returns true if store contains the key.
-    fn contains(&self, _key: &Key) -> Result<bool, Error> {
+    fn contains(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
     /// Returns true if key points to a directory.
-    fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
@@ -146,7 +201,8 @@ pub trait Store: Send + Sync {
     /// Return names inside a directory specified by key.
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
-    fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
+    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        key.as_absolute()?;
         Ok(vec![])
     }
 
@@ -201,6 +257,7 @@ pub trait Store: Send + Sync {
 
     /// Make a directory
     fn makedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -215,6 +272,11 @@ pub trait Store: Send + Sync {
     /// Returns true when this store supports the supplied key.
     /// This allows layering Stores, e.g. by with_overlay, with_fallback
     /// and store selectively certain data (keys) in certain stores.
+    ///
+    /// An implementation should return `false` for a relative key (`!key.is_relative()`), but
+    /// **this is routing, not enforcement**: only the routers call this method, so the refusal
+    /// must also sit in each fallible method. See the
+    /// [module documentation](self#a-store-key-is-absolute).
     fn is_supported(&self, _key: &Key) -> bool {
         false
     }
@@ -265,6 +327,12 @@ pub trait Store: Send + Sync {
 #[cfg(feature = "async_store")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+/// An asynchronous key-value store. This is the trait new backends implement.
+///
+/// **Every key must be absolute** — see the [module documentation](self#a-store-key-is-absolute).
+/// Implementors call [`Key::as_absolute`] at the top of each fallible key-taking method;
+/// [`Self::is_supported`] is consulted only by [`AsyncStoreRouter`] and is not sufficient on its
+/// own. `openbin`, when it is implemented, is one more such method and needs the same check.
 pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSync {
     /// Get store name
     fn store_name(&self) -> String {
@@ -351,6 +419,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
 
     /// Store data and metadata.
     async fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -359,6 +428,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
 
     /// Remove data and metadata associated with the key
     async fn remove(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -366,16 +436,19 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
     /// Returns true if store contains the key.
-    async fn contains(&self, _key: &Key) -> Result<bool, Error> {
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
     /// Returns true if key points to a directory.
-    async fn is_dir(&self, _key: &Key) -> Result<bool, Error> {
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        key.as_absolute()?;
         Ok(false)
     }
 
@@ -389,7 +462,8 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     /// Return names inside a directory specified by key.
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
-    async fn listdir(&self, _key: &Key) -> Result<Vec<String>, Error> {
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        key.as_absolute()?;
         Ok(vec![])
     }
 
@@ -444,6 +518,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        key.as_absolute()?;
         Err(Error::key_not_supported(key, &self.store_name()))
     }
 
@@ -458,6 +533,11 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     /// Returns true when this store supports the supplied key.
     /// This allows layering Stores, e.g. by with_overlay, with_fallback
     /// and store selectively certain data (keys) in certain stores.
+    ///
+    /// An implementation should return `false` for a relative key (`!key.is_relative()`), but
+    /// **this is routing, not enforcement**: only the routers call this method, so the refusal
+    /// must also sit in each fallible method. See the
+    /// [module documentation](self#a-store-key-is-absolute).
     fn is_supported(&self, _key: &Key) -> bool {
         false
     }
@@ -615,6 +695,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        let key = key.as_absolute()?;
         if let Some((data, metadata)) = self
             .data
             .read_async(key, |_key, (data, metadata)| {
@@ -628,6 +709,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        let key = key.as_absolute()?;
         if let Some(data) = self
             .data
             .read_async(key, |_key, (data, _metadata)| data.clone())
@@ -639,6 +721,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let key = key.as_absolute()?;
         if self.is_dir(key).await? {
             let mut metadata = self.default_metadata(key, true);
             metadata.children = self.listdir_asset_info(key).await?;
@@ -655,6 +738,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         let was_new = self
             .data
             .upsert_async(
@@ -670,6 +754,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if self
             .data
             .update_async(key, |_k, (_data, current_metadata)| {
@@ -704,6 +789,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn remove(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if self.data.remove_async(key).await.is_some() {
             self.remove_key_from_index(key).await;
         }
@@ -711,6 +797,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         let mut keys_to_remove = Vec::new();
         let _ = self
             .data
@@ -730,6 +817,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         if self.data.contains_async(key).await {
             return Ok(true);
         }
@@ -741,6 +829,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         Ok(self
             .dir_index
             .read_async(key, |_k, children| !children.is_empty())
@@ -761,6 +850,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let key = key.as_absolute()?;
         let keys = self.listdir_keys(key).await?;
         Ok(keys
             .iter()
@@ -769,6 +859,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let Some(children) = self
             .dir_index
             .read_async(key, |_k, children| children.clone())
@@ -789,6 +880,7 @@ impl AsyncStore for AsyncMemoryStore {
     }
 
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let mut keys = Vec::new();
         let _ = self
             .data
@@ -802,12 +894,15 @@ impl AsyncStore for AsyncMemoryStore {
         Ok(keys)
     }
 
-    async fn makedir(&self, _key: &Key) -> Result<(), Error> {
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         Ok(())
     }
 
-    fn is_supported(&self, _key: &Key) -> bool {
-        true
+    fn is_supported(&self, key: &Key) -> bool {
+        // The prefix is deliberately not consulted here; that omission predates the key rule and
+        // is out of its scope. See `specs/design/store-key-guard/`.
+        !key.is_relative()
     }
 }
 
@@ -832,26 +927,37 @@ impl AsyncFileStore {
         }
     }
 
-    pub fn key_to_path(&self, key: &Key) -> PathBuf {
+    /// Maps a key onto a filesystem path under the store root.
+    ///
+    /// Fallible because this is where a relative key would become a real path traversal:
+    /// `PathBuf::push` appends the key verbatim, and the operating system then resolves `..`
+    /// against the root. Checking here means no method can reach the filesystem without the key
+    /// having passed. See the [module documentation](self#a-store-key-is-absolute).
+    pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error> {
+        let key = key.as_absolute()?;
         let mut path = self.path.clone();
         path.push(key.to_string());
-        path
+        Ok(path)
     }
 
-    pub fn key_to_path_metadata(&self, key: &Key) -> PathBuf {
+    /// Maps a key onto the path of its metadata file. Fallible for the same reason as
+    /// [`Self::key_to_path`].
+    pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error> {
+        let key = key.as_absolute()?;
         let mut path = self.path.clone();
         path.push(format!("{}{}", key, Self::METADATA));
-        path
+        Ok(path)
     }
 
-    fn key_to_lock_path(&self, key: &Key) -> PathBuf {
+    fn key_to_lock_path(&self, key: &Key) -> Result<PathBuf, Error> {
+        let key = key.as_absolute()?;
         let mut path = self.path.clone();
         path.push(format!("{}{}", key, Self::LOCK));
-        path
+        Ok(path)
     }
 
     async fn write_metadata_file(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        let path = self.key_to_path_metadata(key);
+        let path = self.key_to_path_metadata(key)?;
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -869,7 +975,7 @@ impl AsyncFileStore {
     }
 
     async fn acquire_lock(&self, key: &Key) -> Result<FileLockGuard, Error> {
-        let lock_path = self.key_to_lock_path(key);
+        let lock_path = self.key_to_lock_path(key)?;
         if let Some(parent) = lock_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -947,7 +1053,7 @@ impl AsyncStore for AsyncFileStore {
     }
 
     async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if !tokio::fs::try_exists(&path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
@@ -967,7 +1073,7 @@ impl AsyncStore for AsyncFileStore {
     }
 
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        let metadata_path = self.key_to_path_metadata(key);
+        let metadata_path = self.key_to_path_metadata(key)?;
         if tokio::fs::try_exists(&metadata_path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
@@ -997,7 +1103,7 @@ impl AsyncStore for AsyncFileStore {
             ));
         }
 
-        let data_path = self.key_to_path(key);
+        let data_path = self.key_to_path(key)?;
         if !tokio::fs::try_exists(&data_path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
@@ -1016,7 +1122,7 @@ impl AsyncStore for AsyncFileStore {
         let mut metadata = self.default_metadata(key, false);
         metadata.warning(&format!(
             "Metadata file {} does not exist.",
-            self.key_to_path_metadata(key).display()
+            self.key_to_path_metadata(key)?.display()
         ));
         metadata.warning("New metadata has been created. (get_metadata)");
         let mut metadata = Metadata::MetadataRecord(metadata);
@@ -1028,7 +1134,7 @@ impl AsyncStore for AsyncFileStore {
 
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let _lock = self.acquire_lock(key).await?;
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -1054,7 +1160,7 @@ impl AsyncStore for AsyncFileStore {
 
     async fn remove(&self, key: &Key) -> Result<(), Error> {
         let _lock = self.acquire_lock(key).await?;
-        let data_path = self.key_to_path(key);
+        let data_path = self.key_to_path(key)?;
         if tokio::fs::try_exists(&data_path)
             .await
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?
@@ -1063,7 +1169,7 @@ impl AsyncStore for AsyncFileStore {
                 .await
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         }
-        let metadata_path = self.key_to_path_metadata(key);
+        let metadata_path = self.key_to_path_metadata(key)?;
         if tokio::fs::try_exists(&metadata_path)
             .await
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?
@@ -1077,7 +1183,7 @@ impl AsyncStore for AsyncFileStore {
 
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
         let _lock = self.acquire_lock(key).await?;
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if tokio::fs::try_exists(&path)
             .await
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?
@@ -1090,21 +1196,21 @@ impl AsyncStore for AsyncFileStore {
     }
 
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if tokio::fs::try_exists(path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
         {
             return Ok(true);
         }
-        let metadata_path = self.key_to_path_metadata(key);
+        let metadata_path = self.key_to_path_metadata(key)?;
         tokio::fs::try_exists(metadata_path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if !tokio::fs::try_exists(&path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
@@ -1118,7 +1224,7 @@ impl AsyncStore for AsyncFileStore {
     }
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if !tokio::fs::try_exists(&path)
             .await
             .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
@@ -1149,7 +1255,7 @@ impl AsyncStore for AsyncFileStore {
     }
 
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         tokio::fs::create_dir_all(path)
             .await
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
@@ -1157,7 +1263,8 @@ impl AsyncStore for AsyncFileStore {
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        key.has_key_prefix(&self.prefix)
+        !key.is_relative()
+            && key.has_key_prefix(&self.prefix)
             && (!key
                 .filename()
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
@@ -1182,16 +1289,25 @@ impl FileStore {
         }
     }
 
-    pub fn key_to_path(&self, key: &Key) -> PathBuf {
+    /// Maps a key onto a filesystem path under the store root.
+    ///
+    /// Fallible because this is where a relative key would become a real path traversal — see
+    /// [`AsyncFileStore::key_to_path`] and the
+    /// [module documentation](self#a-store-key-is-absolute).
+    pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error> {
+        let key = key.as_absolute()?;
         let mut path = self.path.clone();
         path.push(key.to_string());
-        path
+        Ok(path)
     }
 
-    pub fn key_to_path_metadata(&self, key: &Key) -> PathBuf {
+    /// Maps a key onto the path of its metadata file. Fallible for the same reason as
+    /// [`Self::key_to_path`].
+    pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error> {
+        let key = key.as_absolute()?;
         let mut path = self.path.clone();
         path.push(format!("{}{}", key, Self::METADATA));
-        path
+        Ok(path)
     }
 }
 
@@ -1225,7 +1341,7 @@ impl Store for FileStore {
     }
 
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if path.exists() {
             let mut file =
                 File::open(path).map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
@@ -1239,7 +1355,7 @@ impl Store for FileStore {
     }
 
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        let path = self.key_to_path_metadata(key);
+        let path = self.key_to_path_metadata(key)?;
         if path.exists() {
             if path.is_dir() {
                 let mut metadata = self.default_metadata(key, true);
@@ -1264,7 +1380,7 @@ impl Store for FileStore {
                 "Metadata parsing error",
             ))
         } else {
-            let path = self.key_to_path(key);
+            let path = self.key_to_path(key)?;
             if path.exists() {
                 if path.is_dir() {
                     let mut metadata = self.default_metadata(key, true);
@@ -1287,7 +1403,7 @@ impl Store for FileStore {
     }
 
     fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         let mut tmp_metadata = metadata.clone();
         self.finalize_metadata(&mut tmp_metadata, key, data, true);
         tmp_metadata.set_status(metadata::Status::Storing)?;
@@ -1303,7 +1419,7 @@ impl Store for FileStore {
     }
 
     fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        let path = self.key_to_path_metadata(key);
+        let path = self.key_to_path_metadata(key)?;
         let file =
             File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         match metadata {
@@ -1316,12 +1432,12 @@ impl Store for FileStore {
     }
 
     fn remove(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if path.exists() {
             std::fs::remove_file(path)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         }
-        let matadata_path = self.key_to_path_metadata(key);
+        let matadata_path = self.key_to_path_metadata(key)?;
         if matadata_path.exists() {
             std::fs::remove_file(matadata_path)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
@@ -1330,7 +1446,7 @@ impl Store for FileStore {
     }
 
     fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if path.exists() {
             std::fs::remove_dir_all(path)
                 .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
@@ -1339,11 +1455,11 @@ impl Store for FileStore {
     }
 
     fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if path.exists() {
             return Ok(true);
         }
-        let metadata_path = self.key_to_path_metadata(key);
+        let metadata_path = self.key_to_path_metadata(key)?;
         if metadata_path.exists() {
             return Ok(true);
         }
@@ -1351,12 +1467,12 @@ impl Store for FileStore {
     }
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         Ok(path.is_dir())
     }
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         if path.is_dir() {
             let dir = path
                 .read_dir()
@@ -1378,14 +1494,15 @@ impl Store for FileStore {
     }
 
     fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key);
+        let path = self.key_to_path(key)?;
         std::fs::create_dir_all(path)
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
         Ok(())
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        key.has_key_prefix(&self.prefix)
+        !key.is_relative()
+            && key.has_key_prefix(&self.prefix)
             && (!key
                 .filename()
                 .is_some_and(|file_name| file_name.name.ends_with(Self::METADATA)))
@@ -1423,6 +1540,7 @@ impl Store for MemoryStore {
     }
 
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         match mem.get(key) {
             Some((data, metadata)) => Ok((data.to_owned(), metadata.to_owned())),
@@ -1431,6 +1549,7 @@ impl Store for MemoryStore {
     }
 
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         match mem.get(key) {
             Some((data, _)) => Ok(data.to_owned()),
@@ -1439,6 +1558,7 @@ impl Store for MemoryStore {
     }
 
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         if self.is_dir(key)? {
             let mut metadata = self.default_metadata(key, true);
@@ -1452,6 +1572,7 @@ impl Store for MemoryStore {
     }
 
     fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         let mut mem = self.data.write().unwrap();
 
         mem.insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
@@ -1459,6 +1580,7 @@ impl Store for MemoryStore {
     }
 
     fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         let res = self.get(key)?;
         let mut mem = self.data.write().unwrap();
         mem.insert(key.to_owned(), (res.0, metadata.to_owned()));
@@ -1466,12 +1588,14 @@ impl Store for MemoryStore {
     }
 
     fn remove(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         let mut mem = self.data.write().unwrap();
         mem.remove(key);
         Ok(())
     }
 
     fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         let mut mem = self.data.write().unwrap();
         let keys = mem
             .keys()
@@ -1485,6 +1609,7 @@ impl Store for MemoryStore {
     }
 
     fn contains(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         if mem.contains_key(key) {
             return Ok(true);
@@ -1493,6 +1618,7 @@ impl Store for MemoryStore {
     }
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         let keys = mem
             .keys()
@@ -1514,6 +1640,7 @@ impl Store for MemoryStore {
     }
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let key = key.as_absolute()?;
         let keys = self.listdir_keys(key)?;
         Ok(keys
             .iter()
@@ -1522,6 +1649,7 @@ impl Store for MemoryStore {
     }
 
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         let n = key.len() + 1;
         let keys = mem
@@ -1533,6 +1661,7 @@ impl Store for MemoryStore {
     }
 
     fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let mem = self.data.read().unwrap();
         let keys = mem
             .keys()
@@ -1542,13 +1671,16 @@ impl Store for MemoryStore {
         Ok(keys)
     }
 
-    fn makedir(&self, _key: &Key) -> Result<(), Error> {
+    fn makedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         // TODO: implement correct makedir
         Ok(())
     }
 
-    fn is_supported(&self, _key: &Key) -> bool {
-        true
+    fn is_supported(&self, key: &Key) -> bool {
+        // The prefix is deliberately not consulted here; that omission predates the key rule and
+        // is out of its scope. See `specs/design/store-key-guard/`.
+        !key.is_relative()
     }
 }
 
@@ -1648,16 +1780,19 @@ impl Store for StoreRouter {
     }
 
     fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        let key = key.as_absolute()?;
         self.find_store(key)
             .map_or(Err(Error::key_not_found(key)), |store| store.get(key))
     }
 
     fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        let key = key.as_absolute()?;
         self.find_store(key)
             .map_or(Err(Error::key_not_found(key)), |store| store.get_bytes(key))
     }
 
     fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let key = key.as_absolute()?;
         self.find_store(key)
             .map_or(Err(Error::key_not_found(key)), |store| {
                 store.get_metadata(key)
@@ -1665,6 +1800,7 @@ impl Store for StoreRouter {
     }
 
     fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.set(key, data, metadata),
@@ -1672,6 +1808,7 @@ impl Store for StoreRouter {
     }
 
     fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.set_metadata(key, _metadata),
@@ -1679,6 +1816,7 @@ impl Store for StoreRouter {
     }
 
     fn remove(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.remove(key),
@@ -1686,6 +1824,7 @@ impl Store for StoreRouter {
     }
 
     fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.removedir(key),
@@ -1693,11 +1832,13 @@ impl Store for StoreRouter {
     }
 
     fn contains(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         self.find_store(key)
             .map_or(Ok(false), |store| store.contains(key))
     }
 
     fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) {
                 return store.is_dir(key);
@@ -1720,6 +1861,7 @@ impl Store for StoreRouter {
     }
 
     fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let key = key.as_absolute()?;
         let mut list = Vec::new();
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) {
@@ -1742,11 +1884,13 @@ impl Store for StoreRouter {
     }
 
     fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let names = self.listdir(key)?;
         Ok(names.iter().map(|x| key.join(x)).collect())
     }
 
     fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let keys = self.listdir_keys(key)?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
@@ -1759,6 +1903,7 @@ impl Store for StoreRouter {
     }
 
     fn makedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         self.find_store(key).map_or(
             Err(Error::key_not_supported(key, "store router")),
             |store| store.makedir(key),
@@ -1766,8 +1911,10 @@ impl Store for StoreRouter {
     }
 
     fn is_supported(&self, key: &Key) -> bool {
-        self.find_store(key)
-            .is_some_and(|store| store.is_supported(key))
+        !key.is_relative()
+            && self
+                .find_store(key)
+                .is_some_and(|store| store.is_supported(key))
     }
 }
 
@@ -1839,6 +1986,7 @@ impl AsyncStore for AsyncStoreRouter {
     }
 
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.get(key).await
         } else {
@@ -1848,6 +1996,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Get data as bytes
     async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.get_bytes(key).await
         } else {
@@ -1857,6 +2006,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Get metadata
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.get_metadata(key).await
         } else {
@@ -1866,6 +2016,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Store data and metadata.
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.set(key, data, metadata).await
         } else {
@@ -1875,6 +2026,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Store metadata only
     async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.set_metadata(key, metadata).await
         } else {
@@ -1884,6 +2036,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Remove data and metadata associated with the key
     async fn remove(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.remove(key).await
         } else {
@@ -1895,6 +2048,7 @@ impl AsyncStore for AsyncStoreRouter {
     /// The key must be a directory.
     /// It depends on the underlying store whether the directory must be empty.    
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.removedir(key).await
         } else {
@@ -1904,6 +2058,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Returns true if store contains the key.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.contains(key).await
         } else {
@@ -1913,6 +2068,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Returns true if key points to a directory.
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) {
                 return store.is_dir(key).await;
@@ -1939,6 +2095,7 @@ impl AsyncStore for AsyncStoreRouter {
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let key = key.as_absolute()?;
         let mut list = Vec::new();
         for store in &self.stores {
             if key.has_key_prefix(&store.key_prefix()) {
@@ -1964,6 +2121,7 @@ impl AsyncStore for AsyncStoreRouter {
     /// Only keys present directly in the directory are returned,
     /// subdirectories are not traversed.
     async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let names = self.listdir(key).await?;
         Ok(names.iter().map(|x| key.join(x)).collect())
     }
@@ -1972,6 +2130,7 @@ impl AsyncStore for AsyncStoreRouter {
     /// Keys directly in the directory are returned,
     /// as well as in all the subdirectories.
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        let key = key.as_absolute()?;
         let keys = self.listdir_keys(key).await?;
         let mut keys_deep = keys.clone();
         for sub_key in keys {
@@ -1985,6 +2144,7 @@ impl AsyncStore for AsyncStoreRouter {
 
     /// Make a directory
     async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
             store.makedir(key).await
         } else {
@@ -2003,9 +2163,12 @@ impl AsyncStore for AsyncStoreRouter {
     /// Returns true when this store supports the supplied key.
     /// This allows layering Stores, e.g. by with_overlay, with_fallback
     /// and store selectively certain data (keys) in certain stores.
-    fn is_supported(&self, _key: &Key) -> bool {
-        if let Some(store) = self.find_store(_key) {
-            store.is_supported(_key)
+    fn is_supported(&self, key: &Key) -> bool {
+        if key.is_relative() {
+            return false;
+        }
+        if let Some(store) = self.find_store(key) {
+            store.is_supported(key)
         } else {
             false
         }
@@ -2168,6 +2331,290 @@ mod tests {
         router.add_store(Box::new(MemoryStore::new(&parse_key("data")?)));
         assert!(router.listdir(&parse_key("data")?)?.is_empty());
         assert_eq!(router.listdir(&Key::new())?, vec!["data".to_string()]);
+        Ok(())
+    }
+}
+
+/// Tests for the absolute-key precondition (`specs/design/store-key-guard/`).
+///
+/// Every test asserts the *error type*, never merely that an error occurred. `KeyNotAbsolute`,
+/// `KeyNotSupported` and `KeyReadError` are three different refusals here, and asserting `is_err()`
+/// would conflate them — which is how the deep-traversal case below can appear covered while the
+/// guard is absent.
+#[cfg(test)]
+mod key_absolute_tests {
+    use super::*;
+    use crate::error::ErrorType;
+    use crate::parse::parse_key;
+
+    /// The key shapes a store must refuse. `a/./b` and `a/../../etc` are the ones a guard that
+    /// inspects only the leading element would let through.
+    const RELATIVE: [&str; 5] = ["../escape", "a/../../etc/passwd", "a/./b", "..", "./x"];
+
+    fn unique_temp_dir(label: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "liquers_{}_{}",
+            label,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    /// `keyabs17` — the *trait defaults* refuse relative keys, so the contract holds for a backend
+    /// that overrides nothing.
+    ///
+    /// Raised in review of PR #36: `contains`, `is_dir` and `listdir` default to `Ok(false)` and
+    /// `Ok(vec![])`, permissive values that answered a relative key as though it were an ordinary
+    /// absent one. A backend inheriting them satisfied the documented "every store refuses" contract
+    /// only by accident of which methods it happened to override.
+    ///
+    /// `MinimalStore` implements exactly the two methods that have no default, so every other
+    /// method exercised here is the trait's own body.
+    #[tokio::test]
+    async fn keyabs17_trait_defaults_refuse_relative_keys() -> Result<(), Error> {
+        struct MinimalStore;
+
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncStore for MinimalStore {
+            async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+                key.as_absolute()?;
+                Err(Error::key_not_found(key))
+            }
+            async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+                key.as_absolute()?;
+                Ok(())
+            }
+        }
+
+        let store = MinimalStore;
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            for (label, error) in [
+                ("contains", store.contains(&key).await.err()),
+                ("is_dir", store.is_dir(&key).await.err()),
+                ("listdir", store.listdir(&key).await.err()),
+                ("set", store.set(&key, b"x", &metadata).await.err()),
+                ("remove", store.remove(&key).await.err()),
+                ("removedir", store.removedir(&key).await.err()),
+                ("makedir", store.makedir(&key).await.err()),
+            ] {
+                let error = error
+                    .unwrap_or_else(|| panic!("{label} default must refuse {text}"));
+                assert_eq!(
+                    error.error_type,
+                    ErrorType::KeyNotAbsolute,
+                    "{label} {text}"
+                );
+            }
+        }
+
+        // The defaults stay permissive for an ordinary key — the guard must not turn them into
+        // blanket refusals.
+        let ok = parse_key("data/report.txt")?;
+        assert!(!store.contains(&ok).await?);
+        assert!(!store.is_dir(&ok).await?);
+        assert!(store.listdir(&ok).await?.is_empty());
+        Ok(())
+    }
+
+    /// `keyabs07` — the in-memory stores refuse relative keys too.
+    ///
+    /// A map-backed store cannot traverse anything, so this is uniformity rather than safety: a key
+    /// that one store refuses and another serves would be a worse rule than one that holds
+    /// everywhere, and the memory stores are what most tests are written against.
+    #[tokio::test]
+    async fn keyabs07_memory_stores_refuse_relative_keys() -> Result<(), Error> {
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        let store = AsyncMemoryStore::new(&Key::new());
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            for error in [
+                store.get(&key).await.err(),
+                store.get_bytes(&key).await.err(),
+                store.get_metadata(&key).await.err(),
+                store.set(&key, b"x", &metadata).await.err(),
+                store.set_metadata(&key, &metadata).await.err(),
+                store.remove(&key).await.err(),
+                store.contains(&key).await.err(),
+                store.is_dir(&key).await.err(),
+                store.listdir(&key).await.err(),
+                store.makedir(&key).await.err(),
+            ] {
+                let error = error.unwrap_or_else(|| panic!("{text} must be refused"));
+                assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            }
+        }
+
+        let sync_store = MemoryStore::new(&Key::new());
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            let error = sync_store.get(&key).expect_err("must refuse");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            let error = sync_store.set(&key, b"x", &metadata).expect_err("must refuse");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+        }
+        Ok(())
+    }
+
+    /// `keyabs08` — `AsyncFileStore` refuses the traversal, and the file outside the root is
+    /// untouched.
+    ///
+    /// This is the reproduction of `STORE-FILESTORE-PATH-TRAVERSAL`, and two details are what make
+    /// it one rather than a restatement of the guard:
+    ///
+    /// 1. **The intermediate directory is created.** The kernel resolves `..` by walking *real*
+    ///    directories, so `a/../../SECRET.txt` against an unguarded store fails with `ENOENT` when
+    ///    `a/` does not exist. Without the `makedir` below, this test passes on unfixed code — for
+    ///    the wrong reason — and the deep-traversal case would look covered while it is not.
+    /// 2. **`get_bytes` is asserted, not only `get`.** `get` reads the data *first* and only then
+    ///    touches metadata, so with the guard removed from `key_to_path` alone it still returns
+    ///    `KeyNotAbsolute` — raised by the metadata write, after the secret has already been read.
+    ///    Asserting `get` alone therefore passes while the escape happens. `get_bytes` is the
+    ///    direct read path and is what makes the mutation visible.
+    /// 3. **The outside file is byte-compared after an attempted write.** Asserting only the error
+    ///    type would still pass if the store failed for some unrelated reason; what actually pins
+    ///    the write closed is that the file did not change.
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn keyabs08_async_file_store_refuses_traversal() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("keyabs08");
+        let root = sandbox.join("root");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let secret = sandbox.join("SECRET.txt");
+        let original = b"outside the store root".to_vec();
+        tokio::fs::write(&secret, &original).await.expect("write secret");
+
+        let store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        // Detail 1: without this, the deep case below fails with ENOENT rather than the guard.
+        store.makedir(&parse_key("a")?).await?;
+
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        for text in ["../SECRET.txt", "a/../../SECRET.txt", "a/./b.txt"] {
+            let key = parse_key(text)?;
+
+            // Detail 2: the direct read path. `get` would mask a successful read behind a
+            // metadata error, so it is asserted too but is not what pins the escape closed.
+            let read = store.get_bytes(&key).await;
+            if let Ok(data) = &read {
+                assert_ne!(data, &original, "{text} READ THE FILE OUTSIDE THE ROOT");
+            }
+            let error = read.expect_err("read must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "read {text}");
+
+            let error = store.get(&key).await.expect_err("get must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "get {text}");
+
+            let error = store
+                .set(&key, b"owned", &metadata)
+                .await
+                .expect_err("write must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "write {text}");
+
+            let error = store.remove(&key).await.expect_err("remove must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "remove {text}");
+
+            assert!(!store.is_supported(&key), "{text} must not route here");
+            assert!(store.key_to_path(&key).is_err(), "path builder {text}");
+        }
+
+        // Detail 2: nothing outside the root was read, written or created.
+        assert_eq!(
+            tokio::fs::read(&secret).await.expect("secret still there"),
+            original
+        );
+        assert!(!sandbox.join("owned").exists());
+
+        tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
+        Ok(())
+    }
+
+    /// `keyabs09` — the synchronous `FileStore` refuses the same shapes.
+    #[test]
+    fn keyabs09_file_store_refuses_traversal() -> Result<(), Error> {
+        let sandbox = unique_temp_dir("keyabs09");
+        let root = sandbox.join("root");
+        std::fs::create_dir_all(root.join("a")).expect("create root");
+        let secret = sandbox.join("SECRET.txt");
+        let original = b"outside the store root".to_vec();
+        std::fs::write(&secret, &original).expect("write secret");
+
+        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
+        for text in ["../SECRET.txt", "a/../../SECRET.txt"] {
+            let key = parse_key(text)?;
+            let error = store.get(&key).expect_err("read must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "read {text}");
+            let error = store
+                .set(&key, b"owned", &metadata)
+                .expect_err("write must be refused");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "write {text}");
+            assert!(!store.is_supported(&key), "{text}");
+            assert!(store.key_to_path(&key).is_err(), "path builder {text}");
+        }
+        assert_eq!(std::fs::read(&secret).expect("secret still there"), original);
+
+        std::fs::remove_dir_all(&sandbox).expect("cleanup");
+        Ok(())
+    }
+
+    /// `keyabs10` — a router reports the malformed key, not "no store matched".
+    ///
+    /// Without the check ahead of `find_store`, no store would claim the key and the router would
+    /// answer `KeyNotSupported` — which says the key was not routed, when in fact it is not an
+    /// address at all.
+    #[tokio::test]
+    async fn keyabs10_routers_report_key_not_absolute() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            let error = router.get(&key).await.expect_err("must refuse");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            assert!(!router.is_supported(&key), "{text}");
+        }
+
+        let mut sync_router = StoreRouter::new();
+        sync_router.add_store(Box::new(MemoryStore::new(&Key::new())));
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            let error = sync_router.get(&key).expect_err("must refuse");
+            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
+            assert!(!sync_router.is_supported(&key), "{text}");
+        }
+        Ok(())
+    }
+
+    /// `keyabs11` — `is_supported` is false on a **directly held** store.
+    ///
+    /// Deliberately not through a router. Routing is the one configuration in which a store that
+    /// guards only `is_supported` behaves correctly, so a test that always routes would pass
+    /// against an implementation whose `get` and `set` are wide open. An `Environment` is commonly
+    /// configured with a store held directly.
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn keyabs11_is_supported_false_on_directly_held_store() -> Result<(), Error> {
+        let root = unique_temp_dir("keyabs11");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let file_store = AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new());
+        let memory_store = AsyncMemoryStore::new(&Key::new());
+
+        for text in RELATIVE {
+            let key = parse_key(text)?;
+            assert!(!file_store.is_supported(&key), "file store {text}");
+            assert!(!memory_store.is_supported(&key), "memory store {text}");
+        }
+        for text in ["data/report.txt", "a/.hidden", "a..b/c"] {
+            let key = parse_key(text)?;
+            assert!(file_store.is_supported(&key), "file store {text}");
+            assert!(memory_store.is_supported(&key), "memory store {text}");
+        }
+
+        tokio::fs::remove_dir_all(&root).await.expect("cleanup");
         Ok(())
     }
 }
