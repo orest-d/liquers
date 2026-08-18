@@ -3,8 +3,7 @@ id: STORE-KEY-GUARD
 kind: design
 title: Absolute store keys — a store refuses a relative key with a dedicated error
 workflow: liquers-project
-status:
-phase: documentation
+status: complete
 area: [core/store, store/backends, core/error, web, axum]
 gh_pr: [36]
 issues: [STORE-FILESTORE-PATH-TRAVERSAL, STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED, QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT]
@@ -22,7 +21,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture — approved 2026-08-17
 - [x] Phase 3: Examples & Testing — approved 2026-08-17
 - [x] Phase 4: Implementation Plan — approved 2026-08-17
-- [x] Phase 5: Documentation — awaiting approval
+- [x] Phase 5: Documentation — approved 2026-08-18
 - [x] Implementation Complete
 
 ## Notes
@@ -89,6 +88,7 @@ into are open questions 1 and 2 (`CwdCursor::is_relative` tests only the first s
 | 2026-08-17 | The `Key` API is `is_relative`, `as_absolute`, `try_into_absolute`; document the rule in rustdoc and note the gap for DOC-07 rather than writing a new reference. |
 | 2026-08-17 | The new error type is named `KeyNotAbsolute`. |
 | 2026-08-17 | The `AbsoluteKey` newtype is filed as `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` rather than built here. |
+| 2026-08-18 | Phase 5 approved. The folder is frozen from here (§5.1): it records what was decided, not what the code does now, so later corrections to behaviour belong in `reference/` and in the rustdoc. |
 
 ## Open for the user
 
