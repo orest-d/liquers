@@ -30,8 +30,9 @@ superseded_by:
 Supersedes the scope of `specs/design/metadata-consistency/`, which investigated the same P0 as a
 metadata-validation problem. This design treats it as a missing type model instead.
 
-Automatic type conversion is **out of scope**; Phase 2 produces `type-conversion-draft.md` for a
-follow-up project.
+Type conversion and the **purpose axis** are both out of scope; the proposal is drafted in
+`type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`. This
+project ships three axes — variant identity, carrier, principal data type.
 
 User decisions, 2026-08-18: no backward compatibility for stored type identifiers and no data
 migration; the write path **rejects** inconsistent metadata rather than normalising; scalars are
@@ -40,7 +41,7 @@ grounded in Rust and the nine-way correspondence table (`prior-art.md` §9) is a
 ## Supporting documents
 
 - [Prior art research](./prior-art.md)
-- [Type conversion draft](./type-conversion-draft.md) (Phase 2)
+- [Type conversion draft](./type-conversion-draft.md) — purpose axis and conversion proposal
 
 ## Links
 

@@ -9,8 +9,8 @@ Liquers value type system
 Liquers describes a value with two independent metadata fields (`type_identifier`, `data_format`)
 that nothing keeps consistent with the value or with each other, which is the silent-corruption bug
 reported as `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. This project replaces the ad-hoc pair with an
-explicit type model on four independent axes — **variant identity**, **carrier**, **principal data
-type**, and **purposes** — plus a registry that owns the facts about each type, so that type
+explicit type model on three independent axes — **variant identity**, **carrier** and **principal
+data type** — plus a registry that owns the facts about each type, so that type
 information can serve its three real jobs at once: describing a value, driving serialization, and
 (later) driving automatic conversion. It also widens the scalar set, which is narrower than every
 ecosystem Liquers must exchange values with.
@@ -26,10 +26,10 @@ extension — selects the deserializer, and the stored variant identity selects 
 reconstruct. See "The encoding axis" below for how the effective format is arrived at.
 
 ### Command System
-`ArgumentInfo`/`CommandMetadata` gain the ability to state an argument's required *purpose* instead
-of only `ArgumentType::Any` (the `// TODO: add support for value with type_identifier` markers at
-`liquers-core/src/command_metadata.rs:73` and `:152`). Declaration and validation only; automatic
-coercion of arguments stays out of scope.
+`ArgumentInfo`/`CommandMetadata` gain the ability to state an argument's required *type identifier*
+instead of only `ArgumentType::Any` — the `// TODO: add support for value with type_identifier`
+markers at `liquers-core/src/command_metadata.rs:73` and `:152`. Declaration and validation only.
+Declaring an argument by *purpose*, and any coercion, belong to the conversion project.
 
 ### Asset System
 `AssetManager::set`/`set_state` validate the type/format pair before persisting; `AssetInfo` carries
@@ -61,8 +61,8 @@ Asset-info responses expose the new fields; content negotiation gains a defensib
 endpoints.
 
 ### UI (if applicable)
-UI widgets can select a renderer by purpose (`table`, `image`) rather than by concrete variant.
-No widget work in this project.
+None. Selecting a renderer by purpose rather than by concrete variant is the motivating example for
+the purpose axis, and moves with it into the conversion project.
 
 ## The encoding axis: two levels of seeding, then override
 
@@ -156,7 +156,7 @@ surface, not about build weight — worth stating so it is not re-argued on depe
 
 ## Documentation Intent
 
-**Reference:** Create `specs/reference/VALUE_TYPE_SYSTEM.md` — the four axes, the field
+**Reference:** Create `specs/reference/VALUE_TYPE_SYSTEM.md` — the three axes, the field
 invariants, the registry contract, and the naming rules for identifiers. Audience: internal. It is
 new rather than an extension because no current reference owns value typing; `PROJECT_OVERVIEW.md`
 covers it in a paragraph and `ASSET_SET_OPERATION.md` only states requirements on `set()`.
@@ -165,13 +165,14 @@ covers it in a paragraph and `ASSET_SET_OPERATION.md` only states requirements o
 identifier, declare its purposes, and make it serializable. Audience: both. Written in Phase 5
 against the implementation, since a guide claims present behaviour (`DOCS_STRUCTURE_GUIDE.md` §9).
 
-**Other documents to create:** `prior-art.md` (done) and `type-conversion-draft.md` (Phase 2) in
-this design folder. `prior-art.md` §1–8 researches UTI, Arrow, media types, MLflow flavors, Jupyter
+**Other documents to create:** `prior-art.md` and `type-conversion-draft.md`, both done, in this
+design folder. `prior-art.md` §1–8 researches UTI, Arrow, media types, MLflow flavors, Jupyter
 MIME bundles, structural typing and clipboard negotiation; §9 inventories the scalar type systems
 of Rust, JSON, Python, JavaScript, NumPy, Polars, Pandas, Arrow/Parquet and GlueSQL, read from each
 project's defining source, and carries the **correspondence table** across all nine. The conversion
-draft builds the conversion rules and mechanism on that table; it is explicitly a draft for a
-**later** project, not part of this one.
+draft builds the conversion rules and mechanism on that table, and carries the purpose-axis
+proposal; it is explicitly a draft for a **later** project, tracked by
+`specs/issues/VALUE-CONVERSION-CAPABILITY.md`, not part of this one.
 
 **Specific documents to update:** `specs/reference/PROJECT_OVERVIEW.md` (value/state/metadata
 section), `specs/reference/ASSET_SET_OPERATION.md` (the mandatory-field rules it already asserts
@@ -196,30 +197,38 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
 - **The encoding axis has two seeding levels and an override**, `data_format` is inward and
   `media_type` outward, absent `data_format` means "use the value default", and user control of
   `media_type` to influence a web response is deliberate. See "The encoding axis" above.
+- **The purpose axis is out of scope.** Purposes exist to answer "can this value be used as a
+  table / an image / JSON?", which is the conversion and negotiation question. Carrying them here
+  would define a vocabulary with no consumer. The proposal is written up in
+  `./type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`; this
+  project ships the three axes the P0 needs.
+- **`media_type` derivation is already trusted.** It comes from
+  `liquers-core::media_type::file_extension_to_media_type` (`media_type.rs:3`), a static 134-entry
+  extension table in core. The earlier worry about a client-supplied media type reaching an HTTP
+  header therefore only applies to an explicit level-3 override, and is handled by validating the
+  string's shape rather than by restricting who may set it.
 
 ## Open Questions
 
-1. Do purposes need to be a closed vocabulary in `liquers-core`, an open namespaced string space,
-   or a registry that third parties extend at startup? Prior art favours the third.
-2. Should the carrier (`native`, `json`, `javascript`, `python`, `polars`) be a separate field or a
+1. Should the carrier (`native`, `json`, `javascript`, `python`, `polars`) be a separate field or a
    namespace prefix inside the identifier (`py:int`, `js:number`, `core:i32`)?
-3. Where does the registry live at runtime — in `Environment`, or a process-global static?
-4. Do the extended scalars go in as flat `ExtValue` variants, or behind an
+2. Where does the registry live at runtime — in `Environment`, or a process-global static?
+3. Do the extended scalars go in as flat `ExtValue` variants, or behind an
    `ExtValue::Scalar(ExtScalar)` sub-enum? The sub-enum keeps the variant count and the
    `#[cfg]`-heavy `match` arms in `value/mod.rs` manageable.
-5. Is `ext-scalars` / `ext-temporal` the right cut, or is one feature enough? `ext-scalars` needs
+4. Is `ext-scalars` / `ext-temporal` the right cut, or is one feature enough? `ext-scalars` needs
    no dependency at all, so gating it buys only a smaller enum; `ext-temporal` costs `rust_decimal`
    and `uuid`. Should either be in `default`?
-6. When a build encounters a stored type identifier its features do not include, is that a hard
+5. When a build encounters a stored type identifier its features do not include, is that a hard
    error, or does the value degrade to `bytes` with the declared identifier preserved? The second
    keeps a minimal build able to *move* data it cannot interpret.
-7. Where does level-3 override live once the context carries it — a metadata field the context
+6. Where does level-3 override live once the context carries it — a metadata field the context
    writes, or a resolution the context performs at serialization time? Phase 1 records the
    intent; the mechanism is deliberately deferred.
-8. Does an extension that disagrees with an explicitly declared `data_format` (`data.json` +
+7. Does an extension that disagrees with an explicitly declared `data_format` (`data.json` +
    `data_format: csv`) reject, or is the declaration simply authoritative and the filename
    cosmetic?
-9. Does the guide need `docs/` (user-facing) coverage as well, or is `specs/guides/` enough?
+8. Does the guide need `docs/` (user-facing) coverage as well, or is `specs/guides/` enough?
 
 ## References
 

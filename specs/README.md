@@ -197,6 +197,7 @@ deliberately folded behind a broader line.
 - design `store-key-guard`
 - design `value-type-system`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
+- feature `VALUE-CONVERSION-CAPABILITY`
 <!-- END generated: unplaced -->
 
 ## Guides
