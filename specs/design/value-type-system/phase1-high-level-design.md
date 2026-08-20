@@ -26,10 +26,11 @@ extension — selects the deserializer, and the stored variant identity selects 
 reconstruct. See "The encoding axis" below for how the effective format is arrived at.
 
 ### Command System
-`ArgumentInfo`/`CommandMetadata` gain the ability to state an argument's required *type identifier*
-instead of only `ArgumentType::Any` — the `// TODO: add support for value with type_identifier`
-markers at `liquers-core/src/command_metadata.rs:73` and `:152`. Declaration and validation only.
-Declaring an argument by *purpose*, and any coercion, belong to the conversion project.
+None. Declaring an argument by type identifier — the `// TODO: add support for value with
+type_identifier` markers at `liquers-core/src/command_metadata.rs:73` and `:152` — was proposed
+here and **moved out in Phase 2** to `COMMAND-METADATA-ENHANCEMENTS`, which already owns explicit
+input/output typing. `ArgumentType` has 101 references across five crates, so a new variant is a
+project of its own and is not what the P0 needs.
 
 ### Asset System
 `AssetManager::set`/`set_state` validate the type/format pair before persisting; `AssetInfo` carries
@@ -239,14 +240,11 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
 
 ## Open Questions
 
-1. **Does `principal data type` survive on its own?** With carrier collapsed and purposes moved to
-   the conversion project, it is the only companion left to variant identity — and its consumers
-   all sit in *other* efforts: describing a value is `VALUE-DESCRIPTION`, and declaring "this
-   command wants an integer" is the purpose question that went to
-   `VALUE-CONVERSION-CAPABILITY`. It is genuinely distinct — for a dynamically-typed carrier
-   (`json`, a Python object) what a value *is* cannot be read off its identifier and must be
-   inspected — but distinct is not the same as needed here. If it has no consumer in this project,
-   the honest outcome is one type axis plus the encoding axis, and the P0 is fully served by that.
+1. ~~Does `principal data type` survive on its own?~~ **Resolved in Phase 2: no.** `type_name`
+   already occupies that niche — it is the documented informational counterpart to `identifier`
+   (`value.rs:194-197`), already a metadata field, and already synced from the value. A separate
+   `data_type` would be a second answer to the same question, which is the failure mode this
+   project exists to fix. The shipped model is one type axis plus the encoding axis.
 2. Where does the registry live at runtime — in `Environment`, or a process-global static?
 3. Do the extended scalars go in as flat `ExtValue` variants, or behind an
    `ExtValue::Scalar(ExtScalar)` sub-enum? The sub-enum keeps the variant count and the

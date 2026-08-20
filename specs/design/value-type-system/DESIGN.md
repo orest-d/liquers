@@ -4,11 +4,11 @@ kind: design
 title: Liquers value type system
 workflow: liquers-project
 status: draft
-phase: high-level
-area: [core/value, core/commands, lib/value, py, web]
+phase: architecture
+area: [core/value, lib/value, py, web]
 gh_pr: []
-issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY]
-affects_docs: [reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md]
+issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED]
+affects_docs: [reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md]
 created: 2026-08-18
 superseded_by:
 ---
@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 2: Solution & Architecture (awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
