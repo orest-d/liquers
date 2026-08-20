@@ -56,10 +56,15 @@ bytes, and **parameters** refining the reading. RFC 6838 registers the suffix me
 so a generic JSON client can process a type it has never heard of.
 
 **Takeaway.** A media type is an encoding label, not a value type — the same PNG bytes are
-`image/png` whether the in-memory value is a `DynamicImage` or a `Vec<u8>`. Liquers currently
-derives `media_type` from a filename extension, which conflates the two. The `+suffix` idea also
-suggests the shape for Liquers `data_format` refinements already hinted at in `value.rs`
-(`csv:comma` versus `csv:tab`): a base format plus a refinement, not a flat opaque string.
+`image/png` whether the in-memory value is a `DynamicImage` or a `Vec<u8>`. It is also strictly
+*coarser* than a Liquers `data_format`: `csv:comma` and `csv:tab` are both `text/csv`, and although
+media-type parameters could carry the refinement, nothing parses them — `media_type_of`
+(`liquers-web/src/store/fetch.rs:113`) deliberately discards them. So media type cannot serve as a
+dispatch key. What it does uniquely is carry an *external party's claim* about the bytes: the
+origin server's `Content-Type` on a fetched file, which no extension or `data_format` can express
+without guessing a reverse mapping. That, plus being the vocabulary of the web response, is the
+whole of its job. The `+suffix` idea separately suggests the shape for `data_format` refinements
+already hinted at in `value.rs`: a base format plus a refinement, not a flat opaque string.
 
 Sources: [RFC 6838](https://www.rfc-editor.org/rfc/rfc6838.html),
 [RFC 6839 structured syntax suffixes](https://www.rfc-editor.org/rfc/rfc6839.html).

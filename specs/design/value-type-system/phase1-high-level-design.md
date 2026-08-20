@@ -21,8 +21,9 @@ ecosystem Liquers must exchange values with.
 None. No query syntax changes; type identifiers are metadata, not query tokens.
 
 ### Store System
-Read-back correctness: the stored `data_format` — never the filename extension — selects the
-deserializer, and the stored variant identity selects the value to reconstruct.
+Read-back correctness: the effective `data_format` — never a read-time guess from the filename
+extension — selects the deserializer, and the stored variant identity selects the value to
+reconstruct. See "The encoding axis" below for how the effective format is arrived at.
 
 ### Command System
 `ArgumentInfo`/`CommandMetadata` gain the ability to state an argument's required *purpose* instead
@@ -62,6 +63,62 @@ endpoints.
 ### UI (if applicable)
 UI widgets can select a renderer by purpose (`table`, `image`) rather than by concrete variant.
 No widget work in this project.
+
+## The encoding axis: two levels of seeding, then override
+
+`data_format`, `media_type` and the filename extension are **one axis with two audiences**, not
+separate type axes. The four type axes stand; these are its inward and outward faces.
+
+- **`data_format` is inward.** It selects the codec (`State::as_bytes`, and every deserialization
+  path — `assets.rs:492`, `:684`, `:3681`). Liquers-local vocabulary, refinable (`csv:comma` vs
+  `csv:tab`, which `text/csv` cannot distinguish).
+- **`media_type` is outward.** Across the whole workspace it drives exactly one decision:
+  the HTTP `Content-Type` header at `liquers-axum/src/axum_integration.rs:52`. Its role is web
+  communication, and **a user overriding it to influence the response is an intended capability**,
+  not a mistake to be normalised away.
+
+### Seeding cascade (write time)
+
+Each level overwrites the previous one:
+
+| Level | Source | Sets | Matters for |
+|---|---|---|---|
+| 1 | The value's own defaults — `default_data_format`, `default_extension`, `default_media_type` | all three | programmatically created assets, and queries with no filename |
+| 2 | The filename extension | `data_format`, `media_type` | the common case: the extension decides the format |
+| 3 | Explicit user override in metadata | any of them | deliberate control; in future through the context and through dedicated commands |
+
+### Absent `data_format` is meaningful
+
+`None` means **"no format was specified, so the value's own default (level 1) applies"** — it is a
+distinguishable state, useful when reasoning about how a format came to be chosen, not a missing
+value to be patched. Read-time resolution is therefore just: `Some(f)` → `f`; `None` → the value's
+`default_data_format()`. That stays simple *because* seeding is guaranteed at write time — where a
+filename exists, level 2 has already written the extension into `data_format`, so `None` can only
+mean no filename was ever involved.
+
+Today the guarantee does not hold, so `get_data_format()` (`metadata.rs:1239`) patches around it by
+falling back to the extension and then to the constant `"bin"`. That `"bin"` is the level-1 slot
+filled with a guess, because `MetadataRecord` cannot see the value. Under this design the fallback
+chain disappears: level 1 is seeded from the value where both are in hand — the natural home is
+`State::sync_metadata_with_value` (`state.rs:25`), which already syncs the type identifiers.
+
+### Consequences
+
+1. **`media_type` gains the same optionality `data_format` already has.** It is
+   `media_type: String` with an empty-string sentinel (`metadata.rs:687`), while the setters
+   (`set_filename`, `set_extension`) write it and `get_media_type()` re-derives it when empty. Make
+   it `Option<String>`: `None` = derive from the effective `data_format`, `Some` = a deliberate
+   level-3 override that must survive untouched.
+2. **The override must survive the reject-on-write rule.** `add_soft_consistency_warnings`
+   (`assets.rs:3173`) currently warns when `media_type` differs from the extension-derived
+   expectation. Promoting that warning to an error would break both intended overrides:
+   `liquers-web/src/store/fetch.rs:91-100`, which replaces the extension-derived media type with
+   the origin server's declared `Content-Type`, and any user setting a media type to shape a web
+   response. A *declared* level-3 value is consistent by definition; only an undeclared mismatch is
+   an error.
+3. **An override reaching an HTTP header needs validating, not restricting.** Since user control is
+   intended, the guard is on the string's shape — a well-formed media type, no CR/LF — so the
+   freedom cannot become header injection.
 
 ## Crate Placement
 
@@ -115,6 +172,9 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
   carries the fuller set behind one or two features; carrier-specific types belong to the package
   that supports that carrier (Polars types under the `polars` feature, Python types in
   `liquers-py`, JavaScript types in `liquers-web`).
+- **The encoding axis has two seeding levels and an override**, `data_format` is inward and
+  `media_type` outward, absent `data_format` means "use the value default", and user control of
+  `media_type` to influence a web response is deliberate. See "The encoding axis" above.
 
 ## Open Questions
 
@@ -132,7 +192,13 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
 6. When a build encounters a stored type identifier its features do not include, is that a hard
    error, or does the value degrade to `bytes` with the declared identifier preserved? The second
    keeps a minimal build able to *move* data it cannot interpret.
-7. Does the guide need `docs/` (user-facing) coverage as well, or is `specs/guides/` enough?
+7. Where does level-3 override live once the context carries it — a metadata field the context
+   writes, or a resolution the context performs at serialization time? Phase 1 records the
+   intent; the mechanism is deliberately deferred.
+8. Does an extension that disagrees with an explicitly declared `data_format` (`data.json` +
+   `data_format: csv`) reject, or is the declaration simply authoritative and the filename
+   cosmetic?
+9. Does the guide need `docs/` (user-facing) coverage as well, or is `specs/guides/` enough?
 
 ## References
 
