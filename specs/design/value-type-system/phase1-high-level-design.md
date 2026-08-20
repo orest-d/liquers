@@ -109,13 +109,32 @@ chain disappears: level 1 is seeded from the value where both are in hand — th
    (`set_filename`, `set_extension`) write it and `get_media_type()` re-derives it when empty. Make
    it `Option<String>`: `None` = derive from the effective `data_format`, `Some` = a deliberate
    level-3 override that must survive untouched.
-2. **The override must survive the reject-on-write rule.** `add_soft_consistency_warnings`
-   (`assets.rs:3173`) currently warns when `media_type` differs from the extension-derived
-   expectation. Promoting that warning to an error would break both intended overrides:
-   `liquers-web/src/store/fetch.rs:91-100`, which replaces the extension-derived media type with
-   the origin server's declared `Content-Type`, and any user setting a media type to shape a web
-   response. A *declared* level-3 value is consistent by definition; only an undeclared mismatch is
-   an error.
+2. **Rejection and soft warnings are two tiers, and both are kept.** "Reject" applies to the
+   invariants whose violation makes a value unreadable — the P0 class. Divergences that are
+   legitimate but worth surfacing stay as log entries and do not fail the write.
+
+   | Tier | Check | Why this tier |
+   |---|---|---|
+   | **Hard — typed `Error`** | `type_identifier` empty | already enforced (`assets.rs:3159`) |
+   | | `type_name` empty | already enforced (`assets.rs:3165`) |
+   | | effective `data_format` unsupported for that `type_identifier` | **the P0 itself**: the bytes cannot be read back |
+   | | malformed `media_type` (CR/LF, not a media type) | it reaches an HTTP response header |
+   | **Soft — `LogEntry`** | filename extension ≠ effective `data_format` | legitimate; the declaration is authoritative and the filename may lag |
+   | | declared `media_type` ≠ the one derived from `data_format` | *expected* whenever a level-3 override or a remote `Content-Type` is active |
+   | | which seeding level supplied the effective format | provenance, at `Info` — pairs with absent-`data_format`-is-meaningful when reasoning about how a format got chosen |
+
+   Soft warnings are the diagnostic layer this design most wants to keep: they are how a developer
+   sees *that* an override is in play and *where* the format came from, which no amount of
+   rejection reveals. Note `MetadataRecord::error()` (`metadata.rs:1180`) sets `Status::Error`, so
+   advisory entries stay at `Warning` or below.
+
+   Two refinements to the existing `add_soft_consistency_warnings` (`assets.rs:3173`):
+   it compares extension against format with a plain `!=`, so a legitimate refinement
+   (extension `csv`, format `csv:comma`) warns spuriously — the comparison belongs on the *base*
+   format. And its media-type check must not become an error, or it breaks both intended
+   overrides: `liquers-web/src/store/fetch.rs:91-100`, which substitutes the origin server's
+   declared `Content-Type`, and any user shaping a web response. A *declared* level-3 value is
+   consistent by definition; only an undeclared mismatch is worth a word.
 3. **An override reaching an HTTP header needs validating, not restricting.** Since user control is
    intended, the guard is on the string's shape — a well-formed media type, no CR/LF — so the
    freedom cannot become header injection.
@@ -164,8 +183,10 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
 - **Backward compatibility is not a constraint.** Type identifiers are changed outright;
   no migration of stored data and no compatibility alias table. `Value::I32.identifier()` becomes
   `i32`, not `generic`.
-- **The write path rejects.** Inconsistent metadata is a typed `Error` at `set`/`set_state`, not a
-  normalise-and-warn. The predecessor plan's hybrid option is dropped.
+- **The write path rejects — for the invariants that make a value unreadable.** Those are a typed
+  `Error` at `set`/`set_state`, not a normalise-and-warn. **Soft warnings are kept alongside** for
+  legitimate divergences: they are the diagnostic layer that shows an override is active and which
+  seeding level chose the format. The two tiers are enumerated under "The encoding axis" below.
 - **Scalars are grounded in Rust**, and the correspondence table across the nine ecosystems is a
   required artefact.
 - **Three-tier placement.** `liquers-core` keeps only the important basic types; `liquers-lib`
