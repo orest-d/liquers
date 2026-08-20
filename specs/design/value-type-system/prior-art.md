@@ -125,12 +125,13 @@ is done, and asking for an unavailable one is a clean typed error rather than a 
 
 ## Synthesis for Liquers
 
-| Axis | Cardinality | Prior art | Liquers field today |
-|---|---|---|---|
-| Concrete variant identity | exactly one | UTI leaf, Arrow extension name, K8s Kind | `type_identifier` (unreliable) |
-| What it is (principal logical type) | exactly one | UTI physical parent, Parquet logical type | none |
-| What it may be used as (purposes) | zero or more | UTI functional parent, MLflow flavors, Julia traits | none |
-| Byte encoding | one per serialized copy | media type + suffix + params | `data_format` / `media_type` / extension |
+| Axis | Cardinality | Prior art | Liquers field today | Verdict |
+|---|---|---|---|---|
+| Concrete variant identity | exactly one | UTI leaf, Arrow extension name, K8s Kind | `type_identifier` (unreliable) | in scope |
+| What it is (principal logical type) | exactly one | UTI physical parent, Parquet logical type | none | in scope, under review |
+| Producing carrier | exactly one | *none carries it separately* — `com.adobe.pdf`, `arrow.json`, K8s group | none | **not an axis**: derivable from the identifier as a namespace prefix |
+| What it may be used as (purposes) | zero or more | UTI functional parent, MLflow flavors, Julia traits | none | deferred to `VALUE-CONVERSION-CAPABILITY` |
+| Byte encoding | one per serialized copy | media type + suffix + params | `data_format` / `media_type` / extension | in scope, inward/outward faces |
 
 Three observations shape Phase 2:
 

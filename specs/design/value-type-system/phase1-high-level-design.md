@@ -9,8 +9,8 @@ Liquers value type system
 Liquers describes a value with two independent metadata fields (`type_identifier`, `data_format`)
 that nothing keeps consistent with the value or with each other, which is the silent-corruption bug
 reported as `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. This project replaces the ad-hoc pair with an
-explicit type model on three independent axes — **variant identity**, **carrier** and **principal
-data type** — plus a registry that owns the facts about each type, so that type
+explicit type model on two independent axes — **variant identity** and **principal data type** —
+plus a registry that owns the facts about each type, so that type
 information can serve its three real jobs at once: describing a value, driving serialization, and
 (later) driving automatic conversion. It also widens the scalar set, which is narrower than every
 ecosystem Liquers must exchange values with.
@@ -63,6 +63,31 @@ endpoints.
 ### UI (if applicable)
 None. Selecting a renderer by purpose rather than by concrete variant is the motivating example for
 the purpose axis, and moves with it into the conversion project.
+
+## Why carrier is not an axis
+
+The carrier (`native`, `json`, `javascript`, `python`, `polars`) was proposed as an axis and is
+**not** one. A carrier always brings its own variant with its own identifier — `py:int`,
+`js:number`, `i64` — so the carrier is *derivable from the identifier*. Two carriers sharing an
+identifier would violate the uniqueness the identifier exists to provide, so the derivation can
+never fail. That makes carrier a **projection** of the identifier space, expressed as a namespace
+prefix, not an independent dimension.
+
+Prior art agrees, and none of it carries a separate origin field: `com.adobe.pdf`, Arrow's
+`arrow.json` extension name, a Kubernetes group/version/kind. The producer is inside the name.
+
+**Variant placement carries no meaning either.** `CombinedValue::identifier()` delegates to
+whichever side holds the value (`liquers-lib/src/value/extended.rs:136`), and
+`ExtValue::Foreign` delegates onward to `ForeignValue::identifier()` (`value/mod.rs:135`). The
+identifier space is therefore flat: whether a variant physically sits in `Value`, in `ExtValue`, or
+behind a foreign handle is an implementation detail the type system neither sees nor should.
+
+The one thing a carrier axis would have added is **recognising a native carrier** — "is this a
+Liquers-native value or a foreign handle?". Every use for it reduces to a per-type capability the
+registry answers better and more precisely: *can this serialize to format X?*, *can this leave the
+process?*, *can this become JSON?* A value being foreign predicts none of those reliably — a
+foreign value may serialize perfectly while a native one refuses. Dropped. If grouping by origin is
+ever wanted, it is a derived query over the namespace prefix, not stored state.
 
 ## The encoding axis: two levels of seeding, then override
 
@@ -156,7 +181,7 @@ surface, not about build weight — worth stating so it is not re-argued on depe
 
 ## Documentation Intent
 
-**Reference:** Create `specs/reference/VALUE_TYPE_SYSTEM.md` — the three axes, the field
+**Reference:** Create `specs/reference/VALUE_TYPE_SYSTEM.md` — the axes, the field
 invariants, the registry contract, and the naming rules for identifiers. Audience: internal. It is
 new rather than an extension because no current reference owns value typing; `PROJECT_OVERVIEW.md`
 covers it in a paragraph and `ASSET_SET_OPERATION.md` only states requirements on `set()`.
@@ -202,6 +227,10 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
   would define a vocabulary with no consumer. The proposal is written up in
   `./type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`; this
   project ships the three axes the P0 needs.
+- **Carrier is not an axis.** A carrier always has its own variant, so it is a namespace prefix
+  inside the identifier rather than an independent dimension; variant *placement* across `Value`,
+  `ExtValue` and foreign handles carries no type-system meaning either. See "Why carrier is not an
+  axis" below.
 - **`media_type` derivation is already trusted.** It comes from
   `liquers-core::media_type::file_extension_to_media_type` (`media_type.rs:3`), a static 134-entry
   extension table in core. The earlier worry about a client-supplied media type reaching an HTTP
@@ -210,8 +239,14 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
 
 ## Open Questions
 
-1. Should the carrier (`native`, `json`, `javascript`, `python`, `polars`) be a separate field or a
-   namespace prefix inside the identifier (`py:int`, `js:number`, `core:i32`)?
+1. **Does `principal data type` survive on its own?** With carrier collapsed and purposes moved to
+   the conversion project, it is the only companion left to variant identity — and its consumers
+   all sit in *other* efforts: describing a value is `VALUE-DESCRIPTION`, and declaring "this
+   command wants an integer" is the purpose question that went to
+   `VALUE-CONVERSION-CAPABILITY`. It is genuinely distinct — for a dynamically-typed carrier
+   (`json`, a Python object) what a value *is* cannot be read off its identifier and must be
+   inspected — but distinct is not the same as needed here. If it has no consumer in this project,
+   the honest outcome is one type axis plus the encoding axis, and the P0 is fully served by that.
 2. Where does the registry live at runtime — in `Environment`, or a process-global static?
 3. Do the extended scalars go in as flat `ExtValue` variants, or behind an
    `ExtValue::Scalar(ExtScalar)` sub-enum? The sub-enum keeps the variant count and the
