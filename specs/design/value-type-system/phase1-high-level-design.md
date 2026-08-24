@@ -12,8 +12,9 @@ reported as `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. This project replaces the a
 explicit type model on two independent axes — **variant identity** and **principal data type** —
 plus a registry that owns the facts about each type, so that type
 information can serve its three real jobs at once: describing a value, driving serialization, and
-(later) driving automatic conversion. It also widens the scalar set, which is narrower than every
-ecosystem Liquers must exchange values with.
+(later) driving automatic conversion. It also settles the scalar model — the set is narrower than
+every ecosystem Liquers exchanges values with — though the scalars themselves are implemented by
+`VALUE-TYPE-DEFINITION-MACRO`, which generates them rather than hand-writing ~120 match arms.
 
 ## Core Interactions
 
@@ -40,15 +41,18 @@ the new fields so a client can tell what an asset is without fetching it.
 `ValueInterface` grows the type-describing methods and loses none; `ExtValue`, `SimpleValue`,
 `CombinedValue`, `ForeignValue`, the Python and JavaScript values all report into one registry.
 
-**The scalar set widens, in three tiers.** Scalars are defined **by their Rust type** — a Liquers
-scalar exists only if Rust has it (or a canonical crate does) and at least five of the nine target
-systems represent it distinctly (`./prior-art.md` §9). That rule excludes `f16`, `complex`, `char`,
-`isize`/`usize`, and GlueSQL's `Inet`/`Point`. Where each scalar lives:
+**The scalar set widens — but in a later project.** The rule and the tiers below stand as the
+agreed model; the *implementation* moved to `VALUE-TYPE-DEFINITION-MACRO` in Phase 2, because
+fifteen scalars across eight exhaustive match sites is ~120 hand-written arms that a generator
+would immediately delete. Scalars are defined **by their Rust type** — a Liquers scalar exists only
+if Rust has it (or a canonical crate does) and at least five of the nine target systems represent
+it distinctly (`./prior-art.md` §9). That rule excludes `f16`, `complex`, `char`, `isize`/`usize`,
+and GlueSQL's `Inet`/`Point`. Where each scalar will live:
 
 | Tier | Home | Contents |
 |---|---|---|
 | Core basics | `liquers-core::value::Value` | `none, bool, i32, i64, f64, text, bytes` — unchanged. These are what the query language, action parameters and command metadata actually need. |
-| Extended scalars | `liquers-lib::value::ExtValue`, feature-gated | `i8, i16, i128, u8, u16, u32, u64, u128, f32` behind `ext-scalars`; `decimal, date, time, datetime, duration, uuid` behind `ext-temporal`. |
+| Extended scalars | `liquers-lib::value::ExtValue`, feature-gated — **deferred to `VALUE-TYPE-DEFINITION-MACRO`** | `i8, i16, i128, u8, u16, u32, u64, u128, f32`; `decimal, date, time, datetime, duration, uuid`. |
 | Carrier-specific | the package that owns the carrier | Polars dtypes (`Categorical`, `Enum`, `Struct`, parameterised `Decimal(p,s)`) stay behind the existing `polars` feature; Python-only types (`py:int` arbitrary precision, `py:complex`, `py:bytearray`) live in `liquers-py`; JavaScript-only types (`js:bigint`, `js:symbol`, typed arrays) live in `liquers-web`. |
 
 The tiering is what makes the registry mandatory rather than merely convenient: a scalar can be
@@ -246,15 +250,13 @@ but code does not enforce), `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.m
    `data_type` would be a second answer to the same question, which is the failure mode this
    project exists to fix. The shipped model is one type axis plus the encoding axis.
 2. Where does the registry live at runtime — in `Environment`, or a process-global static?
-3. Do the extended scalars go in as flat `ExtValue` variants, or behind an
-   `ExtValue::Scalar(ExtScalar)` sub-enum? The sub-enum keeps the variant count and the
-   `#[cfg]`-heavy `match` arms in `value/mod.rs` manageable.
-4. Is `ext-scalars` / `ext-temporal` the right cut, or is one feature enough? `ext-scalars` needs
-   no dependency at all, so gating it buys only a smaller enum; `ext-temporal` costs `rust_decimal`
-   and `uuid`. Should either be in `default`?
-5. When a build encounters a stored type identifier its features do not include, is that a hard
-   error, or does the value degrade to `bytes` with the declared identifier preserved? The second
-   keeps a minimal build able to *move* data it cannot interpret.
+3. ~~Flat `ExtValue` variants or an `ExtValue::Scalar` sub-enum?~~ **Moot: the scalars moved to
+   `VALUE-TYPE-DEFINITION-MACRO`**, where they are declared rather than written, so the question
+   becomes the generator's.
+4. ~~Is `ext-scalars` / `ext-temporal` the right cut?~~ Moot for the same reason.
+5. ~~Hard error or degrade when a stored identifier is unknown to this build?~~ **Resolved in
+   Phase 2: degrade**, keeping the bytes and metadata verbatim with a warning, so a minimal build
+   can still move data it cannot interpret.
 6. Where does level-3 override live once the context carries it — a metadata field the context
    writes, or a resolution the context performs at serialization time? Phase 1 records the
    intent; the mechanism is deliberately deferred.

@@ -4,7 +4,7 @@ kind: feature
 title: Value types and their registry entries are hand-written instead of generated
 status: draft
 priority: P2
-complexity: L
+complexity: XL
 area: [macro, lib/value, core/value]
 design:
 created: 2026-08-18
@@ -80,6 +80,25 @@ Two constraints this places on the design:
    expansion uses an absolute path with a configurable crate root, or the type-defining crate
    re-exports the module and command crates import it.
 
+## Included scope: the extended scalar set
+
+`value-type-system` established, from a nine-ecosystem correspondence table
+(`specs/design/value-type-system/prior-art.md` §9), that `Value` lacks fifteen scalars at least
+five of the nine target systems represent distinctly: `i8, i16, i128, u8, u16, u32, u64, u128,
+f32` (no dependency) and `decimal, date, time, datetime, duration, uuid` (`rust_decimal` and
+`uuid`; `chrono` is already non-optional in both `liquers-core` and `liquers-lib`).
+
+**Implementing them belongs here rather than there**, decided with the user on 2026-08-18. They are
+this generator's first and best customer: written by hand they are ~120 mechanical cfg-gated match
+arms that the generator would immediately delete, and every one of those arms is an opportunity for
+the divergence that produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`. Declared through the
+macro they are fifteen lines.
+
+The rule for what counts as a Liquers scalar — Rust has it (or a canonical crate does), **and** at
+least five of the nine ecosystems represent it distinctly — is settled and excludes `f16`,
+`complex`, `char`, `isize`/`usize` and GlueSQL's `Inet`/`Point`. Feature gating (`ext-scalars`
+without dependencies, `ext-temporal` with) is a starting proposal, not a decision.
+
 ## Discovery
 
 Proposed by the user during `value-type-system` Phase 2, 2026-08-18, as a better answer than a
@@ -90,5 +109,6 @@ shared data file to the question of how `register_command!` learns about types d
 Related: `VALUE-CONVERSION-CAPABILITY` owns the extraction half — turning the value into the
 declared Rust type — and `COMMAND-METADATA-ENHANCEMENTS` owns the `ArgumentType` variant that
 carries a type identifier. `value-type-system` defines `TypeInfo`, `TypeRegistry` and
-`TypeIdentified` in shapes a generator can emit: a builder rather than struct literals, so a later
-field is additive.
+`TypeIdentified` in shapes a generator can emit — see its Phase 2 "Generator alignment" section for
+the commitments it makes so that nothing here has to undo them. Note also that `register_command!`
+is expected to be redesigned; this macro should not assume its current form.

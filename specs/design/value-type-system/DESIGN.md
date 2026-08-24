@@ -7,7 +7,7 @@ status: draft
 phase: architecture
 area: [core/value, lib/value, py, web]
 gh_pr: []
-issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED, VALUE-CONVERSION-CAPABILITY, TYPE-REGISTRY-NOT-REALM-AWARE]
+issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED, VALUE-CONVERSION-CAPABILITY, TYPE-REGISTRY-NOT-REALM-AWARE, VALUE-TYPE-DEFINITION-MACRO]
 affects_docs: [reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md]
 created: 2026-08-18
 superseded_by:
@@ -29,6 +29,9 @@ superseded_by:
 
 Supersedes the scope of `specs/design/metadata-consistency/`, which investigated the same P0 as a
 metadata-validation problem. This design treats it as a missing type model instead.
+
+The scalar widening moved to `VALUE-TYPE-DEFINITION-MACRO`, which generates value types instead of
+hand-writing them; this project ships the P0 fix, the type registry and the metadata invariants.
 
 Type conversion and the **purpose axis** are both out of scope; the proposal is drafted in
 `type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`. This

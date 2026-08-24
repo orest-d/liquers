@@ -7,8 +7,8 @@ One new module, `liquers-core/src/type_system.rs`, holds `TypeInfo` (the facts a
 surfaces: **instance methods on `ValueInterface`**, used everywhere a value is in hand, and the
 **registry**, used only on the deserialization path where bytes and an identifier arrive without a
 value. The metadata invariants are enforced at `AssetManager::set`/`set_state`, splitting into a
-hard tier that rejects and a soft tier that logs. `liquers-lib` gains `ExtValue::Scalar(ExtScalar)`
-behind two features.
+hard tier that rejects and a soft tier that logs. `liquers-lib` gains no variant: the scalar widening moved to
+`VALUE-TYPE-DEFINITION-MACRO`.
 
 The type model that ships is **one type axis** — variant identity (`type_identifier`) — alongside
 the **encoding axis** (`data_format` inward, `media_type` outward, extension as a seeding source).
@@ -30,7 +30,7 @@ Searched: `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues a
 | `CORE-VALUE-INTERFACE-CAPABILITY-SPLIT` | accepted | P2 | Owns renaming `identifier`→`type_identifier` and splitting the trait. We add methods (non-breaking) but do **not** rename (breaking, and it is that issue's job) | no | no | Add methods with defaults; leave naming alone and note the coordination | Keep P2 |
 | `VALUE-DESCRIPTION` | accepted | P3 | `TypeInfo` is where a description hook would hang, and `type_name` already carries the runtime-detail role | no | no | Leave room in `TypeInfo`; do not implement | Keep P3 |
 | `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentified` now — see "Forward compatibility" | Keep P2 |
-| `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Would generate `ExtValue`, every trait impl and the registry entries from one declaration. **Bears directly on this project's scalar widening** — see "Sequencing question" | no | no | Keep `TypeInfo` builder-constructed and `TypeIdentified` derivable so a generator can emit them; put the scalar sequencing to the user | Keep P2 |
+| `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Generates `ExtValue`, every trait impl and the registry entries from one declaration. **Now owns the scalar widening** — see "Sequencing decision" | no | no | Ship nothing it would have to undo; see "Generator alignment" | Keep P2 |
 | `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports; a single-build registry cannot say. Filed during this phase | no | no | Key the registry by `TypeKey { realm, .. }` and give `TypeInfo` a builder — see "Forward compatibility" | Keep P2 |
 | `CORE-MULTI-REALM-INTERPRETER` | accepted | P3 | Realm-aware *dispatch* (`plan.rs:1081`) must exist before realm-aware *typing* has anything to attach to | no | no | Nothing here; the realm-ready key costs nothing while dispatch is single-realm | Keep P3 |
 | `WORKSPACE-SERDE-DERIVE-UNDECLARED` | accepted | P2 | `TypeInfo` will carry serde derives in `liquers-core`, which is one of the crates with an undeclared `derive` feature | no | no | Do not add a new undeclared use; monitor | Keep P2 |
@@ -206,59 +206,13 @@ concurrent-mutation support, and deterministic iteration order makes the web-API
 `register` returns `Result` so a duplicate identifier is a typed error — two crates claiming
 `image` must fail, not resolve by load order.
 
-### `ExtScalar` — the extended scalar set
+### Scalars: not in this project
 
-```rust
-// liquers-lib/src/value/mod.rs
-pub enum ExtValue {
-    // ... existing variants unchanged
-    Scalar(ExtScalar),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ExtScalar {
-    #[cfg(feature = "ext-scalars")] I8(i8),
-    #[cfg(feature = "ext-scalars")] I16(i16),
-    #[cfg(feature = "ext-scalars")] I128(i128),
-    #[cfg(feature = "ext-scalars")] U8(u8),
-    #[cfg(feature = "ext-scalars")] U16(u16),
-    #[cfg(feature = "ext-scalars")] U32(u32),
-    #[cfg(feature = "ext-scalars")] U64(u64),
-    #[cfg(feature = "ext-scalars")] U128(u128),
-    #[cfg(feature = "ext-scalars")] F32(f32),
-    #[cfg(feature = "ext-temporal")] Decimal(rust_decimal::Decimal),
-    #[cfg(feature = "ext-temporal")] Date(chrono::NaiveDate),
-    #[cfg(feature = "ext-temporal")] Time(chrono::NaiveTime),
-    #[cfg(feature = "ext-temporal")] DateTime(chrono::DateTime<chrono::Utc>),
-    #[cfg(feature = "ext-temporal")] Duration(chrono::TimeDelta),
-    #[cfg(feature = "ext-temporal")] Uuid(uuid::Uuid),
-}
-```
-
-**Rationale for the sub-enum** (Phase 1 open question 3): `ExtValue` is matched exhaustively in at
-least eight places — `identifier`, `type_name`, `default_extension`, `default_filename`,
-`default_media_type`, `as_bytes`, and the `ExtValueInterface` accessors — each already carrying
-`#[cfg]` arms. Fifteen flat variants would add ~120 cfg-gated arms. One `Scalar(_)` arm per site
-delegating to a single exhaustive `match` on `ExtScalar` keeps the cfg complexity in one file
-section. **No default match arm** on either enum.
-
-**Empty-enum hazard.** With both features off, `ExtScalar` has no variants. A variantless enum is
-uninhabited and `ExtValue::Scalar(ExtScalar)` then cannot be constructed — which is correct, but
-every `match` arm must still compile. The `ExtValue::Scalar` variant therefore carries the same
-`#[cfg(any(feature = "ext-scalars", feature = "ext-temporal"))]` guard as its arms. This is the
-build-matrix trap the rust-best-practices lens flags; Phase 4 tests the full matrix.
-
-### Features
-
-```toml
-# liquers-lib/Cargo.toml
-ext-scalars  = []                                        # widths only; no dependency
-ext-temporal = ["dep:rust_decimal", "dep:uuid"]          # chrono is already non-optional
-```
-
-`ext-scalars` in `default`; `ext-temporal` not, because it adds two dependencies. `chrono` is
-already a non-optional dependency of `liquers-core` (`Cargo.toml:55`) and `liquers-lib`
-(`Cargo.toml:48`), so the temporal types cost nothing beyond `rust_decimal` and `uuid`.
+Phase 1 proposed widening the scalar set by fifteen types. **That moved to
+`VALUE-TYPE-DEFINITION-MACRO`** — see "Sequencing decision" below. `ExtValue` is unchanged by this
+project: no `Scalar` variant, no `ExtScalar` enum, no new features, no new dependencies. The
+nine-ecosystem correspondence table that identified the fifteen (`prior-art.md` §9) stands as that
+project's input.
 
 ## Trait Implementations
 
@@ -477,7 +431,7 @@ hard tier never sees a value it would have to reject.
 |---|---|
 | `liquers-core` | new `type_system.rs`; `value.rs` (3 trait methods + `Value::type_descriptions`); `metadata.rs` (`media_type: Option`, resolution methods, legacy `as_str()` sweep, `#[serde(default)]`); `state.rs` (seeding in the existing helper); `assets.rs` (**hoist the four duplicated checks to one pair first**, then the two tiers; `deserialize_stored_value` gains a registry parameter and a `DeserializedValue` return); `context.rs` (`Environment::get_type_registry` + 2 impls) |
 | `liquers-store` | none |
-| `liquers-lib` | `value/mod.rs` (`ExtScalar`, `Scalar` variant, delegating arms); `value/extended.rs` (implement the 3 methods; **fix `default_extension` delegation**); `value/simple.rs`; `value/foreign.rs` (`ForeignValue` gains `type_info`); `environment.rs` (registry construction); `Cargo.toml` (2 features, 2 deps) |
+| `liquers-lib` | `value/mod.rs` (implement the 3 `ValueInterface`/`ValueExtension` methods for existing variants); `value/extended.rs` (same, plus **fix the `default_extension` delegation**); `value/simple.rs`; `value/foreign.rs` (`ForeignValue` gains `type_info`); `environment.rs` (registry construction). No new variant, no new feature, no new dependency |
 | `liquers-axum` | `axum_integration.rs:52` reads `effective_media_type` instead of `get_media_type` |
 | `liquers-py` | implement the 3 `ValueInterface` methods, `get_type_registry`; `metadata.rs` accessors follow the `Option<String>` media type |
 | `liquers-web` | same; `store/fetch.rs:96-101` sets the level-3 override explicitly rather than relying on empty-string detection |
@@ -578,36 +532,43 @@ Both extension points are single-realm and single-purpose in this project: `get`
 resolve in the default realm, and nothing consults `TypeIdentified` except description construction.
 No behaviour is written that a later project would have to undo.
 
-## Sequencing question: the scalars and the generator
+## Sequencing decision: scalars ship with the generator
 
-`VALUE-TYPE-DEFINITION-MACRO` and this project's scalar widening collide, and the collision is
-worth deciding rather than discovering.
+`VALUE-TYPE-DEFINITION-MACRO` and the scalar widening collide, and the user resolved it: **the
+scalars move to the generator project** (option B of the three considered).
 
-The scalar tier is the generator's ideal first customer: fifteen scalars across roughly eight
-exhaustive match sites is on the order of **120 mechanical, cfg-gated match arms** — precisely the
-code the macro exists to remove, and precisely the code that produced
-`COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`.
+The reasoning, recorded so it is not relitigated: the scalar tier is the generator's ideal first
+customer. Fifteen scalars across roughly eight exhaustive match sites is on the order of **120
+mechanical, cfg-gated match arms** — exactly the code the macro exists to remove, and exactly the
+code that produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`. Hand-writing them now means
+writing code to delete, with one more opportunity for a silent divergent arm before the mechanism
+that prevents them exists. The accepted `P0`, meanwhile, needs no new scalar to be fixed.
 
-| Option | What happens | Cost |
-|---|---|---|
-| **A — hand-write now** (as Phase 2 currently specifies) | `ExtScalar` and its arms are written by hand; the generator deletes them later | ~120 arms written, reviewed and then thrown away; one more chance for a silent divergent arm before the mechanism that prevents them exists |
-| **B — split** | This project ships the P0 fix, `TypeInfo`/`TypeRegistry` and the metadata invariants only. The scalar widening moves to `VALUE-TYPE-DEFINITION-MACRO` and is declared through the generator | The P0 lands sooner and stays `M`-sized; the scalars wait on an `L` project |
-| **C — generator first** | Build the macro inside this project, declare the scalars through it | This project becomes `L`/`XL` and the P0 — an accepted `P0` — waits on a code generator |
+**Effect on this project:** it ships the P0 fix, `TypeInfo`/`TypeRegistry`/`TypeIdentified`, the
+metadata invariants and the seeding cascade. It adds no `ExtValue` variant, no feature and no
+dependency. It stays `M`-sized and reviewable.
 
-**Recommendation: B.** The P0 is the accepted priority and does not need a single new scalar to be
-fixed; the scalar set is a *capability* addition that happens to share an area. Splitting keeps a
-P0 fix small and reviewable, and lets the fifteen scalars arrive as fifteen declaration lines
-instead of 120 arms. Option C inverts the priorities, and A knowingly writes code to delete it.
+## Generator alignment
 
-If B is chosen, this project's Phase 2 drops the `ExtScalar` section and the two features; nothing
-else changes, since no other part of the design depends on the scalars.
+The user has also signalled that **`register_command!` itself may be redesigned**. Everything here
+is therefore built to be *generated* and to be *macro-agnostic*. The commitments:
+
+| Commitment | Why a generator needs it |
+|---|---|
+| `TypeInfo` is **builder-constructed**, never a struct literal in user code | A generator emits a chain; a later field stays additive, and no generated site breaks |
+| `TypeIdentified` is a **plain trait with an associated const** | Trivially emittable per type; no derive machinery, no attribute macro, no orphan-rule trouble in the defining crate |
+| `type_descriptions()` is an **associated function returning a `Vec`** | A generator emits one function body; nothing depends on the *order* or the *source* of the entries |
+| `TypeRegistry` is **populated, not enumerated** — `register` at construction rather than a `match` over a fixed enum | The set of types is a property of the build, so generated and hand-written entries are indistinguishable to every consumer |
+| The registry is reached through `Environment`, not a global | A generated registration has somewhere to go that is not process-wide mutable state |
+| **Nothing in this project touches `liquers-macro`** | A `register_command!` redesign cannot invalidate work done here |
+
+The one thing this project must *not* do is bake the current macro's assumptions into the type
+model. It does not: `ArgumentType` was moved out to `COMMAND-METADATA-ENHANCEMENTS`, and no
+signature here mentions a command, an argument or a registration DSL.
 
 ## Open questions for the user
 
 1. **Diagnostic command** — see "Commands" above.
-2. **`ext-temporal` in `default`?** Two dependencies (`rust_decimal`, `uuid`) against a scalar set
-   that half the target ecosystems represent natively. Recommendation: not in `default`, so a wasm
-   build stays lean.
-3. **Level-3 override mechanism** stays deferred (Phase 1 recorded the intent). The `Option<String>`
+2. **Level-3 override mechanism** stays deferred (Phase 1 recorded the intent). The `Option<String>`
    media type is the storage; whether the context writes it or resolves it at serialization time is
    the conversion-adjacent question this project does not answer.
