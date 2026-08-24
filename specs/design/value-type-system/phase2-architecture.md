@@ -30,6 +30,7 @@ Searched: `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues a
 | `CORE-VALUE-INTERFACE-CAPABILITY-SPLIT` | accepted | P2 | Owns renaming `identifier`→`type_identifier` and splitting the trait. We add methods (non-breaking) but do **not** rename (breaking, and it is that issue's job) | no | no | Add methods with defaults; leave naming alone and note the coordination | Keep P2 |
 | `VALUE-DESCRIPTION` | accepted | P3 | `TypeInfo` is where a description hook would hang, and `type_name` already carries the runtime-detail role | no | no | Leave room in `TypeInfo`; do not implement | Keep P3 |
 | `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentified` now — see "Forward compatibility" | Keep P2 |
+| `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Would generate `ExtValue`, every trait impl and the registry entries from one declaration. **Bears directly on this project's scalar widening** — see "Sequencing question" | no | no | Keep `TypeInfo` builder-constructed and `TypeIdentified` derivable so a generator can emit them; put the scalar sequencing to the user | Keep P2 |
 | `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports; a single-build registry cannot say. Filed during this phase | no | no | Key the registry by `TypeKey { realm, .. }` and give `TypeInfo` a builder — see "Forward compatibility" | Keep P2 |
 | `CORE-MULTI-REALM-INTERPRETER` | accepted | P3 | Realm-aware *dispatch* (`plan.rs:1081`) must exist before realm-aware *typing* has anything to attach to | no | no | Nothing here; the realm-ready key costs nothing while dispatch is single-realm | Keep P3 |
 | `WORKSPACE-SERDE-DERIVE-UNDECLARED` | accepted | P2 | `TypeInfo` will carry serde derives in `liquers-core`, which is one of the crates with an undeclared `derive` feature | no | no | Do not add a new undeclared use; monitor | Keep P2 |
@@ -555,6 +556,20 @@ expensive to retrofit, so the shapes they need are established now at near-zero 
 | `register_command!` declares an argument by type identifier — `fn use_df(state, df: polars_dataframe)` — and the framework converts the value to the Rust type the signature carries | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` for the resolvable direction (Rust type → identifier), `TypeInfo::of::<T>()`, and a registry consultable at registration time so an unknown identifier is a `CommandRegistryIssue`. The macro needs no data file and no `liquers-lib` dependency: it forwards the identifier as data and lets inference at the generated call site supply the Rust type | None — `TypeIdentified` has an immediate consumer in `type_descriptions()` |
 | A query spanning a `wasm` frontend and a native backend, whose realms support different type sets, converting values transparently at the boundary | `TYPE-REGISTRY-NOT-REALM-AWARE` | Keys the registry by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with `get`/`contains` defaulting to the default realm; gives `TypeInfo` a builder so the per-realm unsupported-type action is an additive field | One extra struct and a default-realm convenience layer |
 
+### Generation, not a data file
+
+`VALUE-TYPE-DEFINITION-MACRO` supersedes the shared-data-file question entirely, and by a mechanism
+worth recording because it is not obvious: proc-macros hold no reliable state between invocations,
+so `register_command!` can never *read* what a type-defining macro declared. The channel is
+**generated code** — the type-defining macro emits a module of aliases and constants named after
+each identifier, and `register_command!` expands an identifier into a path into that module, which
+ordinary name resolution resolves at the definition site. That covers a downstream crate's own
+types, which no file shipped with Liquers can.
+
+This project stays compatible with that future by construction: `TypeInfo` is builder-constructed
+rather than a struct literal, and `TypeIdentified` is a plain trait — both are things a generator
+can emit without this design changing.
+
 **Deliberately not done now:** the unsupported-type *action* enum. An enum whose variants are not
 implemented is worse than an absent field — it invites callers to match on behaviour that does not
 exist. The builder is what makes adding it later non-breaking, and that is sufficient readiness.
@@ -562,6 +577,30 @@ exist. The builder is what makes adding it later non-breaking, and that is suffi
 Both extension points are single-realm and single-purpose in this project: `get` and `contains`
 resolve in the default realm, and nothing consults `TypeIdentified` except description construction.
 No behaviour is written that a later project would have to undo.
+
+## Sequencing question: the scalars and the generator
+
+`VALUE-TYPE-DEFINITION-MACRO` and this project's scalar widening collide, and the collision is
+worth deciding rather than discovering.
+
+The scalar tier is the generator's ideal first customer: fifteen scalars across roughly eight
+exhaustive match sites is on the order of **120 mechanical, cfg-gated match arms** — precisely the
+code the macro exists to remove, and precisely the code that produced
+`COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`.
+
+| Option | What happens | Cost |
+|---|---|---|
+| **A — hand-write now** (as Phase 2 currently specifies) | `ExtScalar` and its arms are written by hand; the generator deletes them later | ~120 arms written, reviewed and then thrown away; one more chance for a silent divergent arm before the mechanism that prevents them exists |
+| **B — split** | This project ships the P0 fix, `TypeInfo`/`TypeRegistry` and the metadata invariants only. The scalar widening moves to `VALUE-TYPE-DEFINITION-MACRO` and is declared through the generator | The P0 lands sooner and stays `M`-sized; the scalars wait on an `L` project |
+| **C — generator first** | Build the macro inside this project, declare the scalars through it | This project becomes `L`/`XL` and the P0 — an accepted `P0` — waits on a code generator |
+
+**Recommendation: B.** The P0 is the accepted priority and does not need a single new scalar to be
+fixed; the scalar set is a *capability* addition that happens to share an area. Splitting keeps a
+P0 fix small and reviewable, and lets the fifteen scalars arrive as fifteen declaration lines
+instead of 120 arms. Option C inverts the priorities, and A knowingly writes code to delete it.
+
+If B is chosen, this project's Phase 2 drops the `ExtScalar` section and the two features; nothing
+else changes, since no other part of the design depends on the scalars.
 
 ## Open questions for the user
 

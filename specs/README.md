@@ -199,6 +199,7 @@ deliberately folded behind a broader line.
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `VALUE-CONVERSION-CAPABILITY`
+- feature `VALUE-TYPE-DEFINITION-MACRO`
 <!-- END generated: unplaced -->
 
 ## Guides
