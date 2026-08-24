@@ -29,7 +29,9 @@ Searched: `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues a
 | `COMMAND-METADATA-ENHANCEMENTS` | accepted | P2 | Owns "explicit input/output type constraints in metadata" — the same ground as the `ArgumentType` change Phase 1 proposed. **`ArgumentType` has 101 references across 10 files including `liquers-py`, `liquers-web` and `liquers-macro`**; a new variant ripples through all of them | no | no | **Scope change: the `ArgumentType` work moves to this issue.** See "Scope removed" | Keep P2 |
 | `CORE-VALUE-INTERFACE-CAPABILITY-SPLIT` | accepted | P2 | Owns renaming `identifier`→`type_identifier` and splitting the trait. We add methods (non-breaking) but do **not** rename (breaking, and it is that issue's job) | no | no | Add methods with defaults; leave naming alone and note the coordination | Keep P2 |
 | `VALUE-DESCRIPTION` | accepted | P3 | `TypeInfo` is where a description hook would hang, and `type_name` already carries the runtime-detail role | no | no | Leave room in `TypeInfo`; do not implement | Keep P3 |
-| `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design | no | no | None | Keep P2 |
+| `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentified` now — see "Forward compatibility" | Keep P2 |
+| `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports; a single-build registry cannot say. Filed during this phase | no | no | Key the registry by `TypeKey { realm, .. }` and give `TypeInfo` a builder — see "Forward compatibility" | Keep P2 |
+| `CORE-MULTI-REALM-INTERPRETER` | accepted | P3 | Realm-aware *dispatch* (`plan.rs:1081`) must exist before realm-aware *typing* has anything to attach to | no | no | Nothing here; the realm-ready key costs nothing while dispatch is single-realm | Keep P3 |
 | `WORKSPACE-SERDE-DERIVE-UNDECLARED` | accepted | P2 | `TypeInfo` will carry serde derives in `liquers-core`, which is one of the crates with an undeclared `derive` feature | no | no | Do not add a new undeclared use; monitor | Keep P2 |
 | `CORE-STATE-LOCK-API-CLEANUP` | accepted | P3 | We extend `State::sync_metadata_with_value`; that issue may reshape `State` internals | no | no | Keep the change inside the existing helper so it moves with any refactor | Keep P3 |
 | `CORE-METADATA-TRACEBACK-SUPPORT` | accepted | P2 | Adds a neighbouring metadata field; no interaction with type or format fields | no | no | Monitor | Keep P2 |
@@ -97,28 +99,86 @@ return type, so a statically-known type costs no allocation while a foreign type
 runtime can still own its strings. `Vec` rather than `&'static [&str]` because a foreign value's
 format list is a runtime fact.
 
+**Construction is through a builder**, following the `MetadataRecord::with_*` /
+`ArgumentInfo::with_*` convention already used across the codebase:
+
+```rust
+impl TypeInfo {
+    pub fn new(type_identifier: impl Into<Cow<'static, str>>) -> Self;
+    pub fn with_type_name(self, ..) -> Self;
+    pub fn with_defaults(self, format: .., extension: .., media_type: .., filename: ..) -> Self;
+    pub fn with_data_format(self, format: ..) -> Self;   // appends to supported_data_formats
+    pub fn with_realm(self, realm: ..) -> Self;
+
+    /// From a Rust type that names its own identifier.
+    pub fn of<T: TypeIdentified>() -> Self { T::type_info() }
+}
+```
+
+This is not ceremony: it is what lets a later field — the per-realm unsupported-type action of
+`TYPE-REGISTRY-NOT-REALM-AWARE` — be added without breaking every construction site.
+
 **Serialization.** Plain derives; `TypeInfo` is a description, not a value. It is exposed through
-the web API so a client can discover what a build supports.
+the web API so a client can discover what a build supports, and it is the shape a cross-realm
+registry exchange would transfer.
+
+### `TypeIdentified` — the Rust type ↔ identifier correspondence
+
+```rust
+pub trait TypeIdentified {
+    const TYPE_IDENTIFIER: &'static str;
+    fn type_info() -> TypeInfo;
+}
+```
+
+**Immediate consumer:** `V::type_descriptions()` implementations are written as
+`vec![TypeInfo::of::<PolarsFrame>(), TypeInfo::of::<DynamicImage>(), ..]` instead of hand-writing
+each identifier string twice — once in `identifier()` and once in the description — which is a
+duplication this project would otherwise create.
+
+**Why it is defined now** (the forward-compatibility the user asked for): the eventual
+`register_command!` support for declaring an argument by type identifier needs a compile-time
+correspondence from a Rust type to its identifier. Framing that as "the macro reads the type
+registry" is the wrong shape — a proc-macro runs in its own process at compile time, so parsing a
+data file is a build-ordering and staleness problem this repository already pays for once with
+`specs/command_registry.yaml`. With this trait the macro emits
+`<T as TypeIdentified>::TYPE_IDENTIFIER` and the compiler resolves it: no file, no registry at
+compile time, and an unknown type is a compile error at the command definition rather than a
+runtime lookup miss. Recorded in full on `VALUE-CONVERSION-CAPABILITY`.
 
 ### `TypeRegistry` — identifier-keyed lookup
 
 ```rust
+/// Registry key. Mirrors `CommandKey { realm, namespace, name }` (`command_metadata.rs:561`),
+/// including its `DEFAULT_REALM` → `""` normalization, so realms mean the same thing for types
+/// as they already do for commands.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TypeKey {
+    pub realm: String,
+    pub type_identifier: String,
+}
+
 pub struct TypeRegistry {
-    types: BTreeMap<Cow<'static, str>, TypeInfo>,
+    types: BTreeMap<TypeKey, TypeInfo>,
 }
 
 impl TypeRegistry {
     pub fn new() -> Self;
 
-    /// Seed from a value type's static self-description.
+    /// Seed from a value type's static self-description, into the default realm.
     pub fn from_value_type<V: ValueInterface>() -> Self;
 
-    /// Add or replace one entry. Used by integration crates for foreign types.
+    /// Add one entry. A duplicate key is a typed error, never a silent overwrite.
     pub fn register(&mut self, info: TypeInfo) -> Result<(), Error>;
 
+    /// Default-realm lookup — what every check in this project uses.
     pub fn get(&self, type_identifier: &str) -> Option<&TypeInfo>;
     pub fn contains(&self, type_identifier: &str) -> bool;
-    pub fn iter(&self) -> impl Iterator<Item = &TypeInfo>;
+
+    /// Explicit-realm lookup. Single-realm today; the surface a cross-realm planner needs.
+    pub fn get_in_realm(&self, realm: &str, type_identifier: &str) -> Option<&TypeInfo>;
+
+    pub fn iter(&self) -> impl Iterator<Item = (&TypeKey, &TypeInfo)>;
 
     /// Is this format writable/readable for this type? The P0 check.
     pub fn supports_data_format(&self, type_identifier: &str, data_format: &str) -> bool;
@@ -127,8 +187,8 @@ impl TypeRegistry {
 
 `BTreeMap` rather than `scc`: the registry is built once and then read-only, so it needs no
 concurrent-mutation support, and deterministic iteration order makes the web-API listing stable.
-`register` returns `Result` so a duplicate identifier is a typed error rather than a silent
-overwrite — two crates claiming `image` must be a failure, not a coin toss.
+`register` returns `Result` so a duplicate identifier is a typed error — two crates claiming
+`image` must fail, not resolve by load order.
 
 ### `ExtScalar` — the extended scalar set
 
@@ -469,6 +529,24 @@ conversion refusals and `SerializationError` to the byte boundary — this desig
 
 No `unwrap()` or `expect()` appears in any signature or described path; every fallible step returns
 `Result<_, Error>`.
+
+## Forward compatibility
+
+Two future capabilities were raised during this phase. Neither is implemented here; both would be
+expensive to retrofit, so the shapes they need are established now at near-zero cost.
+
+| Future capability | Tracked by | What Phase 2 does about it | Cost now |
+|---|---|---|---|
+| `register_command!` declares an argument by type identifier and the framework converts the value to the Rust type the variant carries | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` with an associated const, so the correspondence is compiler-resolved rather than macro-parsed, and `TypeInfo::of::<T>()` | None — it has an immediate consumer in `type_descriptions()` |
+| A query spanning a `wasm` frontend and a native backend, whose realms support different type sets, converting values transparently at the boundary | `TYPE-REGISTRY-NOT-REALM-AWARE` | Keys the registry by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with `get`/`contains` defaulting to the default realm; gives `TypeInfo` a builder so the per-realm unsupported-type action is an additive field | One extra struct and a default-realm convenience layer |
+
+**Deliberately not done now:** the unsupported-type *action* enum. An enum whose variants are not
+implemented is worse than an absent field — it invites callers to match on behaviour that does not
+exist. The builder is what makes adding it later non-breaking, and that is sufficient readiness.
+
+Both extension points are single-realm and single-purpose in this project: `get` and `contains`
+resolve in the default realm, and nothing consults `TypeIdentified` except description construction.
+No behaviour is written that a later project would have to undo.
 
 ## Open questions for the user
 
