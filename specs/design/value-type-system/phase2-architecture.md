@@ -136,15 +136,30 @@ pub trait TypeIdentified {
 each identifier string twice — once in `identifier()` and once in the description — which is a
 duplication this project would otherwise create.
 
-**Why it is defined now** (the forward-compatibility the user asked for): the eventual
-`register_command!` support for declaring an argument by type identifier needs a compile-time
-correspondence from a Rust type to its identifier. Framing that as "the macro reads the type
-registry" is the wrong shape — a proc-macro runs in its own process at compile time, so parsing a
-data file is a build-ordering and staleness problem this repository already pays for once with
-`specs/command_registry.yaml`. With this trait the macro emits
-`<T as TypeIdentified>::TYPE_IDENTIFIER` and the compiler resolves it: no file, no registry at
-compile time, and an unknown type is a compile error at the command definition rather than a
-runtime lookup miss. Recorded in full on `VALUE-CONVERSION-CAPABILITY`.
+**Why it is defined now** (the forward-compatibility the user asked for). The eventual DSL form is
+
+```
+register_command!(cr, fn use_df(state, df: polars_dataframe) -> result)
+```
+
+where `polars_dataframe` is a **type identifier** defined in `liquers-lib` — or in a downstream
+crate — while `liquers-macro` depends on neither. The apparent requirement is that the macro
+resolve an identifier to a Rust type, which would need a data file both crates can read.
+
+**It does not.** The Rust type comes from the command function's own signature, and the mechanism
+already exists: `registration.rs:492` generates `let #var_name: #ty = arguments.get(#i, #name)?;`
+where `arguments.get` is generic and `#ty` is a token the macro *forwards* without interpreting.
+In the identifier form the annotation simply moves — the macro emits an unannotated binding and
+the generated call to the user's function pins the type by inference, while the identifier travels
+as ordinary data. The direction that must be resolvable is therefore **Rust type → identifier**,
+which is what `TypeIdentified` provides, and which the compiler resolves at the definition site.
+
+What this project must offer, and does: `TypeIdentified` for the resolvable direction, and a
+registry that can be consulted **at registration time**, so an identifier no build registers
+becomes a `CommandRegistryIssue` (`command_metadata.rs:427`, `:965`) rather than a runtime lookup
+miss. A data export of the registry remains worth having for `liquers-validate` and non-Rust
+clients — the `export-command-registry` pattern — but its consumer is tooling, not the macro.
+Recorded in full on `VALUE-CONVERSION-CAPABILITY`.
 
 ### `TypeRegistry` — identifier-keyed lookup
 
@@ -537,7 +552,7 @@ expensive to retrofit, so the shapes they need are established now at near-zero 
 
 | Future capability | Tracked by | What Phase 2 does about it | Cost now |
 |---|---|---|---|
-| `register_command!` declares an argument by type identifier and the framework converts the value to the Rust type the variant carries | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` with an associated const, so the correspondence is compiler-resolved rather than macro-parsed, and `TypeInfo::of::<T>()` | None — it has an immediate consumer in `type_descriptions()` |
+| `register_command!` declares an argument by type identifier — `fn use_df(state, df: polars_dataframe)` — and the framework converts the value to the Rust type the signature carries | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` for the resolvable direction (Rust type → identifier), `TypeInfo::of::<T>()`, and a registry consultable at registration time so an unknown identifier is a `CommandRegistryIssue`. The macro needs no data file and no `liquers-lib` dependency: it forwards the identifier as data and lets inference at the generated call site supply the Rust type | None — `TypeIdentified` has an immediate consumer in `type_descriptions()` |
 | A query spanning a `wasm` frontend and a native backend, whose realms support different type sets, converting values transparently at the boundary | `TYPE-REGISTRY-NOT-REALM-AWARE` | Keys the registry by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with `get`/`contains` defaulting to the default realm; gives `TypeInfo` a builder so the per-realm unsupported-type action is an additive field | One extra struct and a default-realm convenience layer |
 
 **Deliberately not done now:** the unsupported-type *action* enum. An enum whose variants are not
