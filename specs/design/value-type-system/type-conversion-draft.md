@@ -58,6 +58,53 @@ loses information silently.** An `f64 → f32` or an `i64 → JSON number` above
 (`prior-art.md` §9 footnotes ‡ and §) and must be refused automatically, however convenient. The
 user may still ask for it explicitly.
 
+## Where automatic conversion applies
+
+Automatic conversion has **two** trigger sites, not one, and they need the same machinery with
+different defaults.
+
+### 1. Command parameters
+
+A command declares a Rust type; the incoming value may be something else. The framework converts at
+argument-binding time, or refuses:
+
+```rust
+fn use_df(state: &State<V>, df: polars::DataFrame) -> Result<V, Error>
+```
+
+A list-of-dictionaries argument succeeds if that edge is `Structural`; an `i64` fails with a typed
+error naming both the source type and the declared target.
+
+### 2. The state
+
+The same question applies to the value flowing *through* a command chain, not only to its
+parameters. A command that declares it operates on a table should receive a table, whatever the
+previous step produced — the state is an argument like any other, and it is the one a query author
+never names explicitly.
+
+The state's conversion is the more delicate of the two, because it is invisible in the query. Three
+things the design must settle:
+
+- **Is state conversion opt-in per command, or on by default?** A command declaring `state: Table`
+  is asking for it; a command declaring `state` untyped is not. Defaulting to *off* for untyped
+  state parameters preserves today's behaviour exactly.
+- **Does a converted state keep its metadata?** The type identifier must change to match the new
+  value; `data_format` was chosen for the *old* type and is usually wrong afterwards, so it should
+  revert to unspecified rather than be carried over. The seeding cascade in
+  `specs/reference/VALUE_TYPE_SYSTEM.md` then resolves it from the new value's default.
+- **Is the conversion recorded?** A value that silently changed type between two steps is exactly
+  the kind of thing the soft-warning tier exists to make visible. A `LogEntry::info` naming the
+  edge taken costs nothing and turns an invisible transformation into a traceable one.
+
+### The rules are the design's, not the call site's
+
+Both sites consult the same classification table below, and neither invents its own policy. That is
+the point of centralising it: an integration or a command library that grew its own coercion rules
+would produce conversions the framework cannot reason about, cannot classify as lossy, and cannot
+report. The rule an implementation must not break: **automatic conversion never loses information
+silently** — `Lossy` and `Fallible` edges are refused automatically at both sites and are available
+only through explicit conversion.
+
 ## The conversion graph
 
 Edges come from the correspondence table. Each carries a classification:
@@ -115,5 +162,8 @@ Deliberately thin — the shape, not the signatures.
    `convert` command taking a target name?
 4. Does automatic conversion happen at argument binding time, or does the command receive an
    accessor that converts on demand? The second interacts with `specs/design/value-accessor/`.
+5. For the state site: opt-in per command or on by default, what happens to the metadata of a
+   converted state, and whether the conversion is recorded in the log. See "Where automatic
+   conversion applies" above.
 5. Should conversion be allowed to be async? Converting a large frame is not free, and the asset
    layer is async throughout.

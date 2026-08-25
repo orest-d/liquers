@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 ---
 # Liquers Language Integration Guide
 
@@ -369,6 +369,58 @@ Three things follow, and they generalize to any *integration*:
 5. Can an *opaque language value* cross stores, threads, processes, Wasm boundaries, or another *language runtime*? Which codecs are supported and trusted?
 6. Does the *integrated language* support function pointers, bound methods, closures, or callable objects? May they be retained as *opaque language values*? Are they serializable? Are they accepted as *language commands* through `COMMAND`, even when they are not ordinary data values?
 7. Can users operate conveniently on a *value type* *wrapper* or *State* as if it were a language scalar? Which conversions are implicit versus explicit? Can arithmetic, comparison, indexing, iteration, truthiness, and display operators be defined without hiding conversion errors or metadata loss?
+
+#### Prefer a native variant; retain a foreign value only when you must
+
+**The convention: when a conversion is possible and not too expensive, convert a *language value*
+into the Rust-native *value type* variant rather than retaining it as an *opaque language value*.**
+A Python `int` becomes `I32`/`I64`, a JavaScript string becomes `Text`, a list of scalars becomes
+`Array`. Retention is for what genuinely cannot be represented — a live object graph, a callable, a
+handle with identity that matters.
+
+The reason is not tidiness. A native variant is serializable, storable, comparable, and
+understandable by every other realm; an opaque handle is none of those. It also means an
+integration normally defines **exactly one** extra variant — the foreign value container — and the
+rest of its bridge is conversion, which is why `ExtValue::Foreign` is shared across all languages
+rather than one variant per language.
+
+"Not too expensive" is the judgement call, and it is the integration's to make. Converting a
+million-element array eagerly to `Array` may be worse than retaining it; converting a small
+dictionary is not. Record the threshold you chose in the mapping table required by design question
+2 above, so it can be reviewed rather than rediscovered.
+
+#### Typing an integrated value
+
+Every value carries a **type identifier**, and since `value-type-system` the write path refuses one
+it does not recognise, so this is not optional metadata. See
+`specs/reference/VALUE_TYPE_SYSTEM.md` for the model and
+`specs/guides/TYPE_SYSTEM_GUIDE.md` for the procedure. What an integration needs to know:
+
+- **Naming.** A foreign type carries a provider prefix: `js.Value`, `py.Object`. A bare identifier
+  asserts that Liquers *owns* the concept and is reserved for `liquers-core` and `liquers-lib`.
+  Local names are CamelCase and name the concept, not the backing struct.
+- **`ForeignValue::identifier`** supplies that string, and `type_name` the runtime detail — the
+  language's own name for the value's type. `type_name` is informational and is never dispatched on.
+- **Registration is an open problem.** The registry is built from a *static* description list, so a
+  type whose identifier is only known at runtime cannot currently appear in it, and a foreign value
+  may therefore be refused on write. This is tracked as
+  `specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md` (P1) and is the first thing to check when an
+  integration cannot store its values.
+
+**Design for conversion that does not exist yet.** Automatic value conversion — including coercing
+a value to a command parameter's declared Rust type — is designed but not implemented
+(`specs/issues/VALUE-CONVERSION-CAPABILITY.md`, with the proposal in
+`specs/design/value-type-system/type-conversion-draft.md`). Two consequences for an integration
+being written now:
+
+1. **Keep conversions declarative and separable.** Conversion logic that lives inline inside a
+   bridge function is hard to hand over to a conversion registry later; a table or a set of small
+   named conversion functions is not.
+2. **Do not build a private coercion layer.** If your bridge is tempted to guess — accepting a
+   string where a number is wanted, silently truncating an integer — that is exactly the behaviour
+   the conversion project must own centrally, with a lossy/fallible classification the framework
+   applies uniformly. Refuse for now and record the case; a refusal is easy to relax later, whereas
+   a silent coercion becomes behaviour someone depends on.
 
 #### Retaining an *opaque language value*: use the shared `ForeignValue`
 
@@ -2407,6 +2459,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-18 | Added the VALUE convention that a language value is converted to a native variant when that is possible and not too expensive, so an integration normally defines only the foreign container; added type-identifier naming and registration guidance pointing at the type system, and the two rules that keep a bridge ready for automatic conversion. | `design/value-type-system/` |
 | 2026-08-17 | `STORE05` follows the absolute-key rule: a relative key is `KeyNotAbsolute`, not `KeyNotSupported`; the store must be called directly rather than through a router; dotted-but-ordinary names are explicit negatives; and `STORE05b` records the ENOENT trap that lets a filesystem-backed `STORE05` pass with no guard present. | `design/store-key-guard/` |
 | 2026-08-14 | Every parameter value is now encodable, so the encode-direction guidance drops the refusal path; OBJECT09 becomes a round-trip test. Added the numeric and named entities to the escaping summary. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Documented provider-owned and programmatic recipe CWD setup, interpreter-owned relative resolution, root fallback, and executable integration evidence. | phase-5 |

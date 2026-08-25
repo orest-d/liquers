@@ -18,11 +18,15 @@ conversion is possible. Neither direction exists:
 - **Explicit.** A user with a `polars_dataframe` who needs a list of dictionaries, or an `i64` that
   must become a `str`, has no command and no query syntax to say so. Every conversion is hand-coded
   inside whichever command happens to need it.
-- **Automatic.** A command that needs "a table" must declare `ArgumentType::Any` and sort it out
+- **Automatic.** This has **two** trigger sites. A command that needs "a table" must declare
+  `ArgumentType::Any` and sort it out
   itself — see the `// TODO: add support for value with type_identifier` markers at
   `liquers-core/src/command_metadata.rs:73` and `:152`. A UI widget that renders tables cannot
   accept a Polars frame and a list of dictionaries through one path. A web client sending
-  `Accept: text/csv` gets no negotiation.
+  `Accept: text/csv` gets no negotiation. The second site is the **state** — the value flowing
+  through a command chain, which a query author never names explicitly and which therefore needs
+  the more careful default. Both are covered in the draft under "Where automatic conversion
+  applies".
 
 The **purpose axis** — "can this value be used as a table / an image / JSON?" — was designed
 alongside the `value-type-system` project and deliberately deferred here, because a purpose
