@@ -822,16 +822,22 @@ impl From<MetadataRecord> for AssetInfo {
     }
 }
 
-/// Every field defaults, so a *partial* JSON document deserializes into a record.
+/// A *partial* JSON document deserializes into a record; a document carrying fields this struct
+/// does not know stays legacy.
 ///
-/// Without this, `Metadata::from_json(r#"{"media_type":"text/plain"}"#)` fell through to
-/// `Metadata::LegacyMetadata`, because the document did not deserialize as a complete record —
-/// and the legacy accessors then returned quoted strings. That was the root cause behind
-/// `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`; the accessors were the symptom. The legacy
-/// fallback stays for documents that genuinely are not records, but it is no longer the path an
-/// ordinary partial document takes.
+/// `#[serde(default)]` is what makes the partial case work. Without it,
+/// `Metadata::from_json(r#"{"media_type":"text/plain"}"#)` fell through to
+/// `Metadata::LegacyMetadata`, and the legacy accessors then returned quoted strings — that was the
+/// root cause behind `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`, of which the accessors were only
+/// the symptom.
+///
+/// `#[serde(deny_unknown_fields)]` is what keeps it honest. With defaults alone, *almost any* JSON
+/// object deserializes as a record and serde silently drops the fields it does not recognise, so a
+/// legacy document such as `{"media_type":"text/plain","custom":{…}}` would be converted and lose
+/// `custom` on the next write. Refusing unknown fields sends exactly those documents down the
+/// legacy branch, which exists to preserve them.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct MetadataRecord {
     /// Log data
     pub log: Vec<LogEntry>,
@@ -2911,6 +2917,35 @@ mod tests {
         }));
         assert_eq!(identifiers.type_identifier()?, "Text");
         assert_eq!(identifiers.type_name()?, "text");
+        Ok(())
+    }
+
+    /// A legacy document carrying fields the record does not know stays legacy, and keeps them.
+    ///
+    /// Regression test for a defect found in review of PR #37: `#[serde(default)]` alone made
+    /// almost any JSON object deserialize as a record, and serde drops unrecognised fields
+    /// silently — so a legacy document was converted and lost its extra data on the next write.
+    #[test]
+    fn legacy_document_with_unknown_fields_is_preserved(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let metadata = Metadata::from_json(r#"{"media_type":"text/plain","custom":{"a":1}}"#)?;
+        match &metadata {
+            Metadata::LegacyMetadata(value) => {
+                assert!(
+                    value.get("custom").is_some(),
+                    "the unknown field must survive: {value}"
+                );
+            }
+            Metadata::MetadataRecord(_) => {
+                panic!("a document with unknown fields must not be converted to a record")
+            }
+        }
+        assert!(
+            metadata.to_json()?.contains("custom"),
+            "and must survive a round trip"
+        );
+        // The accessor still reads correctly through the legacy branch.
+        assert_eq!(metadata.get_media_type(), "text/plain");
         Ok(())
     }
 

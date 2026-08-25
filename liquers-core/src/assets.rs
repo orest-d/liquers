@@ -574,7 +574,7 @@ fn validate_metadata_hard(
     key: &Key,
     type_identifier: &str,
     type_name: &str,
-    effective_data_format: &str,
+    declared_data_format: Option<&str>,
     media_type_override: Option<&str>,
     is_error_state: bool,
     registry: &crate::type_system::TypeRegistry,
@@ -588,27 +588,36 @@ fn validate_metadata_hard(
         .with_key(key));
     };
 
+    // Only a **declared** format can be inconsistent. `None` means no format was chosen, so level 1
+    // applies and the value's own default is used — and a type always supports its own default
+    // (`every_default_is_in_supported_formats`). Resolving the absent case here instead would need
+    // the value, which this function does not have: `Metadata::get_data_format` substitutes the
+    // constant `bin`, and validating against that rejected every ordinary state whose format was
+    // left unspecified.
+    //
     // A type that declares *no* formats has no byte form at all — a UI element, an egui widget, a
     // foreign language handle. The asset layer already tolerates that by persisting metadata only,
     // so requiring such a type to name a format it cannot produce would be contradictory. The
     // identifier check still applies; only the format pairing is meaningless here, exactly as for
     // an error state.
     let unserializable = info.supported_data_formats.is_empty();
-    if !is_error_state && !unserializable && !info.supports_data_format(effective_data_format) {
-        let supported = info
-            .supported_data_formats
-            .iter()
-            .map(|f| f.as_ref())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(Error::from_error(
-            ErrorType::SerializationError,
-            format!(
-                "Type '{type_identifier}' cannot be serialized as '{effective_data_format}'; \
-                 supported formats: [{supported}]"
-            ),
-        )
-        .with_key(key));
+    if let Some(declared_data_format) = declared_data_format.filter(|_| !is_error_state && !unserializable) {
+        if !info.supports_data_format(declared_data_format) {
+            let supported = info
+                .supported_data_formats
+                .iter()
+                .map(|f| f.as_ref())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Error::from_error(
+                ErrorType::SerializationError,
+                format!(
+                    "Type '{type_identifier}' cannot be serialized as '{declared_data_format}'; \
+                     supported formats: [{supported}]"
+                ),
+            )
+            .with_key(key));
+        }
     }
 
     if let Some(media_type) = media_type_override {
@@ -627,7 +636,7 @@ fn validate_required_metadata_fields(
         key,
         &metadata.type_identifier,
         &metadata.type_name,
-        &metadata.get_data_format(),
+        metadata.declared_data_format(),
         metadata.declared_media_type(),
         metadata.status == Status::Error || metadata.is_error,
         registry,
@@ -644,7 +653,7 @@ fn validate_required_metadata_fields_enum(
         key,
         &metadata.type_identifier()?,
         &metadata.type_name()?,
-        &metadata.get_data_format(),
+        metadata.declared_data_format().as_deref(),
         None,
         metadata.status() == Status::Error || metadata.is_error().unwrap_or(false),
         registry,

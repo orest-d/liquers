@@ -126,20 +126,31 @@ impl ValueExtension for ExtValue {
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         use liquers_core::type_system::TypeInfo;
         let mut descriptions = vec![
+            // Every alias `parse_image_data_format` accepts (`image/serde.rs`). The registry gates
+            // the write path, so an alias missing here is a format the codec supports and the
+            // asset layer refuses.
             TypeInfo::new("Image")
                 .with_type_name("image")
                 .with_defaults("png", "png", "image/png", "image.png")
-                .with_data_formats(["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff"]),
+                .with_data_formats([
+                    "png", "jpg", "jpeg", "jpe", "webp", "gif", "bmp", "tif", "tiff", "ico",
+                    "dataurl",
+                ]),
             TypeInfo::new("UIElement")
                 .with_type_name("ui_element")
                 .with_defaults("ui", "ui", "application/octet-stream", "element.ui"),
         ];
         #[cfg(feature = "polars")]
         descriptions.push(
+            // Only what `serialize_dataframe_to_writer` actually implements. `json` and `ndjson`
+            // parse into a `PolarsDataFormat` but both codecs return "not implemented yet"
+            // (`polars/serde.rs`), so advertising them would be a false capability: `set_binary`
+            // would accept bytes that cannot be materialized, and `set_state` would store metadata
+            // with no data after serialization failed.
             TypeInfo::new("polars.DataFrame")
                 .with_type_name("polars_dataframe")
                 .with_defaults("csv", "csv", "text/csv", "data.csv")
-                .with_data_formats(["csv", "parquet", "json", "ndjson"]),
+                .with_data_formats(["csv", "csv:comma", "csv_comma", "parquet"]),
         );
         #[cfg(feature = "egui")]
         {

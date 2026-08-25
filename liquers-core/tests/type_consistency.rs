@@ -8,13 +8,14 @@
 
 use liquers_core::{
     assets::AssetManager,
+    state::State,
     store::{AsyncMemoryStore, AsyncStore},
     context::{Environment, SimpleEnvironment},
     error::ErrorType,
     metadata::{Metadata, MetadataRecord, Status},
     parse::parse_key,
     query::Key,
-    value::Value,
+    value::{Value, ValueInterface},
 };
 
 fn environment() -> SimpleEnvironment<Value> {
@@ -161,6 +162,42 @@ async fn malformed_media_type_is_refused() -> Result<(), Box<dyn std::error::Err
             .await
             .expect_err(&format!("{bad:?} must be refused"));
         assert_eq!(error.error_type, ErrorType::General);
+    }
+    Ok(())
+}
+
+/// An ordinary state that declares no data format is storable.
+///
+/// Regression test for a defect found in review of PR #37: hard validation resolved the format
+/// through `Metadata::get_data_format()`, whose level-1 slot is the constant `bin` because metadata
+/// cannot see a value — so `State::new().with_data(Value::I32(1))` was rejected as "cannot be
+/// serialized as 'bin'" even though serialization would correctly have used `json`. Only a
+/// *declared* format can be inconsistent; an absent one means the value's own default applies, and
+/// a type always supports its own default.
+#[tokio::test]
+async fn state_with_no_declared_format_is_storable() -> Result<(), Box<dyn std::error::Error>> {
+    let env = environment();
+    let envref = env.to_ref();
+
+    for value in [
+        Value::I32(1),
+        Value::Text("hello".to_string()),
+        Value::Bool(true),
+        Value::None,
+    ] {
+        let identifier = value.identifier().to_string();
+        let key = parse_key(&format!("test/{identifier}"))?;
+        let state = State::<Value>::new().with_data(value);
+        assert_eq!(
+            state.metadata.declared_data_format(),
+            None,
+            "the premise: nothing declared a format"
+        );
+        envref
+            .get_asset_manager()
+            .set_state(&key, state)
+            .await
+            .unwrap_or_else(|e| panic!("{identifier} with no declared format must store: {e}"));
     }
     Ok(())
 }
