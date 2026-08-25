@@ -3,7 +3,7 @@ title: Asset Set Operation Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-08
+reviewed: 2026-08-18
 ---
 # Asset Set Operation Specification
 
@@ -61,9 +61,28 @@ Only `Key` type is accepted (strict). Queries must be converted to Key by the ca
 
 Both operations require `MetadataRecord` (not the `Metadata` enum which includes `LegacyMetadata`).
 
-**Mandatory fields:**
-- `data_format` - Required for deserialization (e.g., "json", "csv", "bin")
-- `type_identifier` - Required to know what Value type to deserialize into
+**Mandatory fields, now enforced** (they were asserted here before anything checked them):
+- `type_identifier` — required, and must be **registered in this build**. Refused with
+  `Error::general_error` naming the identifier.
+- `type_name` — required, non-empty.
+- `data_format` — the *effective* format, resolved from the declaration or the value's own default,
+  must be one the type can be written in. Refused with `ErrorType::SerializationError` naming the
+  type, the format and the supported set. This is the check that closed
+  `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`.
+- `media_type`, when explicitly declared, must be well formed — no CR/LF, `type/subtype` — because
+  it reaches an HTTP response header.
+
+**Two exemptions from the format check**, both because the pairing is meaningless rather than
+because the rule is inconvenient: an **error state** (which keeps the intended output's filename, so
+its format contradicts its `error` identifier, and whose bytes are not a serialization of that type
+anyway), and a type that **declares no formats** at all (a UI element or foreign handle, persisted
+as metadata only). The identifier check applies in both cases.
+
+**Soft checks** add a `LogEntry::warning` and do not fail the write: a filename extension differing
+from the base of the effective format, and a declared `media_type` differing from the derived one —
+which is expected whenever an override is active.
+
+See `specs/reference/VALUE_TYPE_SYSTEM.md`.
 
 **Auto-updated fields:**
 - `updated` timestamp - Set automatically to current time
@@ -327,11 +346,11 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 3. **Provenance Tracking**: Record who/what/when data was set (via Session mechanism)
 4. **Audit Logging**: Track all set operations for debugging and compliance
 5. **Background Set**: Async version that returns immediately
-6. **Metadata Consistency Validation**: Validate data_format/type_identifier/media_type consistency (Issue #2)
+6. ~~**Metadata Consistency Validation**~~ — done, 2026-08-18; see "Metadata Requirements" above.
 
 ## Related Issues
 
-- Issue #2: METADATA-CONSISTENCY - Validation of metadata fields
+- `CORE-METADATA-FORMAT-TYPE-CONSISTENCY` — **closed** 2026-08-18 by `value-type-system`
 - Issue #3: CANCEL-SAFETY - Cancelled flag implementation details
 - Issue #4: NON-SERIALIZABLE - Non-serializable data support
 - Issue #5: SOURCE-EVICTION - Handling evicted non-serializable Source assets
@@ -348,6 +367,8 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 
 ## History
 
-| Date | Change | Source |
+| Date | Change |
+|---|---|
+| 2026-08-18 | The mandatory-field rules this document asserted are now enforced, in two tiers; records which checks reject, which warn, and the two exemptions from the format check. | `design/value-type-system/` | Source |
 |---|---|---|
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
