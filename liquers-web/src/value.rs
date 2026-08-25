@@ -74,7 +74,9 @@ impl ForeignValue for JsOpaque {
     }
 
     fn identifier(&self) -> Cow<'static, str> {
-        "js".into()
+        // `js.Value`, not a bare `js`: a bare name asserts that Liquers owns the concept, and a
+        // JavaScript value is somebody else's type. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
+        "js.Value".into()
     }
 
     fn type_name(&self) -> Cow<'static, str> {

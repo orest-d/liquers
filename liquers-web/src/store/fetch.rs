@@ -88,12 +88,18 @@ pub fn infer_metadata(
     let mut record = MetadataRecord::new();
     record.with_key(key.to_owned());
 
-    // `with_filename` derives `media_type` from the extension as a side effect.
+    // `with_filename` performs level-2 seeding: the extension names the data format. It no longer
+    // writes `media_type`, because an absent media type now *means* "derive from the format", and
+    // writing the derived value in would make every ordinary filename look like a deliberate
+    // override.
     if let Some(name) = key.filename() {
         record.with_filename(name.encode().to_string());
     }
 
-    let from_extension = record.media_type.clone();
+    // The origin server's `Content-Type` is a level-3 override: it is information no extension and
+    // no data format can supply — an external party's claim about these bytes — so it is declared
+    // explicitly and kept verbatim. It is only used where the extension has nothing better to say.
+    let from_extension = record.get_media_type();
     if from_extension.is_empty() || from_extension == UNKNOWN_MEDIA_TYPE {
         if let Some(declared) = content_type.and_then(media_type_of) {
             record.with_media_type(declared);

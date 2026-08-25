@@ -182,6 +182,7 @@ question are both measure-first items.
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
 | [`CORE-METADATA-FORMAT-TYPE-CONSISTENCY`](issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md) | P0 | M | `metadata-consistency` |
+| [`FOREIGN-VALUE-TYPES-NOT-REGISTERED`](issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md) | P1 | M | `value-type-system` |
 | [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
 <!-- END generated: issues -->
 
