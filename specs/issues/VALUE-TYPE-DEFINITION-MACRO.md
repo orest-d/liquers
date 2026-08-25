@@ -92,6 +92,12 @@ subsequently answered without any macro at all — Rust code names Rust types, a
 derived from them — so this issue stands on its own merit: the hand-written arms drift, and
 `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`, found in the same phase, is the proof.
 
+`DATA-FORMAT-CONSTANTS-AND-TOOLING` shares a boundary with this issue and should be designed with
+it: the macro must let a type enable or disable the generic serde formats individually and supply
+its own encoder and decoder for a format — that is how `polars.DataFrame` gets CSV and Parquet
+while `Image` gets PNG — and `supported_data_formats` should be *derived* from those choices rather
+than restated alongside them, so a declaration cannot disagree with its implementation.
+
 Related: `VALUE-CONVERSION-CAPABILITY` owns the extraction half — turning the value into the
 declared Rust type — and `COMMAND-METADATA-ENHANCEMENTS` owns the `ArgumentType` variant that
 carries a type identifier. `value-type-system` defines `TypeInfo`, `TypeRegistry` and
