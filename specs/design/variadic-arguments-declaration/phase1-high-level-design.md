@@ -32,7 +32,9 @@ No new commands. Two existing ones change signature: `pl/select_columns` and `pl
 `columns: Vec<String>`, and their internal `split('-')` workaround is deleted. The `register_command!`
 argument DSL gains a `multiple` flag alongside `injected`, and — because a second bare-identifier
 flag makes a silent typo possible — the flag parser (`liquers-macro/src/registration.rs:1564`) starts
-rejecting unknown identifiers instead of swallowing them.
+rejecting unknown identifiers instead of swallowing them. The macro also rejects a `multiple`
+argument that is not last, which closes `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS` for every
+macro-registered command (decision 1).
 
 `CommandArguments` gains an accessor for variadic arguments. `get` (`liquers-core/src/commands.rs:102`)
 cannot serve them: its `T: FromParameterValue<T> + TryFrom<E::Value, Error = Error>` bounds are
@@ -57,9 +59,15 @@ converted arguments — `ArgumentInfo.multiple` already serializes.
 
 ### UI
 
-No new widget. `liquers-lib/src/egui/widgets.rs:733` already labels a `multiple` argument; making
-one declarable turns that dormant branch live. Whether a variadic argument needs a list-entry widget
-rather than a single text field is an open question below, not scope here.
+No metadata change: `ArgumentGUIInfo` keeps describing **one element's** widget, and `multiple` tells
+a renderer to repeat it as a list. That is the contract this design states in the reference.
+
+No renderer changes, because there is none to change: `gui_info` has **zero consumers** outside
+`liquers-core` — grepping `liquers-lib`, `liquers-web`, `liquers-axum` and `liquers-py` finds no
+read of it. The one `multiple` mention in the UI (`liquers-lib/src/egui/widgets.rs:733`) is a
+read-only registry *inspector* that prints a "multiple" badge, not an argument entry form. The
+list editor with add / delete / reorder is therefore new UI work with no existing form to extend,
+and is filed rather than built here (decision 5).
 
 ## Crate Placement
 
@@ -96,37 +104,74 @@ No new guide — the material belongs in the command-registration guide the audi
 | `specs/command_registry.yaml` | Regenerated (generated file; `registry_export` test enforces) |
 | `specs/README.md` | New design folder listed, per the docs rules |
 | `specs/issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md` | `design:` set; status closed at Phase 5 |
-| `specs/issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md` | Same, if open question 1 pulls it in |
+| `specs/issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md` | Narrowed to hand-built metadata (decision 1), not closed |
+| `specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md` | New, filed at Phase 2 (decision 5) |
+| `specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md` | New, filed at Phase 2 (decision 5) |
 
 **Audience and outcome.** A command author writing `register_command!`, and a coding agent adding
 a polars-style command. After this lands they should be able to declare a variable-length argument
 from the reference and the guide alone, and should find no document still claiming it is
 impossible.
 
+## Design Decisions
+
+Resolved with the user after the first Phase 1 review. Each is settled unless Phase 2 finds a
+contradiction in the code.
+
+1. **`multiple` must be the last argument, enforced in the macro.** Rejecting the declaration at
+   compile time closes `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS` for every macro-registered
+   command without needing a runtime caller for `CommandMetadata::check()`, and without waiting on
+   `COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED`. **Injected arguments are exempt**: they consume
+   no query parameter, so the rule is that no *non-injected* argument may follow a variadic one.
+   The registry-level check stays filed as that issue, which this design narrows rather than closes
+   — it still covers hand-built metadata such as `liquers-py`'s `argv`
+   (`liquers-py/src/commands.rs:220`).
+
+2. **Element types.** `Vec<String>` is the driver; the accessor is generic over
+   `T: FromParameterValue<T>`, so `Vec<i64>`, `Vec<i32>`, `Vec<f64>`, `Vec<bool>` and the rest of
+   the scalar family come with it at no extra cost.
+
+3. **`ArgumentType` follows the element type** — `Vec<String>` → `String`, `Vec<i32>` → `Integer`,
+   and so on. This matters beyond metadata cosmetics: `from_string` (`plan.rs:~600`) parses each
+   action parameter *through* `ArgumentType`, so leaving it `Any` would deliver every element as a
+   JSON string and `Vec<i32>` would fail at retrieval.
+
+   **The `multiple` keyword stays mandatory, and `Vec<T>` alone does not imply it.** The user's
+   instinct is right and the code confirms it: `impl<V: ValueInterface> FromParameterValue<Vec<V>>`
+   (`commands.rs:269`) already reads a JSON array out of a *single* parameter, so `Vec<T>` is
+   genuinely ambiguous between "one parameter carrying a list" and "the remaining parameters". A
+   link argument resolving to an array is the second spelling the user anticipated, and it is the
+   existing behaviour rather than a future one. Making `Vec` imply variadic would silently
+   reinterpret it. Phase 2 should additionally make the macro reject `multiple` on a non-`Vec` type,
+   so the keyword and the Rust type cannot disagree.
+
+4. **A variadic argument takes no default; the implicit default is the empty list.** This matches
+   Python's `*args` and C varargs, and it is *already* what the code does: `from_arginfo`
+   (`plan.rs:504`) maps `CommandParameterValue::None` on a variadic argument to
+   `MultipleParameters(vec![])`, and `pop_value` returns the same when no parameters remain. So core
+   needs nothing; the DSL simply rejects `= <default>` on a `multiple` argument.
+
+   Consequence for Phase 2: `pl/select_columns` with no parameters is now well-formed at plan level
+   and reaches the command with an empty list. The command must decide — an explicit "at least one
+   column" error is the likely answer, rather than letting Polars produce an empty frame.
+
+5. **GUI: same element widgets, list rendering — filed, not built.** `ArgumentGUIInfo` needs no new
+   variant; it describes one element and `multiple` means "render a list of these, with add, delete
+   and reorder". Since nothing in the workspace reads `gui_info` yet, that renderer is new UI work
+   spanning `lib/ui` and `web`, well outside closing this issue. Two issues to file at Phase 2:
+
+   | Issue | Covers |
+   |---|---|
+   | `UI-VARIADIC-ARGUMENT-LIST-EDITOR` | Rendering a variadic argument as an editable list |
+   | `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` | Future tuple / key-value element types, giving dictionary-shaped arguments, and the GUI they would need |
+
 ## Open Questions
 
-1. **Does this effort also fix `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS`?** It becomes reachable
-   the moment `multiple` is declarable: an argument declared after a variadic one silently takes its
-   default, or reports "missing" for a value the caller did supply. Its own fix direction
-   (`CommandMetadata::check()`) has two obstacles — `check()` has no caller anywhere in the
-   workspace, and `CommandRegistryIssue::{warning,error}` transpose two fields
-   (`COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED`). A cheaper guard is available: reject the
-   declaration in the macro, at compile time, where no runtime caller is needed. Phase 2 should
-   decide between the two; my inclination is the macro guard now and the registry check filed as
-   remaining work.
-2. **Which element types must a variadic argument support?** `Vec<String>` is what the polars
-   commands need. `Vec<i64>`, `Vec<f64>`, `Vec<bool>` fall out of the same accessor for free if it
-   is generic over `FromParameterValue`. `Vec<Value>` already works through the existing impl and
-   must keep working — Phase 2 must check the two paths do not collide.
-3. **What `ArgumentType` does a variadic argument report?** Today the macro infers from the Rust
-   type and `Vec<String>` falls through to `ArgumentType::Any` (`registration.rs:658`), which loses
-   the per-element type used by `from_string` when parsing each parameter. Should it infer `String`
-   from the element type instead?
-4. **Can a variadic argument carry a default?** `from_arginfo` (`plan.rs:481`) already expands an
-   array default into `MultipleParameters`, but the DSL's `= <default>` accepts no array literal.
-   Leave unsupported, or add?
-5. **Does a variadic argument need its own `ArgumentGUIInfo`?** Out of scope unless Phase 2 finds
-   the single text field actively wrong.
+1. Does `Vec<Value>` remain retrievable? It is currently unreachable *through the macro*
+   (`arguments.get::<Vec<Value>>` fails the `TryFrom<E::Value>` bound), but the impl exists for
+   hand-built registrations. Phase 2 must confirm the new accessor does not displace it.
+2. Does `specs/command_registry.yaml` round-trip an `ArgumentType::String` argument carrying
+   `multiple: true`? Both fields already serialize; the combination has never existed.
 
 ## References
 

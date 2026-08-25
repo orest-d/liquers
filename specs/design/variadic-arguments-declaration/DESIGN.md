@@ -29,8 +29,9 @@ superseded_by:
 
 Closes `COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`, split out of
 `design/excess-action-parameters-error/` at its Phase 2. `VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS`
-is listed because it becomes reachable the moment this lands; whether it is fixed here is Phase 1
-open question 1.
+is listed because it becomes reachable the moment this lands; Phase 1 decision 1 closes it for
+macro-registered commands via a compile-time guard, and narrows rather than closes the issue itself
+(hand-built metadata such as `liquers-py`'s `argv` is still unguarded).
 
 ## Links
 
