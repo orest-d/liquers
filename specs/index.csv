@@ -5,7 +5,7 @@ PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not y
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
-ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,accepted,local,,P2,S,core/assets,,,,,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
+ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,in_progress,local,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,accepted,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
 LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED,issue,liquers-lib integration tests do not compile without default features,draft,local,,P2,S,lib/value;build,,,,,,2026-08-18,specs/issues/LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED.md
@@ -61,6 +61,7 @@ VALUE-DESCRIPTION,feature,Value types have no auto-generated description,accepte
 WEB-NATIVE-IO-TIER2,issue,Browser storage has no IndexedDB backend,accepted,local,,P3,L,web,,,,liquers-web-store,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
 CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accepted,local,,P3,XL,core/plan;core/commands,,,,,,2026-08-08,specs/issues/CORE-MULTI-REALM-INTERPRETER.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
+ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,complete,local,documentation,,,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md

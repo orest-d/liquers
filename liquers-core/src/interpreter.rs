@@ -1632,7 +1632,11 @@ mod tests {
             owner_key.clone().into(),
             envref.clone(),
         );
-        manager.insert_key_asset(&owner_key, owner.clone()).await;
+        assert!(
+            manager
+                .try_insert_key_asset(&owner_key, owner.clone())
+                .await
+        );
         let context = Context::new(owner, false).await;
         context.set_cwd_key(Some(parse_key("a/b")?));
 

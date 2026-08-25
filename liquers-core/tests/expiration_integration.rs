@@ -1,5 +1,6 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::task::Poll;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -8,7 +9,7 @@ use itertools::Itertools;
 use liquers_core::{
     assets::{AssetData, AssetManager, AssetRef, PersistenceStatus},
     command_metadata::CommandKey,
-    context::{Context, EnvRef, Environment, SimpleEnvironment},
+    context::{Context, EnvRef, Environment, ImmediateEnvironment, SimpleEnvironment},
     error::Error,
     expiration::{ExpirationTime, Expires},
     interpreter::make_plan,
@@ -870,6 +871,189 @@ impl AsyncStore for WP3CountingStore {
         self.set_metadata_calls.fetch_add(1, Ordering::SeqCst);
         self.inner.set_metadata(key, metadata).await
     }
+}
+
+/// A deterministic gate for the persisted `to_override` path.  Once armed, the next metadata
+/// update for `race.txt` waits until the test releases it; a separate probe observes an external
+/// replacement's full value write.  The synchronization primitives never hold a blocking mutex
+/// across an await.
+#[derive(Clone)]
+struct ToOverrideGateStore {
+    inner: Arc<AsyncMemoryStore>,
+    race_key: Key,
+    armed: Arc<AtomicBool>,
+    promotion_entered: Arc<tokio::sync::Notify>,
+    release_promotion: Arc<tokio::sync::Notify>,
+    value_set_started: Arc<AtomicBool>,
+}
+
+impl ToOverrideGateStore {
+    fn new(inner: AsyncMemoryStore, race_key: Key) -> Self {
+        Self {
+            inner: Arc::new(inner),
+            race_key,
+            armed: Arc::new(AtomicBool::new(false)),
+            promotion_entered: Arc::new(tokio::sync::Notify::new()),
+            release_promotion: Arc::new(tokio::sync::Notify::new()),
+            value_set_started: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn arm(&self) {
+        // The initial recipe evaluation has already persisted the old value.  The race
+        // assertion below must observe only a later replacement write.
+        self.value_set_started.store(false, Ordering::SeqCst);
+        self.armed.store(true, Ordering::SeqCst);
+    }
+
+    fn release(&self) {
+        self.release_promotion.notify_one();
+    }
+}
+
+#[async_trait]
+impl AsyncStore for ToOverrideGateStore {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.inner.get(key).await
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        if key == &self.race_key {
+            self.value_set_started.store(true, Ordering::SeqCst);
+        }
+        self.inner.set(key, data, metadata).await
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        if key == &self.race_key
+            && self
+                .armed
+                .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        {
+            self.promotion_entered.notify_one();
+            self.release_promotion.notified().await;
+        }
+        self.inner.set_metadata(key, metadata).await
+    }
+}
+
+/// Executes the durable ordering race after a concrete environment has been configured.  The
+/// first poll of `set_state` must remain pending while the old promotion owns the manager's keyed
+/// mutation gate; after release, the externally supplied `new` state wins both cache and store.
+async fn assert_to_override_set_state_ordering<E>(
+    envref: EnvRef<E>,
+    store: ToOverrideGateStore,
+    key: Key,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    E: Environment<Value = Value>,
+{
+    let manager = envref.get_asset_manager();
+    let old = manager.get(&key).await?;
+    assert_eq!(old.get().await?.try_into_string()?, "old");
+    assert_eq!(old.persistence_status().await, PersistenceStatus::Persisted);
+    old.expire().await?;
+
+    store.arm();
+    let mut promotion = Box::pin(manager.to_override(&key));
+    tokio::select! {
+        _ = store.promotion_entered.notified() => {}
+        result = &mut promotion => panic!("to_override completed before reaching the persistence gate: {result:?}"),
+    }
+
+    let mut replacement = Box::pin(manager.set_state(
+        &key,
+        State::new().with_data(Value::from("new")),
+    ));
+    assert!(
+        matches!(futures::poll!(replacement.as_mut()), Poll::Pending),
+        "set_state must wait for the in-flight keyed promotion"
+    );
+    assert!(
+        !store.value_set_started.load(Ordering::SeqCst),
+        "the replacement value must not reach the store before promotion releases the key gate"
+    );
+
+    store.release();
+    promotion.await?;
+    replacement.await?;
+
+    let current = manager.get(&key).await?;
+    assert_ne!(current.id(), old.id(), "replacement must detach the old AssetRef");
+    // This fixture supplies the recipe through the evaluated query rather than the recipe
+    // provider's keyed lookup, so an externally supplied state is a Source.  The race contract
+    // is that this newer state, whatever its normal status resolution is, wins cache and store.
+    assert_eq!(current.status().await, Status::Source);
+    assert_eq!(current.get().await?.try_into_string()?, "new");
+    assert_eq!(old.status().await, Status::Override, "old handle remains detached Override");
+
+    let (stored_bytes, stored_metadata) = store.inner.get(&key).await?;
+    assert_eq!(stored_bytes, b"new");
+    assert_eq!(stored_metadata.status(), Status::Source);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_to_override_and_set_state_are_serialized_default_manager(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    fn race_value() -> Result<Value, Error> {
+        Ok(Value::from("old"))
+    }
+
+    let key = parse_key("race.txt")?;
+    let recipes_key = parse_key("recipes.yaml")?;
+    let mut recipe_list = RecipeList::new();
+    recipe_list.add_recipe(Recipe::new(
+        "race_value/race.txt".to_string(),
+        "Race value".to_string(),
+        "Produces the old race value".to_string(),
+    )?);
+    let inner = AsyncMemoryStore::new(&Key::new());
+    inner
+        .set(&recipes_key, serde_yaml::to_string(&recipe_list)?.as_bytes(), &Metadata::new())
+        .await?;
+    let store = ToOverrideGateStore::new(inner, key.clone());
+
+    let mut env = CommandEnvironment::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn race_value() -> result version: 1)?;
+    env.with_async_store(Box::new(store.clone()));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+
+    assert_to_override_set_state_ordering(env.to_ref(), store, key).await
+}
+
+#[tokio::test]
+async fn test_to_override_and_set_state_are_serialized_immediate_manager(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type CommandEnvironment = ImmediateEnvironment<Value>;
+    fn race_value() -> Result<Value, Error> {
+        Ok(Value::from("old"))
+    }
+
+    let key = parse_key("race.txt")?;
+    let recipes_key = parse_key("recipes.yaml")?;
+    let mut recipe_list = RecipeList::new();
+    recipe_list.add_recipe(Recipe::new(
+        "race_value/race.txt".to_string(),
+        "Race value".to_string(),
+        "Produces the old race value".to_string(),
+    )?);
+    let inner = AsyncMemoryStore::new(&Key::new());
+    inner
+        .set(&recipes_key, serde_yaml::to_string(&recipe_list)?.as_bytes(), &Metadata::new())
+        .await?;
+    let store = ToOverrideGateStore::new(inner, key.clone());
+
+    let mut env = CommandEnvironment::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn race_value() -> result version: 1)?;
+    env.with_async_store(Box::new(store.clone()));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider));
+
+    assert_to_override_set_state_ordering(env.to_ref(), store, key).await
 }
 
 /// When the original evaluation's `persistence_status()` is `Persisted`, `to_override` calls

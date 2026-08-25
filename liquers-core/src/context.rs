@@ -1402,7 +1402,7 @@ mod tests {
             key.clone().into(),
             envref.clone(),
         );
-        manager.insert_key_asset(&key, asset.clone()).await;
+        assert!(manager.try_insert_key_asset(&key, asset.clone()).await);
 
         let mut provider_recipe: Recipe = parse_key("source/result.txt")
             .expect("provider query")
@@ -1468,9 +1468,11 @@ mod tests {
             .set_status(crate::metadata::Status::Volatile)
             .await
             .expect("mark volatile");
-        manager
-            .insert_key_asset(&volatile_key, volatile.clone())
-            .await;
+        assert!(
+            manager
+                .try_insert_key_asset(&volatile_key, volatile.clone())
+                .await
+        );
         assert_eq!(
             Context::new(volatile, true)
                 .await
@@ -1487,7 +1489,7 @@ mod tests {
             key.clone().into(),
             envref.clone(),
         );
-        manager.insert_key_asset(&key, asset.clone()).await;
+        assert!(manager.try_insert_key_asset(&key, asset.clone()).await);
         let mut provider_recipe: Recipe = parse_key("source/mismatch.txt")
             .expect("provider query")
             .into();

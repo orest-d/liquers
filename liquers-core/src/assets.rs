@@ -3363,21 +3363,7 @@ pub trait AssetManager<E: Environment>:
 
     /// Remove asset data from AssetManager and store.
     /// This does NOT trigger recalculation.
-    async fn remove(&self, key: &Key) -> Result<(), Error> {
-        if let Some(asset_ref) = self.lookup_key_asset(key) {
-            asset_ref.cancel().await?;
-            self.untrack_expiration(asset_ref.id());
-            self.remove_key_asset(key).await;
-        }
-        self.dependency_manager()
-            .remove(&crate::metadata::DependencyKey::from(key))
-            .await;
-        let store = self.get_envref().get_async_store();
-        if store.contains(key).await? {
-            store.remove(key).await?;
-        }
-        Ok(())
-    }
+    async fn remove(&self, key: &Key) -> Result<(), Error>;
 
     /// Remove asset for a query (resolves to key first)
     async fn remove_asset(&self, query: &Query) -> Result<(), Error> {
@@ -3400,171 +3386,13 @@ pub trait AssetManager<E: Environment>:
         key: &Key,
         binary: &[u8],
         mut metadata: MetadataRecord,
-    ) -> Result<(), Error> {
-
-        if let Some(asset_ref) = self.lookup_key_asset(key) {
-            asset_ref.cancel().await?;
-            self.untrack_expiration(asset_ref.id());
-            self.remove_key_asset(key).await;
-        }
-
-        let input_status = metadata.status;
-        let final_status = match input_status {
-            Status::Expired => Status::Expired,
-            Status::Error => Status::Error,
-            Status::None
-            | Status::Directory
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing
-            | Status::Ready
-            | Status::Cancelled
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
-                if self.recipe_opt(key).await?.is_some() {
-                    Status::Override
-                } else {
-                    Status::Source
-                }
-            }
-        };
-        metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
-        add_soft_consistency_warnings(&mut metadata);
-
-        metadata.set_updated_now();
-        metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
-
-        let dep_key = crate::metadata::DependencyKey::from(key);
-        if final_status != Status::Volatile && final_status != Status::Error {
-            let version = crate::metadata::Version::from_bytes(binary);
-            metadata.version = Some(version);
-        }
-
-        let store = self.get_envref().get_async_store();
-        if final_status == Status::Error {
-            store.set(key, &[], &metadata.clone().into()).await?;
-        } else {
-            store.set(key, binary, &metadata.clone().into()).await?;
-        }
-
-        if matches!(
-            final_status,
-            Status::Ready | Status::Source | Status::Override
-        ) {
-            if let Some(version) = metadata.version {
-                let expired = self
-                    .dependency_manager()
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired).await;
-            }
-        }
-        Ok(())
-    }
+    ) -> Result<(), Error>;
 
     /// Set State (data + metadata) for a key asset.
     /// - Sets deserialized data and metadata from State
     /// - Memory + Store: Creates new AssetRef with State AND serializes to store
     /// - Supports non-serializable data (store metadata only if serialization fails)
-    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
-
-        if let Some(asset_ref) = self.lookup_key_asset(key) {
-            asset_ref.cancel().await?;
-            self.untrack_expiration(asset_ref.id());
-            self.remove_key_asset(key).await;
-        }
-
-        let input_status = state.metadata.status();
-        let final_status = match input_status {
-            Status::Expired => Status::Expired,
-            Status::Error => Status::Error,
-            Status::None
-            | Status::Directory
-            | Status::Recipe
-            | Status::Submitted
-            | Status::Dependencies
-            | Status::Processing
-            | Status::Partial
-            | Status::Storing
-            | Status::Ready
-            | Status::Cancelled
-            | Status::Source
-            | Status::Override
-            | Status::Volatile => {
-                if self.recipe_opt(key).await?.is_some() {
-                    Status::Override
-                } else {
-                    Status::Source
-                }
-            }
-        };
-
-        let mut metadata = state.metadata.as_ref().clone();
-        metadata.set_status(final_status)?;
-        validate_required_metadata_fields_enum(key, &metadata, self.get_envref().get_type_registry())?;
-        add_soft_consistency_warnings_enum(&mut metadata)?;
-        metadata.set_updated_now()?;
-        metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
-
-        let dep_key = crate::metadata::DependencyKey::from(key);
-        if final_status != Status::Volatile && final_status != Status::Error {
-            let version = match state.as_bytes() {
-                Ok(binary) => crate::metadata::Version::from_bytes(&binary),
-                Err(_) => crate::metadata::Version::from_time_now(),
-            };
-            metadata.set_version(Some(version))?;
-        }
-
-        let recipe: Recipe = key.into();
-        let mut asset_data = AssetData::new_ext(
-            self.next_id_for_asset(),
-            recipe,
-            State::new(),
-            self.get_envref(),
-        );
-        asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
-        asset_data.metadata = metadata.clone();
-        asset_data.status = final_status;
-        asset_data.binary = None;
-
-        let asset_ref = asset_data.to_ref();
-        self.insert_key_asset(key, asset_ref.clone()).await;
-
-        let store = self.get_envref().get_async_store();
-        if final_status == Status::Error {
-            store.set(key, &[], &metadata.clone().into()).await?;
-        } else {
-            match state.as_bytes() {
-                Ok(binary) => {
-                    store.set(key, &binary, &metadata.clone().into()).await?;
-                }
-                Err(_) => {
-                    store.set_metadata(key, &metadata.clone().into()).await?;
-                }
-            }
-        }
-
-        if matches!(
-            final_status,
-            Status::Ready | Status::Source | Status::Override
-        ) {
-            if let Some(version) = metadata.version() {
-                let expired = self
-                    .dependency_manager()
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired).await;
-            }
-            let expired = self.dependency_manager().track_asset(&asset_ref).await;
-            self.expire_dependencies_result(expired).await;
-        }
-        Ok(())
-    }
+    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error>;
 
     /// Get asset info
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
@@ -3753,9 +3581,6 @@ pub trait AssetManager<E: Environment>:
         Some(asset)
     }
 
-    /// Insert an asset into this manager's key→asset map.
-    async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>);
-
     /// Next monotonic asset id.
     fn next_id_for_asset(&self) -> u64;
 
@@ -3925,9 +3750,6 @@ pub trait AssetManager<E: Environment>:
                     asset_ref.persist_with_status_tracking(false, false).await;
                 }
             }
-            // Idempotent: ensures the now-Override entry is reachable even if a concurrent
-            // eviction (lazy expiry check, monitor) raced it out of the map in between.
-            self.insert_key_asset(key, asset_ref).await;
             return Ok(());
         }
         let store = self.get_envref().get_async_store();
@@ -4006,6 +3828,8 @@ pub struct DefaultAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
     envref: std::sync::OnceLock<EnvRef<E>>,
     assets: scc::HashMap<Key, AssetRef<E>>,
+    /// Serializes keyed map mutations with their durable store work.
+    key_mutation_lock: tokio::sync::Mutex<()>,
     query_assets: scc::HashMap<Query, AssetRef<E>>,
     job_queue: Arc<JobQueue<E>>,
     /// Channel to send messages to the expiration monitor task
@@ -4025,6 +3849,11 @@ impl<E: Environment> Default for DefaultAssetManager<E> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
+    /// Atomically claims an empty keyed asset slot.
+    pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
+        self.assets.insert_async(key.clone(), asset).await.is_ok()
+    }
+
     /// Constructs and initializes a default asset manager
     pub fn new() -> Self {
         Self::with_capacity(4)
@@ -4038,6 +3867,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             id: std::sync::atomic::AtomicU64::new(1000),
             envref: std::sync::OnceLock::new(),
             assets: scc::HashMap::new(),
+            key_mutation_lock: tokio::sync::Mutex::new(()),
             query_assets: scc::HashMap::new(),
             job_queue: job_queue.clone(),
             monitor_tx,
@@ -4288,6 +4118,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         }
         if !removed {
             if let Some(key) = key {
+                let _mutation = self.key_mutation_lock.lock().await;
                 if let Some(entry) = self.assets.get_async(key).await {
                     if entry.get().id() == asset_id {
                         drop(entry);
@@ -4361,6 +4192,11 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// - `key`: Store key identifying the target asset/resource.
     async fn get_nonvolatile_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for key {}", key);
+
+        // Cache construction races with replacement/removal operations. Once a cache miss is
+        // observed, claim the mutation gate and re-check through `entry_async` before creating
+        // the recipe asset.
+        let _mutation = self.key_mutation_lock.lock().await;
 
         let entry = self
             .assets
@@ -4471,6 +4307,50 @@ impl<E: Environment> Drop for DefaultAssetManager<E> {
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
+    async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
+        let asset = self.lookup_key_asset(key)?;
+        if !asset.is_volatile().await {
+            return Some(asset);
+        }
+        let _mutation = self.key_mutation_lock.lock().await;
+        self.remove_key_asset_if(key, asset.id()).await;
+        None
+    }
+
+    async fn to_override(&self, key: &Key) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            asset_ref.to_override().await?;
+            match asset_ref.persistence_status().await {
+                PersistenceStatus::Persisted => {
+                    let metadata = asset_ref.get_metadata().await?;
+                    self.get_envref()
+                        .get_async_store()
+                        .set_metadata(key, &metadata)
+                        .await?;
+                }
+                PersistenceStatus::NonSerializable => {}
+                PersistenceStatus::NotPersisted | PersistenceStatus::None => {
+                    asset_ref.persist_with_status_tracking(false, false).await;
+                }
+            }
+            // The mutation gate keeps a concurrent eviction or replacement from removing this
+            // entry while its durable state is being promoted; do not reinsert a stale ref.
+            return Ok(());
+        }
+        let store = self.get_envref().get_async_store();
+        if !store.contains(key).await? {
+            return Err(Error::key_not_found(key));
+        }
+        let (_binary, mut metadata) = store.get(key).await?;
+        if !metadata.status().has_data() {
+            return Err(Error::key_not_found(key));
+        }
+        metadata.set_status(Status::Override)?;
+        store.set_metadata(key, &metadata).await?;
+        Ok(())
+    }
+
     /// Returns an asset evaluating the query
     /// Asset is either cached of scheduled for execution.
     /// If asset contains a value, it can be considered to have a valid (ready or volatile, not expired) value.
@@ -4830,6 +4710,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 let asset_id = asset_ref.id();
+                let _mutation = self.key_mutation_lock.lock().await;
                 if let Some(entry) = self.assets.get_async(key).await {
                     if entry.get().id() == asset_id {
                         drop(entry);
@@ -4888,6 +4769,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// Arguments:
     /// - `key`: Store key identifying the target asset/resource.
     async fn remove(&self, key: &Key) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
         // 1. Check if asset exists in memory and cancel if processing
         if self.assets.contains_async(key).await {
             if let Some(asset_entry) = self.assets.get_async(key).await {
@@ -4933,6 +4815,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         binary: &[u8],
         mut metadata: MetadataRecord,
     ) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
 
         /// Adds non-fatal metadata consistency warnings for externally supplied values.
 
@@ -5035,6 +4918,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// - `key`: Store key identifying the target asset/resource.
     /// - `state`: State value (data + metadata) to persist for key-based set_state operations.
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
 
         /// Adds non-fatal metadata consistency warnings for externally supplied state.
 
@@ -5115,10 +4999,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let asset_ref = asset_data.to_ref();
 
         // 6. Store in assets map
-        let _ = self
-            .assets
-            .insert_async(key.clone(), asset_ref.clone())
-            .await;
+        assert!(self.try_insert_key_asset(key, asset_ref.clone()).await);
 
         // 7. Handle Error status specially - store empty binary with metadata
         let store = self.get_envref().get_async_store();
@@ -5276,10 +5157,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             .remove_if_async(key, |asset| asset.id() == asset_id)
             .await
             .is_some()
-    }
-
-    async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
-        let _ = self.assets.insert_async(key.clone(), asset).await;
     }
 
     fn next_id_for_asset(&self) -> u64 {
@@ -5711,6 +5588,8 @@ pub struct ImmediateAssetManager<E: Environment> {
     // Plain maps behind std Mutex: locked only for brief SYNC get/insert/remove, NEVER across an
     // `.await` (the guard is `!Send`, which statically enforces this on native).
     assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
+    /// Serializes keyed map mutations with their durable store work.
+    key_mutation_lock: tokio::sync::Mutex<()>,
     query_assets: std::sync::Mutex<std::collections::HashMap<Query, AssetRef<E>>>,
     dependency_manager: crate::dependencies::DependencyManager<E>,
     started: tokio::sync::OnceCell<()>,
@@ -5723,6 +5602,18 @@ impl<E: Environment> Default for ImmediateAssetManager<E> {
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
+    /// Atomically claims an empty keyed asset slot.
+    pub(crate) async fn try_insert_key_asset(&self, key: &Key, asset: AssetRef<E>) -> bool {
+        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+        match map.entry(key.clone()) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(asset);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
+        }
+    }
+
     /// Creates an uninitialized inline manager.
     ///
     /// Its environment back-reference is installed during environment
@@ -5732,6 +5623,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
             id: std::sync::atomic::AtomicU64::new(1000),
             envref: std::sync::OnceLock::new(),
             assets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            key_mutation_lock: tokio::sync::Mutex::new(()),
             query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             dependency_manager: crate::dependencies::DependencyManager::new(),
             started: tokio::sync::OnceCell::new(),
@@ -5802,6 +5694,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 return Ok(existing.clone());
             }
         }
+        let _mutation = self.key_mutation_lock.lock().await;
         let asset_ref = AssetRef::new_from_recipe(self.next_id(), key.into(), self.envref());
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(key) {
@@ -5815,6 +5708,45 @@ impl<E: Environment> ImmediateAssetManager<E> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
+    async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
+        let asset = self.lookup_key_asset(key)?;
+        if !asset.is_volatile().await {
+            return Some(asset);
+        }
+        let _mutation = self.key_mutation_lock.lock().await;
+        self.remove_key_asset_if(key, asset.id()).await;
+        None
+    }
+
+    async fn to_override(&self, key: &Key) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
+        if let Some(asset_ref) = self.lookup_key_asset(key) {
+            asset_ref.to_override().await?;
+            match asset_ref.persistence_status().await {
+                PersistenceStatus::Persisted => {
+                    let metadata = asset_ref.get_metadata().await?;
+                    self.envref().get_async_store().set_metadata(key, &metadata).await?;
+                }
+                PersistenceStatus::NonSerializable => {}
+                PersistenceStatus::NotPersisted | PersistenceStatus::None => {
+                    asset_ref.persist_with_status_tracking(false, false).await;
+                }
+            }
+            return Ok(());
+        }
+        let store = self.envref().get_async_store();
+        if !store.contains(key).await? {
+            return Err(Error::key_not_found(key));
+        }
+        let (_binary, mut metadata) = store.get(key).await?;
+        if !metadata.status().has_data() {
+            return Err(Error::key_not_found(key));
+        }
+        metadata.set_status(Status::Override)?;
+        store.set_metadata(key, &metadata).await?;
+        Ok(())
+    }
+
     async fn get_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         if let Some(key) = query.key() {
             return self.get(&key).await;
@@ -5915,6 +5847,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
             ) {
                 let asset_id = asset_ref.id();
+                let _mutation = self.key_mutation_lock.lock().await;
                 let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(existing) = map.get(key) {
                     if existing.id() == asset_id {
@@ -5928,6 +5861,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if status == Status::Ready && asset_ref.is_expired().await {
                     let _ = asset_ref.expire_without_cascade().await;
                     let asset_id = asset_ref.id();
+                    let _mutation = self.key_mutation_lock.lock().await;
                     let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(existing) = map.get(key) {
                         if existing.id() == asset_id {
@@ -5950,6 +5884,124 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             asset_ref.run_inline().await?;
             return Ok(asset_ref);
         }
+    }
+
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
+        let old = {
+            let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+            map.remove(key)
+        };
+        if let Some(asset) = old {
+            asset.cancel().await?;
+        }
+        self.dependency_manager
+            .remove(&crate::metadata::DependencyKey::from(key))
+            .await;
+        let store = self.envref().get_async_store();
+        if store.contains(key).await? {
+            store.remove(key).await?;
+        }
+        Ok(())
+    }
+
+    async fn set_binary(
+        &self,
+        key: &Key,
+        binary: &[u8],
+        mut metadata: MetadataRecord,
+    ) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
+        let old = {
+            let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+            map.remove(key)
+        };
+        if let Some(asset) = old {
+            asset.cancel().await?;
+        }
+        let final_status = match metadata.status {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            _ if self.recipe_opt(key).await?.is_some() => Status::Override,
+            _ => Status::Source,
+        };
+        metadata.status = final_status;
+        validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
+        add_soft_consistency_warnings(&mut metadata);
+        metadata.set_updated_now();
+        metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        if final_status != Status::Volatile && final_status != Status::Error {
+            metadata.version = Some(crate::metadata::Version::from_bytes(binary));
+        }
+        let store = self.envref().get_async_store();
+        if final_status == Status::Error {
+            store.set(key, &[], &metadata.clone().into()).await?;
+        } else {
+            store.set(key, binary, &metadata.clone().into()).await?;
+        }
+        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+            if let Some(version) = metadata.version {
+                let expired = self.dependency_manager.register_version(&dep_key, version).await;
+                self.expire_dependencies_result(expired).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
+        let _mutation = self.key_mutation_lock.lock().await;
+        let old = {
+            let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+            map.remove(key)
+        };
+        if let Some(asset) = old {
+            asset.cancel().await?;
+        }
+        let final_status = match state.metadata.status() {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            _ if self.recipe_opt(key).await?.is_some() => Status::Override,
+            _ => Status::Source,
+        };
+        let mut metadata = state.metadata.as_ref().clone();
+        metadata.set_status(final_status)?;
+        validate_required_metadata_fields_enum(key, &metadata, self.envref().get_type_registry())?;
+        add_soft_consistency_warnings_enum(&mut metadata)?;
+        metadata.set_updated_now()?;
+        metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
+        let dep_key = crate::metadata::DependencyKey::from(key);
+        if final_status != Status::Volatile && final_status != Status::Error {
+            let version = match state.as_bytes() {
+                Ok(binary) => crate::metadata::Version::from_bytes(&binary),
+                Err(_) => crate::metadata::Version::from_time_now(),
+            };
+            metadata.set_version(Some(version))?;
+        }
+        let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), self.envref());
+        data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
+        data.metadata = metadata.clone();
+        data.status = final_status;
+        data.binary = None;
+        let asset = data.to_ref();
+        assert!(self.try_insert_key_asset(key, asset.clone()).await);
+        let store = self.envref().get_async_store();
+        if final_status == Status::Error {
+            store.set(key, &[], &metadata.clone().into()).await?;
+        } else if let Ok(binary) = state.as_bytes() {
+            store.set(key, &binary, &metadata.clone().into()).await?;
+        } else {
+            store.set_metadata(key, &metadata.clone().into()).await?;
+        }
+        if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
+            if let Some(version) = metadata.version() {
+                let expired = self.dependency_manager.register_version(&dep_key, version).await;
+                self.expire_dependencies_result(expired).await;
+            }
+            let expired = self.dependency_manager.track_asset(&asset).await;
+            self.expire_dependencies_result(expired).await;
+        }
+        Ok(())
     }
 
     // --- primitives ---
@@ -5984,11 +6036,6 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             Some(existing) if existing.id() == asset_id => map.remove(key).is_some(),
             Some(_) | None => false,
         }
-    }
-
-    async fn insert_key_asset(&self, key: &Key, asset: AssetRef<E>) {
-        let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(key.clone(), asset);
     }
 
     fn next_id_for_asset(&self) -> u64 {
@@ -6028,6 +6075,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         }
         if !removed {
             if let Some(key) = key {
+                let _mutation = self.key_mutation_lock.lock().await;
                 let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(existing) = map.get(key) {
                     if existing.id() == asset_id {
@@ -7728,10 +7776,7 @@ recipes:
         let key = parse_key("test/set_state_untracks_old_timer.txt").unwrap();
         let old_asset = manager.create_asset(key.clone().into());
         old_asset.set_value(Value::from("old")).await.unwrap();
-        let _ = manager
-            .assets
-            .insert_async(key.clone(), old_asset.clone())
-            .await;
+        assert!(manager.try_insert_key_asset(&key, old_asset.clone()).await);
 
         let old_deadline = chrono::Utc::now() + chrono::Duration::milliseconds(120);
         manager.track_expiration(&old_asset, &ExpirationTime::At(old_deadline));
@@ -7750,6 +7795,48 @@ recipes:
         assert_eq!(old_asset.status().await, Status::Ready);
         let current = manager.assets.get_async(&key).await.unwrap();
         assert_ne!(current.get().id(), old_asset.id());
+    }
+
+    #[tokio::test]
+    async fn default_try_insert_key_asset_preserves_original_on_duplicate() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("test/try_insert_default.txt").unwrap();
+        let first = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        let second =
+            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), envref);
+
+        assert!(manager.try_insert_key_asset(&key, first.clone()).await);
+        assert!(!manager.try_insert_key_asset(&key, second).await);
+        assert_eq!(
+            manager.lookup_key_asset(&key).map(|asset| asset.id()),
+            Some(first.id())
+        );
+    }
+
+    #[tokio::test]
+    async fn immediate_try_insert_key_asset_preserves_original_on_duplicate() {
+        let envref = ImmediateEnvironment::<Value>::new().to_ref();
+        let manager = envref.get_asset_manager();
+        let key = parse_key("test/try_insert_immediate.txt").unwrap();
+        let first = AssetRef::new_from_recipe(
+            manager.next_id_for_asset(),
+            key.clone().into(),
+            envref.clone(),
+        );
+        let second =
+            AssetRef::new_from_recipe(manager.next_id_for_asset(), key.clone().into(), envref);
+
+        assert!(manager.try_insert_key_asset(&key, first.clone()).await);
+        assert!(!manager.try_insert_key_asset(&key, second).await);
+        assert_eq!(
+            manager.lookup_key_asset(&key).map(|asset| asset.id()),
+            Some(first.id())
+        );
     }
 
     #[tokio::test]
@@ -8463,7 +8550,7 @@ recipes:
             let mut data = asset.data.write().await;
             data.is_volatile = true;
         }
-        manager.insert_key_asset(key, asset.clone()).await;
+        assert!(manager.try_insert_key_asset(key, asset.clone()).await);
         asset
     }
 
@@ -8845,20 +8932,17 @@ recipes:
             key.clone().into(),
             envref.clone(),
         );
-        manager.insert_key_asset(&key, first.clone()).await;
+        assert!(manager.try_insert_key_asset(&key, first.clone()).await);
 
         let second = AssetRef::new_from_recipe(
             manager.next_id_for_asset(),
             key.clone().into(),
             envref.clone(),
         );
-        // Removed first, deliberately: the two managers disagree on whether
-        // `insert_key_asset` overwrites an existing entry — `scc::insert_async` reports a
-        // duplicate and the result is discarded, while `HashMap::insert` replaces. See
-        // `specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md`. This test is about
-        // `remove_key_asset_if`, so it does not depend on that unsettled behaviour.
+        // Remove first so the second insert represents a genuine replacement rather than a
+        // rejected duplicate claim. This test concerns identity-safe removal, not insertion.
         manager.remove_key_asset(&key).await;
-        manager.insert_key_asset(&key, second.clone()).await;
+        assert!(manager.try_insert_key_asset(&key, second.clone()).await);
 
         assert!(
             !manager.remove_key_asset_if(&key, first.id()).await,

@@ -194,6 +194,7 @@ deliberately folded behind a broader line.
 - `guides/TYPE_SYSTEM_GUIDE.md`
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
+- design `asset-manager-insert-key-asset-semantics`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `store-key-guard`
