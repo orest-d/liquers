@@ -157,12 +157,35 @@ contradiction in the code.
 
 5. **GUI: same element widgets, list rendering — filed, not built.** `ArgumentGUIInfo` needs no new
    variant; it describes one element and `multiple` means "render a list of these, with add, delete
-   and reorder". Since nothing in the workspace reads `gui_info` yet, that renderer is new UI work
-   spanning `lib/ui` and `web`, well outside closing this issue. Two issues to file at Phase 2:
+   and reorder". Nothing in the workspace reads `gui_info` yet, so that renderer is new UI work
+   spanning `lib/ui` and `web`, well outside closing this issue.
+
+   The design precedent is the user's earlier prototype, `orest-d/egui-midi-test`
+   (`src/editor.rs`, HEAD `ed3fb10`), which is the only working `gui_info` consumer anywhere. It
+   confirms the element-widget model — `edit_query` (`:328`) matches on `param.info.gui_info` and
+   draws one egui widget per argument — and it makes the variadic gap concrete in a way worth
+   carrying into the filed issue, because **repeating the widget is the smaller half of the work**:
+
+   - *The editor addresses parameters positionally, and assumes argument slot == parameter
+     position.* `extract_editor_records` (`:283`) zips `action.parameters` against
+     `action_info.arguments.get(parameter_number)` and errors with "Extra parameter N" when the
+     query has more parameters than the command declares — the same failure shape as the plan
+     builder's arity error. A variadic argument breaks the bijection: one `ArgumentInfo` owns a
+     *range* of parameter positions, so the editor needs an argument→parameter-range mapping.
+   - *Editing is a query rewrite, and the available operation is too weak.*
+     `set_parameter_value` (`:245`) can only overwrite in place or append at the end. Delete and
+     reorder need insert / remove / move on `ActionRequest::parameters`, which does not exist yet.
+   - *Type-directed parameter lookup breaks too.* `find_numeric_parameter` (`:41`) counts
+     parameters by `argument_type` to map MIDI controls onto them; with a variadic numeric argument
+     that count no longer identifies a unique slot.
+
+   None of this blocks the present design — it is entirely downstream of `gui_info` — but it means
+   the list editor is a query-manipulation feature, not a widget feature, and the issue should say
+   so. Two issues to file at Phase 2:
 
    | Issue | Covers |
    |---|---|
-   | `UI-VARIADIC-ARGUMENT-LIST-EDITOR` | Rendering a variadic argument as an editable list |
+   | `UI-VARIADIC-ARGUMENT-LIST-EDITOR` | Rendering a variadic argument as an editable list: argument→parameter-range mapping, and insert / remove / move on an action's parameters. Cites `egui-midi-test/src/editor.rs` as the prototype and the three gaps above |
    | `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` | Future tuple / key-value element types, giving dictionary-shaped arguments, and the GUI they would need |
 
 ## Open Questions
@@ -180,3 +203,6 @@ contradiction in the code.
 - `specs/design/excess-action-parameters-error/` — where this was split out at Phase 2, and which
   set the `~_` spelling this design reverts
 - `specs/reference/REGISTER_COMMAND_FSD.md`, `specs/guides/COMMAND_REGISTRATION_GUIDE.md`
+- [`orest-d/egui-midi-test`](https://github.com/orest-d/egui-midi-test/blob/master/src/editor.rs) —
+  prototype query/parameter editor; the only existing `gui_info` consumer, and the reference point
+  for decision 5
