@@ -123,6 +123,55 @@ This is not ceremony: it is what lets a later field — the per-realm unsupporte
 the web API so a client can discover what a build supports, and it is the shape a cross-realm
 registry exchange would transfer.
 
+### Type identifier naming
+
+**Form: `<provider>.<LocalName>`, or a bare `<LocalName>` for a Liquers canonical type.**
+
+| Rule | |
+|---|---|
+| Separator | Exactly one `.`. Both parts alphanumeric |
+| Provider | Lowercase, naming the system or library the type belongs to: `polars`, `py`, `js`, `pandas`, `arrow` |
+| Local name | The **Liquers concept name**, CamelCase — normally the `ExtValue` variant name, *not* the backing Rust struct's name |
+| Reserved | Every other non-alphanumeric character: `:` (already means format refinement, `csv:comma`), `/`, `-`, `<`, `>`, `+`, `#`. Kept free for generics, versions and future structure |
+| Bare names | Reserved permanently for `liquers-core` and `liquers-lib`. A third-party crate always carries a provider |
+
+Examples: `Text`, `I64`, `Bytes`, `Image`; `polars.DataFrame`, `polars.LazyFrame`,
+`pandas.DataFrame`, `py.Int`, `js.Number`.
+
+**Why dotted rather than flat CamelCase** (`PolarsDataFrame`):
+
+1. Every large extensible cross-language type namespace uses a separator — UTI `com.adobe.pdf`,
+   Arrow `arrow.json`, `java.lang.String`, `google.protobuf.Timestamp` — because collision
+   avoidance needs a *machine-readable* authority boundary.
+2. Flat names cannot be parsed. `PyInt` — Python's `int`, or a type named `PyInt`? `ImageBuffer` —
+   provider `Image` plus `Buffer`, or a core `ImageBuffer`? `TYPE-REGISTRY-NOT-REALM-AWARE` needs
+   exactly this grouping: "which of provider X's types does this realm support?"
+3. A dot is safe in a Liquers query parameter and a dash is not: an action parameter is
+   `ALNUM | '_' | '.'` (`parse.rs:476`), while `-` separates parameters. *Caveat:* a dot in a
+   **terminal** segment can make it parse as a filename (`parse.rs:25`) — fine for parameters, not
+   for a bare trailing segment.
+4. The separator has to be spent now or never. Compatibility is a non-issue today; if flat names
+   ship and a boundary is needed later, every stored identifier changes.
+
+**When a name may be bare.** A bare name means **"the Liquers canonical type for this concept"** —
+the representation Liquers commits to converting others into. Not "fundamental", not "defined in a
+Liquers module": the payload of `ExtValue::Image` is `image::DynamicImage`, from a third-party
+crate, so a location-based rule would exclude the very case it exists to permit.
+
+- Liquers commits to a canonical raster image → `Image` is bare.
+- Liquers explicitly refuses a canonical dataframe — polars and pandas, eager and lazy, arrow —
+  so there is no bare `DataFrame`, and `polars.DataFrame` is right.
+
+This keeps a future `py.Image` a *sibling of a canonical* rather than a competitor to an
+accidentally privileged name, and it stays decidable when the next type arrives. Images carry the
+same latent plurality dataframes already have (PIL, `ImageBitmap`, ndarray-backed, vector, GPU
+texture); polars only looks different because its plurality arrived first.
+
+**The bare set is closed and enumerated**, listed in `specs/reference/VALUE_TYPE_SYSTEM.md` and
+asserted by a test. Adding to it is a reviewed documentation change, not a judgement made while
+adding a type. The asymmetry is what justifies the ceremony: baring a name later is free — add a
+shorthand — while un-baring one is a breaking rename of stored data. **When unsure, prefix.**
+
 ### `TypeIdentified` and `to_type_identifier` — the one bridge between the two worlds
 
 ```rust
