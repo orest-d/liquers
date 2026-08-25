@@ -1,0 +1,45 @@
+commands:
+- namespace: pl
+  name: select_columns
+  label: Select columns
+  doc: Select columns by name, one parameter per column
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+- namespace: pl
+  name: drop_columns
+  label: Drop columns
+  doc: Remove columns by name, one parameter per column
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 20
+  cache: true
+  volatile: false
+  expires: never
+  definition: Registered
+default_namespaces:
+- ''
+- root
+global_enums: {}

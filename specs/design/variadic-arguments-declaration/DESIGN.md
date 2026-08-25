@@ -4,10 +4,10 @@ kind: design
 title: Declarable variadic command arguments
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [macro, core/commands, lib/polars]
 gh_pr: []
-issues: [COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE, VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, UI-VARIADIC-ARGUMENT-LIST-EDITOR, COMMAND-COMPOSITE-VARIADIC-ARGUMENTS, PY-MODULES-NOT-DECLARED-IN-LIB]
+issues: [COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE, VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, UI-VARIADIC-ARGUMENT-LIST-EDITOR, COMMAND-COMPOSITE-VARIADIC-ARGUMENTS, PY-MODULES-NOT-DECLARED-IN-LIB, POLARS-COMMAND-TESTS-BYPASS-COMMANDS]
 affects_docs: [specs/reference/REGISTER_COMMAND_FSD.md, specs/reference/POLARS_COMMAND_LIBRARY.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, CLAUDE.md]
 created: 2026-08-25
 superseded_by:
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [x] Phase 3: Examples & Testing (awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -36,6 +36,9 @@ example).
 
 Phase 2 filed three issues: `PY-MODULES-NOT-DECLARED-IN-LIB` (found by the known-issue preflight),
 `UI-VARIADIC-ARGUMENT-LIST-EDITOR` and `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` (Phase 1 decision 5).
+Phase 3 filed `POLARS-COMMAND-TESTS-BYPASS-COMMANDS`: none of the 13 tests in
+`liquers-lib/tests/polars_commands.rs` invokes a polars command, so the two this design converts
+would keep passing however the conversion went.
 
 ## Links
 
