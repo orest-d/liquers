@@ -330,6 +330,13 @@ pub media_type: Option<String>,   // was: String with an empty-string sentinel
 preserved verbatim and never re-derived. `data_format: Option<String>` is unchanged — its `None`
 already means "unspecified, use the value default", which is the level-1 fall-through.
 
+**`AssetInfo.media_type` stays a `String`.** `AssetInfo` is a *resolved projection* for clients, not
+a place to record how a value came to have its media type, so it carries the effective value with
+the override already applied. Keeping it unwrapped leaves the UI (`liquers-lib/src/egui/widgets.rs:854`)
+and the Python bindings untouched, and it means a client never has to know the seeding rules to
+display a type. Only `MetadataRecord`, which is the thing an author *writes*, needs the
+override/derive distinction.
+
 ```rust
 impl MetadataRecord {
     /// `Some(f)` → f. `None` → the caller supplies the value default (level 1).

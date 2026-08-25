@@ -70,7 +70,7 @@ REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,ar
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
-VALUE-TYPE-SYSTEM,design,Liquers value type system,draft,local,examples,,,core/value;lib/value;py;web,,,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
+VALUE-TYPE-SYSTEM,design,Liquers value type system,draft,local,implementation,,,core/value;lib/value;py;web,,,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-16,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-17,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
