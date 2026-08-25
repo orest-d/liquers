@@ -31,7 +31,8 @@ Searched: `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues a
 | `VALUE-DESCRIPTION` | accepted | P3 | `TypeInfo` is where a description hook would hang, and `type_name` already carries the runtime-detail role | no | no | Leave room in `TypeInfo`; do not implement | Keep P3 |
 | `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentified` now — see "Forward compatibility" | Keep P2 |
 | `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Generates `ExtValue`, every trait impl and the registry entries from one declaration. **Now owns the scalar widening** — see "Sequencing decision" | no | no | Ship nothing it would have to undo; see "Generator alignment" | Keep P2 |
-| `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports; a single-build registry cannot say. Filed during this phase | no | no | Key the registry by `TypeKey { realm, .. }` and give `TypeInfo` a builder — see "Forward compatibility" | Keep P2 |
+| `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports. Filed during this phase | no | no | **The realm key ships here** — field, default, `with_realm`, `get_in_realm`. The issue retains the behavioural half: cross-realm sharing and the unsupported-type action | Keep P2 |
+| `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `size_of::<Value>()` is 704 bytes, set by `Value::Metadata(MetadataRecord)`; measured during this phase. Bears on the payload discipline this design documents | no | no | Document the discipline in the new reference; do not fix here — it touches every construction and match arm in four crates | Keep P2 |
 | `CORE-MULTI-REALM-INTERPRETER` | accepted | P3 | Realm-aware *dispatch* (`plan.rs:1081`) must exist before realm-aware *typing* has anything to attach to | no | no | Nothing here; the realm-ready key costs nothing while dispatch is single-realm | Keep P3 |
 | `WORKSPACE-SERDE-DERIVE-UNDECLARED` | accepted | P2 | `TypeInfo` will carry serde derives in `liquers-core`, which is one of the crates with an undeclared `derive` feature | no | no | Do not add a new undeclared use; monitor | Keep P2 |
 | `CORE-STATE-LOCK-API-CLEANUP` | accepted | P3 | We extend `State::sync_metadata_with_value`; that issue may reshape `State` internals | no | no | Keep the change inside the existing helper so it moves with any refactor | Keep P3 |
@@ -153,10 +154,13 @@ Examples: `Text`, `I64`, `Bytes`, `Image`; `polars.DataFrame`, `polars.LazyFrame
 4. The separator has to be spent now or never. Compatibility is a non-issue today; if flat names
    ship and a boundary is needed later, every stored identifier changes.
 
-**When a name may be bare.** A bare name means **"the Liquers canonical type for this concept"** —
-the representation Liquers commits to converting others into. Not "fundamental", not "defined in a
-Liquers module": the payload of `ExtValue::Image` is `image::DynamicImage`, from a third-party
-crate, so a location-based rule would exclude the very case it exists to permit.
+**When a name may be bare: concept ownership.** A bare name asserts that **Liquers owns the
+concept** — that this is the canonical type Liquers commits to, and converts others into. The test
+is semantic, not locational. "Defined in a Liquers module" is the wrong criterion and would exclude
+the very case it exists to permit: the payload of `ExtValue::Image` is `image::DynamicImage`, from
+a third-party crate. Liquers owns the *meaning* of `Image`; the crate is an implementation detail.
+A provider prefix says the opposite — that Liquers is exposing *somebody else's* type, and the
+provider is part of what identifies it.
 
 - Liquers commits to a canonical raster image → `Image` is bare.
 - Liquers explicitly refuses a canonical dataframe — polars and pandas, eager and lazy, arrow —

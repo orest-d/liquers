@@ -39,9 +39,11 @@ crosses", decided at planning time, not "hand the browser bytes it cannot open".
 
 ## Expected behaviour
 
-1. **The type registry is realm-aware.** Keyed by `(realm, type_identifier)`, mirroring
-   `CommandKey`, with a default realm for the single-realm case so ordinary code is unaffected.
-   `value-type-system` Phase 2 defines the key in that shape so this is an extension, not a rewrite.
+1. ~~**The type registry is realm-aware.**~~ **Delivered by `value-type-system`**: the registry is
+   keyed by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with a default realm so
+   single-realm code is unaffected, plus `with_realm` and `get_in_realm`. One field and a
+   convenience layer, so there was no reason to defer it — and adding a key component later would
+   have rewritten every stored entry. What remains below is behaviour, which a field cannot carry.
 2. **The registry is shared across realms**, the way command metadata is — so a planner can ask
    what any participating realm supports before scheduling a step there.
 3. **Each type declares what happens where it is unsupported.** At minimum: convert to a named
