@@ -55,12 +55,12 @@ define_value_types! {
 ```
 
 generating the enum, the `ValueExtension` / `DefaultValueSerializer` impls with no possibility of a
-divergent arm, `TypeIdentified` impls, and `type_descriptions() -> Vec<TypeInfo>`.
+divergent arm, `TypeIdentifiedIn<ExtValue>` impls, and `type_descriptions() -> Vec<TypeInfo>`.
 
-**Relationship to command registration.** The generated `TypeIdentified` impls are what let
+**Relationship to command registration.** The generated `TypeIdentifiedIn<V>` impls are what let
 `register_command!` record a type identifier for an argument written as an ordinary Rust type, via
-`to_type_identifier::<T>()` (`value-type-system` Phase 2). This is a convenience, not a dependency:
-a hand-written `impl TypeIdentified for MyType` works identically, which is why a downstream crate
+`to_type_identifier::<V, T>()` (`value-type-system` Phase 2). This is a convenience, not a dependency:
+a hand-written `impl TypeIdentifiedIn<MyValue> for MyType` works identically, which is why a downstream crate
 defining its own types needs nothing from this macro and no shared data file exists anywhere in the
 design. Note also that `register_command!` is expected to be redesigned; this macro should not
 assume its current form.
@@ -95,5 +95,5 @@ derived from them — so this issue stands on its own merit: the hand-written ar
 Related: `VALUE-CONVERSION-CAPABILITY` owns the extraction half — turning the value into the
 declared Rust type — and `COMMAND-METADATA-ENHANCEMENTS` owns the `ArgumentType` variant that
 carries a type identifier. `value-type-system` defines `TypeInfo`, `TypeRegistry` and
-`TypeIdentified` in shapes a generator can emit — see its Phase 2 "Generator alignment" section for
+`TypeIdentifiedIn<V>` in shapes a generator can emit — see its Phase 2 "Generator alignment" section for
 the commitments it makes so that nothing here has to undo them.

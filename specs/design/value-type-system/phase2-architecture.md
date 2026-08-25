@@ -29,7 +29,7 @@ Searched: `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues a
 | `COMMAND-METADATA-ENHANCEMENTS` | accepted | P2 | Owns "explicit input/output type constraints in metadata" — the same ground as the `ArgumentType` change Phase 1 proposed. **`ArgumentType` has 101 references across 10 files including `liquers-py`, `liquers-web` and `liquers-macro`**; a new variant ripples through all of them | no | no | **Scope change: the `ArgumentType` work moves to this issue.** See "Scope removed" | Keep P2 |
 | `CORE-VALUE-INTERFACE-CAPABILITY-SPLIT` | accepted | P2 | Owns renaming `identifier`→`type_identifier` and splitting the trait. We add methods (non-breaking) but do **not** rename (breaking, and it is that issue's job) | no | no | Add methods with defaults; leave naming alone and note the coordination | Keep P2 |
 | `VALUE-DESCRIPTION` | accepted | P3 | `TypeInfo` is where a description hook would hang, and `type_name` already carries the runtime-detail role | no | no | Leave room in `TypeInfo`; do not implement | Keep P3 |
-| `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentified` now — see "Forward compatibility" | Keep P2 |
+| `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentifiedIn<V>` now — see "Forward compatibility" | Keep P2 |
 | `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Generates `ExtValue`, every trait impl and the registry entries from one declaration. **Now owns the scalar widening** — see "Sequencing decision" | no | no | Ship nothing it would have to undo; see "Generator alignment" | Keep P2 |
 | `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports. Filed during this phase | no | no | **The realm key ships here** — field, default, `with_realm`, `get_in_realm`. The issue retains the behavioural half: cross-realm sharing and the unsupported-type action | Keep P2 |
 | `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `size_of::<Value>()` is 704 bytes, set by `Value::Metadata(MetadataRecord)`; measured during this phase. Bears on the payload discipline this design documents | no | no | Document the discipline in the new reference; do not fix here — it touches every construction and match arm in four crates | Keep P2 |
@@ -112,8 +112,8 @@ impl TypeInfo {
     pub fn with_data_format(self, format: ..) -> Self;   // appends to supported_data_formats
     pub fn with_realm(self, realm: ..) -> Self;
 
-    /// From a Rust type that names its own identifier.
-    pub fn of<T: TypeIdentified>() -> Self { T::type_info() }
+    /// From a Rust type that names its own identifier within value type `V`.
+    pub fn of<V: ValueInterface, T: TypeIdentifiedIn<V>>() -> Self { T::type_info() }
 }
 ```
 
@@ -176,53 +176,94 @@ asserted by a test. Adding to it is a reviewed documentation change, not a judge
 adding a type. The asymmetry is what justifies the ceremony: baring a name later is free — add a
 shorthand — while un-baring one is a breaking rename of stored data. **When unsure, prefix.**
 
-### `TypeIdentified` and `to_type_identifier` — the one bridge between the two worlds
+### `TypeIdentifiedIn<V>` and `to_type_identifier` — the one bridge between the two worlds
 
 ```rust
-pub trait TypeIdentified {
+// liquers-core/src/type_system.rs
+pub trait TypeIdentifiedIn<V: ValueInterface> {
     const TYPE_IDENTIFIER: &'static str;
     fn type_info() -> TypeInfo;
 }
 
+// Wrapper transparency. These live in core, where the trait is local.
+impl<V, T: TypeIdentifiedIn<V>> TypeIdentifiedIn<V> for std::sync::Arc<T> {
+    const TYPE_IDENTIFIER: &'static str = T::TYPE_IDENTIFIER;
+    fn type_info() -> TypeInfo { T::type_info() }
+}
+impl<V, T: TypeIdentifiedIn<V>> TypeIdentifiedIn<V> for &T { /* same */ }
+
 /// The bridge. Resolved at compile time; performs no lookup.
-pub const fn to_type_identifier<T: TypeIdentified>() -> &'static str {
+pub const fn to_type_identifier<V, T: TypeIdentifiedIn<V>>() -> &'static str {
     T::TYPE_IDENTIFIER
 }
 ```
+
+**The `V` parameter is not decoration — without it the design does not compile.** An earlier draft
+declared a bare `TypeIdentified`, which `liquers-lib` would have to implement for
+`polars::frame::DataFrame`: a foreign trait for a foreign type, rejected by the orphan rule. Both
+halves were checked against the compiler rather than reasoned about:
+
+```
+error[E0117]: only traits defined in the current crate can be implemented
+              for types defined outside of the crate
+   = note: impl doesn't have any local type before any uncovered type parameters
+```
+
+Parameterising by the value type puts a **local** type into the impl head —
+`impl TypeIdentifiedIn<ExtValue> for polars::frame::DataFrame`, where `ExtValue` is local to
+`liquers-lib` — which RFC 2451 permits. Verified compiling, including the `Arc<T>` and `&T`
+blanket impls.
+
+This affects every type that matters: `polars::frame::DataFrame`, `image::DynamicImage`,
+`chrono::NaiveDate`, `rust_decimal::Decimal`, `uuid::Uuid` are all foreign.
+
+**Two consequences, both good.** The identifier mapping is now *relative to a value type*, so two
+crates that each define their own value type may both name `polars::frame::DataFrame` without a
+coherence conflict — which matches the registry being a property of the build rather than of the
+universe. And it is the same shape the extraction trait needs (`FromValue<V>`, owned by
+`VALUE-CONVERSION-CAPABILITY`), so identity and extraction stay consistent.
+
+**The alternative was a newtype** — `struct PolarsDataFrame(Arc<DataFrame>)` local to
+`liquers-lib`, with `Deref`. It works and gives an exact three-way name correspondence, but it
+changes the command signature from `df: polars::DataFrame` to `df: PolarsDataFrame`, which is the
+opposite of the rule this design adopted. Rejected for that reason, not because it fails.
 
 **The governing rule, which this design adopts:**
 
 > **Rust types in Rust code and in command registration. Type identifiers in the registries** —
 > which exist to integrate with other languages and other realms.
 
-`to_type_identifier::<T>()` is the *only* crossing between them, and it goes one way. The reverse —
-identifier to Rust type — is never needed inside Rust, because Rust code always has the type
-already. Deserialization looks like a counterexample and is not: bytes plus an identifier produce a
-`Value`, so that is dispatch *within* the value type, not resolution of a Rust type. Outside Rust —
-a Python caller, a browser, a second realm — identifiers are all there is, which is exactly what
-they are for.
+`to_type_identifier::<V, T>()` is the *only* crossing between them, and it goes one way. The reverse
+— identifier to Rust type — is never needed inside Rust, because Rust code always has the type
+already. Deserialization is not a counterexample: bytes plus an identifier produce a `Value`, so
+that is dispatch *within* the value type, not resolution of a Rust type. Outside Rust — a Python
+caller, a browser, a second realm — identifiers are all there is, which is what they are for.
 
 **Immediate consumer:** `V::type_descriptions()` implementations are written as
-`vec![TypeInfo::of::<PolarsFrame>(), ..]` rather than repeating each identifier string in both
-`identifier()` and the description.
+`vec![TypeInfo::of::<Self, PolarsFrame>(), ..]` rather than repeating each identifier string in
+both `identifier()` and the description.
 
 **Why it settles the command-argument question.** A command is written in Rust types:
 
 ```rust
-fn use_df(state: &State<V>, df: polars::DataFrame) -> Result<V, Error>
+fn use_df(state: &State<V>, df: polars::frame::DataFrame) -> Result<V, Error>
 ```
 
-Registration derives the identifier from the same type token the macro already forwards today
+Registration derives the identifier from the same type token the macro already forwards
 (`registration.rs:492` emits `let #var_name: #ty = arguments.get(#i, #name)?;`), by emitting
-`to_type_identifier::<#ty>()` alongside it. Both the extraction type and the recorded identifier
+`to_type_identifier::<V, #ty>()` alongside it. Both the extraction type and the recorded identifier
 come from **one** `T`, so they cannot disagree — the mismatch is unrepresentable rather than
-detected. An earlier draft of this design proposed a `CommandRegistryIssue` check for exactly that
-disagreement; it is now unnecessary, which is the stronger outcome.
+detected. An earlier draft proposed a `CommandRegistryIssue` check for exactly that disagreement;
+it is unnecessary, which is the stronger outcome.
 
-A type with no `TypeIdentified` impl is a compile error at the command definition, on the trait
-bound. `#[diagnostic::on_unimplemented]` can make that message name the real problem — "this type
-has no Liquers type identifier; declare it with `define_value_types!`" — rather than showing a bare
-unsatisfied bound.
+A type with no `TypeIdentifiedIn<V>` impl is a compile error at the command definition, on the
+trait bound. `#[diagnostic::on_unimplemented]` can make that message name the real problem — "this
+type has no Liquers type identifier; declare it with `define_value_types!`" — rather than showing a
+bare unsatisfied bound.
+
+**Phase 4 must verify** that the value type `V` is nameable at every `register_command!` expansion
+site. It is at the registry (`CommandRegistry<E>` knows `E::Value`), but the expansion currently
+does not mention it, so this is a concrete check rather than an assumption.
 
 ## Trait Implementations
 
@@ -325,6 +366,9 @@ Collected for reference; each is specified in context in the section named after
 | `TypeRegistry::get(&self, &str) -> Option<&TypeInfo>` | `type_system.rs` | Data Structures |
 | `TypeRegistry::supports_data_format(&self, &str, &str) -> bool` | `type_system.rs` | Data Structures |
 | `ValueInterface::type_descriptions() -> Vec<TypeInfo>` | `value.rs` | Trait Implementations |
+| `TypeIdentifiedIn<V>::TYPE_IDENTIFIER` / `::type_info()` | `type_system.rs` | Data Structures |
+| `to_type_identifier<V, T: TypeIdentifiedIn<V>>() -> &'static str` | `type_system.rs` | Data Structures |
+| `TypeInfo::of<V, T>() -> TypeInfo` | `type_system.rs` | Data Structures |
 | `ValueInterface::supports_data_format(&self, &str) -> bool` | `value.rs` | Trait Implementations |
 | `ValueInterface::type_info(&self) -> TypeInfo` | `value.rs` | Trait Implementations |
 | `Environment::get_type_registry(&self) -> &TypeRegistry` | `context.rs` | Trait Implementations |
@@ -517,7 +561,7 @@ expensive to retrofit, so the shapes they need are established now at near-zero 
 
 | Future capability | Tracked by | What Phase 2 does about it | Cost now |
 |---|---|---|---|
-| A command written in Rust types — `fn use_df(state, df: polars::DataFrame)` — registers `df` under the identifier `polars_dataframe`, and the framework converts the incoming value to that Rust type | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` and `to_type_identifier::<T>()`, so registration derives the identifier at compile time from the same type token the macro already forwards. No data file, no `liquers-lib` dependency, and no possible disagreement between the extraction type and the recorded identifier | None — `TypeIdentified` has an immediate consumer in `type_descriptions()` |
+| A command written in Rust types — `fn use_df(state, df: polars::DataFrame)` — registers `df` under the identifier `polars_dataframe`, and the framework converts the incoming value to that Rust type | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentifiedIn<V>` and `to_type_identifier::<V, T>()`, so registration derives the identifier at compile time from the same type token the macro already forwards. No data file, no `liquers-lib` dependency, and no possible disagreement between the extraction type and the recorded identifier | None — `TypeIdentifiedIn` has an immediate consumer in `type_descriptions()` |
 | A query spanning a `wasm` frontend and a native backend, whose realms support different type sets, converting values transparently at the boundary | `TYPE-REGISTRY-NOT-REALM-AWARE` | Keys the registry by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with `get`/`contains` defaulting to the default realm; gives `TypeInfo` a builder so the per-realm unsupported-type action is an additive field | One extra struct and a default-realm convenience layer |
 
 ### No shared data file is needed anywhere
@@ -529,9 +573,9 @@ expands a path into. **Neither is needed**, because the direction that looked ne
 from them by `to_type_identifier::<T>()`.
 
 `VALUE-TYPE-DEFINITION-MACRO` still earns its place — it removes the hand-written match arms that
-produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED` and it emits the `TypeIdentified` impls —
+produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED` and it emits the `TypeIdentifiedIn` impls —
 but it is a *codegen convenience*, not the load-bearing part of the correspondence. A hand-written
-`impl TypeIdentified for MyType` works identically, which is what makes a downstream crate's own
+`impl TypeIdentifiedIn<MyValue> for MyType` works identically, which is what makes a downstream crate's own
 types a non-problem.
 
 A data export of the registry remains worth having for `liquers-validate` and non-Rust clients, on
@@ -542,7 +586,7 @@ implemented is worse than an absent field — it invites callers to match on beh
 exist. The builder is what makes adding it later non-breaking, and that is sufficient readiness.
 
 Both extension points are single-realm and single-purpose in this project: `get` and `contains`
-resolve in the default realm, and nothing consults `TypeIdentified` except description construction.
+resolve in the default realm, and nothing consults `TypeIdentifiedIn` except description construction.
 No behaviour is written that a later project would have to undo.
 
 ## Sequencing decision: scalars ship with the generator
@@ -557,7 +601,7 @@ code that produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`. Hand-writin
 writing code to delete, with one more opportunity for a silent divergent arm before the mechanism
 that prevents them exists. The accepted `P0`, meanwhile, needs no new scalar to be fixed.
 
-**Effect on this project:** it ships the P0 fix, `TypeInfo`/`TypeRegistry`/`TypeIdentified`, the
+**Effect on this project:** it ships the P0 fix, `TypeInfo`/`TypeRegistry`/`TypeIdentifiedIn`, the
 metadata invariants and the seeding cascade. It adds no `ExtValue` variant, no feature and no
 dependency. It stays `M`-sized and reviewable.
 
@@ -569,7 +613,7 @@ is therefore built to be *generated* and to be *macro-agnostic*. The commitments
 | Commitment | Why a generator needs it |
 |---|---|
 | `TypeInfo` is **builder-constructed**, never a struct literal in user code | A generator emits a chain; a later field stays additive, and no generated site breaks |
-| `TypeIdentified` is a **plain trait with an associated const** | Trivially emittable per type; no derive machinery, no attribute macro, no orphan-rule trouble in the defining crate |
+| `TypeIdentifiedIn<V>` is a **plain trait with an associated const** | Trivially emittable per type; no derive machinery, no attribute macro, no orphan-rule trouble in the defining crate |
 | `type_descriptions()` is an **associated function returning a `Vec`** | A generator emits one function body; nothing depends on the *order* or the *source* of the entries |
 | `TypeRegistry` is **populated, not enumerated** — `register` at construction rather than a `match` over a fixed enum | The set of types is a property of the build, so generated and hand-written entries are indistinguishable to every consumer |
 | The registry is reached through `Environment`, not a global | A generated registration has somewhere to go that is not process-wide mutable state |

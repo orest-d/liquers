@@ -81,8 +81,11 @@ and the two must be designed together.
 > **Rust types in Rust code and in command registration. Type identifiers in the registries** —
 > which exist to integrate with other languages and other realms.
 
-`value-type-system` supplies the single bridge, `to_type_identifier::<T>() -> &'static str`, a
-`const fn` over `TypeIdentified::TYPE_IDENTIFIER`. Registration derives the identifier at compile
+`value-type-system` supplies the single bridge, `to_type_identifier::<V, T>() -> &'static str`, a
+`const fn` over `TypeIdentifiedIn::<V>::TYPE_IDENTIFIER`. It is parameterised by the value type
+because a bare `TypeIdentified` would be a foreign trait implemented for a foreign type — E0117 —
+for every type that matters (`polars::frame::DataFrame`, `image::DynamicImage`, `chrono::NaiveDate`);
+the value type supplies the local type the orphan rule requires. Registration derives the identifier at compile
 time from the same type token the macro already forwards (`registration.rs:492` emits
 `let #var_name: #ty = arguments.get(#i, #name)?;`), so the extraction type and the recorded
 identifier come from one `T` and **cannot disagree**. No lookup, no data file, no runtime check.
