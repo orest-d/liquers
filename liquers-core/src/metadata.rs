@@ -1856,6 +1856,20 @@ impl Metadata {
         }
     }
 
+    /// The declared data format, if one was specified.
+    ///
+    /// `None` is meaningful: it says no format was chosen, so the value's own default applies.
+    /// Resolve it where a value is in hand — see `State::effective_data_format`.
+    pub fn declared_data_format(&self) -> Option<String> {
+        match self {
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
+                legacy_string_field(o, "data_format")
+            }
+            Metadata::MetadataRecord(m) => m.declared_data_format().map(str::to_owned),
+            Metadata::LegacyMetadata(_) => None,
+        }
+    }
+
     /// Return data format
     /// If data_format is not set, return extension
     /// If extension is not set, return "bin"

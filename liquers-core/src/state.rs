@@ -22,9 +22,35 @@ pub struct State<V: ValueInterface> {
 }
 
 impl<V: ValueInterface> State<V> {
+    /// Keeps the metadata's type fields agreeing with the value it describes.
+    ///
+    /// This is level-1 of the seeding cascade, and it deliberately writes only the *type* fields.
+    /// The data format is left alone: an absent `data_format` means "no format was specified, so
+    /// the value's own default applies", and writing the default in would destroy that
+    /// distinction — nobody could then tell a deliberate choice from a fall-through. Resolution
+    /// happens where the value is in hand, through [`State::effective_data_format`].
+    ///
+    /// An **error state keeps its `error` identifier**. `Metadata::with_error` sets it, and this
+    /// helper used to overwrite it from `V::none()` immediately afterwards in `from_error`, so the
+    /// same situation reached the store under two different identifiers depending on which path
+    /// built it.
     fn sync_metadata_with_value(metadata: &mut Metadata, value: &V) {
+        if metadata.is_error().unwrap_or(false) {
+            return;
+        }
         metadata.with_type_identifier(value.identifier().to_string());
         metadata.with_type_name(value.type_name().to_string());
+    }
+
+    /// The data format this state will serialize to.
+    ///
+    /// Resolves the seeding cascade with the value in hand: a declared format wins, otherwise the
+    /// value's own default applies.
+    pub fn effective_data_format(&self) -> String {
+        match self.metadata.declared_data_format() {
+            Some(declared) => declared,
+            None => self.data.default_data_format().to_string(),
+        }
     }
 
     /// Creates a new State with an empty value and default metadata.
@@ -155,7 +181,7 @@ impl<V: ValueInterface> State<V> {
         if let Some(e) = self.value_error() {
             return Err(e);
         }
-        self.data.as_bytes(&self.metadata.get_data_format())
+        self.data.as_bytes(&self.effective_data_format())
     }
     pub fn is_none(&self) -> bool {
         self.data.is_none()
@@ -265,5 +291,79 @@ impl<V: ValueInterface> From<Result<State<V>, Error>> for State<V> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::Error;
+    use crate::metadata::MetadataRecord;
+    use crate::value::Value;
+
+    /// `vts6.1` — every constructor leaves the type fields agreeing with the value.
+    #[test]
+    fn every_constructor_syncs_the_type_fields() -> Result<(), Box<dyn std::error::Error>> {
+        let text = Value::Text("hello".to_string());
+
+        let new_state: State<Value> = State::new();
+        assert_eq!(new_state.metadata.type_identifier()?, "None");
+
+        let with_data = State::<Value>::new().with_data(text.clone());
+        assert_eq!(with_data.metadata.type_identifier()?, "Text");
+        assert_eq!(with_data.metadata.type_name()?, "text");
+
+        let from_value =
+            State::from_value_and_metadata(text.clone(), Arc::new(Metadata::new()));
+        assert_eq!(from_value.metadata.type_identifier()?, "Text");
+
+        let with_metadata = State::<Value>::new()
+            .with_data(text)
+            .with_metadata(Metadata::new());
+        assert_eq!(with_metadata.metadata.type_identifier()?, "Text");
+        Ok(())
+    }
+
+    /// `vts8.9` — an error state keeps its `error` identifier, whichever path built it.
+    ///
+    /// `from_error` calls `with_error`, which sets `error`, and then the sync helper. The helper
+    /// used to overwrite it from `V::none()`, so the same situation reached the store as `error`
+    /// or as `None` depending on the route.
+    #[test]
+    fn from_error_keeps_the_error_identifier() -> Result<(), Box<dyn std::error::Error>> {
+        let state: State<Value> = State::from_error(Error::general_error("boom".to_string()));
+        assert_eq!(state.metadata.type_identifier()?, "error");
+
+        let mut direct = Metadata::new();
+        direct.with_error(Error::general_error("boom".to_string()));
+        assert_eq!(
+            direct.type_identifier()?,
+            state.metadata.type_identifier()?,
+            "both paths must name the same type"
+        );
+        Ok(())
+    }
+
+    /// `vts6.2` — a declared data format survives, and an absent one stays absent.
+    ///
+    /// Level 1 is a *resolution*, not a write: seeding the value's default into the field would
+    /// destroy the distinction between a deliberate choice and a fall-through.
+    #[test]
+    fn level_one_resolves_without_writing() -> Result<(), Box<dyn std::error::Error>> {
+        let state = State::<Value>::new().with_data(Value::Text("hello".to_string()));
+        assert_eq!(
+            state.metadata.declared_data_format(),
+            None,
+            "level 1 must not write the default into the field"
+        );
+        assert_eq!(state.effective_data_format(), "txt");
+
+        let mut declared = MetadataRecord::new();
+        declared.data_format = Some("json".to_string());
+        let declared_state = State::<Value>::new()
+            .with_data(Value::Text("hello".to_string()))
+            .with_metadata(Metadata::MetadataRecord(declared));
+        assert_eq!(declared_state.effective_data_format(), "json");
+        Ok(())
     }
 }
