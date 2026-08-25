@@ -1390,6 +1390,21 @@ impl MetadataRecord {
     }
 }
 
+/// Extracts a string field from a `LegacyMetadata` object.
+///
+/// `serde_json::Value::to_string()` *serializes*, so for a JSON string it returns the value with
+/// its quotes — `"json"` rather than `json` — which matches nothing downstream. A string field
+/// must therefore be read with `as_str()`. A non-string value falls back to the serialized form,
+/// which is the best available answer for a caller that asked for a string.
+///
+/// See `specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md`.
+fn legacy_string_field(o: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    o.get(key).map(|value| match value.as_str() {
+        Some(text) => text.to_string(),
+        None => value.to_string(),
+    })
+}
+
 #[derive(Debug, Clone)]
 pub enum Metadata {
     LegacyMetadata(serde_json::Value),
@@ -1570,11 +1585,11 @@ impl Metadata {
     pub fn get_media_type(&self) -> String {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                if let Some(mimetype) = o.get("mimetype") {
-                    return mimetype.to_string();
+                if let Some(mimetype) = legacy_string_field(o, "mimetype") {
+                    return mimetype;
                 }
-                if let Some(media_type) = o.get("media_type") {
-                    return media_type.to_string();
+                if let Some(media_type) = legacy_string_field(o, "media_type") {
+                    return media_type;
                 }
                 "application/octet-stream".to_string()
             }
@@ -1779,8 +1794,8 @@ impl Metadata {
     pub fn get_data_format(&self) -> String {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                if let Some(data_format) = o.get("data_format") {
-                    return data_format.to_string();
+                if let Some(data_format) = legacy_string_field(o, "data_format") {
+                    return data_format;
                 }
                 if let Some(extension) = self.extension() {
                     return extension.to_string();
@@ -2783,5 +2798,37 @@ mod tests {
         mr.set_payload_required();
         let m = Metadata::MetadataRecord(mr);
         assert_eq!(m.payload_required(), PayloadRequirement::Required);
+    }
+
+    /// `vts5.5` — `LegacyMetadata` accessors must extract strings, not serialize them.
+    ///
+    /// `serde_json::Value::to_string()` returns `"\"json\""` for a JSON string, which matches no
+    /// data format and no media type. Regression test for
+    /// `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`.
+    #[test]
+    fn legacy_accessors_return_unquoted_strings() -> Result<(), Box<dyn std::error::Error>> {
+        let media = Metadata::from_json(r#"{"media_type":"text/plain"}"#)?;
+        assert_eq!(media.get_media_type(), "text/plain");
+
+        let mimetype = Metadata::from_json(r#"{"mimetype":"text/csv"}"#)?;
+        assert_eq!(mimetype.get_media_type(), "text/csv");
+
+        let format = Metadata::from_json(r#"{"data_format":"json"}"#)?;
+        assert_eq!(format.get_data_format(), "json");
+
+        // The accessors that already matched on `Value::String` must keep working.
+        let identifiers = Metadata::from_json(r#"{"type_identifier":"Text","type_name":"text"}"#)?;
+        assert_eq!(identifiers.type_identifier()?, "Text");
+        assert_eq!(identifiers.type_name()?, "text");
+        Ok(())
+    }
+
+    /// A non-string value has no `as_str()`; falling back to the serialized form is the best
+    /// available answer and must not panic.
+    #[test]
+    fn legacy_non_string_field_falls_back() -> Result<(), Box<dyn std::error::Error>> {
+        let numeric = Metadata::from_json(r#"{"data_format":7}"#)?;
+        assert_eq!(numeric.get_data_format(), "7");
+        Ok(())
     }
 }
