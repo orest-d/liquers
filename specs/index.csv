@@ -66,7 +66,7 @@ CORE-MULTI-REALM-INTERPRETER,issue,The interpreter supports a single realm,accep
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS,design,asset-manager-insert-key-asset-semantics,draft,local,documentation,,,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-25,specs/design/asset-manager-insert-key-asset-semantics/DESIGN.md
 CONTEXT-PARAM-ORDER,design,Context parameter position in register_command!,draft,local,architecture,,,core/commands;macro,,,,context-param-order,,2026-03-02,specs/design/context-param-order/DESIGN.md
-EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,design,expiration-integration-suite-failing-at-head,draft,local,examples,,,core/assets,,,,expiration-integration-suite-failing-at-head,,2026-08-11,specs/design/expiration-integration-suite-failing-at-head/DESIGN.md
+EXPIRATION-INTEGRATION-SUITE-REPAIR,design,expiration-integration-suite-failing-at-head,draft,local,examples,,,core/assets,,,,expiration-integration-suite-failing-at-head,,2026-08-11,specs/design/expiration-integration-suite-failing-at-head/DESIGN.md
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
@@ -137,7 +137,7 @@ MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,
 METADATA-CONSISTENCY,design,Metadata format and type consistency,superseded,local,,,,core/value,,,,metadata-consistency,,2026-03-02,specs/design/metadata-consistency/DESIGN.md
 PARAMETER-ENTITY-ESCAPING,design,Parameter entity escaping (numeric and named tilde entities),complete,local,,,,core/query,,34,,parameter-entity-escaping,,2026-08-14,specs/design/parameter-entity-escaping/DESIGN.md
 PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
-PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,documentation,,,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
+PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,,,,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md

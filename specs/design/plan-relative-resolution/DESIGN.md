@@ -4,7 +4,6 @@ kind: design
 title: CWD-relative query resolution in plans
 workflow: liquers-project
 status: complete
-phase: documentation
 area: [core/query, core/plan, core/assets, core/context]
 gh_pr: []
 issues: [CORE-PLAN-RELATIVE-RESOLUTION-MISSING]
