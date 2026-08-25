@@ -44,6 +44,7 @@ COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constru
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,draft,local,,P3,S,core/assets,,,,,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,accepted,local,,P3,S,docs,,,,,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,P3,S,core/query,,,,,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
+REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,P3,S,lib/commands;build;docs,,,,,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
@@ -73,7 +74,7 @@ REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,ar
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
-VARIADIC-ARGUMENTS-DECLARATION,design,Declarable variadic command arguments,draft,local,examples,,,macro;core/commands;lib/polars,,,,variadic-arguments-declaration,,2026-08-25,specs/design/variadic-arguments-declaration/DESIGN.md
+VARIADIC-ARGUMENTS-DECLARATION,design,Declarable variadic command arguments,draft,local,implementation,,,macro;core/commands;lib/polars,,,,variadic-arguments-declaration,,2026-08-25,specs/design/variadic-arguments-declaration/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-16,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-18,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md

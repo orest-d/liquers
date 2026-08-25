@@ -441,11 +441,45 @@ enum ArgumentGUIInfo {
     None,
 }
 
+/// Returns the element type of a container that a `multiple` argument may be declared as.
+///
+/// Recognises `Vec<T>` today. This is the single place a future container type
+/// (`VecDeque<T>`, `SmallVec<T>`, …) would be added: every `multiple`-related check and emission
+/// asks this function rather than testing for `Vec` itself.
+///
+/// Note that adding one is not free at the other end — `CommandArguments::get_multiple` returns
+/// `Vec<T>`, so another container needs either a `FromIterator` bound or its own accessor.
+fn variadic_element_type(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(type_path) = ty else {
+        return None;
+    };
+    if type_path.qself.is_some() || type_path.path.segments.len() != 1 {
+        return None;
+    }
+    let segment = &type_path.path.segments[0];
+    if segment.ident != "Vec" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(ref args) = segment.arguments else {
+        return None;
+    };
+    if args.args.len() != 1 {
+        return None;
+    }
+    match args.args.first() {
+        Some(syn::GenericArgument::Type(inner)) => Some(inner),
+        _ => None,
+    }
+}
+
 enum CommandParameter {
     Param {
         name: syn::Ident,
         ty: syn::Type,
         injected: bool,
+        /// Variadic argument: consumes every remaining action parameter.
+        /// Mutually exclusive with `injected`; requires a container type.
+        multiple: bool,
         default_value: Option<DefaultValue>,
         label: Option<String>,
         gui: ArgumentGUIInfo,
@@ -459,7 +493,11 @@ impl CommandParameter {
     pub fn parameter_extractor(&self, i: usize) -> proc_macro2::TokenStream {
         match self {
             CommandParameter::Param {
-                name, ty, injected, ..
+                name,
+                ty,
+                injected,
+                multiple,
+                ..
             } => {
                 let var_name = syn::Ident::new(&format!("{}__par", name), name.span());
 
@@ -478,7 +516,13 @@ impl CommandParameter {
                 }
 
                 let name_str = name.to_string();
-                if *injected {
+                if *multiple {
+                    // A variadic argument never has a pre-materialised value, so it uses the
+                    // accessor that walks `MultipleParameters` instead of `get`.
+                    quote! {
+                        let #var_name: #ty = arguments.get_multiple(#i, #name_str)?;
+                    }
+                } else if *injected {
                     quote! {
                         let #var_name: #ty = arguments.get_injected(#i, #name_str, context.clone())?;
                     }
@@ -570,6 +614,7 @@ impl CommandParameter {
                 ty,
                 enum_spec,
                 name,
+                multiple,
                 ..
             } => {
                 if let Some(enum_spec) = enum_spec {
@@ -602,7 +647,16 @@ impl CommandParameter {
                     (false, None)
                 }
 
-                let (is_option, inner) = is_option_of(ty);
+                // For a variadic argument the declared type is the container; the argument
+                // type describes one ELEMENT. This is not cosmetic: `ParameterValue::from_string`
+                // parses each action parameter through `ArgumentType`, so leaving `Vec<i64>` as
+                // `Any` would deliver every element as a string and fail at retrieval.
+                let effective_ty = if *multiple {
+                    variadic_element_type(ty).unwrap_or(ty)
+                } else {
+                    ty
+                };
+                let (is_option, inner) = is_option_of(effective_ty);
                 match (is_option, inner.as_deref()) {
                     (false, Some("isize")) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Integer }
@@ -669,6 +723,7 @@ impl CommandParameter {
                 name,
                 ty: _ty,
                 injected,
+                multiple,
                 default_value: _default_value,
                 label,
                 gui,
@@ -714,7 +769,7 @@ impl CommandParameter {
                         label: #label_str.to_string(),
                         default: #default_value_expression,
                         argument_type: #argument_type,
-                        multiple: false,
+                        multiple: #multiple,
                         injected: #injected,
                         gui_info: #gui_expr,
                         ..Default::default()
@@ -1561,14 +1616,91 @@ impl Parse for CommandParameter {
                 }
                 input.parse::<syn::Token![:]>()?;
                 let ty: syn::Type = input.parse()?;
-                let injected = if input.peek(syn::Ident) {
+
+                // Argument flags occupy one slot, immediately after the type and before any
+                // `= default` or parenthesised metadata:
+                //
+                //     <name>: <Type> [injected | multiple] [= <default>] [(label: "...", ...)]
+                //
+                // `injected` and `multiple` are mutually exclusive, so at most one ever appears.
+                // The loop exists so that a repeat or a combination gets its own message rather
+                // than a confusing parse failure at the following comma.
+                //
+                // Unknown identifiers are rejected. They used to be silently discarded (the flag
+                // was parsed and compared to "injected"), which turned any typo into a silent
+                // change of meaning.
+                let mut injected = false;
+                let mut multiple = false;
+                while input.peek(syn::Ident) {
                     let flag: syn::Ident = input.parse()?;
-                    flag == "injected"
-                } else {
-                    false
-                };
+                    match flag.to_string().as_str() {
+                        "injected" => {
+                            if injected {
+                                return Err(syn::Error::new(
+                                    flag.span(),
+                                    "duplicate argument flag `injected`",
+                                ));
+                            }
+                            if multiple {
+                                return Err(syn::Error::new(
+                                    flag.span(),
+                                    "an argument cannot be both `injected` and `multiple`: \
+                                     an injected argument consumes no query parameters",
+                                ));
+                            }
+                            injected = true;
+                        }
+                        "multiple" => {
+                            if multiple {
+                                return Err(syn::Error::new(
+                                    flag.span(),
+                                    "duplicate argument flag `multiple`",
+                                ));
+                            }
+                            if injected {
+                                return Err(syn::Error::new(
+                                    flag.span(),
+                                    "an argument cannot be both `injected` and `multiple`: \
+                                     an injected argument consumes no query parameters",
+                                ));
+                            }
+                            multiple = true;
+                        }
+                        other => {
+                            return Err(syn::Error::new(
+                                flag.span(),
+                                format!(
+                                    "unknown argument flag `{other}`; \
+                                     expected `injected` or `multiple`"
+                                ),
+                            ));
+                        }
+                    }
+                }
+
+                // A variadic argument holds several values, so its Rust type must be a container.
+                if multiple && variadic_element_type(&ty).is_none() {
+                    let rendered = quote! { #ty }.to_string().replace(' ', "");
+                    return Err(syn::Error::new_spanned(
+                        &ty,
+                        format!(
+                            "a `multiple` argument must have a container type; \
+                             `{rendered}` is not one. Expected `Vec<{rendered}>`"
+                        ),
+                    ));
+                }
+
                 let default_value = if input.peek(syn::Token![=]) {
-                    input.parse::<syn::Token![=]>()?;
+                    let eq: syn::Token![=] = input.parse()?;
+                    // A variadic argument defaults to the empty list and cannot carry another
+                    // default, as in Python's `*args` and C varargs.
+                    if multiple {
+                        return Err(syn::Error::new(
+                            eq.span,
+                            "a `multiple` argument cannot have a default value; \
+                             it defaults to the empty list",
+                        ));
+                    }
                     Some(DefaultValue::parse(input)?)
                 } else {
                     None
@@ -1624,6 +1756,7 @@ impl Parse for CommandParameter {
                     name,
                     ty,
                     injected,
+                    multiple,
                     default_value,
                     label,
                     gui,
@@ -1659,6 +1792,43 @@ impl Parse for CommandSignature {
             }
             parameters.push(content.parse()?);
         }
+
+        // A `multiple` argument consumes every remaining action parameter, so any argument
+        // declared after it can never receive one: it would silently take its default, or report
+        // "missing" for a value the caller did supply. Reject the declaration instead.
+        //
+        // Injected arguments and `context` are exempt - neither consumes a query parameter, so
+        // neither is starved.
+        //
+        // This is VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, closed at compile time for
+        // macro-registered commands. Hand-built `CommandMetadata` remains unguarded.
+        let mut variadic: Option<&syn::Ident> = None;
+        for parameter in parameters.iter() {
+            match parameter {
+                CommandParameter::Param {
+                    name,
+                    injected,
+                    multiple,
+                    ..
+                } => {
+                    if let Some(variadic_name) = variadic {
+                        if !*injected {
+                            return Err(syn::Error::new(
+                                name.span(),
+                                format!(
+                                    "argument `{name}` follows the `multiple` argument \
+                                     `{variadic_name}` and can never receive a value"
+                                ),
+                            ));
+                        }
+                    } else if *multiple {
+                        variadic = Some(name);
+                    }
+                }
+                CommandParameter::Context => {}
+            }
+        }
+
         input.parse::<syn::Token![->]>()?;
         let result_type = input.parse()?;
 
@@ -1976,6 +2146,7 @@ mod tests {
             name: parse_quote! { a },
             ty: parse_quote! { i32 },
             injected: false,
+            multiple: false,
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
@@ -1993,6 +2164,7 @@ mod tests {
             name: parse_quote! { a },
             ty: parse_quote! { Option<i32> },
             injected: false,
+            multiple: false,
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
@@ -2010,6 +2182,7 @@ mod tests {
             name: parse_quote! { a },
             ty: parse_quote! { f64 },
             injected: false,
+            multiple: false,
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
@@ -2027,6 +2200,7 @@ mod tests {
             name: parse_quote! { a },
             ty: parse_quote! { Option<f64> },
             injected: false,
+            multiple: false,
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
@@ -2044,6 +2218,7 @@ mod tests {
             name: parse_quote! { a },
             ty: parse_quote! { String },
             injected: false,
+            multiple: false,
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
@@ -2061,6 +2236,7 @@ mod tests {
             name: parse_quote! { a },
             ty: parse_quote! { Value },
             injected: false,
+            multiple: false,
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
@@ -2288,6 +2464,170 @@ mod tests {
         assert!(info_string.contains("\"abc/def\""));
         assert!(info_string
             .contains("argument_type : liquers_core :: command_metadata :: ArgumentType :: Any"));
+    }
+
+    /// Tests for variadic (`multiple`) argument declarations.
+    ///
+    /// See `specs/design/variadic-arguments-declaration/`. Every check lives in `impl Parse`,
+    /// so `syn::parse2` reaches it and the messages can be asserted directly - no `trybuild`
+    /// dependency and no `.stderr` fixtures to keep in sync.
+    mod variadic {
+        use super::*;
+
+        fn parse_err(ts: proc_macro2::TokenStream) -> String {
+            match syn::parse2::<CommandSignature>(ts) {
+                Ok(_) => panic!("declaration must not parse"),
+                Err(e) => e.to_string(),
+            }
+        }
+
+        fn registration_of(ts: proc_macro2::TokenStream) -> String {
+            let mut sig: CommandSignature =
+                syn::parse2(ts).expect("declaration must parse");
+            sig.wrapper_version = WrapperVersion::V2;
+            fuzzy(&sig.command_registration().to_string())
+        }
+
+        /// U7-U9 - a variadic declaration produces the right metadata and the right accessor.
+        #[test]
+        fn generates_multiple_metadata_and_accessor() {
+            let tokens = registration_of(quote! {
+                fn select_columns(state, columns: Vec<String> multiple) -> result
+            });
+
+            assert!(tokens.contains("multiple:true"), "tokens: {tokens}");
+            assert!(
+                tokens.contains("ArgumentType::String"),
+                "argument type must come from the ELEMENT type, not be Any: {tokens}"
+            );
+            assert!(
+                tokens.contains("arguments.get_multiple(0usize,\"columns\")?"),
+                "tokens: {tokens}"
+            );
+            assert!(
+                !tokens.contains("arguments.get(0usize,\"columns\")?"),
+                "must not use `get`: {tokens}"
+            );
+        }
+
+        /// The element type drives `ArgumentType`, which is what makes a non-string variadic
+        /// argument work at all: `from_string` parses each parameter through it.
+        #[test]
+        fn element_type_drives_argument_type() {
+            let ints = registration_of(quote! {
+                fn pick_rows(state, rows: Vec<i64> multiple) -> result
+            });
+            assert!(ints.contains("ArgumentType::Integer"), "tokens: {ints}");
+
+            let floats = registration_of(quote! {
+                fn scale(state, factors: Vec<f64> multiple) -> result
+            });
+            assert!(floats.contains("ArgumentType::Float"), "tokens: {floats}");
+        }
+
+        /// U10 - the non-variadic path is untouched. Guards the claim that every existing
+        /// `register_command!` invocation expands identically.
+        #[test]
+        fn scalar_expansion_is_unchanged() {
+            let tokens = registration_of(quote! {
+                fn test_fn(state, a: i32) -> result
+                label: "Test label"
+            });
+
+            assert!(tokens.contains("multiple:false"), "tokens: {tokens}");
+            assert!(tokens.contains("arguments.get(0usize,\"a\")?"), "tokens: {tokens}");
+            assert!(!tokens.contains("get_multiple"), "tokens: {tokens}");
+        }
+
+        /// U11 - `multiple` needs a container type. The most likely mistake when converting an
+        /// existing command, so the message renders the declared type and suggests the fix.
+        #[test]
+        fn rejects_non_container_type() {
+            let m = parse_err(quote! { fn f(state, columns: String multiple) -> result });
+            assert!(m.contains("container"), "{m}");
+            assert!(m.contains("Vec<String>"), "must suggest the fix: {m}");
+        }
+
+        /// U12 - unknown flags are rejected. Before this, any identifier was parsed and compared
+        /// to "injected", so a typo was silently discarded.
+        #[test]
+        fn rejects_unknown_flag() {
+            let m = parse_err(quote! { fn f(state, columns: Vec<String> multipel) -> result });
+            assert!(m.contains("multipel"), "{m}");
+            assert!(m.contains("injected"), "must name the valid flags: {m}");
+            assert!(m.contains("multiple"), "must name the valid flags: {m}");
+        }
+
+        /// U13 - mutually exclusive: an injected argument consumes no query parameters.
+        #[test]
+        fn rejects_injected_and_multiple_together() {
+            let m = parse_err(quote! { fn f(state, c: Vec<String> injected multiple) -> result });
+            assert!(m.contains("injected") && m.contains("multiple"), "{m}");
+
+            let m = parse_err(quote! { fn f(state, c: Vec<String> multiple injected) -> result });
+            assert!(m.contains("injected") && m.contains("multiple"), "{m}");
+        }
+
+        /// U14 - a repeated flag.
+        #[test]
+        fn rejects_duplicate_flag() {
+            let m = parse_err(quote! { fn f(state, c: Vec<String> multiple multiple) -> result });
+            assert!(m.to_lowercase().contains("duplicate"), "{m}");
+        }
+
+        /// U15 - a variadic argument defaults to the empty list and can carry no other default.
+        #[test]
+        fn rejects_default_on_variadic() {
+            let m = parse_err(quote! { fn f(state, c: Vec<String> multiple = "x") -> result });
+            assert!(m.contains("default"), "{m}");
+            assert!(m.contains("empty list"), "must say what the default IS: {m}");
+        }
+
+        /// U16 - VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, caught at compile time. Reports on
+        /// the starved argument, because that is where the author must edit.
+        #[test]
+        fn rejects_argument_after_variadic() {
+            let m = parse_err(quote! { fn f(state, a: Vec<String> multiple, b: i32) -> result });
+            assert!(m.contains("`b`"), "must name the starved argument: {m}");
+            assert!(m.contains("`a`"), "must name the variadic argument: {m}");
+        }
+
+        /// U17 - the exemptions. Neither an injected argument nor `context` consumes a query
+        /// parameter, so neither is starved by a preceding variadic argument.
+        #[test]
+        fn injected_and_context_may_follow_a_variadic() {
+            let ok = syn::parse2::<CommandSignature>(quote! {
+                fn f(state, a: Vec<String> multiple, p: MyPayload injected, context) -> result
+            });
+            assert!(ok.is_ok(), "err: {:?}", ok.err().map(|e| e.to_string()));
+
+            // ...and a plain argument after the injected one is still rejected.
+            let m = parse_err(quote! {
+                fn f(state, a: Vec<String> multiple, p: MyPayload injected, b: i32) -> result
+            });
+            assert!(m.contains("`b`"), "{m}");
+        }
+
+        /// `variadic_element_type` recognises `Vec<T>` and nothing else.
+        #[test]
+        fn element_type_helper_recognises_vec_only() {
+            let vec_ty: syn::Type = parse_quote! { Vec<String> };
+            assert!(variadic_element_type(&vec_ty).is_some());
+
+            for ty in [
+                parse_quote! { String },
+                parse_quote! { Option<String> },
+                parse_quote! { VecDeque<String> },
+                parse_quote! { Vec<String, Global> },
+            ] {
+                let ty: syn::Type = ty;
+                assert!(
+                    variadic_element_type(&ty).is_none(),
+                    "unexpectedly accepted {}",
+                    quote! { #ty }
+                );
+            }
+        }
     }
 
     fn fuzzy(s: &str) -> String {

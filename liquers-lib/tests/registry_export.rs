@@ -177,3 +177,45 @@ async fn committed_registry_is_fresh() -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// I6 — `multiple: true` together with an element-derived `argument_type` is a serde combination
+/// that had never existed in an exported registry before variadic arguments became declarable
+/// (`grep multiple specs/command_registry.yaml` returned nothing). Both fields are independently
+/// skipped when at their default, so this confirms the *pairing* survives, not each field alone.
+///
+/// It also pins the element-type inference end to end: `Vec<String>` must export as
+/// `argument_type: string`, not `any`. If it exported as `any`, `ParameterValue::from_string`
+/// would hand every element to the command as a JSON string.
+///
+/// See specs/design/variadic-arguments-declaration/.
+#[tokio::test]
+async fn variadic_argument_round_trips_through_the_registry() -> Result<(), Error> {
+    let registry = full_registry()?;
+    let key = CommandKey::new("", "pl", "select_columns");
+
+    let before = registry
+        .get(key.clone())
+        .expect("pl/select_columns is registered");
+    let before_argument = &before.arguments[0];
+    assert!(
+        before_argument.multiple,
+        "pl/select_columns must declare a variadic argument"
+    );
+    assert_eq!(before_argument.argument_type, ArgumentType::String);
+
+    let yaml = serde_yaml::to_string(&registry)
+        .map_err(|e| Error::general_error(format!("could not serialize the registry: {e}")))?;
+    let after: CommandMetadataRegistry = from_json_or_yaml("round-trip", &yaml)?;
+
+    let after_argument = &after
+        .get(key.clone())
+        .expect("pl/select_columns survives the round trip")
+        .arguments[0];
+    assert!(after_argument.multiple, "`multiple` must survive the round trip");
+    assert_eq!(
+        after_argument.argument_type,
+        ArgumentType::String,
+        "the element type must survive the round trip"
+    );
+    Ok(())
+}

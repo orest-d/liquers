@@ -10,20 +10,28 @@ use super::util::{check_column_exists, try_to_polars_dataframe};
 /// Select specific columns by name
 ///
 /// Arguments:
-/// - columns: Column names separated by dashes (e.g., "col1-col2-col3")
+/// - columns: variadic - one column name per parameter, e.g. `select_columns-date-amount`.
+///   A column name containing a dash is escaped: `select_columns-a~_b` is a single parameter
+///   and selects the one column named `a-b`.
 #[liquers_macro::command_version]
-pub fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
+pub fn select_columns(state: &State<Value>, columns: Vec<String>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
-    let col_names: Vec<&str> = columns.split('-').map(|s| s.trim()).collect();
+    // A variadic argument defaults to the empty list, so an empty selection is well-formed at
+    // plan level. Only the command knows it needs at least one column.
+    if columns.is_empty() {
+        return Err(Error::general_error(
+            "select_columns requires at least one column name".to_string(),
+        ));
+    }
 
     // Validate all columns exist
-    for col in &col_names {
+    for col in &columns {
         check_column_exists(&df, col)?;
     }
 
     let result = df
-        .select(col_names)
+        .select(&columns)
         .map_err(|e| Error::general_error(format!("Failed to select columns: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -32,20 +40,27 @@ pub fn select_columns(state: &State<Value>, columns: String) -> Result<Value, Er
 /// Drop specific columns by name
 ///
 /// Arguments:
-/// - columns: Column names separated by dashes (e.g., "col1-col2")
+/// - columns: variadic - one column name per parameter, e.g. `drop_columns-notes-internal`.
+///   A column name containing a dash is escaped: `drop_columns-a~_b` is a single parameter
+///   and drops the one column named `a-b`.
 #[liquers_macro::command_version]
-pub fn drop_columns(state: &State<Value>, columns: String) -> Result<Value, Error> {
+pub fn drop_columns(state: &State<Value>, columns: Vec<String>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
 
-    let col_names: Vec<&str> = columns.split('-').map(|s| s.trim()).collect();
+    // See select_columns: the plan builder cannot reject an empty variadic argument.
+    if columns.is_empty() {
+        return Err(Error::general_error(
+            "drop_columns requires at least one column name".to_string(),
+        ));
+    }
 
     // Validate all columns exist
-    for col in &col_names {
+    for col in &columns {
         check_column_exists(&df, col)?;
     }
 
     // drop_many returns DataFrame, not Result
-    let result = (*df).clone().drop_many(col_names);
+    let result = (*df).clone().drop_many(&columns);
 
     Ok(Value::from_polars_dataframe(result))
 }
@@ -102,19 +117,19 @@ macro_rules! register_polars_selection_commands {
         use $crate::polars::selection::*;
 
         register_command!($cr,
-            fn select_columns(state, columns: String) -> result
+            fn select_columns(state, columns: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Select columns"
-            doc: "Select columns by name (separated by dashes)"
+            doc: "Select columns by name, one parameter per column"
 
         version: auto
         )?;
 
         register_command!($cr,
-            fn drop_columns(state, columns: String) -> result
+            fn drop_columns(state, columns: Vec<String> multiple) -> result
             namespace: "pl"
             label: "Drop columns"
-            doc: "Remove columns by name (separated by dashes)"
+            doc: "Remove columns by name, one parameter per column"
 
         version: auto
         )?;
