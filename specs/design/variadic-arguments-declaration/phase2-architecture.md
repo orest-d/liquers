@@ -181,8 +181,26 @@ let injected = if input.peek(syn::Ident) {
 } else { false };
 ```
 
-with a loop accepting `injected` and `multiple` in either order, rejecting anything else with a
-`syn::Error` on the offending identifier's span, and rejecting a repeat of either flag.
+with a loop that accepts a flag identifier, rejects anything else with a `syn::Error` on the
+offending identifier's span, and rejects a repeat or a combination.
+
+**`multiple` occupies exactly the position `injected` already occupies** — immediately after the
+type, before any `= default` and before the parenthesised metadata. Verified rather than assumed:
+the current parser reads the flag after `let ty: syn::Type = input.parse()?` (`:1563-1568`); the
+FSD grammar is `<name>: <Type> [injected] [= <default_value>] [(…)]`
+(`REGISTER_COMMAND_FSD.md:102`); and every call site in the workspace writes it that way —
+`payload: TestPayload injected`, `user_id: UserId injected`
+(`liquers-core/tests/injection.rs:313`, `:333`, `:355`, `:379`, `:539`, and eleven more). There is
+no pre-name form anywhere. So the grammar becomes
+
+```
+<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", gui: ..., ...)]
+```
+
+Since the two flags are mutually exclusive, **at most one ever appears**, and the position is
+literally the same slot rather than merely an analogous one. The parser still loops so that
+`injected multiple` and `multiple multiple` get their own messages instead of a confusing parse
+failure at the following comma.
 
 Peeking a bare `Ident` here is unambiguous, and the reason is worth recording because the enclosing
 macro *does* use bare identifiers for something else. `CommandParameter::parse` reads from
@@ -209,12 +227,23 @@ impl CommandParameter {
 New private helper:
 
 ```rust
-/// Returns the element type of `Vec<T>`, or `None` for any other type.
-fn vec_element_type(ty: &syn::Type) -> Option<&syn::Type>;
+/// Returns the element type of a container a `multiple` argument may be declared as.
+///
+/// Recognises `Vec<T>` today. This is the single place a future container type
+/// (`VecDeque<T>`, `SmallVec<T>`, …) is added: every `multiple`-related check and
+/// emission asks this function rather than testing for `Vec` itself.
+fn variadic_element_type(ty: &syn::Type) -> Option<&syn::Type>;
 ```
 
 Matches `syn::Type::Path` with a single segment `Vec` and one angle-bracketed type argument —
 the same shape the existing `is_option_of` (`:583`) uses for `Option`.
+
+**Named for the concept, not the container, deliberately.** `multiple` requires *a container*; that
+it is spelled `Vec` today is an implementation fact, not the rule. Three call sites consult this
+helper — the type check, the `ArgumentType` inference, and nothing else — so admitting a second
+container later is a one-function change with no search for stray `== "Vec"` comparisons. Adding
+one is not proposed here and needs its own decision (`get_multiple` returns `Vec<T>`, so any other
+container needs either a `FromIterator` bound or its own accessor).
 
 **Why the element type matters beyond metadata.** `pop_value`'s variadic branch converts each
 action parameter through `ParameterValue::from_string(arginfo, s, pos)` (`plan.rs:741`), which
@@ -227,12 +256,23 @@ arguments work at all.
 
 Four malformed declarations, each a `syn::Error` at the right span:
 
-| Declaration | Message |
-|---|---|
-| `a: i32 foobar` | ``Unknown argument flag `foobar`; expected `injected` or `multiple` `` |
-| `a: String multiple` | ```multiple` requires a `Vec<T>` parameter type `` |
-| `a: Vec<String> injected multiple` | ```injected` and `multiple` cannot be combined`` |
-| `a: Vec<String> multiple = "x"` | ``a `multiple` argument cannot have a default value; it defaults to the empty list`` |
+Each message names the offending token and says what was expected, rather than only what was
+wrong — a macro error is the only feedback the author gets, and `syn::Error::new` carries the span
+that highlights the right token.
+
+| Declaration | Span | Message |
+|---|---|---|
+| `a: i32 foobar` | `foobar` | ``unknown argument flag `foobar`; expected `injected` or `multiple` `` |
+| `a: String multiple` | the type | ``a `multiple` argument must have a container type; `String` is not one. Expected `Vec<String>` `` |
+| `a: Vec<String> injected multiple` | second flag | ``an argument cannot be both `injected` and `multiple`: an injected argument consumes no query parameters`` |
+| `a: Vec<String> multiple multiple` | second flag | ``duplicate argument flag `multiple` `` |
+| `a: Vec<String> multiple = "x"` | the `=` | ``a `multiple` argument cannot have a default value; it defaults to the empty list`` |
+| `multiple` not last | the starved argument | ``argument `b` follows the `multiple` argument `a` and can never receive a value`` |
+
+The second message is generated, not fixed text: it renders the declared type
+(`quote!(#ty).to_string()`) and suggests the `Vec<…>` form of it, so the author is shown the exact
+edit. This is the check the user asked for explicitly, and it is the one most likely to be hit —
+`columns: String multiple` is the natural mistake when converting an existing command.
 
 The first is the pre-existing silent-typo hazard the issue named, and fixing it is a prerequisite
 for the rest: without it, `multiple` misspelled is `injected`-shaped nonsense that compiles.
@@ -338,7 +378,7 @@ such usage.
 
 | Path | Change |
 |---|---|
-| `specs/reference/REGISTER_COMMAND_FSD.md` (`reviewed:` is `overdue`) | Argument grammar (`:102`) gains `[multiple]`; attribute table (`:109`) gains a `multiple` row; generated-`ArgumentInfo` example (`:388`) shows `multiple` as variable; new subsection stating the four compile-time rejections, the ordering rule, the element-type inference, and that a variadic argument takes no default. Audience: internal. Area: `macro`, `core/commands` |
+| `specs/reference/REGISTER_COMMAND_FSD.md` (`reviewed:` is `overdue`) | Argument grammar (`:102`) becomes `[injected | multiple]`, showing the shared slot and the mutual exclusion; attribute table (`:109`) gains a `multiple` row; generated-`ArgumentInfo` example (`:388`) shows `multiple` as variable; new subsection stating the four compile-time rejections, the ordering rule, the element-type inference, and that a variadic argument takes no default. Audience: internal. Area: `macro`, `core/commands` |
 | `specs/reference/POLARS_COMMAND_LIBRARY.md` | Revert the `~_` spelling introduced by `design/excess-action-parameters-error/` at `:60`, `:83`, `:84`, `:86`, `:263`, `:275`, `:468`, `:711`, `:793` to the plain `select_columns-date-amount-status` form. The arity-error note (`:90-94`) is replaced: `a-b` is now two columns, and `a~_b` is how you name one column that contains a dash. Update the worked example at `:394`. Area: `lib/polars` |
 
 Both need a `## History` row and a `reviewed:` bump in the same commit (§9.2).
