@@ -6039,7 +6039,7 @@ mod tests {
                 &Metadata::MetadataRecord(
                     MetadataRecord::new()
                         .with_key(key.clone())
-                        .with_type_identifier("text".to_owned())
+                        .with_type_identifier("Text".to_owned())
                         .with_status(Status::Source)
                         .clone(),
                 ),
@@ -6077,7 +6077,7 @@ mod tests {
                 &Metadata::MetadataRecord(
                     MetadataRecord::new()
                         .with_key(key.clone())
-                        .with_type_identifier("text".to_owned())
+                        .with_type_identifier("Text".to_owned())
                         .with_status(Status::Submitted)
                         .clone(),
                 ),
@@ -6105,7 +6105,7 @@ mod tests {
             .set(&key, &raw, &{
                 let mut metadata = MetadataRecord::new();
                 metadata.with_key(key.clone());
-                metadata.with_type_identifier("bytes".to_owned());
+                metadata.with_type_identifier("Bytes".to_owned());
                 // Intentionally inconsistent with bytes type to assert from_bytes path.
                 metadata.data_format = Some("txt".to_owned());
                 metadata.with_status(Status::Override);
@@ -6132,7 +6132,7 @@ mod tests {
             .set(&key, b"not valid json", &{
                 let mut metadata = MetadataRecord::new();
                 metadata.with_key(key.clone());
-                metadata.with_type_identifier("text".to_owned());
+                metadata.with_type_identifier("Text".to_owned());
                 metadata.data_format = Some("json".to_owned());
                 metadata.with_status(Status::Ready);
                 Metadata::MetadataRecord(metadata)
@@ -7315,7 +7315,7 @@ recipes:
         let key = parse_key("test/set_source").unwrap();
         let binary = b"test data".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
 
@@ -7341,7 +7341,7 @@ recipes:
         let key = parse_key("test/set_expired").unwrap();
         let binary = b"expired data".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
         metadata.status = Status::Expired;
@@ -7364,7 +7364,7 @@ recipes:
         let key = parse_key("test/set_error").unwrap();
         let binary = b"this should not be stored".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
         metadata.status = Status::Error;
@@ -7612,7 +7612,7 @@ recipes:
 
         let key = parse_key("test/stale_expired_key.txt").unwrap();
         let mut stored = MetadataRecord::new();
-        stored.type_identifier = "text".to_string();
+        stored.type_identifier = "Text".to_string();
         stored.type_name = "text".to_string();
         stored.data_format = Some("txt".to_string());
         stored.status = Status::Source;
@@ -7727,7 +7727,7 @@ recipes:
         let key = parse_key("test/to_remove").unwrap();
         let binary = b"to be removed".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
 

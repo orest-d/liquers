@@ -35,7 +35,7 @@ fn source_metadata(key: &Key) -> Metadata {
     let mut record = MetadataRecord::new();
     record
         .with_key(key.clone())
-        .with_type_identifier("text".to_owned())
+        .with_type_identifier("Text".to_owned())
         .with_status(Status::Source);
     Metadata::MetadataRecord(record)
 }

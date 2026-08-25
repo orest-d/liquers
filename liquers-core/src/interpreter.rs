@@ -920,7 +920,7 @@ mod tests {
             metadata
                 .with_key(key.clone())
                 .with_status(Status::Source)
-                .with_type_identifier("text".to_owned());
+                .with_type_identifier("Text".to_owned());
             store
                 .set(&key, value.as_bytes(), &Metadata::MetadataRecord(metadata))
                 .await?;
@@ -1176,7 +1176,7 @@ mod tests {
             metadata
                 .with_key(key.clone())
                 .with_status(Status::Source)
-                .with_type_identifier("text".to_owned());
+                .with_type_identifier("Text".to_owned());
             store
                 .set(&key, value.as_bytes(), &Metadata::MetadataRecord(metadata))
                 .await?;

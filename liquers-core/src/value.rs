@@ -186,6 +186,37 @@ pub trait ValueInterface:
     /// Try into command metadata
     fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error>;
 
+    /// Whether *this* value can be serialized in `data_format`.
+    ///
+    /// Answered without a registry, so `State::as_bytes` and the state-level checks need no
+    /// `Environment`. The default consults [`ValueInterface::type_info`], which is correct for
+    /// any implementor whose descriptions are accurate.
+    fn supports_data_format(&self, data_format: &str) -> bool {
+        self.type_info().supports_data_format(data_format)
+    }
+
+    /// The description of this value's type.
+    ///
+    /// The default finds it among [`ValueInterface::type_descriptions`] by identifier, and falls
+    /// back to a minimal description built from this value's own defaults so that an implementor
+    /// which describes nothing still reports something coherent.
+    fn type_info(&self) -> crate::type_system::TypeInfo {
+        let identifier = self.identifier();
+        Self::type_descriptions()
+            .into_iter()
+            .find(|info| info.type_identifier == identifier)
+            .unwrap_or_else(|| {
+                crate::type_system::TypeInfo::new(identifier)
+                    .with_type_name(self.type_name())
+                    .with_defaults(
+                        self.default_data_format(),
+                        self.default_extension(),
+                        self.default_media_type(),
+                        self.default_filename(),
+                    )
+            })
+    }
+
     /// Static self-description of every type this value type can hold.
     ///
     /// Seeds a [`crate::type_system::TypeRegistry`]. The default is empty: an implementor that
@@ -367,23 +398,103 @@ impl ValueInterface for Value {
         Ok(Value::Object(values))
     }
 
+    fn type_descriptions() -> Vec<crate::type_system::TypeInfo> {
+        use crate::type_system::TypeInfo;
+        // `supported_data_formats` lists the formats a value of this type can be **written** in,
+        // which is what the write path checks. Reading back is narrower in two places, recorded
+        // rather than hidden: `None` written as text produces `none`, which the text branch has
+        // no rule to parse; and `Text` written as bytes reads back as `Bytes`. Both are
+        // legitimate writes, so both stay in the list.
+        const TEXTUAL: [&str; 7] = ["txt", "html", "css", "js", "py", "rs", "json"];
+        vec![
+            TypeInfo::new("None")
+                .with_type_name("none")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(TEXTUAL),
+            TypeInfo::new("Bool")
+                .with_type_name("bool")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(TEXTUAL),
+            TypeInfo::new("I32")
+                .with_type_name("i32")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(TEXTUAL),
+            TypeInfo::new("I64")
+                .with_type_name("i64")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(TEXTUAL),
+            TypeInfo::new("F64")
+                .with_type_name("f64")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(TEXTUAL),
+            TypeInfo::new("Text")
+                .with_type_name("text")
+                .with_defaults("txt", "txt", "text/plain", "text.txt")
+                .with_data_formats(TEXTUAL)
+                .with_data_formats(["b", "bin", "bytes"]),
+            TypeInfo::new("Array")
+                .with_type_name("array")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Object")
+                .with_type_name("object")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Bytes")
+                .with_type_name("bytes")
+                .with_defaults("b", "b", "application/octet-stream", "binary.b")
+                .with_data_formats(["b", "bin", "bytes", "json"]),
+            TypeInfo::new("Metadata")
+                .with_type_name("metadata")
+                .with_defaults("json", "json", "application/json", "metadata.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("AssetInfo")
+                .with_type_name("asset_info")
+                .with_defaults("json", "json", "application/json", "asset_info.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Recipe")
+                .with_type_name("recipe")
+                .with_defaults("json", "json", "application/json", "recipe.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("CommandMetadata")
+                .with_type_name("command_metadata")
+                .with_defaults("json", "json", "application/json", "command_metadata.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Query")
+                .with_type_name("query")
+                .with_defaults("txt", "txt", "text/plain", "query.txt")
+                .with_data_formats(TEXTUAL),
+            TypeInfo::new("Key")
+                .with_type_name("key")
+                .with_defaults("txt", "txt", "text/plain", "key.txt")
+                .with_data_formats(TEXTUAL),
+        ]
+    }
+
     fn identifier(&self) -> Cow<'static, str> {
+        // Bare CamelCase names: `liquers-core` owns every one of these concepts, and a bare
+        // identifier is reserved for exactly that. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
+        //
+        // These changed from the previous scheme, in which five distinct variants all reported
+        // `"generic"` while the deserializer branched on `"i32"`/`"i64"`/`"f64"`/`"bool"` — so an
+        // integer written as text read back as text, silently. Stored identifiers written by an
+        // older build are deliberately not migrated.
         match self {
-            Value::None => "generic".into(),
-            Value::Bool(_) => "generic".into(),
-            Value::I32(_) => "generic".into(),
-            Value::I64(_) => "generic".into(),
-            Value::F64(_) => "generic".into(),
-            Value::Text(_) => "text".into(),
-            Value::Array(_) => "generic".into(),
-            Value::Object(_) => "dictionary".into(),
-            Value::Bytes(_) => "bytes".into(),
-            Value::Metadata(_) => "metadata".into(),
-            Value::AssetInfo(_) => "asset_info".into(),
-            Value::Recipe(_) => "recipe".into(),
-            Value::CommandMetadata(_) => "command_metadata".into(),
-            Value::Query(_) => "query".into(),
-            Value::Key(_) => "key".into(),
+            Value::None => "None".into(),
+            Value::Bool(_) => "Bool".into(),
+            Value::I32(_) => "I32".into(),
+            Value::I64(_) => "I64".into(),
+            Value::F64(_) => "F64".into(),
+            Value::Text(_) => "Text".into(),
+            Value::Array(_) => "Array".into(),
+            Value::Object(_) => "Object".into(),
+            Value::Bytes(_) => "Bytes".into(),
+            Value::Metadata(_) => "Metadata".into(),
+            Value::AssetInfo(_) => "AssetInfo".into(),
+            Value::Recipe(_) => "Recipe".into(),
+            Value::CommandMetadata(_) => "CommandMetadata".into(),
+            Value::Query(_) => "Query".into(),
+            Value::Key(_) => "Key".into(),
         }
     }
 
@@ -866,28 +977,45 @@ impl DefaultValueSerializer for Value {
         data_format: &str,
     ) -> Result<Self, Error> {
         match data_format {
-            "json" => serde_json::from_slice(b).map_err(|e| {
-                Error::new(
-                    ErrorType::SerializationError,
-                    format!("JSON error in from_bytes:{}", e),
-                )
-            }),
+            // `Value` is `#[serde(untagged)]`, so JSON alone cannot always say which variant it
+            // came from: `Value::Bytes(vec![1, 2, 3])` serializes to `[1, 2, 3]` and reads back as
+            // `Value::Array`. The declared type identifier is exactly the discriminator serde
+            // lacks, so it is consulted for the ambiguous variants before falling back to shape
+            // inference. See `specs/issues/COMBINED-VALUE-DISCRIMINATION.md`.
+            "json" => match type_identifier {
+                "Bytes" => serde_json::from_slice::<Vec<u8>>(b)
+                    .map(Value::Bytes)
+                    .map_err(|e| {
+                        Error::from_error(
+                            ErrorType::SerializationError,
+                            format!("JSON error reading Bytes in from_bytes: {}", e),
+                        )
+                    }),
+                _ => serde_json::from_slice(b).map_err(|e| {
+                    Error::from_error(
+                        ErrorType::SerializationError,
+                        format!("JSON error in from_bytes:{}", e),
+                    )
+                }),
+            },
             "txt" | "html" | "rs" | "py" | "css" | "js" => {
                 let s = String::from_utf8_lossy(b);
                 match type_identifier {
+                    // An empty identifier means "not known"; text is the only safe assumption.
                     "" => Ok(Value::Text(s.to_string())),
-                    "generic" => Ok(Value::Text(s.to_string())),
-                    "text" => Ok(Value::Text(s.to_string())),
-                    "i32" => s.parse::<i32>().map(Value::I32).map_err(|e| {
+                    "Text" => Ok(Value::Text(s.to_string())),
+                    "I32" => s.parse::<i32>().map(Value::I32).map_err(|e| {
                         Error::conversion_error_with_message(&s, "i32", &e.to_string())
                     }),
-                    "i64" => s.parse::<i64>().map(Value::I64).map_err(|e| {
+                    "I64" => s.parse::<i64>().map(Value::I64).map_err(|e| {
                         Error::conversion_error_with_message(&s, "i64", &e.to_string())
                     }),
-                    "f64" => s.parse::<f64>().map(Value::F64).map_err(|e| {
+                    "F64" => s.parse::<f64>().map(Value::F64).map_err(|e| {
                         Error::conversion_error_with_message(&s, "f64", &e.to_string())
                     }),
-                    "bool" => Value::from_bool_str(&s),
+                    "Bool" => Value::from_bool_str(&s),
+                    "Query" => crate::parse::parse_query(&s).map(Value::Query),
+                    "Key" => crate::parse::parse_key(&s).map(Value::Key),
                     _ => Err(Error::new(
                         ErrorType::SerializationError,
                         format!(
@@ -916,7 +1044,7 @@ mod tests {
         let v = Value::I32(123);
         let b = v.as_bytes("json")?;
         eprintln!("Serialized    {:?}: {}", v, std::str::from_utf8(&b)?);
-        let w: Value = DefaultValueSerializer::deserialize_from_bytes(&b, "generic", "json")?;
+        let w: Value = DefaultValueSerializer::deserialize_from_bytes(&b, "I32", "json")?;
         eprintln!("De-Serialized {:?}", w);
         Ok(())
     }
@@ -1000,5 +1128,123 @@ mod tests {
         let json = v.try_into_json_value()?;
         assert_eq!(json, serde_json::json!([1, 2, 3]));
         Ok(())
+    }
+
+    /// `vts7.1` — every variant's identifier has a description, and they agree.
+    #[test]
+    fn type_descriptions_match_identifier() {
+        let samples = sample_values();
+        let descriptions = Value::type_descriptions();
+        for value in &samples {
+            let identifier = value.identifier();
+            let info = descriptions
+                .iter()
+                .find(|info| info.type_identifier == identifier)
+                .unwrap_or_else(|| panic!("no description for identifier {identifier:?}"));
+            assert_eq!(info.type_name, value.type_name());
+            assert_eq!(info.default_extension, value.default_extension());
+            assert_eq!(info.default_media_type, value.default_media_type());
+            assert_eq!(info.default_filename, value.default_filename());
+        }
+        assert_eq!(
+            descriptions.len(),
+            samples.len(),
+            "one description per variant, no more and no less"
+        );
+    }
+
+    /// `vts7.2` — a value round-trips through its own declared identifier.
+    ///
+    /// **This test fails before the identifier change.** `Value::I32(7).identifier()` used to be
+    /// `"generic"` while the text deserializer branched on `"i32"`, so an integer written as text
+    /// came back as `Value::Text("7")` — silent corruption, and the substance of
+    /// `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`.
+    #[test]
+    fn scalar_identifiers_round_trip_through_the_serializer(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Formats that round-trip, which is narrower than what a type may be *written* as: `None`
+        // as text produces `none`, which the text branch has no rule to read, and `Text` as bytes
+        // legitimately reads back as `Bytes`.
+        let cases: Vec<(Value, &[&str])> = vec![
+            (Value::None, &["json"]),
+            (Value::Bool(true), &["json", "txt"]),
+            (Value::I32(7), &["json", "txt"]),
+            (Value::I64(-9_000_000_000), &["json", "txt"]),
+            (Value::F64(2.5), &["json", "txt"]),
+            (Value::Text("hello".to_string()), &["json", "txt", "html"]),
+            (Value::Bytes(vec![1, 2, 3]), &["json", "b"]),
+        ];
+        for (value, formats) in cases {
+            let identifier = value.identifier();
+            for format in formats {
+                assert!(
+                    value.supports_data_format(format),
+                    "{identifier} must declare support for {format}"
+                );
+                let bytes = value.as_bytes(format)?;
+                let back: Value =
+                    DefaultValueSerializer::deserialize_from_bytes(&bytes, &identifier, format)?;
+                assert_eq!(
+                    back.identifier(),
+                    identifier,
+                    "{identifier} written as {format} must read back as the same type"
+                );
+                assert_eq!(back, value, "{identifier} as {format} must round-trip");
+            }
+        }
+        Ok(())
+    }
+
+    /// `vts7.3` — a type must support its own default data format.
+    #[test]
+    fn every_default_is_in_supported_formats() {
+        for info in Value::type_descriptions() {
+            assert!(
+                info.supports_data_format(&info.default_data_format),
+                "{} does not support its own default format {}",
+                info.type_identifier,
+                info.default_data_format
+            );
+        }
+    }
+
+    /// `vts7.4` — the instance method and the registry give the same answer.
+    #[test]
+    fn supports_data_format_agrees_with_the_registry(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let registry = crate::type_system::TypeRegistry::from_value_type::<Value>()?;
+        for value in sample_values() {
+            for format in ["json", "txt", "b", "parquet"] {
+                assert_eq!(
+                    value.supports_data_format(format),
+                    registry.supports_data_format(&value.identifier(), format),
+                    "{} / {format} must agree between value and registry",
+                    value.identifier()
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// One value per `Value` variant. A new variant makes this fail to compile, which is the
+    /// point: the description list must grow with the enum.
+    fn sample_values() -> Vec<Value> {
+        vec![
+            Value::None,
+            Value::Bool(true),
+            Value::I32(1),
+            Value::I64(1),
+            Value::F64(1.0),
+            Value::Text(String::new()),
+            Value::Array(Vec::new()),
+            Value::Object(BTreeMap::new()),
+            Value::Bytes(Vec::new()),
+            Value::Metadata(MetadataRecord::new()),
+            Value::AssetInfo(Vec::new()),
+            Value::Recipe(Recipe::default()),
+            Value::CommandMetadata(CommandMetadata::new("test")),
+            Value::Query(crate::query::Query::new()),
+            Value::Key(crate::query::Key::new()),
+        ]
     }
 }

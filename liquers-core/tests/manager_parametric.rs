@@ -94,7 +94,7 @@ async fn stored_text_store(include_recipe: bool) -> Result<AsyncMemoryStore, Err
             &Metadata::MetadataRecord(
                 liquers_core::metadata::MetadataRecord::new()
                     .with_key(key.clone())
-                    .with_type_identifier("text".to_owned())
+                    .with_type_identifier("Text".to_owned())
                     .with_status(Status::Source)
                     .clone(),
             ),
