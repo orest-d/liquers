@@ -252,6 +252,10 @@ impl<E: Environment> EnvRef<E> {
     pub fn get_command_executor(&self) -> &E::CommandExecutor {
         self.0.get_command_executor()
     }
+    /// Returns the registry of value types this build knows.
+    pub fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        self.0.get_type_registry()
+    }
 
     /// Returns the shared asset manager.
     pub fn get_asset_manager(&self) -> Arc<E::AssetManager> {

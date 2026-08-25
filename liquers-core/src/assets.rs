@@ -538,14 +538,111 @@ fn validate_required_fields(
     Ok(())
 }
 
+/// Whether a media-type override is well formed enough to reach an HTTP header.
+///
+/// A media type is user-controllable by design — it is how a caller shapes a web response — so the
+/// guard is on the *shape* of the string rather than on who may set it. CR and LF are what turn
+/// that freedom into header injection.
+fn validate_media_type_override(key: &Key, media_type: &str) -> Result<(), Error> {
+    if media_type.contains('\r') || media_type.contains('\n') {
+        return Err(Error::general_error(format!(
+            "Media type override must not contain a line break: {media_type:?}"
+        ))
+        .with_key(key));
+    }
+    let mut parts = media_type.splitn(2, '/');
+    let ok = matches!((parts.next(), parts.next()), (Some(t), Some(sub)) if !t.trim().is_empty() && !sub.trim().is_empty());
+    if !ok {
+        return Err(Error::general_error(format!(
+            "Media type override must have the form type/subtype: {media_type:?}"
+        ))
+        .with_key(key));
+    }
+    Ok(())
+}
+
+/// The hard tier: the invariants whose violation makes a stored value unreadable.
+///
+/// The **format** check is skipped for an error state. An errored asset often retains the intended
+/// output's filename — `report.csv` — so its effective format contradicts its `error` identifier,
+/// and its bytes are not a serialization of the declared type in any case. The *identifier* check
+/// still applies, which is why `error` is a registered type.
+///
+/// See `specs/design/value-type-system/phase2-architecture.md`, "Where the invariants are
+/// enforced".
+fn validate_metadata_hard(
+    key: &Key,
+    type_identifier: &str,
+    type_name: &str,
+    effective_data_format: &str,
+    media_type_override: Option<&str>,
+    is_error_state: bool,
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<(), Error> {
+    validate_required_fields(key, type_identifier, type_name)?;
+
+    let Some(info) = registry.get(type_identifier) else {
+        return Err(Error::general_error(format!(
+            "Type identifier '{type_identifier}' is not registered in this build"
+        ))
+        .with_key(key));
+    };
+
+    if !is_error_state && !info.supports_data_format(effective_data_format) {
+        let supported = info
+            .supported_data_formats
+            .iter()
+            .map(|f| f.as_ref())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(Error::from_error(
+            ErrorType::SerializationError,
+            format!(
+                "Type '{type_identifier}' cannot be serialized as '{effective_data_format}'; \
+                 supported formats: [{supported}]"
+            ),
+        )
+        .with_key(key));
+    }
+
+    if let Some(media_type) = media_type_override {
+        validate_media_type_override(key, media_type)?;
+    }
+    Ok(())
+}
+
 /// Hard-tier validation for a `MetadataRecord`.
-fn validate_required_metadata_fields(key: &Key, metadata: &MetadataRecord) -> Result<(), Error> {
-    validate_required_fields(key, &metadata.type_identifier, &metadata.type_name)
+fn validate_required_metadata_fields(
+    key: &Key,
+    metadata: &MetadataRecord,
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<(), Error> {
+    validate_metadata_hard(
+        key,
+        &metadata.type_identifier,
+        &metadata.type_name,
+        &metadata.get_data_format(),
+        metadata.declared_media_type(),
+        metadata.status == Status::Error || metadata.is_error,
+        registry,
+    )
 }
 
 /// Hard-tier validation for the `Metadata` enum, which may hold a legacy document.
-fn validate_required_metadata_fields_enum(key: &Key, metadata: &Metadata) -> Result<(), Error> {
-    validate_required_fields(key, &metadata.type_identifier()?, &metadata.type_name()?)
+fn validate_required_metadata_fields_enum(
+    key: &Key,
+    metadata: &Metadata,
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<(), Error> {
+    validate_metadata_hard(
+        key,
+        &metadata.type_identifier()?,
+        &metadata.type_name()?,
+        &metadata.get_data_format(),
+        None,
+        metadata.status() == Status::Error || metadata.is_error().unwrap_or(false),
+        registry,
+    )
 }
 
 /// Soft-tier warnings for a `MetadataRecord`.
@@ -596,15 +693,25 @@ fn deserialize_stored_value<E: Environment>(
     binary: &[u8],
     type_identifier: &str,
     data_format: &str,
-) -> Result<E::Value, Error> {
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<Option<E::Value>, Error> {
+    // The canonical identifier is `Bytes`; the lowercase spellings are what older stores wrote.
+    // They are read but never produced, and the write path refuses them because they are not
+    // registered — which is what makes this a read-side accommodation rather than an alias.
     if matches!(
         type_identifier.trim().to_ascii_lowercase().as_str(),
         "bytes" | "binary" | "bin" | "b"
     ) {
-        Ok(E::Value::from_bytes(binary.to_vec()))
-    } else {
-        E::Value::deserialize_from_bytes(binary, type_identifier, data_format)
+        return Ok(Some(E::Value::from_bytes(binary.to_vec())));
     }
+    // A type this build does not know is *degraded*, not an error: the bytes and the metadata are
+    // kept verbatim so a minimal build can still copy, proxy and re-store data it cannot
+    // interpret. Asking for a value then fails with an error naming the type. `Ok(None)` is that
+    // degraded outcome.
+    if !type_identifier.trim().is_empty() && !registry.contains(type_identifier) {
+        return Ok(None);
+    }
+    E::Value::deserialize_from_bytes(binary, type_identifier, data_format).map(Some)
 }
 
 impl<E: Environment> AssetData<E> {
@@ -796,12 +903,25 @@ impl<E: Environment> AssetData<E> {
 
                 let type_identifier = metadata.type_identifier()?;
                 let data_format = metadata.get_data_format();
+                let registry_owner = self.get_envref();
                 let value = match deserialize_stored_value::<E>(
                     &binary,
                     &type_identifier,
                     &data_format,
+                    registry_owner.get_type_registry(),
                 ) {
-                    Ok(value) => value,
+                    Ok(Some(value)) => value,
+                    Ok(None) => {
+                        // Degraded: this build has no such type. Do not fast-track a value that
+                        // cannot be materialized; the store entry stays readable as bytes.
+                        eprintln!(
+                            "Asset {} fast-track: type identifier '{}' is not registered in this build; keeping bytes only",
+                            self.id(),
+                            type_identifier
+                        );
+                        self.clear_fast_track_payload();
+                        return Ok(false);
+                    }
                     Err(e) => {
                         eprintln!(
                             "Asset {} fast-track failed to deserialize stored value (treated as corrupted): {}",
@@ -3298,7 +3418,7 @@ pub trait AssetManager<E: Environment>:
             }
         };
         metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata)?;
+        validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
         add_soft_consistency_warnings(&mut metadata);
 
         metadata.set_updated_now();
@@ -3371,7 +3491,7 @@ pub trait AssetManager<E: Environment>:
 
         let mut metadata = state.metadata.as_ref().clone();
         metadata.set_status(final_status)?;
-        validate_required_metadata_fields_enum(key, &metadata)?;
+        validate_required_metadata_fields_enum(key, &metadata, self.get_envref().get_type_registry())?;
         add_soft_consistency_warnings_enum(&mut metadata)?;
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
@@ -3719,8 +3839,22 @@ pub trait AssetManager<E: Environment>:
         }
         let type_identifier = metadata.type_identifier()?;
         let data_format = metadata.get_data_format();
-        let value = deserialize_stored_value::<E>(&binary, &type_identifier, &data_format)?;
-        Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
+        let envref = self.get_envref();
+        let value = deserialize_stored_value::<E>(
+            &binary,
+            &type_identifier,
+            &data_format,
+            envref.get_type_registry(),
+        )?;
+        match value {
+            Some(value) => Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata)))),
+            // Degraded: the caller asked for a value of a type this build does not know.
+            None => Err(Error::general_error(format!(
+                "Type identifier '{}' is not registered in this build, so the stored value cannot be materialized",
+                type_identifier
+            ))
+            .with_key(key)),
+        }
     }
 
     /// Recovery-only binary read for a KEYED asset: returns its serialized form regardless of
@@ -4830,7 +4964,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
         };
         metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata)?;
+        validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
         add_soft_consistency_warnings(&mut metadata);
 
         // 3. Update timestamp and add log entry
@@ -4935,7 +5069,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // 3. Create metadata record with updated status, timestamp, and log entry
         let mut metadata = state.metadata.as_ref().clone();
         metadata.set_status(final_status)?;
-        validate_required_metadata_fields_enum(key, &metadata)?;
+        validate_required_metadata_fields_enum(key, &metadata, self.get_envref().get_type_registry())?;
         add_soft_consistency_warnings_enum(&mut metadata)?;
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;

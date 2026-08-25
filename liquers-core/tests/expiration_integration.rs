@@ -145,7 +145,7 @@ async fn test_asset_ref_expire_from_source_errors() -> Result<(), Box<dyn std::e
     let manager = envref.get_asset_manager();
     let key = parse_key("test/source_asset.bin")?;
     let mut metadata = MetadataRecord::new();
-    metadata.type_identifier = "bytes".to_string();
+    metadata.type_identifier = "Bytes".to_string();
     metadata.type_name = "bytes".to_string();
     metadata.data_format = Some("bin".to_string());
 
