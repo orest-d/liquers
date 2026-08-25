@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: M
 area: [macro, core/commands, lib/commands]
-design: 
+design: variadic-arguments-declaration
 created: 2026-08-12
 github:
 ---

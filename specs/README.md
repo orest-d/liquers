@@ -181,6 +181,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
+| [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md) | P1 | M | `variadic-arguments-declaration` |
 | [`FOREIGN-VALUE-TYPES-NOT-REGISTERED`](issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md) | P1 | M | `value-type-system` |
 | [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
 <!-- END generated: issues -->
@@ -195,13 +196,17 @@ deliberately folded behind a broader line.
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
+- design `expiration-integration-suite-failing-at-head`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `store-key-guard`
 - design `value-type-system`
+- design `variadic-arguments-declaration`
+- feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
+- feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `VALUE-CONVERSION-CAPABILITY`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 <!-- END generated: unplaced -->
