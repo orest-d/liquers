@@ -35,10 +35,6 @@ and produces a self-contradictory type description that only shows up when somet
 tries to serialize. The cost also falls on every crate defining its own value types, which is the
 documented extension path (`liquers-lib/src/value/extended.rs:12-20`).
 
-Separately, it leaves a real capability out of reach. `register_command!` cannot resolve a **type
-identifier** to the Rust type it carries — the case `fn use_df(state, df: polars_dataframe)` needs —
-because `liquers-macro` depends on neither `liquers-lib` nor a downstream user crate.
-
 ## Expected behaviour
 
 A function-like macro in `liquers-macro`, alongside `register_command!`, that takes a declarative
@@ -61,24 +57,13 @@ define_value_types! {
 generating the enum, the `ValueExtension` / `DefaultValueSerializer` impls with no possibility of a
 divergent arm, `TypeIdentified` impls, and `type_descriptions() -> Vec<TypeInfo>`.
 
-**How it reaches `register_command!` — and why no data file is needed.** Proc-macros hold no
-reliable state between invocations, so `register_command!` cannot *read* what `define_value_types!`
-declared; compilation order, parallelism and incremental builds all make cross-invocation state
-unsound. The channel is not macro state but **generated code**: `define_value_types!` emits a
-module of type aliases and constants named after each identifier, and `register_command!` expands
-`df: polars_dataframe` into a path referencing that alias. Ordinary name resolution does the
-lookup, in the compiler, at the definition site. An unknown identifier becomes a name-resolution
-error rather than a runtime miss, and a downstream crate defining its own types is covered by the
-same mechanism — which a data file shipped with Liquers can never be.
-
-Two constraints this places on the design:
-
-1. **Identifiers must be Rust-identifier-safe, or be mangled deterministically.** `polars_dataframe`
-   is fine; a namespaced `py:int` is not, and needs an agreed mangling (`py__int`) with the
-   unmangled form kept as the string that appears in metadata and on the wire.
-2. **The generated module must be in scope where `register_command!` is invoked**, so either the
-   expansion uses an absolute path with a configurable crate root, or the type-defining crate
-   re-exports the module and command crates import it.
+**Relationship to command registration.** The generated `TypeIdentified` impls are what let
+`register_command!` record a type identifier for an argument written as an ordinary Rust type, via
+`to_type_identifier::<T>()` (`value-type-system` Phase 2). This is a convenience, not a dependency:
+a hand-written `impl TypeIdentified for MyType` works identically, which is why a downstream crate
+defining its own types needs nothing from this macro and no shared data file exists anywhere in the
+design. Note also that `register_command!` is expected to be redesigned; this macro should not
+assume its current form.
 
 ## Included scope: the extended scalar set
 
@@ -101,14 +86,14 @@ without dependencies, `ext-temporal` with) is a starting proposal, not a decisio
 
 ## Discovery
 
-Proposed by the user during `value-type-system` Phase 2, 2026-08-18, as a better answer than a
-shared data file to the question of how `register_command!` learns about types defined outside
-`liquers-macro`. The evidence that hand-written arms drift was found in the same phase:
-`COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`.
+Proposed by the user during `value-type-system` Phase 2, 2026-08-18, while working through how
+`register_command!` learns about types defined outside `liquers-macro`. That question was
+subsequently answered without any macro at all — Rust code names Rust types, and the identifier is
+derived from them — so this issue stands on its own merit: the hand-written arms drift, and
+`COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`, found in the same phase, is the proof.
 
 Related: `VALUE-CONVERSION-CAPABILITY` owns the extraction half — turning the value into the
 declared Rust type — and `COMMAND-METADATA-ENHANCEMENTS` owns the `ArgumentType` variant that
 carries a type identifier. `value-type-system` defines `TypeInfo`, `TypeRegistry` and
 `TypeIdentified` in shapes a generator can emit — see its Phase 2 "Generator alignment" section for
-the commitments it makes so that nothing here has to undo them. Note also that `register_command!`
-is expected to be redesigned; this macro should not assume its current form.
+the commitments it makes so that nothing here has to undo them.

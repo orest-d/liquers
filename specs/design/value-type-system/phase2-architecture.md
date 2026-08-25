@@ -123,96 +123,53 @@ This is not ceremony: it is what lets a later field — the per-realm unsupporte
 the web API so a client can discover what a build supports, and it is the shape a cross-realm
 registry exchange would transfer.
 
-### `TypeIdentified` — the Rust type ↔ identifier correspondence
+### `TypeIdentified` and `to_type_identifier` — the one bridge between the two worlds
 
 ```rust
 pub trait TypeIdentified {
     const TYPE_IDENTIFIER: &'static str;
     fn type_info() -> TypeInfo;
 }
+
+/// The bridge. Resolved at compile time; performs no lookup.
+pub const fn to_type_identifier<T: TypeIdentified>() -> &'static str {
+    T::TYPE_IDENTIFIER
+}
 ```
+
+**The governing rule, which this design adopts:**
+
+> **Rust types in Rust code and in command registration. Type identifiers in the registries** —
+> which exist to integrate with other languages and other realms.
+
+`to_type_identifier::<T>()` is the *only* crossing between them, and it goes one way. The reverse —
+identifier to Rust type — is never needed inside Rust, because Rust code always has the type
+already. Deserialization looks like a counterexample and is not: bytes plus an identifier produce a
+`Value`, so that is dispatch *within* the value type, not resolution of a Rust type. Outside Rust —
+a Python caller, a browser, a second realm — identifiers are all there is, which is exactly what
+they are for.
 
 **Immediate consumer:** `V::type_descriptions()` implementations are written as
-`vec![TypeInfo::of::<PolarsFrame>(), TypeInfo::of::<DynamicImage>(), ..]` instead of hand-writing
-each identifier string twice — once in `identifier()` and once in the description — which is a
-duplication this project would otherwise create.
+`vec![TypeInfo::of::<PolarsFrame>(), ..]` rather than repeating each identifier string in both
+`identifier()` and the description.
 
-**Why it is defined now** (the forward-compatibility the user asked for). The eventual DSL form is
-
-```
-register_command!(cr, fn use_df(state, df: polars_dataframe) -> result)
-```
-
-where `polars_dataframe` is a **type identifier** defined in `liquers-lib` — or in a downstream
-crate — while `liquers-macro` depends on neither. The apparent requirement is that the macro
-resolve an identifier to a Rust type, which would need a data file both crates can read.
-
-**It does not.** The Rust type comes from the command function's own signature, and the mechanism
-already exists: `registration.rs:492` generates `let #var_name: #ty = arguments.get(#i, #name)?;`
-where `arguments.get` is generic and `#ty` is a token the macro *forwards* without interpreting.
-In the identifier form the annotation simply moves — the macro emits an unannotated binding and
-the generated call to the user's function pins the type by inference, while the identifier travels
-as ordinary data. The direction that must be resolvable is therefore **Rust type → identifier**,
-which is what `TypeIdentified` provides, and which the compiler resolves at the definition site.
-
-What this project must offer, and does: `TypeIdentified` for the resolvable direction, and a
-registry that can be consulted **at registration time**, so an identifier no build registers
-becomes a `CommandRegistryIssue` (`command_metadata.rs:427`, `:965`) rather than a runtime lookup
-miss. A data export of the registry remains worth having for `liquers-validate` and non-Rust
-clients — the `export-command-registry` pattern — but its consumer is tooling, not the macro.
-Recorded in full on `VALUE-CONVERSION-CAPABILITY`.
-
-### `TypeRegistry` — identifier-keyed lookup
+**Why it settles the command-argument question.** A command is written in Rust types:
 
 ```rust
-/// Registry key. Mirrors `CommandKey { realm, namespace, name }` (`command_metadata.rs:561`),
-/// including its `DEFAULT_REALM` → `""` normalization, so realms mean the same thing for types
-/// as they already do for commands.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TypeKey {
-    pub realm: String,
-    pub type_identifier: String,
-}
-
-pub struct TypeRegistry {
-    types: BTreeMap<TypeKey, TypeInfo>,
-}
-
-impl TypeRegistry {
-    pub fn new() -> Self;
-
-    /// Seed from a value type's static self-description, into the default realm.
-    pub fn from_value_type<V: ValueInterface>() -> Self;
-
-    /// Add one entry. A duplicate key is a typed error, never a silent overwrite.
-    pub fn register(&mut self, info: TypeInfo) -> Result<(), Error>;
-
-    /// Default-realm lookup — what every check in this project uses.
-    pub fn get(&self, type_identifier: &str) -> Option<&TypeInfo>;
-    pub fn contains(&self, type_identifier: &str) -> bool;
-
-    /// Explicit-realm lookup. Single-realm today; the surface a cross-realm planner needs.
-    pub fn get_in_realm(&self, realm: &str, type_identifier: &str) -> Option<&TypeInfo>;
-
-    pub fn iter(&self) -> impl Iterator<Item = (&TypeKey, &TypeInfo)>;
-
-    /// Is this format writable/readable for this type? The P0 check.
-    pub fn supports_data_format(&self, type_identifier: &str, data_format: &str) -> bool;
-}
+fn use_df(state: &State<V>, df: polars::DataFrame) -> Result<V, Error>
 ```
 
-`BTreeMap` rather than `scc`: the registry is built once and then read-only, so it needs no
-concurrent-mutation support, and deterministic iteration order makes the web-API listing stable.
-`register` returns `Result` so a duplicate identifier is a typed error — two crates claiming
-`image` must fail, not resolve by load order.
+Registration derives the identifier from the same type token the macro already forwards today
+(`registration.rs:492` emits `let #var_name: #ty = arguments.get(#i, #name)?;`), by emitting
+`to_type_identifier::<#ty>()` alongside it. Both the extraction type and the recorded identifier
+come from **one** `T`, so they cannot disagree — the mismatch is unrepresentable rather than
+detected. An earlier draft of this design proposed a `CommandRegistryIssue` check for exactly that
+disagreement; it is now unnecessary, which is the stronger outcome.
 
-### Scalars: not in this project
-
-Phase 1 proposed widening the scalar set by fifteen types. **That moved to
-`VALUE-TYPE-DEFINITION-MACRO`** — see "Sequencing decision" below. `ExtValue` is unchanged by this
-project: no `Scalar` variant, no `ExtScalar` enum, no new features, no new dependencies. The
-nine-ecosystem correspondence table that identified the fifteen (`prior-art.md` §9) stands as that
-project's input.
+A type with no `TypeIdentified` impl is a compile error at the command definition, on the trait
+bound. `#[diagnostic::on_unimplemented]` can make that message name the real problem — "this type
+has no Liquers type identifier; declare it with `define_value_types!`" — rather than showing a bare
+unsatisfied bound.
 
 ## Trait Implementations
 
@@ -507,22 +464,25 @@ expensive to retrofit, so the shapes they need are established now at near-zero 
 
 | Future capability | Tracked by | What Phase 2 does about it | Cost now |
 |---|---|---|---|
-| `register_command!` declares an argument by type identifier — `fn use_df(state, df: polars_dataframe)` — and the framework converts the value to the Rust type the signature carries | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` for the resolvable direction (Rust type → identifier), `TypeInfo::of::<T>()`, and a registry consultable at registration time so an unknown identifier is a `CommandRegistryIssue`. The macro needs no data file and no `liquers-lib` dependency: it forwards the identifier as data and lets inference at the generated call site supply the Rust type | None — `TypeIdentified` has an immediate consumer in `type_descriptions()` |
+| A command written in Rust types — `fn use_df(state, df: polars::DataFrame)` — registers `df` under the identifier `polars_dataframe`, and the framework converts the incoming value to that Rust type | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentified` and `to_type_identifier::<T>()`, so registration derives the identifier at compile time from the same type token the macro already forwards. No data file, no `liquers-lib` dependency, and no possible disagreement between the extraction type and the recorded identifier | None — `TypeIdentified` has an immediate consumer in `type_descriptions()` |
 | A query spanning a `wasm` frontend and a native backend, whose realms support different type sets, converting values transparently at the boundary | `TYPE-REGISTRY-NOT-REALM-AWARE` | Keys the registry by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with `get`/`contains` defaulting to the default realm; gives `TypeInfo` a builder so the per-realm unsupported-type action is an additive field | One extra struct and a default-realm convenience layer |
 
-### Generation, not a data file
+### No shared data file is needed anywhere
 
-`VALUE-TYPE-DEFINITION-MACRO` supersedes the shared-data-file question entirely, and by a mechanism
-worth recording because it is not obvious: proc-macros hold no reliable state between invocations,
-so `register_command!` can never *read* what a type-defining macro declared. The channel is
-**generated code** — the type-defining macro emits a module of aliases and constants named after
-each identifier, and `register_command!` expands an identifier into a path into that module, which
-ordinary name resolution resolves at the definition site. That covers a downstream crate's own
-types, which no file shipped with Liquers can.
+Two candidate mechanisms were considered for letting `register_command!` know about types defined
+outside `liquers-macro` — a data file both crates read, and a generated module of aliases the macro
+expands a path into. **Neither is needed**, because the direction that looked necessary
+(identifier → Rust type) never arises: Rust code names Rust types, and the identifier is *derived*
+from them by `to_type_identifier::<T>()`.
 
-This project stays compatible with that future by construction: `TypeInfo` is builder-constructed
-rather than a struct literal, and `TypeIdentified` is a plain trait — both are things a generator
-can emit without this design changing.
+`VALUE-TYPE-DEFINITION-MACRO` still earns its place — it removes the hand-written match arms that
+produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED` and it emits the `TypeIdentified` impls —
+but it is a *codegen convenience*, not the load-bearing part of the correspondence. A hand-written
+`impl TypeIdentified for MyType` works identically, which is what makes a downstream crate's own
+types a non-problem.
+
+A data export of the registry remains worth having for `liquers-validate` and non-Rust clients, on
+the `export-command-registry` pattern. Its consumer is tooling, not the macro.
 
 **Deliberately not done now:** the unsupported-type *action* enum. An enum whose variants are not
 implemented is worse than an absent field — it invites callers to match on behaviour that does not

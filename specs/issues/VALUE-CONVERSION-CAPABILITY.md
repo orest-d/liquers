@@ -58,84 +58,50 @@ the nine-ecosystem correspondence table it builds on in
 
 ---
 
-## Design input: the type identifier as a command argument type (2026-08-18)
+## Design input: typed command arguments (2026-08-18)
 
 Recorded during `value-type-system` Phase 2, at the user's request. Not part of that project.
 
-**The idea.** `ArgumentInfo` should be able to name a **type identifier** as its argument type, and
-the framework should then convert the incoming value automatically to the Rust type the variant
-carries — so a command written as
+**The idea.** A command written in ordinary Rust types
 
 ```rust
-fn describe(state, frame: PolarsDataFrame) -> result
+fn use_df(state: &State<V>, df: polars::DataFrame) -> Result<V, Error>
 ```
 
-declares "this argument is a `pl:dataframe`" and receives the concrete Rust value, rather than
-declaring `ArgumentType::Any` and unwrapping by hand.
+should register `df` under the type identifier `polars_dataframe`, and the framework should
+**convert the incoming value to that Rust type automatically** — rather than the command declaring
+`ArgumentType::Any` and unwrapping by hand.
 
-This is why the `ArgumentType` change was moved out of `value-type-system` and into
-`COMMAND-METADATA-ENHANCEMENTS`: the *declaration* belongs there, but the **automatic conversion**
-belongs here, and the two must be designed together.
+This is why the `ArgumentType` change was moved out of `value-type-system` into
+`COMMAND-METADATA-ENHANCEMENTS`: the *declaration* belongs there, the *conversion* belongs here,
+and the two must be designed together.
 
-**What it needs: a correspondence between type identifiers and Rust types.**
+**The governing rule, settled with the user:**
 
-The DSL slot carries the **type identifier**, not a Rust path, and the identifier is defined
-somewhere the macro cannot see — `polars_dataframe` is declared by `liquers-lib`, or by a
-downstream crate entirely outside this repository, while `liquers-macro` depends on neither.
+> **Rust types in Rust code and in command registration. Type identifiers in the registries** —
+> which exist to integrate with other languages and other realms.
 
-The tempting answer is a data file both `liquers-lib` and `liquers-macro` can read. **It does not
-work, and it is not needed.**
+`value-type-system` supplies the single bridge, `to_type_identifier::<T>() -> &'static str`, a
+`const fn` over `TypeIdentified::TYPE_IDENTIFIER`. Registration derives the identifier at compile
+time from the same type token the macro already forwards (`registration.rs:492` emits
+`let #var_name: #ty = arguments.get(#i, #name)?;`), so the extraction type and the recorded
+identifier come from one `T` and **cannot disagree**. No lookup, no data file, no runtime check.
+Earlier drafts of this note proposed a runtime `get_typed(.., "polars_dataframe")` and a
+`CommandRegistryIssue` guarding the two against each other; both are unnecessary and are dropped.
 
-*Why it does not work.* A file shipped with Liquers cannot describe types defined in a downstream
-user crate, which is the case that matters most. And a proc-macro's filesystem reads are not
-tracked by cargo for rebuild purposes, so an expansion goes stale silently when the file changes —
-a failure mode considerably worse than the staleness `specs/command_registry.yaml` already has to
-be defended against by a dedicated test.
+The reverse direction — identifier to Rust type — is never needed inside Rust. Deserialization is
+not a counterexample: bytes plus an identifier produce a `Value`, which is dispatch within the
+value type, not resolution of a Rust type.
 
-*Why it is not needed.* **The macro never has to resolve an identifier to a Rust type, because the
-Rust type comes from the command function's own signature.** This is not a new mechanism — it is
-exactly what the macro does today. `registration.rs:492` generates
+**What is left for this issue: the conversion itself.** `arguments.get::<T>(..)` must produce a
+`polars::DataFrame` from whatever the value actually holds. That is an automatic conversion at
+argument-binding time, so it is governed by this issue's central rule — automatic conversion
+refuses `Lossy` and `Fallible` edges. A `df: polars::DataFrame` parameter succeeds against a
+list-of-dictionaries value if that edge is `Structural`, and fails against an `i64` with a typed
+error naming both the source type and the declared target. The trait — `FromValue<V>`, or whatever
+it ends up called — is this issue's to design.
 
-```rust
-let df__par: #ty = arguments.get(#i, #name_str)?;
-```
-
-where `arguments.get` is generic and `#ty` is a token the macro *forwards* from the DSL without
-ever interpreting it. In the identifier-based form the annotation simply moves: the macro emits an
-unannotated binding, and the generated call to the user's function pins the type.
-
-```rust
-// register_command!(cr, fn use_df(state, df: polars_dataframe) -> result)
-// against  fn use_df(state: &State<V>, df: polars::DataFrame) -> Result<V, Error>
-
-let df__par = arguments.get_typed(0usize, "df", "polars_dataframe")?;
-use_df(state, df__par)      // <- infers df__par: polars::DataFrame
-```
-
-`get_typed<T: FromValue<V> + TypeIdentified>(idx, name, declared_identifier)` receives the
-identifier as ordinary data and the Rust type by inference. `liquers-macro` gains no dependency, no
-file, and no knowledge of `polars`.
-
-**Where the agreement is checked.** `T::TYPE_IDENTIFIER` and the declared string must match, or the
-author wrote `df: polars_dataframe` against a parameter of some other type. The natural home is the
-existing `CommandRegistryIssue` mechanism — `CommandMetadata::check()`
-(`command_metadata.rs:427`, `:965`) already exists to report exactly this class of
-metadata-versus-reality disagreement, and registration has the `TypeRegistry` in hand to also
-reject an identifier no build registers. A per-monomorphization `const` assertion inside
-`get_typed` would give a compile-time error instead, but post-monomorphization errors are poor
-diagnostics; the registry issue is the better default.
-
-**The data file still has a job — just not this one.** `liquers-validate` and non-Rust clients need
-to know which identifiers exist without linking `liquers-lib`, and that is the
-`export-command-registry` pattern applied to types. Its consumer is tooling, not the macro.
-
-**The extraction half is squarely this issue's.** `FromValue<V>` — or whatever it is called — is an
-automatic conversion at argument-binding time, so it is governed by this issue's central rule:
-automatic conversion refuses `Lossy` and `Fallible` edges. A command declaring
-`df: polars_dataframe` against a value that is a list of dictionaries succeeds if that edge is
-`Structural`; against an `i64` it fails with a typed error naming both the source type and the
-declared target.
-
-**Open, for whoever takes this up.** Whether the declared argument type is a *type identifier*
-(exact, one variant) or a *purpose* (`table`, satisfied by several). Both are useful and they are
-not the same declaration; the purpose form is the one that makes conversion pull its weight.
+**Open, for whoever takes this up.** Whether a parameter can declare a *purpose* (`table`,
+satisfied by several types) rather than one concrete Rust type. A purpose cannot be a Rust
+parameter type directly, so it needs a wrapper — `Table<T>`, or an `impl TableLike` bound — and
+that is the form in which conversion earns its keep.
