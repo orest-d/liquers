@@ -423,8 +423,10 @@ documented capability rather than adding one.
 | `root` (core) | The macro change applies to every namespace; `root` commands are the regression surface for "existing declarations still expand identically" | `to_text`, `json`, `yaml` |
 | `lui`, `egui` | Registered through the same macro, so they exercise the unchanged path. `egui` also holds the registry inspector that renders the `multiple` badge (`egui/widgets.rs:733`) | — |
 
-**Ask user:** are `pl` and `root` the right namespaces to exercise, or should `lui`/`egui`
-declarations be treated as a regression surface worth explicit tests in Phase 3?
+**Answered:** `pl` and `root` only. `lui` and `egui` are covered transitively — a macro change that
+broke them would fail to compile `liquers-lib` outright, and `cargo test -p liquers-lib --test
+registry_export` already compares every registered signature, theirs included. Phase 3 writes no
+`lui`/`egui`-specific macro tests.
 
 ## Web Endpoints
 
