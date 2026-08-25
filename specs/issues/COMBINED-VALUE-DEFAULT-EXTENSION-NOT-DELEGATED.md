@@ -2,11 +2,11 @@
 id: COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED
 kind: issue
 title: CombinedValue::default_extension returns "ext" for every extended value
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/value]
-design:
+design: value-type-system
 created: 2026-08-18
 github:
 ---
@@ -48,6 +48,19 @@ rather than `"png"`, so serialization fails or is misrecorded.
 
 Delegate to `ext.default_extension()`, matching every other method on the impl, and enumerate the
 variants explicitly instead of using `_ =>`.
+
+## Resolution
+
+Fixed 2026-08-18 as step 0a of `value-type-system`. `CombinedValue::default_extension` now
+delegates to `ext.default_extension()` through an explicit `CombinedValue::Extended(ext)` arm,
+matching its four siblings; the `_ =>` arm is gone, so a future variant is a compile error here as
+the codebase convention intends.
+
+Regression tests in `liquers-lib/tests/value_type_system.rs`: `combined_value_delegates_all_defaults`
+pins the delegated values, and `combined_value_defaults_are_mutually_consistent` pins the invariant
+the constant violated — that `default_filename` ends in `default_extension` and
+`default_data_format` derives from it. Both were confirmed failing before the fix
+(`left: "ext"`, `right: "png"`) and passing after.
 
 ## Discovery
 

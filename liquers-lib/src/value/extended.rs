@@ -150,7 +150,7 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
     fn default_extension(&self) -> Cow<'static, str> {
         match self {
             CombinedValue::Base(base) => base.default_extension(),
-            _ => "ext".into(),
+            CombinedValue::Extended(ext) => ext.default_extension(),
         }
     }
 
