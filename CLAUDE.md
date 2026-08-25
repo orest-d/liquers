@@ -168,6 +168,36 @@ cd liquers-lib/examples-web/ui_spec_demo && trunk build && npx playwright test
 Avoid `cargo test --workspace` in a constrained environment: it also builds the examples and every
 crate's test binaries at once, which is what exhausts the allowance.
 
+### Feature matrix
+
+The default loop builds one feature configuration. `egui`, `image-support`, `polars` and `webui`
+are all optional, and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
+test targets**, plus the wasm32 target and `liquers-store`'s feature split:
+
+```bash
+bash scripts/check-build-matrix.sh          # 11 configurations, ~cargo check cost
+```
+
+Run it after touching a `#[cfg(feature = …)]`, an optional dependency, or a `match` over
+`ExtValue`. The wasm32 rows need `rustup target add wasm32-unknown-unknown`.
+
+To *run* the tests of one configuration rather than only check it:
+
+```bash
+cargo test -p liquers-lib --no-default-features --lib --tests
+cargo test -p liquers-lib --no-default-features --features polars --lib --tests
+cargo test -p liquers-lib --no-default-features --features egui --lib --tests
+cargo test -p liquers-lib --no-default-features --features image-support --lib --tests
+cargo test -p liquers-lib --no-default-features --features webui --lib --tests
+```
+
+Each test file that needs an optional dependency is gated — `#![cfg(feature = "…")]` at file level
+when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
+reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
+against `specs/command_registry.yaml`, which is exported with the default features, are gated on
+all three groups.
+
 ### liquers-web
 
 `liquers-web` is **wasm32-only** and is excluded from `default-members`, so the commands above

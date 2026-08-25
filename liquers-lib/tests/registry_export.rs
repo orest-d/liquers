@@ -3,14 +3,21 @@
 //! These need `#[tokio::test]`: `DefaultEnvironment::new()` builds a `DefaultAssetManager`,
 //! which calls `tokio::spawn` and panics without a runtime.
 
+// Only the freshness test reads the committed file.
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
 use std::path::PathBuf;
 
-use liquers_core::command_metadata::{CommandKey, CommandMetadataRegistry};
+use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::context::Environment;
 use liquers_core::error::Error;
 use liquers_core::validate::{
-    from_json_or_yaml, validate_query, ValidationLevel, ValidationRegistryBuilder, ValidationStatus,
+    validate_query, ValidationLevel, ValidationRegistryBuilder, ValidationStatus,
 };
+// Used by the freshness and variadic tests, both of which need the polars group.
+#[cfg(feature = "polars")]
+use liquers_core::command_metadata::CommandKey;
+#[cfg(feature = "polars")]
+use liquers_core::validate::from_json_or_yaml;
 use liquers_lib::environment::{CommandRegistryAccess, DefaultEnvironment};
 use liquers_lib::ui::payload::SimpleUIPayload;
 use liquers_lib::value::Value;
@@ -48,6 +55,7 @@ fn full_registry() -> Result<CommandMetadataRegistry, Error> {
     Ok(env.get_command_metadata_registry().clone())
 }
 
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
 fn committed_registry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -56,15 +64,36 @@ fn committed_registry_path() -> PathBuf {
 }
 
 /// I6 — guards against a silently empty export.
+///
+/// The count floor is what `core` + `lui` alone register, because those are the only groups a
+/// `--no-default-features` build compiles in. Each optional group is guarded by a command it must
+/// contain instead: an anchor catches a group that silently exported nothing, and unlike a count
+/// it does not have to be revised every time a command is added.
 #[tokio::test]
 async fn exported_registry_is_nonempty() -> Result<(), Error> {
     let registry = full_registry()?;
     assert!(
-        registry.commands.len() >= 20,
+        registry.commands.len() >= 15,
         "suspiciously small export: {} commands",
         registry.commands.len()
     );
     assert!(registry.find_command("", "root", "to_text").is_some());
+
+    #[cfg(feature = "egui")]
+    assert!(
+        registry.find_command("", "root", "text_editor").is_some(),
+        "the egui group exported nothing"
+    );
+    #[cfg(feature = "image-support")]
+    assert!(
+        registry.find_command("", "img", "from_bytes").is_some(),
+        "the image group exported nothing"
+    );
+    #[cfg(feature = "polars")]
+    assert!(
+        registry.find_command("", "pl", "head").is_some(),
+        "the polars group exported nothing"
+    );
     Ok(())
 }
 
@@ -121,6 +150,7 @@ async fn namespace_filtering_selects_expected_commands() -> Result<(), Error> {
 ///
 /// Comparing structures rather than file bytes also keeps the test from failing spuriously on a
 /// serde_yaml formatting change.
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
 fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> String {
     let mut command = command.clone();
     command.impl_version = liquers_core::metadata::Version::new(0);
@@ -128,6 +158,11 @@ fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> St
 }
 
 /// The committed registry must match the registered commands.
+///
+/// `specs/command_registry.yaml` is exported with the default features on, so only a build with
+/// the same groups compiled in can compare against it. A reduced build registers a subset and
+/// would report the missing groups as staleness.
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars"))]
 #[tokio::test]
 async fn committed_registry_is_fresh() -> Result<(), Error> {
     let path = committed_registry_path();
@@ -188,6 +223,10 @@ async fn committed_registry_is_fresh() -> Result<(), Error> {
 /// would hand every element to the command as a JSON string.
 ///
 /// See specs/design/variadic-arguments-declaration/.
+///
+/// `pl/select_columns` comes from the polars group, so the test only exists where it is compiled
+/// in — it is the only registered command declaring a variadic argument.
+#[cfg(feature = "polars")]
 #[tokio::test]
 async fn variadic_argument_round_trips_through_the_registry() -> Result<(), Error> {
     let registry = full_registry()?;
@@ -211,7 +250,10 @@ async fn variadic_argument_round_trips_through_the_registry() -> Result<(), Erro
         .get(key.clone())
         .expect("pl/select_columns survives the round trip")
         .arguments[0];
-    assert!(after_argument.multiple, "`multiple` must survive the round trip");
+    assert!(
+        after_argument.multiple,
+        "`multiple` must survive the round trip"
+    );
     assert_eq!(
         after_argument.argument_type,
         ArgumentType::String,

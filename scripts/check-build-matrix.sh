@@ -10,6 +10,13 @@
 #   * `DefaultValueSerializer::as_bytes`, whose historical `_ =>` arm meant new variants were
 #     absorbed silently. That arm is gone, but the site is worth keeping under a matrix.
 #
+# The native liquers-lib rows use `--tests`, so the integration test targets are checked in every
+# feature configuration too, not only the library. Test targets are the easier place to forget a
+# `#[cfg]`: an ungated `use polars::…` compiles under the default features and fails only where
+# nobody looks. The wasm32 row stays library-only — liquers-lib's dev-dependencies (liquers-store
+# with OpenDAL's `services-fs`) are native, and there is no wasm test runner in this loop.
+# See specs/issues/LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED.md.
+#
 # liquers-store is here for a different reason: its `opendal` feature is optional so that a
 # wasm32 consumer can take the configuration and builder without OpenDAL. The compiler catches a
 # missed `#[cfg]` only in the configuration that omits the feature, and the native default build
@@ -21,11 +28,12 @@
 set -uo pipefail
 
 LIB_CONFIGS=(
-  "--no-default-features"
-  "--no-default-features --features egui"
-  "--no-default-features --features polars"
-  "--no-default-features --features webui"
-  ""
+  "--no-default-features --tests"
+  "--no-default-features --features egui --tests"
+  "--no-default-features --features polars --tests"
+  "--no-default-features --features webui --tests"
+  "--no-default-features --features image-support --tests"
+  "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
 )
 
