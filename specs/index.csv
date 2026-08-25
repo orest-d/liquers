@@ -29,6 +29,7 @@ COMBINED-EXPIRES,feature,No algebra for combining expiration across dependencies
 COMMAND-METADATA-ENHANCEMENTS,feature,"Command metadata lacks enums, specialization and IO typing",accepted,local,,P2,L,core/commands;macro,,,,,,2026-08-08,specs/issues/COMMAND-METADATA-ENHANCEMENTS.md
 CORE-SESSION-AND-KEY-ACL,issue,"No session model, and no way to authorize writes per key",accepted,local,,P2,L,core/context;core/store;axum,,,,,,2026-08-08,specs/issues/CORE-SESSION-AND-KEY-ACL.md
 CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilities every implementor must provide,accepted,local,,P2,L,core/value;lib/value;py,,,,,,2026-08-08,specs/issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md
+DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals with no constants, validation, or generic serde path",draft,local,,P2,L,core/value;lib/value,,,,,,2026-08-18,specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md
 EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
 LIBRARY-CODE-USES-UNWRAP-AND-EXPECT,issue,Library code uses unwrap and expect despite the no-panic rule,draft,local,,P2,L,core/query;lib/commands;axum,,,,,,2026-08-17,specs/issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md

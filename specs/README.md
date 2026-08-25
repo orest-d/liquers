@@ -196,6 +196,7 @@ deliberately folded behind a broader line.
 - design `plan-relative-resolution`
 - design `store-key-guard`
 - design `value-type-system`
+- feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `VALUE-CONVERSION-CAPABILITY`

@@ -405,6 +405,9 @@ impl ValueInterface for Value {
         // rather than hidden: `None` written as text produces `none`, which the text branch has
         // no rule to parse; and `Text` written as bytes reads back as `Bytes`. Both are
         // legitimate writes, so both stay in the list.
+        // Bare literals, repeated, with no shared vocabulary — tracked as
+        // `specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md`, which also covers recognising an
+        // unknown format and giving serde-capable types their formats generically.
         const TEXTUAL: [&str; 7] = ["txt", "html", "css", "js", "py", "rs", "json"];
         vec![
             TypeInfo::new("None")
