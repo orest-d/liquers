@@ -355,11 +355,13 @@ impl MetadataRecord {
 
     #[getter]
     pub fn media_type(&self) -> String {
-        self.inner.media_type.clone()
+        // Python sees the *resolved* media type: the override/derive distinction is a Rust-side
+        // authoring concern, and a binding caller wants the value that will actually be served.
+        self.inner.get_media_type()
     }
     #[setter]
     pub fn set_media_type(&mut self, media_type: String) {
-        self.inner.media_type = media_type;
+        self.inner.with_media_type(media_type);
     }
 
     #[getter]
@@ -593,6 +595,8 @@ impl AssetInfo {
 
     #[getter]
     pub fn media_type(&self) -> String {
+        // Python sees the *resolved* media type: the override/derive distinction is a Rust-side
+        // `AssetInfo` carries the already-resolved media type, so there is nothing to resolve.
         self.inner.media_type.clone()
     }
     #[setter]

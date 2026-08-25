@@ -475,6 +475,232 @@ pub struct AssetData<E: Environment> {
 }
 
 /// Deserialize a stored value from its binary representation, given its recorded type
+/// Splits a data format into its base and optional refinement: `csv:comma` -> `("csv", ..)`.
+///
+/// A refinement narrows a format without changing which parser reads it, so a filename extension
+/// of `csv` is *consistent* with a data format of `csv:comma`. Comparing the whole string, as this
+/// check did before it was hoisted, warned on every legitimate refinement.
+fn data_format_base(data_format: &str) -> &str {
+    match data_format.split_once(':') {
+        Some((base, _refinement)) => base,
+        None => data_format,
+    }
+}
+
+/// The soft-tier consistency warnings.
+///
+/// Computed from already-resolved values so that the `MetadataRecord` and `Metadata` entry points
+/// cannot produce different diagnostics. Before this was hoisted the same logic existed in four
+/// nested copies across `set_binary`/`set_state` on both managers, which is how they drifted.
+///
+/// See `specs/design/value-type-system/phase2-architecture.md`, "Where the invariants are
+/// enforced".
+fn soft_consistency_entries(
+    effective_data_format: &str,
+    extension: Option<&str>,
+    media_type: &str,
+    expected_media_type: &str,
+) -> Vec<LogEntry> {
+    let mut entries = Vec::new();
+    if let Some(extension) = extension {
+        if extension != data_format_base(effective_data_format) {
+            entries.push(LogEntry::warning(format!(
+                "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
+            )));
+        }
+    }
+    if !media_type.trim().is_empty() && media_type != expected_media_type {
+        entries.push(LogEntry::warning(format!(
+            "media_type '{}' differs from expected '{}' for data_format '{}'",
+            media_type, expected_media_type, effective_data_format
+        )));
+    }
+    entries
+}
+
+/// The hard-tier required-field check, shared by both entry points.
+fn validate_required_fields(
+    key: &Key,
+    type_identifier: &str,
+    type_name: &str,
+) -> Result<(), Error> {
+    if type_identifier.trim().is_empty() {
+        return Err(
+            Error::general_error("Metadata type_identifier must not be empty".to_string())
+                .with_key(key),
+        );
+    }
+    if type_name.trim().is_empty() {
+        return Err(
+            Error::general_error("Metadata type_name must not be empty".to_string()).with_key(key),
+        );
+    }
+    Ok(())
+}
+
+/// Whether a media-type override is well formed enough to reach an HTTP header.
+///
+/// A media type is user-controllable by design — it is how a caller shapes a web response — so the
+/// guard is on the *shape* of the string rather than on who may set it. CR and LF are what turn
+/// that freedom into header injection.
+fn validate_media_type_override(key: &Key, media_type: &str) -> Result<(), Error> {
+    if media_type.contains('\r') || media_type.contains('\n') {
+        return Err(Error::general_error(format!(
+            "Media type override must not contain a line break: {media_type:?}"
+        ))
+        .with_key(key));
+    }
+    let mut parts = media_type.splitn(2, '/');
+    let ok = matches!((parts.next(), parts.next()), (Some(t), Some(sub)) if !t.trim().is_empty() && !sub.trim().is_empty());
+    if !ok {
+        return Err(Error::general_error(format!(
+            "Media type override must have the form type/subtype: {media_type:?}"
+        ))
+        .with_key(key));
+    }
+    Ok(())
+}
+
+/// The hard tier: the invariants whose violation makes a stored value unreadable.
+///
+/// The **format** check is skipped for an error state. An errored asset often retains the intended
+/// output's filename — `report.csv` — so its effective format contradicts its `error` identifier,
+/// and its bytes are not a serialization of the declared type in any case. The *identifier* check
+/// still applies, which is why `error` is a registered type.
+///
+/// See `specs/design/value-type-system/phase2-architecture.md`, "Where the invariants are
+/// enforced".
+fn validate_metadata_hard(
+    key: &Key,
+    type_identifier: &str,
+    type_name: &str,
+    declared_data_format: Option<&str>,
+    media_type_override: Option<&str>,
+    is_error_state: bool,
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<(), Error> {
+    validate_required_fields(key, type_identifier, type_name)?;
+
+    let Some(info) = registry.get(type_identifier) else {
+        return Err(Error::general_error(format!(
+            "Type identifier '{type_identifier}' is not registered in this build"
+        ))
+        .with_key(key));
+    };
+
+    // Only a **declared** format can be inconsistent. `None` means no format was chosen, so level 1
+    // applies and the value's own default is used — and a type always supports its own default
+    // (`every_default_is_in_supported_formats`). Resolving the absent case here instead would need
+    // the value, which this function does not have: `Metadata::get_data_format` substitutes the
+    // constant `bin`, and validating against that rejected every ordinary state whose format was
+    // left unspecified.
+    //
+    // A type that declares *no* formats has no byte form at all — a UI element, an egui widget, a
+    // foreign language handle. The asset layer already tolerates that by persisting metadata only,
+    // so requiring such a type to name a format it cannot produce would be contradictory. The
+    // identifier check still applies; only the format pairing is meaningless here, exactly as for
+    // an error state.
+    let unserializable = info.supported_data_formats.is_empty();
+    if let Some(declared_data_format) = declared_data_format.filter(|_| !is_error_state && !unserializable) {
+        if !info.supports_data_format(declared_data_format) {
+            let supported = info
+                .supported_data_formats
+                .iter()
+                .map(|f| f.as_ref())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Error::from_error(
+                ErrorType::SerializationError,
+                format!(
+                    "Type '{type_identifier}' cannot be serialized as '{declared_data_format}'; \
+                     supported formats: [{supported}]"
+                ),
+            )
+            .with_key(key));
+        }
+    }
+
+    if let Some(media_type) = media_type_override {
+        validate_media_type_override(key, media_type)?;
+    }
+    Ok(())
+}
+
+/// Hard-tier validation for a `MetadataRecord`.
+fn validate_required_metadata_fields(
+    key: &Key,
+    metadata: &MetadataRecord,
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<(), Error> {
+    validate_metadata_hard(
+        key,
+        &metadata.type_identifier,
+        &metadata.type_name,
+        metadata.declared_data_format(),
+        metadata.declared_media_type(),
+        metadata.status == Status::Error || metadata.is_error,
+        registry,
+    )
+}
+
+/// Hard-tier validation for the `Metadata` enum, which may hold a legacy document.
+fn validate_required_metadata_fields_enum(
+    key: &Key,
+    metadata: &Metadata,
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<(), Error> {
+    validate_metadata_hard(
+        key,
+        &metadata.type_identifier()?,
+        &metadata.type_name()?,
+        metadata.declared_data_format().as_deref(),
+        None,
+        metadata.status() == Status::Error || metadata.is_error().unwrap_or(false),
+        registry,
+    )
+}
+
+/// Soft-tier warnings for a `MetadataRecord`.
+///
+/// Note the asymmetry with the `Metadata` variant below, preserved from the code this replaced:
+/// the record form *fills in* an empty `media_type` from the expected value, the enum form does
+/// not. Recorded rather than silently unified, because unifying it is a behaviour change and this
+/// function's introduction is not.
+fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
+    let effective_data_format = metadata.get_data_format();
+    let expected_media_type =
+        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+    let entries = soft_consistency_entries(
+        &effective_data_format,
+        metadata.extension().as_deref(),
+        metadata.declared_media_type().unwrap_or(""),
+        &expected_media_type,
+    );
+    for entry in entries {
+        metadata.add_log_entry(entry);
+    }
+    // The record form used to fill an empty media type in. It no longer does: `None` now *means*
+    // "derive", so writing the derived value back would turn every ordinary record into one
+    // carrying a deliberate override, which is exactly the distinction this design added.
+}
+
+/// Soft-tier warnings for the `Metadata` enum.
+fn add_soft_consistency_warnings_enum(metadata: &mut Metadata) -> Result<(), Error> {
+    let effective_data_format = metadata.get_data_format();
+    let expected_media_type =
+        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+    let entries = soft_consistency_entries(
+        &effective_data_format,
+        metadata.extension().as_deref(),
+        &metadata.get_media_type(),
+        &expected_media_type,
+    );
+    for entry in entries {
+        metadata.add_log_entry(entry)?;
+    }
+    Ok(())
+}
+
 /// identifier and data format. Shared between `AssetData::try_fast_track` and
 /// `AssetManager::get_any_status`'s store-fallback path, so the binary/type-identifier handling
 /// (including the "bytes"-like identifiers that skip real deserialization) stays in one place.
@@ -482,15 +708,25 @@ fn deserialize_stored_value<E: Environment>(
     binary: &[u8],
     type_identifier: &str,
     data_format: &str,
-) -> Result<E::Value, Error> {
+    registry: &crate::type_system::TypeRegistry,
+) -> Result<Option<E::Value>, Error> {
+    // The canonical identifier is `Bytes`; the lowercase spellings are what older stores wrote.
+    // They are read but never produced, and the write path refuses them because they are not
+    // registered — which is what makes this a read-side accommodation rather than an alias.
     if matches!(
         type_identifier.trim().to_ascii_lowercase().as_str(),
         "bytes" | "binary" | "bin" | "b"
     ) {
-        Ok(E::Value::from_bytes(binary.to_vec()))
-    } else {
-        E::Value::deserialize_from_bytes(binary, type_identifier, data_format)
+        return Ok(Some(E::Value::from_bytes(binary.to_vec())));
     }
+    // A type this build does not know is *degraded*, not an error: the bytes and the metadata are
+    // kept verbatim so a minimal build can still copy, proxy and re-store data it cannot
+    // interpret. Asking for a value then fails with an error naming the type. `Ok(None)` is that
+    // degraded outcome.
+    if !type_identifier.trim().is_empty() && !registry.contains(type_identifier) {
+        return Ok(None);
+    }
+    E::Value::deserialize_from_bytes(binary, type_identifier, data_format).map(Some)
 }
 
 impl<E: Environment> AssetData<E> {
@@ -682,12 +918,25 @@ impl<E: Environment> AssetData<E> {
 
                 let type_identifier = metadata.type_identifier()?;
                 let data_format = metadata.get_data_format();
+                let registry_owner = self.get_envref();
                 let value = match deserialize_stored_value::<E>(
                     &binary,
                     &type_identifier,
                     &data_format,
+                    registry_owner.get_type_registry(),
                 ) {
-                    Ok(value) => value,
+                    Ok(Some(value)) => value,
+                    Ok(None) => {
+                        // Degraded: this build has no such type. Do not fast-track a value that
+                        // cannot be materialized; the store entry stays readable as bytes.
+                        eprintln!(
+                            "Asset {} fast-track: type identifier '{}' is not registered in this build; keeping bytes only",
+                            self.id(),
+                            type_identifier
+                        );
+                        self.clear_fast_track_payload();
+                        return Ok(false);
+                    }
                     Err(e) => {
                         eprintln!(
                             "Asset {} fast-track failed to deserialize stored value (treated as corrupted): {}",
@@ -3152,45 +3401,6 @@ pub trait AssetManager<E: Environment>:
         binary: &[u8],
         mut metadata: MetadataRecord,
     ) -> Result<(), Error> {
-        fn validate_required_metadata_fields(
-            key: &Key,
-            metadata: &MetadataRecord,
-        ) -> Result<(), Error> {
-            if metadata.type_identifier.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_identifier must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            if metadata.type_name.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_name must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            Ok(())
-        }
-        fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
-            let effective_data_format = metadata.get_data_format();
-            if let Some(extension) = metadata.extension() {
-                if extension != effective_data_format {
-                    metadata.add_log_entry(LogEntry::warning(format!(
-                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
-                    )));
-                }
-            }
-            let expected_media_type =
-                crate::media_type::file_extension_to_media_type(&effective_data_format);
-            if !metadata.media_type.trim().is_empty() && metadata.media_type != expected_media_type
-            {
-                metadata.add_log_entry(LogEntry::warning(format!(
-                    "media_type '{}' differs from expected '{}' for data_format '{}'",
-                    metadata.media_type, expected_media_type, effective_data_format
-                )));
-            } else if metadata.media_type.trim().is_empty() {
-                metadata.media_type = expected_media_type.to_string();
-            }
-        }
 
         if let Some(asset_ref) = self.lookup_key_asset(key) {
             asset_ref.cancel().await?;
@@ -3223,7 +3433,7 @@ pub trait AssetManager<E: Environment>:
             }
         };
         metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata)?;
+        validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
         add_soft_consistency_warnings(&mut metadata);
 
         metadata.set_updated_now();
@@ -3262,41 +3472,6 @@ pub trait AssetManager<E: Environment>:
     /// - Memory + Store: Creates new AssetRef with State AND serializes to store
     /// - Supports non-serializable data (store metadata only if serialization fails)
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
-        fn validate_required_metadata_fields(key: &Key, metadata: &Metadata) -> Result<(), Error> {
-            if metadata.type_identifier()?.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_identifier must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            if metadata.type_name()?.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_name must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            Ok(())
-        }
-        fn add_soft_consistency_warnings(metadata: &mut Metadata) -> Result<(), Error> {
-            let effective_data_format = metadata.get_data_format();
-            if let Some(extension) = metadata.extension() {
-                if extension != effective_data_format {
-                    metadata.add_log_entry(LogEntry::warning(format!(
-                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
-                    )))?;
-                }
-            }
-            let expected_media_type =
-                crate::media_type::file_extension_to_media_type(&effective_data_format);
-            let media_type = metadata.get_media_type();
-            if !media_type.trim().is_empty() && media_type != expected_media_type {
-                metadata.add_log_entry(LogEntry::warning(format!(
-                    "media_type '{}' differs from expected '{}' for data_format '{}'",
-                    media_type, expected_media_type, effective_data_format
-                )))?;
-            }
-            Ok(())
-        }
 
         if let Some(asset_ref) = self.lookup_key_asset(key) {
             asset_ref.cancel().await?;
@@ -3331,8 +3506,8 @@ pub trait AssetManager<E: Environment>:
 
         let mut metadata = state.metadata.as_ref().clone();
         metadata.set_status(final_status)?;
-        validate_required_metadata_fields(key, &metadata)?;
-        add_soft_consistency_warnings(&mut metadata)?;
+        validate_required_metadata_fields_enum(key, &metadata, self.get_envref().get_type_registry())?;
+        add_soft_consistency_warnings_enum(&mut metadata)?;
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
 
@@ -3679,8 +3854,22 @@ pub trait AssetManager<E: Environment>:
         }
         let type_identifier = metadata.type_identifier()?;
         let data_format = metadata.get_data_format();
-        let value = deserialize_stored_value::<E>(&binary, &type_identifier, &data_format)?;
-        Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
+        let envref = self.get_envref();
+        let value = deserialize_stored_value::<E>(
+            &binary,
+            &type_identifier,
+            &data_format,
+            envref.get_type_registry(),
+        )?;
+        match value {
+            Some(value) => Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata)))),
+            // Degraded: the caller asked for a value of a type this build does not know.
+            None => Err(Error::general_error(format!(
+                "Type identifier '{}' is not registered in this build, so the stored value cannot be materialized",
+                type_identifier
+            ))
+            .with_key(key)),
+        }
     }
 
     /// Recovery-only binary read for a KEYED asset: returns its serialized form regardless of
@@ -4744,48 +4933,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         binary: &[u8],
         mut metadata: MetadataRecord,
     ) -> Result<(), Error> {
-        fn validate_required_metadata_fields(
-            key: &Key,
-            metadata: &MetadataRecord,
-        ) -> Result<(), Error> {
-            if metadata.type_identifier.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_identifier must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            if metadata.type_name.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_name must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            Ok(())
-        }
 
         /// Adds non-fatal metadata consistency warnings for externally supplied values.
-        fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
-            let effective_data_format = metadata.get_data_format();
-            if let Some(extension) = metadata.extension() {
-                if extension != effective_data_format {
-                    metadata.add_log_entry(LogEntry::warning(format!(
-                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
-                    )));
-                }
-            }
-
-            let expected_media_type =
-                crate::media_type::file_extension_to_media_type(&effective_data_format);
-            if !metadata.media_type.trim().is_empty() && metadata.media_type != expected_media_type
-            {
-                metadata.add_log_entry(LogEntry::warning(format!(
-                    "media_type '{}' differs from expected '{}' for data_format '{}'",
-                    metadata.media_type, expected_media_type, effective_data_format
-                )));
-            } else if metadata.media_type.trim().is_empty() {
-                metadata.media_type = expected_media_type.to_string();
-            }
-        }
 
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
@@ -4830,7 +4979,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             }
         };
         metadata.status = final_status;
-        validate_required_metadata_fields(key, &metadata)?;
+        validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
         add_soft_consistency_warnings(&mut metadata);
 
         // 3. Update timestamp and add log entry
@@ -4886,44 +5035,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     /// - `key`: Store key identifying the target asset/resource.
     /// - `state`: State value (data + metadata) to persist for key-based set_state operations.
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
-        fn validate_required_metadata_fields(key: &Key, metadata: &Metadata) -> Result<(), Error> {
-            if metadata.type_identifier()?.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_identifier must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            if metadata.type_name()?.trim().is_empty() {
-                return Err(Error::general_error(
-                    "Metadata type_name must not be empty".to_string(),
-                )
-                .with_key(key));
-            }
-            Ok(())
-        }
 
         /// Adds non-fatal metadata consistency warnings for externally supplied state.
-        fn add_soft_consistency_warnings(metadata: &mut Metadata) -> Result<(), Error> {
-            let effective_data_format = metadata.get_data_format();
-            if let Some(extension) = metadata.extension() {
-                if extension != effective_data_format {
-                    metadata.add_log_entry(LogEntry::warning(format!(
-                        "Filename extension '{extension}' differs from data_format '{effective_data_format}'"
-                    )))?;
-                }
-            }
-
-            let expected_media_type =
-                crate::media_type::file_extension_to_media_type(&effective_data_format);
-            let media_type = metadata.get_media_type();
-            if !media_type.trim().is_empty() && media_type != expected_media_type {
-                metadata.add_log_entry(LogEntry::warning(format!(
-                    "media_type '{}' differs from expected '{}' for data_format '{}'",
-                    media_type, expected_media_type, effective_data_format
-                )))?;
-            }
-            Ok(())
-        }
 
         // 1. Cancel any existing processing asset for this key
         if self.assets.contains_async(key).await {
@@ -4971,8 +5084,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         // 3. Create metadata record with updated status, timestamp, and log entry
         let mut metadata = state.metadata.as_ref().clone();
         metadata.set_status(final_status)?;
-        validate_required_metadata_fields(key, &metadata)?;
-        add_soft_consistency_warnings(&mut metadata)?;
+        validate_required_metadata_fields_enum(key, &metadata, self.get_envref().get_type_registry())?;
+        add_soft_consistency_warnings_enum(&mut metadata)?;
         metadata.set_updated_now()?;
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
 
@@ -6075,7 +6188,7 @@ mod tests {
                 &Metadata::MetadataRecord(
                     MetadataRecord::new()
                         .with_key(key.clone())
-                        .with_type_identifier("text".to_owned())
+                        .with_type_identifier("Text".to_owned())
                         .with_status(Status::Source)
                         .clone(),
                 ),
@@ -6113,7 +6226,7 @@ mod tests {
                 &Metadata::MetadataRecord(
                     MetadataRecord::new()
                         .with_key(key.clone())
-                        .with_type_identifier("text".to_owned())
+                        .with_type_identifier("Text".to_owned())
                         .with_status(Status::Submitted)
                         .clone(),
                 ),
@@ -6141,7 +6254,7 @@ mod tests {
             .set(&key, &raw, &{
                 let mut metadata = MetadataRecord::new();
                 metadata.with_key(key.clone());
-                metadata.with_type_identifier("bytes".to_owned());
+                metadata.with_type_identifier("Bytes".to_owned());
                 // Intentionally inconsistent with bytes type to assert from_bytes path.
                 metadata.data_format = Some("txt".to_owned());
                 metadata.with_status(Status::Override);
@@ -6168,7 +6281,7 @@ mod tests {
             .set(&key, b"not valid json", &{
                 let mut metadata = MetadataRecord::new();
                 metadata.with_key(key.clone());
-                metadata.with_type_identifier("text".to_owned());
+                metadata.with_type_identifier("Text".to_owned());
                 metadata.data_format = Some("json".to_owned());
                 metadata.with_status(Status::Ready);
                 Metadata::MetadataRecord(metadata)
@@ -7351,7 +7464,7 @@ recipes:
         let key = parse_key("test/set_source").unwrap();
         let binary = b"test data".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
 
@@ -7377,7 +7490,7 @@ recipes:
         let key = parse_key("test/set_expired").unwrap();
         let binary = b"expired data".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
         metadata.status = Status::Expired;
@@ -7400,7 +7513,7 @@ recipes:
         let key = parse_key("test/set_error").unwrap();
         let binary = b"this should not be stored".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
         metadata.status = Status::Error;
@@ -7648,7 +7761,7 @@ recipes:
 
         let key = parse_key("test/stale_expired_key.txt").unwrap();
         let mut stored = MetadataRecord::new();
-        stored.type_identifier = "text".to_string();
+        stored.type_identifier = "Text".to_string();
         stored.type_name = "text".to_string();
         stored.data_format = Some("txt".to_string());
         stored.status = Status::Source;
@@ -7763,7 +7876,7 @@ recipes:
         let key = parse_key("test/to_remove").unwrap();
         let binary = b"to be removed".to_vec();
         let mut metadata = MetadataRecord::new();
-        metadata.type_identifier = "text".to_string();
+        metadata.type_identifier = "Text".to_string();
         metadata.type_name = "text".to_string();
         metadata.data_format = Some("txt".to_string());
 
@@ -8759,5 +8872,46 @@ recipes:
 
         assert!(manager.remove_key_asset_if(&key, second.id()).await);
         assert!(manager.lookup_key_asset(&key).is_none());
+    }
+
+    /// `vts8.5` (unit half) — a data-format *refinement* is not a mismatch.
+    ///
+    /// `csv:comma` narrows `csv` without changing which parser reads it, so a filename extension
+    /// of `csv` is consistent with it. The check compared whole strings before it was hoisted and
+    /// warned on every legitimate refinement.
+    #[test]
+    fn data_format_base_strips_the_refinement() {
+        assert_eq!(super::data_format_base("csv"), "csv");
+        assert_eq!(super::data_format_base("csv:comma"), "csv");
+        assert_eq!(super::data_format_base("csv:tab"), "csv");
+        assert_eq!(super::data_format_base(""), "");
+    }
+
+    /// The soft tier is silent when everything agrees, and specific when it does not.
+    #[test]
+    fn soft_consistency_entries_report_only_real_divergence() {
+        let quiet = super::soft_consistency_entries("csv", Some("csv"), "text/csv", "text/csv");
+        assert!(quiet.is_empty(), "consistent metadata must not warn: {quiet:?}");
+
+        let refined =
+            super::soft_consistency_entries("csv:comma", Some("csv"), "text/csv", "text/csv");
+        assert!(
+            refined.is_empty(),
+            "a refinement is consistent with its base extension: {refined:?}"
+        );
+
+        let mismatched =
+            super::soft_consistency_entries("csv", Some("json"), "text/csv", "text/csv");
+        assert_eq!(mismatched.len(), 1);
+        assert!(mismatched[0].message.contains("json"));
+
+        let overridden =
+            super::soft_consistency_entries("csv", Some("csv"), "text/plain", "text/csv");
+        assert_eq!(overridden.len(), 1);
+        assert!(overridden[0].message.contains("text/plain"));
+
+        // An absent media type is not a divergence — it means "derive".
+        let derived = super::soft_consistency_entries("csv", Some("csv"), "", "text/csv");
+        assert!(derived.is_empty());
     }
 }

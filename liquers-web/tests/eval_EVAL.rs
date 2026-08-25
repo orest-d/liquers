@@ -389,7 +389,7 @@ async fn eval07_keyed_query_evaluates() {
     let key = liquers_core::parse::parse_key("d/greeting.txt").expect("key");
     let mut stored_record = MetadataRecord::new();
     stored_record.with_key(key.clone());
-    stored_record.with_type_identifier("text".to_owned());
+    stored_record.with_type_identifier("Text".to_owned());
     stored_record.with_status(liquers_core::metadata::Status::Source);
     envref
         .get_async_store()

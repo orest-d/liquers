@@ -8,7 +8,7 @@ fn polars_value_csv_roundtrip() {
     let value = Value::from_polars_dataframe(df);
 
     let bytes = value.as_bytes("csv").unwrap();
-    let decoded = Value::deserialize_from_bytes(&bytes, "polars_dataframe", "csv").unwrap();
+    let decoded = Value::deserialize_from_bytes(&bytes, "polars.DataFrame", "csv").unwrap();
     let decoded_df = decoded.as_polars_dataframe().unwrap();
 
     assert_eq!(decoded_df.height(), 2);
@@ -21,7 +21,7 @@ fn polars_value_parquet_roundtrip() {
     let value = Value::from_polars_dataframe(df);
 
     let bytes = value.as_bytes("parquet").unwrap();
-    let decoded = Value::deserialize_from_bytes(&bytes, "polars_dataframe", "parquet").unwrap();
+    let decoded = Value::deserialize_from_bytes(&bytes, "polars.DataFrame", "parquet").unwrap();
     let decoded_df = decoded.as_polars_dataframe().unwrap();
 
     assert_eq!(decoded_df.height(), 3);

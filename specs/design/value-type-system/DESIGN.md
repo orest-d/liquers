@@ -1,0 +1,56 @@
+---
+id: VALUE-TYPE-SYSTEM
+kind: design
+title: Liquers value type system
+workflow: liquers-project
+status: complete
+area: [core/value, lib/value, py, web]
+gh_pr: [37]
+issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED, VALUE-CONVERSION-CAPABILITY, TYPE-REGISTRY-NOT-REALM-AWARE, VALUE-TYPE-DEFINITION-MACRO, CORE-VALUE-ENUM-OVERSIZED]
+affects_docs: [reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md]
+created: 2026-08-18
+superseded_by:
+---
+# value-type-system Design Tracking
+
+**Created:** 2026-08-18
+
+## Phase Status
+
+- [x] Phase 1: High-Level Design
+- [x] Phase 2: Solution & Architecture
+- [x] Phase 3: Examples & Testing
+- [x] Phase 4: Implementation Plan
+- [x] Phase 5: Documentation
+- [x] Implementation Complete
+
+## Notes
+
+Supersedes the scope of `specs/design/metadata-consistency/`, which investigated the same P0 as a
+metadata-validation problem. This design treats it as a missing type model instead.
+
+The scalar widening moved to `VALUE-TYPE-DEFINITION-MACRO`, which generates value types instead of
+hand-writing them; this project ships the P0 fix, the type registry and the metadata invariants.
+
+Type conversion and the **purpose axis** are both out of scope; the proposal is drafted in
+`type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`. The carrier
+axis collapsed into the identifier as a namespace prefix, and `data_type` was dropped because
+`type_name` already occupies that niche, so this project ships **two** axes: type identity and
+encoding. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
+
+User decisions, 2026-08-18: no backward compatibility for stored type identifiers and no data
+migration; the write path **rejects** inconsistent metadata rather than normalising; scalars are
+grounded in Rust and the nine-way correspondence table (`prior-art.md` §9) is a required artefact.
+
+## Supporting documents
+
+- [Prior art research](./prior-art.md)
+- [Type conversion draft](./type-conversion-draft.md) — purpose axis and conversion proposal
+
+## Links
+
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

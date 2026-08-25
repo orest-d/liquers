@@ -166,6 +166,13 @@ pub trait Environment:
 
     /// Returns the registry used for planning and command metadata lookup.
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
+    /// Returns the registry of value types this build knows.
+    ///
+    /// Mirrors [`Environment::get_command_metadata_registry`]: built once at construction from
+    /// [`ValueInterface::type_descriptions`], read-only thereafter. The deserialization path needs
+    /// it because it has bytes and a type identifier but no value yet; every other check has a
+    /// value in hand and uses the instance methods on [`ValueInterface`].
+    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry;
     /// Returns the command executor used by the interpreter.
     fn get_command_executor(&self) -> &Self::CommandExecutor;
     /// Returns the asynchronous persistence store.
@@ -244,6 +251,10 @@ impl<E: Environment> EnvRef<E> {
     /// Returns the command executor.
     pub fn get_command_executor(&self) -> &E::CommandExecutor {
         self.0.get_command_executor()
+    }
+    /// Returns the registry of value types this build knows.
+    pub fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        self.0.get_type_registry()
     }
 
     /// Returns the shared asset manager.
@@ -954,6 +965,7 @@ impl Session for SimpleSession {
 /// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 #[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironment<V: ValueInterface> {
+    type_registry: crate::type_system::TypeRegistry,
     store: Arc<dyn Store>,
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
@@ -977,6 +989,7 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
     /// The environment still needs [`Environment::to_ref`] before evaluation.
     pub fn new() -> Self {
         SimpleEnvironment {
+            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
             store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
@@ -1019,6 +1032,10 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
+    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        &self.type_registry
+    }
+
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
@@ -1098,6 +1115,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
 /// If no recipe provider is configured, this environment returns
 /// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 pub struct ImmediateEnvironment<V: ValueInterface> {
+    type_registry: crate::type_system::TypeRegistry,
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
@@ -1115,6 +1133,7 @@ impl<V: ValueInterface> ImmediateEnvironment<V> {
     /// Creates an inline environment with no asynchronous persistence.
     pub fn new() -> Self {
         ImmediateEnvironment {
+            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
             command_registry: CommandRegistry::new(),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
@@ -1139,6 +1158,10 @@ impl<V: ValueInterface> ImmediateEnvironment<V> {
 }
 
 impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
+    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        &self.type_registry
+    }
+
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
@@ -1214,6 +1237,7 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
 /// If no recipe provider is configured, this environment returns
 /// [`TrivialRecipeProvider`](crate::recipes::TrivialRecipeProvider).
 pub struct ImmediateEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
+    type_registry: crate::type_system::TypeRegistry,
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
@@ -1234,6 +1258,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWit
     /// Creates an inline payload-bearing environment with no asynchronous persistence.
     pub fn new() -> Self {
         ImmediateEnvironmentWithPayload {
+            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
             command_registry: CommandRegistry::new(),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
@@ -1261,6 +1286,10 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWit
 impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     for ImmediateEnvironmentWithPayload<V, P>
 {
+    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        &self.type_registry
+    }
+
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;
@@ -1675,6 +1704,7 @@ mod tests {
 /// keyed recipe lookup; otherwise [`Environment::get_recipe_provider`] panics.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct SimpleEnvironmentWithPayload<V: ValueInterface, P: crate::commands::PayloadType> {
+    type_registry: crate::type_system::TypeRegistry,
     store: Arc<dyn Store>,
     #[cfg(feature = "async_store")]
     async_store: Arc<dyn crate::store::AsyncStore>,
@@ -1701,6 +1731,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
     /// The environment still needs [`Environment::to_ref`] before evaluation.
     pub fn new() -> Self {
         SimpleEnvironmentWithPayload {
+            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
             store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
@@ -1746,6 +1777,10 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
 impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
     for SimpleEnvironmentWithPayload<V, P>
 {
+    fn get_type_registry(&self) -> &crate::type_system::TypeRegistry {
+        &self.type_registry
+    }
+
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;

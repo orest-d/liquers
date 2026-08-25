@@ -49,6 +49,10 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
 /// Implement IntoResponse for BinaryResponse
 impl IntoResponse for BinaryResponse {
     fn into_response(self) -> Response<Body> {
+        // `get_media_type` resolves the seeding cascade: a declared level-3 override verbatim,
+        // otherwise the type derived from the effective data format. Shaping this header is an
+        // intended capability, which is why an override reaches here unchanged — the guard is on
+        // the *shape* of the string, applied when it is stored.
         let media_type = self.metadata.get_media_type();
         let media_type = if media_type.is_empty() {
             "application/octet-stream"

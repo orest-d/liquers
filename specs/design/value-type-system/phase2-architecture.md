@@ -1,0 +1,638 @@
+# Phase 2: Solution & Architecture - Liquers value type system
+
+## Overview
+
+One new module, `liquers-core/src/type_system.rs`, holds `TypeInfo` (the facts about one type) and
+`TypeRegistry` (identifier-keyed lookup). Type facts reach the system through two complementary
+surfaces: **instance methods on `ValueInterface`**, used everywhere a value is in hand, and the
+**registry**, used only on the deserialization path where bytes and an identifier arrive without a
+value. The metadata invariants are enforced at `AssetManager::set`/`set_state`, splitting into a
+hard tier that rejects and a soft tier that logs. `liquers-lib` gains no variant: the scalar widening moved to
+`VALUE-TYPE-DEFINITION-MACRO`.
+
+The type model that ships is **one type axis** — variant identity (`type_identifier`) — alongside
+the **encoding axis** (`data_format` inward, `media_type` outward, extension as a seeding source).
+See "Resolved: the `data_type` axis" below for why the second type axis does not ship.
+
+## Known-Issue Preflight
+
+Searched: `specs/index.csv` for open (`draft`/`accepted`/`in_progress`) issues and features whose
+`area` intersects `core/value`, `core/commands`, `lib/value`, `core/assets`, `core/store`, `macro`,
+`py`, `web`, `axum` — 44 records. Also inspected everything linked from `DESIGN.md` and Phase 1.
+
+| Issue | Status | Priority | Relevance and solution impact | Address first? | Blocking? | Required action | Priority action |
+|---|---|---|---|---|---|---|---|
+| `CORE-METADATA-FORMAT-TYPE-CONSISTENCY` | accepted | P0 | The issue this project resolves | — | no | Close in Phase 5 | Keep P0 |
+| `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON` | accepted | P2 | **`Metadata::get_data_format` legacy branch (`metadata.rs:1782`) returns `data_format.to_string()` on a `serde_json::Value`, so a legacy/partial document yields `"\"json\""` with quotes.** Our resolution rule reads that value, and reject-on-write would then refuse valid legacy assets with an unparseable format. The issue itself hands its deeper half — whether `MetadataRecord` should accept a partial document — to this project | **yes** | no (fixed inside this project) | Fold the accessor sweep in as step 0; decide the partial-document question here | **Recommend P1** — under reject-on-write it becomes user-visible breakage, not a cosmetic quoting bug |
+| `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED` | draft | P2 | `CombinedValue::default_extension` returns `"ext"` for every extended value (`extended.rs:150`), so level-1 seeding would seed a format no serializer implements | **yes** | no (fixed inside this project) | Fold the one-line delegation fix in; it is directly in the seeding path | Keep P2 |
+| `COMBINED-VALUE-DISCRIMINATION` | accepted | P2 | Wants identifier-driven decode dispatch with deterministic fallback — exactly what `TypeRegistry` provides | no | no | This project supplies the mechanism; the issue closes or narrows to its test matrix | Keep P2 |
+| `COMMAND-METADATA-ENHANCEMENTS` | accepted | P2 | Owns "explicit input/output type constraints in metadata" — the same ground as the `ArgumentType` change Phase 1 proposed. **`ArgumentType` has 101 references across 10 files including `liquers-py`, `liquers-web` and `liquers-macro`**; a new variant ripples through all of them | no | no | **Scope change: the `ArgumentType` work moves to this issue.** See "Scope removed" | Keep P2 |
+| `CORE-VALUE-INTERFACE-CAPABILITY-SPLIT` | accepted | P2 | Owns renaming `identifier`→`type_identifier` and splitting the trait. We add methods (non-breaking) but do **not** rename (breaking, and it is that issue's job) | no | no | Add methods with defaults; leave naming alone and note the coordination | Keep P2 |
+| `VALUE-DESCRIPTION` | accepted | P3 | `TypeInfo` is where a description hook would hang, and `type_name` already carries the runtime-detail role | no | no | Leave room in `TypeInfo`; do not implement | Keep P3 |
+| `VALUE-CONVERSION-CAPABILITY` | draft | P2 | Downstream: owns purposes and conversion, filed by this design. Also owns automatic conversion at command-argument binding, which needs a compile-time Rust-type ↔ identifier correspondence | no | no | Define `TypeIdentifiedIn<V>` now — see "Forward compatibility" | Keep P2 |
+| `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Generates `ExtValue`, every trait impl and the registry entries from one declaration. **Now owns the scalar widening** — see "Sequencing decision" | no | no | Ship nothing it would have to undo; see "Generator alignment" | Keep P2 |
+| `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | A cross-realm query needs to know which types the *other* realm supports. Filed during this phase | no | no | **The realm key ships here** — field, default, `with_realm`, `get_in_realm`. The issue retains the behavioural half: cross-realm sharing and the unsupported-type action | Keep P2 |
+| `CORE-VALUE-ENUM-OVERSIZED` | draft | P2 | `size_of::<Value>()` is 704 bytes, set by `Value::Metadata(MetadataRecord)`; measured during this phase. Bears on the payload discipline this design documents | no | no | Document the discipline in the new reference; do not fix here — it touches every construction and match arm in four crates | Keep P2 |
+| `CORE-MULTI-REALM-INTERPRETER` | accepted | P3 | Realm-aware *dispatch* (`plan.rs:1081`) must exist before realm-aware *typing* has anything to attach to | no | no | Nothing here; the realm-ready key costs nothing while dispatch is single-realm | Keep P3 |
+| `WORKSPACE-SERDE-DERIVE-UNDECLARED` | accepted | P2 | `TypeInfo` will carry serde derives in `liquers-core`, which is one of the crates with an undeclared `derive` feature | no | no | Do not add a new undeclared use; monitor | Keep P2 |
+| `CORE-STATE-LOCK-API-CLEANUP` | accepted | P3 | We extend `State::sync_metadata_with_value`; that issue may reshape `State` internals | no | no | Keep the change inside the existing helper so it moves with any refactor | Keep P3 |
+| `CORE-METADATA-TRACEBACK-SUPPORT` | accepted | P2 | Adds a neighbouring metadata field; no interaction with type or format fields | no | no | Monitor | Keep P2 |
+
+**No blockers.** The two "address first" items are small (`S`) and land inside this project as
+preparatory steps rather than as external prerequisites, so Phase 2 approval is not held by an
+unresolved blocker. Both are recorded in the Phase 4 step list.
+
+## Resolved: the `data_type` axis does not ship
+
+Phase 1 left this open. It is resolved as **drop**, on a stronger ground than "no consumer here":
+**`type_name` already occupies the niche.** It is documented as the detailed, runtime-oriented,
+informational counterpart to `identifier` (`liquers-core/src/value.rs:194-197`), it is already a
+`MetadataRecord` and `AssetInfo` field, and it is already synced from the value
+(`state.rs:25-28`). For a dynamically-typed carrier — a JSON document, a Python object registered
+under one `python` identifier — `type_name` is precisely where "what this actually is at runtime"
+lives. A separate `data_type` field would be a second, competing answer to the same question, and
+this project exists because two fields answering overlapping questions drifted apart.
+
+The information is not lost, only relocated: `py:int`, `i64` and `js:number` remain distinct
+identifiers, and *the fact that all three are integers* is the correspondence table
+(`prior-art.md` §9), which is the conversion project's input.
+
+**Shipped model:** one type axis (`type_identifier`), with `type_name` as its informational
+refinement, plus the encoding axis.
+
+## Scope removed since Phase 1
+
+- **`ArgumentType` / `ArgumentInfo` typing** moves to `COMMAND-METADATA-ENHANCEMENTS`, which
+  already owns "explicit input/output type constraints in metadata". Measured cost: 101
+  `ArgumentType` references across `liquers-core`, `liquers-macro`, `liquers-lib`, `liquers-py`
+  and `liquers-web`; adding a Liquers-owned enum variant makes every one of those matches a
+  compile error, and the no-`_ =>` rule means that is by design. That is a project of its own and
+  it is not what the P0 needs. `area` drops `core/commands`.
+
+## Data Structures
+
+### `TypeInfo` — the facts about one type
+
+```rust
+// liquers-core/src/type_system.rs
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct TypeInfo {
+    /// Unique, cross-platform variant identity. The serialization dispatch key.
+    /// Namespaced by producer where the producer is not core: `py:int`, `js:number`, `pl:dataframe`.
+    pub type_identifier: Cow<'static, str>,
+
+    /// Detailed, runtime-oriented name. Informational; never a dispatch key.
+    pub type_name: Cow<'static, str>,
+
+    /// Level-1 seeding defaults. Mutually consistent by construction.
+    pub default_data_format: Cow<'static, str>,
+    pub default_extension: Cow<'static, str>,
+    pub default_media_type: Cow<'static, str>,
+    pub default_filename: Cow<'static, str>,
+
+    /// Data formats this type can be written to and read from.
+    /// `data_format` outside this set is the hard-tier rejection that closes the P0.
+    pub supported_data_formats: Vec<Cow<'static, str>>,
+}
+```
+
+**Ownership rationale.** `Cow<'static, str>` throughout, matching `ValueInterface`'s existing
+return type, so a statically-known type costs no allocation while a foreign type registered at
+runtime can still own its strings. `Vec` rather than `&'static [&str]` because a foreign value's
+format list is a runtime fact.
+
+**Construction is through a builder**, following the `MetadataRecord::with_*` /
+`ArgumentInfo::with_*` convention already used across the codebase:
+
+```rust
+impl TypeInfo {
+    pub fn new(type_identifier: impl Into<Cow<'static, str>>) -> Self;
+    pub fn with_type_name(self, ..) -> Self;
+    pub fn with_defaults(self, format: .., extension: .., media_type: .., filename: ..) -> Self;
+    pub fn with_data_format(self, format: ..) -> Self;   // appends to supported_data_formats
+    pub fn with_realm(self, realm: ..) -> Self;
+
+    /// From a Rust type that names its own identifier within value type `V`.
+    pub fn of<V: ValueInterface, T: TypeIdentifiedIn<V>>() -> Self { T::type_info() }
+}
+```
+
+This is not ceremony: it is what lets a later field — the per-realm unsupported-type action of
+`TYPE-REGISTRY-NOT-REALM-AWARE` — be added without breaking every construction site.
+
+**Serialization.** Plain derives; `TypeInfo` is a description, not a value. It is exposed through
+the web API so a client can discover what a build supports, and it is the shape a cross-realm
+registry exchange would transfer.
+
+### Type identifier naming
+
+**Form: `<provider>.<LocalName>`, or a bare `<LocalName>` for a Liquers canonical type.**
+
+| Rule | |
+|---|---|
+| Separator | Exactly one `.`. Both parts alphanumeric |
+| Provider | Lowercase, naming the system or library the type belongs to: `polars`, `py`, `js`, `pandas`, `arrow` |
+| Local name | The **Liquers concept name**, CamelCase — normally the `ExtValue` variant name, *not* the backing Rust struct's name |
+| Reserved | Every other non-alphanumeric character: `:` (already means format refinement, `csv:comma`), `/`, `-`, `<`, `>`, `+`, `#`. Kept free for generics, versions and future structure |
+| Bare names | Reserved permanently for `liquers-core` and `liquers-lib`. A third-party crate always carries a provider |
+
+Examples: `Text`, `I64`, `Bytes`, `Image`; `polars.DataFrame`, `polars.LazyFrame`,
+`pandas.DataFrame`, `py.Int`, `js.Number`.
+
+**Why dotted rather than flat CamelCase** (`PolarsDataFrame`):
+
+1. Every large extensible cross-language type namespace uses a separator — UTI `com.adobe.pdf`,
+   Arrow `arrow.json`, `java.lang.String`, `google.protobuf.Timestamp` — because collision
+   avoidance needs a *machine-readable* authority boundary.
+2. Flat names cannot be parsed. `PyInt` — Python's `int`, or a type named `PyInt`? `ImageBuffer` —
+   provider `Image` plus `Buffer`, or a core `ImageBuffer`? `TYPE-REGISTRY-NOT-REALM-AWARE` needs
+   exactly this grouping: "which of provider X's types does this realm support?"
+3. A dot is safe in a Liquers query parameter and a dash is not: an action parameter is
+   `ALNUM | '_' | '.'` (`parse.rs:476`), while `-` separates parameters. *Caveat:* a dot in a
+   **terminal** segment can make it parse as a filename (`parse.rs:25`) — fine for parameters, not
+   for a bare trailing segment.
+4. The separator has to be spent now or never. Compatibility is a non-issue today; if flat names
+   ship and a boundary is needed later, every stored identifier changes.
+
+**When a name may be bare: concept ownership.** A bare name asserts that **Liquers owns the
+concept** — that this is the canonical type Liquers commits to, and converts others into. The test
+is semantic, not locational. "Defined in a Liquers module" is the wrong criterion and would exclude
+the very case it exists to permit: the payload of `ExtValue::Image` is `image::DynamicImage`, from
+a third-party crate. Liquers owns the *meaning* of `Image`; the crate is an implementation detail.
+A provider prefix says the opposite — that Liquers is exposing *somebody else's* type, and the
+provider is part of what identifies it.
+
+- Liquers commits to a canonical raster image → `Image` is bare.
+- Liquers explicitly refuses a canonical dataframe — polars and pandas, eager and lazy, arrow —
+  so there is no bare `DataFrame`, and `polars.DataFrame` is right.
+
+This keeps a future `py.Image` a *sibling of a canonical* rather than a competitor to an
+accidentally privileged name, and it stays decidable when the next type arrives. Images carry the
+same latent plurality dataframes already have (PIL, `ImageBitmap`, ndarray-backed, vector, GPU
+texture); polars only looks different because its plurality arrived first.
+
+**The bare set is closed and enumerated**, listed in `specs/reference/VALUE_TYPE_SYSTEM.md` and
+asserted by a test. Adding to it is a reviewed documentation change, not a judgement made while
+adding a type. The asymmetry is what justifies the ceremony: baring a name later is free — add a
+shorthand — while un-baring one is a breaking rename of stored data. **When unsure, prefix.**
+
+### `TypeIdentifiedIn<V>` and `to_type_identifier` — the one bridge between the two worlds
+
+```rust
+// liquers-core/src/type_system.rs
+pub trait TypeIdentifiedIn<V: ValueInterface> {
+    const TYPE_IDENTIFIER: &'static str;
+    fn type_info() -> TypeInfo;
+}
+
+// Wrapper transparency. These live in core, where the trait is local.
+impl<V, T: TypeIdentifiedIn<V>> TypeIdentifiedIn<V> for std::sync::Arc<T> {
+    const TYPE_IDENTIFIER: &'static str = T::TYPE_IDENTIFIER;
+    fn type_info() -> TypeInfo { T::type_info() }
+}
+impl<V, T: TypeIdentifiedIn<V>> TypeIdentifiedIn<V> for &T { /* same */ }
+
+/// The bridge. Resolved at compile time; performs no lookup.
+pub const fn to_type_identifier<V, T: TypeIdentifiedIn<V>>() -> &'static str {
+    T::TYPE_IDENTIFIER
+}
+```
+
+**The `V` parameter is not decoration — without it the design does not compile.** An earlier draft
+declared a bare `TypeIdentified`, which `liquers-lib` would have to implement for
+`polars::frame::DataFrame`: a foreign trait for a foreign type, rejected by the orphan rule. Both
+halves were checked against the compiler rather than reasoned about:
+
+```
+error[E0117]: only traits defined in the current crate can be implemented
+              for types defined outside of the crate
+   = note: impl doesn't have any local type before any uncovered type parameters
+```
+
+Parameterising by the value type puts a **local** type into the impl head —
+`impl TypeIdentifiedIn<ExtValue> for polars::frame::DataFrame`, where `ExtValue` is local to
+`liquers-lib` — which RFC 2451 permits. Verified compiling, including the `Arc<T>` and `&T`
+blanket impls.
+
+This affects every type that matters: `polars::frame::DataFrame`, `image::DynamicImage`,
+`chrono::NaiveDate`, `rust_decimal::Decimal`, `uuid::Uuid` are all foreign.
+
+**Two consequences, both good.** The identifier mapping is now *relative to a value type*, so two
+crates that each define their own value type may both name `polars::frame::DataFrame` without a
+coherence conflict — which matches the registry being a property of the build rather than of the
+universe. And it is the same shape the extraction trait needs (`FromValue<V>`, owned by
+`VALUE-CONVERSION-CAPABILITY`), so identity and extraction stay consistent.
+
+**The alternative was a newtype** — `struct PolarsDataFrame(Arc<DataFrame>)` local to
+`liquers-lib`, with `Deref`. It works and gives an exact three-way name correspondence, but it
+changes the command signature from `df: polars::DataFrame` to `df: PolarsDataFrame`, which is the
+opposite of the rule this design adopted. Rejected for that reason, not because it fails.
+
+**The governing rule, which this design adopts:**
+
+> **Rust types in Rust code and in command registration. Type identifiers in the registries** —
+> which exist to integrate with other languages and other realms.
+
+`to_type_identifier::<V, T>()` is the *only* crossing between them, and it goes one way. The reverse
+— identifier to Rust type — is never needed inside Rust, because Rust code always has the type
+already. Deserialization is not a counterexample: bytes plus an identifier produce a `Value`, so
+that is dispatch *within* the value type, not resolution of a Rust type. Outside Rust — a Python
+caller, a browser, a second realm — identifiers are all there is, which is what they are for.
+
+**Immediate consumer:** `V::type_descriptions()` implementations are written as
+`vec![TypeInfo::of::<Self, PolarsFrame>(), ..]` rather than repeating each identifier string in
+both `identifier()` and the description.
+
+**Why it settles the command-argument question.** A command is written in Rust types:
+
+```rust
+fn use_df(state: &State<V>, df: polars::frame::DataFrame) -> Result<V, Error>
+```
+
+Registration derives the identifier from the same type token the macro already forwards
+(`registration.rs:492` emits `let #var_name: #ty = arguments.get(#i, #name)?;`), by emitting
+`to_type_identifier::<V, #ty>()` alongside it. Both the extraction type and the recorded identifier
+come from **one** `T`, so they cannot disagree — the mismatch is unrepresentable rather than
+detected. An earlier draft proposed a `CommandRegistryIssue` check for exactly that disagreement;
+it is unnecessary, which is the stronger outcome.
+
+A type with no `TypeIdentifiedIn<V>` impl is a compile error at the command definition, on the
+trait bound. `#[diagnostic::on_unimplemented]` can make that message name the real problem — "this
+type has no Liquers type identifier; declare it with `define_value_types!`" — rather than showing a
+bare unsatisfied bound.
+
+**Phase 4 must verify** that the value type `V` is nameable at every `register_command!` expansion
+site. It is at the registry (`CommandRegistry<E>` knows `E::Value`), but the expansion currently
+does not mention it, so this is a concrete check rather than an assumption.
+
+## Trait Implementations
+
+### `ValueInterface` — additive only
+
+```rust
+// liquers-core/src/value.rs
+pub trait ValueInterface: /* ... unchanged bounds ... */ {
+    // ... all existing methods unchanged ...
+
+    /// Static self-description of every type this value type can hold.
+    /// Default is empty: an implementor that does not describe itself registers nothing,
+    /// which degrades to "unknown type" rather than failing to compile.
+    fn type_descriptions() -> Vec<TypeInfo> { Vec::new() }
+
+    /// Can *this* value be written in this format? Answered without a registry,
+    /// so `State::as_bytes` and the State-level checks need no `Environment`.
+    fn supports_data_format(&self, data_format: &str) -> bool;
+
+    /// The effective type info for this value.
+    fn type_info(&self) -> TypeInfo;
+}
+```
+
+`type_descriptions` is an associated function (no `self`), so `CombinedValue` concatenates
+`BaseValue::type_descriptions()` with `Ext::type_descriptions()`. Object safety is not a concern:
+`ValueInterface` is used as an associated type bound (`Environment::Value`), never as `dyn`.
+
+Defaults on all three would be ideal for non-breakage, but `supports_data_format` and `type_info`
+cannot have honest defaults — a default `true` would silently defeat the P0 check. They are
+required, and the three implementors outside core (`liquers-lib`, `liquers-py`, `liquers-web`)
+implement them. **Names `identifier` and `type_name` are left alone**; renaming belongs to
+`CORE-VALUE-INTERFACE-CAPABILITY-SPLIT`.
+
+### `Environment` — one new method
+
+```rust
+// liquers-core/src/context.rs
+pub trait Environment: /* ... */ {
+    // ... existing ...
+    fn get_type_registry(&self) -> &TypeRegistry;
+}
+```
+
+Mirrors `get_command_metadata_registry` exactly. Four implementors: `SimpleEnvironment`
+(`context.rs:1021`), `ImmediateEnvironment` (`context.rs:1141`), `DefaultEnvironment`
+(`liquers-lib/src/environment.rs:94`), and `liquers-py`'s (`context.rs:82`). Each builds its
+registry once at construction via `TypeRegistry::from_value_type::<Self::Value>()`, then extends it
+with any foreign registrations.
+
+**Why the registry is needed at all**, given the instance methods: deserialization has bytes and a
+`type_identifier` but no value yet (`assets.rs:484-492`, `:3681`). That path is already generic over
+`E: Environment`, so it can reach the registry. Every other check has a value in hand and uses the
+instance methods.
+
+## Metadata Changes
+
+```rust
+// liquers-core/src/metadata.rs — MetadataRecord and AssetInfo alike
+pub media_type: Option<String>,   // was: String with an empty-string sentinel
+```
+
+`None` = derive from the effective `data_format`; `Some` = a deliberate level-3 override that is
+preserved verbatim and never re-derived. `data_format: Option<String>` is unchanged — its `None`
+already means "unspecified, use the value default", which is the level-1 fall-through.
+
+**`AssetInfo.media_type` stays a `String`.** `AssetInfo` is a *resolved projection* for clients, not
+a place to record how a value came to have its media type, so it carries the effective value with
+the override already applied. Keeping it unwrapped leaves the UI (`liquers-lib/src/egui/widgets.rs:854`)
+and the Python bindings untouched, and it means a client never has to know the seeding rules to
+display a type. Only `MetadataRecord`, which is the thing an author *writes*, needs the
+override/derive distinction.
+
+```rust
+impl MetadataRecord {
+    /// `Some(f)` → f. `None` → the caller supplies the value default (level 1).
+    /// No extension fallback and no `"bin"` constant.
+    pub fn declared_data_format(&self) -> Option<&str>;
+
+    /// Full resolution, given the value's own default.
+    pub fn effective_data_format(&self, value_default: &str) -> String;
+
+    /// `Some` override verbatim, else derived from the effective format.
+    pub fn effective_media_type(&self, value_default_format: &str) -> String;
+}
+```
+
+`get_data_format()` (`metadata.rs:1239`) and `get_media_type()` (`:1226`) keep their names and
+signatures during migration but lose the extension-and-`"bin"` fallback chain; the level-1 answer
+now arrives from the value rather than from a constant. The `Metadata::LegacyMetadata` branches of
+both are rewritten to extract with `as_str()`, which is the
+`CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON` sweep.
+
+**Partial-document decision** (handed to this project by that issue): `MetadataRecord` gains
+`#[serde(default)]` on every field that has a sensible default, so `{"media_type":"text/plain"}`
+deserializes into a record instead of dropping to the legacy branch. This removes the trap rather
+than the symptom. `Metadata::from_json`'s legacy fallback stays, but stops being the common path.
+
+## Function Signatures
+
+Collected for reference; each is specified in context in the section named after it.
+
+| Signature | Home | Section |
+|---|---|---|
+| `TypeRegistry::from_value_type<V: ValueInterface>() -> Self` | `type_system.rs` | Data Structures |
+| `TypeRegistry::register(&mut self, TypeInfo) -> Result<(), Error>` | `type_system.rs` | Data Structures |
+| `TypeRegistry::get(&self, &str) -> Option<&TypeInfo>` | `type_system.rs` | Data Structures |
+| `TypeRegistry::supports_data_format(&self, &str, &str) -> bool` | `type_system.rs` | Data Structures |
+| `ValueInterface::type_descriptions() -> Vec<TypeInfo>` | `value.rs` | Trait Implementations |
+| `TypeIdentifiedIn<V>::TYPE_IDENTIFIER` / `::type_info()` | `type_system.rs` | Data Structures |
+| `to_type_identifier<V, T: TypeIdentifiedIn<V>>() -> &'static str` | `type_system.rs` | Data Structures |
+| `TypeInfo::of<V, T>() -> TypeInfo` | `type_system.rs` | Data Structures |
+| `ValueInterface::supports_data_format(&self, &str) -> bool` | `value.rs` | Trait Implementations |
+| `ValueInterface::type_info(&self) -> TypeInfo` | `value.rs` | Trait Implementations |
+| `Environment::get_type_registry(&self) -> &TypeRegistry` | `context.rs` | Trait Implementations |
+| `MetadataRecord::declared_data_format(&self) -> Option<&str>` | `metadata.rs` | Metadata Changes |
+| `MetadataRecord::effective_data_format(&self, &str) -> String` | `metadata.rs` | Metadata Changes |
+| `MetadataRecord::effective_media_type(&self, &str) -> String` | `metadata.rs` | Metadata Changes |
+| `validate_metadata_hard(&MetadataRecord, &TypeRegistry, &Key) -> Result<(), Error>` | `assets.rs` | Where the invariants are enforced |
+| `add_soft_consistency_warnings(&mut MetadataRecord, &TypeRegistry)` | `assets.rs` | Where the invariants are enforced |
+| `check_metadata(&mut Metadata, &TypeRegistry, &Key) -> Result<(), Error>` | `assets.rs` | Where the invariants are enforced |
+| `deserialize_stored_value<E>(&[u8], &str, &str, &TypeRegistry) -> Result<DeserializedValue<E::Value>, Error>` | `assets.rs` | Where the invariants are enforced |
+
+## Where the invariants are enforced
+
+### Level-1 seeding — `State`
+
+```rust
+// liquers-core/src/state.rs — extends the existing private helper
+fn sync_metadata_with_value(metadata: &mut Metadata, value: &V) {
+    // existing: type_identifier, type_name
+    // added:    seed data_format / extension / media_type from the value's TypeInfo
+    //           **only where they are not already set**
+}
+```
+
+Keeping this inside the existing helper means every constructor that already calls it —
+`new`, `from_value_and_metadata`, `with_metadata`, `with_data`, `from_error` — gets seeding for
+free, and it moves as one unit if `CORE-STATE-LOCK-API-CLEANUP` reshapes `State`.
+
+### The two tiers — `AssetManager::set` / `set_state`
+
+**Codebase-alignment finding: the existing check is duplicated four times.**
+`add_soft_consistency_warnings` is a *nested local function* declared separately at
+`assets.rs:3173`, `:3280`, `:4767` and `:4906` — once per `set`/`set_state` on each of the two
+manager implementations — and in **two different signatures**
+(`&mut MetadataRecord` versus `&mut Metadata -> Result<(), Error>`). Patching the tier logic in
+place would mean making the same change four times, which is how it drifted in the first place.
+
+**They are hoisted to one module-level pair before any behaviour change**, and all four sites call
+them:
+
+```rust
+// liquers-core/src/assets.rs — module level, not nested
+fn validate_metadata_hard(
+    metadata: &MetadataRecord, registry: &TypeRegistry, key: &Key,
+) -> Result<(), Error>;
+
+fn add_soft_consistency_warnings(metadata: &mut MetadataRecord, registry: &TypeRegistry);
+
+/// Adapter for the two sites that hold a `Metadata` enum rather than a record.
+fn check_metadata(
+    metadata: &mut Metadata, registry: &TypeRegistry, key: &Key,
+) -> Result<(), Error>;
+```
+
+| Tier | Check | Error / entry |
+|---|---|---|
+| Hard | `type_identifier` empty | existing, `Error::general_error` |
+| Hard | `type_name` empty | existing, `Error::general_error` |
+| Hard | `type_identifier` not in the registry | `Error::general_error` naming the identifier and that this build does not know it |
+| Hard | effective `data_format` not in `supported_data_formats` | **the P0**: `Error::from_error(ErrorType::SerializationError, ..)` naming type, format, and the supported set |
+| Hard | `Some(media_type)` malformed — CR, LF, or not `type/subtype` | `Error::general_error`; it reaches an HTTP header |
+| Soft | extension ≠ **base** of the effective `data_format` | `LogEntry::warning` |
+| Soft | `Some(media_type)` ≠ the derived one | `LogEntry::warning` — expected under an override |
+| Soft | which seeding level supplied the format | `LogEntry::info` |
+
+The extension comparison is on the **base** format, so `data.csv` with `csv:comma` does not warn —
+today's plain `!=` (`assets.rs:3176`) warns spuriously. Base extraction splits on the first `:`.
+
+All constructors are typed (`Error::general_error`, `Error::from_error`); **`Error::new` is not
+used**, and no new error type is introduced.
+
+### Read path
+
+**Codebase-alignment finding: the read path cannot reach the registry as designed.**
+`deserialize_stored_value<E: Environment>(binary, type_identifier, data_format)`
+(`assets.rs:481`) carries `E` only as a *type* parameter — it holds no `&E` and no `EnvRef`, so it
+cannot call `env.get_type_registry()`. The registry is therefore passed in:
+
+```rust
+fn deserialize_stored_value<E: Environment>(
+    binary: &[u8],
+    type_identifier: &str,
+    data_format: &str,
+    registry: &TypeRegistry,          // added
+) -> Result<DeserializedValue<E::Value>, Error>;
+
+/// Distinguishes "materialized" from "kept as bytes because this build does not know the type".
+pub enum DeserializedValue<V> {
+    Value(V),
+    Undeserialized { type_identifier: String },
+}
+```
+
+Both call sites can supply it: `AssetData::try_fast_track` (`assets.rs:654`) holds
+`envref: EnvRef<E>` as a field, and `AssetManager::get_any_status`'s store-fallback path is a
+manager method with the same access.
+
+With the registry in hand it dispatches: 
+
+| Situation | Behaviour |
+|---|---|
+| identifier known, format supported | deserialize normally |
+| identifier known, format unsupported | `Error::from_error(ErrorType::SerializationError, ..)` naming both |
+| **identifier not registered in this build** | **degrade**: returns `Undeserialized`; the asset keeps its bytes and its metadata verbatim, with a `LogEntry::warning` naming the unregistered identifier. Asking for a *value* then fails with a named error |
+
+The degrade rule (Phase 1 open question 5) lets a minimal build copy, proxy and re-store data it
+cannot interpret. Re-persisting is safe because that path already takes the bytes from
+`poll_binary` without re-serializing, so the untouched metadata is written back unchanged and the
+hard tier never sees a value it would have to reject.
+
+## Integration Points
+
+| Crate | Change |
+|---|---|
+| `liquers-core` | new `type_system.rs`; `value.rs` (3 trait methods + `Value::type_descriptions`); `metadata.rs` (`media_type: Option`, resolution methods, legacy `as_str()` sweep, `#[serde(default)]`); `state.rs` (seeding in the existing helper); `assets.rs` (**hoist the four duplicated checks to one pair first**, then the two tiers; `deserialize_stored_value` gains a registry parameter and a `DeserializedValue` return); `context.rs` (`Environment::get_type_registry` + 2 impls) |
+| `liquers-store` | none |
+| `liquers-lib` | `value/mod.rs` (implement the 3 `ValueInterface`/`ValueExtension` methods for existing variants); `value/extended.rs` (same, plus **fix the `default_extension` delegation**); `value/simple.rs`; `value/foreign.rs` (`ForeignValue` gains `type_info`); `environment.rs` (registry construction). No new variant, no new feature, no new dependency |
+| `liquers-axum` | `axum_integration.rs:52` reads `effective_media_type` instead of `get_media_type` |
+| `liquers-py` | implement the 3 `ValueInterface` methods, `get_type_registry`; `metadata.rs` accessors follow the `Option<String>` media type |
+| `liquers-web` | same; `store/fetch.rs:96-101` sets the level-3 override explicitly rather than relying on empty-string detection |
+
+## Sync vs Async
+
+Everything here is synchronous: the registry is an in-memory read-only map, and validation is pure
+computation on metadata. No I/O is introduced, so no `async_trait` and no blocking-in-async risk.
+The async call sites (`AssetManager::set`, `set_state`, the load path) call synchronous helpers,
+which is what they already do for the existing checks.
+
+## Relevant Commands
+
+**No new commands.** The P0 is a library invariant, not a query-language capability, and every
+check runs on paths that already execute. Relevant existing namespaces are unaffected: `pl`
+(Polars), `img` (image), `lui`/`egui` (UI) — their values gain `TypeInfo` registrations but no
+signature changes.
+
+*Question for the user before this phase is finalized:* is a diagnostic command worth adding — one
+that reports the registered types of the running build, so a query can answer "does this deployment
+understand `datetime`?" It is cheap and it pairs with the degrade-on-read rule, but it is not
+needed for the P0 and it is a `lib/commands` addition rather than a `core/value` one.
+
+## Documentation Architecture
+
+| Path | Kind | Audience | Area | Change |
+|---|---|---|---|---|
+| `specs/reference/VALUE_TYPE_SYSTEM.md` | reference | internal | `core/value` | **New** (Phase 5). The type axis and the encoding axis; `TypeInfo`/`TypeRegistry` contract; identifier naming and namespacing rules; the two-level seeding cascade; the hard/soft tier table; the degrade rule |
+| `specs/guides/TYPE_SYSTEM_GUIDE.md` | guide | both | `core/value`, `lib/value` | **New** (Phase 5). How to add a value type: choose an identifier, write `TypeInfo`, declare supported formats, register it, verify with a round-trip test |
+| `specs/reference/PROJECT_OVERVIEW.md` | reference | internal | multiple | Update the value/state/metadata section; link the new reference. `## History` row + `reviewed:` bump |
+| `specs/reference/ASSET_SET_OPERATION.md` | reference | internal | `core/assets` | Update: it already asserts mandatory `data_format` and `type_identifier` on `set()`; state which tier each check is in. `## History` row + `reviewed:` bump |
+| `specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md` | reference | both | multiple | Update the value-type description |
+| `specs/README.md` | capability map | — | `docs` | Add the new reference and guide; move this design to `complete` |
+| `CLAUDE.md` | guide | both | `docs` | Rewrite "Adding a Value Type" — the three steps are now four, with registration |
+
+**Proposed authoritative `affects_docs`:** `[reference/PROJECT_OVERVIEW.md,
+reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md,
+reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md]`.
+
+Candidates generated by `area` overlap and **discarded**: `reference/ASSETS.md` and
+`reference/ASSET_LIFECYCLE.md` (describe lifecycle and status, not typing — the `set()` rules they
+would touch live in `ASSET_SET_OPERATION.md`); `reference/POLARS_COMMAND_LIBRARY.md` and
+`reference/IMAGE_COMMAND_LIBRARY.md` (command catalogues; their values gain registrations but no
+documented behaviour changes); `reference/WEB_API_SPECIFICATION.md` (kept under review — if the
+type listing is exposed over HTTP it moves into the set in Phase 5).
+
+## Error Handling
+
+Every error uses `liquers_core::error::Error` with a typed constructor; **`Error::new` is not used
+anywhere in this design**, and no new error type is added to `ErrorType`.
+
+| Condition | Constructor | `ErrorType` |
+|---|---|---|
+| `type_identifier` / `type_name` empty | `Error::general_error(..)` | `General` |
+| `type_identifier` not registered in this build | `Error::general_error(..)`, naming the identifier | `General` |
+| `data_format` not supported for the type (**the P0**) | `Error::from_error(ErrorType::SerializationError, ..)`, naming type, format and the supported set | `SerializationError` |
+| malformed `media_type` override | `Error::general_error(..)` | `General` |
+| duplicate `TypeRegistry::register` | `Error::general_error(..)`, naming the identifier and both claimants | `General` |
+| deserializing an unregistered identifier | not an error — degrade with a `LogEntry::warning`; a later value request fails with the "not registered" error above | — |
+
+`.with_key(key)` is attached on the `set`/`set_state` paths, as the existing checks already do
+(`assets.rs:3162`). `ErrorType::ConversionError` is deliberately **not** used: nothing here
+converts a value, and the `foreign.rs` doc comment already assigns `ConversionError` to structural
+conversion refusals and `SerializationError` to the byte boundary — this design keeps that split.
+
+No `unwrap()` or `expect()` appears in any signature or described path; every fallible step returns
+`Result<_, Error>`.
+
+## Forward compatibility
+
+Two future capabilities were raised during this phase. Neither is implemented here; both would be
+expensive to retrofit, so the shapes they need are established now at near-zero cost.
+
+| Future capability | Tracked by | What Phase 2 does about it | Cost now |
+|---|---|---|---|
+| A command written in Rust types — `fn use_df(state, df: polars::DataFrame)` — registers `df` under the identifier `polars_dataframe`, and the framework converts the incoming value to that Rust type | `VALUE-CONVERSION-CAPABILITY` (declaration half in `COMMAND-METADATA-ENHANCEMENTS`) | Defines `TypeIdentifiedIn<V>` and `to_type_identifier::<V, T>()`, so registration derives the identifier at compile time from the same type token the macro already forwards. No data file, no `liquers-lib` dependency, and no possible disagreement between the extraction type and the recorded identifier | None — `TypeIdentifiedIn` has an immediate consumer in `type_descriptions()` |
+| A query spanning a `wasm` frontend and a native backend, whose realms support different type sets, converting values transparently at the boundary | `TYPE-REGISTRY-NOT-REALM-AWARE` | Keys the registry by `TypeKey { realm, type_identifier }` mirroring `CommandKey`, with `get`/`contains` defaulting to the default realm; gives `TypeInfo` a builder so the per-realm unsupported-type action is an additive field | One extra struct and a default-realm convenience layer |
+
+### No shared data file is needed anywhere
+
+Two candidate mechanisms were considered for letting `register_command!` know about types defined
+outside `liquers-macro` — a data file both crates read, and a generated module of aliases the macro
+expands a path into. **Neither is needed**, because the direction that looked necessary
+(identifier → Rust type) never arises: Rust code names Rust types, and the identifier is *derived*
+from them by `to_type_identifier::<T>()`.
+
+`VALUE-TYPE-DEFINITION-MACRO` still earns its place — it removes the hand-written match arms that
+produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED` and it emits the `TypeIdentifiedIn` impls —
+but it is a *codegen convenience*, not the load-bearing part of the correspondence. A hand-written
+`impl TypeIdentifiedIn<MyValue> for MyType` works identically, which is what makes a downstream crate's own
+types a non-problem.
+
+A data export of the registry remains worth having for `liquers-validate` and non-Rust clients, on
+the `export-command-registry` pattern. Its consumer is tooling, not the macro.
+
+**Deliberately not done now:** the unsupported-type *action* enum. An enum whose variants are not
+implemented is worse than an absent field — it invites callers to match on behaviour that does not
+exist. The builder is what makes adding it later non-breaking, and that is sufficient readiness.
+
+Both extension points are single-realm and single-purpose in this project: `get` and `contains`
+resolve in the default realm, and nothing consults `TypeIdentifiedIn` except description construction.
+No behaviour is written that a later project would have to undo.
+
+## Sequencing decision: scalars ship with the generator
+
+`VALUE-TYPE-DEFINITION-MACRO` and the scalar widening collide, and the user resolved it: **the
+scalars move to the generator project** (option B of the three considered).
+
+The reasoning, recorded so it is not relitigated: the scalar tier is the generator's ideal first
+customer. Fifteen scalars across roughly eight exhaustive match sites is on the order of **120
+mechanical, cfg-gated match arms** — exactly the code the macro exists to remove, and exactly the
+code that produced `COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED`. Hand-writing them now means
+writing code to delete, with one more opportunity for a silent divergent arm before the mechanism
+that prevents them exists. The accepted `P0`, meanwhile, needs no new scalar to be fixed.
+
+**Effect on this project:** it ships the P0 fix, `TypeInfo`/`TypeRegistry`/`TypeIdentifiedIn`, the
+metadata invariants and the seeding cascade. It adds no `ExtValue` variant, no feature and no
+dependency. It stays `M`-sized and reviewable.
+
+## Generator alignment
+
+The user has also signalled that **`register_command!` itself may be redesigned**. Everything here
+is therefore built to be *generated* and to be *macro-agnostic*. The commitments:
+
+| Commitment | Why a generator needs it |
+|---|---|
+| `TypeInfo` is **builder-constructed**, never a struct literal in user code | A generator emits a chain; a later field stays additive, and no generated site breaks |
+| `TypeIdentifiedIn<V>` is a **plain trait with an associated const** | Trivially emittable per type; no derive machinery, no attribute macro, no orphan-rule trouble in the defining crate |
+| `type_descriptions()` is an **associated function returning a `Vec`** | A generator emits one function body; nothing depends on the *order* or the *source* of the entries |
+| `TypeRegistry` is **populated, not enumerated** — `register` at construction rather than a `match` over a fixed enum | The set of types is a property of the build, so generated and hand-written entries are indistinguishable to every consumer |
+| The registry is reached through `Environment`, not a global | A generated registration has somewhere to go that is not process-wide mutable state |
+| **Nothing in this project touches `liquers-macro`** | A `register_command!` redesign cannot invalidate work done here |
+
+The one thing this project must *not* do is bake the current macro's assumptions into the type
+model. It does not: `ArgumentType` was moved out to `COMMAND-METADATA-ENHANCEMENTS`, and no
+signature here mentions a command, an argument or a registration DSL.
+
+## Open questions for the user
+
+1. **Diagnostic command** — see "Commands" above.
+2. **Level-3 override mechanism** stays deferred (Phase 1 recorded the intent). The `Option<String>`
+   media type is the storage; whether the context writes it or resolves it at serialization time is
+   the conversion-adjacent question this project does not answer.

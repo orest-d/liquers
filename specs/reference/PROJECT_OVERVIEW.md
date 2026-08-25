@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 ---
 # Liquers Project Overview
 
@@ -478,6 +478,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-18 | Value typing became an explicit model with a registry; `specs/reference/VALUE_TYPE_SYSTEM.md` now owns it, and type identifiers changed from the previous scheme in which five variants shared `"generic"`. | `design/value-type-system/` |
 | 2026-08-17 | Corrected §5 Storage: it claimed "safe encoding prevents arbitrary file access", which was not true — a key containing `..` escaped the file store root. States the absolute-key precondition, its error and where relative navigation actually belongs. | `design/store-key-guard/` |
 | 2026-08-14 | Recorded that string action parameters now escape every character, so a parameter round-trips for any value; the raw-emission caveat is narrowed to resource names, action names, headers and filenames. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Reviewed recipe planning and execution; documented provider/programmatic CWD provenance, interpreter-owned ordered resolution, scoped nested evaluation, and resolved identities. | phase-5 |

@@ -18,7 +18,7 @@ fn create_test_env() -> DefaultEnvironment<Value> {
 fn create_csv_state(csv_text: &str) -> State<Value> {
     let mut metadata = MetadataRecord::new();
     metadata.data_format = Some("csv".to_string());
-    metadata.with_type_identifier("text".to_string());
+    metadata.with_type_identifier("Text".to_string());
 
     State::from_parts(
         Arc::new(Value::from(csv_text.to_string())),

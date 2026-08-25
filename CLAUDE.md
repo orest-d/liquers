@@ -392,6 +392,14 @@ reformatting is not a failure but a changed argument list is.
 4. See `specs/reference/STORE_CONFIG_FSD.md` for configuration format
 
 ### Adding a Value Type
-1. Extend `ExtValue` enum in `liquers-lib/src/value/mod.rs`
-2. Implement conversions in `ExtValueInterface` trait
-3. Add serialization support
+
+**Four steps, not three — a type with no `TypeInfo` cannot be stored**, because the write path
+refuses an identifier the registry does not contain.
+
+1. Extend the `ExtValue` enum in `liquers-lib/src/value/mod.rs`, payload behind `Arc<T>`
+2. Choose a type identifier: bare if Liquers owns the concept, otherwise `provider.LocalName`
+3. Implement conversions in `ExtValueInterface` and serialization in `DefaultValueSerializer`
+4. **Add a `TypeInfo` to `ExtValue::type_descriptions()`**, declaring the formats it can be written in
+
+See `specs/guides/TYPE_SYSTEM_GUIDE.md` for the whole procedure and
+`specs/reference/VALUE_TYPE_SYSTEM.md` for the model.

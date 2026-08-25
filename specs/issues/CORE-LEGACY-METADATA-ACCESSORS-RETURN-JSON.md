@@ -2,11 +2,11 @@
 id: CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON
 kind: issue
 title: Metadata accessors return JSON-quoted strings for legacy metadata
-status: accepted
-priority: P2
+status: closed
+priority: P1
 complexity: S
 area: [core/value]
-design:
+design: value-type-system
 created: 2026-08-09
 github:
 ---
@@ -56,6 +56,28 @@ Worth considering alongside: whether `MetadataRecord` should accept a partial do
 `{"media_type":"text/plain"}` deserializes into a record with defaults rather than dropping to the
 legacy branch. That would remove the trap rather than just the symptom, but it is a wider change
 and belongs to `CORE-METADATA-FORMAT-TYPE-CONSISTENCY` if it is taken up.
+
+## Resolution
+
+Fixed 2026-08-18 as step 0b of `value-type-system`, and raised to `P1` first: under that project's
+reject-on-write rule a quoted `"\"json\""` data format is refused outright, so this stopped being
+a cosmetic quoting bug and became a refusal of every legacy or partial metadata document.
+
+The sweep found **two** affected accessors, not a class of them: `Metadata::get_media_type` (both
+the `mimetype` and `media_type` keys) and `Metadata::get_data_format`. `type_identifier`,
+`type_name` and `filename` already destructured `Value::String` and were correct. All three now go
+through one `legacy_string_field` helper that extracts with `as_str()` and falls back to the
+serialized form only for values that genuinely are not strings.
+
+Tests `legacy_accessors_return_unquoted_strings` and `legacy_non_string_field_falls_back` in
+`liquers-core/src/metadata.rs`, confirmed failing before (`left: "\"text/plain\""`) and passing
+after.
+
+**The root cause is addressed separately.** `Metadata::from_json` falls back to `LegacyMetadata`
+whenever a document does not deserialize as a complete `MetadataRecord`, so a partial document such
+as `{"media_type":"text/plain"}` lands on the legacy branch in the first place. This issue handed
+that half to `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`; it is step 5c of the same plan, where
+`MetadataRecord` gains `#[serde(default)]` so partial documents deserialize into a record.
 
 ## Discovery
 

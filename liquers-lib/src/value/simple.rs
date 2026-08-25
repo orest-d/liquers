@@ -150,23 +150,30 @@ impl ValueInterface for SimpleValue {
         Ok(SimpleValue::Object { value: values })
     }
 
+    fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
+        // `SimpleValue` mirrors `liquers_core::value::Value` variant for variant, so it shares its
+        // identifiers and descriptions rather than maintaining a second, drifting copy.
+        liquers_core::value::Value::type_descriptions()
+    }
+
     fn identifier(&self) -> Cow<'static, str> {
+        // Bare CamelCase names, matching `liquers_core::value::Value` variant for variant.
         match self {
-            SimpleValue::None {} => "generic".into(),
-            SimpleValue::Bool { value: _ } => "generic".into(),
-            SimpleValue::I32 { value: _ } => "generic".into(),
-            SimpleValue::I64 { value: _ } => "generic".into(),
-            SimpleValue::F64 { value: _ } => "generic".into(),
-            SimpleValue::Text { value: _ } => "text".into(),
-            SimpleValue::Array { value: _ } => "generic".into(),
-            SimpleValue::Object { value: _ } => "dictionary".into(),
-            SimpleValue::Bytes { value: _ } => "bytes".into(),
-            SimpleValue::Metadata { value: _ } => "metadata".into(),
-            SimpleValue::AssetInfo { value: _ } => "asset_info".into(),
-            SimpleValue::Recipe { value: _ } => "recipe".into(),
-            SimpleValue::CommandMetadata { value: _ } => "command_metadata".into(),
-            SimpleValue::Query { value: _ } => "query".into(),
-            SimpleValue::Key { value: _ } => "key".into(),
+            SimpleValue::None {} => "None".into(),
+            SimpleValue::Bool { value: _ } => "Bool".into(),
+            SimpleValue::I32 { value: _ } => "I32".into(),
+            SimpleValue::I64 { value: _ } => "I64".into(),
+            SimpleValue::F64 { value: _ } => "F64".into(),
+            SimpleValue::Text { value: _ } => "Text".into(),
+            SimpleValue::Array { value: _ } => "Array".into(),
+            SimpleValue::Object { value: _ } => "Object".into(),
+            SimpleValue::Bytes { value: _ } => "Bytes".into(),
+            SimpleValue::Metadata { value: _ } => "Metadata".into(),
+            SimpleValue::AssetInfo { value: _ } => "AssetInfo".into(),
+            SimpleValue::Recipe { value: _ } => "Recipe".into(),
+            SimpleValue::CommandMetadata { value: _ } => "CommandMetadata".into(),
+            SimpleValue::Query { value: _ } => "Query".into(),
+            SimpleValue::Key { value: _ } => "Key".into(),
         }
     }
 
