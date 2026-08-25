@@ -5,6 +5,10 @@
 # Commands: 95
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
+# 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
+#             (multiple: true, argument_type: string) instead of one dash-delimited string.
+#             Also refreshes two stale dep impl_versions - see
+#             REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED. design/variadic-arguments-declaration
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -90,7 +94,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 1d837872f60743c09543fdd8895e5d96
+  impl_version: 0adcd172a5b226b3c2534a005d32846c
 - namespace: dep
   name: command_implementation
   label: Command Implementation Version
@@ -121,7 +125,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: d6ccb88b7a96ed84e21ddd5dc3c5bacc
+  impl_version: 221e51572f635c0c495c2f6d9e443774
 - namespace: lui
   name: add
   label: Add element
@@ -1567,7 +1571,7 @@ commands:
 - namespace: pl
   name: select_columns
   label: Select columns
-  doc: Select columns by name (separated by dashes)
+  doc: Select columns by name, one parameter per column
   state_argument:
     name: state
     label: state
@@ -1578,16 +1582,17 @@ commands:
     label: columns
     default: None
     argument_type: string
+    multiple: true
     gui_info: !TextField 20
   cache: true
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 0faad4d873b77029b8a791dd7efe4e24
+  impl_version: edea567c1ffb3f784fae8fadb39e0414
 - namespace: pl
   name: drop_columns
   label: Drop columns
-  doc: Remove columns by name (separated by dashes)
+  doc: Remove columns by name, one parameter per column
   state_argument:
     name: state
     label: state
@@ -1598,12 +1603,13 @@ commands:
     label: columns
     default: None
     argument_type: string
+    multiple: true
     gui_info: !TextField 20
   cache: true
   volatile: false
   expires: never
   definition: Registered
-  impl_version: c72093e30c04bea93abebb6d8338c6e9
+  impl_version: 3228f6e3d3a143d54b8cf789d09b6424
 - namespace: pl
   name: head
   label: Get first rows

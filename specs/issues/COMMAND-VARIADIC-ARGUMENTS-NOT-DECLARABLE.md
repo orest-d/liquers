@@ -2,11 +2,11 @@
 id: COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE
 kind: issue
 title: Variadic command arguments cannot be declared or retrieved
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [macro, core/commands, lib/commands]
-design: 
+design: variadic-arguments-declaration
 created: 2026-08-12
 github:
 ---
@@ -124,3 +124,23 @@ Split out of `specs/design/excess-action-parameters-error/` at Phase 2. That des
 planned to make the polars commands variadic; the trait-layer blockage above was found while
 specifying it, and the work was deferred here as a three-crate change with a trait-design decision
 inside it.
+
+## Resolution
+
+Closed 2026-08-25 by `specs/design/variadic-arguments-declaration/`.
+
+- `CommandArguments::get_multiple<T: FromParameterValue<T>>` (`liquers-core/src/commands.rs:127`).
+  It adds a **method, not a trait impl**, which is what avoids the coherence conflict this issue
+  identified, and drops the `TryFrom<E::Value>` bound because a variadic argument never takes the
+  pre-materialised fast path that bound exists for.
+- `register_command!` accepts a `multiple` argument flag in the same grammar slot as `injected`,
+  derives `ArgumentType` from the `Vec` element type, and emits `get_multiple`. Unknown flags are
+  now rejected instead of silently discarded, as this issue required.
+- `pl/select_columns` and `pl/drop_columns` take `Vec<String>`; `split('-')` and the accompanying
+  `.trim()` are deleted. `select_columns-a-b` selects two columns and `select_columns-a~_b` selects
+  the single column `a-b` — the distinction this issue said was worth a test, now covered by
+  `test_select_columns_escaped_dash_names_one_column`.
+- `specs/command_registry.yaml` regenerated; `REGISTER_COMMAND_FSD.md`,
+  `POLARS_COMMAND_LIBRARY.md`, `COMMAND_REGISTRATION_GUIDE.md` and `CLAUDE.md` updated.
+
+`VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS` was **narrowed, not closed** — see its own note.

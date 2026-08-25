@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/commands, core/plan, macro]
-design: excess-action-parameters-error
+design: variadic-arguments-declaration
 created: 2026-08-12
 github:
 ---
@@ -64,3 +64,29 @@ variadic one is legitimate and must keep working.
 Found while designing `PLAN-EXCESS-ACTION-PARAMETERS-DROPPED`, which makes `multiple` the sanctioned
 way to accept a variable-length parameter list and therefore turns this latent constraint into a
 live one.
+
+## Update 2026-08-25 — narrowed, still open
+
+`specs/design/variadic-arguments-declaration/` closed this **for macro-registered commands**, at
+compile time rather than at registration. `impl Parse for CommandSignature`
+(`liquers-macro/src/registration.rs`) rejects any non-injected argument declared after a `multiple`
+one:
+
+```
+argument `b` follows the `multiple` argument `a` and can never receive a value
+```
+
+The error names the *starved* argument, since that is where the author must edit. Injected
+arguments and `context` are exempt, as this issue required — neither consumes a query parameter.
+
+Taking the guard to the macro rather than to `CommandMetadata::check()` sidesteps both obstacles
+recorded above: no runtime caller is needed, and no message goes through
+`CommandRegistryIssue`, so `COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED` cannot misattribute it.
+
+**What remains.** Hand-built `CommandMetadata` is still unguarded. The live example is
+`liquers-py`'s `CommandMetadataRegistry::add_python_command`
+(`liquers-py/src/command_metadata.rs:430`), which is compiled and sets `multiple` directly. It
+applies the flag to `cmd.arguments.last_mut()`, so it satisfies the rule by construction — but
+nothing enforces that, and any other hand-built registration could violate it freely. The
+`CommandMetadata::check()` route described above is untouched and still blocked on `check()` having
+no caller anywhere in the workspace.

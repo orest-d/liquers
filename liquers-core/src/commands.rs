@@ -124,6 +124,108 @@ impl<E: Environment> CommandArguments<E> {
         T::from_parameter_value(&p)
     }
 
+    /// Returns the elements of a variadic argument, each converted to `T`.
+    ///
+    /// This is the accessor for an argument declared `multiple` (see
+    /// [`ArgumentInfo::set_multiple`](crate::command_metadata::ArgumentInfo::set_multiple) and the
+    /// `multiple` flag of `register_command!`). The parameter in slot `i` must be
+    /// [`ParameterValue::MultipleParameters`]; anything else means the command metadata and the
+    /// resolved plan disagree, and is reported rather than converted.
+    ///
+    /// An empty argument list yields an empty vector — that is the normal "no parameters supplied"
+    /// case, not an error, because a variadic argument has no default other than emptiness.
+    ///
+    /// # Why the bounds differ from [`CommandArguments::get`]
+    ///
+    /// `get` additionally requires `T: TryFrom<E::Value, Error = Error>` for its pre-materialised
+    /// fast path: when a top-level link parameter has been resolved, the interpreter stores the
+    /// resulting value in `self.values[i]` and `get` converts from *that* rather than from the
+    /// parameter. A variadic argument never takes that path — the interpreter populates `values`
+    /// only where `ParameterValue::link()` is `Some`, and `MultipleParameters::link()` is `None` —
+    /// so this deliberately ignores `self.values` and drops the bound. Dropping it is what makes
+    /// `Vec<String>` retrievable at all: `Vec<T>` satisfies neither bound of `get`, and a blanket
+    /// `FromParameterValue<Vec<T>>` impl would overlap the existing `Vec<V: ValueInterface>` one.
+    ///
+    /// Links *inside* a variadic argument are resolved element-wise by the interpreter before the
+    /// arguments are built, so by the time this runs every element is a value.
+    pub fn get_multiple<T: FromParameterValue<T>>(
+        &self,
+        i: usize,
+        name: &str,
+    ) -> Result<Vec<T>, Error> {
+        let p = self.get_parameter(i, name)?;
+        match p {
+            ParameterValue::MultipleParameters(_, elements) => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements.iter() {
+                    values.push(Self::convert_multiple_element::<T>(element, i, name)?);
+                }
+                Ok(values)
+            }
+            ParameterValue::DefaultValue(_, _)
+            | ParameterValue::ParameterValue(_, _, _)
+            | ParameterValue::OverrideValue(_, _)
+            | ParameterValue::DefaultLink(_, _)
+            | ParameterValue::ParameterLink(_, _, _)
+            | ParameterValue::OverrideLink(_, _)
+            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::Placeholder(_)
+            | ParameterValue::Injected(_)
+            | ParameterValue::None => Err(Error::general_error(format!(
+                "Argument {} '{}' is declared as multiple, but was not resolved as a parameter list",
+                i, name
+            ))
+            .with_position(&self.action_position)),
+        }
+    }
+
+    /// Converts one element of a variadic argument.
+    ///
+    /// The value variants convert through `T::from_parameter_value`. The link variants are an
+    /// error: the interpreter materialises links inside a variadic argument before constructing
+    /// the arguments, so an unresolved link here means the arguments were built without that step.
+    /// The remaining variants cannot occur inside a list — `ParameterValue::pop_value` refuses to
+    /// put them there — and are enumerated so that a new variant is a compile error.
+    fn convert_multiple_element<T: FromParameterValue<T>>(
+        element: &ParameterValue,
+        i: usize,
+        name: &str,
+    ) -> Result<T, Error> {
+        match element {
+            ParameterValue::DefaultValue(_, _)
+            | ParameterValue::ParameterValue(_, _, _)
+            | ParameterValue::OverrideValue(_, _) => T::from_parameter_value(element),
+            ParameterValue::DefaultLink(_, query)
+            | ParameterValue::ParameterLink(_, query, _)
+            | ParameterValue::OverrideLink(_, query)
+            | ParameterValue::EnumLink(_, query, _) => Err(Error::general_error(format!(
+                "Unresolved link parameter in multiple argument {} '{}': {}",
+                i,
+                name,
+                query.encode()
+            ))
+            .with_position(&element.position())),
+            ParameterValue::MultipleParameters(_, _) => Err(Error::unexpected_error(format!(
+                "Nested multiple parameters in argument {} '{}'",
+                i, name
+            ))),
+            ParameterValue::Injected(injected_name) => Err(Error::unexpected_error(format!(
+                "Injected parameter '{}' inside multiple argument {} '{}'",
+                injected_name, i, name
+            ))),
+            ParameterValue::Placeholder(placeholder_name) => {
+                Err(Error::unexpected_error(format!(
+                    "Unresolved placeholder '{}' inside multiple argument {} '{}'",
+                    placeholder_name, i, name
+                )))
+            }
+            ParameterValue::None => Err(Error::unexpected_error(format!(
+                "Unresolved parameter inside multiple argument {} '{}'",
+                i, name
+            ))),
+        }
+    }
+
     /// Returns the injected parameter as a value of type T
     pub fn get_injected<T: InjectedFromContext<E>>(
         &self,
@@ -312,7 +414,7 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
             ParameterValue::ParameterValue(_, v, pos) => {
                 return from_json_value(v).map_err(|e| e.with_position(pos))
             }
-            ParameterValue::MultipleParameters(p) => {
+            ParameterValue::MultipleParameters(_, p) => {
                 let mut v = Vec::new();
                 for pp in p.iter() {
                     v.push(match pp {
@@ -320,7 +422,7 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
                         ParameterValue::ParameterValue(_, value, position) => {
                             V::try_from_json_value(value).map_err(|e| e.with_position(position))?
                         }
-                        ParameterValue::MultipleParameters(vec) => {
+                        ParameterValue::MultipleParameters(_, vec) => {
                             return Err(Error::unexpected_error(
                                 "Nested multiple parameters not allowed".to_owned(),
                             ))
@@ -622,6 +724,126 @@ mod tests {
     use crate::state::State;
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// Tests for `CommandArguments::get_multiple`, the retrieval half of variadic arguments.
+    ///
+    /// See `specs/design/variadic-arguments-declaration/`. These construct `CommandArguments`
+    /// directly rather than going through the interpreter, which is deliberate: it also covers
+    /// the states the interpreter never produces.
+    mod get_multiple {
+        use super::*;
+        use crate::plan::{ParameterValue, ResolvedParameterValues};
+        use crate::query::Position;
+
+        type TestEnv = SimpleEnvironment<Value>;
+
+        fn element(name: &str, v: serde_json::Value, offset: usize) -> ParameterValue {
+            ParameterValue::ParameterValue(
+                name.to_string(),
+                v,
+                Position::new(offset, 1, offset + 1),
+            )
+        }
+
+        fn args_of(parameter: ParameterValue) -> CommandArguments<TestEnv> {
+            CommandArguments::<TestEnv>::new(ResolvedParameterValues(vec![parameter]))
+        }
+
+        /// U1 - three elements convert, in order.
+        #[test]
+        fn returns_elements_in_order() -> Result<(), Error> {
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
+                element("columns", "a".into(), 21),
+                element("columns", "b".into(), 23),
+                element("columns", "c".into(), 25),
+            ]));
+
+            let columns: Vec<String> = args.get_multiple(0, "columns")?;
+            assert_eq!(columns, vec!["a", "b", "c"]);
+            Ok(())
+        }
+
+        /// U2 - an empty variadic argument is an empty vector, NOT an error. This is the
+        /// `select_columns` with no parameters case, which the plan builder produces legitimately
+        /// because a variadic argument has no default other than emptiness.
+        #[test]
+        fn empty_list_is_ok() -> Result<(), Error> {
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), Vec::new()));
+
+            let columns: Vec<String> = args.get_multiple(0, "columns")?;
+            assert!(columns.is_empty());
+            Ok(())
+        }
+
+        /// U3 - metadata says `multiple`, the plan resolved a scalar. Report it, never convert.
+        #[test]
+        fn scalar_slot_is_an_error() {
+            let args = args_of(element("columns", "a".into(), 21));
+
+            let err = args
+                .get_multiple::<String>(0, "columns")
+                .expect_err("a scalar slot must not satisfy get_multiple");
+            assert!(err.message.contains("columns"), "message: {}", err.message);
+            assert!(err.message.contains("multiple"), "message: {}", err.message);
+        }
+
+        /// U4 - an unresolved link element. Unreachable through the interpreter, reachable
+        /// through `CommandArguments::new`, so the message must say what is wrong.
+        #[test]
+        fn unresolved_link_element_is_an_error() -> Result<(), Error> {
+            let link = crate::parse::parse_query("-R/config/colname.txt")?;
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
+                ParameterValue::ParameterLink(
+                    "columns".to_string(),
+                    link,
+                    Position::new(21, 1, 22),
+                ),
+            ]));
+
+            let err = args
+                .get_multiple::<String>(0, "columns")
+                .expect_err("an unresolved link must not convert");
+            assert!(
+                err.message.to_lowercase().contains("link"),
+                "message: {}",
+                err.message
+            );
+            Ok(())
+        }
+
+        /// U5 - the error points at the offending ELEMENT, not at the action. Each element
+        /// carries its own position, which is what makes a per-element diagnostic possible.
+        #[test]
+        fn conversion_error_carries_element_position() {
+            let mut args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
+                element("rows", 1.into(), 21),
+                element("rows", "x".into(), 23),
+            ]));
+            args.action_position = Position::new(6, 1, 7);
+
+            let err = args
+                .get_multiple::<i64>(0, "rows")
+                .expect_err("\"x\" is not an i64");
+            assert_eq!(
+                err.position.offset, 23,
+                "must point at the element, not at the action"
+            );
+        }
+
+        /// U6 - non-string element types, the case that motivates deriving `ArgumentType` from
+        /// the `Vec` element type rather than leaving it `Any`.
+        #[test]
+        fn converts_integers() -> Result<(), Error> {
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
+                element("rows", 1.into(), 21),
+                element("rows", 2.into(), 23),
+            ]));
+
+            let rows: Vec<i64> = args.get_multiple(0, "rows")?;
+            assert_eq!(rows, vec![1, 2]);
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn test_command_registry_execute() {

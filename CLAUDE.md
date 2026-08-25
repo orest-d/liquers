@@ -315,7 +315,11 @@ register_command!(cr,
 **DSL Syntax Reference**:
 - State parameter (first): `state`, `value`, `text`, or omit entirely
 - `context` - special parameter for execution context
-- Parameters: `name: Type`, optionally `injected`, optionally `= default_value`
+- Parameters: `name: Type`, optionally `injected` **or** `multiple`, optionally `= default_value`
+- `multiple` — variadic: consumes every remaining action parameter. Requires a container type
+  (`Vec<T>`); `ArgumentType` is derived from the element type; takes no default (it defaults to the
+  empty list); must be the last argument that consumes a query parameter (`injected` arguments and
+  `context` may follow)
 - Default value types: string `"foo"`, bool `true`, int `42`, float `3.14`, query `query "path/to/query"`
 - Return: `-> result` (returns `Result<V, Error>`) or `-> value` (returns `V`)
 - Metadata: `label:`, `doc:`, `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`

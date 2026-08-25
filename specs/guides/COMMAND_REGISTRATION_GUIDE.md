@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-08-16
+reviewed: 2026-08-25
 ---
 # Command Registration Guide
 
@@ -156,26 +156,91 @@ before it explicitly, if you want the promoted form.
 ### Accepting a variable number of parameters
 
 A command's declared arity is binding: a query that supplies more parameters than the command
-declares fails at plan build with a positioned error. The only way to accept a variable-length list
-is an argument marked `multiple`, which consumes every remaining parameter.
+declares fails at plan build with a positioned error. To accept a variable-length list, mark the
+argument `multiple`. It consumes every remaining parameter.
 
-**This cannot currently be declared through `register_command!`** — the macro hardcodes
-`multiple: false`, and the argument's value could not be retrieved even if it could be declared.
-See [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md)
-for the full picture and the intended fix.
+```rust
+fn select_columns(state: &State<Value>, columns: Vec<String>) -> Result<Value, Error> { /* … */ }
 
-Until then, a command that needs a list takes a single `String` argument and splits it itself, and
-its callers must escape the separator. `-` separates *parameters* in the query language, so a
-literal dash inside one parameter is written `~_`:
-
-```
-ns-pl/select_columns-a~_b     one argument, the string "a-b"   -> two columns
-ns-pl/select_columns-a-b      two parameters, one declared     -> error
+register_command!(cr,
+    fn select_columns(state, columns: Vec<String> multiple) -> result
+    namespace: "pl"
+)?;
 ```
 
-Do not design a command around the second spelling. Before arity was enforced it silently discarded
-everything after the first parameter, which is how `pl/select_columns` came to be documented as
-accepting a form it never received.
+```
+ns-pl/select_columns-date-amount-status     three columns
+ns-pl/select_columns                        no columns - an empty Vec, not an error
+```
+
+The flag goes in the same slot as `injected` — after the type, before any default or metadata
+parentheses — and the two are mutually exclusive:
+
+```
+<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", gui: ..., ...)]
+```
+
+**The type must be a container.** `Vec<T>` is what is recognised, and the element type `T` is what
+the argument's `ArgumentType` is derived from. That derivation is not cosmetic: each action
+parameter is parsed through `ArgumentType`, so `rows: Vec<i64> multiple` gives you `i64` elements
+and rejects `pick_rows-1-x-3` at plan build, pointing at `x`.
+
+**A variadic argument takes no default; it defaults to the empty list**, as with Python's `*args`.
+A command that needs at least one element must say so itself — the plan builder cannot know:
+
+```rust
+if columns.is_empty() {
+    return Err(Error::general_error(
+        "select_columns requires at least one column name".to_string(),
+    ));
+}
+```
+
+**It must be the last argument that consumes a query parameter.** Anything declared after it could
+never receive a value, so the macro rejects the declaration. Arguments marked `injected` and the
+`context` parameter may follow it, because neither consumes a query parameter.
+
+#### Naming a value that contains the separator
+
+`-` separates *parameters*, so a literal dash inside one parameter is escaped `~_`. With a variadic
+argument the two spellings mean different things, and both are useful:
+
+```
+ns-pl/select_columns-a-b      two parameters   -> the columns "a" and "b"
+ns-pl/select_columns-a~_b     one parameter    -> the single column "a-b"
+```
+
+This is why a command taking a list should declare it variadic rather than taking one `String` and
+splitting it internally: a self-split cannot tell those two apart, and it mangles any value that
+legitimately contains the separator.
+
+#### If the declaration will not compile
+
+The macro rejects malformed variadic declarations at compile time, naming the problem:
+
+| Declaration | Error |
+|---|---|
+| `c: String multiple` | ``a `multiple` argument must have a container type; `String` is not one. Expected `Vec<String>` `` |
+| `c: Vec<String> multipel` | ``unknown argument flag `multipel`; expected `injected` or `multiple` `` |
+| `c: Vec<String> injected multiple` | ``an argument cannot be both `injected` and `multiple` `` |
+| `c: Vec<String> multiple multiple` | ``duplicate argument flag `multiple` `` |
+| `c: Vec<String> multiple = "x"` | ``a `multiple` argument cannot have a default value; it defaults to the empty list`` |
+| `fn f(state, a: Vec<String> multiple, b: i32)` | ``argument `b` follows the `multiple` argument `a` and can never receive a value`` |
+
+Note that unknown flags are rejected rather than ignored, so a misspelling of `multiple` or
+`injected` is a build error rather than a silently scalar argument.
+
+#### Retrieving the value manually
+
+Generated code uses `CommandArguments::get_multiple`, not `get`:
+
+```rust
+let columns: Vec<String> = arguments.get_multiple(0, "columns")?;
+```
+
+`get` cannot serve a variadic argument — `Vec<T>` satisfies neither of its bounds — and a blanket
+`FromParameterValue<Vec<T>>` impl would overlap the existing `Vec<V: ValueInterface>` one. Use
+`get_multiple` when registering a variadic command manually.
 
 ### Return Type Requirement
 
@@ -717,3 +782,4 @@ fn apply(...) -> Result<...> { ... }
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |
 | 2026-08-16 | Added "Passing the working directory (or any relative query) into a command": `-R-key/.` as a default link argument, why the working key is not readable from `Context`, building absolute queries from it, and the argument-order pitfall. | PLAN-CWD-FREEZE |
+| 2026-08-25 | Rewrote "Accepting a variable number of parameters": `multiple` is now declarable. Added the flag's grammar slot, the container-type and element-type rules, the empty-list default, the last-argument rule and its `injected`/`context` exemptions, the compile-time rejection table, the `a-b` vs `a~_b` distinction, and `get_multiple` for manual registration. | design/variadic-arguments-declaration |

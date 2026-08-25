@@ -112,7 +112,7 @@ fn collect_parameter_dependency_queries(
                 queries.push((key, resolved));
             }
         }
-        ParameterValue::MultipleParameters(values) => {
+        ParameterValue::MultipleParameters(_, values) => {
             for value in values {
                 collect_parameter_dependency_queries(value, cursor, queries);
             }
@@ -341,12 +341,12 @@ fn materialize_nested_parameter<'a, E: Environment>(
                 materialize_link_json(context, query, Some(position)).await?,
                 position.clone(),
             )),
-            ParameterValue::MultipleParameters(values) => {
+            ParameterValue::MultipleParameters(name, values) => {
                 let mut materialized = Vec::with_capacity(values.len());
                 for value in values {
                     materialized.push(materialize_nested_parameter(context, value).await?);
                 }
-                Ok(ParameterValue::MultipleParameters(materialized))
+                Ok(ParameterValue::MultipleParameters(name.clone(), materialized))
             }
             ParameterValue::DefaultValue(_, _)
             | ParameterValue::ParameterValue(_, _, _)
@@ -368,7 +368,7 @@ fn attach_parameter_link_context(error: Error, parameter: &ParameterValue, query
         ParameterValue::DefaultValue(_, _)
         | ParameterValue::ParameterValue(_, _, _)
         | ParameterValue::OverrideValue(_, _)
-        | ParameterValue::MultipleParameters(_)
+        | ParameterValue::MultipleParameters(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
         | ParameterValue::None => error,
@@ -460,7 +460,7 @@ pub fn do_step<E: Environment>(
             let command_key = CommandKey::new(&realm, &ns, &action_name);
             let mut materialized_parameters = parameters.clone();
             for parameter in &mut materialized_parameters.0 {
-                if matches!(parameter, ParameterValue::MultipleParameters(_)) {
+                if matches!(parameter, ParameterValue::MultipleParameters(_, _)) {
                     *parameter = materialize_nested_parameter(&context, parameter).await?;
                 }
             }
@@ -1381,7 +1381,7 @@ mod tests {
                 ParameterValue::DefaultValue(_, value) => Ok(format!("D:{}", text(value)?)),
                 ParameterValue::ParameterValue(_, value, _) => Ok(format!("P:{}", text(value)?)),
                 ParameterValue::OverrideValue(_, value) => Ok(format!("O:{}", text(value)?)),
-                ParameterValue::MultipleParameters(values) => {
+                ParameterValue::MultipleParameters(_, values) => {
                     let rendered = values
                         .iter()
                         .map(render_parameter)
@@ -1428,14 +1428,14 @@ mod tests {
             action_name: "collect_materialized".to_owned(),
             position: Position::unknown(),
             parameters: ResolvedParameterValues(vec![
-                ParameterValue::MultipleParameters(vec![
+                ParameterValue::MultipleParameters("items".to_owned(), vec![
                     ParameterValue::DefaultLink("items".to_owned(), parse_query("default_value")?),
                     ParameterValue::ParameterLink(
                         "items".to_owned(),
                         parse_query("parameter_value")?,
                         Position::new(10, 1, 11),
                     ),
-                    ParameterValue::MultipleParameters(vec![
+                    ParameterValue::MultipleParameters("items".to_owned(), vec![
                         ParameterValue::OverrideLink(
                             "items".to_owned(),
                             parse_query("override_value")?,
@@ -1476,7 +1476,7 @@ mod tests {
             ns: String::new(),
             action_name: "must_not_execute".to_owned(),
             position: Position::unknown(),
-            parameters: ResolvedParameterValues(vec![ParameterValue::MultipleParameters(vec![
+            parameters: ResolvedParameterValues(vec![ParameterValue::MultipleParameters("items".to_owned(), vec![
                 ParameterValue::ParameterLink(
                     "items".to_owned(),
                     parse_query("-R-key/./target")?,

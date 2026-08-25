@@ -3,7 +3,7 @@ title: Polars Command Library Specification
 kind: reference
 audience: internal
 area: [lib/polars]
-reviewed: 2026-08-12
+reviewed: 2026-08-25
 ---
 # Polars Command Library Specification
 
@@ -57,7 +57,7 @@ Where:
 
 Example:
 ```
--R/data/sales.csv/-/from_csv/select_columns-date~_amount~_status/gt-amount-1000/eq-status-completed/head-10
+-R/data/sales.csv/-/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
 ```
 
 ## Module Structure
@@ -76,31 +76,35 @@ liquers-lib/src/polars/
 
 ## Command Reference
 
-### Column Selection (1 argument)
+### Column Selection (variadic)
 
 | Command | Arguments | Description | Polars Method |
 |---------|-----------|-------------|---------------|
-| `select_columns` | `col1~_col2~_col3` | Select columns by name | `df.select()` |
-| `drop_columns` | `col1~_col2~_col3` | Drop columns by name | `df.drop()` |
+| `select_columns` | `col1-col2-col3` | Select columns by name | `df.select()` |
+| `drop_columns` | `col1-col2-col3` | Drop columns by name | `df.drop()` |
 
-**Example**: `select_columns-date~_amount~_region`
+**Example**: `select_columns-date-amount-region`
 
-> **Write the dashes as `~_`.** Both commands take a *single* `columns` argument and split it on
-> `-` internally, but `-` is also the query language's parameter separator. Written plainly,
-> `select_columns-date-amount-region` is *three* parameters against a one-argument command, which
-> is an error:
+Both arguments are **variadic**: one query parameter per column name, however many you write.
+
+> **A column name containing a dash is written `~_`.** `-` separates parameters, so the two
+> spellings mean different things and both are useful:
 >
 > ```
-> Too many parameters for command 'select_columns': accepts 1, but parameter #2 'amount' was supplied
+> select_columns-a-b      two parameters  ->  the columns "a" and "b"
+> select_columns-a~_b     one parameter   ->  the single column "a-b"
 > ```
 >
-> `~_` is the escape for a literal dash, so `date~_amount~_region` arrives as the single string
-> `date-amount-region` and is split as intended. Before the arity check existed this spelling
-> silently selected only the first column.
->
-> The plain spelling becomes correct again once
-> [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md)
-> is fixed and these arguments are declared variadic.
+> This distinction did not exist before these arguments became variadic: the commands took one
+> `String` and split it on `-` internally, which could not tell the two apart and mangled any
+> column name containing a dash. See `specs/design/variadic-arguments-declaration/`.
+
+Supplying no column names at all is well-formed at plan level (a variadic argument defaults to the
+empty list) and is rejected by the command:
+
+```
+select_columns requires at least one column name
+```
 
 ### Row Slicing (0-3 arguments)
 
@@ -260,7 +264,7 @@ With the `try_to_polars_dataframe` utility, many operations can work directly wi
 -R/data/sales.csv/-/head-10
 
 # Mixed - explicit first, then automatic
--R/data/sales.csv/-/from_csv/select_columns-date~_amount/head-10
+-R/data/sales.csv/-/from_csv/select_columns-date-amount/head-10
 ```
 
 ---
@@ -272,7 +276,7 @@ With the `try_to_polars_dataframe` utility, many operations can work directly wi
 Filter sales where amount > 1000 and status is completed, select specific columns:
 
 ```
--R/data/sales.csv/-/from_csv/select_columns-date~_amount~_status/gt-amount-1000/eq-status-completed/head-10
+-R/data/sales.csv/-/from_csv/select_columns-date-amount-status/gt-amount-1000/eq-status-completed/head-10
 ```
 
 ---
@@ -465,8 +469,9 @@ The `try_to_polars_dataframe` utility function is the foundation of the entire c
 3. **Parameter Parsing**:
    - Parsing of arguments is done by the framework.   
    - Column names: split by "-", trim whitespace
-   - Single vs. multiple: e.g., `select_columns-col1~_col2~_col3` (see the escaping note under
-     Column Selection — `-` separates parameters, so a literal dash is written `~_`)
+   - Single vs. multiple: e.g., `select_columns-col1-col2-col3` is a variadic argument, one
+     parameter per column (see the note under Column Selection; a column name containing a dash
+     is written `~_`)
    - Optional arguments: provide defaults (e.g., `head` defaults to 5)
    - Default values can be specified with the `register_command!` DSL.
    - Numeric arguments parsed as i32, u64, f64 as needed
@@ -708,7 +713,7 @@ All errors should follow this pattern:
 Commands compose naturally via Liquers' path syntax:
 
 ```
-input/-/gt-col1-100/eq-col2-active/select_columns-col3~_col4/sum
+input/-/gt-col1-100/eq-col2-active/select_columns-col3-col4/sum
 ```
 
 Each command:
@@ -790,7 +795,7 @@ To minimize dependencies and enable incremental testing:
 8. **`select_columns`** - Core data selection
 9. **`head`**, **`tail`** - Basic slicing (simple, no type parsing)
 10. **`slice`** - Range-based slicing
-11. **Test**: Chain operations: `from_csv/select_columns-col1~_col2/head-10`
+11. **Test**: Chain operations: `from_csv/select_columns-col1-col2/head-10`
 
 ### Step 4: Info Commands (0.5 days)
 12. **`shape`**, **`nrows`**, **`ncols`** - Metadata queries
@@ -851,3 +856,4 @@ To minimize dependencies and enable incremental testing:
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-12 | Corrected `select_columns` / `drop_columns` usage to the `~_` escape and explained why: `-` separates parameters, so the plain dash form is an arity error since `EXCESS-ACTION-PARAMETERS-ERROR`. Other command examples verified against the registry with `liquers-validate`. | design/excess-action-parameters-error |
+| 2026-08-25 | `select_columns` / `drop_columns` are variadic: reverted the `~_` spelling to plain dashes, and rewrote the escaping note - `a-b` is now two columns and `a~_b` one column named `a-b`, a distinction the previous internal split could not express. | design/variadic-arguments-declaration |

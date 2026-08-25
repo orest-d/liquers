@@ -101,38 +101,110 @@ async fn test_slice() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------
+// Variadic column selection.
+//
+// These go THROUGH the commands - `create_test_env()` above builds an environment with the polars
+// commands registered, and `eval_over_csv` evaluates a real query against it. The rest of this
+// file calls the Polars API directly and would pass however the commands behaved; see
+// POLARS-COMMAND-TESTS-BYPASS-COMMANDS.
+//
+// See specs/design/variadic-arguments-declaration/.
+// ---------------------------------------------------------------------------------------------
+
+/// Apply a `pl` query to a CSV state, going THROUGH the command registry.
+///
+/// `apply` runs a transform query against a supplied state, which is what these tests need: no
+/// store, no recipe, just state -> command -> state. `create_test_env()` above has already
+/// registered the polars commands.
+async fn eval_over_csv(csv: &str, action: &str) -> Result<Arc<polars::prelude::DataFrame>, Error> {
+    use liquers_core::assets::AssetManager;
+    use liquers_core::parse::parse_query;
+
+    let env = create_test_env();
+    let envref = env.to_ref();
+    let query = parse_query(&format!("ns-pl/{action}"))?;
+
+    let assetref = envref
+        .get_asset_manager()
+        .apply(query.into(), create_csv_state(csv))
+        .await?;
+    let state = assetref.get().await?;
+    liquers_lib::polars::util::try_to_polars_dataframe(&state)
+}
+
+/// I1 - one parameter per column. This spelling is an arity error before the commands became
+/// variadic ("accepts 1, but parameter #2 'c' was supplied").
 #[tokio::test(flavor = "multi_thread")]
 async fn test_select_columns() -> Result<(), Box<dyn std::error::Error>> {
-    let csv_data = "a,b,c\n1,2,3\n4,5,6";
-    let state = create_csv_state(csv_data);
+    let df = eval_over_csv("a,b,c\n1,2,3\n4,5,6", "select_columns-a-c").await?;
 
-    let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
-
-    // Test column selection
-    let result_df = df.select(["a", "c"])?;
-    assert_eq!(result_df.width(), 2); // Only columns a and c
-    assert!(result_df.get_column_names().iter().any(|s| *s == "a"));
-    assert!(result_df.get_column_names().iter().any(|s| *s == "c"));
-    assert!(!result_df.get_column_names().iter().any(|s| *s == "b"));
-
+    assert_eq!(df.width(), 2);
+    assert!(df.get_column_names().iter().any(|s| *s == "a"));
+    assert!(df.get_column_names().iter().any(|s| *s == "c"));
+    assert!(!df.get_column_names().iter().any(|s| *s == "b"));
     Ok(())
 }
 
+/// I2 - the capability that did not exist before. `~_` escapes the parameter separator, so this
+/// is ONE parameter naming the single column `a-b`. Under the deleted `split('-')` workaround
+/// this was indistinguishable from selecting two columns `a` and `b`.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_select_columns_escaped_dash_names_one_column(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let df = eval_over_csv("a-b,c\n1,2\n3,4", "select_columns-a~_b").await?;
+
+    assert_eq!(df.width(), 1);
+    assert_eq!(df.get_column_names(), vec!["a-b"]);
+    Ok(())
+}
+
+/// I3 - a variadic argument with no parameters is well-formed at plan level (it resolves to an
+/// empty MultipleParameters), so the COMMAND must reject it, and the message must be about
+/// columns rather than about arity.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_select_columns_with_no_columns_is_rejected() {
+    let err = eval_over_csv("a,b\n1,2", "select_columns")
+        .await
+        .expect_err("selecting no columns is not a meaningful request");
+
+    assert!(
+        err.message.contains("at least one column"),
+        "message: {}",
+        err.message
+    );
+}
+
+/// I4 - the second converted command.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_drop_columns() -> Result<(), Box<dyn std::error::Error>> {
-    let csv_data = "a,b,c\n1,2,3\n4,5,6";
-    let state = create_csv_state(csv_data);
+    let df = eval_over_csv("a,b,c\n1,2,3", "drop_columns-b-c").await?;
 
-    let df = liquers_lib::polars::util::try_to_polars_dataframe(&state)?;
-
-    // Test drop columns
-    let result_df = (*df).clone().drop_many(["b"]);
-    assert_eq!(result_df.width(), 2); // Columns a and c remain
-    assert!(result_df.get_column_names().iter().any(|s| *s == "a"));
-    assert!(result_df.get_column_names().iter().any(|s| *s == "c"));
-    assert!(!result_df.get_column_names().iter().any(|s| *s == "b"));
-
+    assert_eq!(df.width(), 1);
+    assert_eq!(df.get_column_names(), vec!["a"]);
     Ok(())
+}
+
+/// I5 - per-element validation: `check_column_exists` runs for each element, so an unknown
+/// column is named rather than silently ignored.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_select_columns_reports_unknown_column_by_name() {
+    let err = eval_over_csv("a,b\n1,2", "select_columns-a-zz")
+        .await
+        .expect_err("zz does not exist");
+
+    assert!(err.message.contains("zz"), "message: {}", err.message);
+}
+
+/// C1 - a trailing dash is one EMPTY parameter, not an absent one, so it is still an element
+/// and is rejected by name-checking rather than silently dropped.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_select_columns_trailing_dash_is_an_empty_element() {
+    let err = eval_over_csv("a,b\n1,2", "select_columns-a-")
+        .await
+        .expect_err("the empty string is not a column");
+
+    assert!(!err.message.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

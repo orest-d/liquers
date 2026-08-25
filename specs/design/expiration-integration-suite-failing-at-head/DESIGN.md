@@ -1,5 +1,5 @@
 ---
-id: EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD
+id: EXPIRATION-INTEGRATION-SUITE-REPAIR
 kind: design
 title: expiration-integration-suite-failing-at-head
 workflow: liquers-project

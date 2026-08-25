@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-03-02
+reviewed: 2026-08-25
 ---
 # register_command! Macro Functional Specification
 
@@ -99,15 +99,16 @@ Parameters are specified after the state parameter, separated by commas.
 ### Syntax
 
 ```
-<name>: <Type> [injected] [= <default_value>] [(label: "...", gui: ..., enum: ..., enum_ref: ...)]
+<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", gui: ..., enum: ..., enum_ref: ...)]
 ```
 
 | Part | Required | Description |
 |------|----------|-------------|
 | `<name>` | Yes | Parameter name (no leading `_`, no `__`) |
 | `<Type>` | Yes | Rust type |
-| `injected` | No | Mark as injected from context |
-| `= <default_value>` | No | Default value |
+| `injected` | No | Mark as injected from context. Consumes no query parameter |
+| `multiple` | No | Mark as variadic: consumes every remaining action parameter. Requires a container type; mutually exclusive with `injected`; see [Variadic Parameters](#variadic-parameters) |
+| `= <default_value>` | No | Default value. Not permitted on a `multiple` parameter |
 | `(...)` | No | Parameter metadata |
 
 ### Supported Types
@@ -124,6 +125,7 @@ The macro recognizes these types for metadata generation:
 | `bool` | `Boolean` |
 | `String` | `String` |
 | `Value`, `Any`, `CommandValue` | `Any` |
+| `Vec<T>` with `multiple` | whatever `T` maps to — see [Variadic Parameters](#variadic-parameters) |
 | Other types | `Any` |
 
 ### Default Values
@@ -146,6 +148,57 @@ register_command!(cr, fn cmd(state, payload: MyPayload injected) -> result)?;
 ```
 
 Built-in injectable: `E::Payload` (the environment's payload type).
+
+### Variadic Parameters
+
+A parameter marked `multiple` consumes **every remaining action parameter**. It is the only way a
+command accepts a variable-length list; declared arity is otherwise binding.
+
+```rust
+fn select_columns(state: &State<Value>, columns: Vec<String>) -> Result<Value, Error> { ... }
+register_command!(cr, fn select_columns(state, columns: Vec<String> multiple) -> result)?;
+```
+
+```
+select_columns-a-b-c    ->  ParameterValue::MultipleParameters with three elements
+select_columns-a~_b     ->  one element, the string "a-b"
+select_columns          ->  MultipleParameters with no elements
+```
+
+**Container type.** The declared type must be a container; `Vec<T>` is what is recognised. The
+macro's `variadic_element_type` is the single place another container would be added.
+
+**Argument type comes from the element.** `Vec<String>` generates `ArgumentType::String`,
+`Vec<i64>` generates `Integer`, and so on — not `Any`, which is where an unflagged `Vec<T>` falls.
+This is load-bearing rather than cosmetic: `ParameterValue::from_string` parses each action
+parameter through `ArgumentType`, so an `Any` element type would deliver every element as a JSON
+string and a `Vec<i64>` parameter would fail at retrieval.
+
+**No default.** A variadic parameter defaults to the empty list and may not declare another
+default. `ParameterValue::from_arginfo` maps `CommandParameterValue::None` on a variadic argument to
+an empty `MultipleParameters`, so an empty list reaches the command as `Ok(vec![])` rather than as
+an error — a command requiring at least one element enforces that itself.
+
+**Position.** A `multiple` parameter must be the last one that consumes a query parameter.
+Parameters marked `injected` and the `context` parameter may follow it, because neither consumes
+one.
+
+**Retrieval.** Generated code emits `arguments.get_multiple(i, name)?`, not `arguments.get`.
+`get_multiple` is bounded only by `FromParameterValue`; `get`'s additional
+`TryFrom<E::Value>` bound serves a pre-materialised fast path that a variadic argument never takes.
+
+**Compile-time rejections.**
+
+| Declaration | Error |
+|---|---|
+| `c: String multiple` | `` a `multiple` argument must have a container type; `String` is not one. Expected `Vec<String>` `` |
+| `c: Vec<String> multipel` | `` unknown argument flag `multipel`; expected `injected` or `multiple` `` |
+| `c: Vec<String> injected multiple` | `` an argument cannot be both `injected` and `multiple` `` |
+| `c: Vec<String> multiple multiple` | `` duplicate argument flag `multiple` `` |
+| `c: Vec<String> multiple = "x"` | `` a `multiple` argument cannot have a default value `` |
+| an argument after a `multiple` one | `` argument `b` follows the `multiple` argument `a` and can never receive a value `` |
+
+Unknown flags are rejected rather than ignored, so a misspelled flag is a build error.
 
 ### Parameter Metadata
 
@@ -385,7 +438,7 @@ Generates (simplified):
             label: "greeting".to_string(),
             default: CommandParameterValue::Value(Value::String("Hello".to_string())),
             argument_type: ArgumentType::String,
-            multiple: false,
+            multiple: false,   // `true` when the parameter is declared `multiple`
             injected: false,
             gui_info: ArgumentGUIInfo::TextField(20),
             ..Default::default()
@@ -541,3 +594,4 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 | Date | Change | Source |
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
+| 2026-08-25 | Documented the `multiple` argument flag: grammar slot shared with `injected`, the container-type requirement, element-derived `ArgumentType`, the empty-list default, the last-argument rule, `get_multiple` retrieval, and the six compile-time rejections. | design/variadic-arguments-declaration |
