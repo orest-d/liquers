@@ -27,6 +27,7 @@ impl EnvRef{
 
 #[pyclass]
 pub struct Environment {
+    pub type_registry: liquers_core::type_system::TypeRegistry,
     pub store: Arc<dyn Store>,
     pub cache: Arc<Mutex<Box<dyn Cache<Value>>>>,
     pub command_registry: CommandRegistry<Self>,
@@ -39,6 +40,7 @@ impl Environment {
     #[new]
     pub fn new() -> Self {
         Environment {
+            type_registry: liquers_core::type_system::TypeRegistry::from_value_type::<Value>(),
             store: Arc::new(liquers_core::store::NoStore),
             command_registry: CommandRegistry::new(),
             cache: Arc::new(Mutex::new(Box::new(NoCache::new()))),
@@ -80,6 +82,10 @@ impl Environment {
 }
 
 impl liquers_core::context::Environment for Environment {
+    fn get_type_registry(&self) -> &liquers_core::type_system::TypeRegistry {
+        &self.type_registry
+    }
+
     type Value = Value;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = liquers_core::context::SimpleSession;

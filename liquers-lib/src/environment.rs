@@ -28,6 +28,7 @@ pub trait CommandRegistryAccess: Environment {
 /// Simple environment with configurable store and cache
 /// CommandRegistry is used as command executor as well as it is providing the command metadata registry.
 pub struct DefaultEnvironment<V: ValueInterface, P: PayloadType = ()> {
+    type_registry: liquers_core::type_system::TypeRegistry,
     async_store: Arc<dyn AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
     asset_store: Arc<SelectedAssetManager<Self>>,
@@ -50,6 +51,7 @@ impl<V: ValueInterface, P: PayloadType> CommandRegistryAccess for DefaultEnviron
 impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
     pub fn new() -> Self {
         DefaultEnvironment {
+            type_registry: liquers_core::type_system::TypeRegistry::from_value_type::<V>(),
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(NoAsyncStore),
             asset_store: Arc::new(SelectedAssetManager::new()),
@@ -92,6 +94,10 @@ impl DefaultEnvironment<crate::value::Value> {
 }
 
 impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P> {
+    fn get_type_registry(&self) -> &liquers_core::type_system::TypeRegistry {
+        &self.type_registry
+    }
+
     type Value = V;
     type CommandExecutor = CommandRegistry<Self>;
     type SessionType = SimpleSession;

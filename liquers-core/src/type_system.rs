@@ -269,13 +269,24 @@ impl TypeRegistry {
 
     /// Seeds a registry from a value type's own static self-description, and adds the `error`
     /// pseudo-type that every build needs.
-    pub fn from_value_type<V: ValueInterface>() -> Result<Self, Error> {
+    ///
+    /// Infallible, because an `Environment` constructor is: a duplicate here means a value type
+    /// described the same identifier twice, which is a bug in that type rather than a runtime
+    /// condition a caller can act on. The first description wins and the collision is reported on
+    /// stderr; `register` remains fallible for callers that can handle it, and
+    /// `type_descriptions_match_identifier` catches the mistake in tests.
+    pub fn from_value_type<V: ValueInterface>() -> Self {
         let mut registry = TypeRegistry::new();
-        registry.register(TypeInfo::error())?;
+        let mut add = |info: TypeInfo| {
+            if let Err(error) = registry.register(info) {
+                eprintln!("liquers: type registry construction: {error}");
+            }
+        };
+        add(TypeInfo::error());
         for info in V::type_descriptions() {
-            registry.register(info)?;
+            add(info);
         }
-        Ok(registry)
+        registry
     }
 
     /// Adds one description.
@@ -413,7 +424,7 @@ mod tests {
     /// stored, typed thing and the write path requires a registered identifier.
     #[test]
     fn error_type_is_always_registered() -> Result<(), Box<dyn std::error::Error>> {
-        let registry = TypeRegistry::from_value_type::<crate::value::Value>()?;
+        let registry = TypeRegistry::from_value_type::<crate::value::Value>();
         assert!(registry.contains(ERROR_TYPE_IDENTIFIER));
         Ok(())
     }
@@ -425,7 +436,7 @@ mod tests {
     /// they are reserved for future structure such as generics.
     #[test]
     fn identifier_naming_rule_holds() -> Result<(), Box<dyn std::error::Error>> {
-        let registry = TypeRegistry::from_value_type::<crate::value::Value>()?;
+        let registry = TypeRegistry::from_value_type::<crate::value::Value>();
         for (key, _) in registry.iter() {
             let id = &key.type_identifier;
             assert!(!id.is_empty(), "an identifier must not be empty");

@@ -1215,7 +1215,7 @@ mod tests {
     #[test]
     fn supports_data_format_agrees_with_the_registry(
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let registry = crate::type_system::TypeRegistry::from_value_type::<Value>()?;
+        let registry = crate::type_system::TypeRegistry::from_value_type::<Value>();
         for value in sample_values() {
             for format in ["json", "txt", "b", "parquet"] {
                 assert_eq!(
