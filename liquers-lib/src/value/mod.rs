@@ -123,16 +123,57 @@ impl ExtValueInterface for ExtValue {
 }
 
 impl ValueExtension for ExtValue {
+    fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
+        use liquers_core::type_system::TypeInfo;
+        let mut descriptions = vec![
+            TypeInfo::new("Image")
+                .with_type_name("image")
+                .with_defaults("png", "png", "image/png", "image.png")
+                .with_data_formats(["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff"]),
+            TypeInfo::new("UIElement")
+                .with_type_name("ui_element")
+                .with_defaults("ui", "ui", "application/octet-stream", "element.ui"),
+        ];
+        #[cfg(feature = "polars")]
+        descriptions.push(
+            TypeInfo::new("polars.DataFrame")
+                .with_type_name("polars_dataframe")
+                .with_defaults("csv", "csv", "text/csv", "data.csv")
+                .with_data_formats(["csv", "parquet", "json", "ndjson"]),
+        );
+        #[cfg(feature = "egui")]
+        {
+            descriptions.push(
+                TypeInfo::new("egui.Command")
+                    .with_type_name("ui_command")
+                    .with_defaults("ui", "ui", "application/octet-stream", "data.ui"),
+            );
+            descriptions.push(
+                TypeInfo::new("egui.Widget")
+                    .with_type_name("widget")
+                    .with_defaults("widget", "widget", "application/octet-stream", "data.widget"),
+            );
+        }
+        descriptions
+    }
+
+    /// Type identifiers follow `specs/reference/VALUE_TYPE_SYSTEM.md`.
+    ///
+    /// `Image` and `UIElement` are **bare**: Liquers owns those concepts and commits to them as
+    /// canonical, even though `Image`'s payload comes from the `image` crate — a bare name is
+    /// about concept ownership, not code location. `polars.DataFrame` carries a provider because
+    /// Liquers explicitly does *not* commit to a canonical dataframe: polars and pandas, eager and
+    /// lazy, arrow. `egui.*` likewise names a backend rather than a Liquers concept.
     fn identifier(&self) -> Cow<'static, str> {
         match self {
             #[cfg(feature = "polars")]
-            ExtValue::PolarsDataFrame { .. } => "polars_dataframe".into(),
+            ExtValue::PolarsDataFrame { .. } => "polars.DataFrame".into(),
             #[cfg(feature = "egui")]
-            ExtValue::UiCommand { .. } => "ui_command".into(),
+            ExtValue::UiCommand { .. } => "egui.Command".into(),
             #[cfg(feature = "egui")]
-            ExtValue::Widget { .. } => "widget".into(),
-            ExtValue::Image { .. } => "image".into(),
-            ExtValue::UIElement { .. } => "ui_element".into(),
+            ExtValue::Widget { .. } => "egui.Widget".into(),
+            ExtValue::Image { .. } => "Image".into(),
+            ExtValue::UIElement { .. } => "UIElement".into(),
             ExtValue::Foreign { value } => value.identifier(),
         }
     }
@@ -229,16 +270,16 @@ impl DefaultValueSerializer for ExtValue {
     }
     fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
         match type_identifier {
-            "image" => {
+            "Image" => {
                 let img = deserialize_image_from_bytes(b, fmt)?;
                 Ok(ExtValue::from_image(Arc::new(img)))
             }
             #[cfg(feature = "polars")]
-            "polars_dataframe" => {
+            "polars.DataFrame" => {
                 let df = deserialize_dataframe_from_reader(Cursor::new(b), fmt)?;
                 Ok(ExtValue::from_polars_dataframe(df))
             }
-            _ => Err(Error::new(
+            _ => Err(Error::from_error(
                 ErrorType::SerializationError,
                 format!(
                     "Unsupported type identifier in from_bytes:{}",

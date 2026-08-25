@@ -588,7 +588,13 @@ fn validate_metadata_hard(
         .with_key(key));
     };
 
-    if !is_error_state && !info.supports_data_format(effective_data_format) {
+    // A type that declares *no* formats has no byte form at all — a UI element, an egui widget, a
+    // foreign language handle. The asset layer already tolerates that by persisting metadata only,
+    // so requiring such a type to name a format it cannot produce would be contradictory. The
+    // identifier check still applies; only the format pairing is meaningless here, exactly as for
+    // an error state.
+    let unserializable = info.supported_data_formats.is_empty();
+    if !is_error_state && !unserializable && !info.supports_data_format(effective_data_format) {
         let supported = info
             .supported_data_formats
             .iter()

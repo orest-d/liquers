@@ -335,9 +335,9 @@ pub trait AppState:
         }
 
         // Check if value is specifically a Query variant → insert as pending source
-        // for lazy evaluation. Only match the Query variant (identifier "query"),
+        // for lazy evaluation. Only match the Query variant (identifier "Query"),
         // not text strings that happen to be parseable as queries.
-        if value.identifier() == "query" {
+        if value.identifier() == "Query" {
             if let Ok(query) = value.try_into_query() {
                 let query_source = ElementSource::Query(query.encode());
                 return self.insert_source(point, query_source);

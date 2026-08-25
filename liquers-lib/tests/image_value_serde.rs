@@ -14,7 +14,7 @@ fn image_value_png_roundtrip() {
     let image = make_test_image();
     let value = Value::from_image(image);
     let bytes = value.as_bytes("png").unwrap();
-    let decoded = Value::deserialize_from_bytes(&bytes, "image", "png").unwrap();
+    let decoded = Value::deserialize_from_bytes(&bytes, "Image", "png").unwrap();
     let decoded_img = decoded.as_image().unwrap();
     assert_eq!(decoded_img.width(), 8);
     assert_eq!(decoded_img.height(), 6);
@@ -25,7 +25,7 @@ fn image_value_jpg_alias_roundtrip() {
     let image = make_test_image();
     let value = Value::from_image(image);
     let bytes = value.as_bytes("jpg").unwrap();
-    let decoded = Value::deserialize_from_bytes(&bytes, "image", "jpg").unwrap();
+    let decoded = Value::deserialize_from_bytes(&bytes, "Image", "jpg").unwrap();
     let decoded_img = decoded.as_image().unwrap();
     assert_eq!(decoded_img.width(), 8);
     assert_eq!(decoded_img.height(), 6);

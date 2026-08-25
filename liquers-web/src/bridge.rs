@@ -382,7 +382,7 @@ pub fn value_to_js<V: JsValueBridge>(value: &V) -> Result<JsValue, Error> {
     // Gate on the identifier, NOT on `try_into_bytes()` succeeding: that conversion is
     // deliberately permissive and also accepts text, returning its UTF-8 encoding — so keying off
     // it turned every string into a Uint8Array.
-    if value.identifier() == "bytes" {
+    if value.identifier() == "Bytes" {
         let bytes = value.try_into_bytes()?;
         return Ok(js_sys::Uint8Array::from(bytes.as_slice()).into());
     }

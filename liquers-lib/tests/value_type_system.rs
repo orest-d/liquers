@@ -29,7 +29,7 @@ fn combined_value_delegates_all_defaults() {
     assert_eq!(value.default_extension(), "png");
     assert_eq!(value.default_filename(), "image.png");
     assert_eq!(value.default_media_type(), "image/png");
-    assert_eq!(value.identifier(), "image");
+    assert_eq!(value.identifier(), "Image");
 }
 
 /// The defaults must agree with each other: the filename ends in the extension, and the data

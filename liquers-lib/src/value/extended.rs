@@ -32,6 +32,13 @@ pub trait ValueExtension:
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         Err(Error::conversion_error(self.identifier(), "JSON"))
     }
+    /// Static self-description of every type this extension can hold.
+    ///
+    /// Concatenated with the base value's descriptions by `CombinedValue`, so the registry sees
+    /// one flat identifier space regardless of which side a variant physically lives on.
+    fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
+        Vec::new()
+    }
     fn identifier(&self) -> Cow<'static, str>;
     fn type_name(&self) -> Cow<'static, str>;
     fn default_extension(&self) -> Cow<'static, str>;
@@ -131,6 +138,15 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
             CombinedValue::Base(base) => base.try_into_json_value(),
             CombinedValue::Extended(ext) => ext.try_into_json_value(),
         }
+    }
+
+    fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
+        // Variant *placement* carries no type-system meaning: whether a type lives in the base
+        // value or the extension is an implementation detail, so the two description sets are
+        // simply concatenated into one flat identifier space.
+        let mut descriptions = BaseValue::type_descriptions();
+        descriptions.extend(Ext::type_descriptions());
+        descriptions
     }
 
     fn identifier(&self) -> Cow<'static, str> {
@@ -455,7 +471,7 @@ impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
             Err(base_err) => match E::deserialize_from_bytes(b, type_identifier, fmt) {
                 Ok(ext) => Ok(CombinedValue::Extended(ext)),
                 Err(ext_err) => {
-                    if type_identifier == "polars_dataframe" {
+                    if type_identifier == "polars.DataFrame" {
                         Err(ext_err)
                     } else {
                         Err(base_err)
