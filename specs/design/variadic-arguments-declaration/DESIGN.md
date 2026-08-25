@@ -4,7 +4,7 @@ kind: design
 title: Declarable variadic command arguments
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [macro, core/commands, lib/polars]
 gh_pr: []
 issues: [COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE, VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS, UI-VARIADIC-ARGUMENT-LIST-EDITOR, COMMAND-COMPOSITE-VARIADIC-ARGUMENTS, PY-MODULES-NOT-DECLARED-IN-LIB, POLARS-COMMAND-TESTS-BYPASS-COMMANDS]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [x] Phase 3: Examples & Testing (awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [x] Phase 4: Implementation Plan (awaiting approval)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
