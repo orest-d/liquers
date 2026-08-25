@@ -561,15 +561,15 @@ fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
-        &metadata.media_type,
+        metadata.declared_media_type().unwrap_or(""),
         &expected_media_type,
     );
     for entry in entries {
         metadata.add_log_entry(entry);
     }
-    if metadata.media_type.trim().is_empty() {
-        metadata.media_type = expected_media_type;
-    }
+    // The record form used to fill an empty media type in. It no longer does: `None` now *means*
+    // "derive", so writing the derived value back would turn every ordinary record into one
+    // carrying a deliberate override, which is exactly the distinction this design added.
 }
 
 /// Soft-tier warnings for the `Metadata` enum.

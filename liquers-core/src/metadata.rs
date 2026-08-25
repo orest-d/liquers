@@ -683,7 +683,11 @@ pub struct AssetInfo {
     pub description: String,
     /// Indicates that the value failed to be created
     pub is_error: bool,
-    /// Media type of the value
+    /// Media type of the value, already resolved.
+    ///
+    /// `AssetInfo` is a projection for clients, not a place to record how a media type came
+    /// about, so it carries the effective value with any override already applied. Only
+    /// [`MetadataRecord`], the thing an author writes, needs the override/derive distinction.
     pub media_type: String,
     /// Filename of the value
     pub filename: Option<String>,
@@ -756,14 +760,12 @@ impl AssetInfo {
     /// Sets the filename.
     fn with_filename(&mut self, filename: String) -> &mut Self {
         self.filename = Some(filename);
-        self.media_type = crate::media_type::file_extension_to_media_type(
-            self.extension().unwrap_or("".to_string()).as_str(),
-        )
-        .to_owned();
-        if self.unicode_icon.is_empty() {
-            self.unicode_icon = DEFAULT_ICON.to_string();
+        // Level-2 seeding: the extension names the data format unless one was declared. The media
+        // type is *not* written here — it derives from the effective format, and writing it would
+        // make an ordinary filename look like a deliberate override.
+        if self.data_format.is_none() {
+            self.data_format = self.extension();
         }
-        self.data_format = self.extension();
         self
     }
 
@@ -791,7 +793,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.title = asset_info.title;
         metadata.description = asset_info.description;
         metadata.is_error = asset_info.is_error;
-        metadata.media_type = asset_info.media_type;
+        metadata.media_type = media_type_override(asset_info.media_type);
         metadata.filename = asset_info.filename;
         metadata.unicode_icon = asset_info.unicode_icon;
         metadata.file_size = asset_info.file_size;
@@ -820,7 +822,16 @@ impl From<MetadataRecord> for AssetInfo {
     }
 }
 
+/// Every field defaults, so a *partial* JSON document deserializes into a record.
+///
+/// Without this, `Metadata::from_json(r#"{"media_type":"text/plain"}"#)` fell through to
+/// `Metadata::LegacyMetadata`, because the document did not deserialize as a complete record —
+/// and the legacy accessors then returned quoted strings. That was the root cause behind
+/// `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`; the accessors were the symptom. The legacy
+/// fallback stays for documents that genuinely are not records, but it is no longer the path an
+/// ordinary partial document takes.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
 pub struct MetadataRecord {
     /// Log data
     pub log: Vec<LogEntry>,
@@ -853,7 +864,15 @@ pub struct MetadataRecord {
     /// Structure containing the error information
     pub error_data: Option<Error>,
     /// Media type of the value
-    pub media_type: String,
+    /// Media type of the value.
+    ///
+    /// `None` means "derive from the effective data format"; `Some` is a deliberate override that
+    /// is preserved verbatim and never re-derived. The override is an intended capability — it is
+    /// how a caller shapes an HTTP response, and how a remotely fetched file keeps the origin
+    /// server's declared `Content-Type` — so it survives the write-path checks rather than being
+    /// normalized away. Resolve it with [`MetadataRecord::effective_media_type`].
+    #[serde(default)]
+    pub media_type: Option<String>,
     /// Filename of the value
     pub filename: Option<String>,
     /// Unicode icon representing the file type as an emoji
@@ -1045,7 +1064,7 @@ impl MetadataRecord {
             title: self.title.clone(),
             description: self.description.clone(),
             is_error: self.is_error,
-            media_type: self.media_type.clone(),
+            media_type: self.get_media_type(),
             filename: self.filename.clone(),
             unicode_icon: self.unicode_icon.clone(),
             file_size: self.file_size,
@@ -1134,8 +1153,9 @@ impl MetadataRecord {
         self
     }
 
+    /// Declares a level-3 media-type override, kept verbatim.
     pub fn with_media_type(&mut self, media_type: String) -> &mut Self {
-        self.media_type = media_type;
+        self.media_type = media_type_override(media_type);
         self.set_updated_now();
         self
     }
@@ -1151,10 +1171,12 @@ impl MetadataRecord {
     }
     pub fn with_filename(&mut self, filename: String) -> &mut Self {
         self.filename = Some(filename);
-        self.media_type = crate::media_type::file_extension_to_media_type(
-            self.extension().unwrap_or("".to_string()).as_str(),
-        )
-        .to_owned();
+        // Level-2 seeding: the extension names the data format unless one was declared. The
+        // media type is *not* written here — it derives from the effective format, and writing it
+        // would make an ordinary filename indistinguishable from a deliberate override.
+        if self.data_format.is_none() {
+            self.data_format = self.extension();
+        }
         if self.unicode_icon.is_empty() {
             self.unicode_icon = self.default_unicode_icon().to_string();
         }
@@ -1193,10 +1215,12 @@ impl MetadataRecord {
     }
     pub fn set_filename(&mut self, filename: &str) {
         self.filename = Some(filename.to_string());
-        self.media_type = crate::media_type::file_extension_to_media_type(
-            self.extension().unwrap_or("".to_string()).as_str(),
-        )
-        .to_owned();
+        // Level-2 seeding: the extension names the data format unless one was declared. The
+        // media type is *not* written here — it derives from the effective format, and writing it
+        // would make an ordinary filename indistinguishable from a deliberate override.
+        if self.data_format.is_none() {
+            self.data_format = self.extension();
+        }
     }
     pub fn extension(&self) -> Option<String> {
         if let Some(filename) = &self.filename {
@@ -1221,30 +1245,55 @@ impl MetadataRecord {
         } else {
             self.filename = Some(format!("file.{}", extension));
         }
-        self.media_type = crate::media_type::file_extension_to_media_type(extension).to_owned();
-    }
-    pub fn get_media_type(&self) -> String {
-        if self.media_type.is_empty() {
-            if let Some(extension) = self.extension() {
-                return crate::media_type::file_extension_to_media_type(extension.as_str())
-                    .to_owned();
-            }
-            return "application/octet-stream".to_string();
+        // Level-2 seeding, as in `set_filename`.
+        if self.data_format.is_none() {
+            self.data_format = Some(extension.to_string());
         }
-        self.media_type.to_string()
     }
 
-    /// Return data format
-    /// If data_format is not set, return extension.
-    /// If extension is not set, return "bin"
+    /// The declared level-3 media-type override, if there is one.
+    pub fn declared_media_type(&self) -> Option<&str> {
+        self.media_type.as_deref()
+    }
+
+    /// The media type to serve: a declared override verbatim, else derived from `data_format`.
+    pub fn effective_media_type(&self, value_default_format: &str) -> String {
+        match &self.media_type {
+            Some(declared) => declared.clone(),
+            None => crate::media_type::file_extension_to_media_type(base_data_format(
+                &self.effective_data_format(value_default_format),
+            ))
+            .to_owned(),
+        }
+    }
+
+    pub fn get_media_type(&self) -> String {
+        self.effective_media_type("bin")
+    }
+
+    /// The declared data format, if one was specified.
+    ///
+    /// `None` is meaningful: it says no format was chosen, so the value's own default applies.
+    /// It is *not* a missing value to be patched — knowing that nobody chose is what lets a
+    /// caller reason about how a format came to be selected.
+    pub fn declared_data_format(&self) -> Option<&str> {
+        self.data_format.as_deref()
+    }
+
+    /// The data format to use, given the value's own default for level 1.
+    pub fn effective_data_format(&self, value_default: &str) -> String {
+        match &self.data_format {
+            Some(declared) => declared.clone(),
+            None => value_default.to_string(),
+        }
+    }
+
+    /// Return the effective data format, with `bin` standing in for the value's own default.
+    ///
+    /// Prefer [`MetadataRecord::effective_data_format`], which takes the real level-1 default from
+    /// the value. This form exists for the callers that have no value in hand.
     pub fn get_data_format(&self) -> String {
-        if let Some(data_format) = &self.data_format {
-            return data_format.to_string();
-        }
-        if let Some(extension) = self.extension() {
-            return extension.to_string();
-        }
-        "bin".to_string()
+        self.effective_data_format("bin")
     }
 
     /// Return unicode icon representing the file type as an emoji
@@ -1398,6 +1447,25 @@ impl MetadataRecord {
 /// which is the best available answer for a caller that asked for a string.
 ///
 /// See `specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md`.
+/// Interprets a resolved media-type string as an override.
+///
+/// An empty string is how the previous, unwrapped field said "unspecified"; `None` is how the
+/// current one does. Anything else is a deliberate override and is kept verbatim.
+fn base_data_format(data_format: &str) -> &str {
+    match data_format.split_once(':') {
+        Some((base, _refinement)) => base,
+        None => data_format,
+    }
+}
+
+fn media_type_override(media_type: String) -> Option<String> {
+    if media_type.trim().is_empty() {
+        None
+    } else {
+        Some(media_type)
+    }
+}
+
 fn legacy_string_field(o: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
     o.get(key).map(|value| match value.as_str() {
         Some(text) => text.to_string(),
@@ -2804,22 +2872,51 @@ mod tests {
     ///
     /// `serde_json::Value::to_string()` returns `"\"json\""` for a JSON string, which matches no
     /// data format and no media type. Regression test for
-    /// `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`.
+    /// `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`. The legacy variant is constructed directly,
+    /// because a partial document no longer *reaches* it — see `vts5.6`.
     #[test]
     fn legacy_accessors_return_unquoted_strings() -> Result<(), Box<dyn std::error::Error>> {
-        let media = Metadata::from_json(r#"{"media_type":"text/plain"}"#)?;
-        assert_eq!(media.get_media_type(), "text/plain");
+        let legacy = |json: serde_json::Value| Metadata::LegacyMetadata(json);
 
-        let mimetype = Metadata::from_json(r#"{"mimetype":"text/csv"}"#)?;
-        assert_eq!(mimetype.get_media_type(), "text/csv");
+        assert_eq!(
+            legacy(serde_json::json!({"media_type": "text/plain"})).get_media_type(),
+            "text/plain"
+        );
+        assert_eq!(
+            legacy(serde_json::json!({"mimetype": "text/csv"})).get_media_type(),
+            "text/csv"
+        );
+        assert_eq!(
+            legacy(serde_json::json!({"data_format": "json"})).get_data_format(),
+            "json"
+        );
 
-        let format = Metadata::from_json(r#"{"data_format":"json"}"#)?;
-        assert_eq!(format.get_data_format(), "json");
-
-        // The accessors that already matched on `Value::String` must keep working.
-        let identifiers = Metadata::from_json(r#"{"type_identifier":"Text","type_name":"text"}"#)?;
+        // The accessors that already destructured `Value::String` must keep working.
+        let identifiers = legacy(serde_json::json!({
+            "type_identifier": "Text", "type_name": "text"
+        }));
         assert_eq!(identifiers.type_identifier()?, "Text");
         assert_eq!(identifiers.type_name()?, "text");
+        Ok(())
+    }
+
+    /// `vts5.6` — a partial document deserializes into a record, not into the legacy branch.
+    ///
+    /// This is the root cause behind `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON`: a document that
+    /// did not deserialize as a *complete* `MetadataRecord` fell through to `LegacyMetadata`, so
+    /// any caller supplying partial metadata silently landed on the quoted-string accessors.
+    #[test]
+    fn partial_document_deserializes_into_a_record() -> Result<(), Box<dyn std::error::Error>> {
+        let metadata = Metadata::from_json(r#"{"media_type":"text/plain"}"#)?;
+        match &metadata {
+            Metadata::MetadataRecord(record) => {
+                assert_eq!(record.declared_media_type(), Some("text/plain"));
+            }
+            Metadata::LegacyMetadata(_) => {
+                panic!("a partial document must deserialize into a record")
+            }
+        }
+        assert_eq!(metadata.get_media_type(), "text/plain");
         Ok(())
     }
 
@@ -2827,8 +2924,80 @@ mod tests {
     /// available answer and must not panic.
     #[test]
     fn legacy_non_string_field_falls_back() -> Result<(), Box<dyn std::error::Error>> {
-        let numeric = Metadata::from_json(r#"{"data_format":7}"#)?;
+        let numeric = Metadata::LegacyMetadata(serde_json::json!({"data_format": 7}));
         assert_eq!(numeric.get_data_format(), "7");
         Ok(())
+    }
+
+    /// `vts5.1` — an absent data format is a distinguishable state, not a missing value.
+    #[test]
+    fn declared_data_format_distinguishes_none() {
+        let mut record = MetadataRecord::new();
+        assert_eq!(record.declared_data_format(), None);
+        record.data_format = Some("csv".to_string());
+        assert_eq!(record.declared_data_format(), Some("csv"));
+    }
+
+    /// `vts5.2` — resolution falls through to the value's own default, not to a constant.
+    #[test]
+    fn effective_data_format_uses_value_default() {
+        let mut record = MetadataRecord::new();
+        assert_eq!(record.effective_data_format("txt"), "txt");
+        assert_eq!(record.effective_data_format("png"), "png");
+        record.data_format = Some("csv".to_string());
+        assert_eq!(
+            record.effective_data_format("txt"),
+            "csv",
+            "a declared format wins over the value default"
+        );
+    }
+
+    /// Level-2 seeding: a filename writes the extension into `data_format`, and does not touch
+    /// the media type — writing it would make an ordinary filename look like an override.
+    #[test]
+    fn filename_seeds_the_data_format_only() {
+        let mut record = MetadataRecord::new();
+        record.set_filename("notes.csv");
+        assert_eq!(record.declared_data_format(), Some("csv"));
+        assert_eq!(
+            record.declared_media_type(),
+            None,
+            "a filename is level 2, not a level-3 media-type override"
+        );
+
+        // A declared format is not overwritten by a later filename.
+        let mut declared = MetadataRecord::new();
+        declared.data_format = Some("csv:comma".to_string());
+        declared.set_filename("notes.csv");
+        assert_eq!(declared.declared_data_format(), Some("csv:comma"));
+    }
+
+    /// `vts5.3` and `vts5.4` — an override is verbatim, absence derives.
+    #[test]
+    fn effective_media_type_prefers_the_override() {
+        let mut record = MetadataRecord::new();
+        record.data_format = Some("csv".to_string());
+        assert_eq!(record.effective_media_type("txt"), "text/csv");
+
+        record.with_media_type("text/plain".to_string());
+        assert_eq!(
+            record.effective_media_type("txt"),
+            "text/plain",
+            "a declared override is never re-derived"
+        );
+
+        // A refinement derives from its base.
+        let mut refined = MetadataRecord::new();
+        refined.data_format = Some("csv:comma".to_string());
+        assert_eq!(refined.effective_media_type("txt"), "text/csv");
+    }
+
+    /// An empty string is not an override — it is how the previously unwrapped field said
+    /// "unspecified", and it must keep meaning that.
+    #[test]
+    fn empty_media_type_is_not_an_override() {
+        let mut record = MetadataRecord::new();
+        record.with_media_type(String::new());
+        assert_eq!(record.declared_media_type(), None);
     }
 }
