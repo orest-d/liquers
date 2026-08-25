@@ -2,7 +2,7 @@
 id: ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE
 kind: issue
 title: insert_key_asset silently does nothing on the queued manager when the key is taken
-status: in_progress
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -63,3 +63,10 @@ new `remove_key_asset_if` registered asset A, registered asset B under the same 
 that removing "if still A" was refused. It failed: B had never been inserted. The test was changed
 to remove between the inserts, with a comment pointing here, because it is a test of
 `remove_key_asset_if` and should not depend on unsettled insert semantics.
+
+## Resolution
+
+Closed 2026-08-25 by `design/asset-manager-insert-key-asset-semantics`. The public ambiguous
+trait method was removed. The built-in managers now use a crate-private insert-if-absent helper,
+with duplicate claims observable to internal callers. Keyed mutations are serialized with durable
+store work, so recovery cannot reintroduce stale data after a newer external state.
