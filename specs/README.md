@@ -182,7 +182,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md) | P1 | M | `variadic-arguments-declaration` |
 | [`FOREIGN-VALUE-TYPES-NOT-REGISTERED`](issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md) | P1 | M | `value-type-system` |
 | [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
 <!-- END generated: issues -->
