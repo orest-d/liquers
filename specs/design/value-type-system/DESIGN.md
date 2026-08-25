@@ -4,7 +4,7 @@ kind: design
 title: Liquers value type system
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/value, lib/value, py, web]
 gh_pr: []
 issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED, VALUE-CONVERSION-CAPABILITY, TYPE-REGISTRY-NOT-REALM-AWARE, VALUE-TYPE-DEFINITION-MACRO, CORE-VALUE-ENUM-OVERSIZED]
@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (awaiting approval)
 - [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 3: Examples & Testing (awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
