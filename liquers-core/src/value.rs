@@ -186,6 +186,15 @@ pub trait ValueInterface:
     /// Try into command metadata
     fn try_into_command_metadata(&self) -> Result<CommandMetadata, Error>;
 
+    /// Static self-description of every type this value type can hold.
+    ///
+    /// Seeds a [`crate::type_system::TypeRegistry`]. The default is empty: an implementor that
+    /// does not describe itself registers nothing, which degrades to "unknown type" rather than
+    /// failing to compile — so adding this method breaks no existing implementor.
+    fn type_descriptions() -> Vec<crate::type_system::TypeInfo> {
+        Vec::new()
+    }
+
     /// String identifier of the state type
     /// Several types can be linked to the same identifier.
     /// The identifier must be cross-platform

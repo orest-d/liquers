@@ -137,5 +137,6 @@ pub mod query;
 pub mod recipes;
 pub mod state;
 pub mod store;
+pub mod type_system;
 pub mod validate;
 pub mod value;
