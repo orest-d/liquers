@@ -5,7 +5,7 @@ title: Liquers value type system
 workflow: liquers-project
 status: complete
 area: [core/value, lib/value, py, web]
-gh_pr: []
+gh_pr: [37]
 issues: [CORE-METADATA-FORMAT-TYPE-CONSISTENCY, CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON, COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED, VALUE-CONVERSION-CAPABILITY, TYPE-REGISTRY-NOT-REALM-AWARE, VALUE-TYPE-DEFINITION-MACRO, CORE-VALUE-ENUM-OVERSIZED]
 affects_docs: [reference/PROJECT_OVERVIEW.md, reference/ASSET_SET_OPERATION.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md]
 created: 2026-08-18
@@ -33,8 +33,10 @@ The scalar widening moved to `VALUE-TYPE-DEFINITION-MACRO`, which generates valu
 hand-writing them; this project ships the P0 fix, the type registry and the metadata invariants.
 
 Type conversion and the **purpose axis** are both out of scope; the proposal is drafted in
-`type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`. This
-project ships three axes — variant identity, carrier, principal data type.
+`type-conversion-draft.md` and tracked by `specs/issues/VALUE-CONVERSION-CAPABILITY.md`. The carrier
+axis collapsed into the identifier as a namespace prefix, and `data_type` was dropped because
+`type_name` already occupies that niche, so this project ships **two** axes: type identity and
+encoding. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
 
 User decisions, 2026-08-18: no backward compatibility for stored type identifiers and no data
 migration; the write path **rejects** inconsistent metadata rather than normalising; scalars are

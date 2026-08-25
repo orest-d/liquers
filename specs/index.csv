@@ -136,7 +136,7 @@ QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
 STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
-VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,core/value;lib/value;py;web,,,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
+VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,core/value;lib/value;py;web,,37,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
 VOLATILITY-SYSTEM,design,Volatility tracking across the asset graph,complete,local,,,,core/assets,,,,volatility-system,,2026-03-02,specs/design/volatility-system/DESIGN.md
 WEB-API-LIBRARY,design,Web API library,complete,local,,,,axum,,,,web-api-library,,2026-03-02,specs/design/web-api-library/DESIGN.md
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
