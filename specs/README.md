@@ -46,6 +46,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Payload inheritance in nested evaluation** — built → [`design/payload-nested-evaluation-inheritance/`](design/payload-nested-evaluation-inheritance/)
 - **CWD-relative nested query resolution** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Excess action parameters rejected** — built → [`design/excess-action-parameters-error/`](design/excess-action-parameters-error/) *(rule documented in [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §Query Language)*
+- **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))*
 - **Programmatic query builder** — planned → [`issues/QUERY-BUILDER-TOOLING.md`](issues/QUERY-BUILDER-TOOLING.md)
 - **Multi-realm dispatch** — planned → [`issues/CORE-MULTI-REALM-INTERPRETER.md`](issues/CORE-MULTI-REALM-INTERPRETER.md)
 
@@ -201,7 +202,6 @@ deliberately folded behind a broader line.
 - design `plan-relative-resolution`
 - design `store-key-guard`
 - design `value-type-system`
-- design `variadic-arguments-declaration`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`

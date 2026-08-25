@@ -76,13 +76,12 @@ VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/v
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 VARIADIC-ARGUMENTS-DECLARATION,design,Declarable variadic command arguments,draft,local,implementation,,,macro;core/commands;lib/polars,,,,variadic-arguments-declaration,,2026-08-25,specs/design/variadic-arguments-declaration/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-16,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-25,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-18,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,core/value;lib/value,,,,,2026-08-18,,specs/guides/TYPE_SYSTEM_GUIDE.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
-REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,overdue,local,,,,macro;core/commands,,,,,2026-03-02,,specs/reference/REGISTER_COMMAND_FSD.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 ASSETS,reference,Assets Specification,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/ASSETS.md
@@ -95,8 +94,9 @@ DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Refer
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,core/context;core/plan,,,,,2026-08-16,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-16,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
-POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-12,,specs/reference/POLARS_COMMAND_LIBRARY.md
+POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
+REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,macro;core/commands,,,,,2026-08-25,,specs/reference/REGISTER_COMMAND_FSD.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,core/value;lib/value,,,,,2026-08-18,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
