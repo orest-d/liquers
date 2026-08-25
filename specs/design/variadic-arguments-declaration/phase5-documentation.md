@@ -156,9 +156,28 @@ arguments, and it was not investigated further.
   for hand-built registrations through the untouched `impl<V: ValueInterface>`. This is recorded
   rather than filed, because no caller wants it and adding the impl is a one-line change whenever
   one does.
-- Corner case C3 (a recipe `OverrideValue` on a variadic argument) was not tested. The path is
-  live — `from_arginfo` expands an array default into `MultipleParameters` — but the macro cannot
-  declare such a default, so only a recipe or hand-built metadata reaches it.
+- Corner case C3 (a recipe override of a variadic argument) **was a real defect**, found by Codex
+  review on [PR #38](https://github.com/orest-d/liquers/pull/38) after this document was first
+  written. Phase 3 had recorded it as untested rather than testing it, and it was broken:
+  `ParameterValue::name()` returned `None` for `MultipleParameters`, so `override_value` and
+  `override_link` could not find the slot and `Recipe::to_plan` failed with
+  "Argument columns not found in last action".
+
+  Fixed by giving the variant its argument name — `MultipleParameters(String, Vec<ParameterValue>)`
+  — and by making both override methods keep a variadic slot a parameter list rather than replacing
+  it with a scalar `OverrideValue`/`OverrideLink`, which `get_multiple` would reject. An array
+  override expands to one element per entry, mirroring `from_arginfo`'s array-default expansion.
+  Covered by `recipe_override_reaches_a_variadic_argument` (`plan.rs`) and
+  `recipe_overrides_a_variadic_argument` / `recipe_link_overrides_a_variadic_argument`
+  (`recipes.rs`).
+
+  The lesson is the sharper form of learning point 3: recording a corner case as untested is not the
+  same as knowing it works. C3 was the one path this design left unexercised, and it was the one
+  that was broken.
+
+- `LINK-IN-VARIADIC-DOES-NOT-EXPAND` (P3) was filed while making that fix: a link inside a variadic
+  argument yields one element even when it resolves to an array. Deliberately out of scope — the
+  right answer interacts with the existing `Vec<V: ValueInterface>` impl and needs its own decision.
 
 ## Validation
 

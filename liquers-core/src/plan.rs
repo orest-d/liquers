@@ -377,8 +377,13 @@ pub enum ParameterValue {
     Placeholder(String),
     /// Query link selected through an enum alias.
     EnumLink(String, Query, Position),
-    /// Resolved elements of a variadic argument.
-    MultipleParameters(Vec<ParameterValue>),
+    /// Resolved elements of a variadic argument, with the argument's name.
+    ///
+    /// The name is carried here for the same reason every other variant carries one: an argument
+    /// slot that cannot report its name cannot be found by [`ResolvedParameterValues::override_value`]
+    /// or [`ResolvedParameterValues::override_link`], so a recipe could not override it. It cannot
+    /// be derived from the elements, because an empty list has none.
+    MultipleParameters(String, Vec<ParameterValue>),
     /// Parameter supplied by the command execution context rather than query text.
     Injected(String),
     /// Intermediate state representing an unresolved parameter.
@@ -399,7 +404,7 @@ impl Display for ParameterValue {
                 write!(f, "override link {}: {}", name, q.encode())
             }
             ParameterValue::EnumLink(name, q, _) => write!(f, "enum link {}: {}", name, q.encode()),
-            ParameterValue::MultipleParameters(v) => {
+            ParameterValue::MultipleParameters(_, v) => {
                 write!(
                     f,
                     "multiple:{}",
@@ -500,7 +505,7 @@ impl ParameterValue {
                 }
                 CommandParameterValue::None => (),
             }
-            ParameterValue::MultipleParameters(values)
+            ParameterValue::MultipleParameters(arginfo.name.clone(), values)
         } else {
             match &arginfo.default {
                 CommandParameterValue::Value(x) => {
@@ -747,7 +752,7 @@ impl ParameterValue {
                             ParameterValue::ParameterLink(_, _, _) => values.push(pv),
                             ParameterValue::OverrideLink(_, _) => values.push(pv),
                             ParameterValue::EnumLink(_, _, _) => values.push(pv),
-                            ParameterValue::MultipleParameters(_) => {
+                            ParameterValue::MultipleParameters(_, _) => {
                                 return Err(Error::unexpected_error(
                                     "Multiple parameters not supported inside vector argument"
                                         .to_string(),
@@ -783,7 +788,7 @@ impl ParameterValue {
                     }
                 }
             }
-            return Ok(ParameterValue::MultipleParameters(values));
+            return Ok(ParameterValue::MultipleParameters(arginfo.name.clone(), values));
         }
 
         match param.next() {
@@ -844,7 +849,7 @@ impl ParameterValue {
     /// Returns whether this represents a variadic argument.
     pub fn is_multiple(&self) -> bool {
         match self {
-            ParameterValue::MultipleParameters(_) => true,
+            ParameterValue::MultipleParameters(_, _) => true,
             _ => false,
         }
     }
@@ -860,7 +865,8 @@ impl ParameterValue {
             ParameterValue::EnumLink(name, _, _) => Some(name.clone()),
             ParameterValue::Injected(name) => Some(name.clone()),
             ParameterValue::Placeholder(name) => Some(name.clone()),
-            _ => None,
+            ParameterValue::MultipleParameters(name, _) => Some(name.clone()),
+            ParameterValue::None => None,
         }
     }
     /// Returns a clone of the contained JSON value, when this is a value variant.
@@ -885,7 +891,7 @@ impl ParameterValue {
     /// Returns clones of the elements of a variadic argument.
     pub fn multiple(&self) -> Option<Vec<ParameterValue>> {
         match self {
-            ParameterValue::MultipleParameters(v) => Some(v.clone()),
+            ParameterValue::MultipleParameters(_, v) => Some(v.clone()),
             _ => None,
         }
     }
@@ -956,7 +962,7 @@ impl ParameterValue {
                 // to logical root still owes the caller its one warning.
                 cursor.absorb_diagnostics(&scoped);
             }
-            ParameterValue::MultipleParameters(values) => {
+            ParameterValue::MultipleParameters(_, values) => {
                 for value in values.iter_mut() {
                     value.freeze_cwd(cursor);
                 }
@@ -1056,6 +1062,23 @@ impl ResolvedParameterValues {
                         // TODO: maybe this could be an error
                         return false;
                     }
+                    // A variadic slot stays a parameter list. Replacing it with a scalar
+                    // `OverrideValue` would make `CommandArguments::get_multiple` reject it, and
+                    // the command declared the argument as a list. An array override supplies one
+                    // element per entry, mirroring how `from_arginfo` expands an array default.
+                    if pv.is_multiple() {
+                        let elements = match &value {
+                            Value::Array(entries) => entries
+                                .iter()
+                                .map(|entry| {
+                                    ParameterValue::OverrideValue(n.clone(), entry.clone())
+                                })
+                                .collect(),
+                            _ => vec![ParameterValue::OverrideValue(n.clone(), value.clone())],
+                        };
+                        *pv = ParameterValue::MultipleParameters(n.clone(), elements);
+                        return true;
+                    }
                     *pv = ParameterValue::OverrideValue(n.clone(), value.clone());
                     return true;
                 }
@@ -1073,6 +1096,19 @@ impl ResolvedParameterValues {
                     if pv.is_injected() {
                         // TODO: maybe this could be an error
                         return false;
+                    }
+                    // As in `override_value`: a variadic slot stays a parameter list, holding one
+                    // linked element. The interpreter materialises links inside a list
+                    // element-wise, so `get_multiple` sees a value by the time it runs.
+                    //
+                    // A link whose result is an array yields one element holding that array,
+                    // not one element per entry - see LINK-IN-VARIADIC-DOES-NOT-EXPAND.
+                    if pv.is_multiple() {
+                        *pv = ParameterValue::MultipleParameters(
+                            n.clone(),
+                            vec![ParameterValue::OverrideLink(n.clone(), query.clone())],
+                        );
+                        return true;
                     }
                     *pv = ParameterValue::OverrideLink(n.clone(), query.clone());
                     return true;
@@ -1297,7 +1333,7 @@ impl<'c> PlanBuilder<'c> {
                     ));
                 }
             }
-            ParameterValue::MultipleParameters(params) => {
+            ParameterValue::MultipleParameters(_, params) => {
                 // Recursively check nested parameters
                 for nested_param in params {
                     self.check_parameter_for_volatile_links(nested_param)?;
@@ -2322,7 +2358,7 @@ fn collect_parameter_dependencies(
                 DependencyRelation::EnumLink(name.clone()),
             ));
         }
-        ParameterValue::MultipleParameters(values) => {
+        ParameterValue::MultipleParameters(_, values) => {
             for value in values {
                 collect_parameter_dependencies(value, cursor, dependencies);
             }
@@ -3892,7 +3928,7 @@ mod tests {
                         parse_query("-R/./enum.txt")?,
                         Position::unknown(),
                     ),
-                    ParameterValue::MultipleParameters(vec![ParameterValue::OverrideLink(
+                    ParameterValue::MultipleParameters("multiple".to_owned(), vec![ParameterValue::OverrideLink(
                         "multiple".to_owned(),
                         parse_query("-R/./multiple.txt")?,
                     )]),
@@ -3949,7 +3985,7 @@ mod tests {
 
         let mut nested = ParameterValue::OverrideLink("leaf".to_owned(), linked_query);
         for depth in 0..DEPTH {
-            nested = ParameterValue::MultipleParameters(vec![
+            nested = ParameterValue::MultipleParameters("multiple".to_owned(), vec![
                 ParameterValue::DefaultValue(format!("before-{depth}"), serde_json::json!(depth)),
                 nested,
                 ParameterValue::OverrideValue(format!("after-{depth}"), serde_json::json!(depth)),
@@ -4002,7 +4038,7 @@ mod tests {
         assert_eq!(position, &action_position);
         let mut current = &parameters.0[0];
         for depth in (0..DEPTH).rev() {
-            let ParameterValue::MultipleParameters(values) = current else {
+            let ParameterValue::MultipleParameters(_, values) = current else {
                 panic!("expected nesting level {depth}");
             };
             assert_eq!(values.len(), 3);
@@ -4313,6 +4349,57 @@ mod tests {
         vcm.with_argument(ArgumentInfo::string_argument("items").set_multiple());
         assert!(ResolvedParameterValues::from_action(&action_of("vcmd-a-b-c-d"), &vcm, false).is_ok());
 
+        Ok(())
+    }
+
+    /// A recipe override must be able to reach a variadic argument.
+    ///
+    /// `MultipleParameters` is one argument slot like any other; a recipe writing
+    /// `arguments: {columns: [...]}` must find it by name. Reported by Codex review on PR #38.
+    /// See specs/design/variadic-arguments-declaration/.
+    #[test]
+    fn recipe_override_reaches_a_variadic_argument() -> Result<(), Error> {
+        let mut cm = CommandMetadata::new("select_columns");
+        cm.with_argument(ArgumentInfo::string_argument("columns").set_multiple());
+
+        let mut values =
+            ResolvedParameterValues::from_action(&action_of("select_columns-a-b"), &cm, false)?;
+        assert_eq!(values.0.len(), 1, "one argument slot");
+        assert_eq!(
+            values.0[0].name().as_deref(),
+            Some("columns"),
+            "a variadic slot must report its argument name, or no override can find it"
+        );
+
+        // An array override expands into one element per entry, mirroring how `from_arginfo`
+        // expands an array default.
+        assert!(
+            values.override_value("columns", Value::Array(vec!["x".into(), "y".into()])),
+            "override_value must locate the variadic slot"
+        );
+        let elements = values.0[0]
+            .multiple()
+            .expect("an applied override must stay a parameter list");
+        assert_eq!(elements.len(), 2);
+        assert_eq!(elements[0].value(), Some(Value::String("x".to_string())));
+        assert_eq!(elements[1].value(), Some(Value::String("y".to_string())));
+
+        // A scalar override is a one-element list.
+        let mut values =
+            ResolvedParameterValues::from_action(&action_of("select_columns-a-b"), &cm, false)?;
+        assert!(values.override_value("columns", "solo".into()));
+        let elements = values.0[0].multiple().expect("still a parameter list");
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0].value(), Some(Value::String("solo".to_string())));
+
+        // A link override likewise stays a parameter list, so the interpreter materialises it
+        // element-wise and `get_multiple` accepts the result.
+        let mut values =
+            ResolvedParameterValues::from_action(&action_of("select_columns-a-b"), &cm, false)?;
+        assert!(values.override_link("columns", parse_query("-R/config/cols.json")?));
+        let elements = values.0[0].multiple().expect("still a parameter list");
+        assert_eq!(elements.len(), 1);
+        assert!(elements[0].link().is_some());
         Ok(())
     }
 

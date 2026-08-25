@@ -739,6 +739,76 @@ mod test {
         eprintln!("plan.yaml:\n{}", serde_yaml::to_string(&plan).unwrap());
         eprintln!("");
     }
+    /// A recipe must be able to override a variadic argument.
+    ///
+    /// Before `MultipleParameters` carried its argument name, `ParameterValue::name()` returned
+    /// `None` for it, so `override_value` / `override_link` could not find the slot and `to_plan`
+    /// failed with "Argument columns not found in last action". Reported by Codex review on
+    /// PR #38; see specs/design/variadic-arguments-declaration/.
+    #[test]
+    fn recipe_overrides_a_variadic_argument() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(
+            CommandMetadata::new("select_columns")
+                .with_argument(ArgumentInfo::string_argument("columns").set_multiple()),
+        );
+
+        let recipe = super::Recipe::new(
+            "select_columns".to_string(),
+            "title".to_string(),
+            "description".to_string(),
+        )
+        .unwrap()
+        .with_argument("columns".to_string(), serde_json::json!(["a", "b"]));
+
+        let plan = recipe
+            .to_plan(&cr)
+            .expect("a recipe override must reach a variadic argument");
+
+        let Some(Step::Action { parameters, .. }) = plan.steps.last() else {
+            panic!("expected an action step");
+        };
+        let ParameterValue::MultipleParameters(name, elements) = &parameters.0[0] else {
+            panic!("an applied override must stay a parameter list: {:?}", parameters.0[0]);
+        };
+        assert_eq!(name, "columns");
+        assert_eq!(elements.len(), 2, "one element per array entry");
+        assert_eq!(elements[0].value(), Some(serde_json::json!("a")));
+        assert_eq!(elements[1].value(), Some(serde_json::json!("b")));
+    }
+
+    /// The same, for a link override.
+    #[test]
+    fn recipe_link_overrides_a_variadic_argument() {
+        let mut cr = CommandMetadataRegistry::new();
+        cr.add_command(
+            CommandMetadata::new("select_columns")
+                .with_argument(ArgumentInfo::string_argument("columns").set_multiple()),
+        );
+
+        let recipe = super::Recipe::new(
+            "select_columns".to_string(),
+            "title".to_string(),
+            "description".to_string(),
+        )
+        .unwrap()
+        .with_link("columns".to_string(), "-R/config/cols.json".to_string());
+
+        let plan = recipe
+            .to_plan(&cr)
+            .expect("a recipe link override must reach a variadic argument");
+
+        let Some(Step::Action { parameters, .. }) = plan.steps.last() else {
+            panic!("expected an action step");
+        };
+        let ParameterValue::MultipleParameters(name, elements) = &parameters.0[0] else {
+            panic!("an applied link override must stay a parameter list");
+        };
+        assert_eq!(name, "columns");
+        assert_eq!(elements.len(), 1);
+        assert!(elements[0].link().is_some(), "the element must hold the link");
+    }
+
     #[test]
     fn recipe_with_parameter() {
         let mut cr = CommandMetadataRegistry::new();

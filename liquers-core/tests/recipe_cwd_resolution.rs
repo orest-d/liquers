@@ -105,7 +105,7 @@ fn make_env(store: AsyncMemoryStore) -> Result<EnvRef<CommandEnvironment>, Error
             CommandKey::new_name("collect_links"),
             |_state, arguments, _context| {
                 let values = match arguments.get_parameter(0, "values")? {
-                    ParameterValue::MultipleParameters(values) => values,
+                    ParameterValue::MultipleParameters(_, values) => values,
                     parameter => {
                         return Err(Error::general_error(format!(
                             "expected multiple values, got {parameter}"

@@ -155,7 +155,7 @@ impl<E: Environment> CommandArguments<E> {
     ) -> Result<Vec<T>, Error> {
         let p = self.get_parameter(i, name)?;
         match p {
-            ParameterValue::MultipleParameters(elements) => {
+            ParameterValue::MultipleParameters(_, elements) => {
                 let mut values = Vec::with_capacity(elements.len());
                 for element in elements.iter() {
                     values.push(Self::convert_multiple_element::<T>(element, i, name)?);
@@ -205,7 +205,7 @@ impl<E: Environment> CommandArguments<E> {
                 query.encode()
             ))
             .with_position(&element.position())),
-            ParameterValue::MultipleParameters(_) => Err(Error::unexpected_error(format!(
+            ParameterValue::MultipleParameters(_, _) => Err(Error::unexpected_error(format!(
                 "Nested multiple parameters in argument {} '{}'",
                 i, name
             ))),
@@ -414,7 +414,7 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
             ParameterValue::ParameterValue(_, v, pos) => {
                 return from_json_value(v).map_err(|e| e.with_position(pos))
             }
-            ParameterValue::MultipleParameters(p) => {
+            ParameterValue::MultipleParameters(_, p) => {
                 let mut v = Vec::new();
                 for pp in p.iter() {
                     v.push(match pp {
@@ -422,7 +422,7 @@ impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
                         ParameterValue::ParameterValue(_, value, position) => {
                             V::try_from_json_value(value).map_err(|e| e.with_position(position))?
                         }
-                        ParameterValue::MultipleParameters(vec) => {
+                        ParameterValue::MultipleParameters(_, vec) => {
                             return Err(Error::unexpected_error(
                                 "Nested multiple parameters not allowed".to_owned(),
                             ))
@@ -752,7 +752,7 @@ mod tests {
         /// U1 - three elements convert, in order.
         #[test]
         fn returns_elements_in_order() -> Result<(), Error> {
-            let args = args_of(ParameterValue::MultipleParameters(vec![
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
                 element("columns", "a".into(), 21),
                 element("columns", "b".into(), 23),
                 element("columns", "c".into(), 25),
@@ -768,7 +768,7 @@ mod tests {
         /// because a variadic argument has no default other than emptiness.
         #[test]
         fn empty_list_is_ok() -> Result<(), Error> {
-            let args = args_of(ParameterValue::MultipleParameters(Vec::new()));
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), Vec::new()));
 
             let columns: Vec<String> = args.get_multiple(0, "columns")?;
             assert!(columns.is_empty());
@@ -792,7 +792,7 @@ mod tests {
         #[test]
         fn unresolved_link_element_is_an_error() -> Result<(), Error> {
             let link = crate::parse::parse_query("-R/config/colname.txt")?;
-            let args = args_of(ParameterValue::MultipleParameters(vec![
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
                 ParameterValue::ParameterLink(
                     "columns".to_string(),
                     link,
@@ -815,7 +815,7 @@ mod tests {
         /// carries its own position, which is what makes a per-element diagnostic possible.
         #[test]
         fn conversion_error_carries_element_position() {
-            let mut args = args_of(ParameterValue::MultipleParameters(vec![
+            let mut args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
                 element("rows", 1.into(), 21),
                 element("rows", "x".into(), 23),
             ]));
@@ -834,7 +834,7 @@ mod tests {
         /// the `Vec` element type rather than leaving it `Any`.
         #[test]
         fn converts_integers() -> Result<(), Error> {
-            let args = args_of(ParameterValue::MultipleParameters(vec![
+            let args = args_of(ParameterValue::MultipleParameters("columns".to_string(), vec![
                 element("rows", 1.into(), 21),
                 element("rows", 2.into(), 23),
             ]));
