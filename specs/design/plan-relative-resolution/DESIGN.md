@@ -3,7 +3,7 @@ id: PLAN-RELATIVE-RESOLUTION
 kind: design
 title: CWD-relative query resolution in plans
 workflow: liquers-project
-status: in_review
+status: complete
 phase: documentation
 area: [core/query, core/plan, core/assets, core/context]
 gh_pr: []
@@ -22,8 +22,8 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture — approved 2026-08-10
 - [x] Phase 3: Examples & Testing — approved 2026-08-10
 - [x] Phase 4: Implementation Plan — approved 2026-08-11
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 5: Documentation â€” approved 2026-08-25
+- [x] Implementation Complete
 
 ## Notes
 
@@ -111,8 +111,8 @@ superseded_by:
   bound-owner identity used by Context. The expiration suite passes all 32 tests and
   `cargo test -p liquers-core --tests` passes in full.
 - 2026-08-11: Phase 5 current-state documentation and critical review completed with no behavioral
-  blocker. The design is in review pending explicit user approval; Phase 5 and implementation
-  completion remain unchecked until that approval.
+  blocker.
+- 2026-08-25: User approved the completed design; status set to complete.
 
 ## Links
 
