@@ -1,5 +1,12 @@
+//! Integration tests for keyboard shortcut parsing, display and conflict detection.
+//!
+//! Parsing and conflict detection are backend-independent, so most of this file runs in every
+//! configuration. Only the conversion to `egui::KeyboardShortcut` needs the optional `egui`
+//! dependency, and only that test is gated.
+
 use liquers_lib::ui::shortcuts::{find_conflicts, Key, KeyboardShortcut, Modifiers};
 
+#[cfg(feature = "egui")]
 #[test]
 fn integration_parse_and_convert_to_egui() -> Result<(), Box<dyn std::error::Error>> {
     let shortcut: KeyboardShortcut = "Ctrl+Shift+S".parse()?;

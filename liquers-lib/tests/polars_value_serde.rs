@@ -1,3 +1,9 @@
+//! Serialization round trips for the Polars DataFrame value type.
+//!
+//! Gated at file level: every test here constructs a `polars` DataFrame.
+
+#![cfg(feature = "polars")]
+
 use liquers_core::value::DefaultValueSerializer;
 use liquers_lib::value::{ExtValueInterface, Value};
 use polars::df;

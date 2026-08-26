@@ -1,3 +1,10 @@
+//! Integration tests for the Polars command library.
+//!
+//! The whole file needs the optional `polars` dependency, so it is gated at file level: without
+//! the feature the test target still compiles, it simply contains no tests.
+
+#![cfg(feature = "polars")]
+
 use liquers_core::{context::Environment, error::Error, metadata::MetadataRecord, state::State};
 use liquers_lib::{
     environment::DefaultEnvironment,
