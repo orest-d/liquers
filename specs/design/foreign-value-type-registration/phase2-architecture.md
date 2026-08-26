@@ -36,7 +36,7 @@ construction, `validate_metadata_hard`, `ForeignValue`, `liquers-web`'s environm
 | `PY-VALUE-TYPE-DESCRIPTIONS-MISSING` | in_progress | P2 | The subject's Python half. | — | no | Close in Phase 5 | Keep P2 |
 | `PY-MODULES-NOT-DECLARED-IN-LIB` | draft | P2 | `liquers-py/src/value.rs` is not in the crate, so the Python half cannot be *verified* without declaring it, and declaring it exposes four compile errors. | **yes, in part** | no — scope absorbs it | Declare `value` and `context` and repair `value.rs` only; leave `commands.rs`, `store.rs`, `interpreter.rs`, `cache.rs`, `state.rs` undeclared | Keep P2 — the remainder is untouched |
 | `POST-INIT-COMMAND-REGISTRATION` | accepted | P3 | Documents the rebuild-and-replay lifecycle the type registry must join. Its resolution ("build registry, then environment, then share — and simply do it again") is the same shape this design adopts, which is corroboration rather than conflict. | no | no | Register inside `new_environment()`, the funnel both rebuild paths already use, so there is nothing to retain or replay | Keep P3 |
-| `WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH` | draft | P2 | The `liquers-web` wasm suite is **red at HEAD** on one assertion (`Bytes` vs `bytes`), and this design must run that suite to verify `js.Value`. The issue asks which spelling is intended; the one-identifier-per-variant rule answers it — `Bytes` is the registered identifier, the lowercase spellings are read-side accommodations the write path refuses. | no | no | **Proposed in scope**: fix the stale assertion (one line) so the suite is green and a real regression is visible. Flagged for the user rather than assumed | Keep P2 |
+| `WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH` | draft | P2 | The `liquers-web` wasm suite is **red at HEAD** on one assertion (`Bytes` vs `bytes`), and this design must run that suite to verify `js.Value`. The issue asks which spelling is intended; the one-identifier-per-variant rule answers it — `Bytes` is the registered identifier, the lowercase spellings are read-side accommodations the write path refuses. | no | no | **In scope — confirmed by the user 2026-08-26**: fix the stale assertion (one line) so the suite is green and a real regression is visible | Keep P2 |
 | `TYPE-REGISTRY-NOT-REALM-AWARE` | draft | P2 | The realm behaviour Phase 1 recorded as a forward constraint. | no | no | Do not obstruct: registrations are realm-nameable, `TypeInfo` stays serializable, the constructor accepts a registry assembled from anywhere | Keep P2 |
 | `VALUE-TYPE-DEFINITION-MACRO` | draft | P2 | Would generate `identifier`/`type_descriptions` arms. Hand-written constants must not become an obstacle. | no | no | Keep every addition builder-constructed and generator-shaped, per `value-type-system`'s generator-alignment commitments | Keep P2 |
 | `CORE-VALUE-INTERFACE-CAPABILITY-SPLIT` | accepted | P2 | Owns the eventual `identifier` → `type_identifier` rename. This design edits that method's **doc comment**, not its name. | no | no | Correct the doc comment; leave the name alone, as `value-type-system` also did | Keep P2 |
@@ -450,7 +450,7 @@ None.
 | `specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md` | yes | → `closed` with evidence, Phase 5 |
 | `specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md` | yes | → `closed` with evidence, Phase 5 |
 | `specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md` | yes | Body records that `value` and `context` are now declared and `value.rs` repaired; stays open for the remaining six files |
-| `specs/issues/WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH.md` | yes, *if the user accepts the proposal* | → `closed`; otherwise annotate with the answer this design supplies and leave open |
+| `specs/issues/WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH.md` | yes | → `closed` in Phase 5, with the assertion fix as evidence and the one-identifier-per-variant rule as the authority for `Bytes` |
 | `specs/README.md` | yes | Design-folder link; capability map |
 
 Discarded candidates, recorded per §9: `specs/reference/ASSETS.md` and `ASSET_LIFECYCLE.md` (the
@@ -489,10 +489,10 @@ should stay green untouched. That is itself a check worth running.
 |---|---|
 | — | No namespace is involved. The change is below the command layer entirely: a value's *type* is not addressed by any query |
 
-**Question for the user:** Phase 1 left a **diagnostic command** as a candidate — something in the
-spirit of "list the type identifiers this build knows", which `value-type-system` Phase 2 also
-raised as an open question and deferred. It would make a missing registration self-diagnosable from
-a query instead of from a failed write. Worth adding here, or keep this design at zero commands?
+**Decided 2026-08-26: no diagnostic command.** Phase 1 left "list the type identifiers this build
+knows" as a candidate; it stays a candidate. This design remains at zero commands, so
+`specs/command_registry.yaml` does not change. The idea belongs with `value-type-system`'s own
+deferred open question rather than being smuggled in here.
 
 ## Web Endpoints
 

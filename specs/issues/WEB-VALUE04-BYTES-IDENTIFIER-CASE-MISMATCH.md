@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [web, core/value]
-design: 
+design: foreign-value-type-registration
 created: 2026-08-25
 github:
 ---
@@ -42,7 +42,29 @@ If `Bytes` is the intended identifier, this is only a stale assertion; if `bytes
 the type identifier is wrong and the mismatch is visible to JavaScript through
 `value.identifier()`.
 
+## Three further stale assertions, from the same cause
+
+Found on 2026-08-26 while planning `foreign-value-type-registration` Phase 3. **Derived from
+reading, not from a run** — `wasm32-unknown-unknown` is not installed in the environment where this
+was checked, the same standing this issue's original report had.
+
+| Location | Asserts | Should be | Why |
+|---|---|---|---|
+| `second_value_type.rs:324` | `"bytes"` | `"Bytes"` | The failure this issue reports |
+| `second_value_type.rs:336` | `assert_ne!(…, "bytes")` | `"Bytes"` | **Passes vacuously**: it compares against a string nothing produces, so it would keep passing even if text did become bytes |
+| `value_bridge_VALUE.rs:156` | `"bytes"` | `"Bytes"` | `SimpleValue::Bytes.identifier()` is `"Bytes"` (`liquers-lib/src/value/simple.rs:170`) |
+| `value_bridge_VALUE.rs:343` | `"js"` | `"js.Value"` | `JsOpaque::identifier()` is `"js.Value"`; a **bare** `js` would violate the naming rule outright, since bare names are reserved for `liquers-core` and `liquers-lib` |
+
+So the suite is redder than one assertion, and the count should be confirmed by a run before the
+repair is called complete.
+
 ## Expected behaviour
+
+**Answered by `foreign-value-type-registration`:** `Bytes` is the identifier. The one-to-one rule
+between a type identifier and a value variant makes `SimpleValue::Bytes.identifier()` authoritative,
+the registry registers `Bytes`, and the lowercase `bytes`/`binary`/`bin`/`b` spellings are read-side
+accommodations for older stores that the write path deliberately refuses. The assertions are stale;
+the code is right. Fixing them is in that design's scope, confirmed by the user on 2026-08-26.
 
 Decide which spelling is canonical — `specs/reference/VALUE_TYPE_SYSTEM.md` governs type
 identifiers — then fix whichever side is wrong, so the suite is green.

@@ -4,10 +4,10 @@ kind: design
 title: Foreign and Python value types in the type registry
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: examples
 area: [core/value, lib/value, web, py]
 gh_pr: []
-issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING]
+issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING, WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH]
 affects_docs: [VALUE-TYPE-SYSTEM, LANGUAGE-INTEGRATION_GUIDE, TYPE_SYSTEM_GUIDE]
 created: 2026-08-26
 superseded_by:
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (in review — all questions decided)
-- [x] Phase 2: Solution & Architecture (in review)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [x] Phase 3: Examples & Testing (in review)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -71,6 +71,16 @@ describable, so five constructors take the registry rather than six — and wide
 implementation is `todo!()`. Two items for the user: whether to fix the stale `bytes`/`Bytes`
 assertion that leaves the liquers-web suite red at HEAD, and whether to add a diagnostic
 "list known types" command.
+
+2026-08-26 — Phase 2 approved. User confirmed the `bytes`/`Bytes` assertion fix is in scope; **no
+diagnostic command** — this design stays at zero commands.
+
+2026-08-26 — Phase 3 written: 13 unit tests, 5 integration tests in one new file, and two new
+`liquers-web` `ENVIRON` checks. Three of the tests fail (do not compile) before the change; one
+records the hard-refusal decision; `fvt5.1` **is** the constant-plus-test guarantee. Examples are
+conceptual, with the integration test standing in for an `examples/` demo — this change has no
+user-facing surface to demonstrate. Finding: `WEB-VALUE04` is understated — four stale assertions,
+not one, and `second_value_type.rs:336` passes vacuously. Recorded in that issue.
 
 ## Links
 
