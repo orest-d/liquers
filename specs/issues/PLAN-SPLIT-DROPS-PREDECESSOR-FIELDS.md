@@ -84,4 +84,4 @@ than through a failing evaluation two layers away.
 Noticed while reading `plan.rs` for `PREDECESSOR-CUT-NOT-YET-EQUIVALENT`, 2026-08-26; found by
 reading the field list against the struct, not by any measurement. Filed P3 and out of scope,
 then brought into `predecessor-cut-equivalence` at the author's direction as a correctness
-issue. See that design's `solution.md` §1b.
+issue. See that design's `DESIGN.md` notes; the fix is formalised at its Phase 2 gate.

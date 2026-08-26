@@ -31,7 +31,7 @@ Injection is the *mechanism* by which an argument arrives, not evidence about th
 either direction. Nothing needs to derive one from the other, so there is no gap between them
 to close.
 
-The sole consumer this issue was filed for — `predecessor-cut-equivalence` §2, deciding where
+The sole consumer this issue was filed for — `predecessor-cut-equivalence`, deciding where
 an evaluation boundary may be cut — now reads the declaration directly, by building each
 candidate boundary's plan and inspecting its `payload_required`. That is exact, so the
 over-approximation this issue proposed to remove no longer exists to be removed.

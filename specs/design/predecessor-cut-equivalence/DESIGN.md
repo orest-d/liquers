@@ -2,110 +2,105 @@
 id: PREDECESSOR-CUT-EQUIVALENCE
 kind: design
 title: Make cutting a predecessor boundary observably equivalent to expanding it
+workflow: liquers-project
 status: in_review
-phase: architecture
+phase: high-level
 area: [core/plan, core/assets, core/context]
-issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, CORE-PLAN-POLICY-AND-DEFAULTS]
+issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS, CORE-PLAN-POLICY-AND-DEFAULTS]
+affects_docs: []
 gh_pr:
 created: 2026-08-26
 superseded_by:
 ---
-# predecessor-cut-equivalence
+# Predecessor Cut Equivalence Design Tracking
 
-Follow-on to `plan-cwd-freeze`, which built the boundary machinery
-(`Plan::freeze_cwd`, `Plan::predecessor`, `Plan::cut_predecessor`) and left it switched off
-because cutting still changes observable behaviour. This design closes the remaining
-divergences and builds the suite that keeps them closed.
+**Created:** 2026-08-26
 
-Simplified transitional design: no `workflow:` marker. It produces
-`analysis.md` (measurement and root causes) and `solution.md` (the change set), not the
-five-phase set — the architecture it needs was already decided in `plan-cwd-freeze` Phase 2
-and this is the correction pass over it.
+Follow-on to `plan-cwd-freeze`, which built the boundary machinery (`Plan::freeze_cwd`,
+`Plan::predecessor`, `Plan::cut_predecessor`) and left it switched off because cutting still
+changes observable behaviour.
 
-## Phase status
+## Phase Status
 
-- [x] Analysis — divergences re-measured at HEAD, root-caused, one fix verified
-- [ ] Architecture (this document set) — awaiting approval
-- [ ] Implementation
+- [ ] Phase 1: High-Level Design — **written, awaiting the approval gate**
+- [ ] Phase 2: Solution & Architecture
+- [ ] Phase 3: Examples & Testing
+- [ ] Phase 4: Implementation Plan
+- [ ] Phase 5: Documentation
+- [ ] Implementation Complete
 
-## Summary of findings
+## Notes
 
-Re-measured at `d1bd02e` by calling `cut_predecessor` from `finalize_plan`:
-**4 divergences, from 3 distinct causes**, matching the issue's table exactly.
+Phase 1 was established by measurement rather than by reading, in the manner `plan-cwd-freeze`
+used: `cut_predecessor` has no production caller, so the divergences are only visible when it is
+forced on. Three lines in `finalize_plan`, then
+`LQ_FORCE_CUT=1 cargo test -p liquers-core --tests --no-fail-fast`. The probe is a measurement
+tool and is not part of any change set.
 
-| Cause | Divergences | Verdict |
-|---|---|---|
-| The predecessor query is frozen against the *entry* CWD, one step before the recipe's `SetCwd` prologue | 2 (`recipe_cwd_resolution`) | **Defect.** Fix verified — see `solution.md` §1 |
-| A cut boundary is a cache entry, and a payload is deliberately not part of a cache key | 1 (`injection`) | **Not a defect** — a mis-declared command, fixed in the test. It exposes a real correctness question about *where* a boundary may go — §2 |
-| A test asserts the *expanded* plan's step shape | 1 (`--lib`) | **Not a defect.** Measured equivalent in value — §3 |
+**Verified during Phase 1** (all at `d1bd02e`, each by running rather than reading):
 
-A fifth cause was found later, by reading rather than by the suite, then measured: a recipe's
-own `volatile:` / `expires:` does not travel into a boundary query, so a volatile *recipe*'s
-predecessor is computed once and cached (2 runs → 1). A volatile *command* does travel and does
-not diverge. No existing test combines a recipe-level flag with a predecessor, which is why it
-is not in the table. See `analysis.md` Cause 4.
+- **4 divergences from 3 causes**, matching the issue's table exactly: 2 in
+  `recipe_cwd_resolution`, 1 in `injection`, 1 in `--lib`; the other 16 suites green.
+- **The two CWD divergences are one defect**, and not the one the issue guessed at.
+  `freeze_cwd_with` resolves the recorded predecessor from the cursor's *entry* state, but
+  `Recipe::to_plan` prepends a `SetCwd` the builder never emitted. The step count is compensated
+  (`predecessor_steps += 1`); the cursor is not. So the boundary query — the only thing a cut
+  carries — is frozen one CWD short. Symptoms measured: `KeyNotFound: 'input.txt'` where
+  expansion returns `"programmatic"`, and `"child|a/c"` where expansion returns `"a/c/child|a/c"`.
+  A prototype fix (recording the prologue length and advancing over it) clears both, keeps
+  `liquers-core` green with the cut off, and `liquers-lib --lib --tests` exits 0 with it on.
+- **The `injection` divergence is a mis-declared command**, not a code defect: `first_cmd` and
+  `third_cmd` read the payload through injected parameters and declare no `payload: required`.
+- **The `--lib` divergence is a shape assertion.** With the two `steps[1]` assertions relaxed the
+  test passes under the cut, same value and same context CWD.
+- **A fifth cause, found by reading and then measured.** A recipe-level `volatile:` is not in the
+  query text, so it does not reach a boundary. Counting prefix executions over two evaluations:
+  command-level `volatile: true` runs 2 both ways; recipe-level runs 2 expanded and **1** cut.
+- **`PlanBuilder` records exactly one predecessor** (`plan.rs:1716`), overwriting inner recursion
+  levels, so a plan has one boundary position — but building a recorded predecessor yields a plan
+  recording *its* predecessor, and the step counts line up at every level. Measured across four
+  chain shapes.
+- **`split_index == predecessor_steps`** on every shape tried, prologue included — so the first
+  half of a `Plan::split` *is* the predecessor's steps.
+- **The `v` instruction exists** and is builder-intercepted like `q` and `ns`, takes no
+  parameters and emits no step, so it is an identity on the value — but it marks the **whole**
+  plan volatile regardless of position.
 
-A latent instance of the first cause's *shape* — a plan mutated through a subset of
-coupled fields — sits in `Plan::split`; it is in scope for the same reason (§1b).
+**Decided in discussion** (to be formalised in Phase 2):
 
-The first cause is a genuine equivalence bug and is the whole reason the two
-`recipe_cwd_resolution` failures looked CWD-shaped. It was not "a nested keyed recipe
-re-deriving its own working key", as the issue speculated; it is one missing cursor advance.
+- The cut is placed at the last candidate boundary that can be **cached**; a candidate cannot be
+  cached if its own plan requires a payload or is volatile. Whole-plan flags are the wrong
+  granularity in both directions.
+- A payload need is declared on command metadata and must **not** be inferred from `injected`,
+  which may be satisfied from the environment alone.
+- A volatile recipe is volatile **from its first action**. The flag carries no position, so it
+  cannot mark where a non-volatile part ends; the positional instrument is `v`.
+- Every level passed over, and the decline, says why — an `init_info` naming the command.
+- `Plan::split` dropping the coupled predecessor fields is in scope, because the field list is
+  the shape of every defect in this lineage, two of which shipped.
+- The default stays expanded. `CORE-PLAN-POLICY-AND-DEFAULTS` owns the flip.
 
-## Decisions
+**Filed during Phase 1:** `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL` (P3),
+`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` (P3);
+`PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS` raised P3 → P2 and taken into scope;
+`PAYLOAD-SOURCED-INJECTION-NOT-DECLARED` filed and rejected the same day, its premise answered by
+command metadata.
 
-1. **`Plan` records its prologue explicitly** (`prologue_steps: usize`) rather than three
-   places each inferring where the recipe prefix ends. Verified fix.
-2. **A boundary is cut at the last candidate that can be cached** — one walk, two
-   predicates. A candidate cannot be cached if its plan requires a payload or is volatile;
-   `cut_predecessor` builds each candidate's own plan, steps back a level while either holds,
-   and cuts at the first that qualifies, or not at all. `Plan::payload_required` and
-   `Plan::is_volatile` are whole-query flags and are the wrong granularity for the decision.
-   The payload need is declared on command metadata and must not be inferred from `injected`,
-   which may be satisfied from the environment. Every step-back and the decline emit a
-   planning `init_info` naming the command and the reason. Verified against the builder for
-   all four chain shapes; volatility measured separately. E8 stands as Phase 3 wrote it.
-3. **A volatile recipe is volatile from its first action**, so a recipe-level `volatile:` /
-   `expires:` makes the whole plan uncuttable — recorded by `Recipe::to_plan` as
-   `Plan::uncuttable`, since it is in no query and no candidate's plan can reveal it. The
-   alternative reading, volatile from the *last* action, is what the measurement already
-   showed failing: the asset is dutifully recomputed and restores the same cached prefix every
-   time. A recipe-level flag carries no position, so it cannot mark where a non-volatile part
-   ends; the positional instrument is `v`. This is the only part of Cause 4 that needs
-   building — command-level volatility was measured already equivalent.
-4. **The equivalence suite gains a CWD axis.** The present harness always builds a recipe
-   with no `cwd:` and passes `cwd: None`, so it structurally cannot reach the defect this
-   design exists to fix. Every shape runs under three conditions: no CWD, a recipe `cwd:`,
-   and a provider (keyed) recipe.
-5. **Coupled plan fields are carried by construction.** `Plan::split` drops `frozen_cwd`,
-   `predecessor` and `predecessor_steps` because it copies a field list rather than cloning.
-   In scope, not because that function has a caller — it has none outside tests — but because
-   the field list is the shape of every defect this lineage has found, two of which shipped.
-   The first half is exactly the predecessor's steps, so the fields are cleared rather than
-   copied; `frozen_cwd` is carried.
-6. **The default stays expanded.** Flipping it is `CORE-PLAN-POLICY-AND-DEFAULTS`; this
-   design only makes the flip safe to consider. It does settle *where* a boundary goes when
-   one is cut, because that turns out to be a correctness question (decision 2) rather than
-   a policy one.
+**Process note.** Phases 2-4 were drafted before this workflow was applied, then withdrawn: the
+approval gates had not been run, and content written ahead of a gate anchors the phase it
+pre-empts. The measurements above survive because they are facts about HEAD, not design
+decisions. Everything else is re-derived at its own gate.
 
-## Open questions
-
-One is a decision the author owns; the rest are things to measure at implementation time rather
-than unknowns about the approach.
-
-| # | Question | Blocking? |
-|---|---|---|
-| ~~1~~ | **Resolved by the author.** Cut only at a level that is neither payload-sensitive nor volatile, with an info message naming the reason for the expansion. Measurement narrowed the problem first: *command*-level volatility never diverged (2 runs both ways — the boundary query carries the volatile command, so the manager evaluates it as a volatile query), only *recipe*-level did (2 → 1). A volatile recipe is volatile from its first action; the positional instrument is `v`, not the recipe flag. `solution.md` §2, `analysis.md` Cause 4 | Closed |
-| 2 | §2's step-count assumption was measured on **raw** queries; the real input is promoted and frozen. Should hold, is guarded, but is reasoning rather than measurement. Failure mode is a silently lost boundary, not a wrong value. | No — first implementation step |
-| 3 | `with_placeholders_allowed()` on §2's rebuild is in the sketch but not established. A recorded predecessor should be placeholder-free, since overrides patch the tail. | No |
-| 4 | "Equivalent" is defined as Phase 3's four properties. Cutting changes asset count, dependency edges and metadata *by design*; §4 now says so explicitly rather than leaving the next author to discover it. | No — confirm at review |
-
-Nothing here changes the shape of the solution. Question 1 changes whether one class of recipe
-is cuttable at all.
+**Agent orchestration.** The host does not permit spawning review agents, so each phase's review
+passes run sequentially against the same briefs and are recorded in the phase document, per this
+skill's host-compatibility clause. `plan-cwd-freeze` recorded the same limitation.
 
 ## Links
 
-- [Analysis](./analysis.md) — the measurement, the three causes, and the worked example
-- [Solution](./solution.md) — the change set, in landing order
-- Predecessor design: [`specs/design/plan-cwd-freeze/`](../plan-cwd-freeze/DESIGN.md)
+- [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
+- Predecessor design: [`plan-cwd-freeze`](../plan-cwd-freeze/DESIGN.md)
 - Reference: `specs/reference/api/DOC_08_RECIPES_PLANS.md`, "Predecessor boundaries"

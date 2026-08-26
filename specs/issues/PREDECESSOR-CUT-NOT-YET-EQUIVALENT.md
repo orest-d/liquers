@@ -84,7 +84,9 @@ coupled fields — sits in `Plan::split`, which drops `frozen_cwd` and both pred
 It has no production caller, but two of the three instances of that shape shipped, so it is in
 scope: `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
 
-Design: `specs/design/predecessor-cut-equivalence/`. One issue filed and rejected the same day,
+Design: `specs/design/predecessor-cut-equivalence/` (`workflow: liquers-project`, at the Phase 1
+gate). Filed in passing and still open: `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`,
+`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`. Filed and rejected the same day:
 `PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`.
 
 ## Impact

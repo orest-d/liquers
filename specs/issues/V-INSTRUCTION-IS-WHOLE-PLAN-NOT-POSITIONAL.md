@@ -64,5 +64,4 @@ Two things need care and are the reason this is `M` rather than `S`:
 
 Raised during `predecessor-cut-equivalence` review, 2026-08-26, while deciding what a
 recipe-level `volatile:` should mean. The question was whether a positional instrument exists to
-express the fine-grained case; `v` is the closest and does not. See that design's `analysis.md`
-§"What `volatile:` on a recipe means, and why the whole plan".
+express the fine-grained case; `v` is the closest and does not. See that design's `DESIGN.md` notes on what a recipe-level `volatile:` means.
