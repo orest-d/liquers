@@ -1,13 +1,13 @@
 ---
 id: FOREIGN-VALUE-TYPE-REGISTRATION
 kind: design
-title: Runtime registration of foreign value types
+title: Foreign and Python value types in the type registry
 workflow: liquers-project
 status: in_review
 phase: high-level
 area: [core/value, lib/value, web, py]
 gh_pr: []
-issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED]
+issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING]
 affects_docs: []
 created: 2026-08-26
 superseded_by:
@@ -31,6 +31,16 @@ superseded_by:
 (`set_state` -> `[General] Type identifier 'js.Value' is not registered in this build`), settling
 the issue's "not verified against a build" caveat. Filed `PY-VALUE-TYPE-DESCRIPTIONS-MISSING`
 for the adjacent liquers-py gap found while reading the write path.
+
+2026-08-26 — Phase 1 revised on user direction. `PY-VALUE-TYPE-DESCRIPTIONS-MISSING` is **in
+scope**. The open question on registration shape is settled by the governing rule: a type
+identifier corresponds one-to-one with a value variant, so the single `ExtValue::Foreign` variant
+carries a single `TypeInfo` (`js.Value`) and there is no provider-family entry. Reviewing the docs
+for that rule found it enforced by a test but never stated, and contradicted outright by the
+`ValueInterface::identifier` doc comment (`liquers-core/src/value.rs:230`, "Several types can be
+linked to the same identifier"); correcting the formulation is now a deliverable. Declaring
+`liquers-py`'s `value`/`context` modules was measured: four compile errors in `value.rs`, so
+repairing that file is inside scope.
 
 ## Links
 

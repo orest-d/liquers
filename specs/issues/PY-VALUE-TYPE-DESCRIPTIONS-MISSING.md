@@ -2,11 +2,11 @@
 id: PY-VALUE-TYPE-DESCRIPTIONS-MISSING
 kind: issue
 title: liquers-py's Value describes no types, so its registry would refuse every write
-status: draft
+status: in_progress
 priority: P2
-complexity: S
+complexity: M
 area: [py, core/value]
-design:
+design: foreign-value-type-registration
 created: 2026-08-26
 github:
 ---
@@ -42,8 +42,19 @@ that issue means — and would then present as every Python-side write failing w
 against `liquers-core`'s so that a store is readable from both languages. `python_value` is the
 runtime-typed case and depends on `FOREIGN-VALUE-TYPES-NOT-REGISTERED`.
 
+Under the one-identifier-per-variant rule, `generic` must be split into `None`, `Bool`, `I32`,
+`I64`, `F64` and `Array` exactly as `value-type-system` step 3 split it in `liquers-core::Value`,
+and `python_value` — which fails `identifier_naming_rule_holds` because `_` is a reserved character
+— becomes `py.Object`.
+
 ## Discovery
 
 Found on 2026-08-26 while surveying registry consumers for the
-`foreign-value-type-registration` design. Deliberately left out of that design's scope: the fix is
-`liquers-py`-local and gated behind `PY-MODULES-NOT-DECLARED-IN-LIB`.
+`foreign-value-type-registration` design, and taken **into** that design's scope on 2026-08-26.
+
+Declaring `value` and `context` in `lib.rs` was measured the same day: `value.rs` alone produces
+four compile errors — `try_into_query` returns `crate::parse::Query` where the trait wants
+`liquers_core::query::Query`, `from_asset_info` takes one `AssetInfo` where the trait wants a
+`Vec<AssetInfo>`, a `match` with incompatible arms, and four unimplemented trait items
+(`from_command_metadata`, `try_into_bytes`, `try_into_key`, `try_into_command_metadata`). Repairing
+`value.rs` is therefore part of this issue; the rest of `PY-MODULES-NOT-DECLARED-IN-LIB` is not.
