@@ -66,52 +66,102 @@ Unit test to add, in `plan.rs`'s `mod tests`:
 needing the cut at all — which is the point: the defect is in freezing, and cutting only
 exposes it.
 
-## 2. `cut_predecessor` declines a payload-reading predecessor
+## 2. A boundary is never cut across payload-sensitive steps
 
-Cause 2 has two sound resolutions and this design takes the conservative one, because
-cutting is a policy and declining a policy is never wrong.
+Cause 2 is not a defect in cutting and not a missing declaration. Confirmed with the author:
+**an injected parameter does not imply a payload requirement** — `injected` means
+`InjectedFromContext`, and a value may be injected from the environment alone. The correct
+behaviour for payload processing is to *expand* the payload-sensitive part of the plan rather
+than cut across it.
+
+### The rule
+
+A boundary may be cut only where every step behind it is payload-free. A boundary is a cache
+entry; a payload is deliberately not part of a cache key; so a value computed from a payload
+must never end up behind one.
+
+### Where the plan learns this
+
+`cut_predecessor` takes no registry and cannot ask a command whether it reads the payload.
+`PlanBuilder` can — it holds the metadata when it emits each `Step::Action` — so the plan
+records the answer:
 
 ```rust
-pub fn cut_predecessor(&mut self) -> Result<bool, Error> {
-    // ... existing frozen / predecessor / range guards ...
+// plan.rs, in `struct Plan`
+/// Index of the earliest step whose execution reads the evaluation payload.
+///
+/// A boundary may only be cut *before* it: a boundary is a cache entry, and a payload is
+/// not part of a cache key, so a value computed from one must not end up behind it.
+#[serde(default)]
+pub payload_sensitive_from: Option<usize>,
+```
 
-    // A boundary is a cache entry, and a payload is not part of a cache key. A predecessor
-    // that reads the payload can only become one if the plan declares the requirement, which
-    // routes the boundary through the inline payload-forwarding path instead of the graph.
-    if self.payload_required.is_none()
-        && steps_read_payload(&self.steps[..self.predecessor_steps])
-    {
-        return Ok(false);
-    }
-    ...
+set by the builder, and shifted by `Recipe::to_plan`'s prologue exactly as `predecessor_steps`
+is — one more reason §1 records `prologue_steps` rather than leaving each site to compensate
+for the prefix on its own.
+
+```rust
+// plan.rs, in `cut_predecessor`, after the existing frozen / predecessor / range guards
+if self.payload_sensitive_from
+    .is_some_and(|first| first < self.predecessor_steps)
+{
+    return Ok(false);
 }
 ```
 
-`steps_read_payload` walks the predecessor range for `ParameterValue::Injected`, recursing
-into `Step::Plan` and `ParameterValue::MultipleParameters`. Only the predecessor range is
-examined: an injected parameter in the tail — `third_cmd` in the failing test — stays in the
-parent and receives the payload as it always did.
+### What counts as payload-sensitive, today and later
 
-The refusal is silent in behaviour and loud in provenance: append a planning
-`Step::Info` naming the command and the declaration that would enable the boundary, so an
-author who wants the caching sees how to get it rather than wondering why nothing was cut.
+Today the builder has only one signal it can read: an action with an `injected` argument, or
+one whose metadata declares `payload: required`. Since `injected` covers environment-sourced
+injection too, that signal is a **conservative over-approximation** — it declines some cuts
+that would have been safe. Safe is the right side to err on, and the cost is a lost
+optimisation rather than a wrong answer.
 
-**Rejected alternative — infer `payload: required` from `injected`.** Tempting, since
-injection *is* the payload channel in every real command, and it would make the requirement
-structural rather than declared. Rejected on three counts: `InjectedFromContext` is context
-injection, not payload injection, and `()` injects with no payload at all; `payload:
-required` also sets `volatile` at registration, so inference would silently make a large
-class of commands volatile; and `Recipe::to_plan_for_key` rejects any payload-requiring plan,
-so every stored recipe using an injected parameter would start failing at plan time. Worth
-considering on its own merits, not as a side effect of this issue — filed as
-`INJECTED-PARAMETER-DOES-NOT-IMPLY-PAYLOAD-REQUIREMENT`.
+Making it exact needs a way to say *this injection reads the payload*, which the registration
+surface cannot currently express; filed as `PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`. When it
+exists, this design changes by one predicate at the single point that already has the
+metadata.
 
-**Consequence for E8.** Phase 3 wrote E8 as a deliberate *inequivalence* test, pinning the
-undeclared-payload case as the one place the two forms differ, so that "cutting is policy,
-not correctness" stayed falsifiable. With this guard the two forms no longer differ there —
-the cut is refused — so E8 is restated: *the cut is declined, and `was_cut` is false, and the
-value is identical.* That is the stronger claim of the two. A divergence the code refuses to
-create cannot be shipped by accident, whereas a documented one can.
+### No exception for a declared payload
+
+An earlier draft kept `payload: required` as an opt-in that would cut the boundary anyway,
+on the ground that such a query is routed through `Context::schedule_payload_dependency_asset`
+and evaluated inline with the payload forwarded. Dropped, because that route deliberately
+registers no graph edge and creates no cache entry — so cutting a payload-requiring
+predecessor buys none of the three things a boundary exists for (caching, independent
+expiration, parallel scheduling) and costs an extra asset and an extra hop. Declining
+unconditionally is both simpler and strictly better.
+
+The upshot is that this design needs **no change to any command declaration**. `payload:
+required` keeps exactly its present meaning for nested evaluation.
+
+### Consequence for E8
+
+Phase 3 wrote E8 as a deliberate *inequivalence* test, pinning the undeclared-payload case as
+the one place the two forms differ, so "cutting is policy, not correctness" stayed
+falsifiable. With this guard the two forms no longer differ there. E8 is restated as an
+equivalence test with a structural assertion: *the value is identical, and `was_cut` is
+false.* A divergence the code refuses to create cannot be shipped by accident, whereas a
+documented one can.
+
+### Follow-up: cut at the largest payload-free prefix
+
+Declining is correct but not always maximal. `PlanBuilder` records exactly **one** predecessor
+— `plan.rs:1716` assigns `predecessor_steps = steps.len()` at the outermost recursion level
+whose remainder is a real action, overwriting every inner level — so the only lever available
+is cut or do not cut.
+
+Where the payload reader is at the head of the chain the two coincide: in
+`authenticate/fetch/render` with `authenticate` reading the payload, every prefix contains it
+and no boundary at any position is safe. Where the reader sits in the middle they do not: in
+`fetch/personalize/render` the recorded predecessor `fetch/personalize` is payload-sensitive
+and is declined, while `fetch` alone is a perfectly good boundary — cacheable and shared,
+with `personalize/render` running inline per payload.
+
+Reaching it means recording every candidate level rather than only the outermost, and cutting
+at the last one whose range ends at or before `payload_sensitive_from`. That is an
+optimisation on top of a correct rule, not part of it, so it is out of scope here and noted
+for `CORE-PLAN-POLICY-AND-DEFAULTS`, which owns where a boundary should go.
 
 ## 3. Make the shape assertions policy-explicit
 

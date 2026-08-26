@@ -166,10 +166,15 @@ hold a reference *to* a payload-evaluated asset." Silently forwarding a payload 
 ordinarily-cached boundary would let the first caller's payload determine a value that every
 later caller reads.
 
-So there are exactly two sound outcomes for such a predecessor: evaluate it inline with the
-payload forwarded and no cache entry (which is what `payload: required` already buys), or do
-not cut it. `solution.md` §2 takes the second as the default and keeps the first as the
-opt-in.
+Nor is it a missing declaration. **An injected parameter does not imply a payload
+requirement**: `injected` means `InjectedFromContext`, and a value may be injected from the
+environment alone — `()` implements the trait and reads no payload at all. Requiring every
+command that takes an injected argument to declare `payload: required` would be declaring
+something that is not true of the command.
+
+The correct behaviour is to leave the payload-sensitive part of the plan expanded — do not
+cut a boundary across it. `solution.md` §2 makes that the unconditional rule, which needs no
+change to any command declaration.
 
 ## Cause 3 — a test that asserts the expanded shape
 

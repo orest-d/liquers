@@ -55,14 +55,16 @@ only one of them is a defect:
   `liquers-lib --lib --tests` is green with it on.
 - **The `injection` failure is sound behaviour.** A cut boundary is a cache entry and a
   payload is not part of a cache key, so forwarding one into an ordinarily-cached boundary
-  would let the first caller's payload decide the value every later caller reads. The
-  resolution is to decline the cut, not to make it and break it.
+  would let the first caller's payload decide the value every later caller reads. Nor is it a
+  missing declaration: an injected parameter does not imply a payload requirement, since
+  injection may be from the environment alone. The resolution is to leave the payload-sensitive
+  part of the plan expanded — never cut a boundary across it. No command declaration changes.
 - **The `--lib` failure is a test asserting the expanded shape**, as this issue already said.
   Measured: with those two shape assertions relaxed, the test passes under the cut with the
   same value and the same context CWD.
 
 Design: `specs/design/predecessor-cut-equivalence/`. Two issues filed in passing:
-`INJECTED-PARAMETER-DOES-NOT-IMPLY-PAYLOAD-REQUIREMENT`, `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
+`PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`, `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
 
 ## Impact
 
