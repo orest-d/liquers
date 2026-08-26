@@ -221,71 +221,69 @@ impl ValueInterface for Value {
     /// does not contain. See `specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md`.
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         use liquers_core::type_system::TypeInfo;
+
+        // `supported_data_formats` declares what `DefaultValueSerializer::as_bytes` **accepts**,
+        // and this crate's serializer is a stub: it handles `txt`/`html` for a few scalar
+        // variants and nothing else, and `deserialize_from_bytes` rejects every format
+        // (`PY-VALUE-SERIALIZER-IS-A-STUB`). So most types here declare **no** format and persist
+        // as metadata only, which is the honest description of a type with no byte form.
+        //
+        // Declaring a format the codec cannot produce is worse than declaring none: the write
+        // path would accept bytes that can never be materialized, moving the failure from write
+        // time to read time.
+        let text_like = ["txt", "html"];
         vec![
             TypeInfo::new("None")
                 .with_type_name("none")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
             TypeInfo::new("Bool")
                 .with_type_name("bool")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
             TypeInfo::new("I32")
                 .with_type_name("i32")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
             TypeInfo::new("I64")
                 .with_type_name("i64")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
             TypeInfo::new("F64")
                 .with_type_name("f64")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
+            // The three that genuinely round-trip out: their default is `txt`, and `as_bytes`
+            // implements it.
             TypeInfo::new("Text")
                 .with_type_name("text")
                 .with_defaults("txt", "txt", "text/plain", "text.txt")
-                .with_data_formats(["txt", "json"]),
+                .with_data_formats(text_like),
             TypeInfo::new("Array")
                 .with_type_name("array")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
             TypeInfo::new("Object")
                 .with_type_name("object")
-                .with_defaults("json", "json", "application/json", "data.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "data.json"),
             TypeInfo::new("Bytes")
                 .with_type_name("bytes")
-                .with_defaults("b", "b", "application/octet-stream", "binary.b")
-                .with_data_formats(["b", "json"]),
+                .with_defaults("b", "b", "application/octet-stream", "binary.b"),
             TypeInfo::new("Metadata")
                 .with_type_name("metadata")
-                .with_defaults("json", "json", "application/json", "metadata.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "metadata.json"),
             TypeInfo::new("AssetInfo")
                 .with_type_name("asset_info")
-                .with_defaults("json", "json", "application/json", "asset_info.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "asset_info.json"),
             TypeInfo::new("Recipe")
                 .with_type_name("recipe")
-                .with_defaults("json", "json", "application/json", "recipe.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "recipe.json"),
             TypeInfo::new("CommandMetadata")
                 .with_type_name("command_metadata")
-                .with_defaults("json", "json", "application/json", "command_metadata.json")
-                .with_data_formats(["json"]),
+                .with_defaults("json", "json", "application/json", "command_metadata.json"),
             TypeInfo::new("Query")
                 .with_type_name("query")
                 .with_defaults("txt", "txt", "text/plain", "query.txt")
-                .with_data_formats(["txt", "json"]),
+                .with_data_formats(text_like),
             TypeInfo::new("Key")
                 .with_type_name("key")
                 .with_defaults("txt", "txt", "text/plain", "key.txt")
-                .with_data_formats(["txt", "json"]),
-            // Declares **no** data formats: a retained Python object has no byte form here.
-            // `pickle` is the extension it would use, but nothing in this crate serializes one,
-            // and declaring a format the code cannot produce would let `set_binary` accept bytes
-            // that can never be materialized.
+                .with_data_formats(text_like),
+            // A retained Python object has no byte form here at all.
             TypeInfo::new(PY_OBJECT_TYPE_IDENTIFIER)
                 .with_type_name("python_value")
                 .with_defaults(
@@ -891,6 +889,38 @@ mod tests {
                 .any(|info| info.type_identifier == PY_OBJECT_TYPE_IDENTIFIER),
             "and the extra one is the Python object"
         );
+    }
+
+    /// A declared format is one `as_bytes` actually accepts.
+    ///
+    /// The registry's promise is that a declared format can be written. Declaring one the codec
+    /// cannot produce lets the write path accept bytes that can never be materialized, which
+    /// moves the failure from write time to read time. This crate's serializer is a stub
+    /// (`PY-VALUE-SERIALIZER-IS-A-STUB`), so most types honestly declare nothing.
+    #[test]
+    fn declared_formats_are_ones_the_serializer_accepts() {
+        for info in Value::type_descriptions() {
+            for format in &info.supported_data_formats {
+                assert!(
+                    matches!(format.as_ref(), "txt" | "html"),
+                    "{} declares {format:?}, which DefaultValueSerializer::as_bytes rejects",
+                    info.type_identifier
+                );
+            }
+        }
+
+        // And the ones that do declare a format support their own default, so
+        // `State::as_bytes` on an unspecified format reaches a codec that exists.
+        for info in Value::type_descriptions() {
+            if !info.supported_data_formats.is_empty() {
+                assert!(
+                    info.supports_data_format(&info.default_data_format),
+                    "{} does not support its own default {}",
+                    info.type_identifier,
+                    info.default_data_format
+                );
+            }
+        }
     }
 
     /// `fvt6.2` — every identifier satisfies the naming rule.

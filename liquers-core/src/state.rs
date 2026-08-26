@@ -30,10 +30,6 @@ impl<V: ValueInterface> State<V> {
     /// distinction — nobody could then tell a deliberate choice from a fall-through. Resolution
     /// happens where the value is in hand, through [`State::effective_data_format`].
     ///
-    /// An **error state keeps its `error` identifier**. `Metadata::with_error` sets it, and this
-    /// helper used to overwrite it from `V::none()` immediately afterwards in `from_error`, so the
-    /// same situation reached the store under two different identifiers depending on which path
-    /// built it.
     /// Makes the metadata's type fields describe the value it accompanies.
     ///
     /// Applies to an **errored** state too, which holds `V::none()` and is therefore typed like
@@ -286,14 +282,11 @@ impl<V: ValueInterface> From<Result<State<V>, Error>> for State<V> {
     fn from(result: Result<State<V>, Error>) -> Self {
         match result {
             Ok(state) => state,
-            Err(e) => {
-                let mut metadata = Metadata::new();
-                metadata.with_error(e);
-                State {
-                    data: Arc::new(V::none()),
-                    metadata: Arc::new(metadata),
-                }
-            }
+            // Through `from_error` rather than building the state here: it applies
+            // `sync_metadata_with_value`, without which the metadata's type fields stay empty and
+            // the write path refuses the state. Two constructions of the same thing is how they
+            // came to differ in the first place.
+            Err(e) => State::from_error(e),
         }
     }
 }
@@ -365,6 +358,33 @@ mod tests {
             state.metadata.type_identifier()?,
             "both routes to an errored none-valued state name the same type"
         );
+        Ok(())
+    }
+
+    /// Every route to an errored state produces the same, storable metadata.
+    ///
+    /// `From<Result<State<V>, Error>>` used to construct the state by hand and so skipped
+    /// `sync_metadata_with_value`, leaving both type fields empty — which the write path refuses.
+    /// It was invisible while `Metadata::with_error` supplied an identifier of its own.
+    #[test]
+    fn every_error_route_types_the_state() -> Result<(), Box<dyn std::error::Error>> {
+        let direct: State<Value> = State::from_error(Error::general_error("boom".to_string()));
+        let converted: State<Value> =
+            Err(Error::general_error("boom".to_string())).into();
+
+        for (label, state) in [("from_error", &direct), ("From<Result>", &converted)] {
+            assert_eq!(
+                state.metadata.type_identifier()?,
+                "None",
+                "{label} must type the state by the value it holds"
+            );
+            assert_eq!(
+                state.metadata.type_name()?,
+                "none",
+                "{label} must set both halves, or the write path refuses the state"
+            );
+            assert!(state.metadata.is_error()?, "{label} must record the error");
+        }
         Ok(())
     }
 
