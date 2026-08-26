@@ -36,7 +36,7 @@ Re-measured at `d1bd02e` by calling `cut_predecessor` from `finalize_plan`:
 | Cause | Divergences | Verdict |
 |---|---|---|
 | The predecessor query is frozen against the *entry* CWD, one step before the recipe's `SetCwd` prologue | 2 (`recipe_cwd_resolution`) | **Defect.** Fix verified — see `solution.md` §1 |
-| A cut boundary is a cache entry, and a payload is deliberately not part of a cache key | 1 (`injection`) | **Not a defect.** Leave the payload-sensitive part expanded — §2 |
+| A cut boundary is a cache entry, and a payload is deliberately not part of a cache key | 1 (`injection`) | **Not a defect** — a mis-declared command, fixed in the test. It exposes a real correctness question about *where* a boundary may go — §2 |
 | A test asserts the *expanded* plan's step shape | 1 (`--lib`) | **Not a defect.** Measured equivalent in value — §3 |
 
 The first cause is a genuine equivalence bug and is the whole reason the two
@@ -47,22 +47,22 @@ re-deriving its own working key", as the issue speculated; it is one missing cur
 
 1. **`Plan` records its prologue explicitly** (`prologue_steps: usize`) rather than three
    places each inferring where the recipe prefix ends. Verified fix.
-2. **A boundary is never cut across payload-sensitive steps.** An injected parameter does
-   *not* imply a payload requirement — injection may be from the environment alone — so the
-   answer is not a new declaration but leaving the payload-sensitive part of the plan
-   expanded. `PlanBuilder` records the earliest payload-reading step; `cut_predecessor`
-   declines when it falls inside the predecessor range, with no exception for a declared
-   payload. No command declaration changes. This turns E8 from "the two forms differ" into
-   "the cut is refused, and the values agree" — a stronger falsifiable claim than the one
-   Phase 3 wrote down.
+2. **A boundary is cut in front of the payload need, not across it.** The need is declared
+   on command metadata and must not be inferred from `injected`, which may be satisfied from
+   the environment. `Plan::payload_required` is a whole-query flag and is the wrong
+   granularity: `cut_predecessor` instead builds each candidate boundary's own plan,
+   recursing back a level while that plan requires a payload, and cuts at the first
+   payload-free candidate — or not at all. This is a correctness rule, so it is in scope
+   here, not deferred. Verified against the builder for all four chain shapes. No command
+   declaration changes and no new `Plan` field; E8 stands as Phase 3 wrote it.
 3. **The equivalence suite gains a CWD axis.** The present harness always builds a recipe
    with no `cwd:` and passes `cwd: None`, so it structurally cannot reach the defect this
    design exists to fix. Every shape runs under three conditions: no CWD, a recipe `cwd:`,
    and a provider (keyed) recipe.
 4. **The default stays expanded.** Flipping it is `CORE-PLAN-POLICY-AND-DEFAULTS`; this
-   design only makes the flip safe to consider. Nor does it choose *where* a boundary goes:
-   cutting at the largest payload-free prefix rather than declining outright is an
-   optimisation left to that issue (`solution.md` §2, "Follow-up").
+   design only makes the flip safe to consider. It does settle *where* a boundary goes when
+   one is cut, because that turns out to be a correctness question (decision 2) rather than
+   a policy one.
 
 ## Links
 

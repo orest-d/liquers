@@ -166,15 +166,23 @@ hold a reference *to* a payload-evaluated asset." Silently forwarding a payload 
 ordinarily-cached boundary would let the first caller's payload determine a value that every
 later caller reads.
 
-Nor is it a missing declaration. **An injected parameter does not imply a payload
-requirement**: `injected` means `InjectedFromContext`, and a value may be injected from the
-environment alone — `()` implements the trait and reads no payload at all. Requiring every
-command that takes an injected argument to declare `payload: required` would be declaring
-something that is not true of the command.
+**An injected parameter does not imply a payload requirement**: `injected` means
+`InjectedFromContext`, and a value may be injected from the environment alone — `()`
+implements the trait and reads no payload at all. So the plan must not infer the requirement
+from injection, in either direction.
 
-The correct behaviour is to leave the payload-sensitive part of the plan expanded — do not
-cut a boundary across it. `solution.md` §2 makes that the unconditional rule, which needs no
-change to any command declaration.
+It does not need to. The payload need is declared on command metadata
+(`CommandMetadata::payload_required`), read by `PlanBuilder::action_payload_requirement`, and
+ORed up into `Plan::payload_required` — an exact signal, available per command. `first_cmd`
+and `third_cmd` here read the payload and declare nothing, so they are **mis-declared**; this
+divergence is `plan-cwd-freeze`'s documented "declare it, or lose it" rule (E8), and the fix
+is to the test, not to the code.
+
+The code question it raises is a different one, and it is a correctness question: *where may a
+boundary be cut in a chain that does read a payload somewhere?* `Plan::payload_required` is a
+whole-query flag and answers it wrongly in both directions. `solution.md` §2 answers it per
+candidate boundary, by building each candidate's own plan and cutting in front of the payload
+need.
 
 ## Cause 3 — a test that asserts the expanded shape
 

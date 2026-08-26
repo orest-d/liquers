@@ -53,18 +53,22 @@ only one of them is a defect:
   prefix. Fix verified: `Plan::prologue_steps`, advanced over before the predecessor is
   resolved. Both failures pass; `liquers-core` stays green with the cut off, and
   `liquers-lib --lib --tests` is green with it on.
-- **The `injection` failure is sound behaviour.** A cut boundary is a cache entry and a
-  payload is not part of a cache key, so forwarding one into an ordinarily-cached boundary
-  would let the first caller's payload decide the value every later caller reads. Nor is it a
-  missing declaration: an injected parameter does not imply a payload requirement, since
-  injection may be from the environment alone. The resolution is to leave the payload-sensitive
-  part of the plan expanded — never cut a boundary across it. No command declaration changes.
+- **The `injection` failure is a mis-declared command**, and is fixed in the test.
+  `first_cmd` and `third_cmd` read the payload through injected parameters and declare no
+  `payload: required`; that is the documented "declare it, or lose it" rule (E8), which a cut
+  is simply where it first bites. Injection must not be read as evidence of a payload need in
+  either direction — it may be satisfied from the environment alone — and it need not be, since
+  the need is declared on command metadata. What the failure *does* expose is a correctness
+  question the design now answers: a boundary must be cut in front of a payload need, never
+  across it, and `Plan::payload_required` is the wrong granularity to decide that. The cut
+  builds each candidate boundary's own plan and steps back a level while it requires a payload.
 - **The `--lib` failure is a test asserting the expanded shape**, as this issue already said.
   Measured: with those two shape assertions relaxed, the test passes under the cut with the
   same value and the same context CWD.
 
-Design: `specs/design/predecessor-cut-equivalence/`. Two issues filed in passing:
-`PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`, `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
+Design: `specs/design/predecessor-cut-equivalence/`. One issue filed in passing that stands,
+`PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`; one filed and rejected the same day,
+`PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`.
 
 ## Impact
 

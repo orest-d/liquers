@@ -66,102 +66,147 @@ Unit test to add, in `plan.rs`'s `mod tests`:
 needing the cut at all — which is the point: the defect is in freezing, and cutting only
 exposes it.
 
-## 2. A boundary is never cut across payload-sensitive steps
+## 2. The cut walks back to the last payload-free boundary
 
-Cause 2 is not a defect in cutting and not a missing declaration. Confirmed with the author:
-**an injected parameter does not imply a payload requirement** — `injected` means
-`InjectedFromContext`, and a value may be injected from the environment alone. The correct
-behaviour for payload processing is to *expand* the payload-sensitive part of the plan rather
-than cut across it.
+Cause 2 is not a defect in cutting. A boundary is a cache entry; a payload is deliberately
+not part of a cache key; so a value computed from a payload must never end up behind one. The
+correct behaviour is to leave the payload-sensitive part of the plan **expanded** and cut, if
+at all, in front of it.
+
+Two facts settle how:
+
+- **The payload need is on command metadata.** `CommandMetadata::payload_required` is the
+  declaration, `PlanBuilder::action_payload_requirement` reads it, and the builder ORs it up
+  into `Plan::payload_required`. Nothing has to be approximated from `injected` — which would
+  be wrong anyway, since injection may be from the environment alone.
+- **The decision is per candidate boundary, not per plan.** `Plan::payload_required` answers
+  "does this query need a payload anywhere", which is the wrong question in both directions:
+  used to decline, it throws away the boundary in `fetch/expensive/render_with_payload`, where
+  everything behind the only candidate is payload-free; used to permit, it cuts straight
+  across `fetch/personalize/render`. What matters is whether *the steps behind this particular
+  boundary* need a payload — which is exactly `payload_required` of the boundary query's own
+  plan.
 
 ### The rule
 
-A boundary may be cut only where every step behind it is payload-free. A boundary is a cache
-entry; a payload is deliberately not part of a cache key; so a value computed from a payload
-must never end up behind one.
+Build the candidate boundary's plan and cut only if that plan requires no payload. If it
+does, step back one level and try the shorter candidate; if none is payload-free, do not cut.
 
-### Where the plan learns this
+### Mechanism
 
-`cut_predecessor` takes no registry and cannot ask a command whether it reads the payload.
-`PlanBuilder` can — it holds the metadata when it emits each `Step::Action` — so the plan
-records the answer:
-
-```rust
-// plan.rs, in `struct Plan`
-/// Index of the earliest step whose execution reads the evaluation payload.
-///
-/// A boundary may only be cut *before* it: a boundary is a cache entry, and a payload is
-/// not part of a cache key, so a value computed from one must not end up behind it.
-#[serde(default)]
-pub payload_sensitive_from: Option<usize>,
-```
-
-set by the builder, and shifted by `Recipe::to_plan`'s prologue exactly as `predecessor_steps`
-is — one more reason §1 records `prologue_steps` rather than leaving each site to compensate
-for the prefix on its own.
+`PlanBuilder` records one predecessor per plan (`plan.rs:1716`), so each level supplies the
+next: building the recorded predecessor query yields a plan that records *its* predecessor.
+Recursion over the builder is therefore all that is needed, and no new plan field is:
 
 ```rust
-// plan.rs, in `cut_predecessor`, after the existing frozen / predecessor / range guards
-if self.payload_sensitive_from
-    .is_some_and(|first| first < self.predecessor_steps)
-{
-    return Ok(false);
+pub fn cut_predecessor(
+    &mut self,
+    cmr: &CommandMetadataRegistry,
+) -> Result<bool, Error> {
+    // ... existing frozen / predecessor / range guards ...
+
+    // The working key the query's own steps begin under — §1's prologue walk, reused so a
+    // candidate query deeper than the recorded one can be frozen the same way.
+    let mut base = CwdCursor::new(self.frozen_cwd.clone());
+    for step in self.steps.iter().take(self.prologue_steps) {
+        if let Step::SetCwd(key) = step {
+            base.set_cwd_from(key);
+        }
+    }
+
+    let mut boundary = self.predecessor.clone();          // frozen by freeze_cwd
+    let mut cut_at = self.predecessor_steps;
+
+    loop {
+        let mut candidate = PlanBuilder::new(boundary.clone(), cmr)
+            .with_placeholders_allowed()
+            .build()?;
+        // The candidate's own steps are what the parent's prefix is made of; a mismatch means
+        // a recorded range went stale, and splitting on it would run an action twice.
+        if candidate.steps.len() != cut_at - self.prologue_steps {
+            return Ok(false);
+        }
+        if candidate.payload_required.is_none() {
+            break;                                        // safe: nothing behind it reads a payload
+        }
+        candidate.freeze_cwd_with(&mut base.clone())?;    // resolve the next candidate's operands
+        let Some(inner) = candidate.predecessor.clone() else {
+            return Ok(false);                             // payload need reaches the head
+        };
+        cut_at = self.prologue_steps + candidate.predecessor_steps;
+        boundary = inner;
+    }
+
+    // ... existing split at `cut_at`, emitting Step::Evaluate(boundary) ...
 }
 ```
 
-### What counts as payload-sensitive, today and later
+The signature gains the registry. Every call site has one: `finalize_plan` holds `envref`, and
+`EnvRef::get_command_metadata_registry` returns `&CommandMetadataRegistry`.
 
-Today the builder has only one signal it can read: an action with an `injected` argument, or
-one whose metadata declares `payload: required`. Since `injected` covers environment-sourced
-injection too, that signal is a **conservative over-approximation** — it declines some cuts
-that would have been safe. Safe is the right side to err on, and the cost is a lost
-optimisation rather than a wrong answer.
+Termination is structural — each level is strictly shorter than the last, and the innermost
+has `predecessor: None`.
 
-Making it exact needs a way to say *this injection reads the payload*, which the registration
-surface cannot currently express; filed as `PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`. When it
-exists, this design changes by one predicate at the single point that already has the
-metadata.
+### Measured
 
-### No exception for a declared payload
+Behaviour of the recursion, run against a registry where only `personalize` declares
+`payload: required`:
 
-An earlier draft kept `payload: required` as an opt-in that would cut the boundary anyway,
-on the ground that such a query is routed through `Context::schedule_payload_dependency_asset`
-and evaluated inline with the payload forwarded. Dropped, because that route deliberately
-registers no graph edge and creates no cache entry — so cutting a payload-requiring
-predecessor buys none of the three things a boundary exists for (caching, independent
-expiration, parallel scheduling) and costs an extra asset and an extra hop. Declining
-unconditionally is both simpler and strictly better.
+| Query | Level 0 candidate | Payload | Outcome |
+|---|---|---|---|
+| `fetch/expensive/render` | `fetch/expensive` (2 steps) | none | cut at 2 — unchanged |
+| `fetch/expensive/render/out.txt` | `fetch/expensive` (2 steps) | none | cut at 2 — a filename is not an action |
+| `fetch/personalize/render` | `fetch/personalize` (2 steps) | required | step back → `fetch` (1 step), none → **cut at 1** |
+| `personalize/fetch/render` | `personalize/fetch` (2 steps) | required | step back → `personalize`, required, no predecessor → **no cut** |
 
-The upshot is that this design needs **no change to any command declaration**. `payload:
-required` keeps exactly its present meaning for nested evaluation.
+The third row is the case a plan-level flag cannot express: `fetch` is cached and shared while
+`personalize/render` runs inline per payload. The fourth is the head case, where the payload
+need reaches the first action and no boundary at any position is safe.
 
-### Consequence for E8
+Step counts line up at every level — the parent's `predecessor_steps` equals the candidate
+plan's `steps.len()`, and the candidate's `predecessor_steps` equals the next one's — which is
+what makes `cut_at` derivable from the recursion rather than needing to be recorded.
 
-Phase 3 wrote E8 as a deliberate *inequivalence* test, pinning the undeclared-payload case as
-the one place the two forms differ, so "cutting is policy, not correctness" stayed
-falsifiable. With this guard the two forms no longer differ there. E8 is restated as an
-equivalence test with a structural assertion: *the value is identical, and `was_cut` is
-false.* A divergence the code refuses to create cannot be shipped by accident, whereas a
-documented one can.
+### The freeze wrinkle
 
-### Follow-up: cut at the largest payload-free prefix
+`freeze_cwd` resolves `plan.predecessor`, so the level-0 candidate arrives frozen. A candidate
+found by stepping back is built fresh from source and is **not**: its operands are still
+CWD-relative, and cutting on it would produce exactly the boundary query
+`plan-cwd-freeze` exists to prevent. Hence the `freeze_cwd_with` call on each candidate before
+its predecessor is read, against a clone of the prologue-advanced cursor from §1 — the same
+operation, applied one level deeper. This is the part of the mechanism most likely to be got
+wrong, and E13 below pins it.
 
-Declining is correct but not always maximal. `PlanBuilder` records exactly **one** predecessor
-— `plan.rs:1716` assigns `predecessor_steps = steps.len()` at the outermost recursion level
-whose remainder is a real action, overwriting every inner level — so the only lever available
-is cut or do not cut.
+### What this does not change
 
-Where the payload reader is at the head of the chain the two coincide: in
-`authenticate/fetch/render` with `authenticate` reading the payload, every prefix contains it
-and no boundary at any position is safe. Where the reader sits in the middle they do not: in
-`fetch/personalize/render` the recorded predecessor `fetch/personalize` is payload-sensitive
-and is declined, while `fetch` alone is a perfectly good boundary — cacheable and shared,
-with `personalize/render` running inline per payload.
+No command declaration changes, and `payload: required` keeps exactly its present meaning. A
+command that reads the payload must declare it — the existing "declare it, or lose it" rule.
+`injected` is left alone: it means `InjectedFromContext`, which may be satisfied from the
+environment, and it is not evidence of a payload read in either direction.
 
-Reaching it means recording every candidate level rather than only the outermost, and cutting
-at the last one whose range ends at or before `payload_sensitive_from`. That is an
-optimisation on top of a correct rule, not part of it, so it is out of scope here and noted
-for `CORE-PLAN-POLICY-AND-DEFAULTS`, which owns where a boundary should go.
+### Consequence for E8, and for the injection test
+
+E8 stands as `plan-cwd-freeze` Phase 3 wrote it: an **inequivalence** test, pinning an
+undeclared payload command as a case where the two forms differ. I proposed replacing it in
+two earlier drafts of this document — first with an opt-in, then with a blanket decline — and
+both were wrong: they made the plan compensate for a declaration that is missing, which hides
+the defect instead of surfacing it.
+
+`injection::test_chained_commands_with_payload` is therefore a **test fix, not a code fix**:
+`first_cmd` and `third_cmd` read the payload through injected parameters and declare nothing,
+so they are mis-declared. Adding `payload: required` to both is the change, and
+`plan-cwd-freeze` already measured that it makes the test pass under the cut.
+
+### Alternative considered
+
+Record the payload requirement of every candidate level during the single build, as
+`Vec<(Query, usize, PayloadRequirement)>`, and let `cut_predecessor` read it without a
+registry or a rebuild. Cheaper at cut time and keeps the signature. Not chosen: it moves state
+into `Plan` that has to be kept correct across the recipe prologue and serde, which is the
+exact class of staleness that produced the level-0 bug in §1 and the double-execution bug
+before it. The rebuild is bounded by the number of actions in the chain, happens only when a
+plan is actually cut, and produces the very plan the boundary asset would build anyway.
+Revisit if profiling ever says so.
 
 ## 3. Make the shape assertions policy-explicit
 
@@ -199,10 +244,21 @@ is what let Cause 1 survive:
 one run prints every divergence. The four remaining ones were found in one forced run of the
 whole suite; a fail-fast harness would have surfaced them one release apart.
 
-Shapes E1–E12 are specified in `plan-cwd-freeze/phase3-examples.md`; they stand unchanged
-except E8 (§2 above). E2, E3, E4, E5 and E9 need a store, so they run on
-`SimpleEnvironment<Value>` with an `AsyncMemoryStore` rather than `ImmediateEnvironment`;
-E7 and E8 need `SimpleEnvironmentWithPayload<Value, String>`.
+Shapes E1–E12 are specified in `plan-cwd-freeze/phase3-examples.md` and stand unchanged, E8
+included. E2, E3, E4, E5 and E9 need a store, so they run on `SimpleEnvironment<Value>` with
+an `AsyncMemoryStore` rather than `ImmediateEnvironment`; E7 and E8 need
+`SimpleEnvironmentWithPayload<Value, String>`.
+
+Two shapes are added for §2, both on `SimpleEnvironmentWithPayload`:
+
+| # | Shape | Query | Covers |
+|---|---|---|---|
+| E13 | Mid-chain payload | `fetch/personalize/render`, `personalize` declaring `payload: required` | The cut steps back to `fetch`; the boundary query is frozen at that deeper level, not left relative |
+| E14 | Head payload | `personalize/fetch/render` | No boundary is safe; `was_cut` is false and the value matches |
+
+E13 is the one that would catch the freeze wrinkle: a stepped-back candidate whose operands
+were left CWD-relative produces a boundary query that resolves against the wrong folder, which
+is Cause 1 reappearing one level down. It runs under the recipe-CWD condition for that reason.
 
 No production switch is needed to run them: the harness finalizes a plan and calls
 `plan.cut_predecessor()` on a clone, which is exactly what `evaluate_both_ways` already does.
@@ -231,3 +287,6 @@ Those are `CORE-PLAN-POLICY-AND-DEFAULTS`, and the reference already argues the 
 query rather than global. This design's product is the ability to make that decision on
 evidence: after it, cutting is a choice about memory and scheduling, not a choice about
 whether the answer is right.
+
+It does settle *where* a boundary goes when one is cut — §2's walk back to the last
+payload-free candidate — because that is a correctness question, not a policy one.
