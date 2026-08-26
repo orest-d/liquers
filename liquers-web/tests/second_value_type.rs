@@ -321,7 +321,7 @@ fn value01_primitive_roundtrip_second_value_type() {
 fn value04_bytes_are_not_confused_with_text_second_value_type() {
     let bytes = js_sys::Uint8Array::from(&[0u8, 1, 2, 255][..]);
     let value = conv(&bytes.into()).expect("convert bytes");
-    assert_eq!(value.identifier(), "bytes", "bytes must not become text");
+    assert_eq!(value.identifier(), "Bytes", "bytes must not become text");
 
     let back = value_to_js(&value).expect("convert back");
     assert!(
@@ -333,7 +333,9 @@ fn value04_bytes_are_not_confused_with_text_second_value_type() {
 
     // And a string is not bytes.
     let text = conv(&JsValue::from_str("hello")).expect("convert text");
-    assert_ne!(text.identifier(), "bytes");
+    // Was `"bytes"`, which nothing produces — so this passed vacuously and would have kept
+    // passing even if text *had* become bytes.
+    assert_ne!(text.identifier(), "Bytes");
 }
 
 /// VALUE09 (reduced) — the checked upcast and downcast of the downstream extension.

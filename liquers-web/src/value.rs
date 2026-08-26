@@ -18,6 +18,36 @@ use wasm_bindgen::JsValue;
 /// The `origin` tag reported by every value this crate wraps.
 pub const ORIGIN_JAVASCRIPT: &str = "javascript";
 
+/// The type identifier of a retained JavaScript value.
+///
+/// A **constant** because the identifier is needed in two places that cannot see each other: the
+/// instance method [`ForeignValue::identifier`], which the value path calls through
+/// `Arc<dyn ForeignValue>`, and [`js_value_type_info`], which registers the type before any value
+/// exists. If the two ever disagreed, a `JsOpaque` would report an identifier the registry does
+/// not contain — the exact failure registration exists to prevent, but caused by a typo rather
+/// than by a structural gap and therefore much harder to find. The type system cannot enforce the
+/// agreement: `ForeignValue` must stay object-safe, and a default body is type-checked with
+/// `Self: ?Sized`, so it cannot call an associated function. A constant and
+/// `the_constant_and_the_instance_agree` are what close it.
+///
+/// `js.Value`, not a bare `js`: a bare name asserts that Liquers owns the concept and is reserved
+/// for `liquers-core` and `liquers-lib`. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
+pub const JS_VALUE_TYPE_IDENTIFIER: &str = "js.Value";
+
+/// The registry entry for a retained JavaScript value — the single construction site.
+///
+/// Registered by `environment::new_environment`, which every rebuild path funnels through, so the
+/// registration needs no retention and cannot drift from what a value reports.
+pub fn js_value_type_info() -> liquers_core::type_system::TypeInfo {
+    liquers_core::type_system::TypeInfo::new(JS_VALUE_TYPE_IDENTIFIER)
+        .with_type_name("JsValue")
+        .with_defaults("json", "json", "application/json", "value.json")
+    // Deliberately no `with_data_formats`: `JsOpaque::as_bytes` refuses, so the type has no byte
+    // form. The write path exempts a formatless type from the format check exactly as it exempts
+    // a UI element; declaring a format here would instead let `set_binary` accept bytes that can
+    // never be materialized.
+}
+
 /// An owned handle to a JavaScript value, retained by identity.
 ///
 /// Cloning is a refcount bump on the `wasm-bindgen` heap table and dropping releases the slot, so
@@ -74,13 +104,21 @@ impl ForeignValue for JsOpaque {
     }
 
     fn identifier(&self) -> Cow<'static, str> {
-        // `js.Value`, not a bare `js`: a bare name asserts that Liquers owns the concept, and a
-        // JavaScript value is somebody else's type. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
-        "js.Value".into()
+        JS_VALUE_TYPE_IDENTIFIER.into()
     }
 
     fn type_name(&self) -> Cow<'static, str> {
         Cow::Owned(self.type_tag.to_string())
+    }
+
+    /// Refines the registered description with *this* instance's constructor name.
+    ///
+    /// The registered entry says `JsValue`; an instance says `Uint8Array`, `Date`, or whatever
+    /// the object's constructor is called. That divergence is the type-axis/`type_name` split
+    /// working as designed — `type_name` is informational and is never dispatched on, and the
+    /// write path requires only that it be non-empty.
+    fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+        js_value_type_info().with_type_name(self.type_name())
     }
 
     fn default_extension(&self) -> Cow<'static, str> {
@@ -137,5 +175,61 @@ fn constructor_name(value: &JsValue) -> Arc<str> {
     match name {
         Some(n) => Arc::from(n.as_str()),
         None => Arc::from("object"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    /// `fvt5.1` — the constant, the registered description and an instance all agree.
+    ///
+    /// **This is the guarantee chosen in place of compile-time enforcement.** The identifier is
+    /// needed statically (to register the type before any value exists) and per-instance (through
+    /// `Arc<dyn ForeignValue>`), and Rust cannot tie the two together: `ForeignValue` must stay
+    /// object-safe, so `type_info` takes `&self`, and a default body is type-checked with
+    /// `Self: ?Sized` and cannot call an associated function. A shared constant plus this test are
+    /// what keep them honest. See `specs/design/foreign-value-type-registration/`.
+    #[wasm_bindgen_test]
+    fn the_constant_and_the_instance_agree() {
+        let opaque = JsOpaque::new(JsValue::from_str("x"));
+
+        assert_eq!(js_value_type_info().type_identifier, JS_VALUE_TYPE_IDENTIFIER);
+        assert_eq!(opaque.identifier(), JS_VALUE_TYPE_IDENTIFIER);
+        assert_eq!(opaque.type_info().type_identifier, JS_VALUE_TYPE_IDENTIFIER);
+    }
+
+    /// The registered entry declares no data formats, because `as_bytes` refuses.
+    ///
+    /// Declaring one would let `set_binary` accept bytes for a `js.Value` asset that could never
+    /// be materialized, moving the failure from write time to read time.
+    #[wasm_bindgen_test]
+    fn the_registered_type_has_no_byte_form() {
+        assert!(
+            js_value_type_info().supported_data_formats.is_empty(),
+            "a retained JavaScript value has no byte form"
+        );
+        assert!(JsOpaque::new(JsValue::from_str("x"))
+            .as_bytes("json")
+            .is_err());
+    }
+
+    /// `type_name` is per instance while the identifier is not — the type-axis split.
+    #[wasm_bindgen_test]
+    fn the_instance_refines_only_the_type_name() {
+        let bytes = js_sys::Uint8Array::new_with_length(1);
+        let opaque = JsOpaque::new(bytes.into());
+
+        assert_eq!(opaque.type_info().type_identifier, JS_VALUE_TYPE_IDENTIFIER);
+        assert_eq!(
+            opaque.type_info().type_name, "Uint8Array",
+            "the constructor name reaches the description"
+        );
+        assert_eq!(
+            js_value_type_info().type_name,
+            "JsValue",
+            "while the registered entry keeps the generic name"
+        );
     }
 }

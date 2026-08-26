@@ -21,7 +21,7 @@
 use liquers_core::value::ValueInterface;
 use liquers_lib::value::{ExtValue, Value};
 use liquers_web::bridge::{js_to_value, opaque_value, value_to_js, ConversionPolicy};
-use liquers_web::value::JsOpaque;
+use liquers_web::value::{JsOpaque, JS_VALUE_TYPE_IDENTIFIER};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
@@ -154,7 +154,7 @@ fn value04_bytes_are_not_confused_with_text() {
     // against it here would be testing the wrong component.
     assert_eq!(
         value.identifier(),
-        "bytes",
+        "Bytes",
         "a Uint8Array must map to bytes, not text"
     );
 
@@ -340,7 +340,9 @@ fn value12_scalar_operators_produce_documented_result() {
 #[wasm_bindgen_test]
 fn value13_state_operations_preserve_or_discard_metadata() {
     let value = opaque_value::<Value>(js_sys::Date::new_0().into()).expect("opaque");
-    assert_eq!(value.identifier(), "js");
+    // `js.Value`, not a bare `js`: bare names are reserved for `liquers-core` and `liquers-lib`,
+    // so the old expectation would have violated the naming rule outright.
+    assert_eq!(value.identifier(), JS_VALUE_TYPE_IDENTIFIER);
     assert_eq!(
         value.type_name(),
         "Date",
