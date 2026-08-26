@@ -65,10 +65,14 @@ re-deriving its own working key", as the issue speculated; it is one missing cur
    which may be satisfied from the environment. Every step-back and the decline emit a
    planning `init_info` naming the command and the reason. Verified against the builder for
    all four chain shapes; volatility measured separately. E8 stands as Phase 3 wrote it.
-3. **A recipe-level `volatile:` / `expires:` makes a plan uncuttable**, recorded by
-   `Recipe::to_plan` as `Plan::uncuttable` — it is in no query, so no candidate's plan can
-   reveal it. This is the only part of Cause 4 that needs building; command-level volatility
-   was measured already equivalent.
+3. **A volatile recipe is volatile from its first action**, so a recipe-level `volatile:` /
+   `expires:` makes the whole plan uncuttable — recorded by `Recipe::to_plan` as
+   `Plan::uncuttable`, since it is in no query and no candidate's plan can reveal it. The
+   alternative reading, volatile from the *last* action, is what the measurement already
+   showed failing: the asset is dutifully recomputed and restores the same cached prefix every
+   time. A recipe-level flag carries no position, so it cannot mark where a non-volatile part
+   ends; the positional instrument is `v`. This is the only part of Cause 4 that needs
+   building — command-level volatility was measured already equivalent.
 4. **The equivalence suite gains a CWD axis.** The present harness always builds a recipe
    with no `cwd:` and passes `cwd: None`, so it structurally cannot reach the defect this
    design exists to fix. Every shape runs under three conditions: no CWD, a recipe `cwd:`,
@@ -91,7 +95,7 @@ than unknowns about the approach.
 
 | # | Question | Blocking? |
 |---|---|---|
-| ~~1~~ | **Resolved by the author.** Cut only at a level that is neither payload-sensitive nor volatile, with an info message naming the reason for the expansion. Measurement narrowed the problem first: *command*-level volatility never diverged (2 runs both ways — the boundary query carries the volatile command, so the manager evaluates it as a volatile query), only *recipe*-level did (2 → 1). `solution.md` §2 | Closed |
+| ~~1~~ | **Resolved by the author.** Cut only at a level that is neither payload-sensitive nor volatile, with an info message naming the reason for the expansion. Measurement narrowed the problem first: *command*-level volatility never diverged (2 runs both ways — the boundary query carries the volatile command, so the manager evaluates it as a volatile query), only *recipe*-level did (2 → 1). A volatile recipe is volatile from its first action; the positional instrument is `v`, not the recipe flag. `solution.md` §2, `analysis.md` Cause 4 | Closed |
 | 2 | §2's step-count assumption was measured on **raw** queries; the real input is promoted and frozen. Should hold, is guarded, but is reasoning rather than measurement. Failure mode is a silently lost boundary, not a wrong value. | No — first implementation step |
 | 3 | `with_placeholders_allowed()` on §2's rebuild is in the sketch but not established. A recorded predecessor should be placeholder-free, since overrides patch the tail. | No |
 | 4 | "Equivalent" is defined as Phase 3's four properties. Cutting changes asset count, dependency edges and metadata *by design*; §4 now says so explicitly rather than leaving the next author to discover it. | No — confirm at review |

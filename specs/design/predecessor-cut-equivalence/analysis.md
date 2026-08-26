@@ -257,6 +257,35 @@ It is not `plan-cwd-freeze`'s pitfall 3. That fix made the builder always expand
 `plan.is_volatile` is computed over the whole plan; it says nothing about a flag that was never
 in the plan.
 
+### What `volatile:` on a recipe means, and why the whole plan
+
+The measurement above *is* the "misleading volatile last action" made concrete: the asset is
+volatile and duly recomputed, and it restores the same cached prefix every time. Volatile in
+name, fixed in value.
+
+Two readings of a volatile recipe were considered:
+
+- **Volatile from the last action.** The result is volatile; earlier steps may be cached. Cheap,
+  and wrong in the way just measured — the author asked for recomputation and got a cache read
+  wearing a volatile label.
+- **Volatile from the first action.** The whole plan is volatile; nothing in it is cached.
+
+The second is the decided meaning. It is what an author writing `volatile: true` on a recipe
+conceptualises — *this recipe is volatile*, not *this recipe's last step is volatile* — and it
+is the only one under which the flag does what it exists for, namely to cover impurity the
+system cannot infer. It does not deny that a plan can have a non-volatile part; it says that a
+*recipe-level* declaration is not the instrument for expressing where that part ends, because
+it carries no position.
+
+The instrument for that is the `v` instruction, which is positional by construction. `v` exists
+and is intercepted by the builder like `q` and `ns` (`plan.rs:1486`), taking no parameters and
+emitting no step — so it is an identity on the value. But it calls `mark_volatile`, which sets
+the **whole plan's** flag, so `a/b/v/c` is volatile throughout rather than volatile from `v`
+onward. The fine-grained boundary is therefore not available yet; filed as
+`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL` (P3). Under today's semantics `v` is consistent
+with the decision — it means "this plan is volatile", positioned anywhere — so nothing here
+depends on that issue being fixed.
+
 Resolved in `solution.md` §2 — the recursion tests volatility alongside payload, and a
 recipe-level declaration is recorded on the plan where the recursion can see it.
 

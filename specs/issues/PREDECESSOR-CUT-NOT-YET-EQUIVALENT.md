@@ -73,7 +73,11 @@ expanded and 1 cut. A **command**-level `volatile: true` does not diverge (2 bot
 travels in the query, so the boundary's own plan is volatile and the manager evaluates it as a
 volatile query. The design cuts only at a candidate that can be cached — not payload-requiring,
 not volatile — and records a recipe-level flag on the plan, where no candidate query could
-show it.
+show it. A volatile recipe is read as volatile from its **first** action: the flag carries no
+position, and the alternative reading is what the measurement shows failing, an asset dutifully
+recomputed that restores the same cached prefix every time. The positional instrument would be
+the `v` instruction, which exists but is also whole-plan
+(`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`).
 
 A latent instance of the first cause's *shape* — a plan mutated through a subset of
 coupled fields — sits in `Plan::split`, which drops `frozen_cwd` and both predecessor fields.

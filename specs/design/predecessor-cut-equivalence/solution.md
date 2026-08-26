@@ -412,20 +412,86 @@ The `LQ_FORCE_CUT` probe from `analysis.md` is a measurement tool and is not lan
 
 ## 5. Documentation
 
-- `DOC_08_RECIPES_PLANS.md`, "Predecessor boundaries": add the pitfall — *a boundary query
-  frozen before the prologue* — beside its sibling *a step-range recorded before a prefix is
-  inserted*; both are the same prepended `SetCwd`, one compensated in the count and one in
-  the cursor. Add a row for *a recipe-level flag is not in the query*, with the measured 2 → 1.
-  Keep the "undeclared payload" row as it stands — it is still the rule — and add that a cut
-  is placed at the last cacheable candidate, with an `init_info` naming why any level was
-  passed over. Add `prologue_steps` and `uncuttable` to the plan-fields table. `## History` row and `reviewed:`
-  bump in the same commit.
+Two audiences, and the mechanism has to be readable from both. Rustdoc is where someone writing
+a recipe or reading `PlanBuilder` will look; `reference/api` is where someone asking "how do
+boundaries work" will look. Neither is a summary of the other.
+
+### Rustdoc — `Recipe`
+
+`Recipe::volatile` currently reads, in full: *"Forces volatile evaluation in addition to
+volatility inferred from the plan."* True, and it answers none of the questions this design
+raised. Replace it with the meaning and its consequence:
+
+> Marks the whole plan volatile, in addition to volatility inferred from it.
+>
+> A volatile recipe is volatile **from its first action**, not merely in its result. Nothing in
+> it is cached, and no predecessor boundary is cut out of it — a boundary is a cache entry, and
+> a plan declared volatile is one whose intermediates must not be cached. The alternative,
+> volatility that applies only to the last action, produces an asset that is dutifully
+> recomputed and restores the same cached prefix every time: volatile in name, fixed in value.
+>
+> This flag carries no position, so it cannot mark where a non-volatile part of a plan ends.
+> The positional instrument is the `v` instruction. Use `volatile: true` to say *this recipe is
+> volatile*, which is the case it is for — covering impurity a command did not declare.
+
+`Recipe::expires` gains the same note in short form: a recipe-level expiration also makes the
+plan uncuttable, and why that is the conservative reading rather than an obviously correct one.
+
+`Recipe::to_plan`'s doc comment gains the two things it now does beyond building: it records
+`prologue_steps` for the `SetCwd` it prepends, and `uncuttable` when the recipe declares
+volatility or expiration — with a sentence on why each cannot be recovered later (one because
+the prefix is indistinguishable from a query-authored `cwd`, the other because it is in no
+query).
+
+### Rustdoc — `PlanBuilder` and `Plan`
+
+`PlanBuilder`'s type doc says it works "without an environment" and that dependency-derived
+values come later. Add what it records *for* the later passes and does not itself act on:
+`predecessor` / `predecessor_steps` for a boundary it never cuts, and the volatility and
+payload facts a cut will consult per candidate. The existing `// TODO: support volatile flags`
+marker beside it is `CORE-PLAN-POLICY-AND-DEFAULTS`; leave it, but the doc should no longer
+imply volatility is unhandled.
+
+`Plan::cut_predecessor` carries the rule itself, since that is where a reader lands from a
+stack trace or an `init_info` message: cut at the last candidate that can be cached; a
+candidate cannot be cached if its plan requires a payload or is volatile; a recipe-level
+declaration is consulted first because no candidate can show it. Include the measured 2 → 1, in
+one line — it is the difference between a rule a reader follows and one they work around.
+
+`Plan::uncuttable` and `Plan::prologue_steps` get field docs at the same standard as the three
+`plan-cwd-freeze` added.
+
+### `reference/api/DOC_08_RECIPES_PLANS.md`
+
+"Predecessor boundaries" gains:
+
+- **Where a boundary goes** — a new subsection ahead of "Pitfalls", since it is now a rule
+  rather than a single position. The walk, the two predicates, the recipe-level guard, and the
+  `init_info` messages an author will actually see.
+- Two pitfall rows: *a boundary query frozen before the prologue* (beside its sibling, *a
+  step-range recorded before a prefix is inserted* — both the same prepended `SetCwd`, one
+  compensated in the count and one in the cursor), and *a recipe-level flag is not in the
+  query*, with the measured 2 → 1.
+- The "undeclared payload" row stays as it is; it is still the rule.
+- `prologue_steps` and `uncuttable` in the plan-fields table.
+
+The `v` instruction is currently one clause — *"marks a plan volatile without creating an
+action step"*. Give it its own paragraph in "Building a plan": it is intercepted by the builder
+like `q` and `ns`, takes no parameters, emits no step and so is an identity on the value, and
+marks the **whole** plan volatile regardless of where it appears. That last point is the one a
+reader will get wrong, and it is what
+`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL` proposes to change.
+
+`## History` row and `reviewed:` bump in the same commit, per `DOCS_STRUCTURE_GUIDE` §9.2.
+
+### The rest
+
 - `PREDECESSOR-CUT-NOT-YET-EQUIVALENT`: closed by this design; its speculation that the two
   CWD failures came from "a nested keyed recipe re-deriving its own working key" is corrected
   in `analysis.md` §Cause 1.
 - `CORE-PLAN-POLICY-AND-DEFAULTS`: the blocker note is updated — equivalence holds, and the
-  remaining question is purely the per-query memory-versus-recomputation trade that issue
-  already states.
+  remaining question is the per-query memory-versus-recomputation trade that issue already
+  states.
 - `specs/README.md`: the design folder is added to the map.
 
 ## 6. What this design does not do
