@@ -632,10 +632,6 @@ mod tests {
 
         // Write data
         store.set(&key, data, &Metadata::new()).await.unwrap();
-        println!("After set: {:?}", store.keys().await.unwrap());
-        for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
-            println!("Key {i}: {}", k.encode());
-        }
 
         assert_eq!(store.keys().await.unwrap().len(), 2);
         assert!(store
@@ -683,10 +679,6 @@ mod tests {
         store.set(&key, data, &Metadata::new()).await.unwrap();
         assert!(store.contains(&key).await.unwrap());
         //assert!(store.is_dir(&subkey).await.unwrap());
-        println!("After set: {:?}", store.keys().await.unwrap());
-        for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
-            println!("Key {i}: {}", k.encode());
-        }
 
         assert_eq!(store.keys().await.unwrap().len(), 3);
         assert!(store
@@ -712,53 +704,30 @@ mod tests {
             .expect("OpenDAL FS store")
             .finish();
         let store: Box<dyn AsyncStore> = Box::new(AsyncOpenDALStore::new(op, Key::new()));
-        for (i, k) in store.keys().await.unwrap().into_iter().enumerate() {
-            println!(
-                "Key {i}: {} {}",
-                k.encode(),
-                store.contains(&k).await.unwrap()
-            );
+        for k in store.keys().await.unwrap() {
             assert!(store.contains(&k).await.unwrap());
-            println!(
-                "Asset info: {:?}",
-                store.get_asset_info(&k).await.unwrap().filename
-            );
+            store.get_asset_info(&k).await.unwrap();
         }
-        for (i, k) in store
-            .listdir(&parse_key("src").unwrap())
-            .await
-            .unwrap()
-            .into_iter()
-            .enumerate()
-        {
-            println!("Item {i}: {k}");
-        }
-        for (i, k) in store
+        store.listdir(&parse_key("src").unwrap()).await.unwrap();
+        store
             .listdir_keys(&parse_key("src").unwrap())
             .await
-            .unwrap()
-            .into_iter()
-            .enumerate()
-        {
-            println!("KEY Item {i}: {k}");
-        }
+            .unwrap();
         let mut env = SimpleEnvironment::<Value>::new();
         env.with_async_store(store);
 
         let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
 
-        println!("----------------------------");
         let a = envref.evaluate("-R-dir/src").await.unwrap();
         let s = a.get().await.expect("Failed to get asset state");
-        println!("----------------------------");
         if let Value::AssetInfo(a) = s.data_unchecked().as_ref() {
             let names: std::collections::HashSet<String> = a
                 .iter()
                 .map(|x| x.filename.as_ref().unwrap().clone())
                 .collect();
-            println!("Names: {:?}", names);
+            eprintln!("Names: {:?}", names);
         } else {
-            println!("Expected AssetInfo value, got {:?}", s.data_unchecked());
+            eprintln!("Expected AssetInfo value, got {:?}", s.data_unchecked());
         }
     }
 }
