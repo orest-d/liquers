@@ -4,11 +4,11 @@ kind: design
 title: Foreign and Python value types in the type registry
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/value, lib/value, web, py]
 gh_pr: []
 issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING]
-affects_docs: []
+affects_docs: [VALUE-TYPE-SYSTEM, LANGUAGE-INTEGRATION_GUIDE, TYPE_SYSTEM_GUIDE]
 created: 2026-08-26
 superseded_by:
 ---
@@ -19,7 +19,7 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (in review — all questions decided)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 2: Solution & Architecture (in review)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -60,7 +60,17 @@ type identifier, with a unit test asserting the static and instance spellings ag
 machinery and no `debug_assert`. Rationale from the user: a few tens of types, each fixed once its
 variant is implemented, so a correct implementation stays correct and a compile-time guarantee would
 buy little. Follows the existing `ERROR_TYPE_IDENTIFIER` / `ORIGIN_JAVASCRIPT` practice.
-**Phase 1 is complete and ready for approval.**
+**Phase 1 approved by the user.**
+
+2026-08-26 — Phase 2 written. Known-issue preflight: 39 open records matched by area, eight
+relevant, **no unresolved blocker**. `PY-MODULES-NOT-DECLARED-IN-LIB` is a prerequisite absorbed in
+part (declare two modules, repair `value.rs`) rather than waited on. Architecture narrowed one
+Phase 1 assumption — `liquers-py` needs no new constructor, because `Value::Py` is statically
+describable, so five constructors take the registry rather than six — and widened another: the
+`liquers-py` repair must add an `AssetInfo` variant, forced by a trait signature whose current
+implementation is `todo!()`. Two items for the user: whether to fix the stale `bytes`/`Bytes`
+assertion that leaves the liquers-web suite red at HEAD, and whether to add a diagnostic
+"list known types" command.
 
 ## Links
 
