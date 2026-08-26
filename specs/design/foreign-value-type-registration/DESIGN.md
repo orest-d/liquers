@@ -23,7 +23,7 @@ superseded_by:
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (in review)
 - [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Implementation Complete (steps 1-9; Phase 5 outstanding)
 
 ## Notes
 
@@ -89,6 +89,31 @@ count is derived from reading. Measured while planning: `liquers-py`'s test harn
 but pyo3 carries `extension-module` without `auto-initialize`, so `fvt6` must be GIL-free — Phase 3
 had assumed ordinary unit tests. Natural stopping points recorded at steps 6 and 7; mid-step-7 is
 not one, because a declared module that does not compile is worse than an undeclared one.
+
+2026-08-26 — Phase 4 approved and **executed, steps 1-9**. All validations green: liquers-lib
+302 + 14 suites, liquers-core 613, liquers-py 5 (newly testable), liquers-web 141 across 16
+targets, `check-build-matrix.sh` 11/11, `registry_export` unmoved and
+`specs/command_registry.yaml` unchanged in the diff.
+
+Three things the plan did not predict, each recorded in its commit:
+
+1. **`liquers-py` tests could not link.** Phase 4 measured an *empty* harness and concluded
+   ordinary tests work; with real test code the linker fails on `_Py_Dealloc`, because pyo3's
+   `extension-module` omits the Python symbols. Fixed with the recipe from the PyO3 guide —
+   `extension-module` behind a default feature, `rlib` added to `crate-type` — so every ordinary
+   build and the maturin wheel are unchanged while `--no-default-features --features async_store`
+   links and runs. Without it the Python half would have shipped verified by nothing but
+   `cargo check`.
+2. **`ERROR-STATE-FROM-ERROR-NOT-STORABLE` (P1), filed not fixed.** `fvt7.5` failed for the wrong
+   reason, which exposed that `Metadata::with_error` sets `type_identifier` to `error` but never
+   sets `type_name`, and `sync_metadata_with_value` returns early for error states — so
+   `State::from_error` produces a state no store accepts, with a message naming `type_name` rather
+   than the error. Verified against a build.
+3. **The wasm baseline was three failures, not one.** The issue's run aborted at the first failing
+   binary and never reached `value_bridge_VALUE`. Phase 3's reading-derived prediction of four was
+   right about all four, including that `second_value_type.rs:336` passed vacuously.
+
+Phase 5 remains: the reference and guide updates, and closing the three issues.
 
 ## Links
 
