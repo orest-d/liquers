@@ -56,10 +56,31 @@ tool and is not part of any change set.
 - **A fifth cause, found by reading and then measured.** A recipe-level `volatile:` is not in the
   query text, so it does not reach a boundary. Counting prefix executions over two evaluations:
   command-level `volatile: true` runs 2 both ways; recipe-level runs 2 expanded and **1** cut.
-- **`PlanBuilder` records exactly one predecessor** (`plan.rs:1716`), overwriting inner recursion
-  levels, so a plan has one boundary position — but building a recorded predecessor yields a plan
-  recording *its* predecessor, and the step counts line up at every level. Measured across four
-  chain shapes.
+- **`PlanBuilder` already walks every candidate prefix and discards all but the last.** Measured
+  by instrumenting the recording point in `process_query`: it recurses into the predecessor
+  first, so on the way back up it visits each prefix in order, shortest to longest, and at each
+  one already holds the promoted prefix query, that prefix's exact step count, and the
+  *cumulative* `is_volatile` / `payload_required` **for that prefix** — the remainder has not been
+  processed yet. It then overwrites `plan.predecessor` and keeps only the longest.
+
+  ```
+  prefix/vol/tail/render      steps  volatile  payload   remainder_is_action
+    prefix                      1      false     none       true
+    prefix/vol                  2      true      none       true      <- volatility enters here
+    prefix/vol/tail             3      true      none       true
+  a/b/c/d/out.txt
+    a, a/b, a/b/c               1,2,3  false     none       true
+    a/b/c/d                     4      false     none       false     <- filename remainder
+  -R/x.csv/-/a/b
+    -R/x.csv                    1      false     none       true      <- a resource is a candidate
+    -R/x.csv/-/a                2      false     none       true
+  ```
+
+  So the flags are per-prefix and monotone, the candidate set is every action boundary (a
+  resource fetch included), and it is complete — a boundary must be a query, so there is no finer
+  granularity. `remainder_is_action` marks the one candidate that must be excluded: cutting where
+  the remainder is a trailing filename leaves the parent nothing but a `Filename` step, and a
+  recipe's overrides nothing to patch.
 - **`split_index == predecessor_steps`** on every shape tried, prologue included — so the first
   half of a `Plan::split` *is* the predecessor's steps.
 - **The `v` instruction exists** and is builder-intercepted like `q` and `ns`, takes no

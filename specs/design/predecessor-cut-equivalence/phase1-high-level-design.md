@@ -47,9 +47,12 @@ relative to a payload need, and what a recipe-level `volatile:` means. Both are 
 
 Genuinely open, none of them blocking:
 
-1. The one-boundary-per-plan limit. `PlanBuilder` keeps only the outermost predecessor, so a plan
-   has a single candidate position and the walk must re-derive deeper ones. Whether that stays a
-   re-derivation or becomes recorded state is a Phase 2 trade.
+1. Whether `PlanBuilder` should keep the candidate list it already computes. It visits every
+   prefix in order and holds each one's step count and cumulative volatility and payload flags,
+   then discards all but the longest. Keeping them makes the cut a lookup; discarding them makes
+   it rebuild plans to recover what was in hand. The cost of keeping is recorded state that must
+   survive a recipe's prepended prologue and serde — the staleness class that has already caused
+   two defects here. Phase 2 trade.
 2. Whether a recipe-level `expires:` should be treated as strictly as `volatile:`. A finite
    expiration speaks about the result, and a pure prefix could still be cached.
 3. What "equivalent" is defined to cover. Cutting changes asset count, dependency edges and
