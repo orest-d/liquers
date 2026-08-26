@@ -3,12 +3,12 @@ id: PREDECESSOR-CUT-EQUIVALENCE
 kind: design
 title: Make cutting a predecessor boundary observably equivalent to expanding it
 workflow: liquers-project
-status: in_review
+status:
 phase: documentation
 area: [core/plan, core/assets, core/context]
 issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS, RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES, CORE-PLAN-POLICY-AND-DEFAULTS]
 affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md]
-gh_pr:
+gh_pr: [43]
 created: 2026-08-26
 superseded_by:
 ---
