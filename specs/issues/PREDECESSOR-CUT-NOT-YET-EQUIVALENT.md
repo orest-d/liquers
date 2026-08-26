@@ -66,7 +66,16 @@ only one of them is a defect:
   Measured: with those two shape assertions relaxed, the test passes under the cut with the
   same value and the same context CWD.
 
-A fourth, latent instance of the first cause's *shape* — a plan mutated through a subset of
+A fifth cause, found by reading and then measured: a **recipe-level** `volatile:` (or
+`expires:`) is not in the query text, so it does not reach a cut boundary — the parent re-runs
+while the boundary it reads is cached. Measured over two evaluations, the prefix ran 2 times
+expanded and 1 cut. A **command**-level `volatile: true` does not diverge (2 both ways): it
+travels in the query, so the boundary's own plan is volatile and the manager evaluates it as a
+volatile query. The design cuts only at a candidate that can be cached — not payload-requiring,
+not volatile — and records a recipe-level flag on the plan, where no candidate query could
+show it.
+
+A latent instance of the first cause's *shape* — a plan mutated through a subset of
 coupled fields — sits in `Plan::split`, which drops `frozen_cwd` and both predecessor fields.
 It has no production caller, but two of the three instances of that shape shipped, so it is in
 scope: `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.

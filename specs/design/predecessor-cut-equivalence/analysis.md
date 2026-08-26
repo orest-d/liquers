@@ -216,47 +216,49 @@ for the purpose, because the existing suite varies the one axis the harness hold
 
 ## Cause 4 — a recipe's own volatility does not cross the boundary
 
-Found by reading, not by the suite, while auditing this design for open questions. Not among
-the four measured divergences, because no test in `liquers-core` combines a recipe-level
-`volatile:` or `expires:` with a predecessor.
+Found by reading while auditing this design, then **measured**, because the reading overstated
+it. The measurement is what matters, so it comes first.
 
-An asset's volatility is not read from the plan alone (`assets.rs:1610`):
+Two recipes, each evaluated twice through the asset manager, counting how many times the
+prefix command runs. `vol_prefix` declares `volatile: true` on the command; the other recipe
+declares `volatile: true` on the *recipe*.
+
+| Recipe | Prefix runs, expanded | Prefix runs, cut |
+|---|---|---|
+| `vol_prefix/tail/out.txt` — **command**-level volatile | 2 | **2** |
+| `prefix/tail/out.txt` with recipe `volatile: true` — **recipe**-level | 2 | **1** |
+
+**Command-level volatility does not diverge, and needs nothing built.** The volatility is in
+the query text, so the boundary query's own plan is volatile, so the asset manager evaluates it
+as a volatile query and it recomputes on every request. E6 already covers this and it already
+works.
+
+**Recipe-level volatility diverges: 2 → 1.** `recipe.volatile` and `recipe.expires` are ORed
+into the asset's volatility at `assets.rs:1610`:
 
 ```rust
 let resolved =
     lock.is_volatile || lock.recipe.volatile || lock.recipe.expires.is_volatile();
 ```
 
-`recipe.volatile` and `recipe.expires` are **recipe-level** facts. They live in the
-`recipes.yaml` entry, not in the query text — so unlike a volatile *command*, they do not
-travel into a boundary query.
+but they live in the `recipes.yaml` entry, not in the query. A cut boundary is evaluated as an
+ad-hoc query asset whose synthesized recipe is
+`Recipe { query: "<boundary>", title: "Ad-hoc query", volatile: false, expires: Never }` — so
+neither flag reaches it. The parent stays volatile and re-runs; the boundary it reads is cached
+and never recomputed.
 
-A cut boundary is evaluated as an ad-hoc query asset, whose synthesized recipe is
-`Recipe { query: "<boundary>", title: "Ad-hoc query", volatile: false, expires: Never }` —
-visible in the measurement traces. So for a recipe declared
+The value agreed in the measurement (`p!` both ways) because `prefix` is pure. If it were not —
+and undeclared impurity is the reason to reach for `volatile: true` on a recipe in the first
+place — the value would diverge too. So the flag is an escape hatch for impurity a command did
+not declare, and cutting defeats it. That is the same shape as the undeclared payload: a
+property that holds while everything is inlined and stops holding across a boundary.
 
-```yaml
-query: "fetch/render/out.txt"
-volatile: true
-```
+It is not `plan-cwd-freeze`'s pitfall 3. That fix made the builder always expand so
+`plan.is_volatile` is computed over the whole plan; it says nothing about a flag that was never
+in the plan.
 
-the two forms differ:
-
-- **Expanded** — the asset is volatile, so every request re-runs `fetch` and `render`.
-- **Cut** — the parent is still volatile and re-runs, but `Step::Evaluate(fetch)` resolves to a
-  cached, non-volatile boundary asset. `fetch` runs once, ever.
-
-`expires:` diverges the same way: the parent expires on schedule and recomputes, while the
-boundary it reads has `Expires::Never`.
-
-This is the shape of `plan-cwd-freeze`'s pitfall 3 — volatility hidden behind a boundary — but
-not the same instance, and not fixed by the same change. That fix made the *builder* always
-expand so `plan.is_volatile` is computed over the whole plan; it says nothing about a flag
-that was never in the plan. E6 does not catch it either: `vol_counted` is a volatile
-*command*, whose volatility is in the query and therefore in the boundary's own plan.
-
-The mechanism is settled; what to do about it is not. See `solution.md` §2b — it is the design's
-one genuinely open question.
+Resolved in `solution.md` §2 — the recursion tests volatility alongside payload, and a
+recipe-level declaration is recorded on the plan where the recursion can see it.
 
 ## A fourth instance of the same shape
 

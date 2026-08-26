@@ -136,12 +136,18 @@ derived by different means, one from the step list and one from the query recurs
 asserting the equality across the suite's shapes is cheap; collapsing one into the other is
 not part of this design.
 
-## 2. The cut walks back to the last payload-free boundary
+## 2. The cut walks back to the last cacheable boundary
 
 Cause 2 is not a defect in cutting. A boundary is a cache entry; a payload is deliberately
 not part of a cache key; so a value computed from a payload must never end up behind one. The
 correct behaviour is to leave the payload-sensitive part of the plan **expanded** and cut, if
 at all, in front of it.
+
+Cause 4 turns out to want the same walk, so the two are one rule: **cut at the last candidate
+that can be cached.** A candidate cannot be cached if it needs a payload, or if it is volatile.
+The justification is identical in both halves — a boundary that cannot be cached buys none of
+the three things a boundary exists for (caching, independent expiration, parallel scheduling)
+and costs an extra asset and an extra hop.
 
 Two facts settle how:
 
@@ -159,8 +165,20 @@ Two facts settle how:
 
 ### The rule
 
-Build the candidate boundary's plan and cut only if that plan requires no payload. If it
-does, step back one level and try the shorter candidate; if none is payload-free, do not cut.
+Build the candidate boundary's plan and cut only if that plan is cacheable — no payload
+required, not volatile. Otherwise step back one level and try the shorter candidate; if none
+qualifies, do not cut.
+
+One declaration cannot be seen this way and is handled separately: a **recipe-level**
+`volatile:` or `expires:` is not in any query, so no candidate's plan can reveal it (Cause 4,
+measured 2 → 1). `Recipe::to_plan` has the recipe in hand, so it records the fact on the plan —
+`uncuttable: Option<String>`, carrying the reason — and `cut_predecessor` returns `Ok(false)`
+before the walk starts.
+
+`expires:` is the weaker half of that guard: a finite expiration says the *result* should be
+refreshed, and if the prefix is pure, caching it is still sound. Treated conservatively here
+because the flag exists to cover what the system cannot infer; relaxing it to `volatile:` only
+is a one-line change if it proves too blunt.
 
 ### Mechanism
 
@@ -184,6 +202,12 @@ pub fn cut_predecessor(
         }
     }
 
+    // A recipe-level `volatile:` / `expires:` is in no query, so the walk below cannot see it.
+    if let Some(reason) = &self.uncuttable {
+        self.init_info(format!("Predecessor boundary not cut: {reason}"));
+        return Ok(false);
+    }
+
     let mut boundary = self.predecessor.clone();          // frozen by freeze_cwd
     let mut cut_at = self.predecessor_steps;
 
@@ -196,12 +220,14 @@ pub fn cut_predecessor(
         if candidate.steps.len() != cut_at - self.prologue_steps {
             return Ok(false);
         }
-        if candidate.payload_required.is_none() {
-            break;                                        // safe: nothing behind it reads a payload
+        if candidate.payload_required.is_none() && !candidate.is_volatile {
+            break;                                        // cacheable: safe to make it an asset
         }
+        // Say why this level was passed over, naming the command responsible.
+        self.init_info(boundary_expansion_reason(&candidate));
         candidate.freeze_cwd_with(&mut base.clone())?;    // resolve the next candidate's operands
         let Some(inner) = candidate.predecessor.clone() else {
-            return Ok(false);                             // payload need reaches the head
+            return Ok(false);                             // it reaches the head; nothing to cut
         };
         cut_at = self.prologue_steps + candidate.predecessor_steps;
         boundary = inner;
@@ -233,6 +259,14 @@ The third row is the case a plan-level flag cannot express: `fetch` is cached an
 `personalize/render` runs inline per payload. The fourth is the head case, where the payload
 need reaches the first action and no boundary at any position is safe.
 
+Volatility behaves identically in the walk, since it is the same predicate on the same
+candidate plan: `prefix/vol_prefix/tail` steps back to `prefix`. Measured separately, a
+**command**-level volatile boundary is already equivalent without any of this — the boundary
+query carries the volatile command, so the asset manager evaluates it as a volatile query and
+it recomputes (2 runs both ways). Including volatility in the walk is therefore not a
+correctness fix for that case but the same "do not create an uncacheable boundary" rule, and it
+avoids allocating an asset per evaluation that is guaranteed to be recomputed.
+
 Step counts line up at every level — the parent's `predecessor_steps` equals the candidate
 plan's `steps.len()`, and the candidate's `predecessor_steps` equals the next one's — which is
 what makes `cut_at` derivable from the recursion rather than needing to be recorded.
@@ -249,6 +283,22 @@ the first implementation step, and pin it with a test.
 `with_placeholders_allowed()` appears in the sketch and is **not** established. Recipe overrides
 patch only the last action, which is in the tail, so a recorded predecessor should be
 placeholder-free; if that holds, drop it and let a placeholder be the error it would be.
+
+### Saying why a boundary was expanded
+
+Every place the walk passes over a level, and the place it declines outright, appends a
+planning `Plan::init_info` naming the reason and the command responsible:
+
+```
+Predecessor boundary expanded at 'personalize': command requires an evaluation payload
+Predecessor boundary expanded at 'vol_prefix': command is volatile
+Predecessor boundary not cut: recipe declares volatile: true
+```
+
+`init_info` rather than `Step::Info`: this is a fact established once at planning time, and
+`init_steps` are copied into metadata rather than re-logged on every execution. Without it, a
+declined cut is indistinguishable from a plan that had no predecessor — which is exactly the
+kind of silence that let the four divergences in this issue sit unexplained.
 
 ### The freeze wrinkle
 
@@ -291,41 +341,6 @@ before it. The rebuild is bounded by the number of actions in the chain, happens
 plan is actually cut, and produces the very plan the boundary asset would build anyway.
 Revisit if profiling ever says so.
 
-## 2b. A recipe's own volatility across a boundary — OPEN
-
-`Analysis` Cause 4: `recipe.volatile` and `recipe.expires` are recipe-level facts, ORed into
-the asset's volatility at `assets.rs:1610`, and they are not in the query text — so they do not
-travel into a boundary query. A `volatile: true` recipe, cut, re-runs its parent every time and
-reads a cached, never-recomputed boundary.
-
-**Propagating them is not available.** A boundary is identified by its query and shared by
-query identity — that sharing is the point of cutting. A per-recipe policy cannot ride on it:
-two recipes with different `expires:` over the same prefix would be writing conflicting
-expirations onto one asset. Whatever the answer is, it is not "copy the flag across".
-
-That leaves two, and the choice is the author's because it is about what `volatile:` *means*:
-
-**(a) Decline the cut** when the recipe carries `volatile: true` or an `expires:` that is
-volatile or finite. Consistent with §2's shape — a plan that cannot be safely cached behind a
-boundary is not cut — and cheap: the recipe is in hand at `to_plan`, so the fact can be
-recorded on the plan there, next to `prologue_steps`. Costs little in practice: a volatile
-recipe is the case where a cached intermediate is worth least. Weaker for `expires:`, where the
-prefix may well be the expensive part and the author may have meant only the result to expire.
-
-**(b) Accept it as intended semantics** — `volatile:` and `expires:` describe *this asset*, not
-everything it computes; an author wanting the prefix recomputed marks the prefix. Nothing to
-build; the cost is that a recipe's declaration silently means something different depending on
-a policy the author does not control, which is the property that made pitfall 3 a bug rather
-than a feature.
-
-**Recommendation: (a)**, on the ground that it is reversible and (b) is not — an author who
-finds (a) too conservative loses caching, while an author bitten by (b) has already served a
-stale value. But it is a semantic call, so it is flagged rather than taken.
-
-Either way the suite gains E15: a `volatile: true` recipe with a predecessor, asserting the
-predecessor's command runs the same number of times both ways. That test is worth writing
-before the decision, since it is what makes the divergence visible rather than argued.
-
 ## 3. Make the shape assertions policy-explicit
 
 `absolute_outer_resource_keeps_relative_link_on_live_cwd` asserts the expanded step shape
@@ -338,7 +353,7 @@ assertions on an explicitly un-cut plan, and let the value assertions run on whi
 the policy yields. Measured: with the shape assertions relaxed the test passes under the cut,
 producing `"root-data|linked"` with the context CWD still `a/c`.
 
-## 4. The equivalence suite — E1 to E12, with a CWD axis
+## 4. The equivalence suite — E1 to E16, with a CWD axis
 
 The issue's expected behaviour. Move `evaluate_both_ways` out of `interpreter.rs`'s
 `#[cfg(test)] mod` into `liquers-core/tests/plan_cwd_freeze.rs`, where Phase 3 specified it,
@@ -367,13 +382,15 @@ included. E2, E3, E4, E5 and E9 need a store, so they run on `SimpleEnvironment<
 an `AsyncMemoryStore` rather than `ImmediateEnvironment`; E7 and E8 need
 `SimpleEnvironmentWithPayload<Value, String>`.
 
-Two shapes are added for §2, both on `SimpleEnvironmentWithPayload`:
+Four shapes are added for §2 — E13/E14 on `SimpleEnvironmentWithPayload`, E15/E16 on a
+store-backed `SimpleEnvironment` with keyed recipes and a call counter:
 
 | # | Shape | Query | Covers |
 |---|---|---|---|
 | E13 | Mid-chain payload | `fetch/personalize/render`, `personalize` declaring `payload: required` | The cut steps back to `fetch`; the boundary query is frozen at that deeper level, not left relative |
 | E14 | Head payload | `personalize/fetch/render` | No boundary is safe; `was_cut` is false and the value matches |
-| E15 | Recipe-level volatility | `fetch/render/out.txt` in a recipe with `volatile: true` | §2b — the predecessor's command runs the same number of times both ways |
+| E15 | Recipe-level volatility | `prefix/tail/out.txt` in a recipe with `volatile: true` | §2 — the prefix runs the same number of times both ways (measured 2 vs 1 without the guard) |
+| E16 | Command-level volatility, mid-chain | `prefix/vol_prefix/tail` | The walk steps back to `prefix`; and the already-equivalent baseline stays equivalent |
 
 ### What "equivalent" means, stated
 
@@ -398,8 +415,10 @@ The `LQ_FORCE_CUT` probe from `analysis.md` is a measurement tool and is not lan
 - `DOC_08_RECIPES_PLANS.md`, "Predecessor boundaries": add the pitfall — *a boundary query
   frozen before the prologue* — beside its sibling *a step-range recorded before a prefix is
   inserted*; both are the same prepended `SetCwd`, one compensated in the count and one in
-  the cursor. Restate the "undeclared payload" row: the cut is now declined rather than made
-  and broken. Add `prologue_steps` to the plan-fields table. `## History` row and `reviewed:`
+  the cursor. Add a row for *a recipe-level flag is not in the query*, with the measured 2 → 1.
+  Keep the "undeclared payload" row as it stands — it is still the rule — and add that a cut
+  is placed at the last cacheable candidate, with an `init_info` naming why any level was
+  passed over. Add `prologue_steps` and `uncuttable` to the plan-fields table. `## History` row and `reviewed:`
   bump in the same commit.
 - `PREDECESSOR-CUT-NOT-YET-EQUIVALENT`: closed by this design; its speculation that the two
   CWD failures came from "a nested keyed recipe re-deriving its own working key" is corrected
