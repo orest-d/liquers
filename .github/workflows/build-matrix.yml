@@ -16,6 +16,7 @@ on:
       - 'liquers-py/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
       - 'scripts/check-build-matrix.sh'
       - '.github/workflows/build-matrix.yml'
   push:
@@ -30,6 +31,7 @@ on:
       - 'liquers-py/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
       - 'scripts/check-build-matrix.sh'
       - '.github/workflows/build-matrix.yml'
   workflow_dispatch:
