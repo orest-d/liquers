@@ -164,13 +164,52 @@ whose closing paragraph currently points at this issue as an open problem. Exten
 Audience: an integration author bridging a language into Liquers, who must be able to type their
 values without reading this design folder.
 
+## An unregistered type stays a hard refusal
+
+A type identifier that is not in the registry is still refused on write, as it is today. The fix is
+that a foreign type *can now be registered*, not that an unregistered one becomes tolerated. The
+pre-`value-type-system` degrade-to-metadata behaviour is not restored: it hid exactly the mistake
+this design makes fixable, and an integration that forgets to register its type should hear about
+it at once rather than discover months of assets carrying an identifier nothing can resolve.
+
+### Realms: in scope to *not* obstruct, out of scope to implement
+
+`js.Value` lives in the browser realm and not in the server realm, and some values are physically
+untransferable — a JavaScript closure cannot be sent to a server at all. In the intended end state
+**both sides hold a complete registry covering both realms**, so either can see that a type exists
+elsewhere, identify the types not supported in every realm, and act on that per realm. The type
+system's job is to make those cases *identifiable*; resolving each one is realm-specific work.
+
+That is `TYPE-REGISTRY-NOT-REALM-AWARE` (P2, `L`, wants its own design), not this one. What this
+design owes it is not to obstruct it:
+
+- `TypeKey { realm, type_identifier }`, `TypeInfo::with_realm` and `get_in_realm` already exist, so
+  a registration made here can name a realm from day one.
+- `TypeInfo` already derives `Serialize`/`Deserialize`, so a realm's descriptions can be
+  transmitted. `TypeRegistry` itself does not — worth adding when sharing is built, as a list of
+  `TypeInfo` (each already carries its realm) rather than a map with a struct key.
+- Accepting a **finished registry** at the environment constructor is the shape that admits this
+  later: a registry assembled from descriptions received over the wire is just another registry.
+  A post-construction registration point would not have been.
+
 ## Open Questions
 
-1. **What happens to an unregistered foreign type after the fix** — still a hard refusal, or a
-   logged degrade to metadata-only? A refusal is the current rule and is honest; a degrade restores
-   pre-`value-type-system` behaviour, which the issue calls a regression.
-2. **How is the static/instance agreement proven?** A `debug_assert`, a test helper every
-   integration calls, or a conformance test in `LANGUAGE-INTEGRATION_GUIDE.md`'s suite.
+**How is the static/instance agreement proven?** The registry is now built before any value exists,
+so an implementation must expose its identifier *without* an instance — a static
+`JsOpaque::type_info()` — while `ForeignValue::identifier(&self)` remains the instance method the
+value path calls. That is one truth with two spellings, and if they ever disagree the value's
+identifier is not the one that was registered: the exact failure this design fixes, reintroduced
+silently by an integration author instead of structurally. Three ways to prevent it:
+
+| | Approach | Cost |
+|---|---|---|
+| a | **One source of truth in the trait.** Mirror the existing `TypeIdentifiedIn<V>` (`const TYPE_IDENTIFIER` + `fn type_info()`) and write the instance method as a one-line delegation. A *default body* deriving one from the other is not available — `ForeignValue` must stay object-safe for `Arc<dyn ForeignValue>`, and a default body is type-checked with `Self: ?Sized`, so it cannot call an associated function. | Divergence is reduced to one line an author could still get wrong |
+| b | **`debug_assert` on the value path**, comparing `value.identifier()` against the registry. | Fires only in debug, and only when the path runs |
+| c | **A conformance test** in `LANGUAGE-INTEGRATION_GUIDE.md`'s suite, which already numbers its checks (`RUNTIME05`, …), invoked per integration on a sample value. | An integration that skips the suite is unprotected |
+
+They compose. Recommendation: **a + c** — make the one-line delegation the documented shape and let
+the conformance suite catch an author who writes it wrong. `b` earns its place only if the
+comparison is free on a path that already reaches the registry.
 
 ## Prerequisite (not an open question)
 

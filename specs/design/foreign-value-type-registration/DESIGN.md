@@ -48,6 +48,13 @@ and passes the finished one to the environment constructor; the `Environment` tr
 and there is no post-construction registration point. Six constructors take the new parameter, all
 additively.
 
+2026-08-26 — An unregistered identifier stays a **hard refusal**; the pre-`value-type-system`
+degrade-to-metadata behaviour is not restored. Realm interaction (both sides holding a registry
+complete for both realms, and identifying types no realm-crossing can carry — a JavaScript closure
+has no transfer at all) is recorded as a forward constraint this design must not obstruct, and
+`TYPE-REGISTRY-NOT-REALM-AWARE` was updated with it. One open question remains: how the static and
+instance spellings of a foreign type's identifier are kept in agreement.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
