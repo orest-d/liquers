@@ -2,7 +2,7 @@
 id: RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES
 kind: issue
 title: Recipe to_plan ignores recipe level volatile and expires
-status: draft
+status: in_progress
 priority: P2
 complexity: S
 area: [core/plan, core/assets]
@@ -57,12 +57,19 @@ self.volatile || self.expires.is_volatile()`, and the recipe expiration combined
 `plan.expires` as the field doc already promises — so that `Plan` is self-describing and a
 consumer needs one source of truth rather than two.
 
-**Not a free change**, which is why it is filed rather than folded into
-`predecessor-cut-equivalence`: `finalize_plan` skips dependency registration for a volatile plan
-(`if !plan.is_volatile { … }`), so folding makes a volatile *recipe* stop registering plan
-dependencies, exactly as a volatile *plan* already does. That is arguably the correct and
-consistent behaviour, but it is a change in blast radius beyond a display fix and wants its own
-verification.
+**Taken into `predecessor-cut-equivalence`** at the author's direction, rather than deferred.
+
+The blast radius that prompted the caution was measured rather than argued: `finalize_plan` skips
+dependency registration for a volatile plan (`if !plan.is_volatile { … }`), so folding makes a
+volatile *recipe* stop registering plan dependencies, exactly as a volatile *plan* already does.
+Applied as a probe, **all 19 `liquers-core` suites and the `liquers-lib --lib --tests` loop stay
+green**. Green is not proof — no existing test asserts a volatile recipe's dependency records, so
+that design's Phase 3 owes one.
+
+The volatile half also feeds that design directly: it contributes
+`Plan::volatility_source = Declared`, the marker that makes a whole-plan volatility declaration
+visible to the predecessor cut. See its `phase2-architecture.md`, §"Folding the recipe's
+declarations into the plan".
 
 ## Discovery
 
