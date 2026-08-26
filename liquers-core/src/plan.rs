@@ -1236,11 +1236,15 @@ impl<'c> PlanBuilder<'c> {
         self
     }
     /// Mark plan as volatile and add explanatory Step::Info
-    fn mark_volatile(&mut self, reason: &str) {
+    fn mark_volatile(&mut self, reason: &str, scope: VolatilitySource) {
         if !self.is_volatile {
             self.is_volatile = true;
             self.plan.init_info(reason.to_string());
         }
+        // Deliberately outside the early-out above. A `Declared` source arriving after the plan
+        // is already volatile must still be recorded, or `vol_cmd/v/tail` looks positional and
+        // gets a boundary cut out of it.
+        self.plan.upgrade_volatility_source(scope);
     }
 
     /// Helper: check if action command is volatile via CommandMetadata
@@ -1321,10 +1325,12 @@ impl<'c> PlanBuilder<'c> {
                 let mut link_pb = PlanBuilder::new(query.clone(), self.command_registry);
                 let link_plan = link_pb.build()?;
                 if link_plan.is_volatile {
-                    self.mark_volatile(&format!(
-                        "Volatile due to link parameter to volatile query: {}",
-                        query
-                    ));
+                    self.mark_volatile(
+                        &format!("Volatile due to link parameter to volatile query: {}", query),
+                        // The link is consumed at one action, so everything ahead of it is
+                        // still pure; the linked query's own scope governs the linked asset.
+                        VolatilitySource::Positional,
+                    );
                 }
                 if link_plan.payload_required.is_required() {
                     self.mark_payload_required(&format!(
@@ -1496,7 +1502,12 @@ impl<'c> PlanBuilder<'c> {
                     &excess.position(),
                 ));
             }
-            self.mark_volatile("Volatile due to instruction 'v'");
+            // `v` is a statement about the whole plan, not about a position in it: it emits no
+            // step, and its position carries no information. Nothing here is cacheable.
+            self.mark_volatile(
+                "Volatile due to instruction 'v'",
+                VolatilitySource::Declared,
+            );
             return Ok(()); // Don't create Step::Action for 'v'
         }
 
@@ -1510,10 +1521,13 @@ impl<'c> PlanBuilder<'c> {
             &command_metadata.name,
         );
         if self.is_action_volatile(&command_key) {
-            self.mark_volatile(&format!(
-                "Volatile due to command '{}/{}/{}'",
-                command_metadata.realm, command_metadata.namespace, command_metadata.name
-            ));
+            self.mark_volatile(
+                &format!(
+                    "Volatile due to command '{}/{}/{}'",
+                    command_metadata.realm, command_metadata.namespace, command_metadata.name
+                ),
+                VolatilitySource::Positional,
+            );
         }
 
         // Check if command requires an evaluation payload
@@ -1833,6 +1847,14 @@ pub struct Plan {
     #[serde(default)]
     pub predecessor_steps: usize,
 
+    /// Where this plan's volatility came from, when it is volatile.
+    ///
+    /// [`VolatilitySource::Declared`] is a statement about the whole plan and appears in no
+    /// candidate boundary's query, so nothing downstream could recover it. It is what
+    /// [`Self::cut_predecessor`] consults before looking for a boundary at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volatility_source: Option<VolatilitySource>,
+
     /// Number of leading [`Self::steps`] that were *not* emitted by the builder for
     /// [`Self::query`] — a recipe's CWD prefix.
     ///
@@ -1842,6 +1864,38 @@ pub struct Plan {
     /// taken against the query's own steps survive the insert.
     #[serde(default)]
     pub prologue_steps: usize,
+}
+
+/// How a plan came to be volatile.
+///
+/// The distinction decides where an evaluation boundary may be placed, so it is data rather
+/// than a diagnostic. A closed set: a new source is a compile error at every match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VolatilitySource {
+    /// A volatile command, or a volatile dependency.
+    ///
+    /// **Positional**: volatility is a property of that command, so everything ahead of it in
+    /// the chain is genuinely pure and a boundary may be cut in front of it.
+    Positional,
+    /// A whole-plan declaration — the `v` instruction, a recipe's `volatile: true`, or a recipe
+    /// expiration that is itself volatile.
+    ///
+    /// **Not positional**: it carries no position and says that nothing here is cacheable, so
+    /// the plan may not be cut at all. A boundary is a cache entry.
+    Declared,
+}
+
+impl VolatilitySource {
+    /// `Declared` outranks `Positional`: a whole-plan declaration is never weakened by a
+    /// command-level one arriving later.
+    fn is_stronger_than(self, other: VolatilitySource) -> bool {
+        match (self, other) {
+            (VolatilitySource::Declared, VolatilitySource::Positional) => true,
+            (VolatilitySource::Declared, VolatilitySource::Declared) => false,
+            (VolatilitySource::Positional, VolatilitySource::Positional) => false,
+            (VolatilitySource::Positional, VolatilitySource::Declared) => false,
+        }
+    }
 }
 
 impl Default for Plan {
@@ -1865,7 +1919,20 @@ impl Plan {
             frozen_cwd: None,
             predecessor: None,
             predecessor_steps: 0,
+            volatility_source: None,
             prologue_steps: 0,
+        }
+    }
+
+    /// Records where this plan's volatility came from, keeping the stronger source.
+    ///
+    /// Called for every contribution rather than only the first, because a
+    /// [`VolatilitySource::Declared`] arriving after a [`VolatilitySource::Positional`] one must
+    /// still win — otherwise `vol_cmd/v/tail` would be recorded as positional and cut.
+    pub(crate) fn upgrade_volatility_source(&mut self, source: VolatilitySource) {
+        match self.volatility_source {
+            Some(current) if !source.is_stronger_than(current) => {}
+            Some(_) | None => self.volatility_source = Some(source),
         }
     }
 
@@ -3336,7 +3403,7 @@ mod tests {
         assert_eq!(builder.plan.init_steps.len(), 0);
 
         // Mark as volatile
-        builder.mark_volatile("Test reason");
+        builder.mark_volatile("Test reason", VolatilitySource::Positional);
 
         // Should be volatile now
         assert!(builder.is_volatile);
@@ -3349,7 +3416,7 @@ mod tests {
         }
 
         // Calling again should not add another Step::Info (idempotency)
-        builder.mark_volatile("Another reason");
+        builder.mark_volatile("Another reason", VolatilitySource::Positional);
         assert_eq!(builder.plan.init_steps.len(), 1);
     }
 
@@ -3395,7 +3462,7 @@ mod tests {
 
         // Test when marked as volatile
         let mut builder2 = PlanBuilder::new(query, &cr);
-        builder2.mark_volatile("Test volatility");
+        builder2.mark_volatile("Test volatility", VolatilitySource::Positional);
         let plan2 = builder2.build().unwrap();
         assert!(plan2.is_volatile);
     }
@@ -3500,7 +3567,7 @@ mod tests {
         assert!(!builder.is_volatile);
 
         // Mark as volatile
-        builder.mark_volatile("test reason");
+        builder.mark_volatile("test reason", VolatilitySource::Positional);
         assert!(builder.is_volatile);
 
         // Build the plan
@@ -4850,6 +4917,103 @@ mod tests {
         }
         let back: Plan = serde_json::from_value(json)?;
         assert_eq!(back.prologue_steps, 0);
+        Ok(())
+    }
+
+    // --- volatility scope (predecessor-cut-equivalence step 2) -----------------------------
+
+    fn scope_registry() -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["prefix", "tail", "render"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+        let mut vol = CommandMetadata::new("vol_cmd");
+        vol.volatile = true;
+        cmr.add_command(&vol);
+        cmr
+    }
+
+    fn source_of(query: &str, cmr: &CommandMetadataRegistry) -> Option<VolatilitySource> {
+        PlanBuilder::new(parse_query(query).unwrap(), cmr)
+            .build()
+            .unwrap()
+            .volatility_source
+    }
+
+    /// A volatile command is positional: everything ahead of it is pure, so a boundary may be
+    /// cut in front of it.
+    #[test]
+    fn a_volatile_command_is_positional() {
+        let cmr = scope_registry();
+        assert_eq!(source_of("prefix/tail", &cmr), None);
+        assert_eq!(
+            source_of("prefix/vol_cmd/tail", &cmr),
+            Some(VolatilitySource::Positional)
+        );
+    }
+
+    /// `v` is a statement about the whole plan, wherever it sits.
+    #[test]
+    fn the_v_instruction_is_declared() {
+        let cmr = scope_registry();
+        for query in ["v/prefix/tail", "prefix/v/tail", "prefix/tail/v"] {
+            assert_eq!(
+                source_of(query, &cmr),
+                Some(VolatilitySource::Declared),
+                "`v` declares whole-plan volatility in {query}"
+            );
+        }
+    }
+
+    /// The trap: `mark_volatile` records its *reason* only when the plan is not already
+    /// volatile. If the scope upgrade sat inside that early-out, a `v` following a volatile
+    /// command would be swallowed, the plan would look positional, and a boundary would be cut
+    /// out of a plan that declares nothing is cacheable.
+    #[test]
+    fn a_declared_source_survives_an_earlier_positional_one() {
+        let cmr = scope_registry();
+        assert_eq!(
+            source_of("vol_cmd/v/tail", &cmr),
+            Some(VolatilitySource::Declared),
+            "`Declared` must outrank a `Positional` source recorded before it"
+        );
+        // ...and the reverse order must not weaken it either.
+        assert_eq!(
+            source_of("v/vol_cmd/tail", &cmr),
+            Some(VolatilitySource::Declared)
+        );
+    }
+
+    /// The flags the placement walk reads are cumulative per prefix and monotone, which is what
+    /// lets the outermost cacheable prefix be identified at all.
+    #[test]
+    fn volatility_is_monotone_along_the_chain() {
+        let cmr = scope_registry();
+        assert!(!PlanBuilder::new(parse_query("prefix").unwrap(), &cmr)
+            .build()
+            .unwrap()
+            .is_volatile);
+        for query in ["prefix/vol_cmd", "prefix/vol_cmd/tail", "prefix/vol_cmd/tail/render"] {
+            assert!(
+                PlanBuilder::new(parse_query(query).unwrap(), &cmr)
+                    .build()
+                    .unwrap()
+                    .is_volatile,
+                "{query} is volatile once vol_cmd is in it"
+            );
+        }
+    }
+
+    /// A plan serialized before the field existed loads with no recorded source.
+    #[test]
+    fn volatility_source_defaults_on_a_legacy_plan() -> Result<(), Box<dyn std::error::Error>> {
+        let plan = Plan::new();
+        let mut json = serde_json::to_value(&plan)?;
+        if let Some(object) = json.as_object_mut() {
+            object.remove("volatility_source");
+        }
+        let back: Plan = serde_json::from_value(json)?;
+        assert_eq!(back.volatility_source, None);
         Ok(())
     }
 }
