@@ -51,6 +51,17 @@ pub async fn finalize_plan<E: Environment>(
     has_volatile_dependencies(envref.clone(), plan, initial_cwd).await?;
     has_expirable_dependencies(envref.clone(), plan).await?;
 
+    // Cut a predecessor boundary at the outermost prefix that can be cached. This is what lets
+    // the asset manager cache, share, expire and schedule an intermediate instead of recomputing
+    // it inside every consumer, and it is why the boundary machinery exists.
+    //
+    // After the analysis passes deliberately: volatility, payload requirement and expiration are
+    // computed over the fully expanded plan, and the cut consults them rather than recomputing
+    // them. After freezing, so the boundary query is absolute and identifies the same asset from
+    // anywhere. Declining is always safe, so anything the cut cannot place is simply left
+    // expanded, with an `init_info` saying why.
+    plan.cut_predecessor(envref.get_command_metadata_registry())?;
+
     if !plan.is_volatile {
         for plan_dep in &plan.dependencies {
             context
@@ -1211,10 +1222,18 @@ mod tests {
             .dependencies
             .iter()
             .any(|dependency| dependency.key.as_str() == "-R/a/c/hello.txt"));
-        // Frozen: the absolute query's own resource resolved against logical root, not against the
-        // recipe CWD. Before freezing this step read `./data` and was resolved afresh by each pass.
+        // Frozen: the absolute query's own resource resolved against logical root, not against
+        // the recipe CWD. Before freezing this step read `./data` and was resolved afresh by
+        // each pass.
+        //
+        // Asserted on an explicitly *un-cut* plan. The step shape depends on the boundary
+        // policy, while what this test is about — an absolute query's resource resolving against
+        // root while a relative link follows the live CWD — does not, and is carried by the
+        // value assertion below under whichever policy is in force.
+        let mut uncut = recipe.to_plan(envref.get_command_metadata_registry())?;
+        uncut.freeze_cwd(context.get_cwd_key())?;
         assert!(matches!(
-            &plan.steps[1],
+            &uncut.steps[1],
             Step::GetAsset(key) if key.encode() == "data"
         ));
 
@@ -1227,7 +1246,7 @@ mod tests {
         );
         // Execution does not mutate the frozen plan.
         assert!(matches!(
-            &plan.steps[1],
+            &uncut.steps[1],
             Step::GetAsset(key) if key.encode() == "data"
         ));
         Ok(())
