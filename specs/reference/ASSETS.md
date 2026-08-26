@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-09
+reviewed: 2026-08-26
 ---
 # Assets Specification
 
@@ -774,6 +774,11 @@ status is legitimate; only *requesting a value* from it is an error:
 - `Status::Cancelled` stores **no** error (`is_error == false`). Value extraction *synthesizes*
   `Error::cancelled(...)` (`ErrorType::Cancelled`, reserved for exactly this).
 
+**Neither status changes the type axis into an error type — there is none.** A failed asset holds no
+value, so its `type_identifier` becomes the *none* type: the type reports what is available, not what
+the asset was going to produce. That is what makes a failed asset storable, as metadata with no
+bytes. See `specs/reference/VALUE_TYPE_SYSTEM.md`, "How a failure is typed".
+
 **Accessors.**
 - `AssetRef::poll_state() -> Option<State>`: `None` iff not finished; otherwise the terminal
   `State` (value- or error/cancelled-bearing).
@@ -844,6 +849,7 @@ re-evaluation is a property of *requesting* the asset, not of awaiting an in-fli
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-26 | Recorded that a failed asset is typed by the value it holds, which is none; there is no `error` type identifier. | `design/foreign-value-type-registration/` |
 | 2026-08-09 | Added §Key ownership and §Volatile assets are never owned to §AssetManager: the non-evaluating `owned_key_asset` contract, and the rule that a volatile asset is never served from either map. | `design/keyed-recipe-ownership` |
 | 2026-08-08 | Added §Status and reads with the `ReadExposure` classification and the read behaviour matrix; added a `read_exposure` column to §Status Properties; amended §Terminal Outcome Contract → Accessors for `get`'s pre-wait expiry check. | `design/expired-binary-read-safety` |
 | 2026-07-17 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

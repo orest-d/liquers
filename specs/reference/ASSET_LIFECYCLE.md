@@ -3,7 +3,7 @@ title: Asset Lifecycle Map
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-11
+reviewed: 2026-08-26
 ---
 # Asset Lifecycle — Comprehensive Map
 
@@ -188,6 +188,7 @@ Entry: `EnvRef::evaluate(query)` → `asset_manager.get_asset(query)` → `get(k
        ├─ data = None, binary = None
        ├─ status = Status::Error
        ├─ metadata.with_error(e)
+       ├─ metadata re-typed as the none type  ← the value was just cleared
        └─ Sends notification: ErrorOccurred(e)
 
 8. finish_run_with_result() [after evaluate_and_store and psm complete]:
@@ -597,6 +598,18 @@ async fn try_to_set_ready(&self) {
 }
 ```
 
+### How a failed asset is typed
+
+`fail_asset` and `fail_due_to_dependency` both clear `data` and `binary`, so the asset holds no
+value. They therefore re-type the metadata as the **none** type (`retype_as_none`), because the type
+axis reports what is *available*, not what the asset was going to produce. There is no `error` type
+identifier: the failure is recorded in `is_error`, `Status::Error` and `error_data`, and the intent
+survives in the query, the key and the filename.
+
+This is what lets a failed asset persist at all — both halves of the type are set, so
+`validate_metadata_hard` accepts it and the asset is stored as metadata with no bytes. See
+`specs/reference/VALUE_TYPE_SYSTEM.md`, "How a failure is typed".
+
 ### Unify evaluate_and_store and evaluate_immediately post-processing
 
 Both should call the same post-evaluation hook:
@@ -647,5 +660,6 @@ pub struct Context<E: Environment> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-26 | The failure routines re-type the metadata as the none type after clearing the value; there is no `error` type identifier. | `design/foreign-value-type-registration/` |
 | 2026-08-11 | Reviewed runtime recipe execution and documented ordered CWD normalization, scoped nested evaluation, resolved dependency/owner identity, and root fallback. | phase-5 |
 | 2026-07-07 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

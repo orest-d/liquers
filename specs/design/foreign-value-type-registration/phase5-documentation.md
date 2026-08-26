@@ -58,7 +58,14 @@ None. The two existing guides had the right homes for it.
 
 ### Existing Documents Reviewed or Updated
 
-`affects_docs`: `VALUE-TYPE-SYSTEM`, `LANGUAGE-INTEGRATION_GUIDE`, `TYPE_SYSTEM_GUIDE`.
+`affects_docs`: `VALUE-TYPE-SYSTEM`, `LANGUAGE-INTEGRATION_GUIDE`, `TYPE_SYSTEM_GUIDE`,
+`ASSET_SET_OPERATION`, `ASSET_LIFECYCLE`, `ASSETS`.
+
+The three asset documents were **discarded** as candidates in Phase 2 and are now kept. That
+decision was made before the error type was removed, when the write path's behaviour genuinely was
+unchanged. Removing the error type changed how a *failed asset* is typed, which is asset-lifecycle
+behaviour, so the candidates had to be reconsidered — and one of them carried a claim that had
+become false.
 
 | Path | Change |
 |---|---|
@@ -66,10 +73,14 @@ None. The two existing guides had the right homes for it.
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | §VALUE's "**Registration is an open problem**" replaced by the procedure, with the four traps that cost time: extend don't replace, register where the rebuild path goes, declare no formats while `as_bytes` refuses, test the constant against the instance |
 | `specs/guides/TYPE_SYSTEM_GUIDE.md` | §2 gains the cardinality rule and the absence of an error identifier; §4 records where step 4 moves for an integration-owned type |
 | `CLAUDE.md` | "Adding a Value Type" notes the cardinality rule and the integration-owned case |
+| `specs/reference/VALUE_TYPE_SYSTEM.md` | A dedicated "How a failure is typed" section: an error is a metadata property, the value is none, the identifier reports what is available rather than what was intended, and why a failed asset is storable at all |
+| `specs/reference/ASSET_SET_OPERATION.md` | **Corrected a false claim** — the format-check exemption said an error state's format "contradicts its `error` identifier" |
+| `specs/reference/ASSET_LIFECYCLE.md` | The failure routines re-type the metadata as the none type after clearing the value; a new subsection on how a failed asset is typed |
+| `specs/reference/ASSETS.md` | The typing fact beside the existing `Error`/`Cancelled` status explanation |
 
-Discarded candidates, per §9: `ASSETS.md` and `ASSET_LIFECYCLE.md` (the write path's behaviour is
-unchanged — only which identifiers pass it), `WEB_API_SPECIFICATION.md` (no endpoint change),
-`PROJECT_OVERVIEW.md` (no core concept changed; Query/Key encoding untouched).
+Discarded candidates, per §9: `WEB_API_SPECIFICATION.md` (no endpoint change), `PROJECT_OVERVIEW.md`
+(no core concept changed; Query/Key encoding untouched), `DEPENDENCIES_STATUS.md` (mentions error
+statuses but makes no claim about typing).
 
 ### Links and Capability Map
 
@@ -79,8 +90,12 @@ issue is replaced by a pointer to the reference section and to the executable ex
 
 ## Issues Filed
 
-**None outstanding.** `ERROR-STATE-FROM-ERROR-NOT-STORABLE` was filed during step 6 and then
-**deleted**: it described a symptom of the error type existing, and removing that type dissolved it.
+`PY-VALUE-SERIALIZER-IS-A-STUB` (P2) — filed from a Codex review finding on PR #42: `liquers-py`'s
+`as_bytes` writes `txt`/`html` for eight of sixteen variants and `deserialize_from_bytes` reads
+nothing at all, so no Python value round-trips through a store. The registry declarations were
+corrected in this PR to describe only what the codec accepts; the codec gap is that issue.
+
+`ERROR-STATE-FROM-ERROR-NOT-STORABLE` was filed during step 6 and then **deleted**: it described a symptom of the error type existing, and removing that type dissolved it.
 Three issues closed: `FOREIGN-VALUE-TYPES-NOT-REGISTERED`, `PY-VALUE-TYPE-DESCRIPTIONS-MISSING`,
 `WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH`. `PY-MODULES-NOT-DECLARED-IN-LIB` stays open, annotated
 with the two modules now declared and the testability change.
@@ -137,4 +152,5 @@ Nothing is deferred without an issue, and no partial-design status is required.
 | `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` | green (16 targets, 141 tests) |
 | `bash scripts/check-build-matrix.sh` | 11/11 |
 | `cargo test -p liquers-lib --test registry_export` | green; `specs/command_registry.yaml` unchanged |
-| `python3 scripts/docs_index.py` | regenerated; `specs/README.md` and `index.csv` current |
+| `python3 scripts/docs_index.py --check` | 160 documents, **0 errors** |
+| CI on PR [#42](https://github.com/orest-d/liquers/pull/42) | both checks green, `mergeable_state: clean` |

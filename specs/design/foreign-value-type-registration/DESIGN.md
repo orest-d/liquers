@@ -3,12 +3,12 @@ id: FOREIGN-VALUE-TYPE-REGISTRATION
 kind: design
 title: Foreign and Python value types in the type registry
 workflow: liquers-project
-# No `status:` — `gh_pr` is set, so the implementation-related status is GitHub's to derive (§5.5).
-phase: documentation
+# No `status:` — `gh_pr` is set, so the status is GitHub's to derive (§5.5). With every phase now
+# done, `--sync` proposes `complete` once PR #42 merges.
 area: [core/value, lib/value, web, py]
 gh_pr: [42]
 issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING, WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH]
-affects_docs: [VALUE-TYPE-SYSTEM, LANGUAGE-INTEGRATION_GUIDE, TYPE_SYSTEM_GUIDE]
+affects_docs: [VALUE-TYPE-SYSTEM, LANGUAGE-INTEGRATION_GUIDE, TYPE_SYSTEM_GUIDE, ASSET_SET_OPERATION, ASSET_LIFECYCLE, ASSETS]
 created: 2026-08-26
 superseded_by:
 ---
@@ -22,7 +22,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (in review)
-- [x] Phase 5: Documentation (in review)
+- [x] Phase 5: Documentation
 - [x] Implementation Complete (steps 1-9; Phase 5 outstanding)
 
 ## Notes
@@ -122,7 +122,19 @@ updated — four of them written earlier in this branch. This dissolved
 of the error type, and the one-line fix would have entrenched it.
 
 2026-08-26 — Phase 5 written. Reference and both guides updated, `CLAUDE.md` amended, three issues
-closed, `PY-MODULES-NOT-DECLARED-IN-LIB` annotated. No new issue outstanding.
+closed, `PY-MODULES-NOT-DECLARED-IN-LIB` annotated.
+
+2026-08-26 — Codex review on PR #42 found two real defects, both fixed in `93bed89`: the
+`From<Result<State, Error>>` conversion skipped the type sync (invisible until the error type was
+removed), and `liquers-py` declared data formats its serializer cannot produce. Filed
+`PY-VALUE-SERIALIZER-IS-A-STUB`. Both threads answered and resolved; CI green.
+
+2026-08-26 — **Phase 5 approved.** Error behaviour documented across the type-system and asset
+references on the user's direction: `VALUE_TYPE_SYSTEM.md` gains a "How a failure is typed"
+section, and the three asset documents discarded as candidates in Phase 2 are now in
+`affects_docs` — that decision predated the error-type removal, and `ASSET_SET_OPERATION.md`
+carried a claim that had become false. Every phase is done; `status` stays derived, so `--sync`
+proposes `complete` when PR #42 merges.
 
 ## Links
 

@@ -83,15 +83,7 @@ Integration-owned, registered at environment construction rather than described 
 `js.Value` (`liquers-web`). `liquers-py`'s value type mirrors the core identifiers and adds
 `py.Object`.
 
-**There is no `error` identifier**, and deliberately so. The type axis says what a value *is*, and
-"failed" is not something a value can be — an errored state holds `V::none()`, so it reports the
-none type like any other state holding none. The failure is recorded on the metadata instead
-(`is_error`, `Status::Error`, `error_data`), which is where every consumer already reads it from:
-nothing dispatches on a type identifier to decide whether a state failed.
-
-The consequence for a reader of stored metadata is worth stating plainly: **the type identifier
-reports what is available, not what was intended.** A failed `report.csv` is typed `None` rather
-than `Image` or `error`; what it was going to be survives in the query, the key and the filename.
+**There is no `error` identifier.** See "How a failure is typed" below.
 
 ### Registering a type an integration owns
 
@@ -132,6 +124,40 @@ Python objects in `Value::Py`, a variant of a value type it owns, so `py.Object`
 `type_descriptions()` and no constructor is involved.
 
 See `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE for the procedure.
+
+### How a failure is typed
+
+**An error is not a type. It is a property of the metadata, and the value is none.**
+
+The type axis says what a value *is*, and "failed" is not something a value can be. An errored state
+holds `V::none()`, so it reports the none type — `None` — exactly like any other state holding none.
+The failure is recorded beside it:
+
+| Fact | Where it lives |
+|---|---|
+| That this state failed | `MetadataRecord.is_error`, and `Status::Error` |
+| What went wrong | `MetadataRecord.error_data`, a serializable `Error` that survives persistence |
+| What type is present | `type_identifier` / `type_name` — the *none* type, because that is what is there |
+| What was being produced | The query, the key, and the filename, all unchanged |
+
+**The identifier reports what is available, not what was intended.** A `report.csv` that failed to
+build is typed `None`, not `Image` and not `error`. This is the rule to remember when reading stored
+metadata: to learn what an asset was *going to* be, read its query or its filename, not its type.
+
+Nothing dispatches on a type identifier to decide whether a state failed — every consumer reads
+`is_error` or `Status::Error` — so the type axis carries no information about failure and is free to
+describe the value honestly.
+
+**A failed asset is storable, as metadata with no bytes.** Both halves of the type are set from the
+value (`State::sync_metadata_with_value`), so it passes the required-field check; the *format* check
+is exempt for an error state, because an errored asset keeps the intended output's filename and its
+effective format therefore describes something that is no longer there.
+
+This was not always so. `value-type-system` gave errors a registered `error` identifier, which
+`Metadata::with_error` wrote into the metadata. Because nothing then set `type_name`, an errored
+state reached the store with an empty one and the write path refused it — `State::from_error` could
+not be stored at all. Removing the error type removed the whole class of problem rather than
+patching it.
 
 ## The encoding axis
 

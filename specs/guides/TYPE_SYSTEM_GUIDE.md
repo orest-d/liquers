@@ -54,8 +54,9 @@ instance goes in `type_name`, which is informational and never dispatched on. If
 wanting two identifiers for one variant — or one identifier covering a family — the variant is
 probably wrong, not the naming rule.
 
-There is no `error` identifier and there is nothing to add for failure: an errored state holds
-`V::none()` and is typed accordingly, with the failure recorded in the metadata.
+There is no `error` identifier, and a new type needs nothing for failure: an errored state holds
+`V::none()` and is typed accordingly, with the failure recorded in the metadata. See
+`specs/reference/VALUE_TYPE_SYSTEM.md`, "How a failure is typed".
 
 ### 3. Add the arms
 
