@@ -2077,43 +2077,117 @@ impl Plan {
         Ok(())
     }
 
-    /// Replaces the leading [`Self::predecessor_steps`] with a single [`Step::Evaluate`] boundary,
-    /// so the predecessor becomes its own cached, independently schedulable asset.
+    /// Cuts a predecessor boundary at the last candidate prefix that can be **cached**.
     ///
-    /// Any [`Step::SetCwd`] among those steps is kept in place: it is provenance the boundary query
-    /// cannot carry, and after freezing it has no effect on operands anyway.
+    /// A boundary is a cache entry: the prefix becomes an asset in its own right, so it can be
+    /// shared between consumers, expire on its own schedule and be scheduled alongside its
+    /// siblings. Two things make a candidate uncacheable, and the walk steps back past both:
+    ///
+    /// - its plan **requires a payload** — a payload is deliberately not part of a cache key,
+    ///   so a value computed from one must never end up behind a boundary;
+    /// - its plan is **volatile** — a boundary that is recomputed every time buys none of the
+    ///   three things a boundary exists for, and costs an extra asset and an extra hop.
+    ///
+    /// Whole-plan volatility ([`VolatilitySource::Declared`] — the `v` instruction, a recipe's
+    /// `volatile: true`) is checked first and declines outright: it says nothing here is
+    /// cacheable, and it appears in no candidate's query, so the walk could not see it.
     ///
     /// Requires a frozen plan — cutting an unfrozen one would produce a CWD-dependent boundary
-    /// query, which is exactly the defect this design removes. Returns `false` when there is no
-    /// predecessor to cut.
+    /// query, which is the defect freezing exists to remove. Each candidate found by stepping
+    /// back is built fresh from source and so is frozen here in turn, against the working key
+    /// the plan's own steps begin under.
     ///
     /// Volatility, payload requirement, expiration and dependencies are deliberately **not**
     /// recomputed: they were computed over the fully expanded plan, which is why the cut happens
-    /// here rather than during building.
-    pub fn cut_predecessor(&mut self) -> Result<bool, Error> {
+    /// here rather than during building. Every level passed over, and the decline, appends a
+    /// planning [`Step::Info`], so a declined cut is distinguishable from a plan that had no
+    /// predecessor.
+    ///
+    /// Returns `false` when no boundary was cut.
+    pub fn cut_predecessor(&mut self, cmr: &CommandMetadataRegistry) -> Result<bool, Error> {
         if self.frozen_cwd.is_none() {
             return Err(Error::general_error(
                 "Plan must be frozen before its predecessor can be cut".to_string(),
             )
             .with_query(&self.query));
         }
-        let Some(predecessor) = self.predecessor.clone() else {
+        if self.volatility_source == Some(VolatilitySource::Declared) {
+            self.init_info(
+                "Predecessor boundary not cut: the plan is declared volatile, so none of it \
+                 may be cached"
+                    .to_string(),
+            );
+            return Ok(false);
+        }
+        let Some(recorded) = self.predecessor.clone() else {
             return Ok(false);
         };
-        if self.predecessor_steps == 0 || self.predecessor_steps > self.steps.len() {
+        // `>=` rather than `>`: equality leaves an empty tail, which is the whole plan replaced
+        // by a boundary that recomputes it. Unreachable while `v` declines above, and pinned
+        // anyway because a positional `v` would reopen it.
+        if self.predecessor_steps == 0 || self.predecessor_steps >= self.steps.len() {
             return Ok(false);
         }
 
-        let tail = self.steps.split_off(self.predecessor_steps);
+        // The working key the query's own steps begin under. Built once; each candidate is
+        // frozen against a fresh clone, because freezing advances a cursor.
+        let mut base = CwdCursor::new(self.frozen_cwd.clone());
+        for step in self.steps.iter().take(self.prologue_steps) {
+            if let Step::SetCwd(key) = step {
+                base.set_cwd_from(key);
+            }
+        }
+
+        // Walk back while the candidate cannot be cached. `boundary` and `cut_at` are owned
+        // rather than borrowed from `self`, because `init_info` needs `&mut self`.
+        let mut boundary = recorded;
+        let mut cut_at = self.predecessor_steps;
+        loop {
+            let mut candidate = PlanBuilder::new(boundary.clone(), cmr)
+                .with_placeholders_allowed()
+                .build()?;
+            if candidate.steps.len() != cut_at.saturating_sub(self.prologue_steps) {
+                // A recorded range that no longer matches what the query builds would split in
+                // the wrong place; decline rather than risk running an action twice.
+                return Ok(false);
+            }
+            let reason = if candidate.payload_required.is_required() {
+                "requires an evaluation payload"
+            } else if candidate.is_volatile {
+                "is volatile"
+            } else {
+                break;
+            };
+            self.init_info(format!(
+                "Predecessor boundary expanded at '{}': it {}",
+                boundary.encode(),
+                reason
+            ));
+            // Built fresh from source, so its own predecessor is still CWD-relative.
+            let mut scoped = base.clone();
+            candidate.freeze_cwd_with(&mut scoped)?;
+            let Some(inner) = candidate.predecessor.clone() else {
+                return Ok(false);
+            };
+            cut_at = self.prologue_steps + candidate.predecessor_steps;
+            if cut_at == 0 {
+                return Ok(false);
+            }
+            boundary = inner;
+        }
+
+        let tail = self.steps.split_off(cut_at);
         let mut head: Vec<Step> = self
             .steps
             .drain(..)
             .filter(|step| matches!(step, Step::SetCwd(_)))
             .collect();
-        head.push(Step::Evaluate(predecessor));
+        head.push(Step::Evaluate(boundary));
         self.predecessor_steps = head.len();
+        self.prologue_steps = self.prologue_steps.min(head.len());
         head.extend(tail);
         self.steps = head;
+        self.check_consistent()?;
         Ok(true)
     }
 
@@ -5208,6 +5282,153 @@ mod tests {
             .check_consistent()
             .expect_err("a prologue longer than the plan is inconsistent");
         assert!(error.message.contains("prologue"), "{}", error.message);
+        Ok(())
+    }
+
+    // --- the placement walk (predecessor-cut-equivalence step 6) ----------------------------
+
+    fn walk_registry() -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["fetch", "expensive", "render", "tail"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+        let mut pay = CommandMetadata::new("personalize");
+        pay.payload_required = PayloadRequirement::Required;
+        pay.volatile = true; // register_command! sets both together; mirror it
+        cmr.add_command(&pay);
+        let mut vol = CommandMetadata::new("vol_step");
+        vol.volatile = true;
+        cmr.add_command(&vol);
+        cmr
+    }
+
+    fn cut_of(query: &str, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
+        let mut plan = PlanBuilder::new(parse_query(query)?, cmr).build()?;
+        plan.freeze_cwd(None)?;
+        plan.cut_predecessor(cmr)?;
+        Ok(plan)
+    }
+
+    fn boundary_of(plan: &Plan) -> Option<String> {
+        plan.steps.iter().find_map(|step| match step {
+            Step::Evaluate(query) => Some(query.encode()),
+            _other => None,
+        })
+    }
+
+    /// The base case: nothing is in the way, so the boundary is the whole recorded predecessor.
+    #[test]
+    fn the_walk_cuts_the_outermost_candidate() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/expensive/render", &cmr)?;
+        assert_eq!(boundary_of(&plan).as_deref(), Some("fetch/expensive"));
+        Ok(())
+    }
+
+    /// A payload-requiring candidate cannot be a cache entry, so the walk steps back past it
+    /// and says so.
+    #[test]
+    fn the_walk_steps_back_past_a_payload() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/personalize/render", &cmr)?;
+        assert_eq!(
+            boundary_of(&plan).as_deref(),
+            Some("fetch"),
+            "the boundary lands in front of the payload, not across it"
+        );
+        assert!(
+            plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+                if m.contains("fetch/personalize") && m.contains("payload"))),
+            "the reason is recorded: {:?}",
+            plan.init_steps
+        );
+        Ok(())
+    }
+
+    /// Volatility is the same predicate on the same candidate plan.
+    #[test]
+    fn the_walk_steps_back_past_a_volatile_candidate(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/vol_step/render", &cmr)?;
+        assert_eq!(boundary_of(&plan).as_deref(), Some("fetch"));
+        Ok(())
+    }
+
+    /// When the obstacle reaches the head, no boundary at any position is safe.
+    #[test]
+    fn no_cut_when_the_obstacle_reaches_the_head(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("personalize/fetch/render", &cmr)?;
+        assert_eq!(boundary_of(&plan), None, "nothing cacheable to cut");
+        Ok(())
+    }
+
+    /// Whole-plan volatility declines before the walk starts: it appears in no candidate query,
+    /// so the walk could not see it, and it says nothing here is cacheable.
+    #[test]
+    fn declared_volatility_declines_before_the_walk(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        for query in ["fetch/v/expensive/render", "fetch/expensive/render/v"] {
+            let plan = cut_of(query, &cmr)?;
+            assert_eq!(boundary_of(&plan), None, "no boundary in {query}");
+            assert!(
+                plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+                    if m.contains("declared volatile"))),
+                "the decline is recorded for {query}"
+            );
+        }
+        Ok(())
+    }
+
+    /// A trailing filename is not an action, so the candidate that would swallow the last real
+    /// action is never chosen: the parent keeps an action to carry a recipe's overrides.
+    #[test]
+    fn a_filename_candidate_is_not_chosen() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let plan = cut_of("fetch/expensive/render/out.txt", &cmr)?;
+        assert_eq!(boundary_of(&plan).as_deref(), Some("fetch/expensive"));
+        assert!(matches!(plan.steps.last(), Some(Step::Filename(_))));
+        assert_eq!(
+            plan.steps
+                .iter()
+                .filter(|step| matches!(step, Step::Action { .. }))
+                .count(),
+            1,
+            "the last action stays in the parent: {:?}",
+            plan.steps
+        );
+        Ok(())
+    }
+
+    /// A boundary covering every step leaves the parent empty — the whole plan replaced by
+    /// something that recomputes it. Declined, and pinned independently of the `Declared` rule
+    /// because a positional `v` would reopen the case.
+    #[test]
+    fn a_whole_plan_cut_is_declined() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let mut plan = PlanBuilder::new(parse_query("fetch/tail")?, &cmr).build()?;
+        plan.freeze_cwd(None)?;
+        // Force the degenerate shape the `>=` guard exists for.
+        plan.predecessor_steps = plan.steps.len();
+        assert!(!plan.cut_predecessor(&cmr)?, "an empty tail is not a cut");
+        assert_eq!(boundary_of(&plan), None);
+        Ok(())
+    }
+
+    /// A recorded range that no longer matches what the query builds would split in the wrong
+    /// place, so the cut declines rather than risking a duplicated action.
+    #[test]
+    fn a_stale_range_declines_rather_than_mis_splitting(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = walk_registry();
+        let mut plan = PlanBuilder::new(parse_query("fetch/expensive/render")?, &cmr).build()?;
+        plan.freeze_cwd(None)?;
+        plan.predecessor_steps = 1; // claims `fetch/expensive` is one step; it is two
+        assert!(!plan.cut_predecessor(&cmr)?);
+        assert_eq!(boundary_of(&plan), None);
         Ok(())
     }
 }

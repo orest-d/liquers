@@ -2123,7 +2123,9 @@ mod tests {
         }
 
         let mut cut = plan.clone();
-        let was_cut = cut.cut_predecessor().unwrap_or(false);
+        let was_cut = cut
+            .cut_predecessor(envref.get_command_metadata_registry())
+            .unwrap_or(false);
 
         let run = |plan: Plan, context: Context<ImmediateEnvironment<Value>>| {
             let envref = envref.clone();
@@ -2199,7 +2201,7 @@ mod tests {
         let mut plan = recipe.to_plan(cmr)?;
         let context = immediate_context(envref.clone(), None).await;
         finalize_plan(envref.clone(), &mut plan, &context).await?;
-        plan.cut_predecessor()?;
+        plan.cut_predecessor(envref.get_command_metadata_registry())?;
 
         assert!(
             matches!(plan.steps.last(), Some(Step::Filename(_))),

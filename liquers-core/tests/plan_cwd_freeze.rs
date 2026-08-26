@@ -115,18 +115,25 @@ async fn root_fallback_is_reported_only_when_used() -> Result<(), Box<dyn std::e
 /// still depended on a working key, which is the defect freezing removes.
 #[tokio::test]
 async fn cut_requires_a_frozen_plan() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env()?;
+    let cmr = envref.get_command_metadata_registry();
     let mut plan = Plan::new();
-    plan.steps = vec![Step::GetAsset(parse_key("a/b/x.csv")?)];
+    // A real tail: a boundary covering every step would leave the parent empty, which
+    // `cut_predecessor` declines. See `a_whole_plan_cut_is_declined`.
+    plan.steps = vec![
+        Step::GetAsset(parse_key("a/b/x.csv")?),
+        Step::Info("tail".to_owned()),
+    ];
     plan.predecessor = Some(parse_query("-R/a/b/x.csv")?);
     plan.predecessor_steps = 1;
 
     let error = plan
-        .cut_predecessor()
+        .cut_predecessor(cmr)
         .expect_err("cutting an unfrozen plan is a caller error");
     assert!(error.message.contains("frozen"), "{error}");
 
     plan.freeze_cwd(Some(Key::new()))?;
-    assert!(plan.cut_predecessor()?);
+    assert!(plan.cut_predecessor(cmr)?);
     assert!(matches!(plan.steps.first(), Some(Step::Evaluate(_))));
     Ok(())
 }
