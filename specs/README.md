@@ -182,7 +182,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
+| [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `predecessor-cut-equivalence` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -199,6 +199,7 @@ deliberately folded behind a broader line.
 - design `foreign-value-type-registration`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
+- design `predecessor-cut-equivalence`
 - design `store-key-guard`
 - design `value-type-system`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`

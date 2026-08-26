@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: M
 area: [core/plan, core/assets]
-design: plan-cwd-freeze
+design: predecessor-cut-equivalence
 created: 2026-08-15
 github:
 ---
@@ -38,6 +38,31 @@ rather than analysis:
   the three `expiration_integration` divergences.
 - A dependency's error was replaced by "did not produce a value", so a boundary hid the diagnosis.
   Fixed by chaining the cause.
+
+## Update, 2026-08-26 (`predecessor-cut-equivalence`)
+
+Re-measured at `d1bd02e` and root-caused. The four divergences come from three causes, and
+only one of them is a defect:
+
+- **The two `recipe_cwd_resolution` failures are one bug**, and it is not the nested keyed
+  recipe this issue guessed at. `Plan::freeze_cwd_with` resolves the recorded predecessor
+  query from the cursor's *entry* state, but `Recipe::to_plan` prepends a `Step::SetCwd` for
+  `recipe.cwd` that the builder never emitted. The step count is compensated
+  (`predecessor_steps += 1`); the cursor is not. So the boundary query — the only thing a cut
+  carries — is frozen one CWD short, and every relative operand in it loses its folder
+  prefix. Fix verified: `Plan::prologue_steps`, advanced over before the predecessor is
+  resolved. Both failures pass; `liquers-core` stays green with the cut off, and
+  `liquers-lib --lib --tests` is green with it on.
+- **The `injection` failure is sound behaviour.** A cut boundary is a cache entry and a
+  payload is not part of a cache key, so forwarding one into an ordinarily-cached boundary
+  would let the first caller's payload decide the value every later caller reads. The
+  resolution is to decline the cut, not to make it and break it.
+- **The `--lib` failure is a test asserting the expanded shape**, as this issue already said.
+  Measured: with those two shape assertions relaxed, the test passes under the cut with the
+  same value and the same context CWD.
+
+Design: `specs/design/predecessor-cut-equivalence/`. Two issues filed in passing:
+`INJECTED-PARAMETER-DOES-NOT-IMPLY-PAYLOAD-REQUIREMENT`, `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
 
 ## Impact
 
