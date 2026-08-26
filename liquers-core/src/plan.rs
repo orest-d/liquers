@@ -1832,6 +1832,16 @@ pub struct Plan {
     /// Number of leading [`Self::steps`] emitted for [`Self::predecessor`].
     #[serde(default)]
     pub predecessor_steps: usize,
+
+    /// Number of leading [`Self::steps`] that were *not* emitted by the builder for
+    /// [`Self::query`] — a recipe's CWD prefix.
+    ///
+    /// [`crate::recipes::Recipe::to_plan`] inserts a [`Step::SetCwd`] at index 0 after building,
+    /// which shifts every step the builder emitted. Recording how many such steps there are makes
+    /// the prefix a fact rather than something each consumer infers for itself, and lets an index
+    /// taken against the query's own steps survive the insert.
+    #[serde(default)]
+    pub prologue_steps: usize,
 }
 
 impl Default for Plan {
@@ -1855,6 +1865,7 @@ impl Plan {
             frozen_cwd: None,
             predecessor: None,
             predecessor_steps: 0,
+            prologue_steps: 0,
         }
     }
 
@@ -1908,9 +1919,17 @@ impl Plan {
         let absolute_resource_step = self.absolute_query_resource_step_index();
         let mut root_cursor = CwdCursor::new(Some(Key::new()));
 
-        // The predecessor is the leading steps, so it resolves from the entry state of this walk.
+        // The predecessor is the leading steps, so it resolves from the entry state of this
+        // walk — *after* any prologue. A recipe's `SetCwd` prefix is not part of `query`, so the
+        // cursor has to be advanced over it first: leaving it out freezes the boundary query one
+        // CWD short, and every relative operand inside it silently loses its folder.
         if let Some(predecessor) = &mut self.predecessor {
             let mut scoped = cursor.clone();
+            for step in self.steps.iter().take(self.prologue_steps) {
+                if let Step::SetCwd(key) = step {
+                    scoped.set_cwd_from(key);
+                }
+            }
             *predecessor = scoped.resolve_query_scoped(predecessor);
         }
 
@@ -4758,5 +4777,79 @@ mod tests {
         Ok(())
     }
 
-}
 
+    // --- prologue and freezing (predecessor-cut-equivalence step 1) ------------------------
+
+    fn prologue_registry() -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["identity", "tail"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+        cmr
+    }
+
+    /// The recorded predecessor is frozen against the CWD its own steps start under, not the
+    /// entry CWD. `Recipe::to_plan` prepends a `SetCwd` the builder never emitted; the step count
+    /// is compensated, and before `prologue_steps` the cursor was not — so the boundary query,
+    /// which is the only thing a cut carries, froze one CWD short.
+    ///
+    /// Fails without the prologue walk in `freeze_cwd_with`, with no cut involved: the defect is
+    /// in freezing.
+    #[test]
+    fn freeze_resolves_predecessor_after_the_recipe_prologue(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = prologue_registry();
+        let mut recipe = Recipe::new(
+            "-R/./input.txt/-/identity/tail/out.txt".to_owned(),
+            String::new(),
+            String::new(),
+        )?;
+        recipe.cwd = Some("a/c".to_owned());
+        let mut plan = recipe.to_plan(&cmr)?;
+
+        assert_eq!(plan.prologue_steps, 1, "the recipe CWD prefix is one step");
+        plan.freeze_cwd(None)?;
+
+        let recorded = plan.predecessor.as_ref().expect("a predecessor was recorded");
+        assert_eq!(
+            recorded.encode(),
+            "-R/a/c/input.txt/-/identity",
+            "the boundary query must carry the recipe CWD, not logical root"
+        );
+        Ok(())
+    }
+
+    /// Without a prologue the predecessor resolves from the entry cursor, unchanged.
+    #[test]
+    fn freeze_leaves_predecessor_alone_without_a_prologue(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = prologue_registry();
+        let recipe = Recipe::new(
+            "-R/./input.txt/-/identity/tail".to_owned(),
+            String::new(),
+            String::new(),
+        )?;
+        let mut plan = recipe.to_plan(&cmr)?;
+        assert_eq!(plan.prologue_steps, 0);
+
+        plan.freeze_cwd(Some(crate::parse::parse_key("proj/x")?))?;
+        assert_eq!(
+            plan.predecessor.as_ref().map(|q| q.encode()).as_deref(),
+            Some("-R/proj/x/input.txt/-/identity")
+        );
+        Ok(())
+    }
+
+    /// A plan serialized before `prologue_steps` existed loads at the pre-change value.
+    #[test]
+    fn prologue_steps_defaults_on_a_legacy_plan() -> Result<(), Box<dyn std::error::Error>> {
+        let plan = Plan::new();
+        let mut json = serde_json::to_value(&plan)?;
+        if let Some(object) = json.as_object_mut() {
+            object.remove("prologue_steps");
+        }
+        let back: Plan = serde_json::from_value(json)?;
+        assert_eq!(back.prologue_steps, 0);
+        Ok(())
+    }
+}

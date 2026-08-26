@@ -243,6 +243,9 @@ impl Recipe {
             if plan.predecessor.is_some() {
                 plan.predecessor_steps += 1;
             }
+            // Not emitted by the builder for the query, so freezing must advance over it before
+            // resolving the recorded predecessor.
+            plan.prologue_steps += 1;
             plan.init_info(format!("Recipe set CWD to '{}'", cwd.encode()));
         }
 
