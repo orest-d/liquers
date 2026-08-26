@@ -72,7 +72,6 @@ EXPIRATION-INTEGRATION-SUITE-REPAIR,design,expiration-integration-suite-failing-
 EXPIRED-BINARY-READ-SAFETY,design,Expired-safe binary reads,,github,implementation,,,core/assets;core/store,,22,,expired-binary-read-safety,,2026-08-08,specs/design/expired-binary-read-safety/DESIGN.md
 FOREIGN-VALUE-TYPE-REGISTRATION,design,Foreign and Python value types in the type registry,,github,,,,core/value;lib/value;web;py,,42,,foreign-value-type-registration,,2026-08-26,specs/design/foreign-value-type-registration/DESIGN.md
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
-PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observably equivalent to expanding it,,github,documentation,,,core/plan;core/assets;core/context,,43,,predecessor-cut-equivalence,,2026-08-26,specs/design/predecessor-cut-equivalence/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
@@ -153,6 +152,7 @@ METADATA-CONSISTENCY,design,Metadata format and type consistency,superseded,loca
 PARAMETER-ENTITY-ESCAPING,design,Parameter entity escaping (numeric and named tilde entities),complete,local,,,,core/query,,34,,parameter-entity-escaping,,2026-08-14,specs/design/parameter-entity-escaping/DESIGN.md
 PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
 PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,,,,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
+PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observably equivalent to expanding it,complete,local,,,,core/plan;core/assets;core/context,,43,,predecessor-cut-equivalence,,2026-08-26,specs/design/predecessor-cut-equivalence/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md

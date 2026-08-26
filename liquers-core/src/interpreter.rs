@@ -32,11 +32,19 @@ use crate::{
 /// - Registers dependency edges in the `DependencyManager` for keyed plans.
 /// - Freezes every CWD-relative operand.
 ///
-/// This yields the **expanded** plan: every step inline, no `Step::Evaluate` boundary. That is
-/// the form analysis wants — and the reference the equivalence suite compares a cut plan
-/// against, which is why it exists separately rather than being a flag on
-/// [`finalize_plan`]. An oracle derived from the cutting path could not detect the cutting path
-/// regressing.
+/// This yields the **expanded** plan: every step inline, no `Step::Evaluate` boundary.
+///
+/// Three ways to obtain one, of which this is the second:
+///
+/// 1. **Apply to a state.** [`finalize_plan`] expands automatically when given a non-empty
+///    input state, because a stateful application requires it. The normal path.
+/// 2. **Ask for it** — this function. Use it when the plan is for *reading* rather than
+///    executing (explanation, analysis, a diff of what a query means), and when a comparison
+///    must not be derived from the cutting path: an oracle built from that path cannot detect
+///    that path regressing, which is why this exists rather than a flag on [`finalize_plan`].
+/// 3. **Do not finalize at all.** [`PlanBuilder::build`](crate::plan::PlanBuilder::build) always
+///    expands; the cut is a later pass. `liquers-validate` relies on this, so query validation
+///    shows the expanded form whatever the evaluation default is.
 ///
 /// The supplied plan must be fresh and unfinalized. Callers needing another entry CWD must
 /// rebuild from the source query or recipe rather than finalizing the same plan twice.
@@ -81,16 +89,29 @@ pub async fn finalize_plan_expanded<E: Environment>(
 /// lets the asset manager cache, share, expire and schedule an intermediate instead of
 /// recomputing it inside every consumer.
 ///
-/// `input_state` is required because it decides one of the soundness conditions, and only the
-/// caller knows it. **A boundary is a cache entry keyed by its query, and an input state is not
-/// part of that key** — so a prefix fed by a caller's state must not be moved behind one, for
-/// exactly the reason a payload must not be. Applying `wrap/wrap` to `"x"` with the prefix cut
-/// away yields `[[None]]` rather than `[[x]]`: the boundary is evaluated as its own asset,
-/// which starts from `State::new()`.
+/// Everything follows from one fact: **a boundary is a cache entry, keyed by its query.**
+/// Anything feeding the prefix that is not part of that key makes the entry unsound; anything
+/// that makes the entry worthless makes the boundary pointless. There are exactly three such
+/// conditions, and they differ in where the answer lives:
 ///
-/// So the cut is skipped whenever `input_state` carries a value. The other conditions —
-/// payload requirements and volatility — are visible in the plan itself and are handled by
-/// [`Plan::cut_predecessor`].
+/// 1. **Volatility** — a boundary recomputed on every request buys none of the three things a
+///    boundary exists for. Visible in the plan, per candidate, and whole-plan via
+///    [`crate::plan::VolatilitySource`].
+/// 2. **Payload requirement** — a payload is not part of a cache key. Visible in the plan, per
+///    candidate.
+/// 3. **Input state** — likewise not part of the key, and **not visible in the plan at all**.
+///
+/// [`Plan::cut_predecessor`] handles 1 and 2, because it can see them. Only the caller knows 3,
+/// which is why `input_state` is a parameter here rather than something this function could
+/// infer. A boundary runs as its own asset starting from `State::new()`, so a prefix that
+/// consumes a caller's state would silently receive nothing: applying `wrap/wrap` to `"x"` with
+/// the prefix cut away yields `[[None]]` rather than `[[x]]`.
+///
+/// Forwarding the state into the boundary would be worse, not better — the boundary is cached
+/// by query, so two callers applying different states to the same prefix would share one entry.
+/// **A stateful application requires a fully expanded plan**, and gets one: the cut is skipped
+/// whenever `input_state` carries a value, with a `Step::Info` recording why. See
+/// [`finalize_plan_expanded`] for the other two ways to obtain an expanded plan.
 pub async fn finalize_plan<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,

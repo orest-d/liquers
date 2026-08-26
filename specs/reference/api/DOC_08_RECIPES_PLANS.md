@@ -311,35 +311,80 @@ retention policy — `CORE-ASSET-GC` — rather than to the shape of a plan.
 ### Where a boundary goes
 
 `Plan::cut_predecessor` cuts at the **outermost candidate prefix that can be
-cached**. Two things make a candidate uncacheable, and the walk steps back past
-both:
+cached**. Everything below follows from one fact: *a boundary is a cache entry,
+keyed by its query.* Anything that feeds the prefix but is **not** part of that
+key makes the entry unsound, and anything that makes the entry worthless makes
+the boundary pointless.
 
-- **it requires a payload.** A payload is deliberately not part of a cache key, so
-  a value computed from one must never end up behind a boundary.
-- **it is volatile.** A boundary recomputed on every request buys none of the
-  three things above, and costs an extra asset and an extra hop.
+There are exactly **three conditions**, and they differ in where the answer lives.
 
-A third condition is not visible in the plan at all: **an input state**. `apply`
-and `apply_immediately` supply a caller's state, and a boundary is evaluated as
-its own asset starting from `State::new()`, so a prefix that consumes that state
-must not be moved behind one — applying `wrap/wrap` to `"x"` with the prefix cut
-away yields `[[None]]`. Only the caller knows the state, so `finalize_plan` takes
-it and skips the cut when it carries a value. `finalize_plan_expanded` performs
-the same analysis and never cuts, which is the form analysis wants.
+| # | Condition | Why it blocks a boundary | Where the answer lives |
+|---|---|---|---|
+| 1 | **Volatility** | A boundary recomputed on every request buys none of the three things above, and costs an extra asset and an extra hop | In the plan — per candidate, or whole-plan via `Plan::volatility_source` |
+| 2 | **Payload requirement** | A payload is not part of a cache key, so a value computed from one must never sit behind a boundary | In the plan — per candidate, via `Plan::payload_required` |
+| 3 | **Input state** | Likewise not part of a cache key. A boundary is evaluated as its own asset, starting from `State::new()`, so a prefix that consumes a caller's state would silently receive nothing | **Not in the plan at all** — only the caller knows it |
 
-The decision is per candidate, not per plan: `Plan::payload_required` and
-`Plan::is_volatile` answer "does this query need a payload / is it volatile
-anywhere", which is the wrong question in both directions. Used as a veto it
-throws away the boundary in `fetch/expensive/render_with_payload`, where
-everything behind the only candidate is clean; used as a permit it cuts straight
-across `fetch/personalize/render`. So each candidate's own plan is consulted, and
-the walk stops at the first that qualifies:
+Conditions 1 and 2 are decided **per candidate**, by building that candidate's own
+plan. Condition 3 is decided **per application**, by the caller.
+
+#### 1 and 2 — per candidate
+
+`Plan::payload_required` and `Plan::is_volatile` answer "does this query need a
+payload / is it volatile *anywhere*", which is the wrong question in both
+directions. Used as a veto, it throws away the boundary in
+`fetch/expensive/render_with_payload`, where everything behind the only candidate
+is clean; used as a permit, it cuts straight across `fetch/personalize/render`.
+So each candidate's own plan is consulted, and the walk stops at the first that
+qualifies:
 
 ```
 fetch/expensive/render          -> boundary at fetch/expensive
 fetch/personalize/render        -> personalize requires a payload; boundary at fetch
-personalize/fetch/render        -> the requirement reaches the head; no boundary
+fetch/vol_step/render           -> vol_step is volatile;          boundary at fetch
+personalize/fetch/render        -> the condition reaches the head; no boundary
 ```
+
+#### 3 — per application, and why it needs an expanded plan
+
+`AssetManager::apply` and `apply_immediately` hand a caller's state to
+`apply_plan`. If the prefix that consumes it has been moved behind a boundary,
+the boundary runs as a separate asset from `State::new()` and the state is lost:
+
+```
+apply "wrap/wrap" to "x"    expanded -> [[x]]
+                            cut      -> [[None]]
+```
+
+Forwarding the state into the boundary would not fix it — it would make it worse.
+The boundary is cached by its query, so two callers applying different states to
+the same prefix would share one entry. **A stateful application therefore requires
+a fully expanded plan.**
+
+Because only the caller knows the state, `finalize_plan` takes it and decides:
+
+```rust
+finalize_plan(envref, &mut plan, &context, &input_state).await?;
+```
+
+- `input_state.is_none()` → the plan is cut where conditions 1 and 2 allow.
+- otherwise → the plan is left **fully expanded**, with a `Step::Info` recording
+  why.
+
+##### Obtaining a fully expanded plan
+
+Three ways, in the order you are likely to want them:
+
+1. **Apply to a state.** Pass the state to `finalize_plan`, as above. The plan is
+   expanded automatically; this is the normal path and needs nothing special.
+2. **Ask for it.** `finalize_plan_expanded(envref, &mut plan, &context)` runs the
+   same dependency, volatility and expiration analysis and the same freezing, and
+   never cuts. Use it when the plan is for *reading* rather than executing —
+   explanation, analysis, a diff of what a query means — and when a comparison
+   must not be derived from the cutting path (an oracle built from that path
+   cannot detect that path regressing).
+3. **Do not finalize at all.** `PlanBuilder::build` alone always expands; the cut
+   is a later pass. `liquers-validate` relies on this, which is why query
+   validation shows the expanded form whatever the evaluation default is.
 
 **Whole-plan volatility declines before the walk starts.** `Plan::volatility_source`
 distinguishes the two kinds:
@@ -380,6 +425,7 @@ Every item below was observed, not anticipated.
 | An undeclared payload | A command reading the payload without `payload: required` works inlined and silently receives none across a boundary. This is the documented "declare it, or lose it" rule, not a cutting defect, but a cut is where it first bites. `injected` does **not** imply the requirement: injection may be satisfied from the environment alone. |
 | A boundary query frozen before the prologue | Sibling of the row above it, and the same prepended `SetCwd`. The step *count* was compensated; the *cursor* was not, so the recorded predecessor was resolved against the entry CWD and the boundary query — the only thing a cut carries — lost its folder. Silent: it produced a wrong value as readily as a `KeyNotFound`. Fixed by `Plan::prologue_steps`. |
 | A recipe-level flag is not in the query | `volatile:` and `expires:` live in the `recipes.yaml` entry, not in the query text, so unlike a volatile *command* they do not travel into a boundary. Measured: the prefix of a `volatile: true` recipe ran once across two evaluations where expanded it ran twice — the parent dutifully recomputing around a cached boundary. Fixed by folding them onto the plan as `VolatilitySource::Declared`. |
+| A cut swallows the caller's input state | `apply` and `apply_immediately` supply a state; a boundary runs as its own asset from `State::new()`. Measured: `wrap/wrap` applied to `"x"` yielded `[[None]]`. Forwarding the state would be worse — the boundary is cached by query, so callers with different states would share one entry. A stateful application needs a fully expanded plan, which `finalize_plan` produces when it is given one. |
 | `v` emits no step | `a/b` and `a/b/v` report the same step count, so a candidate cannot be identified by index alone; and in `a/b/v` the outermost non-volatile prefix is the *entire* plan. Both are unreachable while `Declared` declines first, and both would return if `v` ever became positional (`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`). |
 
 ## Plan fields and execution
@@ -529,7 +575,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-08-26 | Cutting at the outermost cacheable predecessor is now the **default**. Added "Where a boundary goes"; superseded the paragraph deferring that decision; four new pitfall rows; `frozen_cwd`, `predecessor`, `prologue_steps` and `volatility_source` in the plan fields; a paragraph on `v`'s whole-plan scope. | PREDECESSOR-CUT-EQUIVALENCE |
+| 2026-08-26 | Cutting at the outermost cacheable predecessor is now the **default**. Added "Where a boundary goes" — the three conditions (volatility, payload, input state), which are per candidate and which per application, and how to obtain a fully expanded plan. Superseded the paragraph deferring that decision; five new pitfall rows; `frozen_cwd`, `predecessor`, `prologue_steps` and `volatility_source` in the plan fields; a paragraph on `v`'s whole-plan scope. | PREDECESSOR-CUT-EQUIVALENCE |
 | 2026-08-16 | Documented freezing — what it is, the three-cursor problem it solves, when it runs, its mechanics and scope rules — and predecessor boundaries: how cutting differs from freezing, the dependency, caching and parallelism case for making a predecessor available, and five observed pitfalls. Removed `disable_expand_predecessors` from the planning contract. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented provider and programmatic recipe CWD provenance, raw plan prefixes and diagnostics, ordered runtime resolution, serialization, identity, and optimizer constraints. | phase-5 |
 | 2026-08-09 | Applied the verified recipe and planning contracts to comprehensive module and public-API Rustdoc in `plan.rs` and `recipes.rs`. | DOC-08 |

@@ -96,8 +96,14 @@ disarmed two steps later.
 - [x] `Plan::cut_predecessor` — the placement rule, in the place a reader lands from a stack trace
       or an `init_info` line
 - [x] `Plan::{prologue_steps, volatility_source}`, `VolatilitySource` — field and variant docs
-- [x] `DOC_08_RECIPES_PLANS.md` — "Where a boundary goes"; the superseded deferral paragraph
-      rewritten; four pitfall rows; the plan-fields table; a paragraph on `v`'s whole-plan scope
+- [x] `DOC_08_RECIPES_PLANS.md` — "Where a boundary goes": **the three conditions** (volatility,
+      payload requirement, input state) as a table, which are decided per candidate and which per
+      application, and **"Obtaining a fully expanded plan"** with the three ways to get one. The
+      superseded deferral paragraph rewritten; five pitfall rows; the plan-fields table; a
+      paragraph on `v`'s whole-plan scope
+- [x] `finalize_plan` / `finalize_plan_expanded` rustdoc — the same three conditions stated
+      together where a contributor lands from a stack trace, and why the input state is a
+      parameter rather than something the function could infer
 - [x] `DOC_08` `## History` row and `reviewed:` bump, same commit
 - [x] `specs/README.md` — regenerated
 
@@ -148,6 +154,35 @@ arriving after a `Positional` one would be swallowed. Confirmed by reverting it 
 implementation: `vol_cmd/v/tail` records `Positional` where it must record `Declared`, and a plan
 declaring nothing is cacheable would have had a boundary cut out of it. Found by review, not by a
 failing test — no existing test covered that ordering.
+
+## The three conditions, as finally stated
+
+The design reached its final shape only after review, so the settled rule is recorded here in one
+place rather than reconstructed from five phase documents. Everything follows from one fact: **a
+boundary is a cache entry, keyed by its query.**
+
+| # | Condition | Why it blocks a boundary | Where the answer lives |
+|---|---|---|---|
+| 1 | Volatility | A boundary recomputed every request buys none of the three things a boundary exists for | In the plan — per candidate, and whole-plan via `VolatilitySource` |
+| 2 | Payload requirement | A payload is not part of a cache key | In the plan — per candidate |
+| 3 | Input state | Likewise not part of the key; a boundary starts from `State::new()` | **Not in the plan** — only the caller knows |
+
+Conditions 1 and 2 are `Plan::cut_predecessor`'s, because it can see them. Condition 3 is the
+caller's, which is why `finalize_plan` takes `input_state`.
+
+**A stateful application requires a fully expanded plan.** Forwarding the state into a boundary
+would be worse than losing it: the boundary is cached by query, so callers with different states
+would share one entry. Three ways to obtain an expanded plan, documented in both the reference
+and the rustdoc:
+
+1. **Apply to a state** — `finalize_plan` expands automatically when the state is non-empty.
+2. **Ask for it** — `finalize_plan_expanded`, for reading rather than executing, and for any
+   comparison that must not be derived from the cutting path.
+3. **Do not finalize** — `PlanBuilder::build` always expands, which is why `liquers-validate`
+   shows the expanded form whatever the evaluation default is.
+
+That third condition was found by review, not by this design, and it is the reason the review
+record above is kept rather than folded away.
 
 ## Conformance and Remaining Work
 
