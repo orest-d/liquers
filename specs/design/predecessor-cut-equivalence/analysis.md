@@ -214,9 +214,17 @@ Both are addressed in `solution.md` §4. The lesson generalises: the four diverg
 remain were found by running the *existing* suite under the cut, not by the harness written
 for the purpose, because the existing suite varies the one axis the harness holds fixed.
 
-## Latent hazard found in passing
+## A fourth instance of the same shape
 
-`Plan::split` copies `is_volatile`, `payload_required`, `expires`, `error` and `dependencies`
-into both halves, and drops `predecessor`, `predecessor_steps` (and would drop
-`prologue_steps`). Both halves therefore claim to have no predecessor. Only tests call
-`split` today, so nothing is broken; filed as `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
+`Plan::split` copies a field list into both halves — `is_volatile`, `payload_required`,
+`expires`, `error`, `dependencies` — and drops `frozen_cwd`, `predecessor`,
+`predecessor_steps`, and would drop `prologue_steps`. A half is therefore silently un-frozen
+as well as predecessor-less. Only tests call `split` today (confirmed across the workspace),
+so nothing is broken.
+
+It is in scope all the same, because it is the third instance of the shape that produced Cause
+1 and, before it, the double-execution bug `plan-cwd-freeze` found: a plan mutated through a
+subset of coupled fields. Two of the three shipped. `solution.md` §1b makes the carry
+structural instead of listed, and records the measurement — `split_index == predecessor_steps`
+on every shape — that makes the obvious fix, copying `predecessor` into the first half, the
+wrong one. Tracked by `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.

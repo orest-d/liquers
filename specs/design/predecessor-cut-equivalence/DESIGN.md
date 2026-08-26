@@ -39,6 +39,9 @@ Re-measured at `d1bd02e` by calling `cut_predecessor` from `finalize_plan`:
 | A cut boundary is a cache entry, and a payload is deliberately not part of a cache key | 1 (`injection`) | **Not a defect** — a mis-declared command, fixed in the test. It exposes a real correctness question about *where* a boundary may go — §2 |
 | A test asserts the *expanded* plan's step shape | 1 (`--lib`) | **Not a defect.** Measured equivalent in value — §3 |
 
+A fourth, latent instance of the first cause's *shape* — a plan mutated through a subset of
+coupled fields — sits in `Plan::split`; it is in scope for the same reason (§1b).
+
 The first cause is a genuine equivalence bug and is the whole reason the two
 `recipe_cwd_resolution` failures looked CWD-shaped. It was not "a nested keyed recipe
 re-deriving its own working key", as the issue speculated; it is one missing cursor advance.
@@ -59,7 +62,13 @@ re-deriving its own working key", as the issue speculated; it is one missing cur
    with no `cwd:` and passes `cwd: None`, so it structurally cannot reach the defect this
    design exists to fix. Every shape runs under three conditions: no CWD, a recipe `cwd:`,
    and a provider (keyed) recipe.
-4. **The default stays expanded.** Flipping it is `CORE-PLAN-POLICY-AND-DEFAULTS`; this
+4. **Coupled plan fields are carried by construction.** `Plan::split` drops `frozen_cwd`,
+   `predecessor` and `predecessor_steps` because it copies a field list rather than cloning.
+   In scope, not because that function has a caller — it has none outside tests — but because
+   the field list is the shape of every defect this lineage has found, two of which shipped.
+   The first half is exactly the predecessor's steps, so the fields are cleared rather than
+   copied; `frozen_cwd` is carried.
+5. **The default stays expanded.** Flipping it is `CORE-PLAN-POLICY-AND-DEFAULTS`; this
    design only makes the flip safe to consider. It does settle *where* a boundary goes when
    one is cut, because that turns out to be a correctness question (decision 2) rather than
    a policy one.

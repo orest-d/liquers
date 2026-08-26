@@ -66,8 +66,12 @@ only one of them is a defect:
   Measured: with those two shape assertions relaxed, the test passes under the cut with the
   same value and the same context CWD.
 
-Design: `specs/design/predecessor-cut-equivalence/`. One issue filed in passing that stands,
-`PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`; one filed and rejected the same day,
+A fourth, latent instance of the first cause's *shape* — a plan mutated through a subset of
+coupled fields — sits in `Plan::split`, which drops `frozen_cwd` and both predecessor fields.
+It has no production caller, but two of the three instances of that shape shipped, so it is in
+scope: `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
+
+Design: `specs/design/predecessor-cut-equivalence/`. One issue filed and rejected the same day,
 `PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`.
 
 ## Impact

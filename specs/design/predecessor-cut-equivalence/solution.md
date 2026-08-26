@@ -66,6 +66,76 @@ Unit test to add, in `plan.rs`'s `mod tests`:
 needing the cut at all — which is the point: the defect is in freezing, and cutting only
 exposes it.
 
+## 1b. Coupled plan fields are carried by construction
+
+`Plan::split` builds both halves with `Plan::new()` and then copies a field list — `query`,
+`init_steps`, `steps`, `is_volatile`, `payload_required`, `expires`, `error`, `dependencies`.
+It does not copy `frozen_cwd`, `predecessor` or `predecessor_steps`, and would not copy
+`prologue_steps`. Both halves therefore report `predecessor: None` and, more consequentially,
+`frozen_cwd: None` — a half is silently *un-frozen*, so it would accept a re-freeze against a
+different key that the whole plan refuses, and fail `cut_predecessor`'s frozen guard.
+
+Filed as `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS` and originally left out of scope on the ground
+that `split` has no production caller (confirmed: the only call sites are `plan.rs`'s own
+tests). Brought in, because the omission is not the interesting part — **the field list is**.
+Every defect this design lineage has found is the same shape: a plan mutated through a subset
+of coupled fields.
+
+| Where | What went stale |
+|---|---|
+| `Recipe::to_plan` inserting `SetCwd` | `predecessor_steps`, until `plan-cwd-freeze` bumped it — a cut ran the predecessor's action twice |
+| `Plan::freeze_cwd_with` | the cursor for `predecessor`, still stale at HEAD — §1, Cause 1 |
+| `Plan::split` | `frozen_cwd`, `predecessor`, `predecessor_steps` — latent |
+
+Three instances, two of them shipped. So the change is structural rather than a one-time
+top-up: **build each half from `self.clone()` and replace only what differs**, so a field
+added to `Plan` later is carried by construction and a field that must *not* be carried has to
+be cleared deliberately, in the diff, where a reviewer sees it.
+
+### What each half should carry
+
+Measured while scoping this, and it makes the naive fix wrong:
+
+```
+fetch/expensive/render           steps=3 split_index=2 predecessor_steps=2
+fetch/expensive/render/out.txt   steps=4 split_index=2 predecessor_steps=2
+-R/./a.txt/-/fetch/render        steps=3 split_index=2 predecessor_steps=2
+recipe cwd=a/c, 4-action query   steps=5 split_index=3 predecessor_steps=3
+```
+
+`split_index == predecessor_steps` on every shape, prologue included. **The first half is
+exactly the predecessor's steps.** So copying `predecessor` into it — which is what the issue
+as filed proposed — gives a half whose `predecessor_steps == steps.len()`: it passes
+`cut_predecessor`'s range guard and §2's step-count cross-check, and cuts every step into a
+boundary that recomputes the same thing. A degenerate wrapper rather than a wrong value, but
+not what anyone means by splitting.
+
+The first half's genuine predecessor is one level deeper, and `split` has no registry to build
+it. So:
+
+| Field | First half | Second half | Why |
+|---|---|---|---|
+| `frozen_cwd` | carried | carried | A fact about the operands, true of each half independently |
+| `predecessor`, `predecessor_steps` | cleared | cleared | A boundary is a property of a whole plan; a fragment has none, and `Ok(false)` from `cut_predecessor` is the honest answer |
+| `prologue_steps` | carried, clamped | `0` | The non-query-derived prefix is leading, so it is in the first half |
+
+### Invariants worth asserting
+
+`prologue_steps <= steps.len()`, and when `predecessor.is_some()`,
+`prologue_steps <= predecessor_steps <= steps.len()`. A `debug_assert`-backed
+`Plan::assert_consistent()` called after `build`, after `Recipe::to_plan`'s insert, after
+`split` and after `cut_predecessor` costs nothing in release and would have caught the
+double-execution bug at its source rather than through a failing evaluation two layers away.
+
+### Noted, not acted on
+
+`split_index()` rescans the steps to derive a number `predecessor_steps` already records, and
+they agreed on every shape measured. That is a plausible simplification and also exactly the
+kind of coincidence that should be *pinned by a test* before anything relies on it — they are
+derived by different means, one from the step list and one from the query recursion. A test
+asserting the equality across the suite's shapes is cheap; collapsing one into the other is
+not part of this design.
+
 ## 2. The cut walks back to the last payload-free boundary
 
 Cause 2 is not a defect in cutting. A boundary is a cache entry; a payload is deliberately
