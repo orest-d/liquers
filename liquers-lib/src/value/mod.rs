@@ -122,6 +122,28 @@ impl ExtValueInterface for ExtValue {
     }
 }
 
+/// The description of a statically described `ExtValue` variant.
+///
+/// The same derivation `ValueExtension::type_info` provides by default. It lives here as a free
+/// function because `ExtValue` *overrides* that method, and an override cannot call the default
+/// body it replaced.
+fn default_ext_type_info(value: &ExtValue) -> liquers_core::type_system::TypeInfo {
+    let identifier = ValueExtension::identifier(value);
+    <ExtValue as ValueExtension>::type_descriptions()
+        .into_iter()
+        .find(|info| info.type_identifier == identifier)
+        .unwrap_or_else(|| {
+            liquers_core::type_system::TypeInfo::new(identifier)
+                .with_type_name(ValueExtension::type_name(value))
+                .with_defaults(
+                    ValueExtension::default_extension(value),
+                    ValueExtension::default_extension(value),
+                    ValueExtension::default_media_type(value),
+                    ValueExtension::default_filename(value),
+                )
+        })
+}
+
 impl ValueExtension for ExtValue {
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         use liquers_core::type_system::TypeInfo;
@@ -166,6 +188,27 @@ impl ValueExtension for ExtValue {
             );
         }
         descriptions
+    }
+
+    /// Delegates the `Foreign` arm to the value itself; every other variant is described
+    /// statically, so the inherited lookup is the right answer for it.
+    ///
+    /// A foreign value's identifier is not in `type_descriptions()` and cannot be — that list is
+    /// static and the identifier belongs to an integration crate — so without this arm the
+    /// inherited default would fall back to a derivation declaring no supported formats. Correct
+    /// today, because `JsOpaque` genuinely serializes nothing; wrong the moment a foreign value
+    /// can produce bytes.
+    fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+        match self {
+            ExtValue::Foreign { value } => value.type_info(),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => {
+                default_ext_type_info(self)
+            }
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { .. } => default_ext_type_info(self),
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => default_ext_type_info(self),
+        }
     }
 
     /// Type identifiers follow `specs/reference/VALUE_TYPE_SYSTEM.md`.
