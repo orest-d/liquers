@@ -32,12 +32,12 @@ use crate::value::ValueInterface;
 /// string so that single-realm code never has to mention one.
 pub const DEFAULT_TYPE_REALM: &str = "";
 
-/// The type identifier of an errored value.
-///
-/// An error state is still a stored, typed thing: `Metadata::with_error` sets this identifier, and
-/// the write path requires every stored identifier to be registered. It is a bare name because
-/// Liquers owns the concept.
-pub const ERROR_TYPE_IDENTIFIER: &str = "error";
+// There is deliberately **no** error type identifier. An error is a property of the *metadata* —
+// `is_error`, `Status::Error`, `error_data` — and not of the value: an errored state holds
+// `V::none()`, so its type identifier is the none type's, like any other state holding none.
+// The type axis says what a value *is*, and "failed" is not something a value can be.
+//
+// See `specs/design/foreign-value-type-registration/phase5-documentation.md`.
 
 /// Registry key: a type identifier within a realm.
 ///
@@ -185,14 +185,6 @@ impl TypeInfo {
             .iter()
             .any(|supported| base_format(supported) == base)
     }
-
-    /// The description of an errored value.
-    pub fn error() -> Self {
-        TypeInfo::new(ERROR_TYPE_IDENTIFIER)
-            .with_type_name("error")
-            .with_defaults("json", "json", "application/json", "error.json")
-            .with_data_formats(["json"])
-    }
 }
 
 /// Strips a data-format refinement: `csv:comma` -> `csv`.
@@ -267,8 +259,7 @@ impl TypeRegistry {
         }
     }
 
-    /// Seeds a registry from a value type's own static self-description, and adds the `error`
-    /// pseudo-type that every build needs.
+    /// Seeds a registry from a value type's own static self-description.
     ///
     /// Infallible, because an `Environment` constructor is: a duplicate here means a value type
     /// described the same identifier twice, which is a bug in that type rather than a runtime
@@ -282,7 +273,6 @@ impl TypeRegistry {
                 eprintln!("liquers: type registry construction: {error}");
             }
         };
-        add(TypeInfo::error());
         for info in V::type_descriptions() {
             add(info);
         }
@@ -382,10 +372,9 @@ mod tests {
         )?;
 
         assert!(registry.contains("js.Value"), "the added type is present");
-        assert!(registry.contains("Text"), "and the base types survived");
         assert!(
-            registry.contains(ERROR_TYPE_IDENTIFIER),
-            "including the error pseudo-type, which an empty registry would have lost"
+            registry.contains("Text") && registry.contains("None"),
+            "and the base types survived, which an empty registry would have lost"
         );
         assert_eq!(registry.len(), before + 1);
         Ok(())
@@ -466,12 +455,19 @@ mod tests {
         );
     }
 
-    /// The `error` pseudo-type exists in every registry, because an errored value is still a
-    /// stored, typed thing and the write path requires a registered identifier.
+    /// There is **no** error type. An errored state holds `V::none()`, so it is typed `None` like
+    /// any other state holding none; "failed" lives in the metadata, not on the type axis.
     #[test]
-    fn error_type_is_always_registered() -> Result<(), Box<dyn std::error::Error>> {
+    fn there_is_no_error_type() -> Result<(), Box<dyn std::error::Error>> {
         let registry = TypeRegistry::from_value_type::<crate::value::Value>();
-        assert!(registry.contains(ERROR_TYPE_IDENTIFIER));
+        assert!(
+            !registry.contains("error"),
+            "error is a metadata property, not a value type"
+        );
+        assert!(
+            registry.contains("None"),
+            "and the type an errored state actually reports is registered like any other"
+        );
         Ok(())
     }
 

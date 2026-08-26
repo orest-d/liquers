@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-08-18
+reviewed: 2026-08-26
 ---
 
 # Value Type System
@@ -66,13 +66,20 @@ rename of stored data. **When unsure, prefix.**
 Core (`liquers-core::value::Value`, mirrored by `liquers-lib`'s `SimpleValue`):
 
 `None`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Array`, `Object`, `Bytes`, `Metadata`, `AssetInfo`,
-`Recipe`, `CommandMetadata`, `Query`, `Key`, and `error`.
+`Recipe`, `CommandMetadata`, `Query`, `Key`.
 
 Library (`liquers-lib::value::ExtValue`): `Image`, `UIElement`, `polars.DataFrame` (feature
 `polars`), `egui.Command` and `egui.Widget` (feature `egui`).
 
-`error` is the identifier of an errored value. It is registered because the write path requires
-every stored identifier to be registered, and an errored asset is still a stored, typed thing.
+**There is no `error` identifier**, and deliberately so. The type axis says what a value *is*, and
+"failed" is not something a value can be — an errored state holds `V::none()`, so it reports the
+none type like any other state holding none. The failure is recorded on the metadata instead
+(`is_error`, `Status::Error`, `error_data`), which is where every consumer already reads it from:
+nothing dispatches on a type identifier to decide whether a state failed.
+
+The consequence for a reader of stored metadata is worth stating plainly: **the type identifier
+reports what is available, not what was intended.** A failed `report.csv` is typed `None` rather
+than `Image` or `error`; what it was going to be survives in the query, the key and the filename.
 
 ## The encoding axis
 
@@ -197,8 +204,8 @@ advisory entries stay at `Warning` or below.
 because the rule is inconvenient:
 
 - **An error state.** An errored asset keeps the intended output's filename, so `report.csv` gives
-  an effective format of `csv` against an `error` identifier — and its bytes are not a
-  serialization of the declared type at all.
+  an effective format of `csv` while the value is gone and the type has become `None` — and its
+  bytes are not a serialization of the declared type at all.
 - **A type that declares no formats.** A UI element, an egui widget or a foreign handle has no byte
   form; the asset layer persists it as metadata only, so requiring it to name a format it cannot
   produce would be contradictory.
@@ -227,3 +234,4 @@ degrades on read.
 | Date | Change |
 |---|---|
 | 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. |
+| 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). |

@@ -233,12 +233,13 @@ fn fvt8_1_the_environment_knows_the_javascript_type() {
         "a retained JavaScript value must be a type this build knows"
     );
     assert!(
-        registry.contains("Text"),
-        "and the base value type's own types must survive the extension"
+        registry.contains("Text") && registry.contains("None"),
+        "and the base value type's own types must survive the extension, which an empty base \
+         registry would have lost"
     );
     assert!(
-        registry.contains("error"),
-        "including the error pseudo-type, which an empty base registry would have lost"
+        !registry.contains("error"),
+        "there is no error type: an errored state is typed by the value it holds, which is none"
     );
 }
 

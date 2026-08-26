@@ -207,56 +207,68 @@ async fn the_refusal_names_the_identifier() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// `fvt7.5` — starting from an empty registry loses the `error` pseudo-type.
+/// `fvt7.5` — starting from an empty registry loses every type the build already had.
 ///
 /// The pitfall the constructor's doc comment warns about. `TypeRegistry::new()` is empty;
-/// `from_value_type` is what adds the value type's own descriptions *and* `error`. Build on the
-/// wrong one and the failure is delayed and confusing: the foreign type works, and then storing a
-/// *failed* asset fails for an unrelated-looking reason.
+/// `from_value_type` is what adds the value type's own descriptions. Build on the wrong one and
+/// the failure is delayed and confusing: the foreign type works, and then storing an *ordinary*
+/// value — text, an image, anything the build has always supported — is refused.
 #[tokio::test]
-async fn an_empty_base_registry_loses_the_error_type() -> Result<(), Box<dyn std::error::Error>> {
+async fn an_empty_base_registry_loses_the_ordinary_types(
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut types = TypeRegistry::new();
     types.register(MockForeign.type_info())?;
     assert!(
-        !types.contains("error"),
-        "the premise: an empty base has no error pseudo-type"
+        !types.contains("Text"),
+        "the premise: an empty base describes nothing but what was just added"
     );
 
     let mut env = DefaultEnvironment::<Value>::new_with_type_registry(types);
     env.with_async_store(store());
     let envref = env.to_ref();
-    let key = parse_key("test/failed.json")?;
+    let key = parse_key("test/notes.txt")?;
 
-    // Built the way the codebase builds an errored state: `Metadata::with_error` is what sets
-    // `type_identifier` to `error`. `MetadataRecord::with_error_message` does not, and a state
-    // whose identifier is empty fails an earlier check for an unrelated reason.
-    let mut record = MetadataRecord::new();
-    record.with_key(key.clone());
-    // `type_name` is set by hand because `Metadata::with_error` does not set it, and an empty one
-    // is refused by an earlier check than the registry lookup this test is about. That gap is
-    // `specs/issues/ERROR-STATE-FROM-ERROR-NOT-STORABLE.md` (P1), found while writing this test:
-    // `State::from_error` cannot be stored at all for exactly that reason.
-    record.with_type_name("error".to_owned());
-    let mut metadata = Metadata::MetadataRecord(record);
-    metadata.with_error(liquers_core::error::Error::general_error(
-        "something went wrong".to_owned(),
-    ));
-    assert_eq!(
-        metadata.type_identifier()?,
-        "error",
-        "the premise: an errored asset is typed `error`"
-    );
-    let state = State::<Value>::new().with_metadata(metadata);
-
+    let state = State::<Value>::new().with_data(Value::new("hello"));
     let error = envref
         .get_asset_manager()
         .set_state(&key, state)
         .await
-        .expect_err("an errored asset needs the error type registered");
+        .expect_err("an ordinary text value needs its type registered too");
     assert!(
-        error.message.contains("'error' is not registered"),
+        error.message.contains("'Text' is not registered"),
         "the message names the missing type: {error}"
     );
+    Ok(())
+}
+
+/// An errored state is storable, and is typed by the value it holds rather than by its failure.
+///
+/// There is no `error` type: the type axis says what a value *is*, and an errored state holds
+/// none. The failure is recorded in the metadata, and the asset persists as metadata with no
+/// bytes — the same shape a foreign value gets, and for the same reason.
+#[tokio::test]
+async fn an_errored_state_is_stored_as_metadata_typed_none(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = environment_knowing_the_mock()?;
+    let store = env.get_async_store();
+    let envref = env.to_ref();
+    let key = parse_key("test/failed.json")?;
+
+    let state = State::<Value>::from_error(liquers_core::error::Error::general_error(
+        "something went wrong".to_owned(),
+    ));
+    envref.get_asset_manager().set_state(&key, state).await?;
+
+    let metadata = store.get_metadata(&key).await?;
+    assert_eq!(
+        metadata.type_identifier()?,
+        "None",
+        "the type axis reports what is available, not what was intended"
+    );
+    assert!(metadata.is_error()?, "and the metadata carries the failure");
+
+    let (data, _) = store.get(&key).await?;
+    assert!(data.is_empty(), "with no bytes, since there is no value");
     Ok(())
 }
 
@@ -272,6 +284,9 @@ fn the_extended_registry_holds_both_the_base_and_the_addition(
     assert!(types.contains(MOCK_TYPE_IDENTIFIER), "the integration's type");
     assert!(types.contains("Text"), "the base value type's types");
     assert!(types.contains("Image"), "the extension's types");
-    assert!(types.contains("error"), "and the error pseudo-type");
+    assert!(
+        !types.contains("error"),
+        "and no error type — a failure is metadata, not a type a value can have"
+    );
     Ok(())
 }

@@ -124,14 +124,18 @@ async fn a_declared_media_type_override_survives() -> Result<(), Box<dyn std::er
 /// `vts8.6` — an error state is storable even though its format contradicts its identifier.
 ///
 /// An errored asset keeps the intended output's filename, so its effective format is `csv` while
-/// its identifier is `error`. Its bytes are not a serialization of that type, so the format check
-/// does not apply — but the identifier check still does, which is why `error` is registered.
+/// its value — and therefore its type — is none. Its bytes are not a serialization of that type,
+/// so the format check does not apply; the identifier check still does, and the none type is
+/// registered like any other.
+///
+/// There is no `error` identifier. The type axis reports what is *available*, not what was
+/// intended, and a failure is recorded in `is_error`/`Status::Error` instead.
 #[tokio::test]
 async fn error_state_with_a_mismatched_filename_is_storable(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = environment();
     let key = parse_key("test/report.csv")?;
-    let mut metadata = record(&key, "error");
+    let mut metadata = record(&key, "None");
     metadata.with_status(Status::Error);
     metadata.with_error_message("the recipe failed".to_owned());
     metadata.data_format = Some("csv".to_owned());

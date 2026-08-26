@@ -980,8 +980,8 @@ mod tests {
         assert!(registry.contains("Text"));
         assert!(registry.contains(PY_OBJECT_TYPE_IDENTIFIER));
         assert!(
-            registry.contains("error"),
-            "the error pseudo-type is always registered"
+            !registry.contains("error"),
+            "there is no error type: an errored state is typed by the value it holds, which is none"
         );
         assert!(
             !registry.contains("generic"),

@@ -1895,19 +1895,20 @@ impl Metadata {
         }
     }
 
+    /// Records an error. **Does not touch the type fields.**
+    ///
+    /// There is no error type: an errored state holds `V::none()`, so its identifier is the none
+    /// type's, set from the value like any other state's. Overwriting the identifier here would
+    /// put a type on the type axis that no value can have, and would leave `type_name` empty,
+    /// which the write path refuses.
     pub fn with_error(&mut self, e: Error) -> &mut Self {
         match self {
             Metadata::LegacyMetadata(serde_json::Value::Object(o)) => {
-                o.insert(
-                    "type_identifier".to_string(),
-                    Value::String("error".to_string()),
-                );
                 o.insert("is_error".to_string(), Value::Bool(true));
                 o.insert("message".to_string(), Value::String(e.to_string()));
                 self
             }
             Metadata::MetadataRecord(m) => {
-                m.type_identifier = "error".to_string();
                 m.with_error(e);
                 self
             }

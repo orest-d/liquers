@@ -1438,8 +1438,8 @@ mod tests {
 
         assert_eq!(described, explicit_described);
         assert!(
-            described.contains(&"error"),
-            "the error pseudo-type is always present: {described:?}"
+            described.contains(&"Text") && described.contains(&"None"),
+            "and both describe the value type's own types: {described:?}"
         );
     }
 
@@ -1458,7 +1458,10 @@ mod tests {
 
         assert!(registry.contains("test.Foreign"), "the supplied type is visible");
         assert!(registry.contains("Text"), "and the base types survived");
-        assert!(registry.contains("error"), "including the error pseudo-type");
+        assert!(
+            !registry.contains("error"),
+            "there is no error type: an errored state is typed by the value it holds, which is none"
+        );
         Ok(())
     }
 

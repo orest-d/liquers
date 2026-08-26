@@ -34,10 +34,14 @@ impl<V: ValueInterface> State<V> {
     /// helper used to overwrite it from `V::none()` immediately afterwards in `from_error`, so the
     /// same situation reached the store under two different identifiers depending on which path
     /// built it.
+    /// Makes the metadata's type fields describe the value it accompanies.
+    ///
+    /// Applies to an **errored** state too, which holds `V::none()` and is therefore typed like
+    /// any other none-valued state. This used to return early for error states, to stop `"None"`
+    /// overwriting the `"error"` identifier that `Metadata::with_error` set — and since nothing
+    /// else ever set `type_name`, an errored state came out with an empty one, which the write
+    /// path refuses. Removing the error type removed the reason for the guard.
     fn sync_metadata_with_value(metadata: &mut Metadata, value: &V) {
-        if metadata.is_error().unwrap_or(false) {
-            return;
-        }
         metadata.with_type_identifier(value.identifier().to_string());
         metadata.with_type_name(value.type_name().to_string());
     }
@@ -324,22 +328,42 @@ mod tests {
         Ok(())
     }
 
-    /// `vts8.9` — an error state keeps its `error` identifier, whichever path built it.
+    /// `vts8.9` — an error state is typed by the value it holds, which is none.
     ///
-    /// `from_error` calls `with_error`, which sets `error`, and then the sync helper. The helper
-    /// used to overwrite it from `V::none()`, so the same situation reached the store as `error`
-    /// or as `None` depending on the route.
+    /// There is no `error` type. The type axis says what a value *is*, and "failed" is not
+    /// something a value can be — it is a metadata property (`is_error`, `Status::Error`,
+    /// `error_data`). An errored state holds `V::none()`, so it reports the none type, and the
+    /// intent it failed to produce survives in the query, key and filename rather than on the
+    /// type axis.
+    ///
+    /// This previously asserted the opposite. `Metadata::with_error` set the identifier to
+    /// `"error"` and nothing set `type_name`, so an errored state reached the store with an empty
+    /// name and `validate_required_fields` refused it — the whole class of defect disappears with
+    /// the error type.
     #[test]
-    fn from_error_keeps_the_error_identifier() -> Result<(), Box<dyn std::error::Error>> {
+    fn from_error_is_typed_as_none() -> Result<(), Box<dyn std::error::Error>> {
         let state: State<Value> = State::from_error(Error::general_error("boom".to_string()));
-        assert_eq!(state.metadata.type_identifier()?, "error");
 
-        let mut direct = Metadata::new();
-        direct.with_error(Error::general_error("boom".to_string()));
+        assert_eq!(state.metadata.type_identifier()?, "None");
         assert_eq!(
-            direct.type_identifier()?,
+            state.metadata.type_name()?,
+            "none",
+            "both halves of the type are set, which is what the write path requires"
+        );
+        assert!(
+            state.metadata.is_error()?,
+            "and the error itself is recorded in the metadata"
+        );
+        assert!(state.value_error().is_some(), "so the state reports as failed");
+
+        // The same situation reached through a value rather than the error constructor agrees.
+        let mut equivalent = Metadata::new();
+        equivalent.with_error(Error::general_error("boom".to_string()));
+        let equivalent: State<Value> = State::new().with_metadata(equivalent);
+        assert_eq!(
+            equivalent.metadata.type_identifier()?,
             state.metadata.type_identifier()?,
-            "both paths must name the same type"
+            "both routes to an errored none-valued state name the same type"
         );
         Ok(())
     }
