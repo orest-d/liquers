@@ -435,5 +435,11 @@ refuses an identifier the registry does not contain.
 3. Implement conversions in `ExtValueInterface` and serialization in `DefaultValueSerializer`
 4. **Add a `TypeInfo` to `ExtValue::type_descriptions()`**, declaring the formats it can be written in
 
-See `specs/guides/TYPE_SYSTEM_GUIDE.md` for the whole procedure and
+One identifier per variant, and one variant per identifier — everything that varies per instance
+goes in `type_name`. A type whose identifier belongs to an *integration crate* instead of to the
+value type (a JavaScript handle in `liquers-web`) cannot be in that static list: it extends the base
+registry and passes it to the environment constructor, `new_with_type_registry`.
+
+See `specs/guides/TYPE_SYSTEM_GUIDE.md` for the whole procedure,
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE for the integration-owned case, and
 `specs/reference/VALUE_TYPE_SYSTEM.md` for the model.

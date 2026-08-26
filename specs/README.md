@@ -182,7 +182,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`FOREIGN-VALUE-TYPES-NOT-REGISTERED`](issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md) | P1 | M | `value-type-system` |
 | [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
 <!-- END generated: issues -->
 
@@ -197,6 +196,7 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
 - design `expiration-integration-suite-failing-at-head`
+- design `foreign-value-type-registration`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `store-key-guard`

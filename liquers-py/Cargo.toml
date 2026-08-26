@@ -6,10 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "liquers_py"
-crate-type = ["cdylib"]
+# `rlib` alongside `cdylib` so `cargo test -p liquers-py` has a library to link a test harness
+# against; the `cdylib` is what maturin packages and is unchanged.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.21.2", features = ["extension-module"] }
+pyo3 = { version = "0.21.2" }
 liquers-core={path="../liquers-core"}
 serde = "1.0.181"
 serde_derive = "1.0.181"
@@ -19,5 +21,13 @@ once_cell = "1.19.0"
 chrono = "0.4.31"
 
 [features]
-default=["async_store"]
+default=["async_store", "extension-module"]
 async_store=[]
+
+# `pyo3/extension-module` omits the Python symbols so the built `cdylib` resolves them from the
+# interpreter that loads it. That is right for the wheel and fatal for a test binary, which has no
+# interpreter to resolve them against and fails to link with `undefined symbol: _Py_Dealloc`.
+# Keeping it behind a *default* feature leaves every ordinary build and the maturin wheel exactly
+# as they were, while `cargo test -p liquers-py --no-default-features` links against libpython and
+# can run. This is the recipe the PyO3 guide gives for exactly this problem.
+extension-module=["pyo3/extension-module"]

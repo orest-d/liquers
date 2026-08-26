@@ -561,12 +561,28 @@ fn validate_media_type_override(key: &Key, media_type: &str) -> Result<(), Error
     Ok(())
 }
 
+/// Re-types metadata whose value has just been cleared.
+///
+/// A failed asset holds no value, and the type axis describes **what is available, not what was
+/// intended** — so the identifier becomes the none type's, exactly as for any other state holding
+/// none. There is no `error` type to switch to: an error is a metadata property (`is_error`,
+/// `Status::Error`, `error_data`), never a type a value can have.
+///
+/// What the asset was *going to* produce is not lost: the query, the key and the filename all
+/// survive in the same metadata.
+fn retype_as_none<E: Environment>(metadata: &mut Metadata) {
+    let none = E::Value::none();
+    let _ = metadata.with_type_identifier(none.identifier().to_string());
+    let _ = metadata.with_type_name(none.type_name().to_string());
+}
+
 /// The hard tier: the invariants whose violation makes a stored value unreadable.
 ///
 /// The **format** check is skipped for an error state. An errored asset often retains the intended
-/// output's filename — `report.csv` — so its effective format contradicts its `error` identifier,
-/// and its bytes are not a serialization of the declared type in any case. The *identifier* check
-/// still applies, which is why `error` is a registered type.
+/// output's filename — `report.csv` — while its value is gone and its type has become the none
+/// type, so the declared format describes something that is no longer there. Its bytes are not a
+/// serialization of the declared type in any case. The *identifier* check still applies, and the
+/// none type is registered like any other, so it passes.
 ///
 /// See `specs/design/value-type-system/phase2-architecture.md`, "Where the invariants are
 /// enforced".
@@ -1307,6 +1323,9 @@ impl<E: Environment> AssetRef<E> {
         lock.binary = None;
         lock.status = Status::Error;
         lock.metadata.with_error(error.clone());
+        // The value is gone, so the type axis must say so: it reports what is *available*, not
+        // what was intended. The intent survives in the query, key and filename.
+        retype_as_none::<E>(&mut lock.metadata);
         let _ = lock
             .notification_tx
             .send(AssetNotificationMessage::ErrorOccurred(error));
@@ -3164,6 +3183,9 @@ impl<E: Environment> AssetRef<E> {
             lock.binary = None;
             lock.status = Status::Error;
             lock.metadata.with_error(error.clone());
+            // As in `fail_due_to_dependency`: the value was just cleared, so the type it reports
+            // becomes the none type rather than the type this asset was going to produce.
+            retype_as_none::<E>(&mut lock.metadata);
             let _ = lock.metadata.set_status(Status::Error);
             lock.metadata
                 .set_primary_progress(&ProgressEntry::done("Error".to_string()));

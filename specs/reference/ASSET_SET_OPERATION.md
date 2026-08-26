@@ -3,7 +3,7 @@ title: Asset Set Operation Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-08-18
+reviewed: 2026-08-26
 ---
 # Asset Set Operation Specification
 
@@ -73,10 +73,15 @@ Both operations require `MetadataRecord` (not the `Metadata` enum which includes
   it reaches an HTTP response header.
 
 **Two exemptions from the format check**, both because the pairing is meaningless rather than
-because the rule is inconvenient: an **error state** (which keeps the intended output's filename, so
-its format contradicts its `error` identifier, and whose bytes are not a serialization of that type
-anyway), and a type that **declares no formats** at all (a UI element or foreign handle, persisted
-as metadata only). The identifier check applies in both cases.
+because the rule is inconvenient: an **error state** (which keeps the intended output's filename
+while its value is gone and its type has become the none type, so the declared format describes
+something that is no longer there), and a type that **declares no formats** at all (a UI element or
+foreign handle, persisted as metadata only). The identifier check applies in both cases, and both
+pass it — the none type is registered like any other.
+
+There is no `error` type identifier: a failure is recorded in `is_error`/`Status::Error`, and the
+type axis reports what is *available*. See `specs/reference/VALUE_TYPE_SYSTEM.md`, "How a failure is
+typed".
 
 **Soft checks** add a `LogEntry::warning` and do not fail the write: a filename extension differing
 from the base of the effective format, and a declared `media_type` differing from the derived one —
@@ -369,6 +374,7 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 
 | Date | Change |
 |---|---|
+| 2026-08-26 | Corrected the error-state exemption: an errored asset is typed by the value it holds, which is none. There is no `error` identifier. | `design/foreign-value-type-registration/` |
 | 2026-08-18 | The mandatory-field rules this document asserted are now enforced, in two tiers; records which checks reject, which warn, and the two exemptions from the format check. | `design/value-type-system/` | Source |
 |---|---|---|
 | 2026-08-08 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |

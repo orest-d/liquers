@@ -59,6 +59,33 @@ pub trait ForeignValue:
     /// Default media type used when the value is served.
     fn default_media_type(&self) -> Cow<'static, str>;
 
+    /// This value's type description — what the registry holds and what the write path checks.
+    ///
+    /// The default derives everything from the methods above and declares **no** data formats,
+    /// which is right for a handle with no byte form: the write path exempts a formatless type
+    /// from the format check exactly as it exempts a UI element. An implementation whose
+    /// [`ForeignValue::as_bytes`] does produce bytes overrides this and adds
+    /// `.with_data_formats([…])`, or the registry and the value would disagree about what the
+    /// type can be written as.
+    ///
+    /// **This is the instance side of a fact with two spellings.** The registry is built before
+    /// any value exists, so an integration also needs the same description *without* an
+    /// instance — a free function in the integration crate. Both must read one identifier
+    /// constant, and a unit test must assert they agree; the type system cannot enforce it,
+    /// because a default body is type-checked with `Self: ?Sized` and so cannot call an
+    /// associated function. See `specs/design/foreign-value-type-registration/`.
+    fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+        liquers_core::type_system::TypeInfo::new(self.identifier())
+            .with_type_name(self.type_name())
+            .with_defaults(
+                // `default_data_format` derives from the extension, as `ValueInterface` does.
+                self.default_extension(),
+                self.default_extension(),
+                self.default_media_type(),
+                self.default_filename(),
+            )
+    }
+
     /// Text conversion, if the language can provide a faithful one.
     ///
     /// The default refuses: a coercion such as JavaScript's `String(obj)` is lossy and usually not
@@ -97,5 +124,119 @@ pub trait ForeignValue:
                 self.type_name()
             ),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::borrow::Cow;
+
+    const MOCK_TYPE_IDENTIFIER: &str = "mock.Value";
+
+    /// A foreign value with no byte form — the ordinary case, and what `JsOpaque` is.
+    #[derive(Debug)]
+    struct Opaque;
+
+    impl ForeignValue for Opaque {
+        fn origin(&self) -> &'static str {
+            "mock"
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn identifier(&self) -> Cow<'static, str> {
+            MOCK_TYPE_IDENTIFIER.into()
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            "MockObject".into()
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            "json".into()
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            "value.json".into()
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            "application/json".into()
+        }
+    }
+
+    /// A foreign value that *can* serialize, and therefore overrides `type_info`.
+    #[derive(Debug)]
+    struct Serializable;
+
+    impl ForeignValue for Serializable {
+        fn origin(&self) -> &'static str {
+            "mock"
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn identifier(&self) -> Cow<'static, str> {
+            "mock.Serializable".into()
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            "MockSerializable".into()
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            "json".into()
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            "value.json".into()
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            "application/json".into()
+        }
+        fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+            liquers_core::type_system::TypeInfo::new(self.identifier())
+                .with_type_name(self.type_name())
+                .with_defaults("json", "json", "application/json", "value.json")
+                .with_data_formats(["json"])
+        }
+        fn as_bytes(&self, _format: &str) -> Result<Vec<u8>, Error> {
+            Ok(b"{}".to_vec())
+        }
+    }
+
+    /// `fvt3.1` — the default derives from the value's own methods and declares no formats.
+    #[test]
+    fn the_default_type_info_derives_from_the_value() {
+        let info = Opaque.type_info();
+
+        assert_eq!(info.type_identifier, MOCK_TYPE_IDENTIFIER);
+        assert_eq!(info.type_name, "MockObject");
+        assert_eq!(info.default_data_format, "json");
+        assert_eq!(info.default_extension, "json");
+        assert_eq!(info.default_media_type, "application/json");
+        assert_eq!(info.default_filename, "value.json");
+        assert!(
+            info.supported_data_formats.is_empty(),
+            "a handle with no byte form declares no formats, which is what exempts it from the \
+             write path's format check"
+        );
+        assert!(
+            !info.supports_data_format("json"),
+            "and it therefore supports nothing, even its own default"
+        );
+    }
+
+    /// `fvt3.2` — an implementation that serializes can declare what `as_bytes` accepts.
+    #[test]
+    fn an_implementation_that_serializes_can_declare_formats() {
+        let info = Serializable.type_info();
+
+        assert!(info.supports_data_format("json"));
+        assert!(!info.supports_data_format("parquet"));
+    }
+
+    /// The identifier reaches the description unchanged — the property the registry depends on.
+    #[test]
+    fn the_identifier_and_the_description_agree() {
+        assert_eq!(Opaque.type_info().type_identifier, Opaque.identifier());
+        assert_eq!(
+            Serializable.type_info().type_identifier,
+            Serializable.identifier()
+        );
     }
 }

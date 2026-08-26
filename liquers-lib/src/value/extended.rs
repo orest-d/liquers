@@ -39,6 +39,29 @@ pub trait ValueExtension:
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         Vec::new()
     }
+    /// The description of *this* value's type.
+    ///
+    /// Mirrors [`liquers_core::value::ValueInterface::type_info`]: find this value's identifier
+    /// among the extension's own descriptions, and otherwise build a description from the value's
+    /// defaults. An extension holding a value whose description is not static — a foreign
+    /// language handle — overrides this and delegates to the value itself.
+    fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+        let identifier = self.identifier();
+        Self::type_descriptions()
+            .into_iter()
+            .find(|info| info.type_identifier == identifier)
+            .unwrap_or_else(|| {
+                liquers_core::type_system::TypeInfo::new(identifier)
+                    .with_type_name(self.type_name())
+                    .with_defaults(
+                        self.default_extension(),
+                        self.default_extension(),
+                        self.default_media_type(),
+                        self.default_filename(),
+                    )
+            })
+    }
+
     fn identifier(&self) -> Cow<'static, str>;
     fn type_name(&self) -> Cow<'static, str>;
     fn default_extension(&self) -> Cow<'static, str>;
@@ -147,6 +170,20 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
         let mut descriptions = BaseValue::type_descriptions();
         descriptions.extend(Ext::type_descriptions());
         descriptions
+    }
+
+    /// Routes to whichever side holds the value, rather than searching the concatenated
+    /// descriptions.
+    ///
+    /// For every statically described type the two are the same answer. They differ for a value
+    /// whose description is only known at runtime: the default would miss it and fall back to a
+    /// derivation with **no** supported formats, so a foreign value that can serialize would
+    /// report `supports_data_format(..) == false` against a registry saying otherwise.
+    fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+        match self {
+            CombinedValue::Base(base) => base.type_info(),
+            CombinedValue::Extended(ext) => ext.type_info(),
+        }
     }
 
     fn identifier(&self) -> Cow<'static, str> {
@@ -502,5 +539,87 @@ mod tests {
         // The trait object behind ExtValue::Foreign must carry the bounds too, via
         // supertrait transitivity — this is what lets the variant be ungated.
         assert_send_sync::<std::sync::Arc<dyn crate::value::foreign::ForeignValue>>();
+    }
+
+    /// `fvt4.1` — a statically described type still resolves to its declared description.
+    ///
+    /// The routing added for foreign values must not change the answer for anything else.
+    #[test]
+    fn type_info_still_finds_a_described_type() {
+        use crate::value::ExtValueInterface;
+        use liquers_core::value::ValueInterface;
+
+        let image = Value::new_extended(ExtValue::from_image(std::sync::Arc::new(
+            image::DynamicImage::new_rgb8(1, 1),
+        )));
+        let info = image.type_info();
+
+        assert_eq!(info.type_identifier, "Image");
+        assert_eq!(info.default_data_format, "png");
+        assert!(
+            info.supports_data_format("png"),
+            "the declared formats survive the delegation"
+        );
+    }
+
+    /// `fvt4.2` — a foreign value reports its own description, not the generic fallback.
+    ///
+    /// The fallback would declare no supported formats. This mock declares one, so the two
+    /// answers are distinguishable and the test fails if the delegation is removed.
+    #[test]
+    fn type_info_delegates_to_the_foreign_value() {
+        use crate::value::foreign::ForeignValue;
+        use liquers_core::value::ValueInterface;
+        use std::borrow::Cow;
+
+        #[derive(Debug)]
+        struct Serializable;
+
+        impl ForeignValue for Serializable {
+            fn origin(&self) -> &'static str {
+                "mock"
+            }
+            fn as_any(&self) -> &dyn core::any::Any {
+                self
+            }
+            fn identifier(&self) -> Cow<'static, str> {
+                "mock.Serializable".into()
+            }
+            fn type_name(&self) -> Cow<'static, str> {
+                "MockSerializable".into()
+            }
+            fn default_extension(&self) -> Cow<'static, str> {
+                "json".into()
+            }
+            fn default_filename(&self) -> Cow<'static, str> {
+                "value.json".into()
+            }
+            fn default_media_type(&self) -> Cow<'static, str> {
+                "application/json".into()
+            }
+            fn type_info(&self) -> liquers_core::type_system::TypeInfo {
+                liquers_core::type_system::TypeInfo::new(self.identifier())
+                    .with_type_name(self.type_name())
+                    .with_defaults("json", "json", "application/json", "value.json")
+                    .with_data_formats(["json"])
+            }
+        }
+
+        let value = Value::new_extended(ExtValue::Foreign {
+            value: std::sync::Arc::new(Serializable),
+        });
+        let info = value.type_info();
+
+        assert_eq!(info.type_identifier, "mock.Serializable");
+        assert_eq!(info.type_name, "MockSerializable");
+        assert!(
+            info.supports_data_format("json"),
+            "the foreign value's own declared formats must reach the caller; the generic \
+             fallback would have declared none"
+        );
+        assert!(
+            value.supports_data_format("json"),
+            "and ValueInterface::supports_data_format, which consults type_info, agrees"
+        );
     }
 }

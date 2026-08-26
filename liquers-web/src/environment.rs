@@ -78,7 +78,20 @@ thread_local! {
 /// Kept separate from `to_ref` so that JavaScript commands can be registered into it before it is
 /// shared — the ordinary Rust ordering, and the one that avoids a rebuild.
 pub fn new_environment() -> Result<WebEnvironment, Error> {
-    let mut env = WebEnvironment::new();
+    // `js.Value` is known to *this* crate but not to the value type, whose `type_descriptions()`
+    // is static and lives in `liquers-lib`. Since `value-type-system` the write path refuses an
+    // identifier the registry does not contain, so without this a retained JavaScript value could
+    // not be stored at all (`FOREIGN-VALUE-TYPES-NOT-REGISTERED`).
+    //
+    // It belongs **here** rather than in `REGISTERED_SPECS`: both `rebuild_with` and
+    // `rebuild_without` start from this function, so the registration is reconstructed on every
+    // rebuild with nothing retained and nothing that can drift. `REGISTERED_SPECS` and
+    // `STORE_CONFIG` retain declarations that vary at runtime; a type identifier fixed by the
+    // build is not one of those.
+    let mut types = liquers_core::type_system::TypeRegistry::from_value_type::<Value>();
+    types.register(crate::value::js_value_type_info())?;
+
+    let mut env = WebEnvironment::new_with_type_registry(types);
     crate::builtins::register_builtin_commands(&mut env)?;
     // Required, not optional: `DefaultEnvironment::get_recipe_provider` *panics* when none is set
     // (`liquers-lib/src/environment.rs:152`), and evaluating any `-R/` query reaches it. On wasm a

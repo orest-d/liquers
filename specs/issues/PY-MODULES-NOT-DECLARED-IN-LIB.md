@@ -20,6 +20,14 @@ never reach Python.
 |---|---|
 | `command_metadata`, `dependencies`, `error`, `expiration`, `metadata`, `parse`, `plan`, `query`, `recipes` | `cache`, `commands`, `context`, `interpreter`, `state`, `store`, `value` |
 
+**Partially addressed 2026-08-26** by `foreign-value-type-registration`: `value` and `context` are
+now declared, and `value.rs` was repaired to compile (`try_into_query`'s return type,
+`from_asset_info`'s signature and its `todo!()`, incompatible `match` arms, and four unimplemented
+trait items). `cache`, `commands`, `interpreter`, `state` and `store` remain undeclared, and the
+evidence below about `commands.rs` still stands. That work also made the crate testable: `pyo3`'s
+`extension-module` moved behind a default feature, so `cargo test -p liquers-py --lib
+--no-default-features --features async_store` links and runs.
+
 `cargo check -p liquers-py --lib` succeeds with three deprecation warnings and no errors, because
 the compiler never sees the orphaned files.
 

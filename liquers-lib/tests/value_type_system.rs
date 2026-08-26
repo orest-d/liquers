@@ -89,7 +89,7 @@ fn combined_registry_contains_both_sides() {
     assert!(registry.contains("Text"), "base value types are registered");
     assert!(registry.contains("Image"), "extension types are registered");
     assert!(
-        registry.contains("error"),
-        "the error pseudo-type is always registered"
+        !registry.contains("error"),
+        "there is no error type: a failure is metadata, not something a value can be"
     );
 }

@@ -217,6 +217,66 @@ fn web_register_after_sharing_rebuilds() {
     reset_global();
 }
 
+/// `fvt8.1` — the environment knows the JavaScript value type.
+///
+/// `js.Value` is registered by `new_environment`, because `liquers-lib`'s value type cannot
+/// describe it statically: the identifier belongs to this crate. Without the registration, storing
+/// a retained JavaScript value is refused by the write path
+/// (`FOREIGN-VALUE-TYPES-NOT-REGISTERED`).
+#[wasm_bindgen_test]
+fn fvt8_1_the_environment_knows_the_javascript_type() {
+    let envref = build_environment().expect("build a default environment");
+    let registry = envref.0.get_type_registry();
+
+    assert!(
+        registry.contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
+        "a retained JavaScript value must be a type this build knows"
+    );
+    assert!(
+        registry.contains("Text") && registry.contains("None"),
+        "and the base value type's own types must survive the extension, which an empty base \
+         registry would have lost"
+    );
+    assert!(
+        !registry.contains("error"),
+        "there is no error type: an errored state is typed by the value it holds, which is none"
+    );
+}
+
+/// `fvt8.2` — a rebuild keeps it.
+///
+/// The pitfall this guards: registering a type anywhere other than `new_environment` would work
+/// until the first command registration *after* the first evaluation, which rebuilds the
+/// environment from scratch and replays only what `REGISTERED_SPECS` retained. Siting the
+/// registration in `new_environment` is what makes it survive, since both rebuild paths start
+/// there.
+#[wasm_bindgen_test]
+fn fvt8_2_a_rebuild_keeps_the_javascript_type() {
+    reset_global();
+    init_global().expect("init");
+
+    let first = shared_env().expect("share");
+    assert!(
+        first.0.get_type_registry().contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
+        "the premise: the shared environment knows the type"
+    );
+
+    // Force a rebuild, exactly as `web_register_after_sharing_rebuilds` does.
+    register_command_on(&decl("after", "return 2;")).expect("register after sharing");
+    let second = shared_env().expect("share again");
+    assert!(
+        !std::sync::Arc::ptr_eq(&first.0, &second.0),
+        "the premise: the environment really was rebuilt"
+    );
+
+    assert!(
+        second.0.get_type_registry().contains(liquers_web::value::JS_VALUE_TYPE_IDENTIFIER),
+        "a rebuild must not lose the JavaScript type"
+    );
+
+    reset_global();
+}
+
 /// Unregistering after sharing also rebuilds, and does not resurrect the command.
 #[wasm_bindgen_test]
 fn web_unregister_after_sharing_rebuilds() {

@@ -988,8 +988,22 @@ impl<V: ValueInterface> SimpleEnvironment<V> {
     ///
     /// The environment still needs [`Environment::to_ref`] before evaluation.
     pub fn new() -> Self {
+        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
+    }
+
+    /// Creates a native queued environment with a caller-supplied type registry.
+    ///
+    /// For an integration that adds a type `V` cannot describe statically — a foreign language
+    /// handle whose identifier belongs to the integration crate rather than to the value type.
+    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
+    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
+    /// `error` pseudo-type that even a failed asset needs.
+    ///
+    /// The registry is never written after this point, which is what lets
+    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
+    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
         SimpleEnvironment {
-            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
+            type_registry,
             store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
@@ -1132,8 +1146,22 @@ impl<V: ValueInterface> Default for ImmediateEnvironment<V> {
 impl<V: ValueInterface> ImmediateEnvironment<V> {
     /// Creates an inline environment with no asynchronous persistence.
     pub fn new() -> Self {
+        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
+    }
+
+    /// Creates an inline environment with a caller-supplied type registry.
+    ///
+    /// For an integration that adds a type `V` cannot describe statically — a foreign language
+    /// handle whose identifier belongs to the integration crate rather than to the value type.
+    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
+    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
+    /// `error` pseudo-type that even a failed asset needs.
+    ///
+    /// The registry is never written after this point, which is what lets
+    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
+    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
         ImmediateEnvironment {
-            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
+            type_registry,
             command_registry: CommandRegistry::new(),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
@@ -1257,8 +1285,22 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Default
 impl<V: ValueInterface, P: crate::commands::PayloadType> ImmediateEnvironmentWithPayload<V, P> {
     /// Creates an inline payload-bearing environment with no asynchronous persistence.
     pub fn new() -> Self {
+        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
+    }
+
+    /// Creates an inline payload-bearing environment with a caller-supplied type registry.
+    ///
+    /// For an integration that adds a type `V` cannot describe statically — a foreign language
+    /// handle whose identifier belongs to the integration crate rather than to the value type.
+    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
+    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
+    /// `error` pseudo-type that even a failed asset needs.
+    ///
+    /// The registry is never written after this point, which is what lets
+    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
+    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
         ImmediateEnvironmentWithPayload {
-            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
+            type_registry,
             command_registry: CommandRegistry::new(),
             #[cfg(feature = "async_store")]
             async_store: Arc::new(crate::store::NoAsyncStore),
@@ -1359,9 +1401,69 @@ mod tests {
     use crate::metadata::LogEntryKind;
     use crate::parse::{parse_key, parse_query};
     use crate::query::{ActionParameter, QuerySegment};
+    use crate::type_system::{TypeInfo, TypeRegistry};
     use crate::value::Value;
 
     type TestEnvironment = ImmediateEnvironment<Value>;
+
+    /// A type identifier no value type describes — the shape an integration supplies at
+    /// construction. `provider.LocalName`, so it satisfies the naming rule.
+    fn foreign_info() -> TypeInfo {
+        TypeInfo::new("test.Foreign")
+            .with_type_name("test_foreign")
+            .with_defaults("json", "json", "application/json", "value.json")
+    }
+
+    /// `fvt2.1` — `new()` delegates, so it still describes exactly what the value type describes.
+    ///
+    /// The delegation is what keeps the field initialisation in one place; if it were copied
+    /// instead, the two constructors could drift apart silently.
+    #[test]
+    fn new_matches_new_with_the_default_registry() {
+        let delegated = ImmediateEnvironment::<Value>::new();
+        let explicit = ImmediateEnvironment::<Value>::new_with_type_registry(
+            TypeRegistry::from_value_type::<Value>(),
+        );
+
+        let described: Vec<&str> = delegated
+            .get_type_registry()
+            .iter()
+            .map(|(key, _)| key.type_identifier.as_str())
+            .collect();
+        let explicit_described: Vec<&str> = explicit
+            .get_type_registry()
+            .iter()
+            .map(|(key, _)| key.type_identifier.as_str())
+            .collect();
+
+        assert_eq!(described, explicit_described);
+        assert!(
+            described.contains(&"Text") && described.contains(&"None"),
+            "and both describe the value type's own types: {described:?}"
+        );
+    }
+
+    /// `fvt2.2` — a supplied registry is what the environment reports, extra type included.
+    ///
+    /// This is the whole registration mechanism: an integration extends the base registry and
+    /// hands it over, and nothing writes to it afterwards.
+    #[test]
+    fn a_supplied_registry_is_what_the_environment_reports(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut types = TypeRegistry::from_value_type::<Value>();
+        types.register(foreign_info())?;
+
+        let env = ImmediateEnvironment::<Value>::new_with_type_registry(types);
+        let registry = env.get_type_registry();
+
+        assert!(registry.contains("test.Foreign"), "the supplied type is visible");
+        assert!(registry.contains("Text"), "and the base types survived");
+        assert!(
+            !registry.contains("error"),
+            "there is no error type: an errored state is typed by the value it holds, which is none"
+        );
+        Ok(())
+    }
 
     fn test_context() -> (
         Context<TestEnvironment>,
@@ -1732,8 +1834,22 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> SimpleEnvironmentWithPa
     ///
     /// The environment still needs [`Environment::to_ref`] before evaluation.
     pub fn new() -> Self {
+        Self::new_with_type_registry(crate::type_system::TypeRegistry::from_value_type::<V>())
+    }
+
+    /// Creates a native queued payload-bearing environment with a caller-supplied type registry.
+    ///
+    /// For an integration that adds a type `V` cannot describe statically — a foreign language
+    /// handle whose identifier belongs to the integration crate rather than to the value type.
+    /// **Extend** [`TypeRegistry::from_value_type`](crate::type_system::TypeRegistry::from_value_type):
+    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
+    /// `error` pseudo-type that even a failed asset needs.
+    ///
+    /// The registry is never written after this point, which is what lets
+    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
+    pub fn new_with_type_registry(type_registry: crate::type_system::TypeRegistry) -> Self {
         SimpleEnvironmentWithPayload {
-            type_registry: crate::type_system::TypeRegistry::from_value_type::<V>(),
+            type_registry,
             store: Arc::new(NoStore),
             command_registry: CommandRegistry::new(),
             //            cache: Arc::new(tokio::sync::RwLock::new(Box::new(NoCache::<V>::new()))),
