@@ -5016,4 +5016,77 @@ mod tests {
         assert_eq!(back.volatility_source, None);
         Ok(())
     }
+
+    // --- the recipe fold (predecessor-cut-equivalence step 3) -------------------------------
+
+    fn fold_registry() -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["prefix", "tail"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+        cmr
+    }
+
+    fn folded_plan(
+        volatile: bool,
+        expires: &str,
+    ) -> Result<Plan, Box<dyn std::error::Error>> {
+        let cmr = fold_registry();
+        let mut recipe =
+            Recipe::new("prefix/tail/out.txt".to_owned(), String::new(), String::new())?;
+        recipe.volatile = volatile;
+        if !expires.is_empty() {
+            recipe.expires = expires.parse()?;
+        }
+        Ok(recipe.to_plan(&cmr)?)
+    }
+
+    /// `Recipe::volatile` reaches the plan, and does so as a whole-plan declaration.
+    ///
+    /// Before this, `to_plan` read neither of its own declarations: a `volatile: true` recipe
+    /// produced `is_volatile == false`, so a recipe preview under-reported it and no consumer
+    /// could ask the plan whether it was volatile.
+    #[test]
+    fn to_plan_folds_recipe_volatility() -> Result<(), Box<dyn std::error::Error>> {
+        let plan = folded_plan(true, "")?;
+        assert!(plan.is_volatile, "a volatile recipe makes a volatile plan");
+        assert_eq!(plan.volatility_source, Some(VolatilitySource::Declared));
+
+        let plain = folded_plan(false, "")?;
+        assert!(!plain.is_volatile);
+        assert_eq!(plain.volatility_source, None);
+        Ok(())
+    }
+
+    /// `Recipe::expires` is combined into the plan, as its own documentation promised.
+    #[test]
+    fn to_plan_combines_recipe_expiration() -> Result<(), Box<dyn std::error::Error>> {
+        let plan = folded_plan(false, "in 5 minutes")?;
+        assert!(
+            !plan.expires.is_never(),
+            "a finite recipe expiration reaches the plan: {:?}",
+            plan.expires
+        );
+        Ok(())
+    }
+
+    /// A *finite* expiration bounds how long the result stays valid; it says nothing about the
+    /// purity of the computation, so it must not make the plan uncuttable. Only an expiration
+    /// that is itself volatile does.
+    #[test]
+    fn finite_expiration_does_not_declare_volatility(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let finite = folded_plan(false, "in 5 minutes")?;
+        assert!(!finite.is_volatile, "a finite expiration is not volatility");
+        assert_eq!(finite.volatility_source, None);
+
+        let immediate = folded_plan(false, "immediately")?;
+        assert!(immediate.is_volatile);
+        assert_eq!(
+            immediate.volatility_source,
+            Some(VolatilitySource::Declared),
+            "an Immediately expiration is volatile, and whole-plan"
+        );
+        Ok(())
+    }
 }

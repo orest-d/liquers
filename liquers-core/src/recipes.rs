@@ -38,7 +38,10 @@ use crate::{
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
-    plan::{has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder, Step},
+    plan::{
+        has_expirable_dependencies, has_volatile_dependencies, Plan, PlanBuilder, Step,
+        VolatilitySource,
+    },
     query::{Key, Query, ResourceName},
 };
 
@@ -233,6 +236,20 @@ impl Recipe {
                 ))
                 .with_query(&query));
             }
+        }
+
+        // A recipe's own declarations are not in its query, so nothing downstream can recover
+        // them from the plan: fold them in here, where the recipe is in hand.
+        if self.volatile || self.expires.is_volatile() {
+            plan.is_volatile = true;
+            // Whole-plan, not positional — see `VolatilitySource`. This is what stops a
+            // predecessor boundary being cut out of a plan the author declared volatile.
+            plan.upgrade_volatility_source(VolatilitySource::Declared);
+        }
+        if !self.expires.is_never() {
+            // What this field's own documentation already promised: "Recipe-level expiration
+            // combined with finalized plan expiration."
+            plan.expires = plan.expires.clone().combine(self.expires.clone());
         }
 
         if let Some(cwd) = self.get_cwd()? {
