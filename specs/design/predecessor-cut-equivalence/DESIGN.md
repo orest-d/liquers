@@ -4,10 +4,10 @@ kind: design
 title: Make cutting a predecessor boundary observably equivalent to expanding it
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/plan, core/assets, core/context]
-issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS, CORE-PLAN-POLICY-AND-DEFAULTS]
-affects_docs: []
+issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS, RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES, CORE-PLAN-POLICY-AND-DEFAULTS]
+affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md]
 gh_pr:
 created: 2026-08-26
 superseded_by:
@@ -22,8 +22,8 @@ changes observable behaviour.
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design — **written, awaiting the approval gate**
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design — **approved 2026-08-26**
+- [ ] Phase 2: Solution & Architecture — **written, awaiting the approval gate**
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -124,6 +124,12 @@ tool and is not part of any change set.
   finalizes, so it keeps the expanded form for free whatever the evaluation default is. Its other
   apparent role, lower memory through less caching, belongs to a future asset-manager retention
   policy; `CORE-ASSET-GC` already owns that and no new issue is warranted.
+
+**Confirmed at the Phase 1 gate:** the default flip ships in this design, not a follow-on.
+
+**Filed during Phase 2:** `RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES` (P2) —
+`Recipe::to_plan` reads neither `volatile:` nor `expires:`, measured, so a recipe preview
+under-reports both.
 
 **Filed during Phase 1:** `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL` (P3),
 `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` (P3);
