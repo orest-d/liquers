@@ -2,11 +2,11 @@
 id: FOREIGN-VALUE-TYPES-NOT-REGISTERED
 kind: issue
 title: A foreign language value cannot be registered in the type registry
-status: draft
+status: in_progress
 priority: P1
 complexity: M
 area: [core/value, lib/value, web, py]
-design: value-type-system
+design: foreign-value-type-registration
 created: 2026-08-18
 github:
 ---
@@ -29,9 +29,17 @@ handles most directly. The failure is a clean typed error rather than corruption
 regression against the previous behaviour, where an unserializable or unknown value degraded to
 metadata-only persistence.
 
-**Not verified against a build.** `liquers-web` is `wasm32`-only and the `wasm32-unknown-unknown`
-target is not installed in the environment where this was found, so the rejection is derived from
-reading the write path rather than observed. Confirming it is the first step.
+**Verified on 2026-08-26** (was previously derived from reading the write path only). Reproduced
+natively — no `wasm32` target needed — with a mock `ForeignValue` returning the identifier
+`js.Value` inside `ExtValue::Foreign`: `TypeRegistry::from_value_type::<CombinedValue<SimpleValue,
+ExtValue>>()` registers 21 identifiers and none of them is `js.Value`, and
+`AssetManager::set_state` then fails with
+
+```
+[General] Type identifier 'js.Value' is not registered in this build
+```
+
+The reproduction becomes a regression test in `foreign-value-type-registration` Phase 3.
 
 ## Expected behaviour
 
