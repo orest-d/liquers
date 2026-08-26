@@ -1091,7 +1091,7 @@ impl<V: ValueInterface> Environment for SimpleEnvironment<V> {
                 recipe.to_plan(cmr)?
             };
 
-            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
             let combined_expires = plan.expires.clone() | recipe_expires;
             context.set_expires(combined_expires).await?;
 
@@ -1230,7 +1230,7 @@ impl<V: ValueInterface> Environment for ImmediateEnvironment<V> {
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
-            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
             let combined_expires = plan.expires.clone() | recipe_expires;
             context.set_expires(combined_expires).await?;
             let res = apply_plan(plan, input_state, context, envref).await?;
@@ -1372,7 +1372,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
                 let cmr = envref.0.get_command_metadata_registry();
                 recipe.to_plan(cmr)?
             };
-            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
             let combined_expires = plan.expires.clone() | recipe_expires;
             context.set_expires(combined_expires).await?;
             let res = apply_plan(plan, input_state, context, envref).await?;
@@ -1940,7 +1940,7 @@ impl<V: ValueInterface, P: crate::commands::PayloadType> Environment
                 recipe.to_plan(cmr)?
             };
 
-            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
             let combined_expires = plan.expires.clone() | recipe_expires;
             context.set_expires(combined_expires).await?;
 

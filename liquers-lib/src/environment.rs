@@ -157,7 +157,7 @@ impl<V: ValueInterface, P: PayloadType> Environment for DefaultEnvironment<V, P>
                 recipe.to_plan(cmr)?
             };
 
-            finalize_plan(envref.clone(), &mut plan, &context).await?;
+            finalize_plan(envref.clone(), &mut plan, &context, &input_state).await?;
             let combined_expires = plan.expires.clone() | recipe_expires;
             context.set_expires(combined_expires).await?;
 

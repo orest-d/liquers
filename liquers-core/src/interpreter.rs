@@ -22,18 +22,25 @@ use crate::{
     value::ValueInterface,
 };
 
-/// Complete plan setup after `recipe.to_plan()`:
+/// Complete plan setup after `recipe.to_plan()`, **without** cutting a boundary.
+///
 /// - Populates `plan.dependencies` via async `find_dependencies` (which `to_plan` cannot do
 ///   because it is synchronous).
 /// - May update `plan.is_volatile` if any dependency asset is volatile.
 /// - May update `plan.expires` based on dependency recipe expiration policies.
 /// - Seeds `context.pending_dependencies` with all plan deps at `Version(0)`.
 /// - Registers dependency edges in the `DependencyManager` for keyed plans.
+/// - Freezes every CWD-relative operand.
+///
+/// This yields the **expanded** plan: every step inline, no `Step::Evaluate` boundary. That is
+/// the form analysis wants — and the reference the equivalence suite compares a cut plan
+/// against, which is why it exists separately rather than being a flag on
+/// [`finalize_plan`]. An oracle derived from the cutting path could not detect the cutting path
+/// regressing.
 ///
 /// The supplied plan must be fresh and unfinalized. Callers needing another entry CWD must
-/// rebuild from the source query or recipe rather than finalizing the same plan twice. This must
-/// be called between `recipe.to_plan()` and `apply_plan()` in every `apply_recipe` implementation.
-pub async fn finalize_plan<E: Environment>(
+/// rebuild from the source query or recipe rather than finalizing the same plan twice.
+pub async fn finalize_plan_expanded<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
     context: &Context<E>,
@@ -51,17 +58,6 @@ pub async fn finalize_plan<E: Environment>(
     has_volatile_dependencies(envref.clone(), plan, initial_cwd).await?;
     has_expirable_dependencies(envref.clone(), plan).await?;
 
-    // Cut a predecessor boundary at the outermost prefix that can be cached. This is what lets
-    // the asset manager cache, share, expire and schedule an intermediate instead of recomputing
-    // it inside every consumer, and it is why the boundary machinery exists.
-    //
-    // After the analysis passes deliberately: volatility, payload requirement and expiration are
-    // computed over the fully expanded plan, and the cut consults them rather than recomputing
-    // them. After freezing, so the boundary query is absolute and identifies the same asset from
-    // anywhere. Declining is always safe, so anything the cut cannot place is simply left
-    // expanded, with an `init_info` saying why.
-    plan.cut_predecessor(envref.get_command_metadata_registry())?;
-
     if !plan.is_volatile {
         for plan_dep in &plan.dependencies {
             context
@@ -74,6 +70,47 @@ pub async fn finalize_plan<E: Environment>(
                 .register_plan_dependencies(&key, &plan.dependencies)
                 .await;
         }
+    }
+
+    Ok(())
+}
+
+/// [`finalize_plan_expanded`], then cut a predecessor boundary where it is sound to do so.
+///
+/// This is what every evaluation path calls. Cutting at the outermost cacheable prefix is what
+/// lets the asset manager cache, share, expire and schedule an intermediate instead of
+/// recomputing it inside every consumer.
+///
+/// `input_state` is required because it decides one of the soundness conditions, and only the
+/// caller knows it. **A boundary is a cache entry keyed by its query, and an input state is not
+/// part of that key** — so a prefix fed by a caller's state must not be moved behind one, for
+/// exactly the reason a payload must not be. Applying `wrap/wrap` to `"x"` with the prefix cut
+/// away yields `[[None]]` rather than `[[x]]`: the boundary is evaluated as its own asset,
+/// which starts from `State::new()`.
+///
+/// So the cut is skipped whenever `input_state` carries a value. The other conditions —
+/// payload requirements and volatility — are visible in the plan itself and are handled by
+/// [`Plan::cut_predecessor`].
+pub async fn finalize_plan<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+    context: &Context<E>,
+    input_state: &State<E::Value>,
+) -> Result<(), Error> {
+    finalize_plan_expanded(envref.clone(), plan, context).await?;
+
+    if input_state.is_none() {
+        // Cut after the analysis passes deliberately: volatility, payload requirement and
+        // expiration are computed over the fully expanded plan, and the cut consults them
+        // rather than recomputing them. After freezing, so the boundary query is absolute and
+        // names the same asset from anywhere.
+        plan.cut_predecessor(envref.get_command_metadata_registry())?;
+    } else {
+        plan.init_info(
+            "Predecessor boundary not cut: the plan is applied to an input state, which is not \
+             part of a boundary's cache key"
+                .to_string(),
+        );
     }
 
     Ok(())
@@ -1208,7 +1245,7 @@ mod tests {
         // while the operands are still source-relative. Freezing consumes it.
         assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
 
-        finalize_plan(envref.clone(), &mut plan, &context).await?;
+        finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
 
         assert!(plan
             .dependencies
@@ -1669,7 +1706,7 @@ mod tests {
         let mut plan = Plan::new();
         plan.query = parse_query("-R/./raw-query-owner.txt")?;
         plan.steps.push(Step::GetAsset(parse_key("./input.txt")?));
-        finalize_plan(envref, &mut plan, &context).await?;
+        finalize_plan(envref, &mut plan, &context, &State::new()).await?;
 
         assert!(plan
             .dependencies
@@ -2137,7 +2174,7 @@ mod tests {
             Err(error) => return (Err(error.clone()), Err(error), false),
         };
         let context = immediate_context(envref.clone(), cwd.clone()).await;
-        if let Err(error) = finalize_plan(envref.clone(), &mut plan, &context).await {
+        if let Err(error) = finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await {
             return (Err(error.clone()), Err(error), false);
         }
 
@@ -2219,7 +2256,7 @@ mod tests {
         let cmr = envref.get_command_metadata_registry();
         let mut plan = recipe.to_plan(cmr)?;
         let context = immediate_context(envref.clone(), None).await;
-        finalize_plan(envref.clone(), &mut plan, &context).await?;
+        finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
         plan.cut_predecessor(envref.get_command_metadata_registry())?;
 
         assert!(

@@ -207,7 +207,7 @@ use liquers_core::{
     assets::AssetRef,
     command_metadata::{CommandMetadataRegistry, PayloadRequirement},
     context::ImmediateEnvironmentWithPayload,
-    interpreter::{apply_plan, finalize_plan},
+    interpreter::{apply_plan, finalize_plan, finalize_plan_expanded},
     metadata::{Metadata, MetadataRecord, Status},
     recipes::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe},
     store::{AsyncMemoryStore, AsyncStore},
@@ -295,6 +295,7 @@ async fn suite_plan(
     envref: &EnvRef<CommandEnvironment>,
     query: &str,
     condition: Cwd,
+    cut: bool,
 ) -> Result<(Plan, Context<CommandEnvironment>), Error> {
     let cmr = envref.get_command_metadata_registry();
     let recipe = match condition {
@@ -309,8 +310,23 @@ async fn suite_plan(
     let mut plan = recipe.to_plan(cmr)?;
     let asset = AssetRef::new_temporary(envref.clone());
     let context = Context::new(asset, false).await;
-    finalize_plan(envref.clone(), &mut plan, &context).await?;
+    // The oracle is built by `finalize_plan_expanded`, not by asking `finalize_plan` not to
+    // cut. An oracle derived from the cutting path cannot detect the cutting path regressing —
+    // which is exactly what happened once `finalize_plan` started cutting: both sides of the
+    // comparison were cut, and the suite passed while comparing a plan against itself.
+    if cut {
+        finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
+    } else {
+        finalize_plan_expanded(envref.clone(), &mut plan, &context).await?;
+    }
     Ok((plan, context))
+}
+
+/// Whether a plan carries a boundary, which is what "cut" means observably.
+fn has_boundary(plan: &Plan) -> bool {
+    plan.steps
+        .iter()
+        .any(|step| matches!(step, Step::Evaluate(_)))
 }
 
 /// Writes `query` into `proj/a/recipes.yaml` and reads the recipe back through the provider, so
@@ -348,10 +364,16 @@ async fn evaluate_both_ways(
     query: &str,
     condition: Cwd,
 ) -> Result<(Outcome, Outcome, bool), Error> {
-    let (expanded_plan, expanded_context) = suite_plan(envref, query, condition).await?;
-    let (mut cut_plan, cut_context) = suite_plan(envref, query, condition).await?;
-    let cmr = envref.get_command_metadata_registry();
-    let was_cut = cut_plan.cut_predecessor(cmr)?;
+    let (expanded_plan, expanded_context) = suite_plan(envref, query, condition, false).await?;
+    let (cut_plan, cut_context) = suite_plan(envref, query, condition, true).await?;
+
+    // The oracle must actually be expanded, or the comparison is between a plan and itself.
+    assert!(
+        !has_boundary(&expanded_plan),
+        "the oracle for {query} [{}] carries a boundary; it is not an expanded plan",
+        condition.label()
+    );
+    let was_cut = has_boundary(&cut_plan);
 
     let run = |plan: Plan, context: Context<CommandEnvironment>| {
         let envref = envref.clone();
@@ -530,8 +552,8 @@ async fn payload_boundary(
     let mut plan = recipe.to_plan(cmr)?;
     let asset = AssetRef::new_temporary(envref.clone());
     let context = Context::new(asset, false).await;
-    finalize_plan(envref.clone(), &mut plan, &context).await?;
-    plan.cut_predecessor(cmr)?;
+    // `finalize_plan` already cuts; a second call would re-cut an already-cut plan.
+    finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
     Ok(plan.steps.iter().find_map(|step| match step {
         Step::Evaluate(query) => Some(query.encode()),
         _other => None,
@@ -648,7 +670,7 @@ async fn volatile_recipe_skips_dependency_registration(
         let mut plan = recipe.to_plan(cmr)?;
         let asset = AssetRef::new_temporary(envref.clone());
         let context = Context::new(asset, false).await;
-        finalize_plan(envref.clone(), &mut plan, &context).await?;
+        finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
 
         let recorded = !context.take_pending_dependencies().await.is_empty();
         assert_eq!(
@@ -714,5 +736,97 @@ async fn a_shared_prefix_yields_one_boundary_query() -> Result<(), Box<dyn std::
         Some("-R-stored/proj/a/input.csv/-/analyze"),
         "and it is absolute, so it identifies the same asset from anywhere"
     );
+    Ok(())
+}
+
+// --- input state and the boundary -----------------------------------------------------------
+
+fn wrap(state: &State<Value>) -> Result<Value, Error> {
+    let inner = match state.try_into_string() {
+        Ok(text) => text,
+        Err(_) => "None".to_owned(),
+    };
+    Ok(Value::from(format!("[{inner}]")))
+}
+
+fn wrap_env() -> Result<EnvRef<CommandEnvironment>, Error> {
+    let mut environment = CommandEnvironment::new();
+    {
+        let registry = &mut environment.command_registry;
+        register_command!(registry, fn wrap(state) -> result)?;
+    }
+    Ok(environment.to_ref())
+}
+
+/// A caller's input state must survive, which means the prefix that consumes it must not be
+/// moved behind a boundary.
+///
+/// A boundary is a cache entry keyed by its query, and an input state is not part of that key —
+/// the same soundness argument as a payload. A cut boundary is evaluated as its own asset,
+/// starting from `State::new()`, so a cut prefix would silently receive nothing: applying
+/// `wrap/wrap` to `"x"` produced `[[None]]` instead of `[[x]]`.
+#[tokio::test]
+async fn an_input_state_survives_finalization() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = wrap_env()?;
+    let cmr = envref.get_command_metadata_registry();
+
+    for (label, input, expected) in [
+        ("empty state", State::new(), "[[None]]"),
+        ("supplied state", State::new().with_data(Value::from("x")), "[[x]]"),
+    ] {
+        let recipe = Recipe::new("wrap/wrap".to_owned(), String::new(), String::new())?;
+        let mut plan = recipe.to_plan(cmr)?;
+        let asset = AssetRef::new_temporary(envref.clone());
+        let context = Context::new(asset, false).await;
+        finalize_plan(envref.clone(), &mut plan, &context, &input).await?;
+
+        let stateful = !input.is_none();
+        assert_eq!(
+            has_boundary(&plan),
+            !stateful,
+            "{label}: a plan fed by an input state must not be cut"
+        );
+        let result = apply_plan(plan, input, context, envref.clone()).await?;
+        assert_eq!((*result).try_into_string()?, expected, "{label}");
+    }
+    Ok(())
+}
+
+/// The decline is recorded, so it is distinguishable from a plan that had no predecessor.
+#[tokio::test]
+async fn a_stateful_application_says_why_it_was_not_cut(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let envref = wrap_env()?;
+    let cmr = envref.get_command_metadata_registry();
+    let recipe = Recipe::new("wrap/wrap".to_owned(), String::new(), String::new())?;
+    let mut plan = recipe.to_plan(cmr)?;
+    let asset = AssetRef::new_temporary(envref.clone());
+    let context = Context::new(asset, false).await;
+    let input = State::new().with_data(Value::from("x"));
+    finalize_plan(envref.clone(), &mut plan, &context, &input).await?;
+
+    assert!(
+        plan.init_steps.iter().any(|step| matches!(step, Step::Info(m)
+            if m.contains("input state"))),
+        "the reason is recorded: {:?}",
+        plan.init_steps
+    );
+    Ok(())
+}
+
+/// `finalize_plan_expanded` never cuts, whatever the plan — that is what makes it usable as the
+/// suite's oracle and for analysis.
+#[tokio::test]
+async fn finalize_expanded_never_cuts() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = wrap_env()?;
+    let cmr = envref.get_command_metadata_registry();
+    let recipe = Recipe::new("wrap/wrap/wrap".to_owned(), String::new(), String::new())?;
+    let mut plan = recipe.to_plan(cmr)?;
+    let asset = AssetRef::new_temporary(envref.clone());
+    let context = Context::new(asset, false).await;
+    finalize_plan_expanded(envref.clone(), &mut plan, &context).await?;
+
+    assert!(!has_boundary(&plan), "expanded means no boundary: {:?}", plan.steps);
+    assert!(plan.frozen_cwd.is_some(), "but it is still frozen and analysed");
     Ok(())
 }

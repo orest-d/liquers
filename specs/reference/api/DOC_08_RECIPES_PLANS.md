@@ -319,6 +319,14 @@ both:
 - **it is volatile.** A boundary recomputed on every request buys none of the
   three things above, and costs an extra asset and an extra hop.
 
+A third condition is not visible in the plan at all: **an input state**. `apply`
+and `apply_immediately` supply a caller's state, and a boundary is evaluated as
+its own asset starting from `State::new()`, so a prefix that consumes that state
+must not be moved behind one — applying `wrap/wrap` to `"x"` with the prefix cut
+away yields `[[None]]`. Only the caller knows the state, so `finalize_plan` takes
+it and skips the cut when it carries a value. `finalize_plan_expanded` performs
+the same analysis and never cuts, which is the form analysis wants.
+
 The decision is per candidate, not per plan: `Plan::payload_required` and
 `Plan::is_volatile` answer "does this query need a payload / is it volatile
 anywhere", which is the wrong question in both directions. Used as a veto it

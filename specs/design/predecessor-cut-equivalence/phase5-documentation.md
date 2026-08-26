@@ -49,6 +49,42 @@ design were wrong until measured, and the corrections are the substance rather t
   (2 runs both ways); only recipe-level did (2 → 1). The general claim would have produced a
   guard three times larger than the problem.
 
+### Post-review corrections (Codex, PR #43)
+
+Two findings on the first review, **both correct and both mine**. Recorded here rather than
+folded away, because one of them invalidated this document's own evidence.
+
+**P1 — an input state did not survive the boundary.** `AssetManager::apply` and
+`apply_immediately` supply a caller's state; every production `finalize_plan` caller is such a
+path. With the prefix cut away, the boundary is evaluated as its own asset starting from
+`State::new()`, so the state was silently dropped. Reproduced exactly as reported: applying
+`wrap/wrap` to `"x"` gave `[[None]]` instead of `[[x]]`.
+
+This is the payload argument again, and Phase 2 stated the general form of it without seeing this
+instance: *a boundary is a cache entry keyed by its query, and anything feeding it that is not in
+that key makes it unsound.* An input state is not in the key. The design enumerated payload and
+volatility as the two conditions; input state is a third, and the one condition the plan cannot
+see for itself — only the caller knows it. `finalize_plan` now takes `input_state` and skips the
+cut when it carries a value, with an `init_info` saying so.
+
+**P2 — the equivalence suite was comparing two cut plans.** `suite_plan` calls `finalize_plan`,
+which after step 9 cuts. So both sides of every comparison were already cut before
+`evaluate_both_ways` labelled one the oracle. The suite had been passing vacuously since the flip,
+and its `cut_count > 0` anti-vacuity guard did not catch it, because a second
+`cut_predecessor` on an already-cut plan still returned `true` for some shapes.
+
+The fix is not a flag on `finalize_plan`: **an oracle derived from the cutting path cannot detect
+the cutting path regressing.** `finalize_plan_expanded` performs the analysis and freezing and
+never cuts, and the suite asserts its oracle carries no boundary before comparing.
+
+**What this says about the design's own method.** Both findings are of the class this design
+repeatedly claimed as its lesson — one measured, one structural. The step ordering in Phase 4 put
+the flip last precisely so the suite would guard it, and that ordering is what created P2: the
+suite was written against a non-cutting `finalize_plan` in step 7 and silently changed meaning in
+step 9. Nothing re-checked the suite's premise after the flip. The Phase 4 rollback plan said "the
+suite from step 7 is what will say so" about step 6's uncertainty — and the suite had been
+disarmed two steps later.
+
 ## Documentation Delivered
 
 - [x] `Recipe::volatile` — volatile **from the first action**; why the last-action reading fails,
