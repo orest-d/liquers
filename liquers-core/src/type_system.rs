@@ -365,6 +365,52 @@ mod tests {
         Ok(())
     }
 
+    /// `fvt1.1` — a base registry can be extended with a type the value type cannot describe.
+    ///
+    /// This is the registration mechanism in full: `from_value_type` seeds what the build knows,
+    /// `register` adds what only an integration knows, and the result goes to an environment
+    /// constructor. Nothing writes to the registry after that.
+    #[test]
+    fn a_base_registry_can_be_extended() -> Result<(), Box<dyn std::error::Error>> {
+        let mut registry = TypeRegistry::from_value_type::<crate::value::Value>();
+        let before = registry.len();
+
+        registry.register(
+            TypeInfo::new("js.Value")
+                .with_type_name("JsValue")
+                .with_defaults("json", "json", "application/json", "value.json"),
+        )?;
+
+        assert!(registry.contains("js.Value"), "the added type is present");
+        assert!(registry.contains("Text"), "and the base types survived");
+        assert!(
+            registry.contains(ERROR_TYPE_IDENTIFIER),
+            "including the error pseudo-type, which an empty registry would have lost"
+        );
+        assert_eq!(registry.len(), before + 1);
+        Ok(())
+    }
+
+    /// `fvt1.2` — registering the same identifier twice is refused, and the message names it.
+    ///
+    /// Two integrations claiming one identifier must fail loudly at environment construction
+    /// rather than resolve by load order.
+    #[test]
+    fn a_duplicate_foreign_registration_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+        let mut registry = TypeRegistry::from_value_type::<crate::value::Value>();
+        let info = TypeInfo::new("js.Value").with_type_name("JsValue");
+        registry.register(info.clone())?;
+
+        let error = registry
+            .register(info)
+            .expect_err("a second registration of the same identifier must be refused");
+        assert!(
+            error.message.contains("js.Value"),
+            "the message names the identifier: {error}"
+        );
+        Ok(())
+    }
+
     /// `vts4.3` — format support follows the declared list, and a refinement matches its base.
     #[test]
     fn supports_data_format_matches_the_list() -> Result<(), Box<dyn std::error::Error>> {

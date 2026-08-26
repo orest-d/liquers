@@ -226,9 +226,15 @@ pub trait ValueInterface:
         Vec::new()
     }
 
-    /// String identifier of the state type
-    /// Several types can be linked to the same identifier.
-    /// The identifier must be cross-platform
+    /// The type identifier of this value — the serialization dispatch key.
+    ///
+    /// **Exactly one identifier per value variant.** The correspondence is one-to-one, and
+    /// `type_descriptions_match_identifier` enforces it: one description per variant, no more and
+    /// no less. Detail that varies from instance to instance belongs in
+    /// [`ValueInterface::type_name`], which is informational and is never dispatched on — a
+    /// JavaScript value reports a constant `js.Value` here and its `constructor.name` there.
+    ///
+    /// The identifier must be cross-platform. See `specs/reference/VALUE_TYPE_SYSTEM.md`.
     fn identifier(&self) -> Cow<'static, str>; // TODO: Rename to type_identifier?
 
     /// String name of the stored type
