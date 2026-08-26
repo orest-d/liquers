@@ -4,7 +4,7 @@ kind: design
 title: Make cutting a predecessor boundary observably equivalent to expanding it
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: examples
 area: [core/plan, core/assets, core/context]
 issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS, RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES, CORE-PLAN-POLICY-AND-DEFAULTS]
 affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md]
@@ -23,8 +23,8 @@ changes observable behaviour.
 ## Phase Status
 
 - [x] Phase 1: High-Level Design — **approved 2026-08-26**
-- [ ] Phase 2: Solution & Architecture — **written, awaiting the approval gate**
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture — **approved 2026-08-26**
+- [ ] Phase 3: Examples & Testing — **written, awaiting the approval gate**
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
