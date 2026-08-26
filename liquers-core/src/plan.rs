@@ -1371,6 +1371,7 @@ impl<'c> PlanBuilder<'c> {
         // Set expires field from builder state (first-pass estimate)
         self.plan.expires = self.expires.clone();
 
+        self.plan.check_consistent()?;
         Ok(self.plan.clone())
     }
 
@@ -1924,6 +1925,39 @@ impl Plan {
         }
     }
 
+    /// Checks the invariants tying the coupled predecessor fields to [`Self::steps`].
+    ///
+    /// Returns an error rather than panicking: library code must not panic, and every caller
+    /// here already has a `Result` to propagate into. Callers without one can wrap this in a
+    /// `debug_assert!`.
+    ///
+    /// Three defects in this area have been of one shape — a plan mutated through a subset of
+    /// the coupled fields, leaving an index pointing at the wrong step. This turns the next one
+    /// into an error at its source rather than a wrong value two layers away.
+    pub(crate) fn check_consistent(&self) -> Result<(), Error> {
+        if self.prologue_steps > self.steps.len() {
+            return Err(Error::general_error(format!(
+                "Plan prologue of {} step(s) exceeds its {} step(s)",
+                self.prologue_steps,
+                self.steps.len()
+            ))
+            .with_query(&self.query));
+        }
+        if self.predecessor.is_some()
+            && (self.predecessor_steps < self.prologue_steps
+                || self.predecessor_steps > self.steps.len())
+        {
+            return Err(Error::general_error(format!(
+                "Plan predecessor range {} is outside its prologue {} and {} step(s)",
+                self.predecessor_steps,
+                self.prologue_steps,
+                self.steps.len()
+            ))
+            .with_query(&self.query));
+        }
+        Ok(())
+    }
+
     /// Records where this plan's volatility came from, keeping the stronger source.
     ///
     /// Called for every contribution rather than only the first, because a
@@ -2338,24 +2372,28 @@ impl Plan {
         if split_index == 0 {
             return (Plan::new(), self.clone());
         }
-        let mut first_plan = Plan::new();
-        first_plan.query = self.query.clone();
-        first_plan.init_steps = self.init_steps.clone();
+        // Built by cloning and replacing only what differs, rather than by copying a field
+        // list: a field added to `Plan` later is then carried by construction, and one that
+        // must *not* be carried has to be cleared deliberately, where a reviewer sees it.
+        let mut first_plan = self.clone();
         first_plan.steps = self.steps[..split_index].to_vec();
-        first_plan.is_volatile = self.is_volatile;
-        first_plan.payload_required = self.payload_required;
-        first_plan.expires = self.expires.clone();
-        first_plan.error = self.error.clone();
-        first_plan.dependencies = self.dependencies.clone();
-        let mut second_plan = Plan::new();
-        second_plan.query = self.query.clone();
-        second_plan.init_steps = self.init_steps.clone();
+        first_plan.prologue_steps = self.prologue_steps.min(first_plan.steps.len());
+        // A boundary is a property of a whole plan, and a half is a fragment. The first half is
+        // in fact exactly the predecessor's steps, so carrying the recorded predecessor would
+        // give it `predecessor_steps == steps.len()` — a cut replacing every step with a
+        // boundary that recomputes the same thing. Its real predecessor is one level deeper,
+        // and `split` has no registry to build it.
+        first_plan.predecessor = None;
+        first_plan.predecessor_steps = 0;
+
+        let mut second_plan = self.clone();
         second_plan.steps = self.steps[split_index..].to_vec();
-        second_plan.is_volatile = self.is_volatile;
-        second_plan.payload_required = self.payload_required;
-        second_plan.expires = self.expires.clone();
-        second_plan.error = self.error.clone();
-        second_plan.dependencies = self.dependencies.clone();
+        second_plan.prologue_steps = 0;
+        second_plan.predecessor = None;
+        second_plan.predecessor_steps = 0;
+
+        // `frozen_cwd` and `volatility_source` are facts about the operands and the plan's
+        // volatility, true of each half independently, so both are carried by the clone.
         (first_plan, second_plan)
     }
 }
@@ -5087,6 +5125,89 @@ mod tests {
             Some(VolatilitySource::Declared),
             "an Immediately expiration is volatile, and whole-plan"
         );
+        Ok(())
+    }
+
+    // --- split and consistency (predecessor-cut-equivalence step 4) -------------------------
+
+    /// Both halves keep the facts that are true of each independently, and neither claims a
+    /// predecessor boundary — a fragment has none.
+    #[test]
+    fn split_carries_frozen_cwd_and_clears_predecessor(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = fold_registry();
+        let mut recipe =
+            Recipe::new("prefix/tail/out.txt".to_owned(), String::new(), String::new())?;
+        recipe.cwd = Some("a/c".to_owned());
+        recipe.volatile = true;
+        let mut plan = recipe.to_plan(&cmr)?;
+        plan.freeze_cwd(None)?;
+        assert!(plan.frozen_cwd.is_some() && plan.predecessor.is_some());
+
+        let (first, second) = plan.split();
+        for (label, half) in [("first", &first), ("second", &second)] {
+            assert!(half.frozen_cwd.is_some(), "{label} half stays frozen");
+            assert_eq!(
+                half.volatility_source,
+                Some(VolatilitySource::Declared),
+                "{label} half keeps the plan's volatility source"
+            );
+            assert!(half.predecessor.is_none(), "{label} half claims no boundary");
+            assert_eq!(half.predecessor_steps, 0);
+            half.check_consistent()?;
+        }
+        assert_eq!(first.prologue_steps, 1, "the prefix is in the first half");
+        assert_eq!(second.prologue_steps, 0);
+        Ok(())
+    }
+
+    /// The split point and the recorded predecessor range coincide on every shape tried — which
+    /// is *why* carrying `predecessor` into the first half would be wrong, and is pinned here
+    /// rather than relied on silently.
+    #[test]
+    fn split_index_equals_predecessor_steps() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = fold_registry();
+        for (query, cwd) in [
+            ("prefix/tail", None),
+            ("prefix/tail/out.txt", None),
+            ("prefix/tail", Some("a/c")),
+            ("-R/./x.txt/-/prefix/tail", Some("a/c")),
+        ] {
+            let mut recipe = Recipe::new(query.to_owned(), String::new(), String::new())?;
+            recipe.cwd = cwd.map(|c| c.to_owned());
+            let plan = recipe.to_plan(&cmr)?;
+            if plan.predecessor.is_none() {
+                continue;
+            }
+            assert_eq!(
+                plan.split_index(),
+                plan.predecessor_steps,
+                "split point and predecessor range diverged for {query}"
+            );
+        }
+        Ok(())
+    }
+
+    /// A stale range is an error at its source, not a panic and not a wrong cut.
+    #[test]
+    fn check_consistent_rejects_a_stale_range() -> Result<(), Box<dyn std::error::Error>> {
+        let cmr = fold_registry();
+        let recipe = Recipe::new("prefix/tail".to_owned(), String::new(), String::new())?;
+        let mut plan = recipe.to_plan(&cmr)?;
+        plan.check_consistent()?;
+
+        plan.predecessor_steps = plan.steps.len() + 1;
+        let error = plan
+            .check_consistent()
+            .expect_err("a range past the last step is inconsistent");
+        assert!(error.message.contains("predecessor range"), "{}", error.message);
+
+        let mut prologue = recipe.to_plan(&cmr)?;
+        prologue.prologue_steps = prologue.steps.len() + 1;
+        let error = prologue
+            .check_consistent()
+            .expect_err("a prologue longer than the plan is inconsistent");
+        assert!(error.message.contains("prologue"), "{}", error.message);
         Ok(())
     }
 }

@@ -266,6 +266,7 @@ impl Recipe {
             plan.init_info(format!("Recipe set CWD to '{}'", cwd.encode()));
         }
 
+        plan.check_consistent()?;
         Ok(plan)
     }
 
