@@ -2,7 +2,7 @@
 id: PY-VALUE-TYPE-DESCRIPTIONS-MISSING
 kind: issue
 title: liquers-py's Value describes no types, so its registry would refuse every write
-status: in_progress
+status: closed
 priority: P2
 complexity: M
 area: [py, core/value]
@@ -58,3 +58,23 @@ four compile errors — `try_into_query` returns `crate::parse::Query` where the
 `Vec<AssetInfo>`, a `match` with incompatible arms, and four unimplemented trait items
 (`from_command_metadata`, `try_into_bytes`, `try_into_key`, `try_into_command_metadata`). Repairing
 `value.rs` is therefore part of this issue; the rest of `PY-MODULES-NOT-DECLARED-IN-LIB` is not.
+
+## Resolution
+
+**Closed 2026-08-26** by `foreign-value-type-registration` (PR
+[#42](https://github.com/orest-d/liquers/pull/42)).
+
+`liquers-py`'s `Value` now has `type_descriptions()` with one entry per variant, identifiers matching
+`liquers-core`'s, and `py.Object` for the retained Python object. Getting there required repairing
+the file first: `try_into_query`'s return type, `from_asset_info`'s signature and its `todo!()`,
+incompatible `match` arms, four unimplemented trait items, and a new `AssetInfo` variant forced by
+the trait signature.
+
+Two things beyond the original scope, both necessary to verify the result. `value` and `context` are
+now declared in `lib.rs` (see `PY-MODULES-NOT-DECLARED-IN-LIB`, which stays open for the other
+five files). And pyo3's `extension-module` moved behind a default feature with `rlib` added to
+`crate-type`, because a test binary cannot link against it — the crate had no tests at all, so this
+was invisible until one was written.
+
+Evidence: five tests in `liquers-py/src/value.rs`, run with
+`cargo test -p liquers-py --lib --no-default-features --features async_store`.

@@ -2,7 +2,7 @@
 id: WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 kind: issue
 title: VALUE04 fails at HEAD — bytes identifier is `Bytes`, the test expects `bytes`
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [web, core/value]
@@ -74,3 +74,20 @@ identifiers — then fix whichever side is wrong, so the suite is green.
 Found while running the `liquers-web` conformance loop to validate `CORE-ERROR-PAYLOAD-SIZE`
 (2026-08-25). Verified pre-existing: the same failure reproduces with that change stashed, so it
 is unrelated to error boxing.
+
+## Resolution
+
+**Closed 2026-08-26** by `foreign-value-type-registration` (PR
+[#42](https://github.com/orest-d/liquers/pull/42)).
+
+The code was right and the assertions were stale. A baseline run confirmed **three** real failures
+rather than the one reported here — the original run aborted at the first failing binary and never
+reached `value_bridge_VALUE` — plus the vacuous `assert_ne!` this issue's own analysis predicted.
+All four are corrected: `second_value_type.rs:324` and `:336`, `value_bridge_VALUE.rs:156` and
+`:343`.
+
+`:343` was the interesting one: it expected a bare `js`, which the naming rule forbids outright,
+since bare names are reserved for `liquers-core` and `liquers-lib`.
+
+Evidence: `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` —
+16 targets, 141 tests, zero failures.

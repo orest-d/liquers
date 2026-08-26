@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-18
+reviewed: 2026-08-26
 ---
 # Liquers Language Integration Guide
 
@@ -401,11 +401,64 @@ it does not recognise, so this is not optional metadata. See
   Local names are CamelCase and name the concept, not the backing struct.
 - **`ForeignValue::identifier`** supplies that string, and `type_name` the runtime detail — the
   language's own name for the value's type. `type_name` is informational and is never dispatched on.
-- **Registration is an open problem.** The registry is built from a *static* description list, so a
-  type whose identifier is only known at runtime cannot currently appear in it, and a foreign value
-  may therefore be refused on write. This is tracked as
-  `specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md` (P1) and is the first thing to check when an
-  integration cannot store its values.
+- **One identifier per variant.** `ExtValue::Foreign` is a single variant, so it carries a single
+  identifier for the whole build. What varies per instance is `type_name` — `JsOpaque` reports a
+  constant `js.Value` and the JavaScript `constructor.name`. Do not type per class: there is no
+  `js.Uint8Array`, and no provider-wide wildcard either.
+
+**Registering it.** Your identifier lives in *your* crate, so the value type cannot describe it
+statically. Extend the base registry and pass it to the environment constructor — the registry is
+frozen from there, which is what keeps it lock-free:
+
+```rust
+// your value.rs — one constant, one construction site
+pub const JS_VALUE_TYPE_IDENTIFIER: &str = "js.Value";
+
+pub fn js_value_type_info() -> TypeInfo {
+    TypeInfo::new(JS_VALUE_TYPE_IDENTIFIER)
+        .with_type_name("JsValue")
+        .with_defaults("json", "json", "application/json", "value.json")
+    // No `.with_data_formats` while `as_bytes` refuses — see below.
+}
+
+impl ForeignValue for JsOpaque {
+    fn identifier(&self) -> Cow<'static, str> { JS_VALUE_TYPE_IDENTIFIER.into() }
+    fn type_info(&self) -> TypeInfo { js_value_type_info().with_type_name(self.type_name()) }
+}
+
+// your environment setup — the one place every rebuild path funnels through
+let mut types = TypeRegistry::from_value_type::<Value>();
+types.register(js_value_type_info())?;
+let mut env = DefaultEnvironment::<Value>::new_with_type_registry(types);
+```
+
+Four things worth getting right, each of which has cost somebody time:
+
+1. **Extend `from_value_type`, never start from `TypeRegistry::new()`.** An empty base describes
+   nothing, so the build cannot store ordinary text either — and the symptom appears far from the
+   cause.
+2. **Register where your rebuild path already goes.** If your integration reconstructs its
+   environment (as `liquers-web` does on command registration), put the registration in the
+   function *both* the first build and the rebuild call. Anywhere else and it silently vanishes on
+   the first rebuild.
+3. **Declare no data formats while `as_bytes` refuses.** `supported_data_formats` says what
+   `as_bytes` *accepts*. A formatless type is a first-class case: the asset layer persists it as
+   metadata with no bytes, exactly as it does a UI element. Declaring a format you cannot produce
+   makes `set_binary` accept bytes that can never be materialized, moving the failure from write
+   time to read time.
+4. **Test that the constant and the instance agree.** The identifier is needed statically and
+   per-instance, and the type system cannot tie the two together (`ForeignValue` must stay
+   object-safe). One assertion — `js_value_type_info().type_identifier == instance.identifier()` —
+   is the whole guarantee.
+
+**A Python-style integration needs none of this.** If your language handle is a variant of a value
+type *you* define — `liquers-py`'s `Value::Py` — its identifier is statically knowable and belongs
+in your `type_descriptions()`. The constructor route is only for a type implemented in a different
+crate from its value type.
+
+Reference: `specs/reference/VALUE_TYPE_SYSTEM.md`, "Registering a type an integration owns".
+Executable example: `liquers-lib/tests/foreign_value_registration.rs`, which does all of this
+natively with a mock `ForeignValue` and needs no wasm toolchain.
 
 **Design for conversion that does not exist yet.** Automatic value conversion — including coercing
 a value to a command parameter's declared Rust type — is designed but not implemented
@@ -2459,6 +2512,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-26 | §VALUE "Typing an integrated value": registration is no longer an open problem. Records the one-identifier-per-variant rule for the foreign container, the extend-and-freeze registration recipe with its four traps, the constant-plus-test guarantee, and that a value type you define yourself needs none of it. | `design/foreign-value-type-registration/` |
 | 2026-08-18 | Added the VALUE convention that a language value is converted to a native variant when that is possible and not too expensive, so an integration normally defines only the foreign container; added type-identifier naming and registration guidance pointing at the type system, and the two rules that keep a bridge ready for automatic conversion. | `design/value-type-system/` |
 | 2026-08-17 | `STORE05` follows the absolute-key rule: a relative key is `KeyNotAbsolute`, not `KeyNotSupported`; the store must be called directly rather than through a router; dotted-but-ordinary names are explicit negatives; and `STORE05b` records the ENOENT trap that lets a filesystem-backed `STORE05` pass with no guard present. | `design/store-key-guard/` |
 | 2026-08-14 | Every parameter value is now encodable, so the encode-direction guidance drops the refusal path; OBJECT09 becomes a round-trip test. Added the numeric and named entities to the escaping summary. | PARAMETER-ESCAPING-INCOMPLETE |

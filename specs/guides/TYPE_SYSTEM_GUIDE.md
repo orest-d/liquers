@@ -3,7 +3,7 @@ title: Adding and Typing Value Types
 kind: guide
 audience: both
 area: [core/value, lib/value]
-reviewed: 2026-08-18
+reviewed: 2026-08-26
 ---
 
 # Adding and Typing Value Types
@@ -49,6 +49,14 @@ of stored data.
 Local names are CamelCase and name the **Liquers concept**, not the backing Rust struct —
 `Image`, not `DynamicImage`. A Python reader should recognise it.
 
+**One identifier per variant, one variant per identifier.** Anything that varies from instance to
+instance goes in `type_name`, which is informational and never dispatched on. If you find yourself
+wanting two identifiers for one variant — or one identifier covering a family — the variant is
+probably wrong, not the naming rule.
+
+There is no `error` identifier and there is nothing to add for failure: an errored state holds
+`V::none()` and is typed accordingly, with the failure recorded in the metadata.
+
 ### 3. Add the arms
 
 Each of `identifier`, `type_name`, `default_extension`, `default_filename`, `default_media_type`,
@@ -79,6 +87,21 @@ back as `Bytes`. Declare what `as_bytes` accepts.
 A type with **no** byte form declares no formats and omits `with_data_formats`. It is then stored
 as metadata only, which is what a UI element or a foreign handle needs.
 
+**If the identifier belongs to another crate, step 4 moves.** A type whose implementation lives in
+an integration crate — a JavaScript handle in `liquers-web` — cannot be in this static list, because
+`liquers-lib` does not know the name. That crate instead extends the base registry and passes it to
+the environment constructor:
+
+```rust
+let mut types = TypeRegistry::from_value_type::<Value>();
+types.register(js_value_type_info())?;
+let env = DefaultEnvironment::<Value>::new_with_type_registry(types);
+```
+
+The registry is frozen once the environment exists. Extend `from_value_type`; starting from
+`TypeRegistry::new()` discards every type the build already had. Full procedure:
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE.
+
 ## Verifying it
 
 ```bash
@@ -86,7 +109,9 @@ cargo test -p liquers-lib --test value_type_system
 ```
 
 `ext_value_type_descriptions_complete` fails if a variant has no description — that is the check
-for step 4. Then a round trip:
+for step 4. For an integration-owned type, the equivalent check is that its constant and its
+instance agree; see `liquers-lib/tests/foreign_value_registration.rs` for a worked example that
+runs natively. Then a round trip:
 
 ```rust
 let bytes = value.as_bytes("svg")?;
@@ -150,3 +175,4 @@ This resolves at compile time and cannot drift from the registration.
 | Date | Change |
 |---|---|
 | 2026-08-18 | Created with the `value-type-system` design. |
+| 2026-08-26 | §2 states the one-identifier-per-variant rule and that there is no `error` identifier; §4 records where step 4 moves for a type whose identifier belongs to an integration crate. | `design/foreign-value-type-registration/` |

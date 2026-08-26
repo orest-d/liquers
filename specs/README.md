@@ -182,7 +182,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`FOREIGN-VALUE-TYPES-NOT-REGISTERED`](issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md) | P1 | M | `foreign-value-type-registration` |
 | [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `plan-cwd-freeze` |
 <!-- END generated: issues -->
 

@@ -3,10 +3,10 @@ id: FOREIGN-VALUE-TYPE-REGISTRATION
 kind: design
 title: Foreign and Python value types in the type registry
 workflow: liquers-project
-status: in_review
-phase: implementation
+# No `status:` — `gh_pr` is set, so the implementation-related status is GitHub's to derive (§5.5).
+phase: documentation
 area: [core/value, lib/value, web, py]
-gh_pr: []
+gh_pr: [42]
 issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING, WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH]
 affects_docs: [VALUE-TYPE-SYSTEM, LANGUAGE-INTEGRATION_GUIDE, TYPE_SYSTEM_GUIDE]
 created: 2026-08-26
@@ -22,7 +22,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (in review)
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation (in review)
 - [x] Implementation Complete (steps 1-9; Phase 5 outstanding)
 
 ## Notes
@@ -104,7 +104,8 @@ Three things the plan did not predict, each recorded in its commit:
    build and the maturin wheel are unchanged while `--no-default-features --features async_store`
    links and runs. Without it the Python half would have shipped verified by nothing but
    `cargo check`.
-2. **`ERROR-STATE-FROM-ERROR-NOT-STORABLE` (P1), filed not fixed.** `fvt7.5` failed for the wrong
+2. **`ERROR-STATE-FROM-ERROR-NOT-STORABLE` (P1), filed not fixed** — and later deleted, see the
+   entry below. `fvt7.5` failed for the wrong
    reason, which exposed that `Metadata::with_error` sets `type_identifier` to `error` but never
    sets `type_name`, and `sync_metadata_with_value` returns early for error states — so
    `State::from_error` produces a state no store accepts, with a message naming `type_name` rather
@@ -113,7 +114,15 @@ Three things the plan did not predict, each recorded in its commit:
    binary and never reached `value_bridge_VALUE`. Phase 3's reading-derived prediction of four was
    right about all four, including that `second_value_type.rs:336` passed vacuously.
 
-Phase 5 remains: the reference and guide updates, and closing the three issues.
+2026-08-26 — Mid-implementation the user directed a model correction: **there is no error type
+identifier**. An errored state holds `V::none()` and is typed accordingly; the failure lives in the
+metadata. Applied across `type_system`, `metadata`, `state` and `assets`, with eight test sites
+updated — four of them written earlier in this branch. This dissolved
+`ERROR-STATE-FROM-ERROR-NOT-STORABLE`, which was deleted rather than fixed: it described a symptom
+of the error type, and the one-line fix would have entrenched it.
+
+2026-08-26 — Phase 5 written. Reference and both guides updated, `CLAUDE.md` amended, three issues
+closed, `PY-MODULES-NOT-DECLARED-IN-LIB` annotated. No new issue outstanding.
 
 ## Links
 

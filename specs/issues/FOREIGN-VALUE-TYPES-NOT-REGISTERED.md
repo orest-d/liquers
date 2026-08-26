@@ -2,7 +2,7 @@
 id: FOREIGN-VALUE-TYPES-NOT-REGISTERED
 kind: issue
 title: A foreign language value cannot be registered in the type registry
-status: in_progress
+status: closed
 priority: P1
 complexity: M
 area: [core/value, lib/value, web, py]
@@ -65,3 +65,24 @@ Found on 2026-08-18 during `value-type-system` step 8, while giving `ExtValue` i
 descriptions. The same class of problem surfaced for `ExtValue::UIElement` and was solved there by
 exempting types that declare no data formats from the *format* check — but that exemption does not
 help here, because the failure is the *identifier* check, which is deliberately stricter.
+
+## Resolution
+
+**Closed 2026-08-26** by `foreign-value-type-registration` (PR
+[#42](https://github.com/orest-d/liquers/pull/42)).
+
+An environment now accepts a finished `TypeRegistry` at construction — `new_with_type_registry` on
+all five environments — so an integration extends the base registry with its own `TypeInfo` and
+hands it over. The registry is still written only before construction, so it stays lock-free.
+`ForeignValue` gained an instance `type_info()` with a default derived from its existing methods,
+routed through `ValueExtension` and `CombinedValue` so a foreign value describes itself.
+`liquers-web` registers `js.Value` inside `new_environment()`, the funnel both rebuild paths use,
+so nothing needs retaining and nothing can drift.
+
+Neither of the two shapes this issue proposed was taken. A mutable registration point was rejected
+because it would give up the lock-free registry; a provider *family* was rejected because a type
+identifier corresponds one-to-one with a value variant, and `ExtValue::Foreign` is one variant.
+
+Evidence: `liquers-lib/tests/foreign_value_registration.rs` (7 tests, three of which could not have
+compiled before), `liquers-web/tests/environment_ENVIRON.rs` `fvt8.1`/`fvt8.2`, and
+`liquers-web/src/value.rs` `the_constant_and_the_instance_agree`.
