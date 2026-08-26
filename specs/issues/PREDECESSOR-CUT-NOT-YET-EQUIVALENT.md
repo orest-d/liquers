@@ -2,7 +2,7 @@
 id: PREDECESSOR-CUT-NOT-YET-EQUIVALENT
 kind: issue
 title: Cutting a predecessor boundary is not yet equivalent to expanding it
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/plan, core/assets]
@@ -88,6 +88,26 @@ Design: `specs/design/predecessor-cut-equivalence/` (`workflow: liquers-project`
 gate). Filed in passing and still open: `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`,
 `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`. Filed and rejected the same day:
 `PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`.
+
+## Resolution, 2026-08-26
+
+Closed by `predecessor-cut-equivalence`. Cutting at the outermost cacheable predecessor is now
+the **default**: `finalize_plan` calls `Plan::cut_predecessor` after freezing and after the
+analysis passes.
+
+All four measured divergences are gone, and a fifth found during the design:
+
+| Cause | Resolution |
+|---|---|
+| The predecessor query frozen before the recipe's `SetCwd` prologue | `Plan::prologue_steps`; freezing advances over it. The unit test fails without the walk, with no cut involved |
+| A payload behind a boundary | Not a cutting defect — a mis-declared command. Declared, and `e8_an_undeclared_payload_is_cut_across` pins the rule |
+| A test asserting the expanded step shape | Moved onto an explicitly un-cut plan |
+| A recipe-level `volatile:` not reaching a boundary | `VolatilitySource::Declared`; such a plan is not cut |
+| `Plan::split` dropping the coupled fields | `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`, closed alongside |
+
+Evidence: `liquers-core/tests/plan_cwd_freeze.rs` — 13 shapes × 3 CWD conditions agreeing, the
+four payload shapes, and the corner cases; 14 units in `plan.rs`. `liquers-core` 19 suites green,
+`liquers-lib --lib --tests` exit 0, all 11 build-matrix configurations OK.
 
 ## Impact
 

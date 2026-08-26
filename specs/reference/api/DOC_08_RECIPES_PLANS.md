@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-08-16
+reviewed: 2026-08-26
 ---
 # DOC-08: Recipes and Plans
 
@@ -161,14 +161,24 @@ not only a missing file; malformed YAML from successfully read bytes is an error
 The builder **always expands** a predecessor into the same plan. Whether a plan is
 later cut at a predecessor boundary is a separate, post-freeze decision — see
 "Freezing" and "Predecessor boundaries" below. The builder records what such a cut
-would need (`Plan::predecessor`, `Plan::predecessor_steps`) without acting on it.
+would need (`Plan::predecessor`, `Plan::predecessor_steps`, `Plan::volatility_source`)
+without acting on it.
 
 During `build`, the planner resolves command namespaces and aliases, parameters,
 defaults, enum mappings, injected parameters, explicit links, command volatility,
 payload requirements, and command expiration. A payload-required command or link
-marks the plan as both payload-required and volatile. The special `v` instruction
-marks a plan volatile without creating an action step. The `q` instruction
+marks the plan as both payload-required and volatile. The `q` instruction
 produces a query value and accepts no arguments.
+
+The `v` instruction is intercepted by the builder before command metadata is
+resolved, like `q` and `ns`. It takes no parameters and emits no step, so it is an
+identity on the value — and it marks the **whole** plan volatile regardless of
+where it appears. That last point is the one a reader is most likely to get wrong:
+`a/b/v/c` is volatile throughout, not volatile from `v` onward, so `v`'s position
+carries no information. It is therefore a `Declared` volatility source and a plan
+containing it is never cut. Making it positional — which would let an author's
+declared volatility boundary and the cache boundary coincide — is
+`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`.
 
 Recipe value and link overrides affect only the last `Step::Action`. They do not
 provide general substitution across every action in a plan.
@@ -285,17 +295,73 @@ how to do but currently cannot apply to an intermediate:
 - **Parallel execution.** A dependency can be scheduled alongside its siblings. An
   inlined predecessor is necessarily sequential — it runs where it sits.
 
-The trade is memory against recomputation, and it is **per query**, not global: an
-intermediate that is large and used once is better inlined, while a slow prefix
-shared by many consumers is much better cut. That is an argument against a single
-global default as much as for cutting; `CORE-PLAN-POLICY-AND-DEFAULTS` owns the
-decision.
+This **is** the default. `finalize_plan` cuts, after freezing and after the
+analysis passes.
+
+An earlier revision of this section deferred that decision, on the ground that the
+memory-versus-recomputation trade is per query rather than global. That reasoning
+was about cutting *everywhere*, which retains every intermediate and does look
+wrong as a global default. One cut retains **one** intermediate, and it is the one
+most likely to be shared. The memory counterweight belongs to an asset-manager
+retention policy — `CORE-ASSET-GC` — rather than to the shape of a plan.
+
+`CORE-PLAN-POLICY-AND-DEFAULTS` still owns the `cache`, `volatile flags` and
+`inline flag` markers; its `expand_predecessors` half is answered here.
+
+### Where a boundary goes
+
+`Plan::cut_predecessor` cuts at the **outermost candidate prefix that can be
+cached**. Two things make a candidate uncacheable, and the walk steps back past
+both:
+
+- **it requires a payload.** A payload is deliberately not part of a cache key, so
+  a value computed from one must never end up behind a boundary.
+- **it is volatile.** A boundary recomputed on every request buys none of the
+  three things above, and costs an extra asset and an extra hop.
+
+The decision is per candidate, not per plan: `Plan::payload_required` and
+`Plan::is_volatile` answer "does this query need a payload / is it volatile
+anywhere", which is the wrong question in both directions. Used as a veto it
+throws away the boundary in `fetch/expensive/render_with_payload`, where
+everything behind the only candidate is clean; used as a permit it cuts straight
+across `fetch/personalize/render`. So each candidate's own plan is consulted, and
+the walk stops at the first that qualifies:
+
+```
+fetch/expensive/render          -> boundary at fetch/expensive
+fetch/personalize/render        -> personalize requires a payload; boundary at fetch
+personalize/fetch/render        -> the requirement reaches the head; no boundary
+```
+
+**Whole-plan volatility declines before the walk starts.** `Plan::volatility_source`
+distinguishes the two kinds:
+
+| Source | Means | Effect on a boundary |
+|---|---|---|
+| `Positional` | A volatile command, or a link to a volatile query. Volatility is a property *of that command*, so everything ahead of it is pure. | A boundary may be cut in front of it. |
+| `Declared` | The `v` instruction, a recipe's `volatile: true`, or a recipe `expires:` that is itself volatile. A statement about the whole plan, carrying no position. | Nothing here is cacheable; the plan is not cut at all. |
+
+A `Declared` source appears in no candidate's query, so the walk could not see it
+— which is why `Recipe::to_plan` records it and the check comes first.
+
+Every level the walk passes over, and the decline, appends a planning
+`Step::Info`, so a plan that was not cut is distinguishable from one that had no
+predecessor:
+
+```
+Predecessor boundary expanded at 'fetch/personalize': it requires an evaluation payload
+Predecessor boundary expanded at 'prefix/vol_step': it is volatile
+Predecessor boundary not cut: the plan is declared volatile, so none of it may be cached
+```
+
+Two candidates are never chosen: one whose remainder is a trailing filename rather
+than an action — cutting there would leave the parent nothing but a `Filename`
+step, and a recipe's overrides nothing to patch — and one covering every step,
+which would replace the whole plan with a boundary that recomputes it.
 
 ### Pitfalls
 
-Every item below was observed, not anticipated. Cutting is currently **off** — no
-caller invokes `cut_predecessor` — and the remaining divergences are tracked in
-`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`.
+Every item below was observed, not anticipated.
 
 | Pitfall | What goes wrong |
 |---|---|
@@ -303,7 +369,10 @@ caller invokes `cut_predecessor` — and the remaining divergences are tracked i
 | A step-range recorded before a prefix is inserted | `Recipe::to_plan` inserts `SetCwd` at index 0 *after* building. A stale `predecessor_steps` then splits in the wrong place and keeps the predecessor's own action, so it runs twice — once in the boundary asset, once inline. |
 | A default link is invisible to the cache key | A default lives in command metadata, not query text. An absolute default is reproduced by metadata everywhere, but a **relative** one resolves differently per directory, so it must be promoted into the query. Promotion appends, which is only correct when every earlier argument slot is already written; at a gap it must be skipped rather than bound to the wrong argument. |
 | A boundary hides the diagnosis | A dependency failure reported as "did not produce a value" discards the cause, which then lives only in the sub-asset's log. The dependent must surface the cause itself — and must not re-wrap an error that already carries its command name and position. |
-| An undeclared payload | A command reading the payload without `payload: required` works inlined and silently receives none across a boundary. This is the documented "declare it, or lose it" rule, not a cutting defect, but a cut is where it first bites. |
+| An undeclared payload | A command reading the payload without `payload: required` works inlined and silently receives none across a boundary. This is the documented "declare it, or lose it" rule, not a cutting defect, but a cut is where it first bites. `injected` does **not** imply the requirement: injection may be satisfied from the environment alone. |
+| A boundary query frozen before the prologue | Sibling of the row above it, and the same prepended `SetCwd`. The step *count* was compensated; the *cursor* was not, so the recorded predecessor was resolved against the entry CWD and the boundary query — the only thing a cut carries — lost its folder. Silent: it produced a wrong value as readily as a `KeyNotFound`. Fixed by `Plan::prologue_steps`. |
+| A recipe-level flag is not in the query | `volatile:` and `expires:` live in the `recipes.yaml` entry, not in the query text, so unlike a volatile *command* they do not travel into a boundary. Measured: the prefix of a `volatile: true` recipe ran once across two evaluations where expanded it ran twice — the parent dutifully recomputing around a cached boundary. Fixed by folding them onto the plan as `VolatilitySource::Declared`. |
+| `v` emits no step | `a/b` and `a/b/v` report the same step count, so a candidate cannot be identified by index alone; and in `a/b/v` the outermost non-volatile prefix is the *entire* plan. Both are unreachable while `Declared` declines first, and both would return if `v` ever became positional (`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`). |
 
 ## Plan fields and execution
 
@@ -317,6 +386,10 @@ caller invokes `cut_predecessor` — and the remaining divergences are tracked i
 | `expires` | Combined expiration estimate; authoritative after finalization |
 | `error` | Structured planning or analysis error |
 | `dependencies` | Static dependencies discovered during analysis |
+| `frozen_cwd` | The working key this plan was frozen against, once frozen |
+| `predecessor`, `predecessor_steps` | The boundary the builder recorded and never cut |
+| `prologue_steps` | Leading steps not emitted by the builder for `query` — a recipe's CWD prefix |
+| `volatility_source` | Whether volatility permits a boundary in front of it (`Positional`) or forbids one anywhere (`Declared`) |
 
 `apply_plan` does not execute `init_steps`. They are copied into metadata by the
 plan-to-metadata helpers. `Step::Error` in `steps` logs through `Context::error`;
@@ -448,6 +521,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-26 | Cutting at the outermost cacheable predecessor is now the **default**. Added "Where a boundary goes"; superseded the paragraph deferring that decision; four new pitfall rows; `frozen_cwd`, `predecessor`, `prologue_steps` and `volatility_source` in the plan fields; a paragraph on `v`'s whole-plan scope. | PREDECESSOR-CUT-EQUIVALENCE |
 | 2026-08-16 | Documented freezing — what it is, the three-cursor problem it solves, when it runs, its mechanics and scope rules — and predecessor boundaries: how cutting differs from freezing, the dependency, caching and parallelism case for making a predecessor available, and five observed pitfalls. Removed `disable_expand_predecessors` from the planning contract. | PLAN-CWD-FREEZE |
 | 2026-08-11 | Documented provider and programmatic recipe CWD provenance, raw plan prefixes and diagnostics, ordered runtime resolution, serialization, identity, and optimizer constraints. | phase-5 |
 | 2026-08-09 | Applied the verified recipe and planning contracts to comprehensive module and public-API Rustdoc in `plan.rs` and `recipes.rs`. | DOC-08 |

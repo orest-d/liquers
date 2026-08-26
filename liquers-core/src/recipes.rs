@@ -83,7 +83,23 @@ pub struct Recipe {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub cwd: Option<String>,
-    /// Forces volatile evaluation in addition to volatility inferred from the plan.
+    /// Marks the whole plan volatile, in addition to volatility inferred from it.
+    ///
+    /// A volatile recipe is volatile **from its first action**, not merely in its result:
+    /// nothing in it is cached, and no predecessor boundary is cut out of it. A boundary is a
+    /// cache entry, and a plan declared volatile is one whose intermediates must not be cached.
+    ///
+    /// The alternative reading — volatility applying only to the last action — produces an asset
+    /// that is dutifully recomputed and restores the same cached prefix every time: volatile in
+    /// name, fixed in value. Measured before this rule existed, the prefix of such a recipe ran
+    /// once across two evaluations instead of twice.
+    ///
+    /// This flag carries no position, so it cannot mark *where* a non-volatile part of a plan
+    /// ends. The positional instrument is the `v` instruction. Use `volatile: true` to say
+    /// *this recipe is volatile*, which is the case it exists for: covering impurity a command
+    /// did not declare.
+    ///
+    /// Recorded on the plan as [`crate::plan::VolatilitySource::Declared`].
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default = "false_default")]
     pub volatile: bool,
@@ -96,7 +112,16 @@ pub struct Recipe {
     /// This is used to identify the circular dependency.
     #[serde(default)]
     pub circular_dependency_key: Option<Key>,
-    /// Recipe-level expiration combined with finalized plan expiration.
+    /// Recipe-level expiration, combined into the plan's own expiration by [`Self::to_plan`].
+    ///
+    /// This bounds how long the resulting asset stays valid. It says nothing about the purity of
+    /// the computation, so — unlike [`Self::volatile`] — a finite expiration does **not** stop a
+    /// predecessor boundary being cut: a pure prefix behind it is still soundly cached, and its
+    /// own expiration comes from its own dependencies.
+    ///
+    /// An expiration that is itself volatile (`Expires::Immediately`, or a combination
+    /// containing one) is the exception, and contributes
+    /// [`crate::plan::VolatilitySource::Declared`] like `volatile: true`.
     #[serde(default)]
     pub expires: Expires,
 }
@@ -214,6 +239,18 @@ impl Recipe {
     /// text is parsed here. When `cwd` is present, the resulting plan records it as one leading
     /// executable [`Step::SetCwd`] and one planning [`Step::Info`] without resolving any
     /// query-derived operand. This method neither finalizes dependencies nor executes the plan.
+    ///
+    /// It also folds two facts onto the plan that nothing downstream could recover, because
+    /// neither appears in the recipe's query:
+    ///
+    /// - [`Plan::prologue_steps`], counting the `SetCwd` prefix. Inserted at index 0 *after*
+    ///   building, it shifts every step the builder emitted, so freezing has to advance over it
+    ///   before resolving the recorded predecessor — and a boundary query frozen one CWD short
+    ///   silently loses its folder.
+    /// - The recipe's own [`Self::volatile`] and [`Self::expires`], as
+    ///   [`Plan::is_volatile`], [`Plan::expires`] and a
+    ///   [`crate::plan::VolatilitySource::Declared`] source. Without this a recipe preview
+    ///   under-reports both, and no consumer can ask the plan whether it is volatile.
     pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error> {
         let query = self.get_query()?;
         let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();

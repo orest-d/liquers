@@ -42,6 +42,23 @@ now bear on it:
 
 The `cache`, `volatile flags` and `inline flag` markers at `plan.rs:899-901` are untouched.
 
+## Update, 2026-08-26 (`predecessor-cut-equivalence`)
+
+**The `expand_predecessors` question is answered.** Cutting at the outermost cacheable
+predecessor is now the default: `finalize_plan` calls `Plan::cut_predecessor` after freezing and
+after the analysis passes. It is not a global on/off — the cut is placed per plan, at the last
+candidate prefix that can be cached, and declines where none can be.
+
+That also settles the "per query, not global" argument recorded above. It was reasoning about
+cutting *everywhere*, which retains every intermediate; one cut retains one, and the memory
+counterweight belongs to an asset-manager retention policy (`CORE-ASSET-GC`) rather than to the
+shape of a plan. `DOC_08_RECIPES_PLANS.md` is updated accordingly.
+
+`PREDECESSOR-CUT-NOT-YET-EQUIVALENT` is closed.
+
+**What remains here:** the `cache`, `volatile flags` and `inline flag` markers at
+`plan.rs:899-901`, untouched.
+
 ## Expected behaviour
 
 A `PlanBuilderConfig` carrying these policies, with the defaults chosen deliberately and stated.

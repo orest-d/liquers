@@ -2,7 +2,7 @@
 id: PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS
 kind: issue
 title: Plan split drops predecessor fields
-status: accepted
+status: closed
 priority: P2
 complexity: S
 area: [core/plan]
@@ -24,6 +24,17 @@ and `freeze_cwd` would accept a re-freeze against a different key that the whole
 
 The comment above the copy list says both halves "retain query-level analysis fields", which is
 now only partly true.
+
+## Resolution, 2026-08-26
+
+Closed by `predecessor-cut-equivalence` step 4. Both halves are built from `self.clone()` with
+only what differs replaced, so a field added to `Plan` later is carried by construction. Per the
+correction below, both halves clear the predecessor fields and carry `frozen_cwd` and
+`volatility_source`; the first keeps a clamped `prologue_steps`.
+
+`Plan::check_consistent` was added alongside and is called wherever a plan finishes being
+constructed or transformed. It returns `Result` rather than panicking.
+`split_index_equals_predecessor_steps` pins the coincidence that made the naive fix wrong.
 
 ## Impact
 

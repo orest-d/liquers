@@ -180,9 +180,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`PREDECESSOR-CUT-NOT-YET-EQUIVALENT`](issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md) | P1 | M | `predecessor-cut-equivalence` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed

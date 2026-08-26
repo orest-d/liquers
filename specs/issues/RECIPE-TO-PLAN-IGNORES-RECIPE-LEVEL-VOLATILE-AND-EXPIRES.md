@@ -2,7 +2,7 @@
 id: RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES
 kind: issue
 title: Recipe to_plan ignores recipe level volatile and expires
-status: in_progress
+status: closed
 priority: P2
 complexity: S
 area: [core/plan, core/assets]
@@ -30,6 +30,18 @@ flags. Nothing compensates on the plan itself.
 
 For expiration nothing compensates at all at this level, while `Recipe::expires`'s own doc
 comment claims it is "Recipe-level expiration combined with finalized plan expiration".
+
+## Resolution, 2026-08-26
+
+Closed by `predecessor-cut-equivalence` step 3. `Recipe::to_plan` folds both declarations onto
+the plan: `volatile:` and a volatile `expires:` set `is_volatile` and
+`VolatilitySource::Declared`; a finite `expires:` is combined into `plan.expires`, which is what
+that field's own doc comment already promised.
+
+The blast radius that prompted the original caution — `finalize_plan` skipping dependency
+registration for a volatile plan — is real and is now asserted rather than assumed:
+`volatile_recipe_skips_dependency_registration`. Nineteen suites had stayed green through the
+change precisely because nothing tested it.
 
 ## Impact
 

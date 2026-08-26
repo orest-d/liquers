@@ -4,7 +4,7 @@ kind: design
 title: Make cutting a predecessor boundary observably equivalent to expanding it
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 area: [core/plan, core/assets, core/context]
 issues: [PREDECESSOR-CUT-NOT-YET-EQUIVALENT, PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS, RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES, CORE-PLAN-POLICY-AND-DEFAULTS]
 affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md]
@@ -25,8 +25,9 @@ changes observable behaviour.
 - [x] Phase 1: High-Level Design — **approved 2026-08-26**
 - [x] Phase 2: Solution & Architecture — **approved 2026-08-26**
 - [x] Phase 3: Examples & Testing — **approved 2026-08-26**
-- [ ] Phase 4: Implementation Plan — **written, awaiting the approval gate**
-- [ ] Phase 5: Documentation
+- [x] Phase 4: Implementation Plan — **approved 2026-08-26**
+- [x] Implementation: steps 1-10 landed
+- [ ] Phase 5: Documentation — **written, awaiting the approval gate**
 - [ ] Implementation Complete
 
 ## Notes
@@ -124,6 +125,29 @@ tool and is not part of any change set.
   finalizes, so it keeps the expanded form for free whatever the evaluation default is. Its other
   apparent role, lower memory through less caching, belongs to a future asset-manager retention
   policy; `CORE-ASSET-GC` already owns that and no new issue is warranted.
+
+### Implementation, 2026-08-26
+
+Steps 1-10 landed, one commit each. Everything measured during the phases held when built:
+
+- **Step 1** — `prologue_steps`. `freeze_resolves_predecessor_after_the_recipe_prologue`
+  confirmed to fail without the walk (`-R/input.txt/-/identity` where
+  `-R/a/c/input.txt/-/identity` was required), with no cut involved.
+- **Step 2** — `VolatilitySource`. The trap Phase 4 predicted is real: with the scope upgrade
+  inside `mark_volatile`'s early-out, `vol_cmd/v/tail` records `Positional` where it must record
+  `Declared`. Confirmed by reverting it.
+- **Step 3** — the recipe fold. `RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES` closed.
+- **Step 4** — `check_consistent` and `split` from `self.clone()`.
+  `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS` closed.
+- **Steps 5-6** — the walk. All nine unit tests passed first run; the four call sites were exactly
+  those predicted, and one of them constructed the degenerate whole-plan shape the `>=` guard
+  exists for.
+- **Step 7** — the suite. 13 shapes × 3 CWD conditions agree, plus the payload shapes and the
+  corner cases, 17 tests in `plan_cwd_freeze`.
+- **Steps 8-9** — the declaration fix, and **the flip**. One predicted failure, the shape
+  assertion, moved onto an explicitly un-cut plan.
+- **Step 10** — `liquers-core` 19 suites green, `liquers-lib --lib --tests` exit 0, both with the
+  cut on.
 
 **Confirmed at the Phase 1 gate:** the default flip ships in this design, not a follow-on.
 

@@ -1215,6 +1215,13 @@ pub struct PlanBuilder<'c> {
 // TODO: support cache
 // TODO: support volatile flags
 // TODO: support inline flag
+//
+// `PlanBuilder` also *records* facts it does not act on, for the passes that run after it:
+// [`Plan::predecessor`] and [`Plan::predecessor_steps`] describe a boundary it never cuts, and
+// [`Plan::volatility_source`] distinguishes volatility a boundary may be cut in front of from
+// volatility that forbids one anywhere. The builder always expands; cutting is a separate pass
+// over a frozen plan, so that volatility, payload requirement and expiration are computed over
+// the whole plan before anything is moved.
 impl<'c> PlanBuilder<'c> {
     /// Creates a builder that expands predecessors and rejects placeholders.
     pub fn new(query: Query, command_registry: &'c CommandMetadataRegistry) -> Self {
