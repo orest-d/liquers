@@ -214,6 +214,50 @@ Both are addressed in `solution.md` §4. The lesson generalises: the four diverg
 remain were found by running the *existing* suite under the cut, not by the harness written
 for the purpose, because the existing suite varies the one axis the harness holds fixed.
 
+## Cause 4 — a recipe's own volatility does not cross the boundary
+
+Found by reading, not by the suite, while auditing this design for open questions. Not among
+the four measured divergences, because no test in `liquers-core` combines a recipe-level
+`volatile:` or `expires:` with a predecessor.
+
+An asset's volatility is not read from the plan alone (`assets.rs:1610`):
+
+```rust
+let resolved =
+    lock.is_volatile || lock.recipe.volatile || lock.recipe.expires.is_volatile();
+```
+
+`recipe.volatile` and `recipe.expires` are **recipe-level** facts. They live in the
+`recipes.yaml` entry, not in the query text — so unlike a volatile *command*, they do not
+travel into a boundary query.
+
+A cut boundary is evaluated as an ad-hoc query asset, whose synthesized recipe is
+`Recipe { query: "<boundary>", title: "Ad-hoc query", volatile: false, expires: Never }` —
+visible in the measurement traces. So for a recipe declared
+
+```yaml
+query: "fetch/render/out.txt"
+volatile: true
+```
+
+the two forms differ:
+
+- **Expanded** — the asset is volatile, so every request re-runs `fetch` and `render`.
+- **Cut** — the parent is still volatile and re-runs, but `Step::Evaluate(fetch)` resolves to a
+  cached, non-volatile boundary asset. `fetch` runs once, ever.
+
+`expires:` diverges the same way: the parent expires on schedule and recomputes, while the
+boundary it reads has `Expires::Never`.
+
+This is the shape of `plan-cwd-freeze`'s pitfall 3 — volatility hidden behind a boundary — but
+not the same instance, and not fixed by the same change. That fix made the *builder* always
+expand so `plan.is_volatile` is computed over the whole plan; it says nothing about a flag
+that was never in the plan. E6 does not catch it either: `vol_counted` is a volatile
+*command*, whose volatility is in the query and therefore in the boundary's own plan.
+
+The mechanism is settled; what to do about it is not. See `solution.md` §2b — it is the design's
+one genuinely open question.
+
 ## A fourth instance of the same shape
 
 `Plan::split` copies a field list into both halves — `is_volatile`, `payload_required`,

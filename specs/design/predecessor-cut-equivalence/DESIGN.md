@@ -39,7 +39,12 @@ Re-measured at `d1bd02e` by calling `cut_predecessor` from `finalize_plan`:
 | A cut boundary is a cache entry, and a payload is deliberately not part of a cache key | 1 (`injection`) | **Not a defect** — a mis-declared command, fixed in the test. It exposes a real correctness question about *where* a boundary may go — §2 |
 | A test asserts the *expanded* plan's step shape | 1 (`--lib`) | **Not a defect.** Measured equivalent in value — §3 |
 
-A fourth, latent instance of the first cause's *shape* — a plan mutated through a subset of
+A fifth cause was found later, by reading rather than by the suite: a recipe's own
+`volatile:` / `expires:` does not travel into a boundary query, so a volatile recipe's
+predecessor is computed once and cached. No existing test combines the two, which is why it is
+not in the table. See `analysis.md` Cause 4 and open question 1.
+
+A latent instance of the first cause's *shape* — a plan mutated through a subset of
 coupled fields — sits in `Plan::split`; it is in scope for the same reason (§1b).
 
 The first cause is a genuine equivalence bug and is the whole reason the two
@@ -72,6 +77,21 @@ re-deriving its own working key", as the issue speculated; it is one missing cur
    design only makes the flip safe to consider. It does settle *where* a boundary goes when
    one is cut, because that turns out to be a correctness question (decision 2) rather than
    a policy one.
+
+## Open questions
+
+One is a decision the author owns; the rest are things to measure at implementation time rather
+than unknowns about the approach.
+
+| # | Question | Blocking? |
+|---|---|---|
+| 1 | **A recipe's own `volatile:` / `expires:` does not cross a boundary** (`analysis.md` Cause 4). Decline the cut for such a recipe, or accept it as the meaning of the flag? Propagating is not available — a boundary is shared by query identity and cannot carry a per-recipe policy. Recommendation (a), decline; it is the reversible one. | Yes — semantic call, `solution.md` §2b |
+| 2 | §2's step-count assumption was measured on **raw** queries; the real input is promoted and frozen. Should hold, is guarded, but is reasoning rather than measurement. Failure mode is a silently lost boundary, not a wrong value. | No — first implementation step |
+| 3 | `with_placeholders_allowed()` on §2's rebuild is in the sketch but not established. A recorded predecessor should be placeholder-free, since overrides patch the tail. | No |
+| 4 | "Equivalent" is defined as Phase 3's four properties. Cutting changes asset count, dependency edges and metadata *by design*; §4 now says so explicitly rather than leaving the next author to discover it. | No — confirm at review |
+
+Nothing here changes the shape of the solution. Question 1 changes whether one class of recipe
+is cuttable at all.
 
 ## Links
 

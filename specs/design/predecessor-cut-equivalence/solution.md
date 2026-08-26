@@ -237,6 +237,19 @@ Step counts line up at every level — the parent's `predecessor_steps` equals t
 plan's `steps.len()`, and the candidate's `predecessor_steps` equals the next one's — which is
 what makes `cut_at` derivable from the recursion rather than needing to be recorded.
 
+**What this measurement does not cover.** These queries were built raw. The real input is
+`plan.predecessor`, which is *promoted* (relative default links made explicit) and *frozen*
+(operands absolute). Neither should change a step count — promotion turns a `DefaultLink` into
+a `ParameterLink` on the same step, and freezing rewrites operands in place — but that is
+reasoning, not measurement, and it is the load-bearing assumption of this section. The
+step-count cross-check turns a violation into "no cut" rather than a mis-split, so the failure
+mode is a silently lost boundary, not a wrong value. Measure it on promoted and frozen input as
+the first implementation step, and pin it with a test.
+
+`with_placeholders_allowed()` appears in the sketch and is **not** established. Recipe overrides
+patch only the last action, which is in the tail, so a recorded predecessor should be
+placeholder-free; if that holds, drop it and let a placeholder be the error it would be.
+
 ### The freeze wrinkle
 
 `freeze_cwd` resolves `plan.predecessor`, so the level-0 candidate arrives frozen. A candidate
@@ -277,6 +290,41 @@ exact class of staleness that produced the level-0 bug in §1 and the double-exe
 before it. The rebuild is bounded by the number of actions in the chain, happens only when a
 plan is actually cut, and produces the very plan the boundary asset would build anyway.
 Revisit if profiling ever says so.
+
+## 2b. A recipe's own volatility across a boundary — OPEN
+
+`Analysis` Cause 4: `recipe.volatile` and `recipe.expires` are recipe-level facts, ORed into
+the asset's volatility at `assets.rs:1610`, and they are not in the query text — so they do not
+travel into a boundary query. A `volatile: true` recipe, cut, re-runs its parent every time and
+reads a cached, never-recomputed boundary.
+
+**Propagating them is not available.** A boundary is identified by its query and shared by
+query identity — that sharing is the point of cutting. A per-recipe policy cannot ride on it:
+two recipes with different `expires:` over the same prefix would be writing conflicting
+expirations onto one asset. Whatever the answer is, it is not "copy the flag across".
+
+That leaves two, and the choice is the author's because it is about what `volatile:` *means*:
+
+**(a) Decline the cut** when the recipe carries `volatile: true` or an `expires:` that is
+volatile or finite. Consistent with §2's shape — a plan that cannot be safely cached behind a
+boundary is not cut — and cheap: the recipe is in hand at `to_plan`, so the fact can be
+recorded on the plan there, next to `prologue_steps`. Costs little in practice: a volatile
+recipe is the case where a cached intermediate is worth least. Weaker for `expires:`, where the
+prefix may well be the expensive part and the author may have meant only the result to expire.
+
+**(b) Accept it as intended semantics** — `volatile:` and `expires:` describe *this asset*, not
+everything it computes; an author wanting the prefix recomputed marks the prefix. Nothing to
+build; the cost is that a recipe's declaration silently means something different depending on
+a policy the author does not control, which is the property that made pitfall 3 a bug rather
+than a feature.
+
+**Recommendation: (a)**, on the ground that it is reversible and (b) is not — an author who
+finds (a) too conservative loses caching, while an author bitten by (b) has already served a
+stale value. But it is a semantic call, so it is flagged rather than taken.
+
+Either way the suite gains E15: a `volatile: true` recipe with a predecessor, asserting the
+predecessor's command runs the same number of times both ways. That test is worth writing
+before the decision, since it is what makes the divergence visible rather than argued.
 
 ## 3. Make the shape assertions policy-explicit
 
@@ -325,6 +373,17 @@ Two shapes are added for §2, both on `SimpleEnvironmentWithPayload`:
 |---|---|---|---|
 | E13 | Mid-chain payload | `fetch/personalize/render`, `personalize` declaring `payload: required` | The cut steps back to `fetch`; the boundary query is frozen at that deeper level, not left relative |
 | E14 | Head payload | `personalize/fetch/render` | No boundary is safe; `was_cut` is false and the value matches |
+| E15 | Recipe-level volatility | `fetch/render/out.txt` in a recipe with `volatile: true` | §2b — the predecessor's command runs the same number of times both ways |
+
+### What "equivalent" means, stated
+
+Cutting *does* change observable things by design: it creates an asset, adds a dependency edge,
+and writes a dependency record into the parent's metadata. Phase 3's four properties — value,
+`is_volatile`, `payload_required`, surfaced error — are therefore the definition, not an
+abbreviation of one. Asset count, dependency records and log contents are expected to differ
+and are not compared. Worth stating in the suite's header comment, because the next person to
+add a shape will otherwise reach for a metadata assertion and find a difference that is the
+feature working.
 
 E13 is the one that would catch the freeze wrinkle: a stepped-back candidate whose operands
 were left CWD-relative produces a boundary query that resolves against the wrong folder, which
