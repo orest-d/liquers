@@ -6,11 +6,13 @@
 
 ## Purpose
 
-`plan-cwd-freeze` built the boundary machinery and left it switched off, because cutting a
-predecessor into a `Step::Evaluate` still changes what queries produce. This effort closes the
-remaining divergences and builds the suite that keeps them closed, so that cutting becomes a
-choice about memory and scheduling rather than about whether the answer is right.
-`CORE-PLAN-POLICY-AND-DEFAULTS` cannot decide the default until it is.
+Cutting a plan at its **outermost cacheable predecessor** — the longest leading prefix that is
+neither volatile nor payload-requiring — is what lets the `AssetManager` cache, share, expire and
+schedule an intermediate instead of recomputing it inside every consumer. That is the intended
+default. It is not the default today only because it does not yet work: `plan-cwd-freeze` built
+the machinery and left it switched off, four measured divergences deep.
+
+This effort makes it correct and makes it the default.
 
 ## Core Interactions
 
@@ -22,6 +24,21 @@ choice about memory and scheduling rather than about whether the answer is right
   where it may be placed.
 - **Context** — `schedule_dependency_asset` chooses the payload path from the boundary query's
   own plan.
+
+## Scope and Non-Goals
+
+**In scope:** one cut, at the outermost cacheable predecessor, as the default policy; the
+divergences that stop it being correct; and the equivalence suite that holds it correct.
+
+**Not a goal: decomposing a plan completely**, a boundary at every action. It is interesting
+mainly because it is possible, and the case for it is a volatile plan — where nothing is
+cacheable, so an asset per step buys the dependency graph and parallel scheduling rather than
+caching. Nothing here forecloses it; nothing here builds it.
+
+That distinction also answers `DOC_08`'s standing argument that the memory-versus-recomputation
+trade is per query rather than global. Cutting *everywhere* retains every intermediate, which is
+what makes a global default look wrong. One cut retains one intermediate — bounded, and the one
+most likely to be shared by other queries.
 
 ## Crate Placement
 
@@ -36,8 +53,10 @@ choice about memory and scheduling rather than about whether the answer is right
   is no repeatable developer task, only internal behaviour. A recipe author's one question,
   "why was my boundary not cut", is answered by the `init_info` the design emits.
 - **Other documents: none**, beyond issue updates.
-- **Update:** `DOC_08_RECIPES_PLANS.md`; the rustdoc on `Recipe`, `PlanBuilder` and the cut, where
-  a contributor lands from a stack trace; `specs/README.md`. Exact paths and changes at Phase 2.
+- **Update:** `DOC_08_RECIPES_PLANS.md` — including "Why the default should make the predecessor
+  available", whose closing paragraph defers the decision to `CORE-PLAN-POLICY-AND-DEFAULTS` and
+  is superseded by it; the rustdoc on `Recipe`, `PlanBuilder` and the cut, where a contributor
+  lands from a stack trace; `specs/README.md`. Exact paths and changes at Phase 2.
 
 ## Open Questions
 
@@ -45,18 +64,16 @@ Two semantic questions were raised and settled in Phase 1 discussion — where a
 relative to a payload need, and what a recipe-level `volatile:` means. Both are recorded in
 `DESIGN.md` and formalised at Phase 2.
 
-Genuinely open, none of them blocking:
+Genuinely open, neither blocking:
 
-1. Whether `PlanBuilder` should keep the candidate list it already computes. It visits every
-   prefix in order and holds each one's step count and cumulative volatility and payload flags,
-   then discards all but the longest. Keeping them makes the cut a lookup; discarding them makes
-   it rebuild plans to recover what was in hand. The cost of keeping is recorded state that must
-   survive a recipe's prepended prologue and serde — the staleness class that has already caused
-   two defects here. Phase 2 trade.
-2. Whether a recipe-level `expires:` should be treated as strictly as `volatile:`. A finite
-   expiration speaks about the result, and a pure prefix could still be cached.
-3. What "equivalent" is defined to cover. Cutting changes asset count, dependency edges and
-   metadata by design, so the comparison set is a decision, not an omission.
+1. Whether a recipe-level `expires:` should be treated as strictly as `volatile:`. A finite
+   expiration speaks about the result, and a pure prefix could still be cached soundly.
+2. What "equivalent" is defined to cover. Cutting changes asset count, dependency edges and
+   metadata by design, so the comparison set is a decision, not an omission — and it becomes a
+   shipping gate rather than a preparatory exercise once the default flips.
+
+Whether `PlanBuilder` keeps the candidate list it already computes, or the cut recovers it, is an
+implementation detail for Phase 2 rather than an open question here.
 
 ## Phase 1 Critical Review
 

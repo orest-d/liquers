@@ -99,7 +99,19 @@ tool and is not part of any change set.
 - Every level passed over, and the decline, says why — an `init_info` naming the command.
 - `Plan::split` dropping the coupled predecessor fields is in scope, because the field list is
   the shape of every defect in this lineage, two of which shipped.
-- The default stays expanded. `CORE-PLAN-POLICY-AND-DEFAULTS` owns the flip.
+- **Cutting at the outermost cacheable predecessor is the intended default**, not a policy left
+  open. It is what lets the `AssetManager` cache, share, expire and schedule an intermediate; it
+  is not the default today only because it does not work. This supersedes `DOC_08`'s closing
+  paragraph under "Why the default should make the predecessor available", which defers the
+  decision to `CORE-PLAN-POLICY-AND-DEFAULTS`. That issue's other three markers — cache,
+  volatile flags, inline flag — are untouched.
+- **Complete decomposition is a non-goal.** A boundary at every action is interesting mainly
+  because it is possible, and the case for it is a volatile plan, where nothing is cacheable so
+  an asset per step buys the dependency graph and parallel scheduling rather than caching. Not
+  foreclosed, not built.
+- Whether `PlanBuilder` keeps the candidate list it already computes is an implementation
+  detail, not a design question — it may keep one if that produces a correct plan. What matters
+  is identifying the cut point.
 
 **Filed during Phase 1:** `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL` (P3),
 `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` (P3);
