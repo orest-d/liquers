@@ -50,8 +50,27 @@ impl<V: ValueInterface, P: PayloadType> CommandRegistryAccess for DefaultEnviron
 
 impl<V: ValueInterface, P: PayloadType> DefaultEnvironment<V, P> {
     pub fn new() -> Self {
+        Self::new_with_type_registry(
+            liquers_core::type_system::TypeRegistry::from_value_type::<V>(),
+        )
+    }
+
+    /// Creates an environment with a caller-supplied type registry.
+    ///
+    /// For an integration that adds a type `V` cannot describe statically — a foreign language
+    /// handle whose identifier belongs to the integration crate rather than to the value type.
+    /// `liquers-web` uses this to register `js.Value`. **Extend**
+    /// [`TypeRegistry::from_value_type`](liquers_core::type_system::TypeRegistry::from_value_type):
+    /// starting from `TypeRegistry::new()` loses every type the build already had, including the
+    /// `error` pseudo-type that even a failed asset needs.
+    ///
+    /// The registry is never written after this point, which is what lets
+    /// [`Environment::get_type_registry`] hand out a shared reference with no lock.
+    pub fn new_with_type_registry(
+        type_registry: liquers_core::type_system::TypeRegistry,
+    ) -> Self {
         DefaultEnvironment {
-            type_registry: liquers_core::type_system::TypeRegistry::from_value_type::<V>(),
+            type_registry,
             command_registry: CommandRegistry::new(),
             async_store: Arc::new(NoAsyncStore),
             asset_store: Arc::new(SelectedAssetManager::new()),
