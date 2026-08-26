@@ -35,10 +35,16 @@ mainly because it is possible, and the case for it is a volatile plan — where 
 cacheable, so an asset per step buys the dependency graph and parallel scheduling rather than
 caching. Nothing here forecloses it; nothing here builds it.
 
-That distinction also answers `DOC_08`'s standing argument that the memory-versus-recomputation
-trade is per query rather than global. Cutting *everywhere* retains every intermediate, which is
-what makes a global default look wrong. One cut retains one intermediate — bounded, and the one
-most likely to be shared by other queries.
+**The expanded plan is the oracle, not a co-equal alternative.** Its remaining role is
+explanation and analysis of a query — `liquers-validate` is the concrete case, and it gets that
+for free, because it calls `PlanBuilder::build` directly (`validate/mod.rs:72`) while the cut
+happens later, in `finalize_plan`. So expansion stays available for analysis whatever the
+evaluation default is. Its other apparent role, lower memory through less caching, belongs to a
+future asset-manager retention policy rather than to a plan shape; `CORE-ASSET-GC` owns that.
+
+That also answers `DOC_08`'s standing argument that the memory-versus-recomputation trade is per
+query rather than global. Cutting *everywhere* retains every intermediate, which is what makes a
+global default look wrong. One cut retains one — bounded, and the one most likely to be shared.
 
 ## Crate Placement
 
@@ -64,16 +70,29 @@ Two semantic questions were raised and settled in Phase 1 discussion — where a
 relative to a payload need, and what a recipe-level `volatile:` means. Both are recorded in
 `DESIGN.md` and formalised at Phase 2.
 
-Genuinely open, neither blocking:
+Both questions raised here have been settled in discussion; the answers are load-bearing enough
+to state rather than to leave in a transcript.
 
-1. Whether a recipe-level `expires:` should be treated as strictly as `volatile:`. A finite
-   expiration speaks about the result, and a pure prefix could still be cached soundly.
-2. What "equivalent" is defined to cover. Cutting changes asset count, dependency edges and
-   metadata by design, so the comparison set is a decision, not an omission — and it becomes a
-   shipping gate rather than a preparatory exercise once the default flips.
+- **A recipe-level `expires:` is not as strict as `volatile:`.** It bounds how long the resulting
+  asset stays valid; it says nothing about the purity of the computation, so a pure prefix behind
+  it is still soundly cached. Only volatility makes a plan uncuttable — which, read against
+  `assets.rs:1610`, means `recipe.volatile || recipe.expires.is_volatile()`, and
+  `Expires::is_volatile` is true only for `Immediately`. A plain finite expiration does not
+  block a cut.
+- **Equivalence is a correctness verification of the cut plan**, with the expanded plan as the
+  reference implementation — not a contract between two shipping forms. So the comparison asserts
+  the result; differences in asset count, dependency edges and metadata are outside what the
+  oracle claims rather than divergences to enumerate.
 
-Whether `PlanBuilder` keeps the candidate list it already computes, or the cut recovers it, is an
-implementation detail for Phase 2 rather than an open question here.
+Nothing blocking remains. Two things to confirm at this gate rather than assume:
+
+1. That flipping the default ships in this design rather than a follow-on. It is written that way.
+2. That the step counts the cut relies on hold for *promoted and frozen* input, not only the raw
+   queries measured so far. Guarded either way — the failure mode is a lost boundary, not a wrong
+   value — but it is reasoning until measured, and it is the first implementation step.
+
+Whether `PlanBuilder` keeps the candidate list it already computes is an implementation detail
+for Phase 2, not a design question.
 
 ## Phase 1 Critical Review
 

@@ -112,6 +112,18 @@ tool and is not part of any change set.
 - Whether `PlanBuilder` keeps the candidate list it already computes is an implementation
   detail, not a design question — it may keep one if that produces a correct plan. What matters
   is identifying the cut point.
+- **A recipe-level `expires:` does not block a cut.** It bounds how long the resulting asset
+  stays valid, not the purity of the computation. Only volatility makes a plan uncuttable, which
+  against `assets.rs:1610` reads `recipe.volatile || recipe.expires.is_volatile()` — and
+  `Expires::is_volatile` is true only for `Immediately` (or a `Combination` containing one), so a
+  plain finite expiration is unaffected. The rule reuses the predicate the asset layer already
+  applies rather than inventing a second one.
+- **The expanded plan is the oracle, not a co-equal shipping form.** The suite is a correctness
+  verification of the *cut* plan against it. Its remaining role is explanation and analysis —
+  `liquers-validate` calls `PlanBuilder::build` directly (`validate/mod.rs:72`) and never
+  finalizes, so it keeps the expanded form for free whatever the evaluation default is. Its other
+  apparent role, lower memory through less caching, belongs to a future asset-manager retention
+  policy; `CORE-ASSET-GC` already owns that and no new issue is warranted.
 
 **Filed during Phase 1:** `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL` (P3),
 `RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING` (P3);
