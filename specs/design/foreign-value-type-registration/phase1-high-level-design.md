@@ -64,6 +64,42 @@ asserts "one description per variant, no more and no less" — but never *writte
 
 Clarifying the formulation is part of this design's deliverable, not a side effect.
 
+## Registry lifecycle: extend a base, then freeze at construction
+
+**The registry stays essentially constant and is fixed once the environment is constructed.** It is
+not mutated afterwards, and the `Environment` trait gains nothing — it keeps only
+`get_type_registry(&self)`. An integration instead **builds on top of the existing registry**: it
+takes the core or library registry, adds its own type, and hands the finished registry to the
+environment constructor.
+
+```rust
+let mut types = TypeRegistry::from_value_type::<Value>();  // everything core and lib describe
+types.register(JsOpaque::type_info())?;                    // one more: js.Value
+let env = DefaultEnvironment::<Value>::new_with_type_registry(types);
+```
+
+`TypeRegistry::from_value_type::<V>()` and `register` both exist already; what is missing is the
+constructor that accepts a registry. `new()` keeps seeding from the value type, so no existing call
+site changes and `Default` is unaffected.
+
+Three consequences for Phase 2:
+
+- **Six constructors, not one.** `SimpleEnvironment`, `ImmediateEnvironment`,
+  `SimpleEnvironmentWithPayload`, `ImmediateEnvironmentWithPayload` (`liquers-core/src/context.rs`),
+  `DefaultEnvironment` (`liquers-lib/src/environment.rs`) and `liquers-py`'s each need the paired
+  constructor. All are additive.
+- **Naming needs care.** These types already use `with_*(&mut self) -> &mut Self` *mutators*
+  (`with_async_store`, `with_recipe_provider`). A registry accepted at construction must not look
+  like one of those, or it invites exactly the post-construction mutation this decision rules out —
+  hence `new_with_type_registry(registry)` rather than `with_type_registry`.
+- **A rebuild must replay the registrations.** `liquers-web` reconstructs its environment
+  (`PENDING_ENV`, store-config replay); a type registered into the old registry and not replayed is
+  silently lost — the trap store configuration already documents.
+
+This also fixes *when* a foreign type must be describable: at construction, before any value exists.
+That is why consequence 1 of the rule above — a static counterpart to `ForeignValue::identifier` —
+is a requirement rather than a preference.
+
 ## Core Interactions
 
 ### Query System
@@ -98,10 +134,9 @@ Not applicable.
 
 ## Crate Placement
 
-- **liquers-core** — `type_system.rs` (how a runtime type is registered), `context.rs` (where an
-  `Environment` accepts one), `value.rs` (correct the `identifier` doc comment). The registry stays
-  lock-free and read-only *once shared*: an environment is mutable until `to_ref()` consumes it into
-  an `Arc`, so registration is confined to that window.
+- **liquers-core** — `type_system.rs` (extending a base registry), `context.rs` (four constructors
+  that accept a finished registry), `value.rs` (correct the `identifier` doc comment). The registry
+  stays lock-free and needs no lock because it is never written after construction.
 - **liquers-lib** — `value/foreign.rs` (`ForeignValue::type_info`), `environment.rs` (registration
   entry point on `DefaultEnvironment`).
 - **liquers-web** — registers `js.Value` at environment construction; no new abstraction.
@@ -131,14 +166,10 @@ values without reading this design folder.
 
 ## Open Questions
 
-1. **Where does an integration register?** A method on the `Environment` trait, an inherent method
-   per implementor, or a `TypeRegistry` handed to the constructor. Affects four implementors. The
-   intent is already recorded in `value-type-system` phase2-architecture.md — "builds its registry
-   once at construction … then extends it with any foreign registrations" — but the shape is not.
-2. **What happens to an unregistered foreign type after the fix** — still a hard refusal, or a
+1. **What happens to an unregistered foreign type after the fix** — still a hard refusal, or a
    logged degrade to metadata-only? A refusal is the current rule and is honest; a degrade restores
    pre-`value-type-system` behaviour, which the issue calls a regression.
-3. **How is the static/instance agreement proven?** A `debug_assert`, a test helper every
+2. **How is the static/instance agreement proven?** A `debug_assert`, a test helper every
    integration calls, or a conformance test in `LANGUAGE-INTEGRATION_GUIDE.md`'s suite.
 
 ## Prerequisite (not an open question)

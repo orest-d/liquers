@@ -42,6 +42,12 @@ linked to the same identifier"); correcting the formulation is now a deliverable
 `liquers-py`'s `value`/`context` modules was measured: four compile errors in `value.rs`, so
 repairing that file is inside scope.
 
+2026-08-26 — Registry lifecycle settled by the user: the registry stays essentially constant and is
+fixed once the environment is constructed. An integration extends the *existing* core/lib registry
+and passes the finished one to the environment constructor; the `Environment` trait gains nothing
+and there is no post-construction registration point. Six constructors take the new parameter, all
+additively.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
