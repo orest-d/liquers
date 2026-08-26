@@ -1,5 +1,4 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,draft,local,,P1,M,core/plan;core/assets,,,,plan-cwd-freeze,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,M,core/assets,,,,,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
@@ -54,8 +53,10 @@ LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT,issue,Language exception class and s
 LINK-IN-VARIADIC-DOES-NOT-EXPAND,issue,A link inside a variadic argument yields one element even when it resolves to an array,draft,local,,P3,M,core/plan;core/commands,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/LINK-IN-VARIADIC-DOES-NOT-EXPAND.md
 MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate queries or implement hints,accepted,local,,P3,M,macro,,,,,,2026-08-08,specs/issues/MACRO-QUERY-VALIDATION-AND-HINTS.md
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
+RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written from a query,accepted,local,,P3,M,lib/commands;core/store,,,,,,2026-08-09,specs/issues/STORE-COMMAND-NAMESPACE-MISSING.md
 UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
+V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,draft,local,,P3,M,core/plan;core/query,,,,,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
 COMMAND-COMPOSITE-VARIADIC-ARGUMENTS,feature,A variadic argument cannot carry composite elements such as pairs or tuples,draft,local,,P3,L,core/commands;macro;lib/ui,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,P3,L,core/assets;core/store,,,,,,2026-08-08,specs/issues/CORE-ASSET-GC.md
@@ -92,7 +93,7 @@ DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,core/assets,,,,,2026-08-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,core/context;core/plan,,,,,2026-08-16,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-16,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,core/plan;core/assets;core/context,,,,,2026-08-26,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/context;core/commands,,,,,2026-08-01,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
@@ -119,16 +120,20 @@ CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever 
 CORE-PLAN-RELATIVE-RESOLUTION-MISSING,issue,Queries are not resolved relative to the current working directory,closed,local,,P1,M,core/plan,,,,plan-relative-resolution,,2026-08-08,specs/issues/CORE-PLAN-RELATIVE-RESOLUTION-MISSING.md
 FOREIGN-VALUE-TYPES-NOT-REGISTERED,issue,A foreign language value cannot be registered in the type registry,closed,local,,P1,M,core/value;lib/value;web;py,,,,foreign-value-type-registration,,2026-08-18,specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md
 IMMEDIATE-MANAGER-NO-FAST-TRACK,issue,"ImmediateAssetManager never fast-tracks, so a stored file cannot be read by key on wasm",closed,local,,P1,M,core/assets;web,,,,,,2026-08-09,specs/issues/IMMEDIATE-MANAGER-NO-FAST-TRACK.md
+PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,closed,local,,P1,M,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,closed,local,,P1,M,core/assets,,,,keyed-recipe-ownership,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
 ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE,issue,insert_key_asset silently does nothing on the queued manager when the key is taken,closed,local,,P2,S,core/assets,,,,asset-manager-insert-key-asset-semantics,,2026-08-09,specs/issues/ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE.md
 BUILD-MATRIX-NOT-RUN-IN-CI,issue,The feature/target build matrix is never run automatically,closed,local,,P2,S,build;docs,,,,,,2026-08-25,specs/issues/BUILD-MATRIX-NOT-RUN-IN-CI.md
 COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,issue,"CombinedValue::default_extension returns ""ext"" for every extended value",closed,local,,P2,S,lib/value,,,,value-type-system,,2026-08-18,specs/issues/COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED.md
 CORE-ERROR-PAYLOAD-SIZE,issue,`Error` is large enough to bloat every `Result`,closed,local,,P2,S,core/error,,,,,,2026-08-08,specs/issues/CORE-ERROR-PAYLOAD-SIZE.md
 LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED,issue,liquers-lib integration tests do not compile without default features,closed,local,,P2,S,lib/value;build,,,,,,2026-08-18,specs/issues/LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED.md
+PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,P2,S,core/plan,,,,predecessor-cut-equivalence,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
+RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ignores recipe level volatile and expires,closed,local,,P2,S,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-26,specs/issues/RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES.md
 WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH,issue,"VALUE04 fails at HEAD — bytes identifier is `Bytes`, the test expects `bytes`",closed,local,,P2,S,web;core/value,,,,foreign-value-type-registration,,2026-08-25,specs/issues/WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH.md
 LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE,issue,The guide's STORE feature omits integration-provided stores and store configuration,closed,local,,P2,M,web;py;core/store,,,,,,2026-08-09,specs/issues/LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
 STORE-TESTS-PRINT-TO-STDOUT,issue,liquers-store's OpenDAL tests use println! against the blanket stdout rule,closed,local,,P3,S,store/backends;docs,,,,,,2026-08-25,specs/issues/STORE-TESTS-PRINT-TO-STDOUT.md
+PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload is indistinguishable from one that does not,rejected,local,,P3,M,core/plan;core/commands,,,,predecessor-cut-equivalence,,2026-08-26,specs/issues/PAYLOAD-SOURCED-INJECTION-NOT-DECLARED.md
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
 DEPENDENCY-MANAGEMENT,design,Dependency-wait lifecycle and deadlock-safe delegation,complete,local,,,,core/assets,,5,,dependency-management,,2026-03-02,specs/design/dependency-management/DESIGN.md
@@ -147,6 +152,7 @@ METADATA-CONSISTENCY,design,Metadata format and type consistency,superseded,loca
 PARAMETER-ENTITY-ESCAPING,design,Parameter entity escaping (numeric and named tilde entities),complete,local,,,,core/query,,34,,parameter-entity-escaping,,2026-08-14,specs/design/parameter-entity-escaping/DESIGN.md
 PAYLOAD-NESTED-EVALUATION-INHERITANCE,design,Payload inheritance in nested evaluation,complete,local,,,,core/plan;core/assets,,14,,payload-nested-evaluation-inheritance,,2026-03-02,specs/design/payload-nested-evaluation-inheritance/DESIGN.md
 PLAN-RELATIVE-RESOLUTION,design,CWD-relative query resolution in plans,complete,local,,,,core/query;core/plan;core/assets;core/context,,,,plan-relative-resolution,,2026-08-10,specs/design/plan-relative-resolution/DESIGN.md
+PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observably equivalent to expanding it,complete,local,,,,core/plan;core/assets;core/context,,43,,predecessor-cut-equivalence,,2026-08-26,specs/design/predecessor-cut-equivalence/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md

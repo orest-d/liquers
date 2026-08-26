@@ -2,11 +2,11 @@
 id: PREDECESSOR-CUT-NOT-YET-EQUIVALENT
 kind: issue
 title: Cutting a predecessor boundary is not yet equivalent to expanding it
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/plan, core/assets]
-design: plan-cwd-freeze
+design: predecessor-cut-equivalence
 created: 2026-08-15
 github:
 ---
@@ -38,6 +38,76 @@ rather than analysis:
   the three `expiration_integration` divergences.
 - A dependency's error was replaced by "did not produce a value", so a boundary hid the diagnosis.
   Fixed by chaining the cause.
+
+## Update, 2026-08-26 (`predecessor-cut-equivalence`)
+
+Re-measured at `d1bd02e` and root-caused. The four divergences come from three causes, and
+only one of them is a defect:
+
+- **The two `recipe_cwd_resolution` failures are one bug**, and it is not the nested keyed
+  recipe this issue guessed at. `Plan::freeze_cwd_with` resolves the recorded predecessor
+  query from the cursor's *entry* state, but `Recipe::to_plan` prepends a `Step::SetCwd` for
+  `recipe.cwd` that the builder never emitted. The step count is compensated
+  (`predecessor_steps += 1`); the cursor is not. So the boundary query — the only thing a cut
+  carries — is frozen one CWD short, and every relative operand in it loses its folder
+  prefix. Fix verified: `Plan::prologue_steps`, advanced over before the predecessor is
+  resolved. Both failures pass; `liquers-core` stays green with the cut off, and
+  `liquers-lib --lib --tests` is green with it on.
+- **The `injection` failure is a mis-declared command**, and is fixed in the test.
+  `first_cmd` and `third_cmd` read the payload through injected parameters and declare no
+  `payload: required`; that is the documented "declare it, or lose it" rule (E8), which a cut
+  is simply where it first bites. Injection must not be read as evidence of a payload need in
+  either direction — it may be satisfied from the environment alone — and it need not be, since
+  the need is declared on command metadata. What the failure *does* expose is a correctness
+  question the design now answers: a boundary must be cut in front of a payload need, never
+  across it, and `Plan::payload_required` is the wrong granularity to decide that. The cut
+  builds each candidate boundary's own plan and steps back a level while it requires a payload.
+- **The `--lib` failure is a test asserting the expanded shape**, as this issue already said.
+  Measured: with those two shape assertions relaxed, the test passes under the cut with the
+  same value and the same context CWD.
+
+A fifth cause, found by reading and then measured: a **recipe-level** `volatile:` (or
+`expires:`) is not in the query text, so it does not reach a cut boundary — the parent re-runs
+while the boundary it reads is cached. Measured over two evaluations, the prefix ran 2 times
+expanded and 1 cut. A **command**-level `volatile: true` does not diverge (2 both ways): it
+travels in the query, so the boundary's own plan is volatile and the manager evaluates it as a
+volatile query. The design cuts only at a candidate that can be cached — not payload-requiring,
+not volatile — and records a recipe-level flag on the plan, where no candidate query could
+show it. A volatile recipe is read as volatile from its **first** action: the flag carries no
+position, and the alternative reading is what the measurement shows failing, an asset dutifully
+recomputed that restores the same cached prefix every time. The positional instrument would be
+the `v` instruction, which exists but is also whole-plan
+(`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`).
+
+A latent instance of the first cause's *shape* — a plan mutated through a subset of
+coupled fields — sits in `Plan::split`, which drops `frozen_cwd` and both predecessor fields.
+It has no production caller, but two of the three instances of that shape shipped, so it is in
+scope: `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`.
+
+Design: `specs/design/predecessor-cut-equivalence/` (`workflow: liquers-project`, at the Phase 1
+gate). Filed in passing and still open: `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`,
+`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`. Filed and rejected the same day:
+`PAYLOAD-SOURCED-INJECTION-NOT-DECLARED`.
+
+## Resolution, 2026-08-26
+
+Closed by `predecessor-cut-equivalence`. Cutting at the outermost cacheable predecessor is now
+the **default**: `finalize_plan` calls `Plan::cut_predecessor` after freezing and after the
+analysis passes.
+
+All four measured divergences are gone, and a fifth found during the design:
+
+| Cause | Resolution |
+|---|---|
+| The predecessor query frozen before the recipe's `SetCwd` prologue | `Plan::prologue_steps`; freezing advances over it. The unit test fails without the walk, with no cut involved |
+| A payload behind a boundary | Not a cutting defect — a mis-declared command. Declared, and `e8_an_undeclared_payload_is_cut_across` pins the rule |
+| A test asserting the expanded step shape | Moved onto an explicitly un-cut plan |
+| A recipe-level `volatile:` not reaching a boundary | `VolatilitySource::Declared`; such a plan is not cut |
+| `Plan::split` dropping the coupled fields | `PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS`, closed alongside |
+
+Evidence: `liquers-core/tests/plan_cwd_freeze.rs` — 13 shapes × 3 CWD conditions agreeing, the
+four payload shapes, and the corner cases; 14 units in `plan.rs`. `liquers-core` 19 suites green,
+`liquers-lib --lib --tests` exit 0, all 11 build-matrix configurations OK.
 
 ## Impact
 

@@ -621,9 +621,16 @@ async fn test_chained_commands_with_payload() -> Result<(), Box<dyn std::error::
         Ok(Value::from(format!("{}->window:{}", prev, window_id.0)))
     }
 
-    register_command!(cr, fn first_cmd(state, user_id: UserId injected) -> result)?;
+    // `payload: required` because these read the evaluation payload. An injected parameter does
+    // not imply it — injection may be satisfied from the environment alone — so the requirement
+    // is declared. Undeclared, a command works inlined and silently receives no payload across
+    // an evaluation boundary: the "declare it, or lose it" rule, pinned by
+    // `plan_cwd_freeze::e8_an_undeclared_payload_is_cut_across`.
+    register_command!(cr, fn first_cmd(state, user_id: UserId injected) -> result
+        payload: required)?;
     register_command!(cr, fn second_cmd(state) -> result)?;
-    register_command!(cr, fn third_cmd(state, window_id: WindowId injected) -> result)?;
+    register_command!(cr, fn third_cmd(state, window_id: WindowId injected) -> result
+        payload: required)?;
 
     let envref = env.to_ref();
     let payload = TestPayload::new("karen", 999);
