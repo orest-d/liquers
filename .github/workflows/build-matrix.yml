@@ -1,0 +1,49 @@
+name: build-matrix
+
+# Runs the feature/target build matrix that scripts/check-build-matrix.sh defines. Nothing else
+# runs `cargo check`/`cargo test` in CI, so a configuration outside the default features (or the
+# wasm32 target) could silently break — see specs/issues/BUILD-MATRIX-NOT-RUN-IN-CI.md.
+
+on:
+  pull_request:
+    paths:
+      - 'liquers-core/**'
+      - 'liquers-macro/**'
+      - 'liquers-store/**'
+      - 'liquers-lib/**'
+      - 'liquers-axum/**'
+      - 'liquers-web/**'
+      - 'liquers-py/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/check-build-matrix.sh'
+      - '.github/workflows/build-matrix.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'liquers-core/**'
+      - 'liquers-macro/**'
+      - 'liquers-store/**'
+      - 'liquers-lib/**'
+      - 'liquers-axum/**'
+      - 'liquers-web/**'
+      - 'liquers-py/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/check-build-matrix.sh'
+      - '.github/workflows/build-matrix.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Run the feature/target build matrix
+        run: bash scripts/check-build-matrix.sh

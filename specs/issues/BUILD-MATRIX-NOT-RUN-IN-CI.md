@@ -2,7 +2,7 @@
 id: BUILD-MATRIX-NOT-RUN-IN-CI
 kind: issue
 title: The feature/target build matrix is never run automatically
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [build, docs]
@@ -52,3 +52,14 @@ Whichever is chosen, the run cost should be measured first: the eleven configura
 Found on 2026-08-25 while fixing `LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED`. That issue asked for
 "a CI job, or a documented command list in `CLAUDE.md`"; the documented list was delivered, and
 this records the half that was not.
+
+## Resolution
+
+Added `.github/workflows/build-matrix.yml`: a single job on `pull_request`/`push`-to-`main`
+(path-filtered to the crates, `Cargo.{toml,lock}`, the script, and the workflow file itself) that
+installs the `wasm32-unknown-unknown` target and `libssl-dev`, caches with `Swatinem/rust-cache`,
+and runs `bash scripts/check-build-matrix.sh` unmodified — the first of the "Expected behaviour"
+options, chosen over the per-configuration matrix or scheduled-subset variants for the lowest
+implementation risk on an S/P2 fix. Not measured against actual runner cost; if the wall time
+proves too high in practice, splitting into a `strategy: matrix` job (the second listed option) is
+the natural follow-up and does not require touching the script.

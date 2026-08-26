@@ -2,7 +2,7 @@
 id: STORE-TESTS-PRINT-TO-STDOUT
 kind: issue
 title: liquers-store's OpenDAL tests use println! against the blanket stdout rule
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [store/backends, docs]
@@ -57,3 +57,17 @@ Output* section should say so, because it currently says the opposite.
 Found on 2026-08-25 while fixing `LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED`: auditing test output
 across feature configurations turned up stray printing, and a `grep` for `println!` outside
 `[[bin]]` targets found these.
+
+## Resolution
+
+Removed 10 of the 12 `println!` calls in `liquers-store/src/opendal_store.rs`'s `#[cfg(test)]`
+module: they either restated a value the following `assert!`/`assert_eq!` already checked, or were
+separator/debug lines with no assertion role at all (the two dead `for` loops in
+`test_opendal_localfs` that only printed `listdir`/`listdir_keys` results were replaced with plain
+`.unwrap()` calls that keep exercising those methods without formatting their output). The
+remaining 2 — the `if let Value::AssetInfo`/`else` diagnostic at the end of `test_opendal_localfs`,
+which has no accompanying assertion and whose `else` branch would otherwise be silently dropped —
+were changed to `eprintln!` rather than removed, since deleting them would either produce an
+unused-variable warning or implicitly turn a print into a new assertion, which is a test-coverage
+improvement outside this issue's scope. `cargo test -p liquers-store --lib` passes unchanged (27
+tests). No other crate's tests were touched.
