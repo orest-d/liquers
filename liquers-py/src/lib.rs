@@ -5,6 +5,10 @@ extern crate serde_derive;
 use pyo3::prelude::*;
 
 pub mod command_metadata;
+// `value` and `context` are declared; the remaining orphaned files
+// (`cache`, `commands`, `interpreter`, `state`, `store`) are not — see
+// `specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md`.
+pub mod context;
 pub mod dependencies;
 pub mod error;
 pub mod expiration;
@@ -12,6 +16,7 @@ pub mod metadata;
 pub mod parse;
 pub mod plan;
 pub mod query;
+pub mod value;
 pub mod recipes;
 
 use crate::query::*;

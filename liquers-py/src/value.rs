@@ -42,6 +42,7 @@ pub enum Value {
     CommandMetadata { value: CommandMetadata },
     Query { value: Query },
     Key { value: Key },
+    AssetInfo { value: Vec<crate::metadata::AssetInfo> },
     Py { value: Py<PyAny> },
 }
 
@@ -109,6 +110,7 @@ impl Value {
             Value::Bytes { value } => Ok(format!("{:?}", value)),
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).str()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
+            Value::AssetInfo { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
             Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
             Value::Query { value } => Ok(value.encode()),
@@ -152,6 +154,7 @@ impl Value {
             Value::Bytes { value } => Ok(format!("{:?}", value)),
             Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).repr()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
+            Value::AssetInfo { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
             Value::CommandMetadata { value } => Ok(format!("{:?}", value)),
             Value::Query { value } => Ok(value.__repr__()),
@@ -194,6 +197,7 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
         Value::Bytes { value } => Ok(value.to_object(py)),
         Value::Py { value } => Ok(value.clone_ref(py)),
         Value::Metadata { value } => Ok(value.clone().into_py(py)),
+        Value::AssetInfo { value } => Ok(value.clone().into_py(py)),
         Value::Recipe { value } => Ok(value.clone().into_py(py)),
         Value::CommandMetadata { value } => Ok(value.clone().into_py(py)),
         Value::Query { value } => Ok(value.clone().into_py(py)),
@@ -201,10 +205,103 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
     }
 }
 
+/// The type identifier of a retained Python object.
+///
+/// `py.Object`, not a bare `Object`: a bare name asserts that Liquers owns the concept, and a
+/// Python object is somebody else's type. It is a **constant** because the identifier appears in
+/// both `identifier()` and `type_descriptions()`, and a registry entry that does not match what a
+/// value reports is exactly the failure this crate's descriptions exist to prevent.
+pub const PY_OBJECT_TYPE_IDENTIFIER: &str = "py.Object";
+
 impl ValueInterface for Value {
-    fn try_into_query(&self) -> Result<crate::parse::Query, Error> {
+    /// One description per variant, identifiers shared with `liquers_core::value::Value`.
+    ///
+    /// Without this the registry holds only the `error` pseudo-type, and **every** write through
+    /// a `PyEnvironment` is refused — `validate_metadata_hard` rejects any identifier the registry
+    /// does not contain. See `specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md`.
+    fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
+        use liquers_core::type_system::TypeInfo;
+        vec![
+            TypeInfo::new("None")
+                .with_type_name("none")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Bool")
+                .with_type_name("bool")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("I32")
+                .with_type_name("i32")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("I64")
+                .with_type_name("i64")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("F64")
+                .with_type_name("f64")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Text")
+                .with_type_name("text")
+                .with_defaults("txt", "txt", "text/plain", "text.txt")
+                .with_data_formats(["txt", "json"]),
+            TypeInfo::new("Array")
+                .with_type_name("array")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Object")
+                .with_type_name("object")
+                .with_defaults("json", "json", "application/json", "data.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Bytes")
+                .with_type_name("bytes")
+                .with_defaults("b", "b", "application/octet-stream", "binary.b")
+                .with_data_formats(["b", "json"]),
+            TypeInfo::new("Metadata")
+                .with_type_name("metadata")
+                .with_defaults("json", "json", "application/json", "metadata.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("AssetInfo")
+                .with_type_name("asset_info")
+                .with_defaults("json", "json", "application/json", "asset_info.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Recipe")
+                .with_type_name("recipe")
+                .with_defaults("json", "json", "application/json", "recipe.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("CommandMetadata")
+                .with_type_name("command_metadata")
+                .with_defaults("json", "json", "application/json", "command_metadata.json")
+                .with_data_formats(["json"]),
+            TypeInfo::new("Query")
+                .with_type_name("query")
+                .with_defaults("txt", "txt", "text/plain", "query.txt")
+                .with_data_formats(["txt", "json"]),
+            TypeInfo::new("Key")
+                .with_type_name("key")
+                .with_defaults("txt", "txt", "text/plain", "key.txt")
+                .with_data_formats(["txt", "json"]),
+            // Declares **no** data formats: a retained Python object has no byte form here.
+            // `pickle` is the extension it would use, but nothing in this crate serializes one,
+            // and declaring a format the code cannot produce would let `set_binary` accept bytes
+            // that can never be materialized.
+            TypeInfo::new(PY_OBJECT_TYPE_IDENTIFIER)
+                .with_type_name("python_value")
+                .with_defaults(
+                    "pickle",
+                    "pickle",
+                    "application/octet-stream",
+                    "data.pickle",
+                ),
+        ]
+    }
+
+    fn try_into_query(&self) -> Result<liquers_core::query::Query, Error> {
         match self {
-            Value::Query { value } => Ok(value.clone()),
+            // `crate::parse::Query` is the `#[pyclass]` wrapper; the trait wants the core type,
+            // which is the newtype's single field.
+            Value::Query { value } => Ok(value.0.clone()),
             Value::Text { value: s } => crate::parse::parse(s)
                 .map(|q| q.0)
                 .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
@@ -279,23 +376,31 @@ impl ValueInterface for Value {
         }
     }
 
+    /// Bare CamelCase names, matching `liquers_core::value::Value` variant for variant, so a
+    /// store written from Python is readable from Rust and back.
+    ///
+    /// These used to collapse six variants onto `"generic"` and spell the rest in lowercase —
+    /// the model `value-type-system` removed from `liquers-core`, left behind here because this
+    /// file was never part of the crate. `python_value` could not have been registered at all:
+    /// `_` is a reserved character, and `identifier_naming_rule_holds` rejects it.
     fn identifier(&self) -> Cow<'static, str> {
         match self {
-            Value::None {} => "generic".into(),
-            Value::Bool { value: _ } => "generic".into(),
-            Value::I32 { value: _ } => "generic".into(),
-            Value::I64 { value: _ } => "generic".into(),
-            Value::F64 { value: _ } => "generic".into(),
-            Value::Text { value: _ } => "text".into(),
-            Value::Array { value: _ } => "generic".into(),
-            Value::Object { value: _ } => "dictionary".into(),
-            Value::Bytes { value: _ } => "bytes".into(),
-            Value::Py { value: _ } => "python_value".into(),
-            Value::Metadata { value: _ } => "metadata".into(),
-            Value::Recipe { value: _ } => "recipe".into(),
-            Value::CommandMetadata { value: _ } => "command_metadata".into(),
-            Value::Query { value: _ } => "query".into(),
-            Value::Key { value: _ } => "key".into(),
+            Value::None {} => "None".into(),
+            Value::Bool { value: _ } => "Bool".into(),
+            Value::I32 { value: _ } => "I32".into(),
+            Value::I64 { value: _ } => "I64".into(),
+            Value::F64 { value: _ } => "F64".into(),
+            Value::Text { value: _ } => "Text".into(),
+            Value::Array { value: _ } => "Array".into(),
+            Value::Object { value: _ } => "Object".into(),
+            Value::Bytes { value: _ } => "Bytes".into(),
+            Value::Py { value: _ } => PY_OBJECT_TYPE_IDENTIFIER.into(),
+            Value::Metadata { value: _ } => "Metadata".into(),
+            Value::AssetInfo { value: _ } => "AssetInfo".into(),
+            Value::Recipe { value: _ } => "Recipe".into(),
+            Value::CommandMetadata { value: _ } => "CommandMetadata".into(),
+            Value::Query { value: _ } => "Query".into(),
+            Value::Key { value: _ } => "Key".into(),
         }
     }
 
@@ -312,6 +417,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "bytes".into(),
             Value::Py { value: _ } => "python_value".into(),
             Value::Metadata { value: _ } => "metadata".into(),
+            Value::AssetInfo { value: _ } => "asset_info".into(),
             Value::Recipe { value: _ } => "recipe".into(),
             Value::CommandMetadata { value: _ } => "command_metadata".into(),
             Value::Query { value: _ } => "query".into(),
@@ -332,6 +438,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "b".into(),
             Value::Py { value: _ } => "pickle".into(),
             Value::Metadata { value: _ } => "json".into(),
+            Value::AssetInfo { value: _ } => "json".into(),
             Value::Recipe { value: _ } => "json".into(),
             Value::CommandMetadata { value: _ } => "json".into(),
             Value::Query { value: _ } => "txt".into(),
@@ -352,6 +459,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "binary.b".into(),
             Value::Py { value: _ } => "data.pickle".into(),
             Value::Metadata { value: _ } => "metadata.json".into(),
+            Value::AssetInfo { value: _ } => "asset_info.json".into(),
             Value::Recipe { value: _ } => "recipe.json".into(),
             Value::CommandMetadata { value: _ } => "command_metadata.json".into(),
             Value::Query { value: _ } => "query.txt".into(),
@@ -372,6 +480,7 @@ impl ValueInterface for Value {
             Value::Bytes { value: _ } => "application/octet-stream".into(),
             Value::Py { value: _ } => "application/octet-stream".into(),
             Value::Metadata { value: _ } => "application/json".into(),
+            Value::AssetInfo { value: _ } => "application/json".into(),
             Value::Recipe { value: _ } => "application/json".into(),
             Value::CommandMetadata { value: _ } => "application/json".into(),
             Value::Query { value: _ } => "text/plain".into(),
@@ -490,8 +599,49 @@ impl ValueInterface for Value {
         }
     }
 
-    fn from_asset_info(asset_info: liquers_core::metadata::AssetInfo) -> Self {
-        todo!("Implement conversion from AssetInfo to Value")
+    fn from_asset_info(asset_info: Vec<liquers_core::metadata::AssetInfo>) -> Self {
+        Value::AssetInfo {
+            value: asset_info
+                .into_iter()
+                .map(|inner| crate::metadata::AssetInfo { inner })
+                .collect(),
+        }
+    }
+
+    fn from_command_metadata(
+        command_metadata: liquers_core::command_metadata::CommandMetadata,
+    ) -> Self {
+        Value::CommandMetadata {
+            value: CommandMetadata(command_metadata),
+        }
+    }
+
+    fn try_into_bytes(&self) -> Result<Vec<u8>, Error> {
+        match self {
+            Value::Bytes { value: b } => Ok(b.clone()),
+            _ => Err(Error::conversion_error(self.identifier(), "bytes")),
+        }
+    }
+
+    fn try_into_key(&self) -> Result<liquers_core::query::Key, Error> {
+        match self {
+            // As with `try_into_query`: unwrap the `#[pyclass]` newtype.
+            Value::Key { value } => Ok(value.0.clone()),
+            Value::Text { value: s } => liquers_core::parse::parse_key(s),
+            _ => Err(Error::conversion_error(self.identifier(), "key")),
+        }
+    }
+
+    fn try_into_command_metadata(
+        &self,
+    ) -> Result<liquers_core::command_metadata::CommandMetadata, Error> {
+        match self {
+            Value::CommandMetadata { value } => Ok(value.0.clone()),
+            _ => Err(Error::conversion_error(
+                self.identifier(),
+                "command metadata",
+            )),
+        }
     }
 }
 
@@ -642,5 +792,200 @@ impl DefaultValueSerializer for Value {
                 format!("Unsupported format in from_bytes:{}", fmt),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use liquers_core::type_system::TypeRegistry;
+
+    /// Every variant this crate can hold, except `Py`.
+    ///
+    /// **GIL-free by necessity.** `pyo3` is built here with `extension-module` and without
+    /// `auto-initialize`, so a test calling `Python::with_gil` has no interpreter to attach to.
+    /// `Value::Py` is therefore covered by [`PY_OBJECT_TYPE_IDENTIFIER`] appearing in both
+    /// `identifier()` and `type_descriptions()` rather than by a constructed sample.
+    fn samples() -> Vec<Value> {
+        vec![
+            Value::None {},
+            Value::Bool { value: true },
+            Value::I32 { value: 1 },
+            Value::I64 { value: 1 },
+            Value::F64 { value: 1.0 },
+            Value::Text {
+                value: "x".to_owned(),
+            },
+            Value::Array { value: Vec::new() },
+            Value::Object {
+                value: BTreeMap::new(),
+            },
+            Value::Bytes { value: Vec::new() },
+            Value::Metadata {
+                value: MetadataRecord {
+                    inner: liquers_core::metadata::MetadataRecord::new(),
+                },
+            },
+            Value::AssetInfo { value: Vec::new() },
+            Value::Recipe {
+                value: Recipe {
+                    inner: liquers_core::recipes::Recipe::default(),
+                },
+            },
+            Value::CommandMetadata {
+                value: CommandMetadata(liquers_core::command_metadata::CommandMetadata::new(
+                    "test",
+                )),
+            },
+            Value::Query {
+                value: crate::parse::Query(liquers_core::query::Query::new()),
+            },
+            Value::Key {
+                value: crate::query::Key(liquers_core::query::Key::new()),
+            },
+        ]
+    }
+
+    /// `fvt6.1` — every variant has a description, and the two agree.
+    ///
+    /// Mirrors `liquers-core`'s `vts7.1`. Before this, `type_descriptions()` was the empty
+    /// default, so the registry held only `error` and every write through a `PyEnvironment`
+    /// would have been refused.
+    #[test]
+    fn type_descriptions_match_identifier() {
+        let descriptions = Value::type_descriptions();
+
+        for value in samples() {
+            let identifier = value.identifier();
+            let info = descriptions
+                .iter()
+                .find(|info| info.type_identifier == identifier)
+                .unwrap_or_else(|| panic!("no description for identifier {identifier:?}"));
+            assert_eq!(info.type_name, value.type_name(), "for {identifier}");
+            assert_eq!(
+                info.default_extension,
+                value.default_extension(),
+                "for {identifier}"
+            );
+            assert_eq!(
+                info.default_media_type,
+                value.default_media_type(),
+                "for {identifier}"
+            );
+            assert_eq!(
+                info.default_filename,
+                value.default_filename(),
+                "for {identifier}"
+            );
+        }
+
+        // The samples are every variant but `Py`, which needs an interpreter to construct.
+        assert_eq!(
+            descriptions.len(),
+            samples().len() + 1,
+            "one description per variant, no more and no less"
+        );
+        assert!(
+            descriptions
+                .iter()
+                .any(|info| info.type_identifier == PY_OBJECT_TYPE_IDENTIFIER),
+            "and the extra one is the Python object"
+        );
+    }
+
+    /// `fvt6.2` — every identifier satisfies the naming rule.
+    ///
+    /// Mirrors `identifier_naming_rule_holds`. `python_value` failed this: `_` is a reserved
+    /// character, so that identifier could not have been registered even had it been described.
+    #[test]
+    fn identifiers_follow_the_naming_rule() {
+        for info in Value::type_descriptions() {
+            let id = &info.type_identifier;
+            assert!(!id.is_empty(), "an identifier must not be empty");
+            assert!(
+                id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.'),
+                "identifier {id:?} may contain only alphanumerics and a single dot"
+            );
+            assert!(
+                id.matches('.').count() <= 1,
+                "identifier {id:?} may carry at most one dot"
+            );
+            if let Some((provider, local)) = id.split_once('.') {
+                assert!(
+                    !provider.is_empty()
+                        && provider
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                    "provider of {id:?} must be lowercase"
+                );
+                assert!(!local.is_empty(), "local name of {id:?} must not be empty");
+            }
+        }
+    }
+
+    /// `fvt6.3` — the shared variants report the same identifiers as `liquers-core`.
+    ///
+    /// This is the cross-language guarantee: a store written from Python is readable from Rust,
+    /// because both sides name a text value `Text` rather than one saying `text` and the other
+    /// `Text`. `py.Object` is this crate's alone and is excluded.
+    #[test]
+    fn shared_variants_match_the_core_identifiers() {
+        let core: Vec<String> = liquers_core::value::Value::type_descriptions()
+            .into_iter()
+            .map(|info| info.type_identifier.to_string())
+            .collect();
+
+        for info in Value::type_descriptions() {
+            let id = info.type_identifier.to_string();
+            if id == PY_OBJECT_TYPE_IDENTIFIER {
+                continue;
+            }
+            assert!(
+                core.contains(&id),
+                "identifier {id:?} is not one liquers-core knows: {core:?}"
+            );
+        }
+    }
+
+    /// `fvt6.4` — the repaired conversions refuse rather than panic.
+    ///
+    /// `from_asset_info` was `todo!()` — a panic on a supported path, harmless only because this
+    /// file was never compiled. The four methods added with it must error on the wrong variant.
+    #[test]
+    fn repaired_conversions_error_rather_than_panic() {
+        let text = Value::Text {
+            value: "x".to_owned(),
+        };
+
+        assert!(text.try_into_bytes().is_err());
+        assert!(text.try_into_command_metadata().is_err());
+        assert!(
+            Value::Bytes { value: Vec::new() }.try_into_key().is_err(),
+            "bytes are not a key"
+        );
+
+        // And they succeed on the right one.
+        assert_eq!(Value::from_bytes(vec![1, 2]).try_into_bytes(), Ok(vec![1, 2]));
+        assert!(
+            Value::from_asset_info(Vec::new()).identifier() == "AssetInfo",
+            "from_asset_info builds the AssetInfo variant instead of panicking"
+        );
+    }
+
+    /// The registry a `PyEnvironment` builds now describes the whole value type.
+    #[test]
+    fn the_registry_describes_every_variant() {
+        let registry = TypeRegistry::from_value_type::<Value>();
+
+        assert!(registry.contains("Text"));
+        assert!(registry.contains(PY_OBJECT_TYPE_IDENTIFIER));
+        assert!(
+            registry.contains("error"),
+            "the error pseudo-type is always registered"
+        );
+        assert!(
+            !registry.contains("generic"),
+            "the collapsed identifier is gone"
+        );
     }
 }
