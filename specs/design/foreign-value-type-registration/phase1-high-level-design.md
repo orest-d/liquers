@@ -192,24 +192,59 @@ design owes it is not to obstruct it:
   later: a registry assembled from descriptions received over the wire is just another registry.
   A post-construction registration point would not have been.
 
+## Keeping the identifier in one place: a string constant plus a unit test
+
+The identifier is now needed in two spellings — a static `JsOpaque::type_info()` for registration
+(the registry is built before any value exists) and the instance `ForeignValue::identifier(&self)`
+the value path calls through `Arc<dyn ForeignValue>`. **A string constant is the single source of
+truth, and a unit test asserts the two agree.** No new trait machinery, and no `debug_assert` on the
+value path.
+
+```rust
+// liquers-web/src/value.rs, beside the existing ORIGIN_JAVASCRIPT
+pub const JS_VALUE_TYPE_IDENTIFIER: &str = "js.Value";
+```
+
+Both spellings read that constant, so an author has to work at making them disagree, and a unit test
+comparing `type_info().type_identifier` against a sample value's `identifier()` — and asserting the
+constructed registry contains it — closes the rest.
+
+This is deliberately the cheap option, and the reasoning is that the population is small and static:
+a few tens of types across the whole system, each fixed once its variant is implemented. **Once a
+type is implemented correctly it stays correct**, because nothing varies at runtime — so paying for
+a compile-time guarantee here would buy very little. Two supports for the choice:
+
+- `ERROR_TYPE_IDENTIFIER` (`liquers-core/src/type_system.rs:40`) is already exactly this pattern for
+  the one identifier core names in more than one place, and `liquers-web` already keeps
+  `ORIGIN_JAVASCRIPT` beside the value it describes. The decision follows existing practice rather
+  than introducing a mechanism.
+- A guarantee that binds *harder* is available if this ever proves insufficient: `TypeIdentifiedIn<V>`
+  (`const TYPE_IDENTIFIER` + `fn type_info()`) already exists for Rust-typed values, and a foreign
+  implementation could adopt it later without changing the identifier or any stored data.
+
+What is **not** available, and is worth recording so nobody re-tries it: a default trait body
+deriving one spelling from the other. `ForeignValue` must stay object-safe for
+`Arc<dyn ForeignValue>`, and a default body is type-checked once with `Self: ?Sized`, so it cannot
+call an associated function. The compiler cannot close this hole for us; the constant and the test
+are what close it.
+
 ## Open Questions
 
-**How is the static/instance agreement proven?** The registry is now built before any value exists,
-so an implementation must expose its identifier *without* an instance — a static
-`JsOpaque::type_info()` — while `ForeignValue::identifier(&self)` remains the instance method the
-value path calls. That is one truth with two spellings, and if they ever disagree the value's
-identifier is not the one that was registered: the exact failure this design fixes, reintroduced
-silently by an integration author instead of structurally. Three ways to prevent it:
+None blocking. Everything Phase 1 raised is decided: the one-identifier-per-variant rule, the
+registry lifecycle, hard refusal, realms as a forward constraint, and the constant-plus-test
+guarantee above. Three questions are deliberately **deferred to Phase 2** as architecture rather
+than intent:
 
-| | Approach | Cost |
-|---|---|---|
-| a | **One source of truth in the trait.** Mirror the existing `TypeIdentifiedIn<V>` (`const TYPE_IDENTIFIER` + `fn type_info()`) and write the instance method as a one-line delegation. A *default body* deriving one from the other is not available — `ForeignValue` must stay object-safe for `Arc<dyn ForeignValue>`, and a default body is type-checked with `Self: ?Sized`, so it cannot call an associated function. | Divergence is reduced to one line an author could still get wrong |
-| b | **`debug_assert` on the value path**, comparing `value.identifier()` against the registry. | Fires only in debug, and only when the path runs |
-| c | **A conformance test** in `LANGUAGE-INTEGRATION_GUIDE.md`'s suite, which already numbers its checks (`RUNTIME05`, …), invoked per integration on a sample value. | An integration that skips the suite is unprotected |
-
-They compose. Recommendation: **a + c** — make the one-line delegation the documented shape and let
-the conformance suite catch an author who writes it wrong. `b` earns its place only if the
-comparison is free on a path that already reaches the registry.
+1. **Exact constructor name and signature** — `new_with_type_registry(registry)` is the working
+   proposal; Phase 2 confirms it against the `with_*(&mut self)` mutator convention on the same
+   types.
+2. **Where each constant lives** — integration crate beside the implementation (as
+   `ORIGIN_JAVASCRIPT` is), or gathered per value type. Affects `liquers-py` more than
+   `liquers-web`, which has one.
+3. **Whether `liquers-py`'s identifier realignment needs a migration** — `generic`/`text` become
+   `None`/`Text`, which would be a breaking rename of stored data if any existed. It does not:
+   the module has never compiled, so nothing was ever written with the old identifiers. Phase 2
+   confirms this rather than assuming it.
 
 ## Prerequisite (not an open question)
 

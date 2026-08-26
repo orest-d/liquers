@@ -18,7 +18,7 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (in review)
+- [x] Phase 1: High-Level Design (in review — all questions decided)
 - [ ] Phase 2: Solution & Architecture
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
@@ -54,6 +54,13 @@ complete for both realms, and identifying types no realm-crossing can carry — 
 has no transfer at all) is recorded as a forward constraint this design must not obstruct, and
 `TYPE-REGISTRY-NOT-REALM-AWARE` was updated with it. One open question remains: how the static and
 instance spellings of a foreign type's identifier are kept in agreement.
+
+2026-08-26 — Last open question settled: a **string constant** is the single source of truth for a
+type identifier, with a unit test asserting the static and instance spellings agree. No trait
+machinery and no `debug_assert`. Rationale from the user: a few tens of types, each fixed once its
+variant is implemented, so a correct implementation stays correct and a compile-time guarantee would
+buy little. Follows the existing `ERROR_TYPE_IDENTIFIER` / `ORIGIN_JAVASCRIPT` practice.
+**Phase 1 is complete and ready for approval.**
 
 ## Links
 
