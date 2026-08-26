@@ -4,7 +4,7 @@ kind: design
 title: Foreign and Python value types in the type registry
 workflow: liquers-project
 status: in_review
-phase: examples
+phase: implementation
 area: [core/value, lib/value, web, py]
 gh_pr: []
 issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING, WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (in review — all questions decided)
 - [x] Phase 2: Solution & Architecture (approved)
-- [x] Phase 3: Examples & Testing (in review)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [x] Phase 4: Implementation Plan (in review)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -81,6 +81,14 @@ records the hard-refusal decision; `fvt5.1` **is** the constant-plus-test guaran
 conceptual, with the integration test standing in for an `examples/` demo — this change has no
 user-facing surface to demonstrate. Finding: `WEB-VALUE04` is understated — four stale assertions,
 not one, and `second_value_type.rs:336` passes vacuously. Recorded in that issue.
+
+2026-08-26 — Phase 3 approved. Phase 4 written: nine steps, one commit each, native first (steps
+1-6) and `liquers-web` last (step 8) so the wasm toolchain and `cargo clean` are needed once.
+Step 6 proves the fix; step 8 begins with a baseline run, since Phase 3's four-stale-assertions
+count is derived from reading. Measured while planning: `liquers-py`'s test harness links and runs,
+but pyo3 carries `extension-module` without `auto-initialize`, so `fvt6` must be GIL-free — Phase 3
+had assumed ordinary unit tests. Natural stopping points recorded at steps 6 and 7; mid-step-7 is
+not one, because a declared module that does not compile is worse than an undeclared one.
 
 ## Links
 
