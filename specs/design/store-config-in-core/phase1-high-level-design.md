@@ -55,17 +55,17 @@ The whole configuration-to-router path moves to `liquers-core`:
 
 Three new pieces, not present today:
 
-- **Chaining.** Factories compose into a composite factory. A factory chained later **overrides**
-  one chained earlier for any store type both claim. Where the overridden and overriding factories
-  claim overlapping `store_type` strings, chaining emits an `eprintln!` warning naming the type and
-  both claimants — an override is legitimate (it is how a browser replaces `http`), but a silent
-  one is how a configuration quietly points somewhere unintended.
+- **Chaining, first-wins.** Factories compose into a composite factory; the **first** factory in the
+  chain claiming a `store_type` handles it, and a later one cannot shadow it. The intended order is
+  bottom-up — `liquers-core` first, then `liquers-store`, then `liquers-lib`, then the integration —
+  so that the core definition of a store type is stable and no downstream crate can silently
+  redefine it. *(User decision: no overlap warning is implemented. `store_types()` stays on the
+  trait, so a factory still reports what it claims and a caller that wants to detect overlap can.)*
 - **A core factory.** `liquers-core` supplies the factory for the stores it already implements:
   `memory` and, off wasm, `filesystem`.
-- **A parametrisable factory.** A `StoreFactory` assembled from named creation functions rather
-  than by implementing the trait, so an integration can contribute a store type with a closure.
-  *(Interpretation of "some parametrisable store creation function/method" — confirm at this gate;
-  the alternative reading is a parameter-driven variant of `create_store` itself.)*
+- **A parametrisable factory.** *(User decision: confirmed.)* A `StoreFactory` assembled from a map
+  of store-type names to creation functions rather than by implementing the trait, so an integration
+  can contribute a store type with a closure.
 
 `liquers-store` then supplies its own OpenDAL factory **and** a ready-made chain of core's followed
 by its own, so a native consumer gets today's behavior from one call.
@@ -119,31 +119,30 @@ Dependency flow is respected throughout: code moves *down* the chain
 
 ## Consequences to decide in Phase 2
 
-1. **Precedence inverts.** `StoreRouterBuilder::with_factory` is documented today as first-wins —
-   "a later factory cannot shadow an earlier one" — and chaining is last-wins. There is one in-tree
-   caller and it registers a single factory, so nothing breaks; but the contract reverses and
-   `liquers-web/src/store/builder.rs`'s module doc asserts the old rule in prose.
-2. **`create_store`'s error quality is currently centralized.** One `match` distinguishes
+1. **The browser's `http` override stops working by precedence and starts working by omission.**
+   This is the one behavioral subtlety in the change. Today `WebStoreFactory` claims `http`/`https`
+   and beats the built-in OpenDAL `http` *because* factories are consulted before built-ins —
+   `liquers-web-store/phase2-architecture.md` argues explicitly that "consulting factories second
+   would make that impossible". Under first-wins with core registered first, that argument no longer
+   applies: a later factory can never override an earlier one. It still works, for a different
+   reason — `liquers-web` drops `liquers-store` entirely, so the OpenDAL factory that claims `http`
+   is simply never in the browser's chain. The outcome is the same and the mechanism is not, so the
+   rationale in `liquers-web-store` is superseded rather than merely relocated, and the new rule
+   must be stated where a reader will find it.
+2. **Nothing can override a core store type.** The corollary of first-wins with core first, and the
+   intent of the decision: `memory` and `filesystem` mean one thing everywhere. No in-tree consumer
+   wants to redefine them (`filesystem` is `#[cfg]`-ed out on wasm regardless), so this costs
+   nothing today. Recorded so that a future integration wanting a different `memory` finds the
+   answer stated rather than discovering it.
+3. **`create_store`'s error quality is currently centralized.** One `match` distinguishes
    *unknown type*, *type needs the `opendal` feature* and *type unavailable on wasm*. Split across
    factories, `liquers-core` alone cannot say "that is an OpenDAL type"; a core-only build degrades
-   to "unknown store type". `liquers-store`'s default chain restores the full message.
-3. **`eprintln!` is silent on wasm.** `wasm32-unknown-unknown` has no stderr, and the browser is
-   where an override is most likely — `liquers-web` already uses `console.warn` for its
-   unexpanded-`${VAR}` warning for exactly this reason. The requested `eprintln!` is the right
-   native behavior; whether wasm gets a routed variant is Phase 2's call.
-4. **No in-tree chain actually overlaps.** Core claims `memory` / `filesystem`; OpenDAL claims `fs`,
-   `s3`, `http`, … ; `WebStoreFactory` claims `localstorage`, `js`, `http`, `https`. Core+OpenDAL
-   and core+Web are both clean, because `liquers-web` no longer chains the OpenDAL factory. The
-   warning therefore has no in-tree trigger and needs a deliberate test.
-5. **`liquers-store`'s `opendal` feature may lose its reason to exist.** Its manifest comment says
-   it is optional "so that a wasm32 consumer can depend on this crate for its configuration and
-   builder alone" — precisely what this change removes. With `opendal` off, the crate becomes
-   re-exports and nothing else. Phase 2 should decide whether the feature stays, and whether
-   `liquers-store`'s name still describes it.
-6. **`expand_env_vars` puts a bare `std::env::var` in core.** Not a regression — `liquers-store` is
+   to "unknown store type". `liquers-store`'s default chain restores the full message. Phase 2
+   decides how a composite factory reports a type no member claims.
+4. **`expand_env_vars` puts a bare `std::env::var` in core.** Not a regression — `liquers-store` is
    already in every wasm build — but core is in more places. Move verbatim, `#[cfg]`-gate it, or
    take the lookup as a closure.
-7. **`StoreConfig::metadata`** is documented "reserved for future use" and never read. Assume it
+5. **`StoreConfig::metadata`** is documented "reserved for future use" and never read. Assume it
    moves verbatim; dropping it would be a breaking format change.
 
 ## Documentation Intent
@@ -193,24 +192,32 @@ widened boundary it becomes achievable and is strengthened to the stronger claim
 what does not" is likewise superseded — `StoreRouterBuilder` and `StoreFactory` move. Phase 2
 restates the verification list in full.
 
+## Decisions settled at this gate
+
+| Question | Decision |
+|---|---|
+| Chaining precedence | **First-wins.** Core is registered first, then `liquers-store`, then `liquers-lib`, then the integration, so the core definition of a store type is stable. |
+| Overlap warning | **Not implemented.** The trait keeps `store_types()`, so a factory still reports what it claims and overlap remains detectable by a caller that cares. |
+| `eprintln!` on overlap | **Not implemented**, so the wasm-has-no-stderr problem does not arise. |
+| "Parametrisable store creation function/method" | **A `StoreFactory` built from a map** of store-type names to creation functions. |
+| `liquers-store`'s `opendal` feature | **Kept.** Non-OpenDAL backends in `liquers-store` are expected, so an OpenDAL-free configuration of the crate keeps its purpose. |
+
 ## Open Questions
 
-1. **Is "parametrisable store creation function/method" the closure-registry reading?** Assumed: a
-   `StoreFactory` built from a map of store-type names to creation functions, so a type can be
-   contributed without a trait impl. The alternative is a parameterised `create_store` free
-   function. This changes the shape of the API and should be settled at this gate.
-2. **Does `StoreRouterBuilder` keep an implicit built-in fallback,** or must every builder be given
-   a factory chain explicitly? Today `create_one` falls through to `create_store`. An explicit chain
-   is cleaner and makes core-only versus OpenDAL builds obvious; an implicit core fallback keeps
-   `StoreRouterBuilder::from_yaml(…)?.build()` working with no ceremony.
-3. **Does `with_factory` survive alongside chaining,** re-expressed as "chain this last", or is it
+1. **Does `StoreRouterBuilder` prepend the core factory implicitly,** or must every caller build
+   the whole chain? Note the direction reverses either way: today `create_one` tries factories first
+   and *falls back* to the built-ins, so built-ins are effectively last; under "core first" they are
+   effectively first. An implicit prepend keeps `StoreRouterBuilder::from_yaml(…)?.build()` working
+   with no ceremony and is consistent with core being unoverridable; an explicit chain makes
+   core-only versus OpenDAL builds visible at the call site. Implicit prepend is proposed.
+2. **Does `with_factory` survive alongside chaining,** re-expressed as "chain this after", or is it
    deprecated in favour of building a chain and handing it over whole?
-4. **Where does the overlap warning fire** — at chain construction (once, cheap, complete) or at
-   store creation (only for types actually used)? Construction-time is proposed.
-5. **Re-export shape in `liquers-store`:** explicit `pub use` lists or globs, and deprecation
+3. **How does a composite factory report an unclaimed type,** given that the informative
+   unknown-vs-unavailable messages in `create_store` no longer live in one place?
+4. **Re-export shape in `liquers-store`:** explicit `pub use` lists or globs, and deprecation
    attributes or not?
-6. **Feature forwarding:** does `liquers-store/toml` become `["liquers-core/toml"]`?
-7. **`area` vocabulary (§3):** does `core/store` absorb the new modules, or does the closed
+5. **Feature forwarding:** does `liquers-store/toml` become `["liquers-core/toml"]`?
+6. **`area` vocabulary (§3):** does `core/store` absorb the new modules, or does the closed
    vocabulary gain a value? `store/config` names files that will no longer exist.
 
 ## References
