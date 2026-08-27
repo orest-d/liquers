@@ -27,7 +27,7 @@ superseded_by:
 
 ## Notes
 
-Resolves issue `QUEUED-MANAGER-STARTUP-READINESS` (P1; complexity to be reclassified M -> L).
+Resolves issue `QUEUED-MANAGER-STARTUP-READINESS` (P1; complexity reclassified M -> L).
 
 Race confirmed empirically: immediately after `to_ref()` the dependency manager holds no command
 versions, and `register_plan_dependencies` therefore silently registers zero edges for a plan
@@ -60,6 +60,15 @@ Manager construction: factory, not `Arc::new_cyclic`. Keeping the back-reference
 `new_cyclic` out (its closure yields a non-upgradable `Weak`), and `Weak::upgrade` costs more than
 `Arc::clone` — a CAS loop rather than a relaxed `fetch_add`, across 78 `get_envref()` sites. The
 deferred slot moves from the manager to the environment, so the manager has no unset state at all.
+
+Recipe provider raises the same "component needs the environment" problem in a third shape:
+`AsyncRecipeProvider` takes `envref` as an argument on every method. Three components, three
+different solutions, none chosen deliberately — the builder is where that becomes a decision.
+
+Command registration: the startup barrier must be **re-runnable**, not one-shot. Dynamic command
+registration and command-metadata modification are long-term goals, and re-registering a changed
+`metadata_version` already triggers `expire_dependents`, i.e. the cascade that invalidates dependent
+assets. `ImmediateAssetManager`'s `tokio::sync::OnceCell` would foreclose that.
 
 Reference cycle deferred by decision, not oversight: one environment per realm for the process
 lifetime means no practical cost; soft reboot is the case that would surface it. Environment consolidation is a Phase 2 research task, constrained by two firm

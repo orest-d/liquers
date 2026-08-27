@@ -4,9 +4,9 @@ kind: issue
 title: Queued asset manager accepts work before it is ready to run it
 status: accepted
 priority: P1
-complexity: M
+complexity: L
 area: [core/assets]
-design: 
+design: queued-manager-startup-readiness
 created: 2026-08-08
 github:
 ---

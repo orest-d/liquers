@@ -34,6 +34,22 @@ Central. `build()` constructs the manager with the envref already available, ins
 `ImmediateAssetManager` (inline) become selectable rather than baked into the environment type;
 `liquers-lib` already fakes this selection with a `SelectedAssetManager` cfg alias.
 
+### Recipe Provider
+The same "component needs the environment" problem appears here in a **third** shape. The codebase
+currently solves it three different ways, none of them chosen deliberately:
+
+| Component | How it gets the environment | Consequence |
+|---|---|---|
+| `AssetManager` | `OnceLock<EnvRef<E>>` back-filled after `EnvRef` exists | the readiness hole; cycle 1 |
+| `AssetData` / `AssetRef` | strong `EnvRef<E>` field, set at construction | correct, but cycle 2 |
+| `AsyncRecipeProvider` | `envref: EnvRef<E>` passed as an argument to **every** method | no cycle and no readiness hole, but verbose, and a provider that needs the environment at construction time cannot have it |
+
+The builder is the place to make this a deliberate, documented choice. In particular it can offer the
+recipe provider the same factory treatment as the manager — constructed with the envref in hand —
+which would let a provider hold what it needs instead of receiving it per call. Whether to change
+the `AsyncRecipeProvider` signatures is a Phase 2 question; not changing them is a valid answer, but
+the three-way inconsistency should be recorded rather than inherited.
+
 ### Value Types
 None. The builder is where a caller-supplied `TypeRegistry` is passed instead of
 `new_with_type_registry`.
@@ -150,6 +166,13 @@ be added as a section later without restructuring it.
    signature. So `to_ref` becomes a correct shorthand for "build with defaults", and the builder
    becomes the configuration surface for everything else. Phase 2 must confirm no path reaches an
    `EnvRef` except through those two.
+   **Refinement to evaluate in Phase 2:** hide `to_ref` from users without touching it, by making the
+   built-in environments' *constructors* `pub(crate)` and dropping their public `Default` impls. Since
+   `to_ref(self)` consumes an owned environment, a caller who cannot construct one cannot call it, and
+   the builder becomes the only source. The types themselves must stay **public and nameable** —
+   `register_command!` needs a `CommandEnvironment` type alias, and users write
+   `EnvRef<SimpleEnvironment<Value>>` and `Context<E>` in their own signatures — so this is
+   constructor visibility, not type visibility.
 5. **~~Async or sync `build()`?~~ Decided: sync (option A).** `start()` is async only because
    `DependencyManager::register_version` awaits `scc::HashMap::entry_async`. At build time that map
    is empty and uncontended, every command key inserts `Vacant`, so `version_changed` is always
@@ -163,11 +186,28 @@ be added as a section later without restructuring it.
    deferred async sibling; (b) sync does **not** mean runtime-free for the queued environment, since
    `DefaultAssetManager::with_capacity` calls `tokio::spawn` for the job queue and expiration
    monitor. Runtime-free construction is real only for the inline/wasm manager.
-6. **Command registration after `build()`.** The builder makes freezing explicit. Does that close
-   `POST-INIT-COMMAND-REGISTRATION` (P3), or should `build()` leave a re-runnable startup barrier so
-   late registration stays reachable?
-7. **Complexity.** The issue is recorded `complexity: M`; an environment builder is L. Confirm the
-   reclassification, since L/XL is what mandates this design folder.
+6. **~~Command registration after `build()`?~~ Decided: the barrier must be re-runnable.**
+   `POST-INIT-COMMAND-REGISTRATION` (P3) is not blocked by this work and is not closed by it. Its real
+   constraint is that registration needs `&mut CommandRegistry` while `to_ref` consumes the
+   environment and `Arc::get_mut` never sees a count of 1; its recommended fix is interior mutability
+   *inside* `CommandRegistry` (`RefCell` on wasm / `RwLock` on native via the existing
+   `MaybeSend`/`MaybeSync` split), which is additive and leaves `get_command_executor(&self) ->
+   &CommandRegistry` unchanged. Today `liquers-web` copes by rebuilding the environment and replaying
+   declarations, at the cost of the asset cache. Moving the deferred slot to the environment
+   (question 2) does not change that: the strong count is still never 1, so this is neither a
+   regression nor an improvement.
+   What this project *must* get right is the long-term goal of dynamic command registration **and
+   command-metadata modification**. Startup snapshots each command's `metadata_version` /
+   `impl_version` into the `DependencyManager`; when metadata changes later those versions must be
+   re-registered, and `register_version` already does the right thing — a changed version triggers
+   `expire_dependents`, which is exactly the cascade that invalidates dependent assets. So the
+   machinery for dynamic metadata already exists and only needs re-running.
+   Therefore: the startup operation must be **idempotent and re-runnable**, not one-shot. Note
+   `ImmediateAssetManager::ensure_started` currently uses `tokio::sync::OnceCell`, i.e. strictly once,
+   which would foreclose this. Phase 2 separates the *readiness* flag (has startup happened at least
+   once — the guarantee this project delivers) from a re-runnable version-refresh path.
+7. **~~Complexity.~~ Decided: M -> L**, applied to the issue front matter and `specs/index.csv`.
+   L/XL is what mandates this design folder, so the classification and the artifact now agree.
 
 ## References
 
