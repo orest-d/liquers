@@ -261,8 +261,11 @@ fn create_test_env() -> DefaultEnvironment<Value> {
 use liquers_lib::environment::PolarsCommandRegistration;  // extension trait, now required
 
 fn create_test_env() -> Result<EnvRef<DefaultEnvironment<Value>>, Error> {
-    let mut builder = EnvironmentBuilder::<Value>::new()
-        .with_recipe_provider(Arc::new(DefaultRecipeProvider));
+    // `default_environment_builder` carries liquers-lib's DefaultRecipeProvider default,
+    // which the bare core builder does not — see Phase 2 §The recipe-provider default is
+    // per-crate. `env.with_default_recipe_provider()` above was redundant with the old
+    // constructor's default and stays redundant here.
+    let mut builder = liquers_lib::default_environment_builder::<Value, ()>();
     builder.register_polars_commands()?;
     builder.build()
 }
@@ -491,7 +494,7 @@ and applying them is async.
 | Two builders, two environments | Independent; each gets its own manager and dependency graph. |
 | Empty command registry | `start()` registers nothing and succeeds; `is_started()` is true. |
 | No store configured | `NoAsyncStore` default, as today. A `-R/` query fails with `KeyNotFound`. |
-| No recipe provider configured | `TrivialRecipeProvider` for **every** alias — the fix for `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`. |
+| No recipe provider configured | `TrivialRecipeProvider` from the core builder; `DefaultRecipeProvider` from `liquers_lib::default_environment_builder`. Preserving both is deliberate — one global default would silently break `-R/` queries for `DefaultEnvironment` users. |
 | Manager slot already installed | Unreachable: `build()` is the sole writer and holds the only `EnvRef`. `debug_assert!`, not a runtime branch. |
 | Dropping the `EnvRef` | Still leaks (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`, deferred by decision). Unchanged, not worsened. |
 | `Queued` on wasm | Does not exist — `#[cfg(not(target_arch = "wasm32"))]`. A wasm build naming it fails to compile, which is the intent. |
@@ -508,7 +511,7 @@ where `?` is used, no `unwrap`/`expect` outside tests, typed error constructors,
 | `build_returns_a_started_manager` (T1) | `is_started()` true on return; command version present |
 | `startup_failure_propagates_from_build` (T5) | With a test kind whose `start` returns `Err`, `build()` returns that `Error`; no `EnvRef` is produced |
 | `refresh_is_idempotent_when_nothing_changed` (T8) | Second `refresh_command_versions()` expires nothing |
-| `recipe_provider_defaults_across_all_aliases` (T9) | All four aliases return `TrivialRecipeProvider` unconfigured; **none panics** |
+| `recipe_provider_defaults_across_all_aliases` (T9) | Core builder yields `TrivialRecipeProvider` for all four aliases and **none panics**; `liquers_lib::default_environment_builder` yields `DefaultRecipeProvider`. Both asserted, so a later collapse of the two defaults fails the test |
 | `inline_builds_without_a_tokio_runtime` (T12) | Plain `#[test]`, no `#[tokio::test]`: `Inline` builds. `manager_parametric.rs` already carries a "no-tokio-runtime proof" for `ImmediateAssetManager`; extend it to construction rather than duplicating it |
 | `builder_defaults_match_previous_environment_defaults` | `NoAsyncStore`, empty registry, type registry from `V` |
 

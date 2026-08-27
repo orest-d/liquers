@@ -126,7 +126,8 @@ Differences from the five structs it replaces, each deliberate:
   weight. `with_store` and the always-panicking `with_cache` go with it.
 - **`recipe_provider` is `Arc<…>`, not `Option<Arc<…>>`.** The builder resolves the default once, at
   build time. This is what removes `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` by construction:
-  there is no unconfigured state left to panic on.
+  there is no unconfigured state left to panic on. **The default is per-crate, not global** — see
+  below; a single global default would silently regress `liquers-lib`.
 - **`asset_store` is a `OnceLock`** — the deferred slot moved from the manager to the environment
   (Phase 1, question 2). The manager gains a plain strong `EnvRef` field and loses its
   `OnceLock<EnvRef<E>>` and its `"Environment not set"` panic entirely.
@@ -207,6 +208,40 @@ pub struct EnvironmentBuilder<V: ValueInterface,
 environment never sees `None`. That is the whole of the change that retires the panic.
 
 ## Trait Implementations
+
+### The recipe-provider default is per-crate
+
+Consolidation cannot use one default provider, because the two crates disagree today and both are
+correct for their audience:
+
+| Constructor | Default provider today |
+|---|---|
+| `SimpleEnvironment`, `ImmediateEnvironment`, `ImmediateEnvironmentWithPayload` | `TrivialRecipeProvider` |
+| `SimpleEnvironmentWithPayload` | **panics** (`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`) |
+| `liquers_lib::DefaultEnvironment` (`environment.rs:77`) | **`DefaultRecipeProvider`** |
+
+`DefaultRecipeProvider` reads recipes through the store; `TrivialRecipeProvider` resolves none. So
+if `DefaultEnvironment` became an alias whose builder defaulted to `Trivial`, every `-R/` query in
+an application that relied on the library default would start failing `KeyNotFound` — a silent
+behavior regression, invisible at compile time.
+
+**Resolution.** `EnvironmentBuilder::new` in `liquers-core` defaults to `TrivialRecipeProvider`,
+unchanged for the three core environments and fixing the fourth. `liquers-lib` supplies its own
+pre-configured constructor rather than relying on the core default:
+
+```rust
+// liquers-lib
+pub fn default_environment_builder<V: ValueInterface, P: PayloadType>()
+    -> EnvironmentBuilder<V, P, DefaultKind>
+{
+    EnvironmentBuilder::new().with_recipe_provider(Arc::new(DefaultRecipeProvider))
+}
+```
+
+Every existing behavior is preserved, the divergence becomes explicit and testable rather than an
+accident of which constructor was called, and `liquers-lib` gains the natural home for any future
+library-level default. Test **T9** is extended to assert *both* defaults, so a later change that
+collapses them fails.
 
 ### `EnvironmentBuilder` inherent API
 
