@@ -117,31 +117,39 @@ be added as a section later without restructuring it.
    consolidation tractable at all. Custom global services are expected to arrive later by a different
    route (see *Future direction* below), not by user-implemented environments.
    Phase 2 researches whether consolidation pays, and must leave the door open for that later route.
-2. **Manager construction shape.** `Arc::new_cyclic` (manager built with a `Weak` back-reference, no
-   `OnceLock` at all, manager well-formed at birth, "envref not set" panic path gone) versus a
-   `FnOnce(EnvRef<E>) -> Arc<M>` factory the builder invokes after wrapping (smaller diff, keeps the
-   back-fill but hidden inside `build()`). Decide on construction-shape grounds alone — see
-   question 3 for why this is *not* also the leak fix.
-   Constraint to verify in Phase 2: `Arc::new_cyclic`'s closure cannot upgrade the `Weak`, and
-   `DefaultAssetManager::with_capacity` spawns the job queue and expiration monitor from inside the
-   constructor. Those tasks must not reach for the environment before `new_cyclic` returns.
-3. **Is the cycle fix in scope? — reassessed, and larger than filed.** There are **two** cycles, not
-   one. Besides the manager's `set_envref` back-reference, `AssetData<E>` holds a strong
-   `envref: EnvRef<E>` and the manager's `assets` / `query_assets` maps hold those assets — so every
-   cached asset closes a second cycle independent of the first. Weakening only the manager's
-   back-reference does not stop the leak. Sizing: 78 `get_envref()` sites (68 in `assets.rs`) plus 16
-   `ImmediateAssetManager::envref()` sites, and the cost turns on whether the accessor keeps
-   returning `EnvRef<E>` (panicking at teardown, in background tasks) or starts returning
-   `Option`/`Result`. Recommendation: keep `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` out of this
-   project's committed scope and let the builder merely not make it worse.
-4. **~~What happens to `to_ref` and `EnvRef::new`?~~ Decided.** `EnvRef::new` is deprecated — it has
-   exactly one in-tree caller, `to_ref` itself, so this is free. `to_ref` is withdrawn from the
-   public surface. Note it cannot literally be made *private*: it is a defaulted method on the public
-   `Environment` trait, and a public trait has no private methods. Phase 2 picks the shape that
-   delivers the intent — remove it from the trait so the builder is the only path (preferred), or
-   `#[deprecated]` + `#[doc(hidden)]` with the body delegating to the builder. Migration size: 336
-   `.to_ref()` call sites, overwhelmingly in tests and examples (125 in `assets.rs`, 29 in
-   `interpreter.rs`, the rest across the integration suites), so mechanical but not small.
+2. **~~Manager construction shape.~~ Decided: factory, and move the `OnceLock` to the environment.**
+   `Arc::new_cyclic` is off the table once the back-reference stays strong (question 3): its closure
+   hands out a `Weak` that cannot be upgraded inside the closure, so it only works if the manager
+   keeps a `Weak`. And `Weak::upgrade` genuinely does cost more than `Arc::clone` — a compare-exchange
+   loop against the strong count instead of a single relaxed `fetch_add`, plus an `Option` to branch
+   on, across 78 `get_envref()` sites. Same order of magnitude, but strictly more, and paid for a leak
+   the project is not committing to fix.
+   So the builder keeps the two-phase back-fill and hides it inside `build()`. One improvement over
+   today: move the deferred slot from the *manager* to the *environment*. Build the environment with
+   an empty `OnceLock<Arc<Manager>>`, wrap it in an `EnvRef`, construct the manager with a plain
+   strong `EnvRef` field, install it, start it. The manager then has no unset state and no
+   `"Environment not set"` panic path at all. The environment-side slot is written by `build()`
+   before any `EnvRef` is observable, so its own unset state is unreachable rather than merely
+   unlikely — which is the whole point of the builder.
+3. **~~Is the cycle fix in scope?~~ Decided: no — filed and deferred.** There are two cycles, not
+   one: besides the manager's back-reference, `AssetData<E>` holds a strong `EnvRef<E>` and the
+   manager's `assets` / `query_assets` maps hold those assets, so every cached asset closes a second
+   one. Rationale for deferring (user): a typical system holds one environment, or at most one per
+   realm, alive for the whole process lifetime, so the leak has no practical cost. A soft reboot that
+   rebuilds the environment is the case where it would surface. Tracked as
+   `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2). This project keeps the strong back-reference and
+   simply does not make the situation worse.
+4. **~~What happens to `to_ref` and `EnvRef::new`?~~ Decided: `to_ref` stays public; `EnvRef::new` is
+   deprecated.** `EnvRef::new` has exactly one in-tree caller — `to_ref` itself — so deprecating it
+   costs nothing. `to_ref` keeps its public signature, and the 336 in-tree call sites keep working
+   with no migration.
+   The consequence is a requirement, not a free pass: if `to_ref` stays public it stays a door into
+   the same readiness hole, so its body must be **reimplemented over the builder path** — construct,
+   install, start — and be fully ready on return. Sync startup (question 5) is what makes that
+   possible: `fn to_ref(self) -> EnvRef<Self>` can do the whole sequence without changing its
+   signature. So `to_ref` becomes a correct shorthand for "build with defaults", and the builder
+   becomes the configuration surface for everything else. Phase 2 must confirm no path reaches an
+   `EnvRef` except through those two.
 5. **~~Async or sync `build()`?~~ Decided: sync (option A).** `start()` is async only because
    `DependencyManager::register_version` awaits `scc::HashMap::entry_async`. At build time that map
    is empty and uncontended, every command key inserts `Vacant`, so `version_changed` is always

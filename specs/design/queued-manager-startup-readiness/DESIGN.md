@@ -52,10 +52,17 @@ manager's `assets` / `query_assets` maps hold those assets, so every cached asse
 cycle. Weakening only the manager's back-reference does not fix the leak; recommendation is to keep
 that issue outside this project's committed scope.
 
-Phase 1 decisions (user): `EnvRef::new` is deprecated (one in-tree caller) and `to_ref` is withdrawn
-from the public surface — literal privacy is unavailable for a defaulted method on a public trait, so
-Phase 2 picks between removing it from the trait and deprecating it in place. 336 `.to_ref()` call
-sites migrate. Environment consolidation is a Phase 2 research task, constrained by two firm
+Phase 1 decisions (user): `EnvRef::new` is deprecated (one in-tree caller); `to_ref` **stays public**,
+so its 336 call sites need no migration — but its body must be reimplemented over the builder path so
+it is fully ready on return. Sync startup makes that possible without changing its signature.
+
+Manager construction: factory, not `Arc::new_cyclic`. Keeping the back-reference strong rules
+`new_cyclic` out (its closure yields a non-upgradable `Weak`), and `Weak::upgrade` costs more than
+`Arc::clone` — a CAS loop rather than a relaxed `fetch_add`, across 78 `get_envref()` sites. The
+deferred slot moves from the manager to the environment, so the manager has no unset state at all.
+
+Reference cycle deferred by decision, not oversight: one environment per realm for the process
+lifetime means no practical cost; soft reboot is the case that would surface it. Environment consolidation is a Phase 2 research task, constrained by two firm
 requirements: the caller specifies the `Value` type, and a caller can implement their own
 `Environment` for custom global services.
 

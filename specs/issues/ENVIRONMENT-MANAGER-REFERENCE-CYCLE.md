@@ -50,7 +50,11 @@ for the lifetime of the process.
 ## Impact
 
 Bounded and benign for a server that builds one environment at startup, which is why it has not
-been noticed. It is a real leak wherever environments are created repeatedly: per-test
+been noticed. Assessed and deliberately deferred during the `queued-manager-startup-readiness`
+design: a typical system holds one environment — more precisely at most one per realm — alive for
+the whole process lifetime, so the leak has no practical cost there. A **soft reboot** that tears
+down and rebuilds the environment is the case where it would surface, and is the reason this stays
+open rather than being closed as not-planned. It is a real leak wherever environments are created repeatedly: per-test
 environments, per-request or per-tenant environments, a Wasm page that rebuilds its environment on
 reload, and the `liquers-web` paths that call `to_ref` more than once. Leaked assets also keep
 their cached values alive, so the leaked footprint is not a fixed per-environment constant.
