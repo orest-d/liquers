@@ -4,11 +4,11 @@ kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 area: [core/store, store/config, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-CONFIG-IN-CORE]
-affects_docs: [reference/STORE_CONFIG_FSD.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md]
+affects_docs: [reference/STORE_CONFIG_FSD.md, reference/api/DOC_01_ARCHITECTURE_REFERENCE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, guides/STORE_FACTORY_GUIDE.md]
 created: 2026-08-27
 superseded_by:
 ---
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (awaiting approval)
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design (approved)
+- [x] Phase 2: Solution & Architecture (awaiting approval)
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -101,6 +101,45 @@ feature forwarding; and whether the §3 `area` vocabulary needs `core/store` wid
 Noted for filing rather than absorbing: with per-type argument descriptions in hand, a chain could
 validate a `StoreRouterConfig` — unknown type, unknown key, missing required key — without
 constructing a single store. Attractive, and beyond this design's scope.
+
+## Phase 2 notes
+
+**No blocker found** in the known-issue preflight. `WEB-NATIVE-IO-TIER2` (P3) is the one non-blocker
+with a real design constraint, honoured rather than deferred: no `Send`/`Sync` bound on the trait or
+on the map factory's closures, so a Promise-based IndexedDB store stays expressible.
+
+**Reuse found rather than invented.** `command_metadata::ArgumentType` covers store argument types
+and is reused instead of a parallel enum; `Error::not_supported` replaces `general_error` for an
+unclaimed store type; `AsyncMemoryStore` / `AsyncFileStore` are already core types, so the core
+factory constructs nothing new.
+
+**`StoreFactory::store_types()` changes return type** (`Vec<String>` -> `Vec<StoreTypeInfo>`).
+Breaking, and taken deliberately: two in-tree implementors, both edited anyway, and a parallel
+`store_type_info()` with a default impl would leave two sources of truth for what a factory claims.
+
+**`StoreTypeAvailability`** preserves what `create_store`'s single `match` provides today and what
+`LANGUAGE-INTEGRATION_GUIDE.md` makes conformance requirement `STORE13`: a type that is real but
+ungated-off in this build must be refused with the feature or target responsible, never as "unknown".
+
+**Two findings outside the Phase 1 boundary, surfaced at the gate rather than absorbed:**
+
+1. `from_yaml` / `from_json` / `from_toml` / `expand_env_vars` use `Error::new(ErrorType::ParseError,
+   ...)`, which `CLAUDE.md` forbids, and no typed constructor fits (`key_parse_error` and
+   `query_parse_error` both require a `Position`). Proposed: add `Error::parse_error(String)` to
+   `liquers-core/src/error.rs` rather than move a known violation into the crate that enforces the
+   rule most strictly.
+2. `scripts/check-build-matrix.sh` has **no `liquers-core` rows at all**, and core is about to gain
+   its first optional feature (`toml`) and target-conditional store availability. Four rows proposed.
+
+**The documentation finding that matters most.** `LANGUAGE-INTEGRATION_GUIDE.md` §"Taking only part
+of the store support crate" enumerates three resolutions to exactly this problem, recommends option 3
+(optional backend feature) and explicitly rejects option 2 (move the types into `liquers-core`) as
+"widens core for one consumer's benefit". This design does option 2. The rejection was written when
+`liquers-web` was the only consumer and no longer holds once core itself must embed a store
+description; the section is rewritten to record the reversal and its reason, while keeping option 3's
+three cost lessons, which remain true of the surviving `opendal` feature. Conformance item `STORE12`
+("a factory that overrides a shared type name resolves to the integration's implementation") also
+needs restating: after this change `liquers-web` has nothing to override.
 
 ## Links
 

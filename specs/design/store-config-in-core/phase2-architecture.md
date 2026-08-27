@@ -1,105 +1,694 @@
-# Phase 2: Solution & Architecture - store-config-in-core
+---
+title: "Phase 2: Architecture — Store configuration and factories in liquers-core"
+kind: design
+audience: internal
+area: [core/store, store/config, store/backends, web, docs]
+---
+# Phase 2: Solution & Architecture — Store Configuration and Factories in `liquers-core`
 
 ## Overview
 
-[2-3 sentences summarizing the architectural approach]
+Two new modules in `liquers-core` — `store_config.rs` (the serde data types, moved verbatim) and
+`store_factory.rs` (a redesigned `StoreFactory` trait, a first-wins chain, a map-based factory, the
+core factory, and `StoreRouterBuilder`). `liquers-store` keeps OpenDAL, gains an OpenDAL factory and
+a default core-then-OpenDAL chain, and re-exports everything moved. `liquers-web` drops
+`liquers-store` from its manifest. The one substantive redesign is that a factory now *describes*
+the store types it claims — name, documentation, configuration arguments and availability — which is
+what makes an unclaimed type an error that lists what the build actually supports.
 
 ## Known-Issue Preflight
 
-[Search issues linked to the design, overlapping affected areas, and touching integration points,
-dependencies, public APIs, or architecture assumptions. Include relevant locally open issues,
-including `accepted` and `in_progress` items, from `specs/index.csv`.]
+Searched: the five issues linked from `design/environment-builder/DESIGN.md`; every row of
+`specs/index.csv` whose `area` includes `core/store`, `store/config`, `store/backends`, `web` or
+`build`; and the integration points named in Phase 1 (`liquers-web/src/store/builder.rs`,
+`liquers-web/src/environment.rs`, `scripts/check-build-matrix.sh`,
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`). Terminal and `closed` records excluded.
 
-| Issue | Status | Current priority | Relevance and solution impact | Must be addressed first? | Blocking? | Required action | Priority action |
+| Issue | Status | Priority | Relevance and solution impact | First? | Blocking? | Required action | Priority action |
 |---|---|---|---|---|---|---|---|
-| [Issue ID or `None found`] | [open status] | [P0-P3] | [Impact on solution] | [yes/no] | [yes/no] | [Resolve, redesign, or monitor] | [Keep or recommend change] |
+| `STORE-CONFIG-IN-CORE` | draft | P0 | This design resolves it. Its stated boundary and verification list are superseded by Phase 1. | — | no | Close at Phase 5 with the corrected boundary and `complexity: L` | Keep P0 |
+| `RECIPE-PROVIDER-BY-NAME` | draft | P0 | Sibling prerequisite of `environment-builder`. Same "name in a document resolves to an implementation" shape that `StoreFactory` already solves; this design is the worked precedent it cites. No code overlap. | no | no | Monitor; note the precedent at Phase 5 | Keep P0 |
+| `COMMAND-DECLARATION-FORMAT` | draft | P0 | Sibling prerequisite. Independent surface (commands, not stores). | no | no | Monitor | Keep P0 |
+| `WEB-NATIVE-IO-TIER2` | accepted | P3 | Adds an IndexedDB store type to `WebStoreFactory`. It must be expressible under the redesigned trait, i.e. carry a `StoreTypeInfo` with its arguments. Confirms the trait must stay `!Send`-friendly (IndexedDB is Promise-based and non-`Send`). | no | no | Design constraint honoured: no `Send`/`Sync` bound on the trait or on the map factory's closures | Keep P3 |
+| `STORE-OPENDAL-SLASH-HANDLING` | accepted | P1 | Concerns key handling *inside* the OpenDAL backend, which does not move. Untouched either way. | no | no | Monitor | Keep P1 |
+| `CORE-STORE-OPENBIN-MISSING` | accepted | P3 | `openbin` is on `AsyncStore`, already in core. Unaffected by where factories live. | no | no | None | Keep P3 |
+| `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | draft | P3 | `StoreConfig::key_prefix` returns `Key`, not an absolute-key newtype. Moving it neither helps nor worsens; if that issue lands later it changes one signature in the moved code. | no | no | Monitor | Keep P3 |
+| `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` | draft | P2 | Checked the code being moved: `config.rs` and `store_builder.rs` contain no library `unwrap()`/`expect()` — the only hit is inside a doc-comment example, which is permitted. Nothing is imported into core. | no | no | None; record the check | Keep P2 |
+| `CORE-TOKIO-REMOVAL` | accepted | P3 | Core already owns `AsyncFileStore` and its `tokio::fs` use. This design adds no tokio surface to core; the `filesystem` constructor moves next to the store it constructs. | no | no | None | Keep P3 |
+| `OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE` | draft | P3 | A `liquers-store` test-quality issue, unrelated to the split. | no | no | None | Keep P3 |
+| `CORE-SESSION-AND-KEY-ACL`, `ASSETS-IMPROVEMENTS`, `RESOURCE-NAME-ASCII-ONLY`, `CORE-ASSET-GC`, `STORE-COMMAND-NAMESPACE-MISSING` | accepted/draft | P2–P3 | Share `core/store` by area only; each concerns store *behaviour* or asset lifecycle, not configuration or construction. | no | no | Discarded from `affects_docs` candidates | Unchanged |
 
 ### Blocking and Priority Decision
 
-[Resolve blockers first or redesign to remove the dependency; do not approve Phase 2 with an
-unresolved blocker. Every blocker must be at least P1. Use P0 only when the issue also meets
-`DOCS_STRUCTURE_GUIDE.md` §4.4 impact criteria. Record and confirm priority changes.]
+**No blocker.** Nothing in the open set must be resolved before this design proceeds, and no
+priority change is recommended. The three P0 records are the `environment-builder` prerequisites and
+carry maintainer-assigned scheduling weight, not §4.4 severity — a tension already recorded in
+`environment-builder/DESIGN.md` and untouched here.
+
+`WEB-NATIVE-IO-TIER2` is the one non-blocker with a real design constraint, and it is honoured
+rather than deferred: the trait and the map factory's closures carry no `Send`/`Sync` bound, so a
+Promise-based IndexedDB store remains expressible.
 
 ## Data Structures
 
-### New Structs
+### `StoreArgumentInfo` — one configuration key of one store type
 
-[Define structs with fields, types, ownership rationale]
+```rust
+// liquers-core/src/store_factory.rs
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct StoreArgumentInfo {
+    /// Configuration key as it appears under `config:` in the document, e.g. `root`, `bucket`.
+    pub name: String,
+    /// Human-readable label, for a form or a generated table.
+    pub label: String,
+    /// What the argument means and what a valid value looks like.
+    pub doc: String,
+    /// Reused from `command_metadata` — see the reuse note below.
+    #[serde(default)]
+    pub argument_type: ArgumentType,
+    /// A store cannot be constructed without it; `require_config_string` will fail.
+    #[serde(default)]
+    pub required: bool,
+    /// Value used when the key is absent. `None` for a required argument.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
+}
+```
 
-### New Enums
+**Reuse:** `argument_type` is `liquers_core::command_metadata::ArgumentType`, not a new enum. It
+already carries exactly the cases store configuration needs — `String`, `Integer`, `Float`,
+`Boolean`, `Enum`, `Any` — and is already `Serialize + Deserialize + Default`. Defining a parallel
+store-only enum would be a second vocabulary for one concept. The `GlobalEnum` variant is simply
+never used by a store type; `resolve_global_enums` is a command-registry concern and is not called
+here. Cost of the reuse: `store_factory` imports from `command_metadata`, which is a within-crate
+coupling of a general-purpose type that happens to live in a command-flavoured module.
 
-[Define enums with variants and their semantics]
+**Ownership:** all fields owned. A `StoreTypeInfo` is built once per factory and cloned into error
+messages and registry exports; there is nothing large enough to justify `Arc`.
 
-### ExtValue Extensions (if applicable)
+### `StoreTypeAvailability` — why a known type cannot be built here
 
-[If adding new ExtValue variants, document them here]
+```rust
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub enum StoreTypeAvailability {
+    /// The type can be constructed in this build.
+    #[default]
+    Available,
+    /// The type is real and documented but this build cannot construct it.
+    /// The string names the feature or target responsible.
+    Unavailable(String),
+}
+```
+
+**Variant semantics.** `Available` — `create` may still fail on a bad configuration, but the type is
+buildable. `Unavailable(reason)` — `create` returns that reason as an error, and the type is listed
+separately from the supported set. **No default match arm** on this enum anywhere.
+
+**Why an enum rather than `available: bool` plus `reason: Option<String>`:** the two-field form
+admits `available: true, reason: Some(...)`, which is meaningless. The enum makes the invariant
+unrepresentable.
+
+**Why this exists at all.** It preserves behaviour the current `create_store` `match` provides and
+which `LANGUAGE-INTEGRATION_GUIDE.md` makes a *conformance requirement*: `STORE13` — "a store type
+that exists but is unavailable in this build is refused with a message naming the feature or target
+responsible". Two live cases: `fs`/`s3`/… when `liquers-store`'s `opendal` feature is off, and
+`filesystem` on `wasm32`. Without this field, splitting dispatch across factories would either lose
+those messages or degrade them to "unknown store type", which `STORE13` exists to forbid.
+
+### `StoreTypeInfo` — one store type a factory claims
+
+```rust
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct StoreTypeInfo {
+    /// The `type:` value in a store configuration entry, e.g. `memory`, `s3`, `localstorage`.
+    pub store_type: String,
+    pub label: String,
+    pub doc: String,
+    /// Configuration keys this type accepts, in a stable order.
+    #[serde(default)]
+    pub arguments: Vec<StoreArgumentInfo>,
+    #[serde(default)]
+    pub availability: StoreTypeAvailability,
+}
+```
+
+Builder methods (`new`, `with_label`, `with_doc`, `with_argument`, `unavailable`) follow the
+`StoreConfig::with_prefix` style already in the moved code.
+
+### `StoreConstructor` — the parametrisable half
+
+```rust
+pub type StoreConstructor = Box<dyn Fn(&StoreConfig) -> Result<Box<dyn AsyncStore>, Error>>;
+```
+
+**No `Send`/`Sync` bound, deliberately** — the same reasoning the existing `StoreFactory` trait
+documents. A factory is transient (consumed while the router is built) and only the `AsyncStore` it
+produces has thread requirements, which `AsyncStore` already states. A bound here would exclude the
+browser factory, which holds JavaScript handles, and would foreclose `WEB-NATIVE-IO-TIER2`.
+
+### `StoreTypeMap` — a factory assembled from named constructors
+
+```rust
+pub struct StoreTypeMap {
+    entries: BTreeMap<String, (StoreTypeInfo, StoreConstructor)>,
+}
+```
+
+**`BTreeMap`, not `HashMap`:** `store_types()` feeds error messages that list supported types.
+`HashMap` iteration order varies between runs, which would make those messages — and any test
+asserting on them — nondeterministic. `BTreeMap` sorts by type name, which is also the order a
+reader wants.
+
+**Not `Serialize`:** it holds `Box<dyn Fn…>`. The *descriptions* serialize; the constructors do not.
+
+### `ChainedStoreFactory` — first-wins composition
+
+```rust
+pub struct ChainedStoreFactory {
+    factories: Vec<Box<dyn StoreFactory>>,
+}
+```
+
+Order is significant and is the whole contract: the **first** factory claiming a `store_type`
+creates it. Intended assembly is bottom-up — `liquers-core`, then `liquers-store`, then
+`liquers-lib`, then the integration — so a core store type means the same thing everywhere by
+default. A caller needing an override composes their own chain with their factory first; the API
+permits it and the default ordering simply does not.
+
+### `StoreRouterBuilder` — no built-in knowledge
+
+```rust
+pub struct StoreRouterBuilder {
+    config: StoreRouterConfig,
+    factory: Box<dyn StoreFactory>,
+}
+```
+
+The factory is a **required** field, not an accumulating `Vec` with a hidden fallback. This is the
+structural expression of "there should not be a builtin": the builder cannot construct a store type
+nobody gave it.
+
+### Moved verbatim
+
+`StoreRouterConfig` and `StoreConfig` move to `liquers-core/src/store_config.rs` with no field
+changes. `StoreConfig::metadata` moves as-is — it is documented "reserved for future use" and never
+read, and removing it would be a breaking format change for no gain.
 
 ## Trait Implementations
 
-[List traits to implement, for which types, with signatures]
+### Trait: `StoreFactory` (moved and widened)
+
+```rust
+// liquers-core/src/store_factory.rs
+pub trait StoreFactory {
+    /// Store types this factory claims, with their configuration arguments and availability.
+    fn store_types(&self) -> Vec<StoreTypeInfo>;
+
+    /// Whether this factory claims `store_type`.
+    ///
+    /// Default implementation scans `store_types()`. A factory backed by a map overrides it
+    /// with a lookup, so chain dispatch does not rebuild descriptions per store entry.
+    fn claims(&self, store_type: &str) -> bool {
+        self.store_types().iter().any(|t| t.store_type == store_type)
+    }
+
+    /// Create a store from a configuration entry whose type this factory claims.
+    fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error>;
+}
+```
+
+**Bounds:** none, preserved from today and load-bearing (see `StoreConstructor` above).
+
+**Object safety:** kept — no generic methods, no `Self` by value. `Box<dyn StoreFactory>` is used
+throughout.
+
+**This is a breaking change to `store_types()`**, whose return type goes `Vec<String>` →
+`Vec<StoreTypeInfo>`. Justified rather than avoided: the trait has exactly two implementors outside
+the crate that defines it (`WebStoreFactory`, and `CountingFactory` in `liquers-store`'s tests), both
+in-tree and both edited by this change anyway; `liquers-py` does not use it. Adding a parallel
+`store_type_info()` with a default implementation would leave two sources of truth for what a factory
+claims, and the supported-types error would silently degrade for any factory that implemented only
+the old one.
+
+**Implementors:**
+
+| Implementor | Crate | Claims |
+|---|---|---|
+| `StoreTypeMap` | `liquers-core` | whatever it was built with |
+| `ChainedStoreFactory` | `liquers-core` | the union of its members, first-wins on duplicates |
+| `OpendalStoreFactory` | `liquers-store` | `OPENDAL_STORE_TYPES` plus `opendal_*` prefixes |
+| `WebStoreFactory` | `liquers-web` | `localstorage`, `js`, `http`, `https` (unchanged set) |
+
+`ChainedStoreFactory::store_types()` returns the union with earlier members winning, so the list a
+user sees matches the dispatch they will get.
+
+`OpendalStoreFactory` is compiled **whether or not** the `opendal` feature is on. With the feature
+off its `store_types()` still lists the OpenDAL types, each marked
+`Unavailable("requires the 'opendal' feature")`, and `create` returns that message. Likewise the core
+factory lists `filesystem` on every target, marked
+`Unavailable("not available on wasm32: needs tokio::fs")` on wasm. This is what keeps `STORE13`
+satisfied after the dispatch is split.
 
 ## Generic Parameters & Bounds
 
-[Document generic parameters and justify bounds]
+**None introduced.** Everything is concrete or `dyn`. `StoreRouterBuilder` deliberately takes
+`Box<dyn StoreFactory>` rather than being generic over `F: StoreFactory`: the builder is constructed
+once per environment, dynamic dispatch is irrelevant at that frequency, and a generic parameter would
+propagate into every signature that stores or passes a builder.
 
 ## Sync vs Async Decisions
 
-[Table or list of functions with async/sync choice and rationale]
+| Function | Async? | Rationale |
+|---|---|---|
+| `StoreFactory::create` | No | Constructs a store handle; performs no I/O. `AsyncMemoryStore::new` allocates, `AsyncFileStore::new` stores a path, `Operator::via_iter` is sync. |
+| `StoreFactory::store_types` / `claims` | No | Pure data. |
+| `StoreRouterBuilder::build` | No | Only calls `create` and `expand_env_vars`. |
+| `expand_env_vars` | No | Reads the process environment; no I/O wait. |
+| Everything the stores then do | Yes | Already async via `AsyncStore`; unchanged. |
+
+This matches today exactly — no sync/async boundary moves. The async default applies to store
+*operations*, which are untouched; configuration and construction are and remain synchronous.
 
 ## Function Signatures
 
-[Provide function signatures for all public functions]
+### `liquers-core/src/store_config.rs`
+
+Moved verbatim; signatures unchanged from `liquers-store/src/config.rs`:
+
+```rust
+impl StoreRouterConfig {
+    pub fn new() -> Self;
+    pub fn add_store(&mut self, store: StoreConfig);
+    pub fn from_yaml(yaml: &str) -> Result<Self, Error>;
+    pub fn from_json(json: &str) -> Result<Self, Error>;
+    #[cfg(feature = "toml")]
+    pub fn from_toml(toml: &str) -> Result<Self, Error>;
+    pub fn to_yaml(&self) -> Result<String, Error>;
+    pub fn to_json(&self) -> Result<String, Error>;
+    pub fn expand_env_vars(&mut self) -> Result<(), Error>;
+}
+
+impl StoreConfig {
+    pub fn new(store_type: &str) -> Self;
+    pub fn with_prefix(mut self, prefix: &str) -> Self;
+    pub fn with_config(mut self, key: &str, value: impl Into<serde_json::Value>) -> Self;
+    pub fn key_prefix(&self) -> Result<Key, Error>;
+    pub fn get_config_string(&self, key: &str) -> Option<String>;
+    pub fn get_config_string_expanded(&self, key: &str) -> Option<Result<String, Error>>;
+    pub fn require_config_string(&self, key: &str) -> Result<String, Error>;
+    pub fn require_config_string_expanded(&self, key: &str) -> Result<String, Error>;
+    pub fn config_as_string_map(&self) -> Result<HashMap<String, String>, Error>;
+    pub fn expand_env_vars(&mut self) -> Result<(), Error>;
+}
+
+pub fn expand_env_vars(input: &str) -> Result<String, Error>;
+```
+
+`expand_env_vars` keeps its bare `std::env::var` and moves unchanged — **no `#[cfg]` gate and no
+closure parameter.** On `wasm32-unknown-unknown` `std::env::var` compiles and returns `Err`, which is
+the same behaviour the crate has today; `liquers-web` already avoids the path entirely via
+`build_without_env_expansion`. Gating it would make the function absent rather than failing, breaking
+`liquers-web`'s ability to *warn* about unexpanded `${…}`; a closure parameter would change every
+call site to solve a problem nobody has. Documented rather than engineered around.
+
+### `liquers-core/src/store_factory.rs`
+
+```rust
+pub fn core_store_factory() -> StoreTypeMap;
+
+impl StoreTypeMap {
+    pub fn new() -> Self;
+    pub fn with_store_type(self, info: StoreTypeInfo, create: StoreConstructor) -> Self;
+}
+
+impl ChainedStoreFactory {
+    pub fn new() -> Self;
+    pub fn chain(self, factory: Box<dyn StoreFactory>) -> Self;
+}
+
+impl StoreRouterBuilder {
+    pub fn new(config: StoreRouterConfig, factory: Box<dyn StoreFactory>) -> Self;
+    pub fn from_yaml(yaml: &str, factory: Box<dyn StoreFactory>) -> Result<Self, Error>;
+    pub fn from_json(yaml: &str, factory: Box<dyn StoreFactory>) -> Result<Self, Error>;
+    pub fn build(mut self) -> Result<AsyncStoreRouter, Error>;
+    pub fn build_without_env_expansion(self) -> Result<AsyncStoreRouter, Error>;
+}
+
+/// The error a chain returns for a `store_type` no member claims.
+/// Public so a caller validating a document can produce the same message.
+pub fn unknown_store_type_error(
+    store_type: &str,
+    known: &[StoreTypeInfo],
+) -> Error;
+```
+
+`with_factory` is **removed**, not deprecated. With the factory required at construction it has
+nothing to add to, and leaving a method that silently appends would reintroduce the ambiguity about
+where in the order a factory lands. Its single caller (`liquers-web/src/store/builder.rs`) becomes a
+`ChainedStoreFactory` built explicitly.
+
+### `liquers-store/src/store_factory.rs` (new)
+
+```rust
+pub struct OpendalStoreFactory;
+impl StoreFactory for OpendalStoreFactory { /* … */ }
+
+/// Core's store types, then OpenDAL's. The chain a native consumer wants.
+pub fn default_store_factory() -> ChainedStoreFactory;
+```
+
+Retained in `liquers-store/src/config.rs` (unmoved): `OPENDAL_STORE_TYPES`, `is_opendal_store_type`,
+`get_opendal_scheme`. They name backends core cannot build, so they stay with the factory that uses
+them.
 
 ## Integration Points
 
-[Which crates, which files, which modules to modify or create]
+### `liquers-core`
+
+**New files:** `src/store_config.rs`, `src/store_factory.rs`. Declared in `src/lib.rs` after
+`pub mod store;`.
+
+**`Cargo.toml`:** one addition —
+
+```toml
+toml = { version = "0.8", optional = true }
+
+[features]
+toml = ["dep:toml"]
+```
+
+Same version and same optionality as `liquers-store` has today. Not in `default`, so no consumer's
+dependency graph changes. Nothing else is added: `serde`, `serde_derive`, `serde_json` and
+`serde_yaml` are already non-optional.
+
+### `liquers-store`
+
+**`src/config.rs`** becomes a re-export shim with **explicit** `pub use` (not a glob), so the crate's
+surface stays auditable and a removal upstream is a compile error here rather than a silent gap:
+
+```rust
+pub use liquers_core::store_config::{expand_env_vars, StoreConfig, StoreRouterConfig};
+```
+
+Plus the unmoved OpenDAL type helpers. **No `#[deprecated]` attributes:** the paths are documented in
+`STORE_CONFIG_FSD.md` and used by `liquers-axum` consumers outside this repository; deprecation
+warnings would be noise for a re-export that costs nothing to keep. Phase 5 records this as a
+decision so a later cleanup does not read it as an oversight.
+
+**`src/store_builder.rs`** keeps `create_router_from_yaml` / `create_router_from_json` (now built over
+`default_store_factory()`) and re-exports `StoreFactory` and `StoreRouterBuilder` from core.
+`create_store` is **removed**: its memory and filesystem arms become `core_store_factory()`, its
+OpenDAL arm becomes `OpendalStoreFactory`, and its unknown-type arm becomes the chain's error. It is
+a `pub fn` with no in-tree caller outside its own tests.
+
+**`Cargo.toml`:** `toml = ["dep:toml", "liquers-core/toml"]` so the feature forwards. The `opendal`
+feature is **kept** — non-OpenDAL backends are expected in this crate — but its manifest comment must
+change: the wasm-consumer justification it gives is exactly what this design removes.
+
+### `liquers-web`
+
+**`Cargo.toml`:** delete the `liquers-store` line.
+
+**`src/store/builder.rs`:** imports move to `liquers_core::store_config` / `store_factory`;
+`WebStoreFactory::store_types` returns `Vec<StoreTypeInfo>` describing `localstorage` (`namespace`,
+`quota_bytes`), `js` (`object`) and `http`/`https` (`url_prefix`, `keys`) — arguments the module
+currently documents only in a doc-comment YAML block. `build_router` becomes:
+
+```rust
+ChainedStoreFactory::new()
+    .chain(Box::new(core_store_factory()))
+    .chain(Box::new(factory))
+```
+
+and the module doc's "factories are consulted **before** the built-in types" paragraph is replaced by
+the first-wins rule plus the reason the browser's `http` still wins (nothing else in this chain claims
+it).
+
+**`src/environment.rs`, `tests/store_js_STORE.rs`, `tests/eval_EVAL.rs`:** import paths only.
+
+### `scripts/check-build-matrix.sh`
+
+Two changes, both load-bearing:
+
+1. Its header justifies the `liquers-store` wasm32 row as proving "the dependency edge liquers-web
+   relies on". That edge is deleted; the row's remaining purpose is the `opendal`-off feature split,
+   which is still real. Rewrite the comment rather than the row.
+2. **Add `liquers-core` rows — the crate has none today.** Core gains an optional feature (`toml`)
+   and target-conditional code (`filesystem` availability, `AsyncFileStore`) for the first time, and
+   the native default build exercises neither the feature-off nor the wasm path. Proposed:
+   `""`, `"--no-default-features"`, `"--features toml"`, and
+   `"--target wasm32-unknown-unknown"`.
 
 ## Documentation Architecture
 
 ### Reference Plan
-[New, extend existing, or none; exact path, kind, audience, area, purpose, sections/claims, links]
+
+**Extend `specs/reference/STORE_CONFIG_FSD.md`** (existing; `kind: reference`, `audience: internal`,
+`area: [store/config]`). Changes:
+
+- Retitle and rescope: the format, the factory seam and the builder are `liquers-core`'s; OpenDAL
+  backends are `liquers-store`'s. The current title says "for `liquers-store`".
+- New section on the factory model: the trait, `StoreTypeInfo`/`StoreArgumentInfo`, first-wins
+  chaining, the default factories each crate offers, and that overriding is done by composing a
+  chain rather than by a precedence rule.
+- New section on unclaimed types: the error lists supported types and, separately, known-but-
+  unavailable ones with the reason — the `STORE13` contract, now factory-borne.
+- Update `area` to `[core/store, store/config]`.
+- `## History` row and `reviewed:` bump dated in the same commit (§9.2).
+
+No new reference: a second document describing the same format would compete with this one.
 
 ### Guide Plan
-[New, extend existing, or none; exact path, kind, audience, area, workflow, examples/snippets, links]
+
+**Create `specs/guides/STORE_FACTORY_GUIDE.md`** — `kind: guide`, `audience: internal`,
+`area: [core/store, store/config]`. Phase 1's original `neither` no longer holds, because the change
+creates genuinely repeatable tasks with non-obvious answers:
+
+| Task | Answer the guide gives |
+|---|---|
+| Add a store type to an existing crate | `StoreTypeMap::with_store_type` with a `StoreTypeInfo` |
+| Contribute store types from an integration | Implement `StoreFactory`; `WebStoreFactory` is the worked example |
+| Override a store type someone else defines | Compose a `ChainedStoreFactory` with yours first |
+| Choose a chain for my build | `core_store_factory()` vs `liquers_store::default_store_factory()` |
+| Say a type exists but is unavailable here | `StoreTypeAvailability::Unavailable(reason)` — and why `STORE13` requires it |
+
+Links to `liquers-web/src/store/builder.rs` as executable evidence, and to `STORE_CONFIG_FSD.md` for
+the format itself.
 
 ### Other Documents to Create
-[Exact paths, kinds, audiences, purposes, and link destinations; or `None` with rationale]
+
+**None.** The Phase 5 summary carries the rest.
+
+### New Reference or Guide Documents
+
+| Path | Kind | Audience | Area | Purpose |
+|---|---|---|---|---|
+| `specs/guides/STORE_FACTORY_GUIDE.md` | guide | internal | `core/store`, `store/config` | How to define, contribute, chain and override store types |
 
 ### Existing Documents to Review or Update
-[Every specific Phase 1 update plus area candidates, exact changes, discarded candidates, and the
-proposed authoritative `affects_docs` set]
+
+Candidates generated from `area: [core/store, store/config, store/backends, web, docs]`, then kept
+or discarded:
+
+| Document | Decision | Change |
+|---|---|---|
+| `reference/STORE_CONFIG_FSD.md` | **keep** | Rescope + factory model + unclaimed-type contract; `History`; `reviewed:` |
+| `reference/api/DOC_01_ARCHITECTURE_REFERENCE.md` | **keep** | Line 128: `liquers_core::{StoreConfig, StoreRouterBuilder}`; the table exists to stop agents inventing imports, so a stale row actively misleads |
+| `guides/LANGUAGE-INTEGRATION_GUIDE.md` | **keep** | See the reversal below — the largest single edit |
+| `README.md` (repo root) | **keep** | Line 93: config/builder under `liquers_core`, OpenDAL under `liquers_store` |
+| `CLAUDE.md` | **keep** | "Adding a Store Backend" — the four steps change crate and now begin from a factory, not a `match` arm |
+| `specs/DOCS_STRUCTURE_GUIDE.md` §3 | **keep** | `core/store` gains `store_config.rs`/`store_factory.rs`; `store/config` narrows to `liquers-store`'s remaining `config.rs`/`store_builder.rs` shims rather than retiring, since those files persist |
+| `scripts/check-build-matrix.sh` | **keep** | Header rationale + new `liquers-core` rows (see Integration Points) |
+| `design/liquers-web-store/` | **keep** | Add a supersession note: its factory-precedence rationale no longer describes the code |
+| `reference/PROJECT_OVERVIEW.md` | **discard** | Names `liquers-store (storage backends)` in a crate tree, which remains accurate — the crate keeps its backends |
+| `reference/WEB_API_SPECIFICATION.md` | **discard** | No store-configuration content |
+| `reference/ASSETS.md`, `DEPENDENCIES_STATUS.md`, `ASSET_LIFECYCLE.md` | **discard** | Share `core/store` by area only; concern asset lifecycle, not store construction |
+
+**Authoritative `affects_docs`:** `reference/STORE_CONFIG_FSD.md`,
+`reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`, `guides/LANGUAGE-INTEGRATION_GUIDE.md`,
+`guides/STORE_FACTORY_GUIDE.md`.
+
+#### The guide reversal — the finding that most affects documentation
+
+`LANGUAGE-INTEGRATION_GUIDE.md` §"Taking only part of the store support crate" states the problem
+this design solves, enumerates three resolutions, and **recommends option 3 while explicitly
+rejecting option 2, which is what this design does**:
+
+> 2. **Move the shared types into `liquers-core`.** Works, but widens core for one consumer's
+>    benefit and separates the format from the crate whose reference documentation describes it.
+> 3. **Make the heavy backends an optional feature of the support crate, enabled by default.**
+>    Recommended.
+
+That recommendation is now wrong, and honestly so: it was written when `liquers-web` was the only
+consumer, and its objection — "one consumer's benefit" — no longer holds once `liquers-core` itself
+must embed a store description for `EnvironmentConfig`. The second objection (separating format from
+documentation) is answered by rescoping `STORE_CONFIG_FSD.md` rather than by leaving the code where
+it was. The section must be rewritten to record option 2 as taken, with the reason the trade-off
+changed, and to keep option 3's three hard-won cost lessons — they remain true of `liquers-store`'s
+surviving `opendal` feature.
+
+Two conformance items in the same guide also move:
+
+- **`STORE12`** requires that "one that overrides a shared type name resolves to the *integration*'s
+  implementation". After this change `liquers-web` has nothing to override — the OpenDAL factory that
+  claimed `http` is not in its chain. The test must be restated in terms of chain order (a factory
+  chained *before* another wins) or marked `NA` for an integration that composes its own chain.
+- **`STORE13`** is preserved exactly, and gains a mechanism: `StoreTypeAvailability::Unavailable`.
+  Worth saying so in the guide, since it is the requirement that justifies the field.
 
 ### Design and Capability Links
-[Where links to design artifacts must be added, updated, or replaced, including `specs/README.md`]
+
+- `specs/README.md` §Stores: "Store configuration" currently points at `reference/STORE_CONFIG_FSD.md`
+  (documented). Add a "Store factories and construction" line pointing at the new guide, and add this
+  design folder to the map per `CLAUDE.md`.
+- `specs/index.csv`: rows for this design and the new guide; `STORE-CONFIG-IN-CORE` to `closed`.
+- `design/environment-builder/DESIGN.md`: prerequisite table — the layering constraint is lifted.
+- `design/liquers-web-store/DESIGN.md`: supersession note on the factory-precedence rationale.
+
+### Evidence to Collect During Implementation
+
+- Whether `ArgumentType` reuse survives contact with real store arguments, or whether a store-only
+  type is needed after all (watch: `keys: [a, b]` on the browser `http` type is a list, and
+  `ArgumentType` has no list variant — the first thing likely to strain the reuse).
+- The actual argument descriptions written for OpenDAL types: how many are there, and does writing
+  them reveal that `OPENDAL_STORE_TYPES` is a bare list with no documentation anywhere?
+- Whether removing `create_store` breaks anything outside the repository's visibility.
+- Feature-matrix surprises from making `toml` optional in core, of the kind the guide's option-3
+  cost list predicts.
+- Whether `StoreRouterBuilder::new`'s new arity is ergonomic in practice or wants a convenience
+  constructor.
 
 ## Relevant Commands
 
 ### New Commands
-[List all new commands with full signatures]
+
+**None.** This design registers, removes and re-signs no command. `specs/command_registry.yaml` is
+untouched and `cargo test -p liquers-lib --test registry_export` must stay green unchanged — which is
+itself a useful regression check that the change did not leak into the command surface.
 
 ### Relevant Existing Namespaces
-[Which existing command namespaces interact with this feature?]
 
-## Web Endpoints (if applicable)
+No command namespace is involved. For completeness, the namespace that *would* be relevant if this
+work were extended is the one that does not exist yet: `STORE-COMMAND-NAMESPACE-MISSING` (P3) records
+that store contents cannot be read or written from a query at all. Out of scope.
 
-[Document new or modified HTTP endpoints]
+**Ask user:** confirmed nil — no namespace decision is needed for this design.
+
+## Web Endpoints
+
+**None.** No route is added or changed. `liquers-web`'s `configure_store` JS entry point keeps its
+signature; only the Rust type behind `JsStoreConfig` changes crate.
 
 ## Error Handling
 
-[Error scenarios, which ErrorType to use, error propagation strategy]
+### New Error Types
+
+None. All errors are `liquers_core::error::Error` via typed constructors.
+
+### Error Scenarios
+
+| Scenario | Constructor | Notes |
+|---|---|---|
+| `store_type` no factory in the chain claims | `Error::not_supported` | **Changed from `general_error`.** `ErrorType::NotSupported` is what this actually is, and the only existing assertion on it (`test_unknown_store_type`) checks `is_err()` only. |
+| `store_type` claimed but `Unavailable(reason)` | `Error::not_supported` | Message is the reason verbatim — the `STORE13` contract |
+| Required config key missing | `Error::general_error` | Unchanged: `require_config_string`'s existing message |
+| `${VAR}` unset or unclosed | `Error::general_error` / `ParseError` | Unchanged; moves with `expand_env_vars` |
+| YAML/JSON/TOML parse failure | `Error::new(ErrorType::ParseError, …)` | **Pre-existing violation of the no-`Error::new` rule**, in code being moved — see below |
+| Backend construction fails (OpenDAL) | `Error::general_error` | Unchanged |
+
+**Pre-existing rule violation carried by the move.** `StoreRouterConfig::from_yaml` / `from_json` /
+`from_toml` and `expand_env_vars` construct errors with `Error::new(ErrorType::ParseError, …)`, which
+`CLAUDE.md` forbids. There is no typed constructor for a bare parse error that is not a key or query
+parse (`key_parse_error` and `query_parse_error` both require a `Position`). Options: add
+`Error::parse_error(message: String)` to `liquers-core/src/error.rs` and use it, or move the code
+unchanged and file the gap. **Proposed: add the constructor** — the code is landing in `liquers-core`,
+where the rule is enforced most strictly, and moving a known violation *into* core and leaving it
+there is worse than the one-line addition. Flagged for the approval gate because it touches
+`error.rs`, which is outside the boundary Phase 1 drew.
+
+### Unclaimed-Type Message Shape
+
+```
+Unknown store type "postgress". Supported store types: filesystem, js, localstorage, memory.
+Known but unavailable in this build: fs, gcs, s3 (requires the 'opendal' feature).
+```
+
+Assembled from `ChainedStoreFactory::store_types()`, so it is accurate for the build in hand rather
+than describing a type set that may not be compiled in. `unknown_store_type_error` is public so a
+future configuration validator produces the identical message.
 
 ## Serialization Strategy
 
-[Serde annotations, round-trip compatibility]
+`StoreTypeInfo`, `StoreArgumentInfo` and `StoreTypeAvailability` derive `Serialize, Deserialize`.
+This is not incidental: it makes the store-type set exportable the way `specs/command_registry.yaml`
+exports commands, and lets a UI render a configuration form from the same data the error message uses.
+`StoreTypeMap` and `ChainedStoreFactory` are **not** serializable — they hold `Box<dyn Fn…>` and
+`Box<dyn StoreFactory>`. The split is deliberate: descriptions are data, constructors are code.
+
+An exporter binary is **not** in scope; the derives make one cheap later.
+
+Round-trip expectation for Phase 3: a `StoreRouterConfig` parsed from YAML, serialized to JSON and
+re-parsed is unchanged — the existing behaviour, re-asserted in core after the move.
 
 ## Concurrency Considerations
 
-[Thread safety, locks, shared state]
+**No shared state, no locks, no new thread-safety surface.** A factory is constructed, consumed while
+the router is built, and dropped. The `AsyncStoreRouter` it produces has whatever thread properties
+`AsyncStore` already states.
+
+The **absence** of `Send`/`Sync` bounds is the concurrency decision here, and it is a constraint to
+preserve rather than an omission — `WebStoreFactory` holds `js_sys::Object` handles and is `!Send`,
+and `WEB-NATIVE-IO-TIER2` will add another. Adding a bound later would be a breaking change for the
+browser.
 
 ## Compilation Validation
 
-[Mental check: would this compile with cargo check?]
+- [x] All signatures specified; no `unwrap()`/`expect()` in any of them
+- [x] Trait bounds minimal — none, justified by the browser factory
+- [x] `StoreTypeAvailability` matched exhaustively; no `_ =>` arm planned
+- [x] Dependency flow one-way: core ← store ← web, and code moves down it
+- [x] Imports named: `command_metadata::ArgumentType` is the only cross-module reuse
+
+Checks to run in Phase 4:
+
+```bash
+cargo check -p liquers-core
+cargo check -p liquers-core --no-default-features
+cargo check -p liquers-core --features toml
+cargo check -p liquers-core --target wasm32-unknown-unknown
+cargo test -p liquers-lib --lib --tests
+bash scripts/check-build-matrix.sh
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+```
 
 ## References to liquers-patterns.md
 
-[Verify alignment with established patterns]
+- [x] Crate dependencies follow the one-way flow
+- [x] No `ExtValue` change — no new value type
+- [x] No `register_command!` involvement
+- [x] `AsyncStore` pattern untouched; async remains the default for store operations
+- [x] Error handling uses typed constructors, **with one pre-existing violation to fix** (above)
+- [x] Feature gating: `toml` gated in core and forwarded from `liquers-store`; `opendal` gating
+      preserved and its rationale comment corrected
+
+## Inline Review Findings
+
+Recorded from the checklist and the `rust-best-practices` lens, since the parallel reviewer agents
+were run as sequential passes in this session rather than spawned.
+
+**Pass A — Phase 1 conformity.** Every Phase 1 interaction is addressed; no scope drift found. Two
+items Phase 1 left open are resolved *inside* its stated boundary (`with_factory` removed;
+`expand_env_vars` moved verbatim). One item crosses it: adding `Error::parse_error` touches
+`liquers-core/src/error.rs`, which Phase 1 did not list. Surfaced at the gate rather than absorbed.
+
+**Pass B — codebase alignment.** Signatures checked against `liquers-store/src/store_builder.rs`,
+`liquers-web/src/store/builder.rs` and `liquers-core/src/store.rs`. Findings acted on: `ArgumentType`
+already exists and is reused instead of a new enum; `Error::not_supported` already exists and is used
+instead of `general_error`; `AsyncMemoryStore`/`AsyncFileStore` are already core types, so the core
+factory constructs nothing new; `BTreeMap` chosen over `HashMap` for deterministic error text;
+`liquers-core` has **no** build-matrix row today, found by reading `scripts/check-build-matrix.sh`
+rather than by area search.
+
+**Open for the user, not resolvable from context:** the `Error::parse_error` addition; the
+`ArgumentType`-has-no-list-variant strain on the browser `http` type's `keys` argument; and how far
+`STORE12` should be restated versus marked `NA`.
