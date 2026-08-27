@@ -61,9 +61,22 @@ earlier one — the override survives only because `liquers-web` drops `liquers-
 factory claiming `http` is never in its chain. Same outcome, different mechanism, so that rationale
 is superseded rather than relocated and the new rule must be documented where a reader finds it.
 
-**Nothing can override a core store type.** The intended corollary. `memory` and `filesystem` mean
-one thing everywhere; no in-tree consumer wants otherwise (`filesystem` is `#[cfg]`-ed out on wasm
-regardless). Recorded so a future integration finds the answer stated rather than discovering it.
+**Phase 1 gate decisions (user, third round).** The builder gets **no built-in fallback** — every
+store it creates comes from a factory it was given — and each crate instead offers a **default
+factory** as a convenience (core's is the core factory; `liquers-store`'s is core's chained with
+OpenDAL's). An **unclaimed `store_type` is an error that lists the store types the chain supports**,
+enumerated from the factories themselves, so the message is accurate for the build in hand.
+**Overriding is a chain the caller composes**, putting their factory first: first-wins fixes the
+*default* ordering, not the only possible one. And a factory **describes, per store type, the
+configuration arguments it accepts** — which is what makes the supported-types error possible and
+lets the configuration format be documented from the code that implements it.
+
+The argument-description requirement is the piece with the most design freedom left.
+`command_metadata.rs`'s `ArgumentInfo` is the nearest precedent but is shaped for positional command
+parameters (`multiple`, `injected`, `gui_info`, `CommandParameterValue`) while store configuration is
+a `HashMap<String, serde_json::Value>` of named keys. Phase 2 chooses reuse, subset or a
+store-specific type, and decides how many optional-vs-required/default/enum fields are worth the
+cost to every factory implementation.
 
 Phase 1 correction to the issue: its verification item 3 was unachievable under the data-only
 boundary (`liquers-web` also uses `StoreRouterBuilder` and implements `StoreFactory`). Under the
@@ -76,14 +89,18 @@ Documentation intent changed with the scope: Phase 1's earlier `neither` on a gu
 real answer, so a new `specs/guides/STORE_FACTORY_GUIDE.md` is provisionally committed, with
 `WebStoreFactory` as the worked example.
 
-Open for Phase 2: whether `StoreRouterBuilder` prepends the core factory implicitly or demands an
-explicit chain (note the direction reverses either way — today built-ins are the *fallback*, under
-"core first" they are the *first* claimant); whether `with_factory` survives alongside chaining; how
-a composite factory reports a type no member claims, given that `create_store`'s centralized
-unknown-vs-unavailable messages no longer live in one place; whether `expand_env_vars`'s bare
+Open for Phase 2: how rich the per-store-type argument description is, and whether the resulting
+store-type registry should be exportable the way `specs/command_registry.yaml` is; whether a factory
+can explain a type it knows of but cannot build (the `opendal`-off and wasm-`filesystem` messages
+worth not losing); whether `with_factory` survives alongside chaining, given that with no built-in
+fallback `StoreRouterBuilder::new(config)` alone can build nothing; whether `expand_env_vars`'s bare
 `std::env::var` moves verbatim, is `#[cfg]`-gated or takes a closure; the re-export shape; `toml`
 feature forwarding; and whether the §3 `area` vocabulary needs `core/store` widened now that
 `store/config` names files that will not exist.
+
+Noted for filing rather than absorbing: with per-type argument descriptions in hand, a chain could
+validate a `StoreRouterConfig` — unknown type, unknown key, missing required key — without
+constructing a single store. Attractive, and beyond this design's scope.
 
 ## Links
 

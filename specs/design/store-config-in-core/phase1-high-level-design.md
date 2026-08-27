@@ -58,17 +58,28 @@ Three new pieces, not present today:
 - **Chaining, first-wins.** Factories compose into a composite factory; the **first** factory in the
   chain claiming a `store_type` handles it, and a later one cannot shadow it. The intended order is
   bottom-up — `liquers-core` first, then `liquers-store`, then `liquers-lib`, then the integration —
-  so that the core definition of a store type is stable and no downstream crate can silently
-  redefine it. *(User decision: no overlap warning is implemented. `store_types()` stays on the
-  trait, so a factory still reports what it claims and a caller that wants to detect overlap can.)*
+  so the core definition of a store type is stable by default. Overriding remains available: a
+  caller who needs it composes their own chain and puts their factory first. *(User decision: no
+  overlap warning is implemented.)*
 - **A core factory.** `liquers-core` supplies the factory for the stores it already implements:
   `memory` and, off wasm, `filesystem`.
 - **A parametrisable factory.** *(User decision: confirmed.)* A `StoreFactory` assembled from a map
   of store-type names to creation functions rather than by implementing the trait, so an integration
   can contribute a store type with a closure.
 
-`liquers-store` then supplies its own OpenDAL factory **and** a ready-made chain of core's followed
-by its own, so a native consumer gets today's behavior from one call.
+**No built-in fallback; a *default* factory instead.** `StoreRouterBuilder` gains no hidden
+knowledge of store types: every store it creates comes from a factory it was given. What replaces
+today's `create_store` fallback is a **default factory** each crate offers as a convenience —
+`liquers-core`'s is the core factory; `liquers-store`'s is core's chained with its OpenDAL factory,
+so a native consumer gets today's behavior from one call. Nothing is implicit, and a caller who
+wants a different composition simply builds one.
+
+**A factory describes what it claims.** Beyond the store-type names it already reports, a factory
+carries, per store type, a description of the configuration arguments that type accepts. Two things
+depend on it: an unclaimed `store_type` is an **error that lists the types the chain does support**,
+which is only possible because the composite can enumerate its members; and the same data documents
+the configuration format from the code that implements it rather than from a hand-written table.
+Precedent and shape are discussed under §Consequences.
 
 ### Command System
 
@@ -129,20 +140,32 @@ Dependency flow is respected throughout: code moves *down* the chain
    is simply never in the browser's chain. The outcome is the same and the mechanism is not, so the
    rationale in `liquers-web-store` is superseded rather than merely relocated, and the new rule
    must be stated where a reader will find it.
-2. **Nothing can override a core store type.** The corollary of first-wins with core first, and the
-   intent of the decision: `memory` and `filesystem` mean one thing everywhere. No in-tree consumer
-   wants to redefine them (`filesystem` is `#[cfg]`-ed out on wasm regardless), so this costs
-   nothing today. Recorded so that a future integration wanting a different `memory` finds the
-   answer stated rather than discovering it.
-3. **`create_store`'s error quality is currently centralized.** One `match` distinguishes
-   *unknown type*, *type needs the `opendal` feature* and *type unavailable on wasm*. Split across
-   factories, `liquers-core` alone cannot say "that is an OpenDAL type"; a core-only build degrades
-   to "unknown store type". `liquers-store`'s default chain restores the full message. Phase 2
-   decides how a composite factory reports a type no member claims.
-4. **`expand_env_vars` puts a bare `std::env::var` in core.** Not a regression — `liquers-store` is
+2. **Overriding a core store type is a chain the caller composes, not a capability the API denies.**
+   First-wins plus the default ordering makes `memory` and `filesystem` stable *by default*; a
+   caller who genuinely needs a different `memory` builds a chain with their factory first. Worth
+   documenting explicitly, because "first-wins" read alone suggests a prohibition that does not
+   exist.
+3. **The error for an unclaimed type gets better, not worse.** Today one `match` in `create_store`
+   distinguishes *unknown type*, *needs the `opendal` feature* and *unavailable on wasm*, and that
+   `match` has no home once the dispatch is split across factories. The replacement is stronger: an
+   unclaimed type is an error that **lists the store types the chain does support**, assembled from
+   the factories themselves, so the message is accurate for the build in hand instead of describing
+   a type set that may not be compiled in. Phase 2 decides whether a factory can additionally
+   explain a type it *knows of* but cannot build — the `opendal`-off and wasm-`filesystem` cases,
+   which are the two messages worth not losing.
+4. **Per-store-type argument descriptions are new surface with real design freedom.** The nearest
+   precedent is `command_metadata.rs`'s `ArgumentInfo`, but it is shaped for positional command
+   parameters (`multiple`, `injected`, `gui_info`, `CommandParameterValue` defaults) while store
+   configuration is a `HashMap<String, serde_json::Value>` of named keys. Phase 2 decides whether to
+   reuse it, subset it, or define a smaller store-specific type — and how far to go: name, type and
+   documentation per key are clearly wanted; required-vs-optional, defaults and enumerated values
+   are all plausible and each one adds a field every factory implementation must fill. It also
+   raises whether the store-type registry should be exportable the way
+   `specs/command_registry.yaml` is.
+5. **`expand_env_vars` puts a bare `std::env::var` in core.** Not a regression — `liquers-store` is
    already in every wasm build — but core is in more places. Move verbatim, `#[cfg]`-gate it, or
    take the lookup as a closure.
-5. **`StoreConfig::metadata`** is documented "reserved for future use" and never read. Assume it
+6. **`StoreConfig::metadata`** is documented "reserved for future use" and never read. Assume it
    moves verbatim; dropping it would be a breaking format change.
 
 ## Documentation Intent
@@ -204,20 +227,28 @@ restates the verification list in full.
 
 ## Open Questions
 
-1. **Does `StoreRouterBuilder` prepend the core factory implicitly,** or must every caller build
-   the whole chain? Note the direction reverses either way: today `create_one` tries factories first
-   and *falls back* to the built-ins, so built-ins are effectively last; under "core first" they are
-   effectively first. An implicit prepend keeps `StoreRouterBuilder::from_yaml(…)?.build()` working
-   with no ceremony and is consistent with core being unoverridable; an explicit chain makes
-   core-only versus OpenDAL builds visible at the call site. Implicit prepend is proposed.
-2. **Does `with_factory` survive alongside chaining,** re-expressed as "chain this after", or is it
-   deprecated in favour of building a chain and handing it over whole?
-3. **How does a composite factory report an unclaimed type,** given that the informative
-   unknown-vs-unavailable messages in `create_store` no longer live in one place?
-4. **Re-export shape in `liquers-store`:** explicit `pub use` lists or globs, and deprecation
+1. **How rich is the per-store-type argument description?** Name, type and documentation per
+   configuration key are clearly wanted. Required-vs-optional, defaults, and enumerated values are
+   each plausible and each adds a field every factory implementation must fill. Reuse
+   `ArgumentInfo`, subset it, or define a store-specific type? Should the resulting store-type
+   registry be exportable the way `specs/command_registry.yaml` is?
+2. **Can a factory explain a type it knows of but cannot build?** The two messages worth preserving
+   are "that type needs the `opendal` feature" and "`filesystem` is unavailable on wasm". Both are
+   `#[cfg]`-conditional knowledge a factory *has*; whether the trait gives it a way to say so is a
+   design choice, and the alternative is that those types simply do not appear in the supported list
+   for that build.
+3. **Does `with_factory` survive alongside chaining,** re-expressed as "chain this after", or is it
+   deprecated in favour of building a chain and handing it over whole? With no built-in fallback,
+   `StoreRouterBuilder::new(config)` alone can now build nothing, so the builder's constructor may
+   want the factory as a required argument.
+4. **Does configuration validation without construction become possible?** With per-type argument
+   descriptions in hand, a chain could check a document — unknown type, unknown key, missing
+   required key — without constructing a single store. Attractive, and clearly beyond this design;
+   worth filing rather than absorbing.
+5. **Re-export shape in `liquers-store`:** explicit `pub use` lists or globs, and deprecation
    attributes or not?
-5. **Feature forwarding:** does `liquers-store/toml` become `["liquers-core/toml"]`?
-6. **`area` vocabulary (§3):** does `core/store` absorb the new modules, or does the closed
+6. **Feature forwarding:** does `liquers-store/toml` become `["liquers-core/toml"]`?
+7. **`area` vocabulary (§3):** does `core/store` absorb the new modules, or does the closed
    vocabulary gain a value? `store/config` names files that will no longer exist.
 
 ## References
