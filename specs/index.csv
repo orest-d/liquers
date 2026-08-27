@@ -165,3 +165,4 @@ WEB-API-LIBRARY,design,Web API library,complete,local,,,,axum,,,,web-api-library
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
+ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,P2,M,core/assets;core/context,,,,queued-manager-startup-readiness,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md

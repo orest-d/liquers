@@ -1,108 +1,119 @@
-# Phase 1: High-Level Design - Asset Manager Startup Readiness
+# Phase 1: High-Level Design - Environment Builder
 
 ## Feature Name
 
-Asset Manager Startup Readiness (resolves `QUEUED-MANAGER-STARTUP-READINESS`)
+Environment Builder (resolves `QUEUED-MANAGER-STARTUP-READINESS`)
 
 ## Purpose
 
-`Environment::to_ref` returns an `EnvRef` while `AssetManager::start` may still be running in a
-detached task, so the first evaluations can observe an empty dependency manager. Because
-`register_plan_dependencies` skips any dependency whose version is not yet registered, edges lost in
-that window are lost silently and permanently: the affected assets never expire when a command
-changes. This project gives startup one observable, fallible, idempotent completion boundary that
-every evaluation entry point respects.
+An `Environment` owns its `AssetManager`, and the manager needs an `EnvRef` back to that
+environment — a construction cycle. Today it is broken by building the manager unattached and
+back-filling `set_envref` from `init_with_envref`, *after* `EnvRef` already exists and is already
+shareable. Replace that with a builder that owns the whole cycle inside one fallible, awaited
+`build()`, so a partially initialized environment is never observable and the manager and
+environment variants become a runtime choice rather than four near-duplicate structs.
 
 ## Core Interactions
 
 ### Query System
-No change to parsing, planning or `Key` encoding. Command-metadata and command-implementation
-dependency keys emitted by `Plan` (`plan.rs`, `find_dependencies`) are the state that must be ready
-before a plan's dependencies are registered.
+None. No change to parsing, planning or `Key` encoding.
 
 ### Store System
-None. Startup reads only the command metadata registry; no store is opened.
+The builder becomes the place where the async store is selected, replacing today's
+`with_async_store(&mut self)` setter. No store implementation changes.
 
 ### Command System
-No new commands and no namespace change. `CommandMetadataRegistry` is the *input* to startup:
-`load_command_versions` turns each command's `metadata_version` / `impl_version` into
-`DependencyManager` versions. Interacts with `POST-INIT-COMMAND-REGISTRATION` (P3), which wants
-commands registered after `to_ref` — a re-runnable barrier should not foreclose that.
+The builder owns the configure-then-freeze boundary: commands are registered into the builder, and
+`build()` freezes the registry. This is the same boundary `POST-INIT-COMMAND-REGISTRATION` (P3)
+wants to relax, so the design must not foreclose it. Startup's `load_command_versions` reads the
+frozen registry, and `build()` awaits it — which is what closes the readiness hole.
 
 ### Asset System
-Central. Adds a readiness operation to the `AssetManager` contract, awaited by the public evaluation
-entry points (`get_asset`, `get`, `apply`, `apply_immediately`, keyed mutation). Affects
-`DefaultAssetManager` (queued, eager, spawned) and `ImmediateAssetManager` (inline, already lazy and
-idempotent via `ensure_started`); the goal is one shared guarantee, not one shared execution model.
+Central. `build()` constructs the manager with the envref already available, installs it, awaits
+`AssetManager::start`, and only then hands back an `EnvRef`. `DefaultAssetManager` (queued) and
+`ImmediateAssetManager` (inline) become selectable rather than baked into the environment type;
+`liquers-lib` already fakes this selection with a `SelectedAssetManager` cfg alias.
 
 ### Value Types
-None.
+None. The builder is where a caller-supplied `TypeRegistry` is passed instead of
+`new_with_type_registry`.
 
 ### Web/API
-No new endpoints. `liquers-axum` and `liquers-web` construct environments through `to_ref`, so any
-signature change there is a breaking change for them — a constraint on the Phase 2 choice, not a
-feature.
+`liquers-web` and `liquers-axum` construct environments and call `to_ref`. Both must migrate, and
+`liquers-web`'s wasm paths need a `build()` that works without a Tokio runtime.
 
 ### UI
-None.
+None directly; `liquers-lib`'s egui/webui environments are built through the same path.
 
 ## Crate Placement
 
-**liquers-core** — `src/assets.rs` (`AssetManager` contract and both managers), `src/context.rs`
-(`Environment::init_with_envref`, the four built-in environments). **liquers-lib** —
-`src/environment.rs` (`DefaultEnvironment`, whose native branch spawns `start`). No change expected
-in `liquers-store`, `liquers-axum`, `liquers-web` or `liquers-py` beyond compiling against the
-contract; `liquers-py`'s `init_with_envref` is `todo!()` and stays out of scope.
+**liquers-core** — new builder module plus `src/context.rs` (the four built-in environments,
+`Environment::to_ref`, `init_with_envref`, `EnvRef::new`) and `src/assets.rs` (`AssetManager`
+lifecycle: `set_envref`, `start`). **liquers-lib** — `src/environment.rs` (`DefaultEnvironment`,
+`SelectedAssetManager`). **liquers-web**, **liquers-axum** — migrate construction sites.
+`liquers-py`'s `init_with_envref` is `todo!()` and stays out of scope.
 
 ## Documentation Intent
 
-**Reference:** Extend, do not create. `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`
-owns the initialization sequence, already records this defect as a P1 gap row, and must state the new
-guarantee and retire that row. `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` owns the
-manager lifecycle primitives and must describe the readiness operation alongside `set_envref` and
-`start`. A new reference would split one lifecycle across three documents.
+**Reference:** Extend, do not create.
+`specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` owns the initialization sequence and
+already carries both defects this closes as gap rows — P1 "Manager startup completion is not
+observable" and P0 "`EnvRef::new` creates an evaluation-unsafe uninitialized reference". It must
+describe the builder as the construction path and retire both rows.
+`specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` must restate the manager lifecycle
+primitives under the new ownership.
 
-**Guide:** Extend `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`. An integrator implementing
-`Environment` for a host language needs to know what its `init_with_envref` must guarantee; that is a
-repeatable task, and the guide already covers this seam. No new guide — there is no workflow here
-beyond "implement the hook correctly".
+**Guide:** Create `specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`. Building and configuring an
+environment — choosing a manager, registering commands, attaching a store and recipe provider,
+getting a ready `EnvRef` — is exactly the repeatable "what is the typical workflow for X?" task a
+guide exists for, and it is currently reconstructed by copying from tests. Phase 1 previously said
+"extend the language-integration guide"; the builder makes this a workflow in its own right.
 
-**Other documents to create:** None. The change is a contract tightening, not a new capability.
+**Other documents to create:** None.
 
-**Specific documents to update:** `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`
-(initialization sequence, gap table), `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`
-(manager lifecycle primitives), `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (integrator obligation),
-`specs/README.md` (design folder link), `specs/index.csv`, and
-`specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md` (status at Phase 5).
+**Specific documents to update:** `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`,
+`specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`,
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (what a host-language environment owes the contract),
+`CLAUDE.md` (§Adding a Value Type points at `new_with_type_registry`), `specs/README.md`,
+`specs/index.csv`, `specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md` and
+`specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md` at Phase 5.
 
-Audience: framework maintainers and language integrators. After this project they should be able to
-tell, without reading the design folder, when an `EnvRef` is safe to evaluate against and what a
-custom `Environment` or `AssetManager` owes that contract.
+Audience: framework maintainers and language integrators. Afterwards they should be able to build a
+correctly initialized environment from the guide alone, and to tell from the reference what an
+`EnvRef` guarantees.
 
 ## Open Questions
 
-1. Which fix direction? A barrier awaited by evaluation entry points (issue direction 2) keeps
-   `to_ref` synchronous and infallible and so does not break `liquers-web`, `liquers-axum` or the
-   examples; an async/fallible `to_ref` (direction 1) is a stronger guarantee at a much wider blast
-   radius. Phase 2 decides, with a bias toward direction 2.
-2. Where does a startup *failure* surface? `load_command_versions` and both `start` implementations
-   are infallible today (`async fn start(&self)`), so "propagate startup failure" implies making the
-   contract fallible. Is that in scope, or is it a follow-up once a startup step can actually fail?
-3. Is the barrier re-runnable after later command registration, or strictly once
-   (`OnceCell`)? This decides whether `POST-INIT-COMMAND-REGISTRATION` stays solvable.
-4. Which entry points must await it? Every `AssetManager` method, or only those that read
-   startup-dependent state — and is the resulting per-call cost acceptable on the hot path?
-5. Does the queued manager keep its eager spawned `start` as a warm-up alongside the barrier, or
-   drop it in favour of purely lazy startup as `ImmediateAssetManager` does?
+1. **One environment or four?** Does the builder produce a single environment generic over manager
+   and payload — the "select between environment versions and asset manager versions" goal — or does
+   it keep constructing today's four structs? The former removes real duplication and the
+   `SelectedAssetManager` cfg alias; it is also the larger change.
+2. **Manager construction shape.** `Arc::new_cyclic` (manager built with a `Weak` back-reference, no
+   `OnceLock` at all) versus a `FnOnce(EnvRef<E>) -> Arc<M>` factory the builder invokes after
+   wrapping. The first also fixes `ENVIRONMENT-MANAGER-REFERENCE-CYCLE`; the second is a smaller
+   diff but keeps the back-fill, only hidden inside `build()`.
+3. **Is the cycle fix in scope?** Filed as `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2). It is cheap
+   here and expensive later — fold it in, or keep this project to readiness only?
+4. **What happens to `to_ref` and `EnvRef::new`?** Deprecate-and-keep, or make private? Every
+   existing test, example, `liquers-web` entry point and `liquers-axum` setup calls `to_ref`; a hard
+   break is a large mechanical migration.
+5. **Async `build()` on the spawn-free path.** `build()` must be async to await `start()`, but
+   `ImmediateEnvironment` is meant to be constructible without a Tokio runtime. Is an async `build()`
+   acceptable everywhere (it is still just a future under wasm), or is a sync `build()` plus an
+   explicit readiness await also needed?
+6. **Command registration after `build()`.** The builder makes freezing explicit. Does that close
+   `POST-INIT-COMMAND-REGISTRATION` (P3), or should `build()` leave a re-runnable startup barrier so
+   late registration stays reachable?
+7. **Complexity.** The issue is recorded `complexity: M`; an environment builder is L. Confirm the
+   reclassification, since L/XL is what mandates this design folder.
 
 ## References
 
-- `specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md` — the issue (P1, complexity M, `core/assets`)
-- `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` §gap table, row P1 "Manager startup
-  completion is not observable for queued environments"
-- `specs/issues/POST-INIT-COMMAND-REGISTRATION.md` — adjacent P3 constraining question 3
-- `specs/design/dependency-management/` — where `load_command_versions` and the call from `to_ref`
-  originate
-- `liquers-core/src/assets.rs` (`load_command_versions`, `DefaultAssetManager::start`,
-  `ImmediateAssetManager::ensure_started`, `register_plan_dependencies`),
-  `liquers-core/src/context.rs` (`to_ref`, `init_with_envref`), `liquers-lib/src/environment.rs`
+- `specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md` — the issue (P1, `core/assets`)
+- `specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md` — filed during this phase (P2)
+- `specs/issues/POST-INIT-COMMAND-REGISTRATION.md` — adjacent P3, constrains question 6
+- `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` §gap table, rows P0 and P1
+- `liquers-store/src/store_builder.rs` — `StoreRouterBuilder`, the in-tree builder precedent
+- `liquers-core/src/context.rs` (four environments, `to_ref`, `init_with_envref`, `EnvRef::new`),
+  `liquers-core/src/assets.rs` (`load_command_versions`, `DefaultAssetManager`,
+  `ImmediateAssetManager`, `register_plan_dependencies`), `liquers-lib/src/environment.rs`

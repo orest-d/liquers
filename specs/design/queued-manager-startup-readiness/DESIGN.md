@@ -1,13 +1,13 @@
 ---
 id: QUEUED-MANAGER-STARTUP-READINESS
 kind: design
-title: Asset manager startup readiness
+title: Environment builder
 workflow: liquers-project
 status: draft
 phase: high-level
 area: [core/assets, core/context]
 gh_pr: []
-issues: [QUEUED-MANAGER-STARTUP-READINESS]
+issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE]
 affects_docs: []
 created: 2026-08-27
 superseded_by:
@@ -27,11 +27,18 @@ superseded_by:
 
 ## Notes
 
-Resolves issue `QUEUED-MANAGER-STARTUP-READINESS` (P1, complexity M).
+Resolves issue `QUEUED-MANAGER-STARTUP-READINESS` (P1; complexity to be reclassified M -> L).
 
 Race confirmed empirically: immediately after `to_ref()` the dependency manager holds no command
 versions, and `register_plan_dependencies` therefore silently registers zero edges for a plan
 evaluated in that window.
+
+Root cause is the Environment/AssetManager construction cycle, broken today by back-filling
+`set_envref` after `EnvRef` is already shareable. Scope was widened at the user's direction from a
+readiness barrier to an environment builder that owns that cycle.
+
+Also filed during Phase 1: `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2) — the manager's back-reference
+is a strong `Arc`, so every environment leaks (`Arc::strong_count(&envref.0) == 2` after `to_ref`).
 
 ## Links
 
