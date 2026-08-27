@@ -37,6 +37,14 @@ Root cause is the Environment/AssetManager construction cycle, broken today by b
 `set_envref` after `EnvRef` is already shareable. Scope was widened at the user's direction from a
 readiness barrier to an environment builder that owns that cycle.
 
+Phase 1 decision (user, option A): `build()` and asset-manager startup are **sync**. The async in
+today's `start()` comes only from `scc`'s `entry_async`; startup does uncontended vacant inserts into
+an in-memory map and never touches the store.
+
+Cleanup to fold into Phase 2 rather than file separately: `DefaultAssetManager::with_capacity` has an
+unconditional `eprintln!("Spawned job queue")` that fires on every manager construction
+(`liquers-core/src/assets.rs`). Stray debug output in code this design rewrites.
+
 Also filed during Phase 1: `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2) — the manager's back-reference
 is a strong `Arc`, so every environment leaks (`Arc::strong_count(&envref.0) == 2` after `to_ref`).
 

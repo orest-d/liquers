@@ -97,10 +97,19 @@ correctly initialized environment from the guide alone, and to tell from the ref
 4. **What happens to `to_ref` and `EnvRef::new`?** Deprecate-and-keep, or make private? Every
    existing test, example, `liquers-web` entry point and `liquers-axum` setup calls `to_ref`; a hard
    break is a large mechanical migration.
-5. **Async `build()` on the spawn-free path.** `build()` must be async to await `start()`, but
-   `ImmediateEnvironment` is meant to be constructible without a Tokio runtime. Is an async `build()`
-   acceptable everywhere (it is still just a future under wasm), or is a sync `build()` plus an
-   explicit readiness await also needed?
+5. **~~Async or sync `build()`?~~ Decided: sync (option A).** `start()` is async only because
+   `DependencyManager::register_version` awaits `scc::HashMap::entry_async`. At build time that map
+   is empty and uncontended, every command key inserts `Vacant`, so `version_changed` is always
+   `false` and `expire_dependents` can never fire; no store is touched (`load_from_records` is
+   reached from asset recovery and `track_asset`, never from `start()`). scc offers `entry_sync`,
+   already used at `assets.rs:5166`. So the async is incidental to the map API, not to the work, and
+   the readiness guarantee rests on `build()` being the only way to obtain an `EnvRef` — not on
+   asyncness. Phase 2 makes startup sync and gives `AssetManager` a sync startup operation.
+   Two consequences to carry forward: (a) this forecloses genuinely async manager startup — a
+   manager restoring a persisted dependency graph from the store would need a breaking change or the
+   deferred async sibling; (b) sync does **not** mean runtime-free for the queued environment, since
+   `DefaultAssetManager::with_capacity` calls `tokio::spawn` for the job queue and expiration
+   monitor. Runtime-free construction is real only for the inline/wasm manager.
 6. **Command registration after `build()`.** The builder makes freezing explicit. Does that close
    `POST-INIT-COMMAND-REGISTRATION` (P3), or should `build()` leave a re-runnable startup barrier so
    late registration stays reachable?
