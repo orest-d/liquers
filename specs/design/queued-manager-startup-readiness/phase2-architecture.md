@@ -57,7 +57,13 @@ pub trait AssetManagerKind: 'static {
     ///
     /// Called by `EnvironmentBuilder::build` after the `EnvRef` is created and before it is
     /// observable. Sync: see §Sync vs Async.
-    fn build<E: Environment>(envref: EnvRef<E>) -> Arc<Self::Manager<E>>;
+    ///
+    /// `options` carries per-manager settings (queue capacity today, expiration tuning later).
+    /// A kind that cannot honor a set field returns `Err` rather than ignoring it silently —
+    /// `job_capacity` against `Inline` is a configuration mistake, not a no-op. Fallible for the
+    /// same reason `start` is: so a manager whose construction can fail stays expressible.
+    fn build<E: Environment>(envref: EnvRef<E>, options: &AssetManagerOptions)
+        -> Result<Arc<Self::Manager<E>>, Error>;
 }
 
 /// Native queued execution: `DefaultAssetManager`, job queue plus expiration monitor.
@@ -66,6 +72,16 @@ pub struct Queued;
 
 /// Spawn-free inline execution: `ImmediateAssetManager`. The only kind available on wasm.
 pub struct Inline;
+
+/// Per-manager construction settings. Every field optional; a kind rejects what it cannot honor.
+///
+/// Serde-able so a future `EnvironmentConfig` (in `liquers-store` — see §Integration Points) can
+/// carry it. `liquers-core` owns the struct but never reads a configuration file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AssetManagerOptions {
+    /// Job-queue capacity for a queued kind. `DefaultAssetManager` currently hardcodes 4.
+    #[serde(default)] pub job_capacity: Option<usize>,
+}
 
 /// The kind used when none is named: queued natively, inline on wasm.
 ///
@@ -209,6 +225,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self,
         provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>,
     ) -> Self;
+    pub fn with_asset_manager_options(self, options: AssetManagerOptions) -> Self;
 
     /// Construct, install, and start. Returns an `EnvRef` that is ready to evaluate.
     pub fn build(self) -> Result<EnvRef<GenericEnvironment<V, P, K>>, Error>;
@@ -234,8 +251,9 @@ now would be the breaking change later.
 1. Resolve the recipe provider: configured, else `TrivialRecipeProvider`.
 2. Construct `GenericEnvironment` with `asset_store: OnceLock::new()`.
 3. `let envref = EnvRef::new(env);`
-4. `let manager = K::build::<_>(envref.clone());` — the manager receives a live `EnvRef` and stores
-   it as a plain field. It is fully formed at birth.
+4. `let manager = K::build(envref.clone(), &self.manager_options)?;` — the manager receives a live
+   `EnvRef` and stores it as a plain field. It is fully formed at birth. An option the kind cannot
+   honor fails here rather than being dropped.
 5. Install into the environment's `OnceLock`. Unreachable-if-already-set: the builder is the only
    writer and it holds the sole `EnvRef`.
 6. `manager.start()?` — synchronous, see below.
@@ -403,8 +421,12 @@ Consolidated list of every signature this project adds, changes or removes. Bodi
 // liquers-core/src/environment_builder.rs
 pub trait AssetManagerKind: 'static {
     type Manager<E: Environment>: AssetManager<E>;
-    fn build<E: Environment>(envref: EnvRef<E>) -> Arc<Self::Manager<E>>;
+    fn build<E: Environment>(envref: EnvRef<E>, options: &AssetManagerOptions)
+        -> Result<Arc<Self::Manager<E>>, Error>;
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AssetManagerOptions { pub job_capacity: Option<usize> }
 
 // Defaults P = (), K = DefaultKind, so `EnvironmentBuilder::<Value>::new()` is the ordinary call.
 impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<V, P, K> {
@@ -497,6 +519,7 @@ type, no `Error::new`.
 | Asset-manager startup failed | `Error::general_error(…)` | `AssetManager::start`, propagated by `build()` with `?` |
 | Version refresh failed | `Error::general_error(…)` | `refresh_command_versions` |
 | Manager slot already installed | not an error — unreachable | `build()` holds the only `EnvRef`; a `debug_assert!` documents the invariant rather than a runtime branch |
+| Option the kind cannot honor (`job_capacity` on `Inline`) | `Error::general_error(…)` | `AssetManagerKind::build`, propagated by `build()`. Explicitly *not* silently ignored |
 
 Neither `start` nor `refresh_command_versions` can fail today: both write an in-memory map. The
 `Result` exists so that a manager whose startup *can* fail — one restoring a persisted dependency
@@ -530,7 +553,7 @@ That is exactly why it is deprecated.
 **Dependency flow** is respected: everything new is in `liquers-core`, and `liquers-lib` /
 `liquers-web` / `liquers-axum` only consume it. No backward `use`.
 
-**Crate placement of a future `EnvironmentConfiguration`:** it cannot live in `liquers-core`,
+**Crate placement of a future `EnvironmentConfig`:** sketched in Phase 3 §Scenario 4. it cannot live in `liquers-core`,
 because `StoreRouterConfig` lives in `liquers-store`, which depends on core. It belongs in
 `liquers-store` or above, wrapping `EnvironmentBuilder` rather than replacing it. This is why the
 builder takes an already-constructed `Arc<dyn AsyncStore>` rather than a store *config*: that keeps

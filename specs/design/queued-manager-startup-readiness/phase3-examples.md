@@ -311,6 +311,115 @@ tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 Both lines delete. A timing-dependent test becomes a deterministic one, which is the clearest
 before/after in the suite.
 
+### Scenario 4 — `EnvironmentConfig`, sketched (NOT in scope)
+
+Phase 1 records a single-configuration-point ambition and requires only that this design not
+preclude it. Sketching it is how that requirement gets tested, so this scenario is illustrative:
+nothing here is being built now.
+
+**What configuration can and cannot cover.** Commands are Rust functions registered by a macro; no
+YAML can name one. So a configuration file configures *services*, and code registers *commands*.
+The builder already splits exactly along that line — `with_*` setters are the config-drivable half,
+the public `command_registry` field is the code-only half — which is the main thing this sketch
+confirms.
+
+```yaml
+# environment.yaml
+store:                          # verbatim StoreRouterConfig, reused unchanged
+  stores:
+    - type: fs
+      prefix: data
+      config: { root: "${LIQUERS_DATA}" }
+    - type: memory
+      prefix: tmp
+recipes: default                # default | trivial
+assets:
+  job_capacity: 8               # queued only; see the finding below
+```
+
+```rust
+// in liquers-store: the lowest crate that can see both StoreRouterConfig and EnvironmentBuilder
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EnvironmentConfig {
+    #[serde(default)] pub store: StoreRouterConfig,
+    #[serde(default)] pub recipes: RecipeProviderChoice,
+    #[serde(default)] pub assets: AssetManagerOptions,
+}
+
+impl EnvironmentConfig {
+    pub fn from_yaml(yaml: &str) -> Result<Self, Error>;
+    pub fn expand_env_vars(&mut self) -> Result<(), Error>;
+
+    /// Apply every configured service to a builder. Commands are the caller's job.
+    pub fn apply<V: ValueInterface, P: PayloadType, K: AssetManagerKind>(
+        &self,
+        builder: EnvironmentBuilder<V, P, K>,
+        factories: &[Box<dyn StoreFactory>],
+    ) -> Result<EnvironmentBuilder<V, P, K>, Error>;
+}
+```
+
+Use:
+
+```rust
+let mut config = EnvironmentConfig::from_yaml(&std::fs::read_to_string("environment.yaml")?)?;
+config.expand_env_vars()?;
+
+let mut builder = config.apply(EnvironmentBuilder::<Value>::new(), &factories)?;
+register_my_commands(&mut builder.command_registry)?;   // code, not config
+let envref = builder.build()?;
+```
+
+`apply` takes and returns the builder by value, matching the `with_*` setters, so it composes with
+hand-written configuration in either order — config first then override in code, or the reverse.
+`StoreRouterConfig` and `expand_env_vars` are reused verbatim; note the existing expander supports
+`${VAR}` only and **errors** when the variable is unset, with no default-value syntax.
+
+**Layering.** `EnvironmentConfig` cannot live in `liquers-core`, because `StoreRouterConfig` lives
+in `liquers-store`, which depends on core (Phase 1 §Future Direction). It belongs in
+`liquers-store`, which sees both. This is precisely why `EnvironmentBuilder::with_async_store` takes
+an already-constructed `Arc<dyn AsyncStore>` rather than a store *config*: the core builder stays
+free of the layering problem, and a higher crate adds the config layer without touching core.
+
+**The manager kind stays a type parameter, and should.** A YAML string cannot select a type: two
+branches of a `match` on `"queued"` / `"inline"` produce two different concrete environment types,
+and `Environment` is not object-safe (associated types, `Sized`), so they cannot be erased behind a
+`dyn`. This is not a limitation worth fighting — the choice is a *build* fact, not a deployment
+one. Wasm has no choice at all; natively `Inline` exists for deterministic testing, not for
+production tuning. `DefaultKind` already gets it right on both targets.
+
+Where runtime selection is genuinely wanted, the application monomorphizes its own tail:
+
+```rust
+match config.manager.as_str() {
+    "queued" => serve(config.apply(EnvironmentBuilder::<Value, (), Queued>::new(), &f)?.build()?).await,
+    "inline" => serve(config.apply(EnvironmentBuilder::<Value, (), Inline>::new(), &f)?.build()?).await,
+    other    => return Err(Error::general_error(format!("unknown manager kind: {other}"))),
+}
+```
+
+`serve` is generic over the environment, so the two branches converge immediately. Explicit match,
+no default arm — consistent with the project's enum convention.
+
+> **Finding 3-A — a Phase 2 amendment this sketch produced.** `AssetManagerKind::build(envref)`
+> takes no options, so `assets.job_capacity` has no way to reach
+> `DefaultAssetManager::with_capacity`, whose capacity is currently hardcoded to 4. Any per-manager
+> setting — capacity now, expiration-monitor tuning later — is unreachable, and adding a parameter
+> afterwards is a breaking change to a public trait. **Amend the signature now**, while it costs
+> nothing:
+>
+> ```rust
+> fn build<E: Environment>(envref: EnvRef<E>, options: &AssetManagerOptions)
+>     -> Result<Arc<Self::Manager<E>>, Error>;
+> ```
+>
+> with `AssetManagerOptions` a plain serde-able struct of optional fields in `liquers-core`, and
+> `EnvironmentBuilder::with_asset_manager_options(self, …)`. A kind ignores fields that do not apply
+> to it — `Inline` has no queue — which is a real wart: a `job_capacity` set against an inline
+> environment would be **silently ignored**. Phase 4 should make `build` return `Err` on a setting
+> the kind cannot honor, rather than dropping it quietly. Note `build` also becomes fallible here,
+> which it should have been anyway for symmetry with `start`.
+
 ## Corner Cases
 
 ### 3b — `to_ref` still compiles, and is still correct
