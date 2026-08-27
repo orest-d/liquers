@@ -66,6 +66,14 @@ pub struct Queued;
 
 /// Spawn-free inline execution: `ImmediateAssetManager`. The only kind available on wasm.
 pub struct Inline;
+
+/// The kind used when none is named: queued natively, inline on wasm.
+///
+/// Default for both `EnvironmentBuilder` and `GenericEnvironment`, so
+/// `EnvironmentBuilder::<Value>::new()` is correct on every target. It also replaces
+/// `liquers-lib`'s `SelectedAssetManager` cfg-import pair, which emulated exactly this.
+#[cfg(not(target_arch = "wasm32"))] pub type DefaultKind = Queued;
+#[cfg(target_arch = "wasm32")]      pub type DefaultKind = Inline;
 ```
 
 `type Manager<E>` is a generic associated type — stable since Rust 1.65; the workspace is edition
@@ -82,7 +90,9 @@ string like `"queued"` onto a kind at the call site, not through `serde` on this
 ### `GenericEnvironment`
 
 ```rust
-pub struct GenericEnvironment<V: ValueInterface, P: PayloadType, K: AssetManagerKind> {
+pub struct GenericEnvironment<V: ValueInterface,
+                              P: PayloadType = (),
+                              K: AssetManagerKind = DefaultKind> {
     type_registry: TypeRegistry,
     async_store: Arc<dyn AsyncStore>,
     pub command_registry: CommandRegistry<Self>,
@@ -125,14 +135,18 @@ pub type ImmediateEnvironment<V>          = GenericEnvironment<V, (), Inline>;
 pub type ImmediateEnvironmentWithPayload<V, P> = GenericEnvironment<V, P, Inline>;
 ```
 
-In `liquers-lib`, the `SelectedAssetManager` cfg alias is replaced by a cfg'd **kind** alias, which
-is the same trick one level up and removes the import-shadowing hack:
+In `liquers-lib`, the `SelectedAssetManager` cfg-import pair disappears entirely — `DefaultKind`
+already performs that selection in `liquers-core`:
 
 ```rust
-#[cfg(not(target_arch = "wasm32"))] pub type SelectedKind = Queued;
-#[cfg(target_arch = "wasm32")]      pub type SelectedKind = Inline;
-pub type DefaultEnvironment<V, P = ()> = GenericEnvironment<V, P, SelectedKind>;
+pub type DefaultEnvironment<V, P = ()> = GenericEnvironment<V, P>;   // K = DefaultKind
 ```
+
+**There is one builder type, not one per environment.** Brevity comes from the default type
+parameters above, so the ordinary call is `EnvironmentBuilder::<Value>::new()` and a parameter is
+written only when it is being chosen. Convenience aliases such as `SimpleEnvironmentBuilder<V>` are
+deliberately *not* provided: a builder name per environment would read as a builder family and
+re-suggest the duplication this design removes.
 
 `DefaultEnvironment`'s extra surface needs care, and this is where the alias approach has a real
 constraint. A type alias creates no new type, so `GenericEnvironment<…>` stays a **foreign** type in
@@ -153,14 +167,15 @@ constraint. A type alias creates no new type, so `GenericEnvironment<…>` stays
   `register_polars_commands!` macro — which the exporter and `registry_export` test already use
   directly — is untouched.
 
-Defining the kind markers themselves is likewise a choice: `liquers-lib` may alias
-`liquers-core`'s `Queued` / `Inline`, or define its own local marker structs implementing
-`AssetManagerKind`. Aliasing is enough here, since no impl requires locality of the *kind*.
+`liquers-lib` defines no kind of its own; it uses `DefaultKind` from `liquers-core`. No impl there
+requires locality of the kind.
 
 ### `EnvironmentBuilder`
 
 ```rust
-pub struct EnvironmentBuilder<V: ValueInterface, P: PayloadType, K: AssetManagerKind> {
+pub struct EnvironmentBuilder<V: ValueInterface,
+                              P: PayloadType = (),
+                              K: AssetManagerKind = DefaultKind> {
     type_registry: TypeRegistry,
     async_store: Arc<dyn AsyncStore>,
     /// Public field, mirroring the environments' existing `pub command_registry`. This is what
@@ -391,6 +406,7 @@ pub trait AssetManagerKind: 'static {
     fn build<E: Environment>(envref: EnvRef<E>) -> Arc<Self::Manager<E>>;
 }
 
+// Defaults P = (), K = DefaultKind, so `EnvironmentBuilder::<Value>::new()` is the ordinary call.
 impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<V, P, K> {
     pub fn new() -> Self;
     pub fn with_type_registry(self, registry: TypeRegistry) -> Self;
@@ -506,7 +522,7 @@ That is exactly why it is deprecated.
 | `liquers-core/src/environment_builder.rs` *(new)* | `EnvironmentBuilder`, `AssetManagerKind`, `Queued`, `Inline`. |
 | `liquers-core/src/assets.rs` | `AssetManager`: drop `set_envref`, `start` becomes sync/fallible, add `refresh_command_versions` and `is_started`. Both managers take `EnvRef` at construction; `OnceLock<EnvRef<E>>` and its panic removed. `ensure_started` calls dropped from the five inline entry points. Remove the stray `eprintln!("Spawned job queue")`. |
 | `liquers-core/src/dependencies.rs` | `register_version_sync`; sync `load_command_versions`. |
-| `liquers-lib/src/environment.rs` | `SelectedAssetManager` → `SelectedKind`; `DefaultEnvironment` becomes an alias; `CommandRegistryAccess` and `register_polars_commands` move to impls on the aliased generic. |
+| `liquers-lib/src/environment.rs` | `SelectedAssetManager` cfg-import pair deleted (`DefaultKind` replaces it); `DefaultEnvironment` becomes an alias; `CommandRegistryAccess` and `register_polars_commands` move to impls on the aliased generic. |
 | `liquers-web/src/environment.rs` | Construction sites migrate to the builder. `new_environment()` already separates registration from sharing, which maps onto the builder directly. |
 | `liquers-axum` | Construction sites migrate. |
 | `liquers-py/src/context.rs` | `init_with_envref` is `todo!()`; removing the hook deletes it. Out of scope otherwise. |

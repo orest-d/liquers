@@ -20,7 +20,7 @@ Each is written so it can be lifted into a test or a guide once the code exists.
 | 1a | Hello world, native | The ordinary build-register-evaluate flow | `EnvironmentBuilder::new`, `command_registry`, `build` |
 | 1b | Axum server with a file store | Store configuration through the builder | `with_async_store` |
 | 2a | `liquers-web`: custom type registry + recipe provider | The hardest real call site; foreign type registration | `with_type_registry`, `with_recipe_provider` |
-| 2b | Inline / wasm environment | Kind selection; runtime-free construction | `Inline`, `AssetManagerKind` |
+| 2b | Inline / wasm environment | Kind selection; runtime-free construction | `Inline`, `DefaultKind`, `AssetManagerKind` |
 | 2c | Payload environment | The `P` parameter survives consolidation | `GenericEnvironment<V, P, K>` aliases |
 | 2d | `liquers-lib` polars test | Extension trait replacing an inherent method | `PolarsCommandRegistration` |
 | 3a | The readiness guarantee | The defect this project exists to fix | `build()` ordering, `is_started` |
@@ -81,18 +81,29 @@ Two lines change, and `CommandEnvironment` — the alias `register_command!` nee
 because `SimpleEnvironment<Value>` still names a type. The `?` on `build()` is the visible
 difference in kind: construction can now report a problem instead of leaving one latent.
 
-`EnvironmentBuilder::<Value, (), Queued>` is verbose for the common case. **Proposed convenience
-aliases**, which is how the guide will teach it:
+**There is exactly one builder type.** An earlier draft proposed `SimpleEnvironmentBuilder<V>` /
+`ImmediateEnvironmentBuilder<V>` aliases for brevity; those are withdrawn, because a name per
+environment reads like a builder *family* and so re-suggests the very duplication this project
+removes. Brevity comes from **default type parameters** instead:
 
 ```rust
-pub type SimpleEnvironmentBuilder<V> = EnvironmentBuilder<V, (), Queued>;
-pub type ImmediateEnvironmentBuilder<V> = EnvironmentBuilder<V, (), Inline>;
-// so: let mut builder = SimpleEnvironmentBuilder::<Value>::new();
+pub struct EnvironmentBuilder<V: ValueInterface,
+                              P: PayloadType = (),
+                              K: AssetManagerKind = DefaultKind> { /* … */ }
+
+// DefaultKind is target-selected, in liquers-core:
+#[cfg(not(target_arch = "wasm32"))] pub type DefaultKind = Queued;
+#[cfg(target_arch = "wasm32")]      pub type DefaultKind = Inline;
 ```
 
-> **Open question 4** (new, raised by writing this): are those aliases worth having, or does the
-> explicit `EnvironmentBuilder<V, P, K>` form teach the model better? The three-parameter form is
-> self-documenting but appears at every construction site.
+So the ordinary call is `EnvironmentBuilder::<Value>::new()` — queued natively, inline on wasm — and
+a parameter is spelled out only when it is being chosen: `EnvironmentBuilder::<Value, (), Inline>`
+to force inline on native, `EnvironmentBuilder::<Value, UiPayload>` for a payload. One type, three
+knobs, no alias family.
+
+`GenericEnvironment<V, P = (), K = DefaultKind>` takes the same defaults. The *environment* aliases
+(`SimpleEnvironment`, `DefaultEnvironment`, `WebEnvironment`) stay, but those are pre-existing names
+kept for compatibility — not new ones being coined.
 
 ### Scenario 1b — Axum server with a file store
 
@@ -113,7 +124,7 @@ let env_ref = env.to_ref();
 ```rust
 let async_store = AsyncFileStore::new(&store_path, &Key::new());
 
-let mut builder = SimpleEnvironmentBuilder::<Value>::new()
+let mut builder = EnvironmentBuilder::<Value>::new()
     .with_async_store(Arc::new(async_store));
 
 register_commands(&mut builder.command_registry)?;
@@ -155,11 +166,11 @@ pub fn build_environment() -> Result<EnvRef<WebEnvironment>, Error> {
 **After:**
 
 ```rust
-pub fn new_environment() -> Result<WebEnvironmentBuilder, Error> {
+pub fn new_environment() -> Result<EnvironmentBuilder<Value>, Error> {
     let mut types = TypeRegistry::from_value_type::<Value>();
     types.register(crate::value::js_value_type_info())?;
 
-    let mut builder = WebEnvironmentBuilder::new()
+    let mut builder = EnvironmentBuilder::<Value>::new()
         .with_type_registry(types)
         .with_recipe_provider(Arc::new(DefaultRecipeProvider));
 
@@ -192,7 +203,7 @@ One code path, as before.
 
 ```rust
 // Runs in a browser: no Tokio runtime, nothing spawned.
-let envref = ImmediateEnvironmentBuilder::<Value>::new()
+let envref = EnvironmentBuilder::<Value, (), Inline>::new()
     .with_async_store(Arc::new(browser_store))
     .build()?;
 ```
@@ -208,14 +219,12 @@ use liquers_core::assets::DefaultAssetManager as SelectedAssetManager;
 #[cfg(target_arch = "wasm32")]
 use liquers_core::assets::ImmediateAssetManager as SelectedAssetManager;
 
-// After
-#[cfg(not(target_arch = "wasm32"))] pub type SelectedKind = Queued;
-#[cfg(target_arch = "wasm32")]      pub type SelectedKind = Inline;
-pub type DefaultEnvironment<V, P = ()> = GenericEnvironment<V, P, SelectedKind>;
+// After — liquers-lib needs no target selection of its own at all
+pub type DefaultEnvironment<V, P = ()> = GenericEnvironment<V, P>;   // K = DefaultKind
 ```
 
-Both compile; the second is a type alias rather than a shadowed import, so `SelectedKind` can appear
-in signatures and error messages.
+The cfg pair disappears from `liquers-lib` entirely: `DefaultKind` in `liquers-core` already selects
+`Queued` natively and `Inline` on wasm, which is exactly what the shadowed import was emulating.
 
 ### Scenario 2c — Payload environment
 
@@ -252,7 +261,7 @@ fn create_test_env() -> DefaultEnvironment<Value> {
 use liquers_lib::environment::PolarsCommandRegistration;  // extension trait, now required
 
 fn create_test_env() -> Result<EnvRef<DefaultEnvironment<Value>>, Error> {
-    let mut builder = DefaultEnvironmentBuilder::<Value>::new()
+    let mut builder = EnvironmentBuilder::<Value>::new()
         .with_recipe_provider(Arc::new(DefaultRecipeProvider));
     builder.register_polars_commands()?;
     builder.build()
@@ -276,7 +285,7 @@ a sleep:
 ```rust
 #[tokio::test]
 async fn build_returns_a_started_manager() -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = SimpleEnvironmentBuilder::<Value>::new();
+    let mut builder = EnvironmentBuilder::<Value>::new();
     register_command!(&mut builder.command_registry, fn world(state) -> result)?;
 
     let envref = builder.build()?;
@@ -330,14 +339,14 @@ the environment came from somewhere they can still reach.
 
 ```rust
 fn main() {
-    let envref = SimpleEnvironmentBuilder::<Value>::new().build();  // PANICS
+    let envref = EnvironmentBuilder::<Value>::new().build();  // PANICS
     //  `Queued::build` -> DefaultAssetManager::with_capacity -> tokio::spawn
     //  -> "there is no reactor running"
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let envref = SimpleEnvironmentBuilder::<Value>::new().build()?;  // fine
+    let envref = EnvironmentBuilder::<Value>::new().build()?;  // fine
     Ok(())
 }
 ```
@@ -498,8 +507,10 @@ No spaces, newlines or special characters in any query.
    apply synchronously?
 2. *(from Phase 2)* Confirm no wasm path needs `Queued` present-but-unusable.
 3. *(from Phase 2)* Is `to_ref` deprecated indefinitely, or removed once tests migrate?
-4. **New.** Ship `SimpleEnvironmentBuilder<V>` / `ImmediateEnvironmentBuilder<V>` convenience
-   aliases, or require the explicit `EnvironmentBuilder<V, P, K>` at every site?
+4. **~~Builder convenience aliases?~~ Resolved: none.** One `EnvironmentBuilder<V, P, K>` with
+   default type parameters (`P = ()`, `K = DefaultKind`, target-selected). A builder name per
+   environment would re-suggest the duplication this project removes. Side benefit: `liquers-lib`
+   loses its own target-selection cfg pair, since `DefaultKind` already does it.
 5. **New, and blocking Phase 4.** `pub(crate)` constructors and "336 `to_ref` sites keep working"
    are in tension outside `liquers-core` — including its own `tests/`, which are external crates.
    Keep constructors `pub` through a deprecation period (gradual migration), or make them
