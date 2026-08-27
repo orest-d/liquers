@@ -7,7 +7,7 @@ status: draft
 phase: examples
 area: [core/assets, core/context]
 gh_pr: []
-issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC]
+issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC, STORE-CONFIG-IN-CORE, COMMAND-DECLARATION-FORMAT, RECIPE-PROVIDER-BY-NAME]
 affects_docs: [DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, DOC_03_ASSETS_EXECUTION_LIFECYCLE, ENVIRONMENT_CONSTRUCTION_GUIDE, LANGUAGE-INTEGRATION_GUIDE, PAYLOAD_GUIDE, ASSET_LIFECYCLE]
 created: 2026-08-27
 superseded_by:
@@ -87,6 +87,23 @@ constraint: `StoreRouterConfig` lives in `liquers-store`, which depends on `liqu
 core-side configuration type cannot embed it — this decides where the builder can live. Also note
 `E::Payload` is per-execution, not a global service bag; a "global payload" would be a distinct
 environment-lifetime thing.
+
+## Preparatory work for document-driven setup
+
+The JavaScript (and later Python) target is a two-document setup: one configuring the environment,
+one declaring commands. Phase 3 §Scenario 4 sketches the first. Filed as prerequisites, none of them
+blocking this design:
+
+| Issue | Priority | Why it comes first |
+|---|---|---|
+| `STORE-CONFIG-IN-CORE` | P2 | A core-side configuration type cannot embed `StoreRouterConfig` while it lives in `liquers-store`. No new core dependency; `liquers-web` already takes `liquers-store` with backends off just to reach these types. |
+| `COMMAND-DECLARATION-FORMAT` | P2 | Document #2 has no home. `JsCommandSpec` hand-parses a `JsValue` field by field; Python would rewrite it. Split declarative half (serde) from implementation (resolved by name). |
+| `RECIPE-PROVIDER-BY-NAME` | P3 | The one `EnvironmentConfig` field that cannot be expressed as data today. |
+
+Recommended priority change, **not applied** pending confirmation: `POST-INIT-COMMAND-REGISTRATION`
+P3 → P2. For a document-driven host, registering commands after the environment is built is the
+normal path, not the exception, and the current workaround rebuilds the environment and discards
+the asset cache.
 
 ## Links
 
