@@ -47,6 +47,17 @@ unconditional `eprintln!("Spawned job queue")` that fires on every manager const
 
 Also filed during Phase 1: `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2) — the manager's back-reference
 is a strong `Arc`, so every environment leaks (`Arc::strong_count(&envref.0) == 2` after `to_ref`).
+Reassessed: there are **two** cycles. `AssetData<E>` also holds a strong `EnvRef<E>`, and the
+manager's `assets` / `query_assets` maps hold those assets, so every cached asset closes a second
+cycle. Weakening only the manager's back-reference does not fix the leak; recommendation is to keep
+that issue outside this project's committed scope.
+
+Phase 1 decisions (user): `EnvRef::new` is deprecated (one in-tree caller) and `to_ref` is withdrawn
+from the public surface — literal privacy is unavailable for a defaulted method on a public trait, so
+Phase 2 picks between removing it from the trait and deprecating it in place. 336 `.to_ref()` call
+sites migrate. Environment consolidation is a Phase 2 research task, constrained by two firm
+requirements: the caller specifies the `Value` type, and a caller can implement their own
+`Environment` for custom global services — so the builder must be generic over `E: Environment`.
 
 ## Links
 

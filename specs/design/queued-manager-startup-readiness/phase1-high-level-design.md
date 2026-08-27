@@ -84,19 +84,42 @@ correctly initialized environment from the guide alone, and to tell from the ref
 
 ## Open Questions
 
-1. **One environment or four?** Does the builder produce a single environment generic over manager
-   and payload — the "select between environment versions and asset manager versions" goal — or does
-   it keep constructing today's four structs? The former removes real duplication and the
-   `SelectedAssetManager` cfg alias; it is also the larger change.
+1. **One environment or four? — Phase 2 research task.** The user's position: the environment must
+   be *configurable*; consolidating today's four structs is welcome but not required, and internal
+   multiplicity is acceptable where it buys optimization. Two requirements constrain the answer and
+   are not negotiable:
+   - the caller must be able to specify the **`Value` type**;
+   - the caller must be able to **implement their own `Environment`**, to carry custom global
+     services.
+   The second is the sharp one: the builder cannot own a fixed concrete environment type. It must be
+   generic over `E: Environment`, driving a hook `E` exposes, so a user-defined environment reaches
+   the same guarantees as the built-in ones. Phase 2 researches whether consolidation is worth it
+   under that constraint.
 2. **Manager construction shape.** `Arc::new_cyclic` (manager built with a `Weak` back-reference, no
-   `OnceLock` at all) versus a `FnOnce(EnvRef<E>) -> Arc<M>` factory the builder invokes after
-   wrapping. The first also fixes `ENVIRONMENT-MANAGER-REFERENCE-CYCLE`; the second is a smaller
-   diff but keeps the back-fill, only hidden inside `build()`.
-3. **Is the cycle fix in scope?** Filed as `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2). It is cheap
-   here and expensive later — fold it in, or keep this project to readiness only?
-4. **What happens to `to_ref` and `EnvRef::new`?** Deprecate-and-keep, or make private? Every
-   existing test, example, `liquers-web` entry point and `liquers-axum` setup calls `to_ref`; a hard
-   break is a large mechanical migration.
+   `OnceLock` at all, manager well-formed at birth, "envref not set" panic path gone) versus a
+   `FnOnce(EnvRef<E>) -> Arc<M>` factory the builder invokes after wrapping (smaller diff, keeps the
+   back-fill but hidden inside `build()`). Decide on construction-shape grounds alone — see
+   question 3 for why this is *not* also the leak fix.
+   Constraint to verify in Phase 2: `Arc::new_cyclic`'s closure cannot upgrade the `Weak`, and
+   `DefaultAssetManager::with_capacity` spawns the job queue and expiration monitor from inside the
+   constructor. Those tasks must not reach for the environment before `new_cyclic` returns.
+3. **Is the cycle fix in scope? — reassessed, and larger than filed.** There are **two** cycles, not
+   one. Besides the manager's `set_envref` back-reference, `AssetData<E>` holds a strong
+   `envref: EnvRef<E>` and the manager's `assets` / `query_assets` maps hold those assets — so every
+   cached asset closes a second cycle independent of the first. Weakening only the manager's
+   back-reference does not stop the leak. Sizing: 78 `get_envref()` sites (68 in `assets.rs`) plus 16
+   `ImmediateAssetManager::envref()` sites, and the cost turns on whether the accessor keeps
+   returning `EnvRef<E>` (panicking at teardown, in background tasks) or starts returning
+   `Option`/`Result`. Recommendation: keep `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` out of this
+   project's committed scope and let the builder merely not make it worse.
+4. **~~What happens to `to_ref` and `EnvRef::new`?~~ Decided.** `EnvRef::new` is deprecated — it has
+   exactly one in-tree caller, `to_ref` itself, so this is free. `to_ref` is withdrawn from the
+   public surface. Note it cannot literally be made *private*: it is a defaulted method on the public
+   `Environment` trait, and a public trait has no private methods. Phase 2 picks the shape that
+   delivers the intent — remove it from the trait so the builder is the only path (preferred), or
+   `#[deprecated]` + `#[doc(hidden)]` with the body delegating to the builder. Migration size: 336
+   `.to_ref()` call sites, overwhelmingly in tests and examples (125 in `assets.rs`, 29 in
+   `interpreter.rs`, the rest across the integration suites), so mechanical but not small.
 5. **~~Async or sync `build()`?~~ Decided: sync (option A).** `start()` is async only because
    `DependencyManager::register_version` awaits `scc::HashMap::entry_async`. At build time that map
    is empty and uncontended, every command key inserts `Vacant`, so `version_changed` is always
