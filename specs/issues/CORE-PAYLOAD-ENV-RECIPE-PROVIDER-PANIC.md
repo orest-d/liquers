@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: S
 area: [core/context]
-design: queued-manager-startup-readiness
+design: environment-builder
 created: 2026-08-27
 github:
 ---
@@ -53,7 +53,7 @@ Match the siblings: return `TrivialRecipeProvider` when none is configured, with
 ## Fix direction
 
 One line, replacing the `panic!` with the sibling fallback. Recorded against the
-`queued-manager-startup-readiness` design because that project consolidates the four environments
+`environment-builder` design because that project consolidates the four environments
 and gives the recipe provider a builder-supplied default, which removes this divergence by
 construction. If that project does not land, fix it directly.
 

@@ -6,7 +6,7 @@ status: draft
 priority: P0
 complexity: M
 area: [core/commands, web, py]
-design: queued-manager-startup-readiness
+design: environment-builder
 created: 2026-08-27
 github:
 ---

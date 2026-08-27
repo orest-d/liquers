@@ -6,7 +6,7 @@ status: accepted
 priority: P1
 complexity: L
 area: [core/assets]
-design: queued-manager-startup-readiness
+design: environment-builder
 created: 2026-08-08
 github:
 ---

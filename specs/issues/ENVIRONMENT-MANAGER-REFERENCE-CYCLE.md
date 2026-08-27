@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets, core/context]
-design: queued-manager-startup-readiness
+design: environment-builder
 created: 2026-08-27
 github:
 ---
@@ -50,7 +50,7 @@ for the lifetime of the process.
 ## Impact
 
 Bounded and benign for a server that builds one environment at startup, which is why it has not
-been noticed. Assessed and deliberately deferred during the `queued-manager-startup-readiness`
+been noticed. Assessed and deliberately deferred during the `environment-builder`
 design: a typical system holds one environment — more precisely at most one per realm — alive for
 the whole process lifetime, so the leak has no practical cost there. A **soft reboot** that tears
 down and rebuilds the environment is the case where it would surface, and is the reason this stays
@@ -81,7 +81,7 @@ sites, so whether the accessor keeps returning `EnvRef<E>` (panicking at teardow
 returning `Option`/`Result` is the main cost driver.
 
 This is entangled with how the environment/manager construction cycle is resolved in general, so
-it is recorded against the `queued-manager-startup-readiness` design, which is building an
+it is recorded against the `environment-builder` design, which is building an
 environment builder that owns that construction. Fixing it there is preferable to a separate
 change; fixing it separately is possible if the builder work does not land.
 

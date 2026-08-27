@@ -5,8 +5,8 @@ title: Recipe providers cannot be selected by name, so a configuration document 
 status: draft
 priority: P0
 complexity: S
-area: [core/recipes, web]
-design: queued-manager-startup-readiness
+area: [core/assets, web]
+design: environment-builder
 created: 2026-08-27
 github:
 ---
@@ -21,7 +21,7 @@ that name into a backend. Recipe providers have no equivalent.
 
 ## Why it matters
 
-An `EnvironmentConfig` (sketched in `specs/design/queued-manager-startup-readiness/phase3-examples.md`
+An `EnvironmentConfig` (sketched in `specs/design/environment-builder/phase3-examples.md`
 §Scenario 4) needs to select a recipe provider from data for the JavaScript and Python setup path.
 Everything else in that document — store, asset-manager options — is expressible; the recipe
 provider is the one field that would have to stay in code for no principled reason.

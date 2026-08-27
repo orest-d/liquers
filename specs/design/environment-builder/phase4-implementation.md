@@ -1,8 +1,8 @@
-# Phase 4: Implementation Plan - queued-manager-startup-readiness
+# Phase 4: Implementation Plan - environment-builder
 
 ## Overview
 
-**Feature:** queued-manager-startup-readiness
+**Feature:** environment-builder
 
 **Architecture:** [1-2 sentence summary]
 

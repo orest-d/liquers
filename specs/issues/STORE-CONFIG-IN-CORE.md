@@ -5,8 +5,8 @@ title: Store configuration types live in liquers-store, so liquers-core cannot o
 status: draft
 priority: P0
 complexity: M
-area: [core/store, store, web]
-design: queued-manager-startup-readiness
+area: [core/store, store/config, web]
+design: environment-builder
 created: 2026-08-27
 github:
 ---

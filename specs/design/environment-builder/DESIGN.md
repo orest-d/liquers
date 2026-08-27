@@ -1,9 +1,8 @@
 ---
-id: QUEUED-MANAGER-STARTUP-READINESS
+id: ENVIRONMENT-BUILDER
 kind: design
 title: Environment builder
 workflow: liquers-project
-status: draft
 phase: examples
 area: [core/assets, core/context]
 gh_pr: [44]
@@ -12,7 +11,7 @@ affects_docs: [DOC_04_ENVIRONMENT_CONTEXT_EVALUATION, DOC_03_ASSETS_EXECUTION_LI
 created: 2026-08-27
 superseded_by:
 ---
-# queued-manager-startup-readiness Design Tracking
+# Environment Builder Design Tracking
 
 **Created:** 2026-08-27
 
