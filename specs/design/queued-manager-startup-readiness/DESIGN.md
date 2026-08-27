@@ -4,7 +4,7 @@ kind: design
 title: Environment builder
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/assets, core/context]
 gh_pr: []
 issues: [QUEUED-MANAGER-STARTUP-READINESS, ENVIRONMENT-MANAGER-REFERENCE-CYCLE, CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [x] Phase 3: Examples & Testing (awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
