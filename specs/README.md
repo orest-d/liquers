@@ -180,7 +180,13 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`RECIPE-PROVIDER-BY-NAME`](issues/RECIPE-PROVIDER-BY-NAME.md) | P0 | S | `environment-builder` |
+| [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `environment-builder` |
+| [`STORE-CONFIG-IN-CORE`](issues/STORE-CONFIG-IN-CORE.md) | P0 | M | `environment-builder` |
+| [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `environment-builder` |
+| [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -193,6 +199,7 @@ deliberately folded behind a broader line.
 - `reference/VALUE_TYPE_SYSTEM.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `asset-manager-insert-key-asset-semantics`
+- design `environment-builder`
 - design `expiration-integration-suite-failing-at-head`
 - design `foreign-value-type-registration`
 - design `plan-cwd-freeze`
@@ -201,8 +208,11 @@ deliberately folded behind a broader line.
 - design `store-key-guard`
 - design `value-type-system`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
+- feature `COMMAND-DECLARATION-FORMAT`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
+- feature `RECIPE-PROVIDER-BY-NAME`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
+- feature `STORE-CONFIG-IN-CORE`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `VALUE-CONVERSION-CAPABILITY`
