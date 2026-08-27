@@ -94,11 +94,22 @@ The JavaScript (and later Python) target is a two-document setup: one configurin
 one declaring commands. Phase 3 §Scenario 4 sketches the first. Filed as prerequisites, none of them
 blocking this design:
 
+All three are **P0 by maintainer decision** (2026-08-27) — hard prerequisites, not severity. See the
+priority note in each file, and the §4.4 caveat below.
+
 | Issue | Priority | Why it comes first |
 |---|---|---|
-| `STORE-CONFIG-IN-CORE` | P2 | A core-side configuration type cannot embed `StoreRouterConfig` while it lives in `liquers-store`. No new core dependency; `liquers-web` already takes `liquers-store` with backends off just to reach these types. |
-| `COMMAND-DECLARATION-FORMAT` | P2 | Document #2 has no home. `JsCommandSpec` hand-parses a `JsValue` field by field; Python would rewrite it. Split declarative half (serde) from implementation (resolved by name). |
-| `RECIPE-PROVIDER-BY-NAME` | P3 | The one `EnvironmentConfig` field that cannot be expressed as data today. |
+| `STORE-CONFIG-IN-CORE` | P0 | A core-side configuration type cannot embed `StoreRouterConfig` while it lives in `liquers-store`. No new core dependency; `liquers-web` already takes `liquers-store` with backends off just to reach these types. |
+| `COMMAND-DECLARATION-FORMAT` | P0 | Document #2 has no home. `JsCommandSpec` hand-parses a `JsValue` field by field; Python would rewrite it. Split declarative half (serde) from implementation (resolved by name). |
+| `RECIPE-PROVIDER-BY-NAME` | P0 | The one `EnvironmentConfig` field that cannot be expressed as data today. |
+
+**Open against `DOCS_STRUCTURE_GUIDE.md` §4.4.** That table defines P1 as "something blocking planned
+work" and reserves P0 for incorrect results, data loss, a panic on a supported path, or a documented
+feature that does not work. These three are prerequisites, not defects, so the guide as written puts
+them at P1. The P0 marking is deliberate and recorded, but §4.4 and these files now disagree: either
+the guide gains a clause for hard prerequisites, or these settle back to P1. Worth resolving before
+the vocabulary drifts — `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` is a genuine §4.4 P0 candidate (a
+live panic) currently sitting at P1 below them.
 
 Recommended priority change, **not applied** pending confirmation: `POST-INIT-COMMAND-REGISTRATION`
 P3 → P2. For a document-driven host, registering commands after the environment is built is the

@@ -3,7 +3,7 @@ id: STORE-CONFIG-IN-CORE
 kind: feature
 title: Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration
 status: draft
-priority: P2
+priority: P0
 complexity: M
 area: [core/store, store, web]
 design: queued-manager-startup-readiness
@@ -66,6 +66,16 @@ parses both documents against `liquers-core` alone.
 Move the two structs and the expansion helpers into a new `liquers-core/src/store_config.rs`,
 re-export them from `liquers-store::config` so no existing import breaks, and move the `toml`
 feature across. Mechanical; the risk is import churn rather than behavior.
+
+## Priority rationale
+
+Recorded **P0** by maintainer decision (2026-08-27): this is a prerequisite for the document-driven
+JavaScript and Python setup path, and that work cannot start until it lands.
+
+Note the tension with `DOCS_STRUCTURE_GUIDE.md` §4.4, which defines P1 as "something blocking
+planned work" and reserves P0 for incorrect results, data loss, a panic on a supported path, or a
+documented feature that does not work. This issue is none of those; it is scheduling weight, applied
+deliberately. Either §4.4 should gain a clause for hard prerequisites, or this should settle at P1.
 
 ## Verification
 

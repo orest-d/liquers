@@ -3,7 +3,7 @@ id: COMMAND-DECLARATION-FORMAT
 kind: feature
 title: No language-neutral command declaration format, so every binding hand-parses its own
 status: draft
-priority: P2
+priority: P0
 complexity: M
 area: [core/commands, web, py]
 design: queued-manager-startup-readiness
@@ -72,6 +72,16 @@ type.
    the parser describe one format rather than two.
 3. Reimplement `JsCommandSpec::parse` over it, keeping the current error wording where the tests
    assert on it.
+
+## Priority rationale
+
+Recorded **P0** by maintainer decision (2026-08-27): this is a prerequisite for the document-driven
+JavaScript and Python setup path, and that work cannot start until it lands.
+
+Note the tension with `DOCS_STRUCTURE_GUIDE.md` §4.4, which defines P1 as "something blocking
+planned work" and reserves P0 for incorrect results, data loss, a panic on a supported path, or a
+documented feature that does not work. This issue is none of those; it is scheduling weight, applied
+deliberately. Either §4.4 should gain a clause for hard prerequisites, or this should settle at P1.
 
 ## Verification
 

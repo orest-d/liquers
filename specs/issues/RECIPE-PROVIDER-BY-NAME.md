@@ -3,7 +3,7 @@ id: RECIPE-PROVIDER-BY-NAME
 kind: feature
 title: Recipe providers cannot be selected by name, so a configuration document cannot choose one
 status: draft
-priority: P3
+priority: P0
 complexity: S
 area: [core/recipes, web]
 design: queued-manager-startup-readiness
@@ -50,6 +50,16 @@ The enum is enough for the configuration sketch and is a much smaller change; th
 only needed once a host wants to register its own provider by name. Prefer the enum, and note that
 it must be matched exhaustively — no `_ =>` arm — so a third provider is a compile error rather
 than a silent fallback.
+
+## Priority rationale
+
+Recorded **P0** by maintainer decision (2026-08-27): this is a prerequisite for the document-driven
+JavaScript and Python setup path, and that work cannot start until it lands.
+
+Note the tension with `DOCS_STRUCTURE_GUIDE.md` §4.4, which defines P1 as "something blocking
+planned work" and reserves P0 for incorrect results, data loss, a panic on a supported path, or a
+documented feature that does not work. This issue is none of those; it is scheduling weight, applied
+deliberately. Either §4.4 should gain a clause for hard prerequisites, or this should settle at P1.
 
 ## Verification
 
