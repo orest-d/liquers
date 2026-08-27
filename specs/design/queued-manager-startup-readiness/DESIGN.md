@@ -57,7 +57,20 @@ from the public surface — literal privacy is unavailable for a defaulted metho
 Phase 2 picks between removing it from the trait and deprecating it in place. 336 `.to_ref()` call
 sites migrate. Environment consolidation is a Phase 2 research task, constrained by two firm
 requirements: the caller specifies the `Value` type, and a caller can implement their own
-`Environment` for custom global services — so the builder must be generic over `E: Environment`.
+`Environment` for custom global services.
+
+Revised: the builder does **not** need to support externally defined environments — a user with a
+custom environment may replicate the construction. So the builder may own concrete environment types
+instead of being generic over `E: Environment`, which is what makes consolidation tractable. Custom
+global services are expected to arrive later via a separate route.
+
+Future direction the design must not preclude (not in scope): a single YAML-serializable
+`EnvironmentConfiguration` covering manager, commands, recipe provider and store.
+`liquers-store`'s `StoreRouterConfig` / `StoreRouterBuilder` is the working precedent. Layering
+constraint: `StoreRouterConfig` lives in `liquers-store`, which depends on `liquers-core`, so a
+core-side configuration type cannot embed it — this decides where the builder can live. Also note
+`E::Payload` is per-execution, not a global service bag; a "global payload" would be a distinct
+environment-lifetime thing.
 
 ## Links
 

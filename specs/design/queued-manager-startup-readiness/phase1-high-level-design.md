@@ -82,19 +82,41 @@ Audience: framework maintainers and language integrators. Afterwards they should
 correctly initialized environment from the guide alone, and to tell from the reference what an
 `EnvRef` guarantees.
 
+## Future Direction (aware of, not in scope)
+
+The ambition is a **single configuration point** that sets up an environment — manager selection,
+commands, recipe provider, and the store — plausibly a YAML-serializable `EnvironmentConfiguration`.
+Not solved here; the builder must simply not preclude it. Three facts shape it:
+
+- **The pattern already exists.** `liquers-store`'s `StoreRouterConfig` is serde-derived with
+  `from_yaml` / `from_json` / `from_toml` and `${VAR_NAME}` expansion, consumed by
+  `StoreRouterBuilder` plus registered factories. An `EnvironmentConfiguration` embedding it is the
+  natural shape, and `StoreRouterBuilder` is the precedent the environment builder should mirror.
+- **Layering blocks the obvious version.** `StoreRouterConfig` lives in `liquers-store`, which
+  depends on `liquers-core`. A config type *in* `liquers-core` therefore cannot embed it. Either the
+  configuration type lives in `liquers-store` or above, or the core-side type keeps the store section
+  opaque for a higher crate to interpret. Phase 2 must decide which, because it decides where the
+  builder itself can live.
+- **"Global payload" is not today's `Payload`.** `E::Payload` / `PayloadType` is a *per-execution*
+  value reaching commands through `Context::get_payload_clone` and `InjectedFromContext`. A global
+  service bag would be a distinct, environment-lifetime thing that could plausibly reuse the same
+  injection machinery with a global rather than per-execution source. The two must not be conflated.
+
+The `ENVIRONMENT_CONSTRUCTION_GUIDE.md` planned above should be written so a config-driven setup can
+be added as a section later without restructuring it.
+
 ## Open Questions
 
-1. **One environment or four? — Phase 2 research task.** The user's position: the environment must
-   be *configurable*; consolidating today's four structs is welcome but not required, and internal
-   multiplicity is acceptable where it buys optimization. Two requirements constrain the answer and
-   are not negotiable:
-   - the caller must be able to specify the **`Value` type**;
-   - the caller must be able to **implement their own `Environment`**, to carry custom global
-     services.
-   The second is the sharp one: the builder cannot own a fixed concrete environment type. It must be
-   generic over `E: Environment`, driving a hook `E` exposes, so a user-defined environment reaches
-   the same guarantees as the built-in ones. Phase 2 researches whether consolidation is worth it
-   under that constraint.
+1. **One environment or four? — Phase 2 research task.** The environment must be *configurable*;
+   consolidating today's four structs is welcome but not required, and internal multiplicity is fine
+   where it buys optimization. One firm requirement: the caller must be able to specify the **`Value`
+   type**.
+   The builder does **not** have to support externally defined `Environment` implementations — a user
+   with a custom environment may replicate the construction. That relaxation matters: the builder may
+   own concrete environment types rather than being generic over `E: Environment`, which is what makes
+   consolidation tractable at all. Custom global services are expected to arrive later by a different
+   route (see *Future direction* below), not by user-implemented environments.
+   Phase 2 researches whether consolidation pays, and must leave the door open for that later route.
 2. **Manager construction shape.** `Arc::new_cyclic` (manager built with a `Weak` back-reference, no
    `OnceLock` at all, manager well-formed at birth, "envref not set" panic path gone) versus a
    `FnOnce(EnvRef<E>) -> Arc<M>` factory the builder invokes after wrapping (smaller diff, keeps the
