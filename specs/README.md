@@ -116,7 +116,7 @@ expansion time rather than at runtime. That is the cheapest item here.
   [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
   store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
-- **OpenDAL path normalization** — planned → [`issues/STORE-OPENDAL-SLASH-HANDLING.md`](issues/STORE-OPENDAL-SLASH-HANDLING.md)
+- **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Sessions and key-level authorization** — planned → [`issues/CORE-SESSION-AND-KEY-ACL.md`](issues/CORE-SESSION-AND-KEY-ACL.md)
 
@@ -125,9 +125,12 @@ at plan level and a store never resolves them, so one reaching a store is refuse
 `KeyNotAbsolute`. The rule lives in rustdoc until DOC-07 exists; enforcement is by convention per
 method rather than by signature, which is `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`.
 
-`STORE-OPENDAL-SLASH-HANDLING` is P1 and blunt: keys containing `/` are not reliably addressable
-through an OpenDAL backend, which is most real keys. Sessions and ACL are one item because there is
-no identity on `Context` to authorize against.
+`STORE-OPENDAL-SLASH-HANDLING` is P1. Its original statement — that keys containing `/` are not
+reliably addressable — did not survive reproduction: the filesystem backend handles them correctly.
+`design/opendal-path-mapping/` restates it as three defects, of which the sharpest is that a
+directory key is unaddressable on a backend with no directory objects, which covers most of
+`OPENDAL_STORE_TYPES`. Sessions and ACL are one item because there is no identity on `Context` to
+authorize against.
 
 ### Command libraries
 
@@ -186,6 +189,7 @@ question are both measure-first items.
 | [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `environment-builder` |
 | [`STORE-CONFIG-IN-CORE`](issues/STORE-CONFIG-IN-CORE.md) | P0 | M | `environment-builder` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `environment-builder` |
+| [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
 <!-- END generated: issues -->
 
