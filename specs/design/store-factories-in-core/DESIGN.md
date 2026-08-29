@@ -270,6 +270,28 @@ comma-separated *string* in the document, so it is `StoreArgumentType::String` w
 its `doc`, not `Array`. `Array` therefore has exactly one legitimate user — the browser `http` store's
 `keys` — and `Object` has **none**, since no OpenDAL service config has a map-valued field.
 
+**`STORE_CONFIG_FSD.md` updated now, not at Phase 5 — deliberately.** Two things learned in Phase 3
+are true *at HEAD* and independent of this design, so holding them until the implementation lands
+would leave the reference wrong in the meantime: the layering rationale (why `StoreRouterConfig`
+exists alongside OpenDAL's own configuration) and the string-boundary encoding rules. Added with a
+`## History` row and a `reviewed:` bump per §9.2. **Nothing about the factory redesign went in** —
+`StoreTypeInfo`, chaining and core ownership are not true at HEAD and belong to Phase 5. Verified by
+grep that no such name appears in the reference.
+
+The correction it carries: the document asserted "OpenDAL does not provide a built-in way to create
+operators from text configuration". True when written, false now — `via_iter` arrived in 0.48.0
+(2024-07-26) and `from_uri` for all services in 0.55.0 (2025-11-11), while `from_map`/`via_map` were
+removed in 0.55. What survives the correction is the *reason* `StoreRouterConfig` exists: every
+OpenDAL form configures exactly one backend, with no key prefix, routing order, `${VAR}` expansion or
+non-OpenDAL store type. It is a composition format, not a competitor.
+
+**On requiring strings for OpenDAL parameters.** Quoting every value is always safe — a JSON string
+passes through `config_as_string_map` verbatim, and OpenDAL's own text conventions then apply. But
+booleans and whole numbers already round-trip correctly (`to_string` produces exactly what OpenDAL's
+deserializer accepts), so *requiring* quotes everywhere would cost ergonomics without buying
+correctness. Only arrays, objects, nulls and non-integral floats diverge. The reference states the
+narrow rule rather than the blanket one.
+
 **New scoping question for Phase 4.** Describing all ~134 OpenDAL fields by hand is disproportionate
 and would drift on the next OpenDAL upgrade. Proposed asymmetry: describe core and browser store
 types fully — Liquers owns them and their arguments *are* the specification — but describe only the

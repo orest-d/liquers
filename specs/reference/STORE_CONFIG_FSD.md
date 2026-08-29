@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-08-09
+reviewed: 2026-08-29
 ---
 # Functional Specification Document (FSD): Store Configuration for `liquers-store`
 
@@ -17,6 +17,33 @@ This document specifies the requirements and design for configuring a store syst
 - Provide extensibility for future store types and OpenDAL backends.
 - Configuration should be serializable as a yaml, toml or json document.
 - Configuration should support expansion of environment variables mainly to support secure access keys and passwords.
+
+## Why this configuration exists alongside OpenDAL's own
+
+OpenDAL has gained its own configuration surface since this document was written, so it is worth
+stating what each layer does and why both are needed.
+
+**What OpenDAL offers**, as of 0.55.0 (2025-11-11):
+
+| Form | Since | Shape |
+|---|---|---|
+| `Operator::from_map` / `via_map` | early; **removed in 0.55** | scheme + `HashMap<String, String>` |
+| `Operator::via_iter(scheme, iter)` | 0.48.0 (2024-07-26) | scheme + `(String, String)` pairs — what this implementation uses |
+| `Operator::from_uri(uri)` | 0.55.0, for all services | a URI, e.g. `s3://bucket?region=eu-central-1`, resolved through OpenDAL's own scheme registry |
+
+**What all three have in common: they configure exactly one backend.** None of them expresses a key
+prefix, a routing order between several stores, environment-variable substitution, or a store type
+OpenDAL does not implement — `memory` and `filesystem` from `liquers-core`, or the browser's
+`localstorage`, `js` and `fetch` types.
+
+`StoreRouterConfig` is therefore a **composition** format, not a competitor to a single-backend one.
+The two layers meet at exactly one place: a `StoreConfig` entry's `config:` map, whose contents are
+handed through to the backend nearly verbatim. Everything else in the document — `type`, `prefix`,
+list order, `${VAR}` expansion — has no equivalent below.
+
+A structural parallel worth knowing when reading both: OpenDAL 0.55's `from_uri` resolves a scheme
+through an `OperatorRegistry` that maps a scheme name to a factory, registered per service behind a
+feature gate. That is the same shape as this system's `StoreFactory` seam, one layer down.
 
 ## Key Concepts
 
@@ -337,7 +364,12 @@ A proper AsyncFileStore should be implemented.
 
 
 ### OpenDAL Operator Creation
-OpenDAL does not provide a built-in way to create operators from text configuration. The implementation must:
+
+*(Corrected 2026-08-29: this section previously stated that OpenDAL provides no way to create an
+operator from text configuration. That was true when this document was written and is no longer —
+see "Why this configuration exists alongside OpenDAL's own" above.)*
+
+To build an operator from a `StoreConfig` entry, the implementation must:
 
 1. Parse the `type` (backend) field to determine the backend and eventually the OpenDAL scheme
 2. Convert the `config` object to key-value pairs
@@ -354,6 +386,57 @@ fn create_opendal_operator(store_type: &str, config: &HashMap<String, String>) -
     Operator::via_iter(store_type, config_pairs)
 }
 ```
+
+### Configuration values and the OpenDAL string boundary
+
+**Every OpenDAL configuration parameter is a string at the boundary.** `Operator::via_iter` takes
+`(String, String)` pairs, and OpenDAL parses each value back into the field's real type using its own
+text conventions (`opendal/src/raw/serde_util.rs`, `ConfigDeserializer`):
+
+| Field type | Text OpenDAL accepts |
+|---|---|
+| `bool` | `true` / `on` / `false` / `off`, case-insensitive |
+| integers | decimal digits, via `parse::<T>()` — no decimal point |
+| sequences (`Vec<String>`) | **comma-separated**, elements trimmed; empty string means empty list |
+
+A `config:` value in a Liquers document, however, is a `serde_json::Value`, and
+`StoreConfig::config_as_string_map` flattens it before handing it over. The two encodings must agree,
+and they do not agree everywhere:
+
+| Document value | Flattened to | OpenDAL reads it as | Agrees? |
+|---|---|---|---|
+| `"eu-central-1"` (string) | `eu-central-1` | the string | **yes** — passed through verbatim |
+| `true` (boolean) | `true` | `true` | **yes** |
+| `1000` (integer) | `1000` | `1000` | **yes** |
+| `1000.0` (float) | `1000.0` | rejected by an integer field | **no** |
+| `[a, b]` (list) | `["a","b"]` — **JSON text** | splits on commas, keeping brackets and quotes | **no** |
+| `null` | `null` | the four-character string `null` | **no** |
+
+**The rule that follows: write OpenDAL parameters as scalars, and write a list-valued OpenDAL option
+as a comma-separated string.** Quoting every value is always safe, because a JSON string is passed
+through unchanged and OpenDAL's conventions then apply directly:
+
+```yaml
+config:
+  endpoints: "127.0.0.1:2379,127.0.0.1:2380"   # correct
+  # endpoints: [ "127.0.0.1:2379", "127.0.0.1:2380" ]   # WRONG — see below
+  enable_virtual_host_style: true              # fine unquoted: booleans round-trip
+  batch_max_operations: 1000                   # fine unquoted: whole numbers round-trip
+```
+
+Booleans and whole numbers need no quoting — their flattened text is exactly what OpenDAL expects —
+so requiring quotes everywhere would cost ergonomics without buying correctness.
+
+The last three rows of the table are a **known defect**, not a designed behaviour:
+[`STORE-OPENDAL-LIST-OPTION-MISPARSED`](../issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md). Its reach
+today is narrow — `endpoints` on the `tikv` service is the only non-scalar field across all of
+OpenDAL 0.55's service configs, and `tikv` is reachable only through the `opendal_tikv` escape hatch
+— but the flattening rule is general, so a future OpenDAL release that adds a list field to a common
+service inherits it silently.
+
+This applies **only to OpenDAL-backed types.** The built-in and browser store types read their
+`config:` values as `serde_json::Value` directly and never pass through this flattening, which is
+why the browser `http` store's `keys` is written as a genuine YAML list.
 
 ### Configuration Loading
 - The configuration should be loadable from YAML, TOML or JSON.
@@ -499,3 +582,4 @@ Full design: `specs/design/liquers-web-store/`.
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-09 | Documented the optional `opendal` feature, the `StoreFactory` extension seam, and the three browser store types (`localstorage`, `http`/`https` via `fetch`, `js`). | `design/liquers-web-store/` |
+| 2026-08-29 | Reviewed against the implementation at HEAD. Added "Why this configuration exists alongside OpenDAL's own", correcting the claim that OpenDAL offers no text configuration — `via_iter` (0.48) and `from_uri` (0.55) do, but configure one backend each. Added "Configuration values and the OpenDAL string boundary", recording which document value types survive the flattening into OpenDAL's string map and which do not. No change to the configuration format itself. | `design/store-factories-in-core/` Phase 3 |
