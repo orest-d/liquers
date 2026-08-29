@@ -37,8 +37,19 @@ Measured with `cargo tree -p liquers-axum -e features -i opendal`:
 └── opendal feature "services-memory"
 ```
 
-`liquers-axum` — the HTTP server, the most consumer-like crate in the workspace — gets
-`services-memory` and nothing else. Not even `fs`.
+A consumer linking `liquers-store` normally gets `services-memory` and nothing else — not even `fs`.
+
+**Precision about who is hit.** No in-tree crate is currently broken by this, and the issue should
+not claim otherwise. `liquers-axum` declares the dependency but references nothing from it
+(`grep -rn liquers_store liquers-axum/src/` is empty), `liquers-web` builds with `opendal` off and
+never reaches an OpenDAL type, and `liquers-lib`'s `ui_query_console_app` example constructs
+`AsyncOpenDALStore` directly rather than through `create_store`. The crate's own tests are the only
+in-tree caller, and dev-dependencies mask them.
+
+The defect therefore bites **external consumers and anyone following the documented configuration
+format** — which is the entire audience for `STORE_CONFIG_FSD.md`. That is enough for §4.4's
+"documented feature that does not work", but the absence of an in-tree victim is exactly why it
+survived unnoticed, and is worth stating rather than glossing.
 
 Confirmed by running `create_store` directly:
 

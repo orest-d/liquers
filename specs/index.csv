@@ -87,7 +87,7 @@ PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor bounda
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
-STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,draft,local,examples,,,core/store;store/config;store/backends;web;docs,,,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
+STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,draft,local,implementation,,,core/store;store/config;store/backends;web;docs,,,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md

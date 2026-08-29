@@ -4,7 +4,7 @@ kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 area: [core/store, store/config, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-CONFIG-IN-CORE]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
-- [x] Phase 3: Examples & Testing (awaiting approval)
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing (approved)
+- [x] Phase 4: Implementation Plan (awaiting approval)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -468,6 +468,42 @@ OpenDAL's `from_uri` implementations: a URI authority becomes `bucket` for `s3` 
 `endpoint` = `ftp://{authority}` for `ftp`, `endpoint` = `https://{authority}` for `webdav` (the
 scheme hardcoded), and nothing at all for `fs`. That is backend knowledge, which this design already
 places in factories.
+
+## Phase 4 notes
+
+Eleven steps across three crates, ordered so the workspace compiles after every step except 6 and 7,
+which are one atomic move — deleting `liquers-store`'s two modules and adding their replacement
+cannot be split without a broken intermediate. Steps 1–5 are purely additive to `liquers-core`.
+
+**Two partial-value stopping points, both coherent.** After Step 5 `liquers-core` owns configuration
+and factories while `liquers-store` still works unchanged — that alone unblocks `EnvironmentConfig`,
+which is the prerequisite `environment-builder` recorded. After Step 8 the `liquers-web` dependency
+is gone.
+
+**Sequencing decision: this plan does not fix
+[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md) (P0).**
+It blocks only the two S3 tests, isolated in Step 11, which is skipped if the P0 is not fixed first.
+Recommendation is to fix it first as separate work: it is P0 on its own merits and a few lines of
+manifest, and folding it into a refactor buries a user-facing defect fix where a reviewer checking
+"did the types move correctly?" will not be looking at "which backends does the product ship with?".
+
+**Blast radius revised down by a codebase check.** `liquers-axum` declares `liquers-store` in its
+manifest but **references nothing from it** — `grep -rn liquers_store liquers-axum/src/` is empty.
+So the only in-tree consumers of the moved code are `liquers-web` and `liquers-store`'s own tests;
+`liquers-lib`'s example constructs `AsyncOpenDALStore` directly and never touches the builder. The
+same check corrected an overstatement in the P0 issue, which had cited `liquers-axum` as the
+consumer-like crate that gets only `services-memory`: true about feature resolution, but it is not a
+victim, and the issue now says so. No in-tree crate is currently broken by that P0 — the audience it
+harms is external consumers and anyone following the documented format, which is also why it went
+unnoticed.
+
+**Rollback is a branch revert.** No migration, no persisted state, no generated file, and no document
+whose meaning changes — a `StoreRouterConfig` written today parses identically after. Step 6 is the
+only step that *feels* irreversible and is not: `git revert` restores both deleted modules whole, and
+the plan says explicitly not to hand-reconstruct them.
+
+**No step is opus-tier.** Every one has a written specification and a validation command; the
+judgement was spent in Phases 2 and 3.
 
 ## Cross-design coordination
 
