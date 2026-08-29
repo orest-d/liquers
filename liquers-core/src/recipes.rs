@@ -27,6 +27,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -764,6 +765,100 @@ impl RecipeList {
     }
 }
 
+/// Names one of the built-in recipe providers, so a configuration document can select one by
+/// name rather than by constructing a Rust value.
+///
+/// The set is deliberately closed. A host that supplies its own [`AsyncRecipeProvider`] still
+/// passes it to the environment directly — custom providers are too varied to be named here, and
+/// there is no registration hook.
+///
+/// # Spelling
+///
+/// The lowercase spelling is the durable part: `default` and `trivial`, with `none` and
+/// `no_recipes` accepted as aliases for `trivial` on input. Serialization always emits the
+/// canonical name.
+///
+/// ```
+/// use liquers_core::recipes::RecipeProviderChoice;
+///
+/// let choice: RecipeProviderChoice = serde_yaml::from_str("no_recipes").unwrap();
+/// assert_eq!(choice, RecipeProviderChoice::Trivial);
+/// assert_eq!(choice.as_str(), "trivial");
+/// ```
+///
+/// # Default
+///
+/// [`RecipeProviderChoice::Default`] is the *document* default: a configuration that says nothing
+/// about recipes most plausibly wants them to work. This is deliberately not the same as the
+/// unconfigured default of every environment constructor, which is per-crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecipeProviderChoice {
+    /// [`DefaultRecipeProvider`] — recipes read from `recipes.yaml` through the environment's store.
+    #[default]
+    Default,
+    /// [`TrivialRecipeProvider`] — no recipes at all.
+    #[serde(alias = "none", alias = "no_recipes")]
+    Trivial,
+}
+
+impl RecipeProviderChoice {
+    /// The provider this choice names, shared.
+    pub fn provider<E: Environment>(self) -> Arc<dyn AsyncRecipeProvider<E>> {
+        match self {
+            RecipeProviderChoice::Default => Arc::new(DefaultRecipeProvider),
+            RecipeProviderChoice::Trivial => Arc::new(TrivialRecipeProvider),
+        }
+    }
+
+    /// The provider this choice names, owned.
+    ///
+    /// The `liquers-core` environments take `Box<dyn AsyncRecipeProvider<Self>>` where
+    /// `liquers-lib`'s takes `Arc<…>`, so both shapes are offered rather than forcing an
+    /// `Arc::from(Box::new(…))` at the call site.
+    pub fn boxed_provider<E: Environment>(self) -> Box<dyn AsyncRecipeProvider<E>> {
+        match self {
+            RecipeProviderChoice::Default => Box::new(DefaultRecipeProvider),
+            RecipeProviderChoice::Trivial => Box::new(TrivialRecipeProvider),
+        }
+    }
+
+    /// The canonical name used in a configuration document.
+    ///
+    /// This is what [`Display`](std::fmt::Display) and serialization emit; the aliases accepted by
+    /// [`FromStr`](std::str::FromStr) and deserialization are not returned here.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RecipeProviderChoice::Default => "default",
+            RecipeProviderChoice::Trivial => "trivial",
+        }
+    }
+}
+
+impl std::str::FromStr for RecipeProviderChoice {
+    type Err = Error;
+
+    /// Parses a canonical name or an accepted alias.
+    ///
+    /// Recognizes `default`, `trivial`, and the `trivial` aliases `none` and `no_recipes`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "default" => Ok(RecipeProviderChoice::Default),
+            "trivial" | "none" | "no_recipes" => Ok(RecipeProviderChoice::Trivial),
+            other => Err(Error::general_error(format!(
+                "Unknown recipe provider '{}'; expected one of: default, trivial (aliases: none, no_recipes)",
+                other
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for RecipeProviderChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::{
@@ -1467,5 +1562,165 @@ mod test {
         let json = serde_json::to_string(&recipe).unwrap();
         let recipe2: super::Recipe = serde_json::from_str(&json).unwrap();
         assert_eq!(recipe2.expires, recipe.expires);
+    }
+
+    /// The document default is `default`: a configuration that says nothing about recipes gets
+    /// working recipes.
+    #[test]
+    fn recipe_provider_choice_defaults_to_default() {
+        assert_eq!(
+            super::RecipeProviderChoice::default(),
+            super::RecipeProviderChoice::Default
+        );
+    }
+
+    #[test]
+    fn recipe_provider_choice_round_trips_through_yaml() {
+        for choice in [
+            super::RecipeProviderChoice::Default,
+            super::RecipeProviderChoice::Trivial,
+        ] {
+            let yaml = serde_yaml::to_string(&choice).unwrap();
+            assert_eq!(yaml.trim(), choice.as_str());
+            let back: super::RecipeProviderChoice = serde_yaml::from_str(&yaml).unwrap();
+            assert_eq!(back, choice);
+        }
+    }
+
+    #[test]
+    fn recipe_provider_choice_round_trips_through_json() {
+        for choice in [
+            super::RecipeProviderChoice::Default,
+            super::RecipeProviderChoice::Trivial,
+        ] {
+            let json = serde_json::to_string(&choice).unwrap();
+            assert_eq!(json, format!("\"{}\"", choice.as_str()));
+            let back: super::RecipeProviderChoice = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, choice);
+        }
+    }
+
+    /// A configuration document may spell the empty provider `none` or `no_recipes`; both mean
+    /// `trivial`, and serialization normalizes back to the canonical name.
+    #[test]
+    fn recipe_provider_choice_accepts_trivial_aliases() {
+        for spelling in ["trivial", "none", "no_recipes"] {
+            let from_yaml: super::RecipeProviderChoice =
+                serde_yaml::from_str(spelling).unwrap_or_else(|e| panic!("{}: {}", spelling, e));
+            assert_eq!(from_yaml, super::RecipeProviderChoice::Trivial);
+
+            let from_json: super::RecipeProviderChoice =
+                serde_json::from_str(&format!("\"{}\"", spelling)).unwrap();
+            assert_eq!(from_json, super::RecipeProviderChoice::Trivial);
+
+            let parsed: super::RecipeProviderChoice = spelling.parse().unwrap();
+            assert_eq!(parsed, super::RecipeProviderChoice::Trivial);
+        }
+        assert_eq!(
+            serde_yaml::to_string(&super::RecipeProviderChoice::Trivial)
+                .unwrap()
+                .trim(),
+            "trivial"
+        );
+    }
+
+    #[test]
+    fn recipe_provider_choice_parses_and_displays_names() {
+        assert_eq!(
+            "default".parse::<super::RecipeProviderChoice>().unwrap(),
+            super::RecipeProviderChoice::Default
+        );
+        assert_eq!(super::RecipeProviderChoice::Default.to_string(), "default");
+        assert_eq!(super::RecipeProviderChoice::Trivial.to_string(), "trivial");
+
+        let err = "postgres"
+            .parse::<super::RecipeProviderChoice>()
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("postgres"),
+            "error should name the rejected input: {}",
+            err
+        );
+
+        // An unknown name is rejected by the deserializer too, rather than silently defaulting.
+        assert!(serde_json::from_str::<super::RecipeProviderChoice>("\"postgres\"").is_err());
+    }
+
+    /// The two choices are distinguished by behaviour, not by type name: `default` resolves a
+    /// recipe held in the environment's store, `trivial` resolves none.
+    #[cfg(feature = "async_store")]
+    #[tokio::test]
+    async fn recipe_provider_choice_yields_providers_that_differ_in_behaviour() {
+        use crate::context::{EnvRef, Environment, SimpleEnvironment};
+        use crate::metadata::Metadata;
+        use crate::parse::parse_key;
+        use crate::store::{AsyncMemoryStore, AsyncStore};
+        use crate::value::Value;
+        use std::sync::Arc;
+
+        let memory_store = AsyncMemoryStore::new(&Key::new());
+        let mut recipe_list = RecipeList::new();
+        recipe_list.add_recipe(
+            super::Recipe::new(
+                "-R/hello/test.txt".to_string(),
+                "Test Recipe".to_string(),
+                "A test recipe".to_string(),
+            )
+            .unwrap(),
+        );
+        memory_store
+            .set(
+                &parse_key("folder/recipes.yaml").unwrap(),
+                serde_yaml::to_string(&recipe_list).unwrap().as_bytes(),
+                &Metadata::new(),
+            )
+            .await
+            .unwrap();
+
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(memory_store));
+        let envref: EnvRef<SimpleEnvironment<Value>> = env.to_ref();
+
+        let folder_key = parse_key("folder").unwrap();
+        let recipe_key = parse_key("folder/test.txt").unwrap();
+
+        type Env = SimpleEnvironment<Value>;
+
+        let default: Arc<dyn super::AsyncRecipeProvider<Env>> =
+            super::RecipeProviderChoice::Default.provider();
+        assert!(
+            default
+                .has_recipes(&folder_key, envref.clone())
+                .await
+                .unwrap(),
+            "the default choice must see the recipes.yaml in the store"
+        );
+        let recipe = default
+            .recipe(&recipe_key, envref.clone())
+            .await
+            .expect("the default choice must resolve a recipe from the store");
+        assert_eq!(recipe.title, "Test Recipe");
+
+        let trivial: Box<dyn super::AsyncRecipeProvider<Env>> =
+            super::RecipeProviderChoice::Trivial.boxed_provider();
+        assert!(
+            !trivial
+                .has_recipes(&folder_key, envref.clone())
+                .await
+                .unwrap(),
+            "the trivial choice must report no recipes even when the store holds them"
+        );
+        assert!(
+            trivial
+                .recipe_opt(&recipe_key, envref.clone())
+                .await
+                .unwrap()
+                .is_none(),
+            "the trivial choice must resolve no recipe"
+        );
+        assert!(
+            trivial.recipe(&recipe_key, envref).await.is_err(),
+            "a required lookup against the trivial choice is an error"
+        );
     }
 }

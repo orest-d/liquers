@@ -1,4 +1,4 @@
-Based on `HEAD`, read rather than remembered. Nothing here is implemented.
+Based on `HEAD`, read rather than remembered. Written before implementation; the open questions at the end were settled at the gate — see [`DESIGN.md`](./DESIGN.md) §Gate decision, and [`phase4-implementation.md`](./phase4-implementation.md) for what was built.
 
 # Phase 2 — Solution and architecture
 

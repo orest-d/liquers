@@ -70,16 +70,17 @@ volatility work all landed in `assets.rs`.
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Terminal outcome contract** — built → [`design/wp2-terminal-outcome/`](design/wp2-terminal-outcome/)
-- **Recipe-provider selection by name** — designing → [`design/recipe-provider-selection/`](design/recipe-provider-selection/)
+- **Recipe-provider selection by name** — built → [`design/recipe-provider-selection/`](design/recipe-provider-selection/) *(contract in [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md))*
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
 - **Execution classes beyond simple loading** — planned → [`issues/EXTENDED-FAST-TRACK.md`](issues/EXTENDED-FAST-TRACK.md)
 - **Asset garbage collection** — planned → [`issues/CORE-ASSET-GC.md`](issues/CORE-ASSET-GC.md)
 - **Persistence, eviction safety and upload limits** — planned → [`issues/ASSETS-IMPROVEMENTS.md`](issues/ASSETS-IMPROVEMENTS.md)
 
-Ten designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
+Eleven designs have landed here and none has a `reference/` document of its own — `ASSETS.md` is the
 only settled description and it predates most of them, though `keyed-recipe-ownership` did fold its
-ownership and volatility rules back into it, and `keyed-delegation-hand-off` folded the
-same-key hand-off rule into `DEPENDENCIES_STATUS.md`. **That is the largest documentation gap in the
+ownership and volatility rules back into it, `keyed-delegation-hand-off` folded the
+same-key hand-off rule into `DEPENDENCIES_STATUS.md`, and `recipe-provider-selection` folded the
+named provider choice into `DOC_08_RECIPES_PLANS.md`. **That is the largest documentation gap in the
 project.** Two structural issues sit on top: `CORE-EVALUATE-PATH-CONSOLIDATION` (P1), which is
 the conclusion `ASSETS-FIX1` reaches from the other direction, and nothing collects assets that
 simply stop being wanted.
@@ -190,7 +191,6 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`RECIPE-PROVIDER-BY-NAME`](issues/RECIPE-PROVIDER-BY-NAME.md) | P0 | S | `recipe-provider-selection` |
 | [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `command-declaration` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
@@ -219,7 +219,6 @@ deliberately folded behind a broader line.
 - feature `COMMAND-DECLARATION-FORMAT`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
-- feature `RECIPE-PROVIDER-BY-NAME`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`
