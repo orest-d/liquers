@@ -123,20 +123,21 @@ the asset cache.
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
 
-### Per-issue design records (not phases of this design)
+### Preparatory issues designed separately
 
-Three of the issues listed above were designed separately under
-[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md), which uses the same
-five phase names but not this design's persistent-artifact or approval contract. Their Phase 1 and
-Phase 2 records live here so they sit beside the project that motivated them; none of them changes
-this design's phase documents, front-matter or workflow marker. All three are **awaiting the
-approval gate — nothing is implemented.**
+Three of the issues listed above now have their own design folders, prepared under
+[`guides/autonomous_issue_fixing.md`](../../guides/autonomous_issue_fixing.md). They keep the same
+five phase names but not this design's persistent-artifact or approval contract, and none of them
+changes this design's phase documents, front-matter or workflow marker. All three are **awaiting
+the approval gate — nothing is implemented.**
 
-- [`RECIPE-PROVIDER-BY-NAME`](./issue-recipe-provider-by-name.md)
-- [`COMMAND-DECLARATION-FORMAT`](./issue-command-declaration-format.md)
-- [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](./issue-payload-env-recipe-provider-panic.md)
+| Issue | Design |
+|---|---|
+| `RECIPE-PROVIDER-BY-NAME` | [`design/recipe-provider-selection/`](../recipe-provider-selection/) |
+| `COMMAND-DECLARATION-FORMAT` | [`design/command-declaration/`](../command-declaration/) |
+| `CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC` | [`design/payload-env-recipe-provider-fallback/`](../payload-env-recipe-provider-fallback/) |
 
-Note for whoever owns this design: the third one, if fixed directly, makes the
+Note for whoever owns this design: if the third is fixed directly, the
 `SimpleEnvironmentWithPayload` row of [Phase 2](./phase2-architecture.md) §"The recipe-provider
-default is per-crate" stale, and its Phase 1 record corrects a claim in the issue file about the
-struct's doc comment.
+default is per-crate" becomes stale, and that design's Phase 1 corrects a claim in the issue file
+about the struct's doc comment.

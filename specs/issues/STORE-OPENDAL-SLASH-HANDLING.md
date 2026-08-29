@@ -31,7 +31,7 @@ rewrites in the store tests.
 
 Migration triage, 2026-08-08. Source: `todo20260219.md` #6, work package WP-5. Verified against HEAD: the FIXME is still at `opendal_store.rs:335`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
 
-## Update, 2026-08-28 — reproduction narrows the problem
+## Update, 2026-08-29 — reproduction narrows the problem
 
 Reproduced at HEAD while preparing [`design/opendal-path-mapping/`](../design/opendal-path-mapping/).
 The headline claim above does **not** hold on the filesystem backend: `sub/deeper/foo.txt` is

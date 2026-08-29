@@ -7,7 +7,7 @@ phase: architecture
 area: [store/backends]
 gh_pr: []
 issues: [STORE-OPENDAL-SLASH-HANDLING]
-created: 2026-08-28
+created: 2026-08-29
 superseded_by:
 ---
 # OpenDAL path mapping
