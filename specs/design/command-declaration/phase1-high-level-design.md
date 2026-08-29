@@ -36,17 +36,36 @@ already carry `#[serde(default)]`**, and nothing separates the four that do not 
 has one, `volatile: bool` three fields away does not. `ArgumentInfo::label` is a fifth
 (`{"name":"count"}` fails the same way). **The gap is five serde attributes, not a new type.**
 
-What `CommandMetadata` genuinely cannot express is three host-binding facts:
+What `CommandMetadata` genuinely cannot express is **the wrapping model** — how a callable is
+adapted to serve as a command. Every binding has this concept and none of them shares it: Rust
+decides it at compile time in `register_command!` (`CommandSignature`, `registration.rs:1104`,
+consumed by codegen and gone after expansion); `liquers-web` re-decides it at runtime
+(`CallableSpec`, `adapter.rs:130`, whose doc comment reads *"The retained callable and how to call
+it"*); a document cannot express it at all. `CommandMetadata` describes *the command* and says
+nothing about *the call*, which is correct — but leaves a document-driven host nowhere to put it.
+
+Most of that model is already portable or already recorded. Only two decisions are neither:
 
 - **`state`** — `none | value | text | state`, which form of the input the callable receives.
-  `state_argument` records *whether*, never *which*.
-- **`async`** — tri-state (`IsAsync::{Async,Sync,Auto}`, `spec.rs:69`); `is_async` is a `bool`.
-- **`arguments` inferred versus declared** — kept in a thread-local (`adapter.rs:26-37`) because
-  `Vec<ArgumentInfo>` cannot distinguish "absent" from "empty".
+  `state_argument` records *whether*, never *which*; the macro's `StateParameter` (`:785`) records
+  both.
+- **`async` when undeclared** — the macro knows from `async fn`; a host may need to decide per call
+  (`IsAsync::Auto`, `spec.rs:69`). `is_async` is a `bool` and has no undeclared state.
 
-A fourth candidate, **`run`** (naming the implementation, from the issue's JSON sketch), is *not*
-one of them: `CommandDefinition` already answers "how is this command's implementation resolved".
-Withdrawn from the design; see Phase 2 open question 1.
+Two more are wrapping decisions that stay out: the **result form** (`ResultType{Value,Result}`,
+`:792`) is Rust-only, since a JavaScript callable throws and a Python one raises; and **context
+injection** (`CommandParameter::Context`, `:489`) is portable in principle but has no JavaScript
+implementation at all — `register_js_command` receives a context and discards it
+(`_context`, `adapter.rs:165`). Filed as
+[`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](../../issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md).
+
+Separately, **`arguments` inferred versus declared** is a parse artifact rather than part of the
+model — kept in a thread-local (`adapter.rs:26-37`) because `Vec<ArgumentInfo>` cannot distinguish
+"absent" from "empty".
+
+A further candidate, **`run`** (naming the implementation, from the issue's JSON sketch), belongs to
+neither: it answers *which* implementation, which is `CommandDefinition`'s question, not *how to
+call it*. Withdrawn from the design; see Phase 2 open question 1.
 
 Phase 2 also records two constructor/serde default disagreements found while re-measuring, both able
 to change `metadata_version` silently; one is filed as
@@ -56,7 +75,9 @@ to change `metadata_version` silently; one is filed as
 
 1. `CommandMetadata` deserializes from an author-written document whose minimal form is
    `{"name":"greet"}`, applying the defaults `CommandMetadata::from_key` already applies.
-2. `liquers-core` owns the three host-binding facts above, in a type distinct from metadata.
+2. `liquers-core` names the portable part of the wrapping model — the state form and the undeclared
+   async state — in a type distinct from metadata, so the macro, the browser binding and a document
+   describe one model instead of three.
 3. Field names agree with `specs/command_registry.yaml` **because they are the same struct**.
 4. `specs/command_registry.yaml` parses and re-serializes **byte-identically** — possible only
    because nothing is dropped, so `presets`, `next`, `hints`, `CommandDefinition::Alias` and
@@ -109,9 +130,11 @@ two); any change to `register_command!`; any change to what `export-command-regi
 
 ## Documentation assessment
 
-Potentially substantive, to revisit at Phase 5: a declaration format two bindings share wants a
-reference describing its fields, and `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §COMMAND is where
-an integration author would look. Reusing `CommandMetadata` rather than mirroring it makes this
-*smaller* — the fields are already documented in the struct. Small maintenance in scope: a pointer
+Potentially substantive, to revisit at Phase 5: reusing `CommandMetadata` rather than mirroring it
+makes the *field-list* documentation unnecessary — the fields are already documented on the struct.
+What is left is a genuine concept with no home: **how a callable becomes a command**, with
+`register_command!`, `registerCommand` and a document as three front-ends to one model.
+`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §COMMAND is where an integration author would look, and
+`specs/reference/REGISTER_COMMAND_FSD.md` documents only the Rust front-end today. Small maintenance in scope: a pointer
 from `specs/reference/REGISTER_COMMAND_FSD.md` noting the runtime counterpart. A *new* reference
 document is a Phase 5 proposal, not in-scope work.
