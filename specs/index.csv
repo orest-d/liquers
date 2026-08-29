@@ -62,7 +62,7 @@ MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate que
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written from a query,accepted,local,,P3,M,lib/commands;core/store,,,,,,2026-08-09,specs/issues/STORE-COMMAND-NAMESPACE-MISSING.md
-STORE-CONFIG-FROM-URI,feature,A store cannot be configured from a URI,draft,local,,P3,M,store/config,,,,,,2026-08-29,specs/issues/STORE-CONFIG-FROM-URI.md
+STORE-CONFIG-FROM-URI,feature,A store cannot be configured from a URI,draft,local,,P3,M,store/config,,,,store-config-uri,,2026-08-29,specs/issues/STORE-CONFIG-FROM-URI.md
 UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
 V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,draft,local,,P3,M,core/plan;core/query,,,,,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
@@ -86,6 +86,7 @@ PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK,design,Recipe-provider fallback for the pay
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
+STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,draft,local,examples,,,core/store;store/config;store/backends;web;docs,,,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md

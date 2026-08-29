@@ -413,6 +413,45 @@ and `s3_02` can compile, or gate them.
 
 Test plan: **43**, up from 41.
 
+## URI compatibility audit (2026-08-29) — result: no conflict
+
+The maintainer wants URI support eventually and asked whether this design would conflict with it.
+[`design/store-config-uri/`](../store-config-uri/) was written to answer that, under
+`guides/autonomous_issue_fixing.md`, with the audit as its explicit second purpose.
+
+**Verdict: nothing here must change before approval.** URI support needs two fields, both
+`#[serde(default)]` on structs Liquers owns, so both can be added later without breaking a document
+or an implementor:
+
+| Needed later | Where | Breaking? |
+|---|---|---|
+| `uri: Option<String>` | `StoreConfig` | no — additive, `skip_serializing_if` |
+| `uri_schemes: Vec<String>` | `StoreTypeInfo` | no — additive |
+
+**The `StoreFactory` trait needs no signature change**, which is the finding that matters: the URI
+travels *inside* the `StoreConfig` that `create` already receives, so `store_types`, `claims` and
+`create` all stand.
+
+**First-wins turns out to be load-bearing for URIs, not merely compatible.** A URI `http://…` names
+neither implementation of `http` — the browser's `fetch` store or OpenDAL's HTTP service. Under the
+unified direction the scheme maps to store type `http` and the chain resolves it, so the URI form
+inherits the type form's answer for free. Had this design kept the old "factories are consulted
+before built-ins" rule, scheme resolution would have had no single ordering to appeal to. The URI
+design records this as an argument *for* first-wins.
+
+**One trap found, and it is a recommendation against a harmonization.** Do **not** let core's
+`filesystem` claim the `fs://` scheme. OpenDAL's `fs` would claim it too, both would be in a native
+chain, and first-wins would silently hand a user who wrote `fs://` meaning OpenDAL a different
+backend — one that behaves differently (`opendal-path-mapping`). Deterministic is not unsurprising.
+`file://` is free and unambiguous. This constrains nothing in this design; it constrains a future
+choice, which is why it is written down now.
+
+**Why the URI must be interpreted by the factory, not by a generic normalizer** — read from
+OpenDAL's `from_uri` implementations: a URI authority becomes `bucket` for `s3` and `gcs`,
+`endpoint` = `ftp://{authority}` for `ftp`, `endpoint` = `https://{authority}` for `webdav` (the
+scheme hardcoded), and nothing at all for `fs`. That is backend knowledge, which this design already
+places in factories.
+
 ## Cross-design coordination
 
 **Standing obligation (maintainer instruction, 2026-08-29): keep

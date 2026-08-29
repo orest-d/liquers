@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [store/config]
-design: 
+design: store-config-uri
 created: 2026-08-29
 github:
 ---
@@ -30,6 +30,22 @@ and the equivalent `config:` map both yield `name=probe-bucket`, `root="/data/"`
 The gap is most felt where a URI is the natural unit: a command-line flag (`--store s3://bucket`), a
 single-store quick start, an environment variable. It is least felt in a multi-store YAML document,
 where a `config:` map is more readable than a query string anyway.
+
+## Direction chosen (maintainer, 2026-08-29)
+
+**Unified URI**, not a per-interpreter field. The scheme is extracted from the URI and interpreted as
+a store type — through an explicit mapping, since the Liquers store-type namespace and OpenDAL's
+scheme namespace stay **distinct** — and then routed through the normal factory chain. The rejected
+alternative was naming an interpreter per entry (`schemes: opendal` alongside `uri: "s3://…"`),
+which is safer and simpler but messier and less ergonomic.
+
+Backwards compatibility is **not** a constraint at this stage, so the two namespaces may be
+harmonized where that reduces surprise. They are not merged: a mapping remains, because a scheme is
+OpenDAL's vocabulary and a store type is ours.
+
+Designed in [`design/store-config-uri/`](../design/store-config-uri/), whose stated purpose is as
+much to **validate `store-factories-in-core` against this future extension** as to specify the
+feature.
 
 ## Expected behaviour
 

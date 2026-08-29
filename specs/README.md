@@ -119,6 +119,7 @@ expansion time rather than at runtime. That is the cheapest item here.
   [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
   store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Store configuration and factories in core** — designing → [`design/store-factories-in-core/`](design/store-factories-in-core/)
+- **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
