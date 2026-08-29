@@ -144,13 +144,9 @@ impl OpendalStoreFactory {
             .with_arguments(Self::common_arguments(store_type))
             .partial(OPENDAL_DOCS);
 
-        #[cfg(feature = "opendal")]
-        {
-            info
-        }
-        #[cfg(not(feature = "opendal"))]
-        {
-            info.unavailable("requires the 'opendal' feature of liquers-store")
+        match unavailability_reason(store_type) {
+            Some(reason) => info.unavailable(&reason),
+            None => info,
         }
     }
 
@@ -170,21 +166,69 @@ impl StoreFactory for OpendalStoreFactory {
         is_opendal_store_type(requested).then(|| requested.to_string())
     }
 
-    #[cfg(feature = "opendal")]
+    /// Refuses an unavailable type with the same reason [`Self::store_types`] reports, so what is
+    /// advertised and what happens cannot disagree.
     fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
-        let prefix = config.key_prefix()?;
-        let scheme = get_opendal_scheme(&config.store_type);
-        let operator = create_opendal_operator(scheme, config.config_as_string_map()?)?;
-        Ok(Box::new(AsyncOpenDALStore::new(operator, prefix)))
+        if let Some(reason) = unavailability_reason(&config.store_type) {
+            return Err(Error::not_supported(format!(
+                "Store type '{}' is not available in this build: {}",
+                config.store_type, reason
+            )));
+        }
+        #[cfg(feature = "opendal")]
+        {
+            let prefix = config.key_prefix()?;
+            let scheme = get_opendal_scheme(&config.store_type);
+            let operator = create_opendal_operator(scheme, config.config_as_string_map()?)?;
+            Ok(Box::new(AsyncOpenDALStore::new(operator, prefix)))
+        }
+        #[cfg(not(feature = "opendal"))]
+        {
+            // `unavailability_reason` already returned `Some` above, so this is unreachable; it
+            // exists so the function has a body when OpenDAL is compiled out.
+            Err(Error::not_supported(format!(
+                "Store type '{}' requires the 'opendal' feature of liquers-store",
+                config.store_type
+            )))
+        }
     }
+}
 
+/// Why this build cannot construct `store_type`, or `None` if it can.
+///
+/// Two independent things must both hold, and conflating them is how a factory ends up advertising
+/// a store type it cannot build:
+///
+/// 1. `liquers-store`'s own `opendal` feature must be on, or there is no OpenDAL at all; and
+/// 2. **OpenDAL's own `services-*` feature for that scheme must be on.** `opendal`'s `default`
+///    enables only `services-memory`, and enabling `dep:opendal` enables no service. So a
+///    consumer can have OpenDAL linked and still not have `s3`.
+///
+/// The second is asked of OpenDAL rather than guessed, via `Scheme::enabled()`, so the answer
+/// tracks whatever features the dependency graph actually resolved.
+fn unavailability_reason(store_type: &str) -> Option<String> {
     #[cfg(not(feature = "opendal"))]
-    fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
-        Err(Error::not_supported(format!(
-            "Store type '{}' requires the 'opendal' feature of liquers-store, which is not \
-             enabled in this build",
-            config.store_type
-        )))
+    {
+        let _ = store_type;
+        Some("requires the 'opendal' feature of liquers-store".to_string())
+    }
+    #[cfg(feature = "opendal")]
+    {
+        use std::str::FromStr;
+        let scheme_name = get_opendal_scheme(store_type);
+        match opendal::Scheme::from_str(scheme_name) {
+            Ok(scheme) if opendal::Scheme::enabled().contains(&scheme) => None,
+            Ok(scheme) => Some(format!(
+                "OpenDAL is linked but its 'services-{scheme}' feature is not enabled, so the \
+                 '{scheme}' service is not compiled in"
+            )),
+            // Not a scheme this OpenDAL knows. Reachable through the `opendal_<scheme>` escape
+            // hatch, and — if it ever happens for an OPENDAL_STORE_TYPES entry — a sign the table
+            // has drifted from the dependency.
+            Err(_) => Some(format!(
+                "OpenDAL does not recognise the scheme '{scheme_name}'"
+            )),
+        }
     }
 }
 
@@ -323,8 +367,58 @@ mod tests {
         );
     }
 
-    /// With the feature off the types are still *declared*, marked unavailable — so a reader is
-    /// told why rather than that the type does not exist.
+    /// Every advertised type's declared availability must match what `create` actually does.
+    ///
+    /// Added after a review found the two disagreeing. `type_info` used to mark a type `Available`
+    /// whenever `liquers-store`'s own `opendal` feature was on — but that feature only enables
+    /// `dep:opendal`, and OpenDAL's `default` compiles in `services-memory` alone. So 20 of the 21
+    /// advertised types were reported as supported while `Operator::via_iter` rejected them as
+    /// disabled, which is exactly the "unknown versus unavailable" confusion
+    /// `StoreTypeAvailability` exists to prevent — made worse than before, because the old code
+    /// only failed at construction whereas the new metadata actively advertised them.
+    ///
+    /// Runs in both feature configurations and is meaningful in each: with `opendal` off every
+    /// type must be refused, and with it on the answer must track OpenDAL's own
+    /// `Scheme::enabled()`.
+    #[test]
+    fn availability01_declared_availability_matches_create() {
+        let factory = OpendalStoreFactory;
+        for info in factory.store_types() {
+            let config = entry(&info.store_type, "p");
+            let outcome = factory.create(&config);
+            match &info.availability {
+                StoreTypeAvailability::Unavailable(reason) => match outcome {
+                    Ok(_) => panic!(
+                        "{} is declared unavailable but built anyway",
+                        info.store_type
+                    ),
+                    Err(e) => assert!(
+                        e.message.contains(reason.as_str()),
+                        "{}: create must refuse with the declared reason {reason:?}, got: {}",
+                        info.store_type,
+                        e.message
+                    ),
+                },
+                StoreTypeAvailability::Available => {
+                    // `create` may still fail on a missing required argument — `s3` needs a
+                    // bucket. What it must not do is refuse the type as unavailable, which is the
+                    // disagreement this test exists to catch.
+                    if let Err(e) = outcome {
+                        assert!(
+                            !e.message.contains("not available in this build")
+                                && !e.message.contains("not enabled or supported"),
+                            "{} is declared available but create refused it as unavailable: {}",
+                            info.store_type,
+                            e.message
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// With `liquers-store`'s `opendal` feature off the types are still *declared*, marked
+    /// unavailable — so a reader is told why rather than that the type does not exist.
     #[cfg(not(feature = "opendal"))]
     #[test]
     fn opendal04_types_are_declared_but_unavailable() {

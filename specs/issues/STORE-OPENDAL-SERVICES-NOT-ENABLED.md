@@ -106,6 +106,31 @@ Note that OpenDAL construction is **offline** — verified: `create_store` for `
 succeeds without network access, and an unreachable `ftp.invalid:21` endpoint constructs fine — so a
 test that constructs every advertised type needs no credentials and no connection.
 
+## The symptom is now reported correctly, which is not the same as fixed
+
+`design/store-factories-in-core/` at first made this **worse**, and a review caught it. Its
+`OpendalStoreFactory` marked a store type `Available` whenever `liquers-store`'s own `opendal`
+feature was on — but that feature enables only `dep:opendal`, and OpenDAL's `default` compiles in
+`services-memory` alone. So 20 of the 21 advertised types were reported as supported while
+`Operator::via_iter` rejected them as disabled: the old code merely failed at construction, the new
+metadata actively advertised them.
+
+Fixed in that PR by asking OpenDAL rather than guessing — `opendal::Scheme::enabled()` reports the
+services actually compiled in, so availability tracks whatever the dependency graph resolved:
+
+```
+Store type 's3' is not available in this build: OpenDAL is linked but its 'services-s3' feature is
+not enabled, so the 's3' service is not compiled in
+```
+
+`availability01_declared_availability_matches_create` asserts the two APIs agree, in both feature
+configurations.
+
+**None of that makes the types work.** A user configuring `s3` still cannot get an S3 store; they
+now get a message naming the reason instead of one that reads like a typo. This issue is still open
+and still P0: the fix is to enable the service features, which is a decision about what the product
+ships, not about how it reports.
+
 ## Also blocks deriving the argument descriptions
 
 Found while implementing `design/store-factories-in-core/` Phase 4 Step 9. That design reports each

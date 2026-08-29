@@ -587,8 +587,24 @@ Known but unavailable in this build: fs, s3, ftp (requires the 'opendal' feature
 The second sentence is the point. A type that is real and documented but compiled out — a Cargo
 feature is off, or the target does not support it — is reported as **unavailable with the reason**,
 never as unknown. Reporting it as unknown sends the reader hunting for a typo in something that
-exists. `filesystem` on wasm32 and every OpenDAL type without the `opendal` feature are the live
-cases.
+exists.
+
+**Two independent things gate an OpenDAL type, and conflating them is a trap.**
+`liquers-store`'s own `opendal` feature enables `dep:opendal` and nothing more; OpenDAL's `default`
+compiles in `services-memory` alone. So a build can have OpenDAL linked and still not have `s3`.
+Availability is therefore asked of OpenDAL — `Scheme::enabled()` — rather than inferred from the
+crate's own feature:
+
+```
+Store type 's3' is not available in this build: OpenDAL is linked but its 'services-s3' feature is
+not enabled, so the 's3' service is not compiled in
+```
+
+At the time of writing **no `services-*` feature is enabled**, so every OpenDAL type reports
+unavailable. That is accurate, and it is a defect in its own right —
+[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md).
+
+`filesystem` on wasm32 is the other live case.
 
 ### How complete is an argument list?
 
@@ -706,4 +722,5 @@ Full design: `specs/design/liquers-web-store/`.
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-09 | Documented the optional `opendal` feature, the `StoreFactory` extension seam, and the three browser store types (`localstorage`, `http`/`https` via `fetch`, `js`). | `design/liquers-web-store/` |
 | 2026-08-29 | Reviewed against the implementation at HEAD. Added "Why this configuration exists alongside OpenDAL's own", correcting the claim that OpenDAL offers no text configuration — `via_iter` (0.48) and `from_uri` (0.55) do, but configure one backend each. Added "Configuration values and the OpenDAL string boundary", recording which document value types survive the flattening into OpenDAL's string map and which do not. No change to the configuration format itself. | `design/store-factories-in-core/` Phase 3 |
+| 2026-08-29 | Recorded that an OpenDAL store type's availability is gated by **two** independent features — `liquers-store`'s `opendal` and OpenDAL's own `services-*` — and is asked of `Scheme::enabled()` rather than inferred, after a review found the two conflated. Notes that no `services-*` feature is enabled today, so every OpenDAL type currently reports unavailable. | `design/store-factories-in-core/` PR review |
 | 2026-08-29 | Rescoped: the configuration format, the factory seam and the builder are `liquers-core`'s; `liquers-store` keeps the OpenDAL backends. Added "Building stores: the factory model" — declaration, resolution, first-wins chaining, the absence of a built-in fallback, the unrecognised/unavailable distinction, and `ArgumentCoverage`. Rewrote the `StoreFactory` section for the new trait and **corrected the claim that factories precede built-in types**: there are no built-ins, chain order decides, and the browser's `http` wins because `liquers-store` is not one of its dependencies. Corrected the `opendal` feature's stated rationale. | `design/store-factories-in-core/` Phase 5 |

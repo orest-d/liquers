@@ -124,7 +124,14 @@ type". This is not politeness: reporting a real type as unknown sends the reader
 in something that exists. It is conformance item `STORE13` in
 [`LANGUAGE-INTEGRATION_GUIDE.md`](LANGUAGE-INTEGRATION_GUIDE.md).
 
-Live cases: every OpenDAL type without the `opendal` feature, and `filesystem` on wasm32.
+**Ask, do not infer.** If availability depends on a dependency's own features, ask the dependency:
+`OpendalStoreFactory` calls `opendal::Scheme::enabled()` rather than assuming that having OpenDAL
+linked means having `s3`. Those are two independent features, and an earlier version of that factory
+conflated them — advertising 20 store types as available that could not be built. A test
+(`availability01`) now asserts the declared availability and what `create` does cannot disagree;
+that assertion is worth copying for any factory whose availability is conditional.
+
+Live cases: every OpenDAL type whose `services-*` feature is off, and `filesystem` on wasm32.
 
 ## Describing arguments you do not own
 
@@ -196,4 +203,5 @@ feature that has not been designed. Document exclusivity in an argument's `doc` 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-29 | Added "ask, do not infer" to §"Say a type exists but cannot be built here", after a review found `OpendalStoreFactory` conflating its own `opendal` feature with OpenDAL's per-service ones. | `design/store-factories-in-core/` PR review |
 | 2026-08-29 | Created with the factory model: choosing a chain, adding a type by map or by trait, overriding by chaining earlier, declaring unavailability, `ArgumentCoverage` for externally-owned arguments, the `create` contract, and the inference rules. | `design/store-factories-in-core/` |
