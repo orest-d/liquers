@@ -1,4 +1,4 @@
-For [`issues/RECIPE-PROVIDER-BY-NAME.md`](../../issues/RECIPE-PROVIDER-BY-NAME.md). Nothing here is implemented.
+For [`issues/RECIPE-PROVIDER-BY-NAME.md`](../../issues/RECIPE-PROVIDER-BY-NAME.md). Written before implementation; Q1 below was settled at the gate — see [`DESIGN.md`](./DESIGN.md) §Gate decision.
 
 # Phase 1 — High-level design
 
