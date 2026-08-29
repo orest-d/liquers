@@ -133,7 +133,9 @@ is being shadowed. Flagged at the gate rather than decided silently.
 
 **Builder methods**, in the `StoreConfig::with_prefix` style already in the moved code:
 `StoreArgumentInfo::new(name, argument_type)`, `.with_label(…)`, `.with_doc(…)`, `.required()`,
-`.with_default(serde_json::Value)`. `required()` takes no argument — it reads better at the call
+`.with_default(serde_json::Value)`, plus `StoreArgumentInfo::derived(name, default)` which infers
+`argument_type` from the default's JSON type and falls back to `Any` when the default is `null`
+(an `Option<T>` field hides its type that way). `required()` takes no argument — it reads better at the call
 site than `.required(true)`, and there is no `.optional()` because that is the default.
 
 **Ownership:** all fields owned. A `StoreTypeInfo` is built once per factory and cloned into error
@@ -217,17 +219,19 @@ pub enum ArgumentCoverage {
 }
 ```
 
-**This is the field that keeps the design out of a maintenance trap**, and it is the answer to
-"describing all ~134 OpenDAL fields would mean maintaining documentation for someone else's
-project". The trap is not the size of the job — it is that a hand-written list of an external
-crate's fields becomes **silently wrong** when that crate adds a field, changes a type, or renames
-one, with nothing to catch it.
+**This distinction is required by the design, not an OpenDAL workaround.** Liquers is meant to
+accept store backends it does not own, and an externally-owned backend can only ever be described
+incompletely — its arguments change on someone else's release schedule. Without a way to *say* the
+description is partial, every such backend forces a bad choice: claim completeness and be silently
+wrong on the next upstream release, or describe nothing and give the user no guidance at all.
+OpenDAL is simply the first and largest instance; the browser types are the counter-example, owned
+here and describable in full.
 
-`Partial` removes the trap structurally rather than by discipline: **an incomplete list is only a
+`Partial` removes the problem structurally rather than by discipline: **an incomplete list is only a
 lie if completeness was claimed.** A `Partial` type states in the type system that its arguments are
-guidance and that the truth lives elsewhere, so OpenDAL gaining a field in 0.56 makes our
+guidance and that the truth lives elsewhere, so an upstream release adding a field makes our
 description *less complete*, never *wrong*. Nothing has to be noticed for the documentation to stay
-honest.
+honest, which is the only property that survives contact with a dependency's release cadence.
 
 Consequences, all deliberate:
 
@@ -525,7 +529,21 @@ impl StoreFactory for OpendalStoreFactory { /* … */ }
 
 /// Core's store types, then OpenDAL's. The chain a native consumer wants.
 pub fn default_store_factory() -> ChainedStoreFactory;
+
+/// Field names and defaults for one OpenDAL service config, taken from the linked OpenDAL.
+///
+/// Sound because `Configurator: Serialize` is a trait bound, every service config derives
+/// `Default`, and none carries `skip_serializing_if` — so serializing a default yields every
+/// field. Returns an empty list rather than an error when the config is not a JSON object:
+/// `ArgumentCoverage::Partial` already says the list may be incomplete, so "no arguments
+/// described" is a correct answer rather than a failure.
+#[cfg(feature = "opendal")]
+fn derived_arguments<C: opendal::Configurator + Default>() -> Vec<StoreArgumentInfo>;
 ```
+
+**With `opendal` off, derivation yields nothing** — the config types are not compiled — and the
+OpenDAL types are already `StoreTypeAvailability::Unavailable` in that build, so an empty argument
+list is consistent rather than a second degradation.
 
 Retained in `liquers-store/src/config.rs` (unmoved): `OPENDAL_STORE_TYPES`, `is_opendal_store_type`,
 `get_opendal_scheme`. They name backends core cannot build, so they stay with the factory that uses

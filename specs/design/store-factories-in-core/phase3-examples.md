@@ -436,7 +436,11 @@ reader believes it.
 
 Two mechanisms remove the trap, and they are independent — the first alone is sufficient.
 
-#### 1. `ArgumentCoverage::Partial` — say that the list is guidance (required)
+Both are **committed to the design** (maintainer decision). `ArgumentCoverage` is required
+regardless of OpenDAL: Liquers is meant to accept backends it does not own, and any such backend can
+only be described incompletely, because its arguments change on someone else's release schedule.
+
+#### 1. `ArgumentCoverage::Partial` — say that the list is guidance
 
 Core and browser store types are `Complete`: Liquers owns them and the argument list *is* the
 specification. OpenDAL types are `Partial { authority: "<OpenDAL's docs URL>" }`: the list is
@@ -447,7 +451,7 @@ field makes our description *less complete* — never *wrong* — and nothing ha
 documentation to stay honest. This is what a user or a coding agent needs: enough to write a working
 `config:` block, plus an unambiguous pointer to the authority for the rest.
 
-#### 2. Derive the field names from the linked OpenDAL (recommended, optional)
+#### 2. Derive the field names from the linked OpenDAL
 
 Better than describing fewer fields by hand is describing them **without writing them down at all**.
 Three properties of OpenDAL 0.55, each verified against the source rather than assumed:
@@ -500,13 +504,16 @@ On top of the derived list, hand-write `doc` text for only the two or three argu
 guidance genuinely helps — `bucket`, `root`, `endpoint`, and the `${VAR}` convention for secrets.
 That is a handful of sentences about *usage*, not a transcription of someone else's API.
 
-#### Recommendation
+#### Both, and how they compose
 
-**Do 1; do 2 if Phase 4 finds it as cheap as it looks** (roughly 40 lines plus the 20-entry match,
-replacing ~134 hand-written entries — likely *less* work than describing a subset by hand). They
-compose: 2 fills in the names, 1 states that the result is still not a contract. Deferring 2 costs
-nothing and breaks nothing, because `Partial` with a short hand-written list and a documentation URL
-is already honest and useful; derivation can be added later without changing any signature.
+**2 fills in the names; 1 states that the result is still not a contract.** They are not
+alternatives and neither subsumes the other: derivation gives an accurate list of *what OpenDAL 0.55
+has*, and `Partial` says that list is guidance about a surface Liquers does not own — which stays
+true even when derivation is perfect, because doc text, required-ness, and valid argument
+*combinations* are still missing.
+
+Order of work in Phase 4: `ArgumentCoverage` first (it is a `StoreTypeInfo` field and the browser
+and core factories need it), then derivation (it only fills `arguments` for the OpenDAL factory).
 
 **What is deliberately not attempted.** S3's credential modes are mutually exclusive in practice —
 static keys, or assume-role (`role_arn` + `external_id`), or customer-managed SSE keys — and
@@ -652,6 +659,7 @@ mod tests {
     #[test] fn core02_memory_store_is_constructed();
     #[cfg(target_arch = "wasm32")]
     #[test] fn core03_filesystem_is_listed_but_unavailable_on_wasm();
+    #[test] fn core04_complete_type_rejects_an_unknown_key();   // ArgumentCoverage::Complete
 }
 ```
 
@@ -667,7 +675,7 @@ will never be called — and since that list is what the error message prints, t
 rule) an unavailable type is not described as unknown. `test_unknown_store_type` today asserts only
 `is_err()`, which would pass against an empty message.
 
-### New unit tests — `liquers-store/src/store_factory.rs` (6)
+### New unit tests — `liquers-store/src/store_factory.rs` (10)
 
 ```rust
 #[test] fn opendal01_claims_the_opendal_type_table();
@@ -678,7 +686,31 @@ rule) an unavailable type is not described as unknown. `test_unknown_store_type`
 #[test] fn factory04_gated_type_names_the_feature();     // preserved, retargeted
 #[test] fn default01_chain_is_core_then_opendal();
 #[test] fn default02_core_types_are_not_shadowed_by_opendal();  // `fs` != `filesystem`
+
+// --- ArgumentCoverage ---
+#[test] fn coverage01_opendal_types_are_partial_with_an_authority();
+#[test] fn coverage02_partial_type_accepts_an_undescribed_key();
+
+// --- derived arguments ---
+#[cfg(feature = "opendal")]
+#[test] fn derive01_s3_arguments_come_from_the_linked_opendal();
+#[cfg(feature = "opendal")]
+#[test] fn derive02_default_value_determines_the_argument_type();
 ```
+
+**`derive01` must not assert an exhaustive list** — that would reintroduce by the back door exactly
+the maintenance burden derivation removes, failing on every OpenDAL upgrade that adds a field.
+Assert instead that a few long-stable names are *present* (`bucket`, `region`, `root` for `s3`) and
+that the list is non-empty. The test then checks the mechanism, not the dependency's contents.
+
+**`derive02`** asserts the inference rule: `enable_virtual_host_style` has default `false`, so it
+comes back `Boolean`; an `Option<String>` field defaults to `null`, so it comes back `Any`. That
+second half is the honest limit of derivation, and asserting it stops someone "fixing" it later
+without understanding why it is there.
+
+**`coverage02`** is the behavioural half of `ArgumentCoverage`: a configuration naming a key the
+factory did not describe must still build for a `Partial` type. Its counterpart on the core side is
+`core04_complete_type_rejects_an_unknown_key`.
 
 `default02` guards a real near-miss: OpenDAL claims `fs`, core claims `filesystem`. They do not
 collide today, and a future rename of either would silently change which factory serves a document.
@@ -727,13 +759,13 @@ and **never executes in the default configuration**. It is the only test coverin
 |---|---|---|
 | Configuration data | 11 moved | Verbatim; any change is a finding |
 | OpenDAL type tables | 2 moved | New module, same assertions |
-| Factory machinery | 13 new | Chain order, union, availability, error text |
-| `liquers-store` factories | 6 (4 rewritten) | Includes the preserved gated-feature message |
+| Factory machinery | 14 new | Chain order, union, availability, error text, `Complete` rejection |
+| `liquers-store` factories | 10 (4 rewritten) | Includes the preserved gated-feature message, coverage behaviour and derivation |
 | Core-only router | 4 new | The design's thesis, structurally unfakeable |
 | Browser | existing, retargeted | Import paths only |
 | Build matrix | 4 new rows | `liquers-core` has none today |
 
-**Total: 36 tests + 4 matrix rows**, of which 13 assert behaviour that does not exist yet and 3
+**Total: 41 tests + 4 matrix rows**, of which 18 assert behaviour that does not exist yet and 3
 replace assertions this design invalidates.
 
 ## Inline Review Findings

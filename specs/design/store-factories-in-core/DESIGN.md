@@ -321,9 +321,23 @@ removed — the same cadence as `OPENDAL_STORE_TYPES`, already hand-maintained. 
 where all the volume and volatility are, becomes free, and forgetting an entry degrades to "no
 arguments reported", which under `Partial` is honest.
 
-Phase 4 should do 1, and do 2 if it proves as cheap as it looks (~40 lines plus the 20-entry match,
-replacing ~134 hand-written entries — probably *less* work than describing a subset by hand).
-Deferring 2 breaks nothing.
+**Both are committed (maintainer decision).** The rationale for 1 is stronger and more general than
+the OpenDAL-drift framing it was first given: Liquers is meant to accept backends it does not own,
+and *any* externally-owned backend can only be described incompletely, because its arguments change
+on someone else's release schedule. Without a way to say "partial", every such backend forces a bad
+choice — claim completeness and be silently wrong on the next upstream release, or describe nothing
+and give no guidance. OpenDAL is the first and largest instance, not the reason.
+
+They compose rather than overlap: 2 fills in the names, 1 says the result is still not a contract —
+which stays true even if derivation were perfect, since doc text, required-ness and valid argument
+*combinations* remain outside it. Phase 4 order: `ArgumentCoverage` first (a `StoreTypeInfo` field
+the core and browser factories both need), then derivation (which only fills `arguments` for the
+OpenDAL factory).
+
+Test-plan consequence: **41 tests, up from 36.** One of them carries a trap worth stating —
+`derive01` must assert that a few long-stable field names are *present*, never that the list is
+exhaustive. An exhaustive assertion would reintroduce through the test suite precisely the
+maintenance burden derivation exists to remove, failing on every OpenDAL release that adds a field.
 
 **Explicitly not attempted:** `StoreTypeInfo` cannot express that a group of arguments is mutually
 exclusive or co-required — S3's static-keys / assume-role / customer-managed-SSE modes are the live
