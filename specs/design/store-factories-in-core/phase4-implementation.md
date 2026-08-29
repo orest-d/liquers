@@ -338,7 +338,15 @@ the authority URL — already honest and useful. Nothing else depends on it.
 
 1. **Add `liquers-core` rows — the crate has none today**, and it is about to gain its first optional
    feature and target-conditional store availability:
-   `""`, `"--no-default-features"`, `"--features toml"`, `"--target wasm32-unknown-unknown"`.
+   `""`, `"--features toml"`, `"--target wasm32-unknown-unknown"`.
+
+   **`--no-default-features` is deliberately *not* in that list.** Running it during Step 4
+   validation showed `liquers-core` has never compiled that way: `async_store` gates `futures` and
+   `async-trait`, but `context.rs`, `interpreter.rs` and `store.rs` import them unconditionally.
+   Pre-existing and untouched by this design — filed as
+   [`CORE-NO-DEFAULT-FEATURES-BROKEN`](../../issues/CORE-NO-DEFAULT-FEATURES-BROKEN.md) (P2, S).
+   Add the row when that is fixed; adding it now would make the matrix red on arrival and teach
+   everyone to ignore it.
 2. Rewrite the header comment justifying the `liquers-store` wasm32 row: it claims to prove "the
    dependency edge liquers-web relies on", and that edge is deleted. The row's remaining purpose —
    the `opendal`-off feature split — is still real.

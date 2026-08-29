@@ -8,6 +8,7 @@ STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slas
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
+CORE-NO-DEFAULT-FEATURES-BROKEN,issue,liquers-core does not build without default features,draft,local,,P2,S,core/store;build,,,,,,2026-08-29,specs/issues/CORE-NO-DEFAULT-FEATURES-BROKEN.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,'`Error::with_key` writes the key into the `query` field',draft,local,,P2,S,core/error,,,,,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,draft,local,,P2,S,docs;lib/commands,,,,,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,accepted,local,,P2,S,core/assets,,,,,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md

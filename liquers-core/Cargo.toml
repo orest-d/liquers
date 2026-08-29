@@ -25,6 +25,12 @@ cli=["dep:clap"]
 # See specs/design/parameter-entity-escaping/.
 entities-html5=[]
 
+# TOML parsing for configuration documents (StoreRouterConfig::from_toml).
+# Deliberately NOT in `default`, matching how liquers-store gated it before the configuration
+# types moved here: a consumer that never reads TOML should not link a TOML parser.
+# liquers-store forwards its own `toml` feature to this one.
+toml=["dep:toml"]
+
 # The `liquers-validate` query validation utility. See specs/design/query-validation/.
 # An explicit [[bin]] block is required: auto-discovered binaries in src/bin/
 # cannot carry `required-features`, so without this the crate would try to build
@@ -51,6 +57,7 @@ serde = "1.0.181"
 serde_derive = "1.0.181"
 serde_json = "1.0.104"
 serde_yaml = "0.9.33"
+toml = { version = "0.8", optional = true }
 thiserror = "2.0.9"
 chrono = "0.4.31"
 blake3 = "1.8.1"
