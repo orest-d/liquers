@@ -56,6 +56,7 @@ REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,
 STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,draft,local,,P3,S,store/backends;store/config,,,,store-factories-in-core,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
 STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN,issue,liquers-store's `opendal` feature does not compile without `async_store`,draft,local,,P3,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
+ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,draft,local,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
 CORE-STATE-LOCK-API-CLEANUP,issue,`State` holds an `RwLock` that may not be needed,accepted,local,,P3,M,core/value,,,,,,2026-08-08,specs/issues/CORE-STATE-LOCK-API-CLEANUP.md

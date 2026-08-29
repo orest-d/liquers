@@ -7,7 +7,7 @@ phase: architecture
 area: [core/commands, web, py]
 gh_pr: []
 issues: [COMMAND-DECLARATION-FORMAT, STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE,
-         JS-COMMAND-CANNOT-ACCESS-CONTEXT]
+         JS-COMMAND-CANNOT-ACCESS-CONTEXT, ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING]
 created: 2026-08-29
 superseded_by:
 ---
@@ -26,6 +26,9 @@ artifact and approval contract.
       *(revised 2026-08-29: fix `CommandMetadata` rather than mirror it; the residue reframed as
       the portable wrapping model, `CallingConvention`; `run` withdrawn pending the gate — see
       Phase 2 open question 1)*
+- [x] Portability validation — [`portability-analysis.md`](./portability-analysis.md)
+      *(six languages assessed; the bar "clear benefit for Python and JavaScript" is met, but
+      asymmetrically — see its §Bar)*
 - [ ] Approval gate (§5 of the autonomous procedure) — **awaiting a decision**
 - [ ] Phase 3: Examples, reproduction and tests
 - [ ] Phase 4: Implementation plan and execution

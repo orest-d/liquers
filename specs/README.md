@@ -215,6 +215,7 @@ deliberately folded behind a broader line.
 - design `predecessor-cut-equivalence`
 - design `store-key-guard`
 - design `value-type-system`
+- feature `ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-DECLARATION-FORMAT`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`

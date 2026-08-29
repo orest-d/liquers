@@ -472,10 +472,40 @@ this revision reuses the whole type rather than mirroring it. `infer_arguments`,
    **Recommendation:** defer, but record the constraint that every future field must be optional
    with a backward-compatible default, so additive evolution stays available. Raised because the
    macro's seam makes it clear the maintainers already expect the convention to change.
+10. **Per-argument merge.** `arguments_declared` is all-or-nothing, matching JavaScript. Python,
+    Starlark and Rhai can infer names, types and defaults exactly and would want to augment single
+    arguments with a label or widget hint without restating the rest. Leave the boolean and let each
+    host merge before it hands metadata over (recommended — it keeps this change minimal and matches
+    today's JavaScript behaviour exactly), or design the merge into the shared layer now?
+    **Recommendation:** leave it, and treat `ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING` as the place it
+    gets settled — before `COMMAND-METADATA-ENHANCEMENTS` lands per-argument enums, which would be
+    supplied the same way.
 9. **The name.** `CallingConvention` was chosen over `CommandBinding` because it says what the type
    is rather than what it is not, and matches the macro's own `WrapperVersion` vocabulary.
    `CommandWrapper` and `WrappingSpec` are equally defensible. Cheap to change before implementation
    and expensive after; flagged only so the choice is deliberate.
+
+## Portability validation
+
+[`portability-analysis.md`](./portability-analysis.md) tests the language-neutrality claim against
+JavaScript, Python, Rust, Starlark, Rhai and Rune. Three results bear on this architecture:
+
+1. **Part A is portable to all six**, and it is the cheap half. The design's value is concentrated
+   where its cost is lowest.
+2. **Part B's two fields are unevenly justified.** `state` is needed by every dynamic host;
+   `is_async: Option<bool>` is needed by two of six — JavaScript and Rune — because Starlark and
+   Rhai have no async and Python and Rust determine it from the callable. The field earns its place
+   and stays, but this is evidence against ever growing `CallingConvention`, and it strengthens open
+   question 8's additive-only rule.
+3. **Argument inference is shared by none of them**, and should not be — each host infers from its
+   own reflection mechanism. Worth stating because the issue's framing implicitly counts that code
+   as duplicated; it is not, and it is ~140 of `spec.rs`'s 389 lines.
+
+The analysis also found that `arguments_declared` being a single boolean matches JavaScript but not
+Python, Starlark or Rhai, which want to *augment* inferred arguments rather than replace them. Not a
+blocker — a host can merge before handing metadata over — but it means the shared layer cannot
+express the semantics three of six languages would want. Filed as
+`ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING`; see open question 10.
 
 ## Scope note
 
