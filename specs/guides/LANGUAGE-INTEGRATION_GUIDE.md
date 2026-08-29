@@ -729,7 +729,12 @@ in another, described by a document it can edit. Decide explicitly which directi
 - `StoreRouterConfig` / `StoreConfig` and `StoreRouterBuilder` from **`liquers-core`**, where
   direction 3 is selected — an *integration* needs no store crate for these
 - An extension seam on that builder, if the *integration* contributes store types the shared crate
-  does not know (see "Taking only part of the store support crate")
+  does not know — implement `StoreFactory` and chain it (see "Taking only part of the store support
+  crate", and `guides/STORE_FACTORY_GUIDE.md`)
+
+**A limitation worth knowing before you design around it:** the seam is for the *integration* — Rust
+code — not for the *language*. A store type contributed from JavaScript or Python is **not
+supported**. See "What the *language* cannot contribute" below.
 
 **The design must answer:** Which methods are mandatory versus safely defaulted? Are bytes copied or viewed? Are keys normalized? What are atomicity and consistency guarantees? How are language sync methods scheduled? Can callbacks re-enter Liquers?
 
@@ -749,6 +754,45 @@ For a store the *integration* provides (direction 2), additionally:
 - **How are bytes represented if the backend cannot store them?** A text-only backend needs an
   encoding, and the choice must be **recorded with the data**, never re-derived on read from a
   metadata hint that may be wrong.
+
+#### What the *language* cannot contribute: a store *type*
+
+Direction 1 lets the *language* define a store **instance** — a value adapted to `AsyncStore`. It
+does **not** let the language define a store **type**, and the difference bites exactly where a
+configuration document is involved.
+
+In `liquers-web` a page registers an object by name and a document reaches it through the single
+Rust-defined type `js`:
+
+```yaml
+- type: js
+  prefix: custom
+  config: { object: myStore }
+```
+
+A page cannot declare `type: myprotocol` with arguments of its own, because that means implementing
+`StoreFactory` — `store_types`, `resolve`, `create` — and the trait has no binding in any integrated
+language.
+
+**Note the asymmetry with commands**, which is the clearest way to see what is missing:
+`registerCommand` lets a page define a genuinely new command that then appears in the registry like
+any other. `registerStoreObject` is closer to registering one *implementation* under a fixed name.
+
+Three consequences to design around, not merely to note:
+
+- **A page-defined store is invisible to `store_types()`**, which is what the unclaimed-type error
+  enumerates and what any generated table or configuration UI would list. A document naming it is
+  told the type is unknown, and offered a list that could never contain it.
+- **Its arguments cannot be declared.** They live inside the page's object, so its `config:` block
+  is unvalidated and undocumented.
+- **The document leaks how the store is provided** rather than saying what it is, so a document
+  written for a browser build cannot be read as naming the same type a native build might implement
+  in Rust.
+
+If your *integration* needs language-defined store types, that is
+[`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](../issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) — treat it as
+prerequisite work rather than something to improvise, and expect it to overlap
+`COMMAND-DECLARATION-FORMAT`, which is the same problem for commands.
 
 #### Composing stores: the router
 
@@ -2525,7 +2569,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-08-29 | §STORE "Taking only part of the store support crate": **recommendation reversed.** The project took option 2 — configuration, the `StoreFactory` seam and `StoreRouterBuilder` moved to `liquers-core`, so an integration needs no store crate for them and `liquers-web` dropped its dependency. Records why the original rejection did not survive (the consumer was `liquers-core` itself, not one integration), keeps option 3 as still correct for the *backends*, and restates the extension-seam rule: there are no built-in types and factories chain first-wins, so overriding a shared type name means chaining earlier. `STORE12`'s override clause restated in terms of chain order, with an `NA` condition. | `design/store-factories-in-core/` |
+| 2026-08-29 | §STORE "Taking only part of the store support crate": **recommendation reversed.** The project took option 2 — configuration, the `StoreFactory` seam and `StoreRouterBuilder` moved to `liquers-core`, so an integration needs no store crate for them and `liquers-web` dropped its dependency. Records why the original rejection did not survive (the consumer was `liquers-core` itself, not one integration), keeps option 3 as still correct for the *backends*, and restates the extension-seam rule: there are no built-in types and factories chain first-wins, so overriding a shared type name means chaining earlier. `STORE12`'s override clause restated in terms of chain order, with an `NA` condition. Added §"What the *language* cannot contribute: a store *type*" — the seam is for the integration, not the language, and a page can supply a store instance but not a named type with declared arguments. | `design/store-factories-in-core/` |
 | 2026-08-26 | §VALUE "Typing an integrated value": registration is no longer an open problem. Records the one-identifier-per-variant rule for the foreign container, the extend-and-freeze registration recipe with its four traps, the constant-plus-test guarantee, and that a value type you define yourself needs none of it. | `design/foreign-value-type-registration/` |
 | 2026-08-18 | Added the VALUE convention that a language value is converted to a native variant when that is possible and not too expensive, so an integration normally defines only the foreign container; added type-identifier naming and registration guidance pointing at the type system, and the two rules that keep a bridge ready for automatic conversion. | `design/value-type-system/` |
 | 2026-08-17 | `STORE05` follows the absolute-key rule: a relative key is `KeyNotAbsolute`, not `KeyNotSupported`; the store must be called directly rather than through a router; dotted-but-ordinary names are explicit negatives; and `STORE05b` records the ENOENT trap that lets a filesystem-backed `STORE05` pass with no guard present. | `design/store-key-guard/` |
