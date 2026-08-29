@@ -89,11 +89,11 @@ impl OpendalStoreFactory {
     /// The full argument list should be *derived* from the linked OpenDAL rather than written
     /// here: `Configurator` bounds `Serialize`, every service config derives `Default`, and none
     /// carries `skip_serializing_if`, so `serde_json::to_value(C::default())` yields every field
-    /// name and default. That cannot be done yet, and the reason is not a design problem:
-    /// naming `opendal::services::S3Config` requires the `services-s3` feature, and this crate
-    /// enables **no** service features — see `STORE-OPENDAL-SERVICES-NOT-ENABLED`. Until that is
-    /// fixed the only nameable config is `MemoryConfig`, which is not even an
-    /// [`OPENDAL_STORE_TYPES`] entry.
+    /// name and default. What used to block it was that naming `opendal::services::S3Config`
+    /// requires the `services-s3` feature and this crate enabled **no** service features. That is
+    /// fixed — `services-default` names the config types of every service it enables — so the
+    /// remaining work is the derivation itself, tracked as `STORE-OPENDAL-ARGUMENTS-NOT-DERIVED`.
+    /// It must stay `#[cfg]`-aware: a service left out of this build has no nameable config.
     ///
     /// See `specs/design/store-factories-in-core/` Phase 4 Step 9.
     fn common_arguments(store_type: &str) -> Vec<StoreArgumentInfo> {
@@ -169,27 +169,35 @@ impl StoreFactory for OpendalStoreFactory {
     /// Refuses an unavailable type with the same reason [`Self::store_types`] reports, so what is
     /// advertised and what happens cannot disagree.
     fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
-        if let Some(reason) = unavailability_reason(&config.store_type) {
-            return Err(Error::not_supported(format!(
+        let unavailable = |reason: String| {
+            Error::not_supported(format!(
                 "Store type '{}' is not available in this build: {}",
                 config.store_type, reason
-            )));
-        }
+            ))
+        };
         #[cfg(feature = "opendal")]
         {
+            // Resolving to a `Scheme` rather than passing the name through is what makes an
+            // *alias* work. `Scheme::from_str` accepts several — `https` is `Scheme::Http`,
+            // `ipns` is `Scheme::Ipfs` — but `Operator::via_iter` matches the canonical scheme
+            // constant (`services::HTTP_SCHEME`) and nothing else, so `via_iter("https", ..)`
+            // fails with "scheme is not enabled or supported" however many features are on.
+            // `https` is an advertised store type, so that was a type declared available that
+            // could not be built; `availability01` catches it now.
+            let scheme = resolve_enabled_scheme(&config.store_type).map_err(unavailable)?;
             let prefix = config.key_prefix()?;
-            let scheme = get_opendal_scheme(&config.store_type);
             let operator = create_opendal_operator(scheme, config.config_as_string_map()?)?;
             Ok(Box::new(AsyncOpenDALStore::new(operator, prefix)))
         }
         #[cfg(not(feature = "opendal"))]
         {
-            // `unavailability_reason` already returned `Some` above, so this is unreachable; it
-            // exists so the function has a body when OpenDAL is compiled out.
-            Err(Error::not_supported(format!(
-                "Store type '{}' requires the 'opendal' feature of liquers-store",
-                config.store_type
-            )))
+            // Without OpenDAL every type is unavailable, so this branch only has to report it.
+            match unavailability_reason(&config.store_type) {
+                Some(reason) => Err(unavailable(reason)),
+                None => Err(unavailable(
+                    "requires the 'opendal' feature of liquers-store".to_string(),
+                )),
+            }
         }
     }
 }
@@ -214,31 +222,45 @@ fn unavailability_reason(store_type: &str) -> Option<String> {
     }
     #[cfg(feature = "opendal")]
     {
-        use std::str::FromStr;
-        let scheme_name = get_opendal_scheme(store_type);
-        match opendal::Scheme::from_str(scheme_name) {
-            Ok(scheme) if opendal::Scheme::enabled().contains(&scheme) => None,
-            Ok(scheme) => Some(format!(
-                "OpenDAL is linked but its 'services-{scheme}' feature is not enabled, so the \
-                 '{scheme}' service is not compiled in"
-            )),
-            // Not a scheme this OpenDAL knows. Reachable through the `opendal_<scheme>` escape
-            // hatch, and — if it ever happens for an OPENDAL_STORE_TYPES entry — a sign the table
-            // has drifted from the dependency.
-            Err(_) => Some(format!(
-                "OpenDAL does not recognise the scheme '{scheme_name}'"
-            )),
-        }
+        resolve_enabled_scheme(store_type).err()
     }
 }
 
+/// The OpenDAL scheme `store_type` names, if this build compiled that service in.
+///
+/// The single place a store type becomes an OpenDAL scheme, so [`unavailability_reason`] and
+/// `create` cannot answer differently — one reports the `Err`, the other uses the `Ok`.
+///
+/// Returning the `Scheme` rather than a name matters: it is the *canonical* form, and
+/// `Operator::via_iter` accepts nothing else.
+#[cfg(feature = "opendal")]
+fn resolve_enabled_scheme(store_type: &str) -> Result<opendal::Scheme, String> {
+    use std::str::FromStr;
+    let scheme_name = get_opendal_scheme(store_type);
+    match opendal::Scheme::from_str(scheme_name) {
+        Ok(scheme) if opendal::Scheme::enabled().contains(&scheme) => Ok(scheme),
+        Ok(scheme) => Err(format!(
+            "OpenDAL is linked but the '{scheme}' service is not compiled in; enable \
+             liquers-store's 'services-{scheme}' feature"
+        )),
+        // Not a scheme this OpenDAL knows. Reachable through the `opendal_<scheme>` escape
+        // hatch, and — if it ever happens for an OPENDAL_STORE_TYPES entry — a sign the table
+        // has drifted from the dependency.
+        Err(_) => Err(format!(
+            "OpenDAL does not recognise the scheme '{scheme_name}'"
+        )),
+    }
+}
+
+/// Takes a [`opendal::Scheme`] rather than a name: `via_iter` matches canonical scheme constants,
+/// so an alias such as `https` must already have been resolved. See [`resolve_enabled_scheme`].
 #[cfg(feature = "opendal")]
 fn create_opendal_operator(
-    scheme: &str,
+    scheme: opendal::Scheme,
     config: HashMap<String, String>,
 ) -> Result<Operator, Error> {
     let config_pairs: Vec<(String, String)> = config.into_iter().collect();
-    Operator::via_iter(scheme, config_pairs).map_err(|e| {
+    Operator::via_iter(scheme.into_static(), config_pairs).map_err(|e| {
         Error::general_error(format!(
             "Failed to create OpenDAL operator for scheme '{}': {}",
             scheme, e
@@ -332,7 +354,9 @@ mod tests {
     /// designed in `specs/design/opendal-path-mapping/`, whose Phase 2 lists `key_prefix` (`:296`)
     /// among the functions it repairs. Asserting it here would fail for a reason this module does
     /// not control.
-    #[cfg(feature = "opendal")]
+    /// Gated on `services-fs`, not on `opendal`: the type it builds needs the service compiled
+    /// in, and `opendal` alone compiles in none.
+    #[cfg(feature = "services-fs")]
     #[test]
     fn opendal03_constructs_a_store() -> Result<(), Box<dyn std::error::Error>> {
         let config = entry("fs", "local").with_config("root", "/tmp/liquers-opendal03");
@@ -417,6 +441,142 @@ mod tests {
         }
     }
 
+    /// Whether this build's *features* say `store_type` should be constructible.
+    ///
+    /// Written out by hand on purpose. It is the manifest's claim, stated independently of the
+    /// dependency graph, so that
+    /// [`availability02_advertised_types_match_the_enabled_features`] compares two things that
+    /// were arrived at separately — what `Cargo.toml` enables, and what OpenDAL reports through
+    /// `Scheme::enabled()`. Deriving one from the other would make the test tautological.
+    ///
+    /// The catch-all panics rather than guessing: an entry added to [`OPENDAL_STORE_TYPES`]
+    /// without a feature to back it is exactly the drift being guarded against.
+    fn enabled_by_features(store_type: &str) -> bool {
+        match store_type {
+            "fs" => cfg!(feature = "services-fs"),
+            "s3" => cfg!(feature = "services-s3"),
+            "gcs" => cfg!(feature = "services-gcs"),
+            "azblob" => cfg!(feature = "services-azblob"),
+            // One OpenDAL service, `Scheme::Http`, behind both type names.
+            "http" | "https" => cfg!(feature = "services-http"),
+            "webdav" => cfg!(feature = "services-webdav"),
+            "ftp" => cfg!(feature = "services-ftp"),
+            "github" => cfg!(feature = "services-github"),
+            "webhdfs" => cfg!(feature = "services-webhdfs"),
+            "dropbox" => cfg!(feature = "services-dropbox"),
+            "onedrive" => cfg!(feature = "services-onedrive"),
+            "gdrive" => cfg!(feature = "services-gdrive"),
+            "ipfs" => cfg!(feature = "services-ipfs"),
+            // The `[target.'cfg(unix)'.dependencies]` row enables `services-sftp` through the
+            // dependency rather than through a feature of this crate, so on Unix it rides along
+            // with `opendal` itself. The explicit feature still counts, for a Unix-like target
+            // someone enables it on deliberately.
+            "sftp" => {
+                cfg!(feature = "services-sftp") || (cfg!(unix) && cfg!(feature = "opendal"))
+            }
+            "hdfs" => cfg!(feature = "services-hdfs"),
+            "redis" => cfg!(feature = "services-redis"),
+            "mongodb" => cfg!(feature = "services-mongodb"),
+            "postgresql" => cfg!(feature = "services-postgresql"),
+            "mysql" => cfg!(feature = "services-mysql"),
+            "sqlite" => cfg!(feature = "services-sqlite"),
+            other => panic!(
+                "{other} is advertised in OPENDAL_STORE_TYPES but no feature of liquers-store \
+                 enables it; add a `services-{other}` feature and a row here"
+            ),
+        }
+    }
+
+    /// The advertised type table, the manifest, and OpenDAL must all say the same thing.
+    ///
+    /// This is the test the issue `STORE-OPENDAL-SERVICES-NOT-ENABLED` asked for. Before the fix
+    /// the crate advertised 21 store types and enabled no service feature at all, so 20 of them
+    /// could not be constructed by any consumer — and nothing failed, because the crate's
+    /// dev-dependencies added `services-fs` to the *test* binary through Cargo's feature
+    /// unification while the shipped library had nothing. A suite green for that reason is worse
+    /// than no suite.
+    ///
+    /// Runs in every feature configuration and is meaningful in each: with `opendal` off both
+    /// sides are empty; with `services-default` on, the thirteen features it names must be
+    /// exactly the services OpenDAL reports as compiled in.
+    ///
+    /// It catches drift in either direction — a type added to the table with no feature behind
+    /// it, a feature dropped from `services-default`, or an OpenDAL upgrade that renames a
+    /// scheme or a service feature.
+    #[test]
+    fn availability02_advertised_types_match_the_enabled_features() {
+        for store_type in OPENDAL_STORE_TYPES {
+            let actually_available = unavailability_reason(store_type).is_none();
+            assert_eq!(
+                actually_available,
+                enabled_by_features(store_type),
+                "{store_type}: Cargo.toml and OpenDAL disagree about whether this build has it \
+                 (OpenDAL says available={actually_available}). Either the feature is missing \
+                 from liquers-store's manifest, or `enabled_by_features` is stale."
+            );
+        }
+    }
+
+    /// The headline capability, from the documented YAML: an S3 store a consumer can configure.
+    ///
+    /// Goes through `create_router_from_yaml` rather than the factory directly, because the
+    /// configuration document is what `STORE_CONFIG_FSD.md` promises and what actually broke.
+    /// Offline: OpenDAL's builders perform no I/O, so a bucket that does not exist still yields
+    /// a store, and no credentials are needed.
+    #[cfg(feature = "services-s3")]
+    #[test]
+    fn availability03_documented_s3_configuration_builds(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let router = create_router_from_yaml(
+            "stores:\n  - type: s3\n    prefix: remote\n    config:\n      \
+             bucket: my-liquers-bucket\n      region: us-east-1\n",
+        )?;
+        assert!(router.is_supported(&parse_key("remote/data.csv")?));
+        Ok(())
+    }
+
+    /// A service this build leaves out must name the feature that would bring it in.
+    ///
+    /// "Not enabled or supported" — what OpenDAL says on its own — reads like the type does not
+    /// exist. The reader needs to know that `sqlite` is real, is advertised, and is one Cargo
+    /// feature away.
+    #[cfg(all(feature = "opendal", not(feature = "services-sqlite")))]
+    #[test]
+    fn availability04_unavailable_type_names_the_feature_to_enable() {
+        let error = match default_store_factory().create(&entry("sqlite", "db")) {
+            Ok(_) => panic!("`sqlite` must not build without its service feature"),
+            Err(e) => e,
+        };
+        assert!(
+            error.message.contains("services-sqlite"),
+            "the message must name the feature to enable, got: {}",
+            error.message
+        );
+        assert!(
+            !error.message.contains("Unknown store type"),
+            "a service compiled out is not an unknown type, got: {}",
+            error.message
+        );
+    }
+
+    /// An advertised type that is an *alias* of an OpenDAL scheme must build like any other.
+    ///
+    /// `https` and `http` are one service, `Scheme::Http`. `Scheme::from_str` accepts both names,
+    /// so availability reporting always said `https` was fine; `Operator::via_iter` matches the
+    /// canonical constant only, so construction always failed. Nothing noticed until the service
+    /// features were turned on, because before that `https` was unavailable for the other reason
+    /// and never reached `via_iter`. `create` now resolves through `Scheme` first.
+    #[cfg(feature = "services-http")]
+    #[test]
+    fn availability05_an_alias_scheme_builds() -> Result<(), Box<dyn std::error::Error>> {
+        let config = entry("https", "web").with_config("endpoint", "https://example.org");
+        default_store_factory().create(&config)?;
+        // The escape hatch takes the same path, so it must resolve the alias too.
+        let escaped = entry("opendal_https", "web2").with_config("endpoint", "https://example.org");
+        default_store_factory().create(&escaped)?;
+        Ok(())
+    }
+
     /// With `liquers-store`'s `opendal` feature off the types are still *declared*, marked
     /// unavailable — so a reader is told why rather than that the type does not exist.
     #[cfg(not(feature = "opendal"))]
@@ -485,7 +645,8 @@ mod tests {
 
     /// The behavioural half of `Partial`: a key the factory does not describe must still reach the
     /// backend. `atomic_write_dir` is a real `fs` option this factory says nothing about.
-    #[cfg(feature = "opendal")]
+    /// Gated on `services-fs` for the same reason as `opendal03`.
+    #[cfg(feature = "services-fs")]
     #[test]
     fn coverage02_partial_type_accepts_an_undescribed_key(
     ) -> Result<(), Box<dyn std::error::Error>> {

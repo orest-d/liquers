@@ -40,10 +40,17 @@ What is actually lost: the argument descriptions a user or coding agent sees for
 are a handful rather than the real set, and they will drift from OpenDAL's on any upgrade —
 precisely the drift derivation was designed to make impossible.
 
-## Prerequisite
+## Prerequisite — **lifted 2026-08-29**
 
-**[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](STORE-OPENDAL-SERVICES-NOT-ENABLED.md) (P0) blocks both**,
-for two different reasons.
+**[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](STORE-OPENDAL-SERVICES-NOT-ENABLED.md) (P0) blocked both**,
+for two different reasons. It is now `closed`: `services-default` enables fourteen services (plus
+`sftp` on Unix), so the config types are nameable and `s3` is constructible. The rest of this
+section records what the block was.
+
+One thing carries over into the work itself: the derivation must be `#[cfg]`-aware. A service left
+out of a build — `services-sqlite` and the other opt-ins, any service under
+`--no-default-features` — still has no nameable config type, so the derived argument list has to be
+per-service gated rather than written once for all of `OPENDAL_STORE_TYPES`.
 
 Deriving requires *naming* a config type, and `opendal::services::S3Config` is behind
 `#[cfg(feature = "services-s3")]` (`opendal-0.55.0/src/services/mod.rs`). With no service features
