@@ -1,5 +1,4 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
-STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",draft,local,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
@@ -53,6 +52,7 @@ QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,P3,S,lib/commands;build;docs,,,,,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
 STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,draft,local,,P3,S,store/backends;store/config,,,,store-factories-in-core,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
+STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN,issue,liquers-store's `opendal` feature does not compile without `async_store`,draft,local,,P3,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-WITHOUT-ASYNC-STORE-BROKEN.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
@@ -122,6 +122,7 @@ CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards
 DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE,issue,Execution-time expired dependency always fails its dependent; the stale-value branch is dead,closed,local,,P0,S,core/assets,,,,expired-binary-read-safety,,2026-08-08,specs/issues/DEPENDENCY-EXPIRED-STALE-VALUE-UNREACHABLE.md
 LIB-RECIPE-PROVIDER-PANIC,issue,DefaultEnvironment panics when no recipe provider is configured,closed,local,,P0,S,lib/commands;core/assets;web,,,,,,2026-08-09,specs/issues/LIB-RECIPE-PROVIDER-PANIC.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
+STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",closed,local,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 ASSET-EXPIRED-CACHED-BINARY-READ,issue,Expired asset can still return its cached binary on read,closed,local,,P0,M,core/assets;core/store,,,,expiration-safety,,2026-08-08,specs/issues/ASSET-EXPIRED-CACHED-BINARY-READ.md
 ASSET-KEYED-DELEGATION-ALWAYS-CYCLES,issue,The keyed delegation branch cannot succeed - it always records a self-dependency,closed,local,,P0,M,core/assets,,,,keyed-delegation-hand-off,,2026-08-09,specs/issues/ASSET-KEYED-DELEGATION-ALWAYS-CYCLES.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,closed,local,,P0,M,core/value,,,,value-type-system,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md

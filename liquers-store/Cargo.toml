@@ -18,24 +18,99 @@ serde_derive = "1.0.181"
 serde_json = "1.0.104"
 serde_yaml = "0.9.33"
 opendal = { version = "0.55.0", optional = true }
+
 bytes = "1.8.0"
 async-trait = "0.1.80"
+# `sftp` is the one advertised service that cannot be a plain default feature: it pulls
+# `openssh`, which uses `std::os::unix` unconditionally, so putting `services-sftp` in
+# `default` would make this crate — and `liquers-axum` with it — fail to build on Windows.
+# Enabling it here instead keeps the documented SFTP configuration working wherever it can
+# work, and `Scheme::enabled()` reports it unavailable, with the reason, where it cannot.
+#
+# The consequence to know: this row is keyed on the *target*, not on a feature, so on Unix
+# `sftp` arrives with the `opendal` dependency itself rather than with `services-default`.
+# `--no-default-features --features opendal` therefore has `sftp` and no other service.
+[target.'cfg(unix)'.dependencies]
+opendal = { version = "0.55.0", optional = true, features = ["services-sftp"] }
 
 [features]
-default=["async_store", "opendal"]
+default=["async_store", "opendal", "services-default"]
 async_store=[]
 # OpenDAL-backed store backends. Optional because OpenDAL is a large, native-oriented
 # dependency and non-OpenDAL backends are expected to live here too, so an OpenDAL-free
 # configuration of this crate keeps its purpose.
 #
-# The original reason was different and no longer applies: it let a wasm32 consumer take this
-# crate for `StoreConfig`/`StoreRouterBuilder` without OpenDAL. Those now live in
-# `liquers-core`, so `liquers-web` depends on this crate not at all.
+# On its own this feature links OpenDAL and enables **no service**: OpenDAL's own `default`
+# compiles in `services-memory` alone, which is not an advertised store type. The
+# `services-*` features below are what make `OPENDAL_STORE_TYPES` entries constructible.
+#
+# The original reason for making OpenDAL optional was different and no longer applies: it let
+# a wasm32 consumer take this crate for `StoreConfig`/`StoreRouterBuilder` without OpenDAL.
+# Those now live in `liquers-core`, so `liquers-web` depends on this crate not at all.
 # See specs/design/store-factories-in-core/.
 opendal=["dep:opendal"]
 toml=["liquers-core/toml"]
 
+# --- OpenDAL services -------------------------------------------------------------------
+#
+# One feature per OpenDAL service that `OPENDAL_STORE_TYPES` advertises, named exactly after
+# OpenDAL's own so the "enable 'services-s3'" message a user is given is unambiguous about
+# which feature to turn on — liquers-store's, which forwards to OpenDAL's.
+#
+# `services-default` is what a consumer gets: local, object-store, and HTTP-family backends,
+# all pure Rust and cross-platform. `store_factory.rs`'s
+# `availability02_advertised_types_match_the_enabled_features` asserts that this list and the
+# advertised type table agree, so neither can drift from the other unnoticed.
+#
+# Deliberately NOT in `services-default`, each for a stated reason:
+#
+#   services-sftp        Unix-only (`openssh` uses `std::os::unix`). Enabled on Unix by the
+#                        `[target.'cfg(unix)'.dependencies]` row above, not by this list.
+#   services-hdfs        `hdfs-sys`'s build script locates a JVM unconditionally, so a default
+#                        build would fail outright on any machine without Java installed.
+#   services-redis       Each pulls a database client — `redis`, `mongodb`, or `sqlx`. Together
+#   services-mongodb     they are +104 crates against the 242 `services-default` resolves to,
+#   services-postgresql  and a store backed by a database is a deliberate choice rather than
+#   services-mysql       something a consumer of a query library should pay for by default.
+#   services-sqlite
+#
+# `http` and `https` are both `Scheme::Http`, so `services-http` makes both type names work.
+services-default = [
+    "services-fs",
+    "services-s3",
+    "services-gcs",
+    "services-azblob",
+    "services-http",
+    "services-webdav",
+    "services-ftp",
+    "services-github",
+    "services-webhdfs",
+    "services-dropbox",
+    "services-onedrive",
+    "services-gdrive",
+    "services-ipfs",
+]
+services-fs = ["opendal", "opendal/services-fs"]
+services-s3 = ["opendal", "opendal/services-s3"]
+services-gcs = ["opendal", "opendal/services-gcs"]
+services-azblob = ["opendal", "opendal/services-azblob"]
+services-http = ["opendal", "opendal/services-http"]
+services-webdav = ["opendal", "opendal/services-webdav"]
+services-ftp = ["opendal", "opendal/services-ftp"]
+services-github = ["opendal", "opendal/services-github"]
+services-webhdfs = ["opendal", "opendal/services-webhdfs"]
+services-dropbox = ["opendal", "opendal/services-dropbox"]
+services-onedrive = ["opendal", "opendal/services-onedrive"]
+services-gdrive = ["opendal", "opendal/services-gdrive"]
+services-ipfs = ["opendal", "opendal/services-ipfs"]
+services-sftp = ["opendal", "opendal/services-sftp"]
+services-hdfs = ["opendal", "opendal/services-hdfs"]
+services-redis = ["opendal", "opendal/services-redis"]
+services-mongodb = ["opendal", "opendal/services-mongodb"]
+services-postgresql = ["opendal", "opendal/services-postgresql"]
+services-mysql = ["opendal", "opendal/services-mysql"]
+services-sqlite = ["opendal", "opendal/services-sqlite"]
+
 [dev-dependencies]
 tokio = {version="1.47.1", features = ["full"]}
 liquers-macro={path="../liquers-macro"}
-opendal = { version = "0.55", features = ["services-fs"] }
