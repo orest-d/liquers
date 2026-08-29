@@ -106,6 +106,22 @@ Note that OpenDAL construction is **offline** — verified: `create_store` for `
 succeeds without network access, and an unreachable `ftp.invalid:21` endpoint constructs fine — so a
 test that constructs every advertised type needs no credentials and no connection.
 
+## Also blocks deriving the argument descriptions
+
+Found while implementing `design/store-factories-in-core/` Phase 4 Step 9. That design reports each
+OpenDAL store type's configuration arguments by **deriving** them from the linked OpenDAL rather
+than hand-writing them — sound because `Configurator` bounds `Serialize`, every service config
+derives `Default`, and none carries `skip_serializing_if`, so `serde_json::to_value(C::default())`
+yields every field name and default.
+
+Deriving requires *naming* the config type, and `opendal::services::S3Config` is behind
+`#[cfg(feature = "services-s3")]` (`opendal-0.55.0/src/services/mod.rs`). With no service features
+enabled, `cargo check` fails with `cannot find type FsConfig in module opendal::services`, and the
+only nameable config is `MemoryConfig` — not an `OPENDAL_STORE_TYPES` entry.
+
+So this issue blocks two things beyond the store types themselves: the offline S3 tests, and the
+derived argument descriptions. Both were deferred rather than worked around.
+
 ## Discovery
 
 Found while writing OpenDAL configuration examples for

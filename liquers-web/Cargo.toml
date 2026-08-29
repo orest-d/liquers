@@ -18,7 +18,6 @@ liquers-macro = { path = "../liquers-macro" }
 # Configuration and the store-router builder, without OpenDAL — which is native-oriented and
 # large. `StoreFactory` (added for this crate) is what lets the browser store types plug in.
 # See specs/design/liquers-web-store/.
-liquers-store = { path = "../liquers-store", default-features = false, features = ["async_store"] }
 # localStorage holds UTF-16 strings, so bytes that are not valid UTF-8 are base64-encoded.
 base64 = "0.22"
 # `AsyncStore` is declared with `#[async_trait(?Send)]` on wasm, so its implementors need the

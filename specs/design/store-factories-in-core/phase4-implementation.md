@@ -322,8 +322,21 @@ text for only the two or three arguments per type where guidance helps (`bucket`
 (`bucket`, `region`, `root` for `s3`) and the list is non-empty. An exhaustive assertion
 reintroduces through the test suite exactly the maintenance burden derivation removes.
 
-**Deferrable.** If Step 9 is dropped, OpenDAL types keep `Partial` with a short hand-written list and
-the authority URL — already honest and useful. Nothing else depends on it.
+**DEFERRED during implementation — blocked by the same P0, for a reason the plan did not
+anticipate.** `derived_arguments` must *name* a config type, and `opendal::services::S3Config` only
+exists when `services-s3` is enabled. `liquers-store` enables **no** service features
+([`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md)), so the
+only nameable config in the library build is `MemoryConfig` — which is not even an
+`OPENDAL_STORE_TYPES` entry. Attempted and reverted; `cargo check` fails with
+`cannot find type FsConfig in module opendal::services`.
+
+So that P0 blocks **two** steps, not one. This was the plan's own recommendation to fix it first,
+now with a second reason.
+
+Deferring costs little, as planned: OpenDAL types keep `ArgumentCoverage::Partial`, a short
+hand-written argument list and the authority URL — honest and useful without the derivation. The
+reasoning is recorded in `OpendalStoreFactory::common_arguments`'s doc comment so whoever fixes the
+P0 finds it at the code rather than in a design folder.
 
 **Validation:** `cargo test -p liquers-store derive`
 

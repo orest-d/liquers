@@ -336,7 +336,7 @@ async fn web_evaluate_structured_result() {
 #[wasm_bindgen_test]
 async fn eval07_keyed_query_evaluates() {
     use liquers_core::metadata::{Metadata, MetadataRecord};
-    use liquers_store::config::StoreRouterConfig;
+    use liquers_core::store_config::StoreRouterConfig;
     use liquers_web::environment::{configure_store_on, register_store_object_on};
     use wasm_bindgen::JsCast;
 

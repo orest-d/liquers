@@ -17,11 +17,22 @@
 # with OpenDAL's `services-fs`) are native, and there is no wasm test runner in this loop.
 # See specs/issues/LIB-INTEGRATION-TESTS-NOT-FEATURE-GATED.md.
 #
-# liquers-store is here for a different reason: its `opendal` feature is optional so that a
-# wasm32 consumer can take the configuration and builder without OpenDAL. The compiler catches a
-# missed `#[cfg]` only in the configuration that omits the feature, and the native default build
-# never omits it. The wasm32 row additionally proves the dependency edge liquers-web relies on.
-# See specs/design/liquers-web-store/phase4-implementation.md, Step 4.
+# liquers-store is here for a different reason: its `opendal` feature is optional, and the compiler
+# catches a missed `#[cfg]` only in the configuration that omits the feature, which the native
+# default build never does. That row also runs `factory04`, which is `#[cfg(not(feature =
+# "opendal"))]` and is the only coverage of the message a gated-off store type must produce.
+#
+# Its wasm32 row used to prove the dependency edge liquers-web relied on. That edge is gone —
+# configuration, factories and the builder moved to liquers-core and liquers-web no longer depends
+# on this crate at all — but the row still earns its place as the wasm32 half of the feature split.
+# See specs/design/store-factories-in-core/.
+#
+# liquers-core is here because it now carries an optional feature (`toml`) and target-conditional
+# store availability (`filesystem` is declared but unavailable on wasm32), neither of which the
+# native default build exercises. Note the absence of a `--no-default-features` row: that
+# configuration has never compiled, because `async_store` gates `futures`/`async-trait` while
+# context.rs, interpreter.rs and store.rs import them unconditionally. Add the row when
+# CORE-NO-DEFAULT-FEATURES-BROKEN is fixed; adding it now would make this script red on arrival.
 #
 # Usage: bash scripts/check-build-matrix.sh
 # See specs/design/liquers-web/phase4-implementation.md, Step 7.
@@ -35,6 +46,12 @@ LIB_CONFIGS=(
   "--no-default-features --features image-support --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
+)
+
+CORE_CONFIGS=(
+  ""
+  "--features toml"
+  "--target wasm32-unknown-unknown"
 )
 
 STORE_CONFIGS=(
@@ -60,6 +77,10 @@ check() {
 
 for args in "${LIB_CONFIGS[@]}"; do
   check liquers-lib "$args"
+done
+
+for args in "${CORE_CONFIGS[@]}"; do
+  check liquers-core "$args"
 done
 
 for args in "${STORE_CONFIGS[@]}"; do

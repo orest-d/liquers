@@ -1,9 +1,18 @@
 //! Building a store router for a browser page from a configuration document.
 //!
-//! Reuses `liquers_store`'s configuration format and `StoreRouterBuilder` unchanged, contributing
-//! the browser's store types through the `StoreFactory` seam. Factories are consulted **before**
-//! the built-in types, which is what lets `http` mean OpenDAL natively and `fetch` here — the same
-//! configuration document, a target-appropriate backend.
+//! Reuses `liquers_core`'s configuration format and `StoreRouterBuilder` unchanged, contributing
+//! the browser's store types through the `StoreFactory` seam.
+//!
+//! **Chain order decides which implementation of a contested type name wins: the first factory to
+//! resolve an entry builds it.** `build_router` chains core's store types first and this crate's
+//! after, so `memory` means the same thing here as everywhere else while `localstorage`, `js`,
+//! `http` and `https` are this crate's.
+//!
+//! `http` is the interesting one: it is an OpenDAL service natively and a `fetch` store here.
+//! There is no conflict to resolve, because `liquers-store` is not a dependency of this crate at
+//! all — the OpenDAL factory that would claim `http` is never in the browser's chain. Adding it
+//! would change that, and under first-wins whichever factory is chained earlier would win. See
+//! `specs/design/store-factories-in-core/`.
 //!
 //! ```yaml
 //! stores:
@@ -31,8 +40,11 @@ use liquers_core::error::Error;
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncStore, AsyncStoreRouter};
-use liquers_store::config::{StoreConfig, StoreRouterConfig};
-use liquers_store::store_builder::{StoreFactory, StoreRouterBuilder};
+use liquers_core::store_config::{StoreConfig, StoreRouterConfig};
+use liquers_core::store_factory::{
+    core_store_factory, ChainedStoreFactory, StoreArgumentInfo, StoreArgumentType, StoreFactory,
+    StoreRouterBuilder, StoreTypeInfo,
+};
 use wasm_bindgen::prelude::*;
 
 use crate::store::fetch::FetchStore;
@@ -62,6 +74,27 @@ impl WebStoreFactory {
     /// Names a page object so a `js` store entry can refer to it.
     pub fn register_object(&mut self, name: &str, object: js_sys::Object) {
         self.objects.insert(name.to_string(), object);
+    }
+
+    /// `http` and `https` differ only in the scheme their `url_prefix` carries.
+    fn fetch_type_info(store_type: &str) -> StoreTypeInfo {
+        StoreTypeInfo::new(store_type)
+            .with_label("Read-only fetch()")
+            .with_doc(
+                "Serves a fixed list of keys over fetch(). Read-only, and it cannot enumerate a \
+                 directory, which is why the keys are listed rather than discovered.",
+            )
+            .with_argument(
+                StoreArgumentInfo::new("url_prefix", StoreArgumentType::String)
+                    .required()
+                    .with_doc("Base URL each key is appended to."),
+            )
+            .with_argument(
+                StoreArgumentInfo::new("keys", StoreArgumentType::Array).with_doc(
+                    "Keys this store serves, as a list of strings. Entries not already carrying \
+                     the store's prefix are taken as relative to it.",
+                ),
+            )
     }
 
     fn create_local_storage(config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
@@ -142,10 +175,48 @@ fn parse_key_list(config: &StoreConfig, prefix: &Key) -> Result<Vec<Key>, Error>
 }
 
 impl StoreFactory for WebStoreFactory {
-    fn store_types(&self) -> Vec<String> {
-        let mut types = vec![LOCAL_STORAGE_TYPE.to_string(), JS_TYPE.to_string()];
-        types.extend(HTTP_TYPES.iter().map(|t| t.to_string()));
-        types
+    /// The browser's store types, described.
+    ///
+    /// `ArgumentCoverage` is left at its `Complete` default: Liquers owns these three types, so
+    /// this list *is* their specification rather than guidance about someone else's surface.
+    fn store_types(&self) -> Vec<StoreTypeInfo> {
+        vec![
+            StoreTypeInfo::new(LOCAL_STORAGE_TYPE)
+                .with_label("Browser localStorage")
+                .with_doc(
+                    "Persists in the page's localStorage. Survives a reload, is bounded by the \
+                     browser's per-origin quota, and is not shared between origins.",
+                )
+                .with_argument(
+                    StoreArgumentInfo::new("namespace", StoreArgumentType::String)
+                        .with_doc(
+                            "Key prefix inside localStorage, so two applications on one origin do \
+                             not collide. Defaults to `liquers`.",
+                        )
+                        .with_default(serde_json::Value::String("liquers".to_string())),
+                )
+                .with_argument(
+                    StoreArgumentInfo::new("quota_bytes", StoreArgumentType::Number)
+                        .with_doc("Refuse writes beyond this many bytes. Whole number."),
+                ),
+            StoreTypeInfo::new(JS_TYPE)
+                .with_label("JavaScript object")
+                .with_doc(
+                    "Delegates to a page object registered with registerStoreObject. The object \
+                     supplies the store methods; see the JavaScript store protocol.",
+                )
+                .with_argument(
+                    StoreArgumentInfo::new("object", StoreArgumentType::String)
+                        .required()
+                        .with_doc(
+                            "The registered name. A JavaScript object cannot be written into a \
+                             configuration document, so the document carries a name and \
+                             registerStoreObject maps it to the object.",
+                        ),
+                ),
+            Self::fetch_type_info("http"),
+            Self::fetch_type_info("https"),
+        ]
     }
 
     fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
@@ -166,9 +237,10 @@ pub fn build_router(
     factory: WebStoreFactory,
 ) -> Result<AsyncStoreRouter, Error> {
     warn_on_unexpanded_variables(config);
-    StoreRouterBuilder::new(config.clone())
-        .with_factory(Box::new(factory))
-        .build_without_env_expansion()
+    let chain = ChainedStoreFactory::new()
+        .chain(Box::new(core_store_factory()))
+        .chain(Box::new(factory));
+    StoreRouterBuilder::new(config.clone(), Box::new(chain)).build_without_env_expansion()
 }
 
 /// A browser has no environment variables, so `${VAR}` is left verbatim. Saying so is better than

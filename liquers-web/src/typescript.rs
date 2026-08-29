@@ -122,7 +122,7 @@ export interface LiquersStoreEntry {
 
 /**
  * Backend settings. Which fields apply depends on the entry's `type`; the union is deliberately
- * open, because `liquers-store` accepts backends this build does not know about.
+ * open, because a store factory may contribute backends this build does not know about.
  */
 export interface LiquersStoreEntryConfig {
   /** `localstorage`: entry-name namespace. Must contain no `/`. Defaults to `"liquers"`. */
