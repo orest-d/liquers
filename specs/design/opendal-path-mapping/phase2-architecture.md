@@ -156,7 +156,8 @@ unused `Store` import (`:8`) and an unnecessary `mut` at `:339`.
 
 **Read, unchanged** — `AsyncStore` and its defaults (`liquers-core/src/store.rs:329-500`),
 `AsyncStoreRouter` (`:1700-1900`), `AsyncMemoryStore` (`:1520-1690`), `AsyncFileStore`
-(`:1030-1275`), `create_opendal_store` (`liquers-store/src/store_builder.rs:188-202`).
+(`:1030-1275`), `create_opendal_store` (`liquers-store/src/store_builder.rs:188-202` — unchanged by *this* design,
+but relocated by `store-factories-in-core`, so re-resolve the reference if that lands first).
 
 **Not touched** — the commented-out synchronous `OpenDALStore` block (`:15-215`),
 `liquers-store/src/config.rs`, `liquers-core`.
@@ -204,9 +205,24 @@ this one.
   it is listed as a candidate rather than assumed in scope.
 - `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` — the reason `PathMap` entry points are fallible.
 - `CORE-STORE-OPENBIN-MISSING` — unaffected.
-- `STORE-CONFIG-IN-CORE` — moves `StoreConfig` into `liquers-core`; it does not move
-  `opendal_store.rs`, so there is no ordering constraint, but a merge conflict in
-  `store_builder.rs` is possible if both land close together. This change does not edit that file.
+- `STORE-CONFIG-IN-CORE` — designed in [`design/store-factories-in-core/`](../store-factories-in-core/).
+  **Updated 2026-08-29 by that design; the earlier assessment here understated its scope.** It no
+  longer moves only `StoreConfig`: the `StoreFactory` trait and `StoreRouterBuilder` move to
+  `liquers-core` as well, so `liquers-web` can drop `liquers-store` entirely. `store_builder.rs` is
+  therefore gutted rather than lightly touched — `create_store` is removed, `StoreRouterBuilder`
+  moves out, and `create_opendal_store` becomes `OpendalStoreFactory::create` in a new
+  `liquers-store/src/store_factory.rs`.
+  **The conclusion is unchanged and is now definite rather than hedged: no ordering constraint and
+  no textual merge conflict**, because no source file is edited by both designs — this change edits
+  `opendal_store.rs` alone, and that design does not touch it. Two shared expectations, neither
+  blocking:
+  - Both run `scripts/check-build-matrix.sh` and both care about the `opendal`-off configuration.
+    That design changes what it *contains* (`OpendalStoreFactory` compiles either way and reports
+    the type as unavailable when the feature is off), so the check below stays meaningful but
+    exercises a different shape if it lands first.
+  - Validation item (d) below asserts a prefixed store reports `key_prefix() == data`.
+    `StoreConfig::key_prefix` moves to `liquers-core` with its behaviour unchanged, so the assertion
+    holds; only the import path moves.
 
 ## Risk analysis
 

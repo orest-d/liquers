@@ -176,6 +176,35 @@ registry for recipe providers with a precise technical reason — `AsyncRecipePr
 because `AsyncStore` is not generic". That independently confirms this design's object-safety
 assumption, and is worth citing in the new store-factory guide as the boundary of the pattern.
 
+## Cross-design coordination
+
+**Standing obligation (maintainer instruction, 2026-08-29): keep
+[`design/opendal-path-mapping/`](../opendal-path-mapping/) updated whenever a change here impacts
+it.** It is the only in-review design sharing a crate with this one, it is `status: in_review` and
+unimplemented, and its author documented this design's interaction from the issue text rather than
+from this folder — so it goes stale silently unless someone pushes.
+
+Correction to an earlier reading in this folder: their §"Not touched" list and their "Read,
+unchanged" entries describe **their own** edits and remain accurate. Only the interaction assessment
+was stale, plus one line reference.
+
+Done so far (2026-08-29): their Phase 2 §"Related open issues" bullet rewritten with the widened
+scope and the ruled-out conflict; their `create_opendal_store` reference annotated as relocated by
+this design; a dated cross-reference added to their `DESIGN.md` notes.
+
+Re-check and push an update if any of the following changes here:
+
+| Trigger | What to update there |
+|---|---|
+| The set of files this design edits changes | The no-conflict conclusion in their §"Related open issues" — it rests on `opendal_store.rs` being touched by neither |
+| `create_opendal_store` lands somewhere other than `liquers-store/src/store_factory.rs` | Their "Read, unchanged" line reference |
+| `StoreConfig::key_prefix` gains any behaviour change (it should not) | Their validation item (d), which asserts `key_prefix() == data` for a prefixed store |
+| `scripts/check-build-matrix.sh` rows or the `opendal`-off shape change | Their Phase 2 validation command list, which requires the `opendal`-off configuration to compile |
+| This design starts editing `opendal_store.rs` for any reason | Everything above; the two designs would then genuinely conflict |
+| Either design reaches implementation | Whichever lands second re-reads the other before starting |
+
+Their design does **not** need to change today; the conclusion improved rather than broke.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

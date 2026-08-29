@@ -55,13 +55,15 @@ Promise-based IndexedDB store remains expressible.
 That design's §"Related open issues" says of `STORE-CONFIG-IN-CORE`: *"moves `StoreConfig` into
 `liquers-core`; it does not move `opendal_store.rs`, so there is no ordering constraint, but a merge
 conflict in `store_builder.rs` is possible if both land close together. This change does not edit
-that file."* Its §"Not touched" additionally lists `liquers-store/src/config.rs` and `liquers-core`.
+that file."* That was written against the issue's **original data-only boundary**. Under the widened boundary
+this design now carries, `store_builder.rs` is not merely at risk of conflict — it is gutted:
+`create_store` is removed, `StoreRouterBuilder` moves to core, and `create_opendal_store` becomes
+`OpendalStoreFactory::create`.
 
-Both statements were written against the issue's **original data-only boundary**. Under the widened
-boundary this design now carries, `store_builder.rs` is not merely at risk of conflict — it is
-gutted: `create_store` is removed, `StoreRouterBuilder` moves to core, and `create_opendal_store`
-becomes `OpendalStoreFactory::create`. Their document also lists `create_opendal_store`
-(`store_builder.rs:188-202`) under "Read, unchanged".
+Their §"Not touched" list (`liquers-store/src/config.rs`, `liquers-core`) and their "Read,
+unchanged" entry for `create_opendal_store` are **not** stale: both describe what *their* change
+edits, and both remain true. Only the line reference under "Read, unchanged" will need
+re-resolving, because this design relocates that function.
 
 **The good news is that the conclusion survives the correction.** Checked file by file:
 
@@ -72,10 +74,14 @@ becomes `OpendalStoreFactory::create`. Their document also lists `create_opendal
 | `liquers-core/*`, `liquers-web/*` | no | yes |
 
 **No source file is touched by both**, so there is no textual merge conflict in either landing
-order. What does go stale is documentation: if this design lands first, their "Not touched" list and
-their `create_opendal_store` line reference are wrong, and their Phase 3 plan should be re-read
-against the factory dispatch. Two shared expectations are worth naming so neither design breaks the
-other:
+order — an improvement on their "possible", which was the right call on the information they had.
+
+**Their document has been updated with this** (2026-08-29): the `STORE-CONFIG-IN-CORE` bullet in
+their Phase 2 §"Related open issues" now states the widened scope and the ruled-out conflict, their
+`create_opendal_store` reference is annotated as relocated by this design, and their `DESIGN.md`
+notes carry a dated cross-reference. See §Cross-design coordination in this folder's `DESIGN.md` for
+what to re-check at each remaining phase. Two shared expectations are recorded so neither design
+breaks the other:
 
 - Both plan to run `bash scripts/check-build-matrix.sh` and both care about the `opendal`-off
   configuration. This design changes what that configuration *contains* — `OpendalStoreFactory` is
