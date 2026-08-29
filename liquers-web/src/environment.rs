@@ -54,7 +54,7 @@ thread_local! {
     /// environment, and anything not replayed into it is silently lost. A dropped store is
     /// **worse** than a dropped command, because the failure is a `-R/` query that stops
     /// resolving rather than a name that stops existing.
-    static STORE_CONFIG: RefCell<Option<liquers_store::config::StoreRouterConfig>> =
+    static STORE_CONFIG: RefCell<Option<liquers_core::store_config::StoreRouterConfig>> =
         const { RefCell::new(None) };
 
     /// Page objects named by `js` store entries, in registration order.
@@ -280,13 +280,13 @@ fn rebuild_with(additional: JsValue) -> Result<(), Error> {
     Ok(())
 }
 
-/// Configures the singleton's store from a `liquers_store` configuration document.
+/// Configures the singleton's store from a `liquers_core` configuration document.
 ///
 /// Follows the same lifecycle as [`register_command_on`]: applied directly while the environment
 /// is still un-shared, and otherwise by rebuilding and replaying. The rebuild discards the asset
 /// cache, which is correct rather than merely tolerable — assets computed against the previous
 /// store are stale the moment it is replaced, and nothing else invalidates them.
-pub fn configure_store_on(config: liquers_store::config::StoreRouterConfig) -> Result<(), Error> {
+pub fn configure_store_on(config: liquers_core::store_config::StoreRouterConfig) -> Result<(), Error> {
     // Retain the replacement *and keep the predecessor*, because applying it can fail and the
     // retained copy is what every later rebuild replays. Leaving a failed replacement retained
     // would make the next command registration rebuild into a broken store; clearing retention
@@ -369,12 +369,12 @@ pub fn register_store_object_on(name: &str, object: js_sys::Object) -> Result<()
 ///
 /// A string is tried as YAML, which also accepts JSON — one code path, so the two cannot drift in
 /// what they accept. An object is stringified to JSON first, for the same reason: the
-/// configuration is parsed by `liquers_store` in every case, so a browser cannot end up
+/// configuration is parsed by `liquers_core` in every case, so a browser cannot end up
 /// interpreting a document differently from the server that wrote it.
 pub fn parse_store_config(
     config: &JsValue,
-) -> Result<liquers_store::config::StoreRouterConfig, Error> {
-    use liquers_store::config::StoreRouterConfig;
+) -> Result<liquers_core::store_config::StoreRouterConfig, Error> {
+    use liquers_core::store_config::StoreRouterConfig;
 
     if let Some(text) = config.as_string() {
         return StoreRouterConfig::from_yaml(&text);

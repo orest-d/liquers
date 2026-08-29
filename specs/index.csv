@@ -1,15 +1,17 @@
 id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",draft,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
+STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",draft,local,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
-STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",draft,local,,P0,M,core/store;store/config;web,,,,environment-builder,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,accepted,local,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 CORE-METADATA-TRACEBACK-SUPPORT,issue,Metadata has no place for an error traceback,accepted,local,,P2,S,core/value;core/error,,,,,,2026-08-08,specs/issues/CORE-METADATA-TRACEBACK-SUPPORT.md
+CORE-NO-DEFAULT-FEATURES-BROKEN,issue,liquers-core does not build without default features,draft,local,,P2,S,core/store;build,,,,,,2026-08-29,specs/issues/CORE-NO-DEFAULT-FEATURES-BROKEN.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,'`Error::with_key` writes the key into the `query` field',draft,local,,P2,S,core/error,,,,,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,draft,local,,P2,S,docs;lib/commands,,,,,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,accepted,local,,P2,S,core/assets,,,,,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
+STORE-OPENDAL-LIST-OPTION-MISPARSED,issue,A list-valued store config option is mis-parsed by the OpenDAL path,draft,local,,P2,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md
 UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT,issue,Query console never highlights the erroring token despite complete plumbing,draft,local,,P2,S,lib/ui;core/query,,,,,,2026-08-12,specs/issues/UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT.md
 VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS,issue,An argument declared after a multiple argument is unreachable and unchecked,draft,local,,P2,S,core/commands;core/plan;macro,,,,variadic-arguments-declaration,,2026-08-12,specs/issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",accepted,local,,P2,M,axum,,,,expired-binary-read-safety,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
@@ -22,6 +24,7 @@ EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets an
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,P2,M,core/assets;core/context,,,,environment-builder,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
 EXPIRATION-RECOVERY-WEB-API,issue,Expiration recovery has no web API surface,accepted,local,,P2,M,axum;core/assets,,,,,,2026-08-08,specs/issues/EXPIRATION-RECOVERY-WEB-API.md
 INLINE-PATH-LACKS-EXECUTE-ONCE,issue,"The inline run path has no execute-once claim, only an is_finished check",accepted,local,,P2,M,core/assets;web,,,,,,2026-08-09,specs/issues/INLINE-PATH-LACKS-EXECUTE-ONCE.md
+LANGUAGE-STORE-TYPE-NOT-DEFINABLE,feature,A store type cannot be defined in the integrated language,draft,local,,P2,M,web;py;core/store;store/config,,,,,,2026-08-29,specs/issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 PY-MODULES-NOT-DECLARED-IN-LIB,issue,Half of liquers-py's source files are not declared as modules and never compile,draft,local,,P2,M,py,,,,,,2026-08-25,specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,draft,local,,P2,M,py;core/value,,,,,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
@@ -43,12 +46,14 @@ VALUE-CONVERSION-CAPABILITY,feature,"Values cannot be converted between types, a
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 VALUE-TYPE-DEFINITION-MACRO,feature,Value types and their registry entries are hand-written instead of generated,draft,local,,P2,XL,macro;lib/value;core/value,,,,,,2026-08-18,specs/issues/VALUE-TYPE-DEFINITION-MACRO.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,draft,local,,P3,S,core/commands,,,,,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
+CORE-CONFIGURATION-ERROR-KIND,issue,Configuration errors are indistinguishable from general errors,draft,local,,P3,S,core/error;store/config,,,,,,2026-08-29,specs/issues/CORE-CONFIGURATION-ERROR-KIND.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,draft,local,,P3,S,core/assets,,,,,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DOCS-DEAD-LINKS-OUTSIDE-README,issue,Relative links outside README are never validated,accepted,local,,P3,S,docs,,,,,,2026-08-08,specs/issues/DOCS-DEAD-LINKS-OUTSIDE-README.md
 OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE,issue,test_opendal_localfs passes even if -R-dir/src does not return AssetInfo,draft,local,,P3,S,store/backends,,,,,,2026-08-26,specs/issues/OPENDAL-LOCALFS-TEST-SILENT-ON-WRONG-VALUE-TYPE.md
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,P3,S,core/query,,,,,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,issue,The committed command registry carries stale impl_versions and no test detects it,draft,local,,P3,S,lib/commands;build;docs,,,,,,2026-08-25,specs/issues/REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED.md
 REPO-DEAD-CODE-HYGIENE,issue,Dead modules and untracked files in the repository,accepted,local,,P3,S,build,,,,,,2026-08-08,specs/issues/REPO-DEAD-CODE-HYGIENE.md
+STORE-OPENDAL-ARGUMENTS-NOT-DERIVED,feature,OpenDAL store types have no derived argument descriptions and no offline construction test,draft,local,,P3,S,store/backends;store/config,,,,store-factories-in-core,,2026-08-29,specs/issues/STORE-OPENDAL-ARGUMENTS-NOT-DERIVED.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",accepted,local,,P3,S,web;core/error,,,,,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,P3,M,axum,,,,,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
@@ -60,6 +65,7 @@ MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate que
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written from a query,accepted,local,,P3,M,lib/commands;core/store,,,,,,2026-08-09,specs/issues/STORE-COMMAND-NAMESPACE-MISSING.md
+STORE-CONFIG-FROM-URI,feature,A store cannot be configured from a URI,draft,local,,P3,M,store/config,,,,store-config-uri,,2026-08-29,specs/issues/STORE-CONFIG-FROM-URI.md
 UI-VARIADIC-ARGUMENT-LIST-EDITOR,feature,A variadic argument cannot be edited as a list in a parameter editor,draft,local,,P3,M,lib/ui;lib/egui;web;core/query,,,,variadic-arguments-declaration,,2026-08-25,specs/issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md
 V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,draft,local,,P3,M,core/plan;core/query,,,,,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
@@ -83,13 +89,15 @@ PAYLOAD-ENV-RECIPE-PROVIDER-FALLBACK,design,Recipe-provider fallback for the pay
 PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor boundaries,,github,documentation,,,core/plan;core/query;core/context;core/assets,,35,,plan-cwd-freeze,,2026-08-14,specs/design/plan-cwd-freeze/DESIGN.md
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
+STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-25,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-26,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-29,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
+STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,core/store;store/config,,,,,2026-08-29,,specs/guides/STORE_FACTORY_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
@@ -108,7 +116,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,core/co
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,lib/polars,,,,,2026-08-25,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-08-18,,specs/reference/PROJECT_OVERVIEW.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,macro;core/commands,,,,,2026-08-25,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-09,,specs/reference/STORE_CONFIG_FSD.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,store/config,,,,,2026-08-29,,specs/reference/STORE_CONFIG_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,core/value;lib/value,,,,,2026-08-26,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,axum;web,,,,,2026-08-17,,specs/reference/WEB_API_SPECIFICATION.md
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
@@ -122,6 +130,7 @@ EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration t
 PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,closed,local,,P0,M,core/query,,,,parameter-entity-escaping,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,closed,local,,P0,M,core/store;store/backends;axum,,,,store-key-guard,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
+STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",closed,local,,P0,L,core/store;store/config;web,,,,store-factories-in-core,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
 ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES,issue,ActionParameter::set_value double-encodes its value,closed,local,,P1,S,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,closed,local,,P1,S,core/value,,,,value-type-system,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed as a command argument,closed,local,,P1,S,core/commands;core/query,,,,plan-cwd-freeze,,2026-08-15,specs/issues/CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND.md
@@ -167,6 +176,7 @@ PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
+STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,complete,local,,,,core/store;store/config;store/backends;web;docs,,46,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 STORE-KEY-GUARD,design,Absolute store keys — a store refuses a relative key with a dedicated error,complete,local,,,,core/store;store/backends;core/error;web;axum,,36,,store-key-guard,,2026-08-17,specs/design/store-key-guard/DESIGN.md
 VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,core/value;lib/value;py;web,,37,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
 VARIADIC-ARGUMENTS-DECLARATION,design,Declarable variadic command arguments,complete,local,,,,macro;core/commands;lib/polars,,,,variadic-arguments-declaration,,2026-08-25,specs/design/variadic-arguments-declaration/DESIGN.md

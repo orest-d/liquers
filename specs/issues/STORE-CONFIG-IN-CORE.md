@@ -2,11 +2,11 @@
 id: STORE-CONFIG-IN-CORE
 kind: feature
 title: Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration
-status: draft
+status: closed
 priority: P0
-complexity: M
+complexity: L
 area: [core/store, store/config, web]
-design: environment-builder
+design: store-factories-in-core
 created: 2026-08-27
 github:
 ---
@@ -77,10 +77,48 @@ planned work" and reserves P0 for incorrect results, data loss, a panic on a sup
 documented feature that does not work. This issue is none of those; it is scheduling weight, applied
 deliberately. Either §4.4 should gain a clause for hard prerequisites, or this should settle at P1.
 
-## Verification
+## Resolution
 
-1. `liquers-store::config::StoreRouterConfig` still resolves (re-export) — no call site edited.
-2. `liquers-core` builds with no new non-optional dependency.
-3. `liquers-web` builds without depending on `liquers-store` for configuration.
-4. `expand_env_vars` doc test and the config parsing tests pass unmoved.
-5. `bash scripts/check-build-matrix.sh` — the `liquers-store` feature split is one of its rows.
+**Closed 2026-08-29** by [`design/store-factories-in-core/`](../design/store-factories-in-core/),
+with a scope wider than filed and a verification list corrected twice. `liquers-core` now owns
+`store_config.rs` and `store_factory.rs`; `liquers-store` keeps the OpenDAL backends;
+`liquers-web` depends on it not at all.
+
+### Verification, as originally written — two of five items were wrong
+
+1. ~~`liquers-store::config::StoreRouterConfig` still resolves (re-export) — no call site edited.~~
+   **Rejected at a gate.** No backwards compatibility was required, and a `liquers-store` re-export
+   of a core type is precisely the shadowing to avoid. `config.rs` and `store_builder.rs` are
+   deleted; call sites moved.
+2. `liquers-core` builds with no new non-optional dependency. ✅ Only `toml`, optional and out of
+   `default`.
+3. ~~`liquers-web` builds without depending on `liquers-store` **for configuration**.~~
+   **Understated.** Under the data-only boundary it was unachievable, since `liquers-web` also uses
+   `StoreRouterBuilder` and implements `StoreFactory`. The scope widened to move those too, and the
+   delivered result is stronger: **`liquers-web` has no `liquers-store` dependency at all.** ✅
+4. `expand_env_vars` doc test and the config parsing tests pass unmoved. ✅ All 11 passed with
+   assertions unchanged — the test of whether the move preserved behaviour.
+5. `bash scripts/check-build-matrix.sh`. ✅ 14/14, with three new `liquers-core` rows.
+
+### What actually shipped, beyond the issue
+
+`StoreFactory` and `StoreRouterBuilder` moved as well; `claims` became `resolve` so a factory can
+infer the store type; chaining is first-wins with no built-in fallback; an unrecognised type reports
+what the build supports; factories describe their arguments, with `ArgumentCoverage` distinguishing
+a specification from guidance about an externally-owned surface. Complexity was reclassified M → L.
+
+Four issues were filed and left open rather than absorbed:
+[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](STORE-OPENDAL-SERVICES-NOT-ENABLED.md) (P0),
+[`CORE-NO-DEFAULT-FEATURES-BROKEN`](CORE-NO-DEFAULT-FEATURES-BROKEN.md),
+[`STORE-OPENDAL-LIST-OPTION-MISPARSED`](STORE-OPENDAL-LIST-OPTION-MISPARSED.md) and
+[`CORE-CONFIGURATION-ERROR-KIND`](CORE-CONFIGURATION-ERROR-KIND.md). Two steps of the plan —
+deriving OpenDAL argument names, and the offline S3 tests — are deferred on the first of those.
+
+### The §4.4 priority tension, still unresolved
+
+This issue was recorded P0 by maintainer decision as a hard prerequisite, while
+`DOCS_STRUCTURE_GUIDE.md` §4.4 reserves P0 for incorrect results, data loss, a panic, or a
+documented feature that does not work. The tension outlives this issue and is recorded in
+`design/environment-builder/DESIGN.md`; closing this does not settle it. Worth noting that
+`STORE-OPENDAL-SERVICES-NOT-ENABLED`, filed during this work, is a §4.4 P0 on the letter of the
+rule — a documented feature that does not work.

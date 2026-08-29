@@ -1,14 +1,20 @@
-//! Store configuration module for liquers-store.
+//! Declarative store configuration: the data half.
 //!
-//! This module provides configuration structures and utilities for creating
-//! an `AsyncStoreRouter` from declarative configuration (YAML, TOML, or JSON).
+//! [`StoreRouterConfig`] describes a list of stores — each a type, a routing prefix and a
+//! backend-specific option map — parsed from YAML, JSON or TOML. This module is **pure data**: it
+//! knows the shape of a store description but nothing about how to build one. Construction lives in
+//! [`crate::store_factory`], and the backends themselves live in `liquers-store` and in
+//! integrations.
+//!
+//! That split is why this module is in `liquers-core`: a configuration type that describes a store
+//! must be embeddable by core-side configuration (an environment description, say) without a
+//! backend in the dependency graph. See `specs/design/store-factories-in-core/`.
 
 use std::collections::HashMap;
 
-use liquers_core::error::{Error, ErrorType};
-use liquers_core::parse::parse_key;
-use liquers_core::query::Key;
-use serde::{Deserialize, Serialize};
+use crate::error::Error;
+use crate::parse::parse_key;
+use crate::query::Key;
 
 /// Configuration for the entire store router.
 ///
@@ -38,8 +44,12 @@ pub struct StoreRouterConfig {
 /// for routing, and optional backend-specific configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreConfig {
-    /// Store type identifier (e.g., "memory", "filesystem", "s3", "fs", "ftp", etc.)
-    #[serde(rename = "type")]
+    /// Store type identifier (e.g., "memory", "filesystem", "s3", "fs", "ftp", etc.).
+    ///
+    /// Defaultable so that an entry whose type is *resolved* rather than written — see
+    /// [`crate::store_factory::StoreFactory::resolve`] — may omit it. An empty type resolves
+    /// nowhere, so omitting it is an error today.
+    #[serde(rename = "type", default)]
     pub store_type: String,
 
     /// Key prefix for routing. Empty string matches all keys.
@@ -70,20 +80,14 @@ impl StoreRouterConfig {
     /// Load configuration from a YAML string.
     pub fn from_yaml(yaml: &str) -> Result<Self, Error> {
         serde_yaml::from_str(yaml).map_err(|e| {
-            Error::new(
-                ErrorType::ParseError,
-                format!("Failed to parse YAML configuration: {}", e),
-            )
+            Error::parse_error(format!("Failed to parse YAML configuration: {}", e))
         })
     }
 
     /// Load configuration from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, Error> {
         serde_json::from_str(json).map_err(|e| {
-            Error::new(
-                ErrorType::ParseError,
-                format!("Failed to parse JSON configuration: {}", e),
-            )
+            Error::parse_error(format!("Failed to parse JSON configuration: {}", e))
         })
     }
 
@@ -91,30 +95,21 @@ impl StoreRouterConfig {
     #[cfg(feature = "toml")]
     pub fn from_toml(toml: &str) -> Result<Self, Error> {
         toml::from_str(toml).map_err(|e| {
-            Error::new(
-                ErrorType::ParseError,
-                format!("Failed to parse TOML configuration: {}", e),
-            )
+            Error::parse_error(format!("Failed to parse TOML configuration: {}", e))
         })
     }
 
     /// Serialize configuration to YAML string.
     pub fn to_yaml(&self) -> Result<String, Error> {
         serde_yaml::to_string(self).map_err(|e| {
-            Error::new(
-                ErrorType::General,
-                format!("Failed to serialize configuration to YAML: {}", e),
-            )
+            Error::general_error(format!("Failed to serialize configuration to YAML: {}", e))
         })
     }
 
     /// Serialize configuration to JSON string.
     pub fn to_json(&self) -> Result<String, Error> {
         serde_json::to_string_pretty(self).map_err(|e| {
-            Error::new(
-                ErrorType::General,
-                format!("Failed to serialize configuration to JSON: {}", e),
-            )
+            Error::general_error(format!("Failed to serialize configuration to JSON: {}", e))
         })
     }
 
@@ -177,13 +172,10 @@ impl StoreConfig {
     /// Get a required config value as a string.
     pub fn require_config_string(&self, key: &str) -> Result<String, Error> {
         self.get_config_string(key).ok_or_else(|| {
-            Error::new(
-                ErrorType::General,
-                format!(
+            Error::general_error(format!(
                     "Missing required configuration '{}' for store type '{}'",
                     key, self.store_type
-                ),
-            )
+                ))
         })
     }
 
@@ -231,7 +223,7 @@ impl StoreConfig {
 ///
 /// # Example
 /// ```
-/// use liquers_store::config::expand_env_vars;
+/// use liquers_core::store_config::expand_env_vars;
 /// std::env::set_var("MY_VAR", "hello");
 /// assert_eq!(expand_env_vars("prefix_${MY_VAR}_suffix").unwrap(), "prefix_hello_suffix");
 /// ```
@@ -248,18 +240,12 @@ pub fn expand_env_vars(input: &str) -> Result<String, Error> {
                     Some('}') => break,
                     Some(ch) => var_name.push(ch),
                     None => {
-                        return Err(Error::new(
-                            ErrorType::ParseError,
-                            format!("Unclosed environment variable reference in: {}", input),
-                        ))
+                        return Err(Error::parse_error(format!("Unclosed environment variable reference in: {}", input)))
                     }
                 }
             }
             let value = std::env::var(&var_name).map_err(|_| {
-                Error::new(
-                    ErrorType::General,
-                    format!("Environment variable '{}' is not set", var_name),
-                )
+                Error::general_error(format!("Environment variable '{}' is not set", var_name))
             })?;
             result.push_str(&value);
         } else {
@@ -268,45 +254,6 @@ pub fn expand_env_vars(input: &str) -> Result<String, Error> {
     }
 
     Ok(result)
-}
-
-/// Known store types that map to OpenDAL backends.
-/// These are the type strings that will be handled via OpenDAL's via_iter.
-pub const OPENDAL_STORE_TYPES: &[&str] = &[
-    "fs",
-    "s3",
-    "ftp",
-    "gcs",
-    "azblob",
-    "sftp",
-    "webdav",
-    "github",
-    "hdfs",
-    "webhdfs",
-    "http",
-    "https",
-    "redis",
-    "mongodb",
-    "postgresql",
-    "mysql",
-    "sqlite",
-    "dropbox",
-    "onedrive",
-    "gdrive",
-    "ipfs",
-];
-
-/// Check if a store type should be handled by OpenDAL.
-pub fn is_opendal_store_type(store_type: &str) -> bool {
-    OPENDAL_STORE_TYPES.contains(&store_type) || store_type.starts_with("opendal_")
-}
-
-/// Get the OpenDAL scheme from a store type.
-///
-/// If the type starts with "opendal_", strips that prefix.
-/// Otherwise returns the type as-is.
-pub fn get_opendal_scheme(store_type: &str) -> &str {
-    store_type.strip_prefix("opendal_").unwrap_or(store_type)
 }
 
 #[cfg(test)]
@@ -423,19 +370,4 @@ stores:
         assert!(key.is_empty());
     }
 
-    #[test]
-    fn test_is_opendal_store_type() {
-        assert!(is_opendal_store_type("s3"));
-        assert!(is_opendal_store_type("fs"));
-        assert!(is_opendal_store_type("opendal_custom"));
-        assert!(!is_opendal_store_type("memory"));
-        assert!(!is_opendal_store_type("filesystem"));
-    }
-
-    #[test]
-    fn test_get_opendal_scheme() {
-        assert_eq!(get_opendal_scheme("s3"), "s3");
-        assert_eq!(get_opendal_scheme("opendal_fs"), "fs");
-        assert_eq!(get_opendal_scheme("opendal_custom"), "custom");
-    }
 }

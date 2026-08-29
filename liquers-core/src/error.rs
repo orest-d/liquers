@@ -270,6 +270,15 @@ impl Error {
         )
         .with_position(position)
     }
+    /// A document failed to parse, with no position to report.
+    ///
+    /// [`Error::key_parse_error`] and [`Error::query_parse_error`] both require a [`Position`],
+    /// because a key or a query is a fragment inside a larger text. A whole configuration
+    /// document — YAML, JSON or TOML — has no such enclosing position: the underlying parser's
+    /// message carries its own line and column, and there is nothing meaningful to attach.
+    pub fn parse_error(message: String) -> Self {
+        Error::new(ErrorType::ParseError, message)
+    }
     pub fn general_error(message: String) -> Self {
         Error::new(ErrorType::General, message)
     }

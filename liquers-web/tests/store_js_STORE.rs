@@ -18,7 +18,7 @@ use liquers_core::metadata::Metadata;
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncStore, AsyncStoreRouter};
-use liquers_store::config::StoreRouterConfig;
+use liquers_core::store_config::StoreRouterConfig;
 use liquers_web::store::{build_router, JsStore, WebStoreFactory};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;

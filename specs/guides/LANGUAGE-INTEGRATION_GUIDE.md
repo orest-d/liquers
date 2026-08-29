@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-08-26
+reviewed: 2026-08-29
 ---
 # Liquers Language Integration Guide
 
@@ -726,10 +726,15 @@ in another, described by a document it can edit. Decide explicitly which directi
 - Store backends appropriate to the host, where direction 2 is selected
 - `AsyncStoreRouter` from `liquers-core` — the composition primitive; normally **reused unchanged**
   rather than reimplemented, since routing is not *language*-specific
-- `StoreRouterConfig` / `StoreConfig` and the router builder from `liquers-store`, where
-  direction 3 is selected
+- `StoreRouterConfig` / `StoreConfig` and `StoreRouterBuilder` from **`liquers-core`**, where
+  direction 3 is selected — an *integration* needs no store crate for these
 - An extension seam on that builder, if the *integration* contributes store types the shared crate
-  does not know (see "Taking only part of the store support crate")
+  does not know — implement `StoreFactory` and chain it (see "Taking only part of the store support
+  crate", and `guides/STORE_FACTORY_GUIDE.md`)
+
+**A limitation worth knowing before you design around it:** the seam is for the *integration* — Rust
+code — not for the *language*. A store type contributed from JavaScript or Python is **not
+supported**. See "What the *language* cannot contribute" below.
 
 **The design must answer:** Which methods are mandatory versus safely defaulted? Are bytes copied or viewed? Are keys normalized? What are atomicity and consistency guarantees? How are language sync methods scheduled? Can callbacks re-enter Liquers?
 
@@ -749,6 +754,45 @@ For a store the *integration* provides (direction 2), additionally:
 - **How are bytes represented if the backend cannot store them?** A text-only backend needs an
   encoding, and the choice must be **recorded with the data**, never re-derived on read from a
   metadata hint that may be wrong.
+
+#### What the *language* cannot contribute: a store *type*
+
+Direction 1 lets the *language* define a store **instance** — a value adapted to `AsyncStore`. It
+does **not** let the language define a store **type**, and the difference bites exactly where a
+configuration document is involved.
+
+In `liquers-web` a page registers an object by name and a document reaches it through the single
+Rust-defined type `js`:
+
+```yaml
+- type: js
+  prefix: custom
+  config: { object: myStore }
+```
+
+A page cannot declare `type: myprotocol` with arguments of its own, because that means implementing
+`StoreFactory` — `store_types`, `resolve`, `create` — and the trait has no binding in any integrated
+language.
+
+**Note the asymmetry with commands**, which is the clearest way to see what is missing:
+`registerCommand` lets a page define a genuinely new command that then appears in the registry like
+any other. `registerStoreObject` is closer to registering one *implementation* under a fixed name.
+
+Three consequences to design around, not merely to note:
+
+- **A page-defined store is invisible to `store_types()`**, which is what the unclaimed-type error
+  enumerates and what any generated table or configuration UI would list. A document naming it is
+  told the type is unknown, and offered a list that could never contain it.
+- **Its arguments cannot be declared.** They live inside the page's object, so its `config:` block
+  is unvalidated and undocumented.
+- **The document leaks how the store is provided** rather than saying what it is, so a document
+  written for a browser build cannot be read as naming the same type a native build might implement
+  in Rust.
+
+If your *integration* needs language-defined store types, that is
+[`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](../issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) — treat it as
+prerequisite work rather than something to improvise, and expect it to overlap
+`COMMAND-DECLARATION-FORMAT`, which is the same problem for commands.
 
 #### Composing stores: the router
 
@@ -792,25 +836,34 @@ store it provides needs behaviour the router cannot express.
 
 #### Taking only part of the store support crate
 
-An *integration* on a constrained target usually wants the configuration format and the router
-builder while being unable to have the backends that ship alongside them. `liquers-store` bundles
-all three, and its backends pull a large, native-oriented dependency that a `wasm32` target cannot
-take. The same shape recurs for any *language* packaged for a restricted host — a minimal wheel, an
-embedded interpreter, a sandbox.
+**Resolved, and the recommendation reversed.** This section used to recommend option 3 below and
+reject option 2. Option 2 is what the project took, in
+`specs/design/store-factories-in-core/`: the configuration format, the `StoreFactory` seam and
+`StoreRouterBuilder` are `liquers-core`'s, and `liquers-store` keeps the OpenDAL backends. An
+*integration* now needs **no store crate at all** for configuration and construction — `liquers-web`
+dropped its `liquers-store` dependency entirely.
 
-Three ways to resolve it, and the choice is a design decision worth recording:
+The rejection was reasonable when written and did not survive its own reasoning. It objected that
+moving the types "widens core for one consumer's benefit"; the consumer turned out not to be one
+integration but `liquers-core` itself, which must be able to describe a store to own an environment
+configuration. Its second objection — that the move separates the format from the crate whose
+reference documents it — was answered by rescoping `STORE_CONFIG_FSD.md` rather than by leaving the
+code where it was.
+
+The three options, kept because the reasoning is still useful when the same shape recurs — and it
+does, for any *language* packaged for a restricted host:
 
 1. **Duplicate the configuration types in the *integration*.** Fastest, and wrong: two definitions
    of one format drift, and the drift is silent until a document behaves differently on two
    targets.
-2. **Move the shared types into `liquers-core`.** Works, but widens core for one consumer's benefit
-   and separates the format from the crate whose reference documentation describes it.
-3. **Make the heavy backends an optional feature of the support crate, enabled by default.**
-   Recommended. Nothing moves, no definition is duplicated, the format stays owned by the store
-   crate, and a consumer who does nothing sees no change — only the *integration* asks for the
-   reduced build.
+2. **Move the shared types down to the crate everything depends on.** **Taken.** Correct when the
+   types are pure data and the bottom crate has a use for them itself — which is the test worth
+   applying, rather than counting consumers.
+3. **Make the heavy backends an optional feature of the support crate, enabled by default.** Still
+   the right answer for the *backends*, and still in force: `liquers-store`'s `opendal` feature
+   remains optional. It was the wrong answer for the *format*.
 
-Option 3 has three costs, all of which showed up in practice and none of which is obvious:
+Option 3's three costs are all still live for the surviving feature, and none is obvious:
 
 - **Making a dependency optional exposes every feature the rest of the graph was silently
   providing.** Cargo unifies features additively, so a crate can compile for years while relying on
@@ -828,8 +881,12 @@ Option 3 has three costs, all of which showed up in practice and none of which i
 And a rule that follows from direction 2: **the shared builder must be extensible from outside,
 not edited to know about the *integration*.** A support crate that names an *integration*'s store
 types depends on that *integration*, which is backwards and does not scale past the first one. A
-registration seam — the builder consults contributed factories before its own built-ins — keeps the
-dependency pointing the right way and is what makes overriding a shared type name possible at all.
+registration seam keeps the dependency pointing the right way.
+
+The seam's shape has changed and the difference matters when composing one: the builder has **no
+built-in types at all**, and factories chain with the **first to resolve an entry** building it. So
+overriding a shared type name is done by chaining your factory *earlier*, not by relying on
+factories preceding built-ins. See `STORE_CONFIG_FSD.md` §"Building stores: the factory model".
 
 **Issues and patterns.** Data and metadata must remain consistent; do not treat `set_metadata` as optional. Preserve `KeyNotFound`, read, and write error distinctions. Run blocking host I/O outside async workers. In a browser, IndexedDB-backed methods are naturally Promise-based and non-`Send`.
 
@@ -838,7 +895,7 @@ store; an *integration* shipping three must run them against all three, and say 
 test does not apply and why. A suite that exercises only the first store leaves the others
 unasserted while reporting full coverage.
 
-**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` a relative key is refused as `KeyNotAbsolute`, on direct calls and not only through a router (`STORE05b` guards the ENOENT trap that makes this test lie); `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and one that overrides a shared type name resolves to the *integration*'s implementation; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible.
+**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` a relative key is refused as `KeyNotAbsolute`, on direct calls and not only through a router (`STORE05b` guards the ENOENT trap that makes this test lie); `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and where two factories in one chain claim a type name, the one chained **earlier** resolves it — restated in terms of chain order, because store construction is now first-wins over a composed chain rather than "factories before built-ins"; an *integration* that composes its own chain and shares no type name with another factory in it may record `STORE12`'s override half as `NA` with that reason; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible.
 
 Dispositions by direction, each stated with its reason so that selecting a direction later makes
 the tests required again:
@@ -2512,6 +2569,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-08-29 | §STORE "Taking only part of the store support crate": **recommendation reversed.** The project took option 2 — configuration, the `StoreFactory` seam and `StoreRouterBuilder` moved to `liquers-core`, so an integration needs no store crate for them and `liquers-web` dropped its dependency. Records why the original rejection did not survive (the consumer was `liquers-core` itself, not one integration), keeps option 3 as still correct for the *backends*, and restates the extension-seam rule: there are no built-in types and factories chain first-wins, so overriding a shared type name means chaining earlier. `STORE12`'s override clause restated in terms of chain order, with an `NA` condition. Added §"What the *language* cannot contribute: a store *type*" — the seam is for the integration, not the language, and a page can supply a store instance but not a named type with declared arguments. | `design/store-factories-in-core/` |
 | 2026-08-26 | §VALUE "Typing an integrated value": registration is no longer an open problem. Records the one-identifier-per-variant rule for the foreign container, the extend-and-freeze registration recipe with its four traps, the constant-plus-test guarantee, and that a value type you define yourself needs none of it. | `design/foreign-value-type-registration/` |
 | 2026-08-18 | Added the VALUE convention that a language value is converted to a native variant when that is possible and not too expensive, so an integration normally defines only the foreign container; added type-identifier naming and registration guidance pointing at the type system, and the two rules that keep a bridge ready for automatic conversion. | `design/value-type-system/` |
 | 2026-08-17 | `STORE05` follows the absolute-key rule: a relative key is `KeyNotAbsolute`, not `KeyNotSupported`; the store must be called directly rather than through a router; dotted-but-ordinary names are explicit negatives; and `STORE05b` records the ENOENT trap that lets a filesystem-backed `STORE05` pass with no guard present. | `design/store-key-guard/` |

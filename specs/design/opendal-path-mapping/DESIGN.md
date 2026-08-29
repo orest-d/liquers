@@ -42,6 +42,13 @@ durable home rather than a chat message.
   **stale**. Re-enabling the line it guards produces correct output on the filesystem backend at
   all directory depths. The second half of that comment — that the call may be too expensive — is
   still true and is the reason to leave it disabled.
+- **2026-08-29, from [`design/store-factories-in-core/`](../store-factories-in-core/):** that
+  design's scope was widened beyond the `STORE-CONFIG-IN-CORE` issue as filed — the `StoreFactory`
+  trait and `StoreRouterBuilder` move into `liquers-core` too, and `store_builder.rs` is gutted.
+  Phase 2 §"Related open issues" here has been updated accordingly. The practical answer improves:
+  the merge conflict that section called "possible" is **ruled out** — no source file is edited by
+  both designs. Nothing in this design needs to change; the `create_opendal_store` line reference
+  will need re-resolving if the other design lands first.
 - `AsyncMemoryStore` (`liquers-core/src/store.rs:1619`) synthesizes directory existence from stored
   keys rather than asking a backend. That is the precedent for the directory-key gap described in
   Phase 2, and the reason the fix is not speculative.
