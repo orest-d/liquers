@@ -21,9 +21,9 @@ superseded_by:
 - [x] Phase 1: High-Level Design (approved)
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
-- [x] Phase 4: Implementation Plan (awaiting approval)
+- [x] Phase 4: Implementation Plan (approved)
 - [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [~] Implementation: steps 1-8 and 10 complete; 9 and 11 deferred on a P0
 
 ## Notes
 
@@ -527,6 +527,58 @@ configuration is wrong" from any other general error, which is exactly the discr
 document-driven setup path needs. Left as an issue because it is a taxonomy change over code this
 design does not otherwise touch, and because `NotSupported` for an unknown type may well be better
 than a generic configuration kind.
+
+## Implementation record (2026-08-29)
+
+Steps 1–8 and 10 complete and green. Steps 9 and 11 deferred, both on
+[`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md).
+
+| Suite | Result |
+|---|---|
+| `liquers-core --lib` | 663 pass (17 new factory tests, 10 moved config tests) |
+| `liquers-core --test store_router_STORE` | 5 pass |
+| `liquers-core --doc store_config` | 1 pass (the moved doc-test) |
+| `liquers-store` | 19 pass |
+| `liquers-store --no-default-features --features async_store` | 13 pass, including `factory04` |
+| `liquers-lib --lib --tests` | 302 pass, `registry_export` untouched and green |
+| `liquers-axum` | pass |
+| `scripts/check-build-matrix.sh` | **14/14**, with three new `liquers-core` rows |
+
+**The 11 moved configuration tests passed with their assertions unchanged**, which was the stated
+test of whether the move was behaviour-preserving.
+
+### Three things implementation found that the plan did not
+
+**1. Step 9 is blocked by the same P0, for an unanticipated reason.** Deriving argument names
+requires *naming* a config type, and `opendal::services::S3Config` sits behind
+`#[cfg(feature = "services-s3")]`, which this crate does not enable. `cargo check` fails with
+`cannot find type FsConfig in module opendal::services`. So that P0 blocks two steps rather than
+one — attempted, reverted, and the reasoning left in
+`OpendalStoreFactory::common_arguments`'s doc comment where whoever fixes the P0 will find it.
+
+**2. `liquers-core` has never built with `--no-default-features`.** Found by running a command this
+plan proposed adding to the build matrix: `async_store` gates `futures`/`async-trait` while
+`context.rs`, `interpreter.rs` and `store.rs` import them unconditionally — 14 errors, in files this
+change does not touch. Filed as
+[`CORE-NO-DEFAULT-FEATURES-BROKEN`](../../issues/CORE-NO-DEFAULT-FEATURES-BROKEN.md) (P2, S), and
+the planned matrix row was dropped rather than added red.
+
+**3. A new test independently reproduced a defect another design is about to fix.**
+`opendal03_constructs_a_store` originally asserted `key_prefix() == "local"` and failed:
+`AsyncOpenDALStore::key_prefix` returns an empty key. That is `STORE-OPENDAL-SLASH-HANDLING`, whose
+`opendal-path-mapping` Phase 2 lists `key_prefix` (`:296`) among the functions it repairs. The
+assertion was changed rather than the backend, with the reason in the test's doc comment — asserting
+it here would fail for a reason this module does not control.
+
+### Deviations from the plan worth recording
+
+- `core04` was planned as "Complete type rejects an unknown key". It became
+  `core04_missing_required_argument_fails_at_construction`: rejecting unknown keys is a behaviour
+  `ArgumentCoverage::Complete` *permits* but this change does not implement, and a test asserting
+  unimplemented behaviour would have been a lie. `coverage02` covers the `Partial` half, which is
+  implemented.
+- `opendal04_types_are_declared_but_unavailable` was added, not planned: `factory04` checks the
+  error message, this checks the *declaration*, and they can fail independently.
 
 ## Cross-design coordination
 
