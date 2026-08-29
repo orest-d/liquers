@@ -26,7 +26,15 @@ an author-facing format — measured directly against `HEAD`:
 
 So the minimum accepted object names five fields, three of which (`label`, `cache`, `definition`)
 an author should never have to write. `CommandMetadata` round-trips its own output faithfully — it
-is a good *export* format and a poor *declaration* format.
+is a good *export* format and, **as it stands**, a poor *declaration* format.
+
+*Revised 2026-08-29.* The measurements above are unchanged and still hold. What changed on review is
+the conclusion drawn from them. The strictness is not a property of the format: **14 of
+`CommandMetadata`'s 20 fields already carry `#[serde(default)]`**, and no principle separates the
+four that do not — `is_async: bool` has a default while `volatile: bool`, three fields away, does
+not. `ArgumentInfo::label` is a fifth, missed in the original measurement (`{"name":"count"}` fails
+with `missing field 'label'`). The gap between `CommandMetadata` and an author-facing format is five
+serde attributes, not a new type. Phase 2 fixes the format rather than mirroring it.
 
 Three concepts in a JavaScript declaration have no `CommandMetadata` home at all:
 
@@ -41,20 +49,41 @@ Three concepts in a JavaScript declaration have no `CommandMetadata` home at all
   `INFERRED_ARGUMENTS` set precisely because "inventing a field in `liquers-core` for a
   JavaScript-only concern would be wrong".
 
+These three are real and survive the revision; they are what Phase 2's `CommandBinding` carries. A
+fourth concept from the issue's JSON sketch — **`run`**, naming the implementation — does **not**
+belong beside them: `CommandDefinition` is already the "how is this command's implementation
+resolved" field (`Registered` = by key from the executor, `Alias` = by rewriting to another key), and
+`run` is a third answer to that same question. It is removed from the Phase 2 structures and raised
+as an open question there.
+
+Two further mismatches were found while re-measuring, neither visible in the table above and both
+capable of silently changing `metadata_version`:
+
+- `ArgumentGUIInfo`'s `Default` is `None`, but `ArgumentInfo::any_argument` — the constructor the
+  JavaScript path uses — sets `TextField(40)`.
+- `CommandMetadata::new`/`from_key` set `state_argument: Some(any_argument("state"))`, while the
+  serde default is `None`: constructing and deserializing the same command give different commands.
+  Filed as `STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`.
+
 ## Expected behaviour and acceptance criteria
 
-1. `liquers-core` owns a `CommandDeclaration` deriving `Serialize` + `Deserialize`, whose minimal
-   form is `{"name": "greet"}`, converting fallibly into `CommandMetadata`.
-2. Field names agree with `specs/command_registry.yaml` where they already fit, so exporter and
-   parser describe one format rather than two.
-3. Every command in `specs/command_registry.yaml` can be expressed as a `CommandDeclaration` whose
-   `to_metadata()` equals the exported `CommandMetadata` — a round-trip test.
+1. `CommandMetadata` itself deserializes from an author-written document whose minimal form is
+   `{"name": "greet"}`, with the defaults `CommandMetadata::from_key` already applies. `liquers-core`
+   additionally owns the host-specific residue that metadata genuinely cannot express — the state
+   mode, the async tri-state, and whether `arguments` was declared at all.
+2. Field names agree with `specs/command_registry.yaml` **because they are the same struct**, so
+   exporter and parser describe one format rather than two. (The first draft renamed
+   `argument_type` to `type`, which contradicted this criterion; serde aliases satisfy it instead.)
+3. `specs/command_registry.yaml` parses and re-serializes **byte-identically** — a stronger
+   round-trip than "equal modulo `impl_version`", and one that is only possible because nothing is
+   dropped. `presets`, `next`, `hints`, `CommandDefinition::Alias` and query-valued defaults all
+   survive, where a mirrored declaration type silently lost them.
 4. A declaration parsed from JSON produces the same `CommandMetadata` as the equivalent
    `register_command!` invocation, `metadata_version` included. (`metadata_version` is computed by
    `CommandMetadataRegistry::add_command_metadata` from the stored content —
    `command_metadata.rs:1036,1064` — so equal content gives an equal version automatically; the
    test asserts it rather than assuming it.)
-5. `JsCommandSpec::parse` is reimplemented over `CommandDeclaration`, keeping the `js_sys::Function`
+5. `JsCommandSpec::parse` is reimplemented over `CommandMetadata` + the binding type, keeping the `js_sys::Function`
    resolution in `liquers-web`. All `liquers-web` command conformance suites pass unchanged, with
    error wording preserved where a test asserts on it.
 6. A Python binding can deserialize the same document with no new parsing code.
@@ -68,8 +97,8 @@ replacement.
 
 ## Scope and non-goals
 
-In scope: the core type, its conversion and validation, the `liquers-web` re-implementation, and
-tests including the registry round-trip.
+In scope: the serde fixes to `CommandMetadata`, the small binding type, their validation, the
+`liquers-web` re-implementation, and tests including the registry round-trip.
 
 Explicitly **not** in this issue:
 
@@ -90,8 +119,11 @@ Explicitly **not** in this issue:
 
 ## Known questions and assumptions
 
-- **Q1** — does `CommandDeclaration` carry a `run: Option<String>` (the host-resolved
-  implementation name from the issue's JSON sketch), or is that a wrapper type? See Phase 2.
+- **Q1** — does the declaration carry a `run: Option<String>` (the host-resolved implementation
+  name from the issue's JSON sketch)? **Sharpened, not answered:** `run` duplicates
+  `CommandDefinition`'s role. Phase 2 open question 1 offers three resolutions (drop it, make it a
+  name-defaulted override, or add `CommandDefinition::HostFunction`) and leaves the choice to the
+  gate.
 - **Q2** — the JavaScript parser accepts type *aliases* (`str`, `text`, `integer`, `number`,
   `boolean`) that `ArgumentType`'s serde names do not. Serde-based parsing changes what is accepted
   in both directions. See Phase 2 §Argument types.
