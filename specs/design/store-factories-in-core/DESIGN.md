@@ -4,7 +4,7 @@ kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 area: [core/store, store/config, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-CONFIG-IN-CORE]
@@ -19,8 +19,8 @@ superseded_by:
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved)
-- [x] Phase 2: Solution & Architecture (awaiting approval)
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture (approved)
+- [x] Phase 3: Examples & Testing (awaiting approval)
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -218,6 +218,44 @@ type disabled by a feature.
 `liquers-store/toml` forwards to `liquers-core/toml` and drops its own `toml` dependency. The §3
 `area` question was withdrawn and decided as bookkeeping: `store/config` is redefined by topic rather
 than by a file list, since both files it names are deleted.
+
+## Phase 3 notes
+
+**Runnable examples, decided rather than asked.** Every scenario corresponds to code that exists and
+is tested today, so a conceptual sketch could not be checked against anything.
+
+**The test inventory is this phase's real content.** 18 tests exist in the code being moved, and
+**three assert behaviour this design deliberately inverts** — a refactor that quietly rewrites its
+own assertions is indistinguishable from a regression, so each is listed with what it asserts today
+and what it must assert after:
+
+| Test | Today | After |
+|---|---|---|
+| `factory02_factory_precedes_builtin` | a factory claiming `http` beats the built-in OpenDAL dispatch, "consulted **before** the built-in types" | a factory chained **before** the OpenDAL factory wins; renamed `chain03_earlier_factory_wins`. Its doc comment argues at length that consulting factories second "would make that impossible" — that argument is what first-wins removes |
+| `factory03_unclaimed_type_falls_through` | an unclaimed type "still reaches the built-ins" | **deleted** — there are no built-ins; replaced by an assertion that the error lists the supported types |
+| `factory04_gated_type_names_the_feature` | `create_store` on `s3` with `opendal` off names the feature | same guarantee via `StoreTypeAvailability`; both assertions kept, including "a gated-off type is not an unknown type" |
+
+11 configuration tests move verbatim — if any needs its assertions changed, the move was not
+behaviour-preserving and that is a finding, not an edit.
+
+**`factory04` never runs in the default configuration.** It is `#[cfg(not(feature = "opendal"))]`,
+so `cargo test -p liquers-store --no-default-features --features async_store` is not optional: it is
+the only test covering the message `StoreTypeAvailability` exists to preserve.
+
+**The design's thesis stated as an unfakeable assertion.**
+`liquers-core/tests/store_router_STORE.rs::core_router01_builds_from_yaml_without_liquers_store`
+cannot pass by accident, because a test in `liquers-core/tests/` has no way to reach `liquers-store`
+— it is not a dependency.
+
+Totals: 36 tests + 4 build-matrix rows; 13 assert behaviour that does not exist yet.
+
+Two Phase 2 gaps were found by the conformity pass and fixed there rather than worked around:
+`StoreArgumentInfo`'s builder methods were never specified, and `liquers-web`'s
+`default_store_factory` takes an argument (its factory is stateful, holding runtime-registered page
+objects) where the other crates' take none — a deliberate deviation now recorded as such.
+
+`liquers-validate` was not run and does not apply: the design contains no Liquers query, registers
+no command, and evaluates nothing.
 
 ## Cross-design coordination
 

@@ -1,109 +1,526 @@
-# Phase 3: Examples & Use-cases - store-config-in-core
+---
+title: "Phase 3: Examples and tests — Store configuration and factories in liquers-core"
+kind: design
+audience: internal
+area: [core/store, store/config, store/backends, web, docs]
+---
+# Phase 3: Examples & Use-cases — Store Configuration and Factories in `liquers-core`
 
 ## High-Level Introduction
 
-[Explain how these scenarios demonstrate the Phase 1 purpose and interactions. Introduce the
-progression from the representative primary workflow, through additional detail, to optional
-pitfalls and edge cases.]
+Phase 1's purpose was that `liquers-core` should be able to describe a store without a backend in
+the graph, and that `liquers-web` should stop depending on `liquers-store`. Phase 2 turned that into
+a factory seam: a trait that *describes* the store types it claims, a first-wins chain, and a
+builder with no built-in knowledge.
+
+The examples follow the shape a developer actually meets them in:
+
+- **Scenario 1** is the ordinary case — build a router from a configuration document using the
+  default factory. It is one call, and the point is that it stays one call after the move.
+- **Scenario 2** is the case the design exists for — an integration contributing its own store types
+  and composing a chain, shown as `liquers-web` after the change.
+- **Scenario 3** is the pitfalls, and they are unusually concentrated here because this design
+  *inverts a documented rule*. Three currently-passing tests assert the old behaviour.
+
+Because this is a refactor of code that already works and is already tested, the tests are the
+primary deliverable of this phase, not an afterthought. The most important table in this document is
+not the examples but §Test Plan's inventory of the 18 existing tests, of which **three assert
+behaviour this design deliberately changes**.
 
 ## Example Type
 
-**User choice:** [Runnable prototypes / Conceptual code]
+**Runnable prototypes**, decided rather than asked. Conceptual examples would be the wrong artifact:
+every scenario below corresponds to code that exists and is tested today, so a conceptual sketch
+could not be checked against anything. Each example is written so it can become a test or a doc
+example verbatim.
+
+The one exception is Scenario 2, which is wasm32-only (`liquers-web`) and therefore runs under
+`wasm-bindgen-test` rather than `cargo test`. It is shown as real code but its executable home is
+the existing browser suite.
 
 ## Overview Table
 
-| # | Type | Name | Purpose | Drafted By |
-|---|------|------|---------|------------|
-| 1 | Example | [Primary scenario] | [Demonstrates the Phase 1 design through the primary workflow] | [Agent] |
-| 2 | Example | [Detailed scenario] | [Explains additional details that build on Scenario 1] | [Agent] |
-| 3 | Example | [Pitfalls and edge cases] | [Explains common pitfalls and edge cases; optional] | [Agent] |
+| # | Type | Name | What it demonstrates / checks |
+|---|---|---|---|
+| 1 | Example | Router from a document, default factory | The ordinary path is unchanged in shape: parse a `StoreRouterConfig`, hand it a `default_store_factory()`, build |
+| 2 | Example | An integration contributes store types | `WebStoreFactory` after the move: own factory describing its types, chained after core's, no `liquers-store` |
+| 3 | Example | Pitfalls | First-wins is not last-wins; no built-in fallback; an unclaimed type is an error, not a silent miss |
+| 4 | Unit tests | `store_config` (11 tests) | Moved verbatim: env-var expansion, YAML/JSON parsing, builder methods, `key_prefix` |
+| 5 | Unit tests | `store_factory` — core (13 new) | `StoreTypeMap`, chain order, `store_types()` union, availability, error text |
+| 6 | Unit tests | `store_factory` — `liquers-store` (6, 4 rewritten) | OpenDAL factory, default chain, the `factory01`–`factory04` suite restated |
+| 7 | Integration | `liquers-core` router build (4 new) | A core-only build makes a working router with no `liquers-store` in the graph |
+| 8 | Integration | `liquers-web` (existing, retargeted) | The browser suite passes with the dependency removed |
+| 9 | Build matrix | `check-build-matrix.sh` (4 new rows) | `liquers-core` under default / no-default / `toml` / wasm32 |
 
-## Example 1: [Primary Scenario Name]
+## Example 1: A Router from a Configuration Document
 
 ### Connection to the High-Level Design
-[How does this scenario solve or demonstrate the Phase 1 purpose and interactions?]
+
+This is the path every existing consumer takes, and the test of whether the move cost anything. The
+Phase 1 promise was a *relocation*, not a new way of working: the same document, the same builder,
+one extra argument naming which store types you want.
 
 ### Scenario
-[Verbally explain the user context and intended outcome. Keep this representative use case
-medium-complexity: non-trivial, but free of unnecessary details. Change defaults only when relevant.]
+
+A native application starts up, reads `stores.yaml`, and needs an `AsyncStoreRouter` routing `cache`
+to memory and `data` to the filesystem. It wants OpenDAL types available too, because the same
+document might later name `s3`.
 
 ### Sequence of Steps
-1. [First component interaction or method call]
-2. [Next component and its responsibility]
-3. [Execution, caching, persistence, or other relevant coordination]
-4. [How the caller polls, awaits, retrieves, or uses the result]
+
+1. The document is parsed into a `StoreRouterConfig` — pure data, `liquers-core`, no backend needed.
+2. `liquers_store::default_store_factory()` is asked for the chain: core's store types first, then
+   OpenDAL's.
+3. `StoreRouterBuilder::new(config, factory)` pairs the two.
+4. `build()` expands `${VAR}` references, then asks the chain to create each entry in order.
+5. Each store is added to an `AsyncStoreRouter`, which routes by prefix, first match winning.
 
 ### Core Example Code
+
 ```rust
-// Show the core workflow; omit incidental setup and irrelevant non-default configuration.
+use liquers_core::store_config::StoreRouterConfig;
+use liquers_core::store_factory::StoreRouterBuilder;
+use liquers_store::store_factory::default_store_factory;
+
+fn build_router(yaml: &str) -> Result<AsyncStoreRouter, Error> {
+    let config = StoreRouterConfig::from_yaml(yaml)?;
+    StoreRouterBuilder::new(config, Box::new(default_store_factory())).build()
+}
+```
+
+with
+
+```yaml
+stores:
+  - type: memory
+    prefix: cache
+  - type: filesystem
+    prefix: data
+    config:
+      path: ./data
+```
+
+The convenience wrapper stays too, for the case with nothing to customise:
+
+```rust
+let router = liquers_store::store_factory::create_router_from_yaml(yaml)?;
 ```
 
 ### Guide and Executable Example
-[If Phase 2 requires a guide, normally implement this primary scenario as a complete executable
-example and give the path the guide will reference. Otherwise explain what canonical code or test
-should be referenced.]
 
-**Expected output:**
+The primary scenario is small enough that a dedicated `examples/` binary would be ceremony around
+four lines. Its executable home is `liquers-store`'s own test module — the existing
+`test_store_router_from_yaml` becomes exactly this code — and `specs/guides/STORE_FACTORY_GUIDE.md`
+links that test rather than duplicating it. Scenario 2 is the one the guide needs at length.
+
+**Expected output:** a router where `cache/x.txt` resolves to the memory store and `data/x.txt` to
+the filesystem store; `other/x.txt` is unsupported.
+
+**Validation:**
+- [x] Compiles against the Phase 2 signatures
+- [x] Demonstrates the core workflow
+- [x] Realistic document, defaults unchanged except where the scenario needs them
+- [x] Expected output stated
+
+## Example 2: An Integration Contributes Its Own Store Types
+
+### Connection to the High-Level Design
+
+This is what the design is *for*. It shows the per-crate convention from Phase 2 — one factory
+describing only your own types, one default chaining what should be available — and it is the
+scenario in which `liquers-web`'s `liquers-store` dependency disappears.
+
+### What is new relative to Scenario 1
+
+Scenario 1 consumed a chain someone else built. Here the chain is composed, and the composition is
+the whole content: which factory goes first decides which implementation of a contested type name
+wins.
+
+### Core Example Code
+
+`liquers-web` after the change. The factory now *describes* its types instead of merely naming them
+— the arguments below are currently documented only in a doc-comment YAML block at the top of
+`liquers-web/src/store/builder.rs`, which is exactly the drift this replaces:
+
+```rust
+use liquers_core::store_config::StoreConfig;
+use liquers_core::store_factory::{
+    ChainedStoreFactory, StoreArgumentInfo, StoreArgumentType, StoreFactory, StoreTypeInfo,
+    core_store_factory,
+};
+
+impl StoreFactory for WebStoreFactory {
+    fn store_types(&self) -> Vec<StoreTypeInfo> {
+        vec![
+            StoreTypeInfo::new("localstorage")
+                .with_label("Browser localStorage")
+                .with_doc("Persists in the page's localStorage. Bounded by the browser's quota.")
+                .with_argument(
+                    StoreArgumentInfo::new("namespace", StoreArgumentType::String)
+                        .required()
+                        .with_doc("Key prefix, so two applications on one origin do not collide."),
+                )
+                .with_argument(
+                    StoreArgumentInfo::new("quota_bytes", StoreArgumentType::Number)
+                        .with_doc("Refuse writes beyond this many bytes."),
+                ),
+            StoreTypeInfo::new("js")
+                .with_doc("Delegates to a page object registered with registerStoreObject.")
+                .with_argument(
+                    StoreArgumentInfo::new("object", StoreArgumentType::String)
+                        .required()
+                        .with_doc("The registered name — a JS object cannot be written into YAML."),
+                ),
+            StoreTypeInfo::new("http")
+                .with_doc("Read-only fetch() over a fixed key list.")
+                .with_argument(
+                    StoreArgumentInfo::new("url_prefix", StoreArgumentType::String).required(),
+                )
+                .with_argument(
+                    StoreArgumentInfo::new("keys", StoreArgumentType::Array)
+                        .with_doc("Keys this store serves; fetch cannot enumerate a directory."),
+                ),
+            // `https` as above.
+        ]
+    }
+
+    fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error> {
+        match config.store_type.as_str() {
+            LOCAL_STORAGE_TYPE => Self::create_local_storage(config),
+            JS_TYPE => self.create_js(config),
+            "http" | "https" => Self::create_fetch(config),
+            other => Err(Error::general_error(format!(
+                "the browser store factory does not handle store type {other:?}"
+            ))),
+        }
+    }
+}
+
+/// The browser's convenience chain — core's store types, then this crate's.
+/// Deliberately *not* OpenDAL's: it is not in this crate's graph at all.
+pub fn default_store_factory(factory: WebStoreFactory) -> ChainedStoreFactory {
+    ChainedStoreFactory::new()
+        .chain(Box::new(core_store_factory()))
+        .chain(Box::new(factory))
+}
 ```
-[What the user should see]
+
+`keys` is the one argument needing `StoreArgumentType::Array`, and the only known user of that
+variant — the evidence Phase 2 asked to collect.
+
+**Expected output:** a document naming `localstorage`, `js`, `http` or `memory` builds; one naming
+`s3` fails with an error listing the four supported types, because no OpenDAL factory is in this
+chain.
+
+**Validation:**
+- [x] Compiles against the Phase 2 signatures
+- [x] Shows the delta from Scenario 1 only
+- [x] `liquers-store` appears nowhere
+
+## Example 3: Pitfalls
+
+### 1. First-wins reads like a prohibition; it is a default
+
+**Symptom.** "I chained my factory after core's and my `memory` implementation is ignored."
+
+**Cause.** First-wins. Core is first in every default chain, so it claims `memory`.
+
+**Correct usage.** Compose your own chain and put yours first. The API permits it; only the
+*default* ordering does not.
+
+```rust
+let factory = ChainedStoreFactory::new()
+    .chain(Box::new(my_factory))          // wins for any type it claims
+    .chain(Box::new(core_store_factory()));
 ```
 
-## Example 2: [Detailed Scenario]
+**Test that protects it:** `chain03_earlier_factory_wins`.
 
-[Build on Scenario 1 and explain an additional mechanism, meaningful configuration choice, or
-component interaction. Reuse the primary setup and show only the relevant code delta. Include
-expected output and validation.]
+### 2. There is no built-in fallback any more
 
-## Example 3 (Optional): [Pitfalls and Edge Cases]
+**Symptom.** "`StoreRouterBuilder::new(config)` no longer compiles."
 
-[For each common pitfall or important edge case, state the symptom, cause, correct usage or
-recovery, and protective test. Omit this scenario if it would only repeat later sections.]
+**Cause.** Deliberate. The builder has no store types of its own; the factory is a required argument
+so that "which stores do I get" is answerable at the call site.
+
+**Correct usage.** `StoreRouterBuilder::new(config, Box::new(default_store_factory()))`.
+
+**Test that protects it:** compilation — there is no fallback to test.
+
+### 3. The browser's `http` override no longer works by precedence
+
+**Symptom.** None today, which is what makes it a pitfall: the behaviour is unchanged, the *reason*
+is not.
+
+**Cause.** `WebStoreFactory` used to beat the built-in OpenDAL `http` because factories were
+consulted before built-ins. Under first-wins a later factory can never beat an earlier one. The
+override survives only because `liquers-web` no longer has the OpenDAL factory in its chain at all.
+
+**Why it matters.** Anyone adding the OpenDAL factory to a browser chain — or reading
+`design/liquers-web-store/phase2-architecture.md`, which still argues the old rationale — would get
+OpenDAL's `http`, which cannot run on wasm32. The guide must say this.
+
+**Test that protects it:** `factory02` rewritten (see Test Plan), plus the existing browser suite.
+
+### 4. An unclaimed type is an error, not a fall-through
+
+**Symptom.** A configuration that used to build now fails with "Unknown store type".
+
+**Cause.** `factory03` used to assert that an unclaimed type "still reaches the built-ins". There are
+no built-ins to reach.
+
+**Correct usage.** Chain a factory claiming the type. The error lists what the chain does support,
+so the fix is in the message.
+
+**Test that protects it:** `chain05_unclaimed_type_lists_supported_types`.
 
 ## Corner Cases
 
-### 1. Memory
-[Large inputs, allocation failures, memory leaks]
+### Memory
 
-### 2. Concurrency
-[Race conditions, deadlocks, thread safety]
+Not a meaningful axis here. A factory is constructed, consumed while the router is built, and
+dropped; `StoreTypeInfo` is a handful of `String`s per store type, on the order of a kilobyte for
+the whole OpenDAL set. The one thing worth stating is a **constraint on implementations rather than
+a property of this code**: `create` must not fetch bulk data, because every store in a document is
+constructed at startup and construction *is* the validation. A store type that pre-fetches a remote
+metadata database is making a trade-off it must document.
 
-### 3. Errors
-[Invalid input, network failures, serialization errors]
+**Test:** none. This is a documented contract, not a checkable property — recorded in the guide.
 
-### 4. Serialization
-[Round-trip, schema evolution, compression]
+### Concurrency
 
-### 5. Integration
-[Store, Command, Asset, Web/API interactions]
+Also not a meaningful axis, and the notable thing is what is *absent*. The trait carries no
+`Send`/`Sync` bound and must not gain one: `WebStoreFactory` holds `js_sys::Object` handles and is
+`!Send`, and `WEB-NATIVE-IO-TIER2` will add an IndexedDB store with the same property. Factories are
+never shared across threads — one is built, used, and dropped on one thread.
+
+**Test:** the browser suite compiling at all is the assertion. A `Send` bound added by accident
+fails `cargo test -p liquers-web --target wasm32-unknown-unknown` immediately.
+
+### Errors
+
+| Input | Expected |
+|---|---|
+| `type: postgress` (typo) | `NotSupported`, message lists supported types |
+| `type: s3`, `opendal` feature off | `NotSupported`, message names the feature — never "unknown" |
+| `type: filesystem` on wasm32 | `NotSupported`, message names the target |
+| `filesystem` with no `path` | `General`, "Missing required configuration 'path'" (unchanged) |
+| `${UNSET_VAR}` | `General`, names the variable (unchanged) |
+| `${UNCLOSED` | `ParseError` (unchanged) |
+| Malformed YAML/JSON/TOML | `ParseError` (unchanged) |
+
+### Serialization
+
+`StoreTypeInfo` / `StoreArgumentInfo` / `StoreArgumentType` / `StoreTypeAvailability` derive
+`Serialize + Deserialize`; a round-trip test asserts they survive it, so a later exporter is not
+starting from an unverified assumption. `StoreTypeMap` and `ChainedStoreFactory` are deliberately
+not serializable — they hold `Box<dyn Fn…>` and `Box<dyn StoreFactory>`.
+
+`StoreRouterConfig` round-trips YAML → JSON → YAML unchanged. That behaviour exists today; the test
+re-asserts it **in `liquers-core`** after the move, which is the point.
+
+### Cross-crate
+
+The corner case that matters most and is easiest to miss: **a `liquers-core`-only build must produce
+a working router.** If it cannot, the design has failed its stated purpose regardless of what the
+other tests say. Test 7 below is that assertion, and it belongs in `liquers-core/tests/` precisely
+because a test there cannot accidentally reach `liquers-store`.
 
 ## Documentation and Learning Log
 
-### Guide Candidate Workflows and Examples
-[Answer: How do I use X? How do I achieve X? What is the typical workflow? Select potential guide
-snippets and link a complete executable example or unit/integration test when available.]
+Guide-worthy material identified while writing these examples, for
+`specs/guides/STORE_FACTORY_GUIDE.md`:
 
-### Usage and Meaning
-[What helps users, developers, or coding agents understand why the feature matters and how it
-connects to existing functionality]
+| Guide section | Source | Executable evidence to link |
+|---|---|---|
+| "Build a router from a document" | Scenario 1 | `test_store_router_from_yaml` |
+| "Contribute your own store types" | Scenario 2 | `liquers-web/src/store/builder.rs` |
+| "Describe your arguments" | Scenario 2's `StoreTypeInfo` block | same |
+| "Override someone else's store type" | Pitfall 1 | `chain03_earlier_factory_wins` |
+| "Why your type is unavailable, not unknown" | Errors table | `factory04` rewritten |
+| "`create` must be fast" | Corner cases §Memory | none — a contract |
 
-### Repeatable Development Guidance
-[What would help someone implement or extend similar functionality]
+Learning to carry to Phase 5:
 
-### Corrections and Unexpected Learning
-[Design assumptions corrected, implementation surprises, useful dead ends, and facts to verify in
-Phase 5]
+- Writing Scenario 2 confirmed `StoreArgumentType::Array` has exactly one user (`keys`) and
+  `Object` still has **none**. The open question stands.
+- The browser store types' arguments were documented only in a module doc-comment. Moving them into
+  `StoreTypeInfo` is the first time they are machine-readable — a benefit Phase 1 did not claim.
+- `factory02`'s doc comment is a small essay on why factories precede built-ins. Rewriting it is the
+  clearest single artifact of what this design changes, and worth quoting in the guide.
 
 ## Test Plan
 
-### Unit Tests
-[File paths, test names, coverage]
+### Existing tests: what moves, what changes, what goes
 
-### Integration Tests
-[File paths, test names, end-to-end flows]
+18 tests exist in the code being moved. **This inventory is the most important content of this
+phase**, because three of them assert behaviour this design deliberately inverts, and a refactor
+that quietly rewrites its own assertions is indistinguishable from a regression.
 
-### Manual Validation
-[Commands to run, expected outputs]
+#### Move verbatim to `liquers-core/src/store_config.rs` (11)
 
-## Auto-Invoke: liquers-unittest Skill Output
+`test_expand_env_vars_simple`, `_multiple`, `_no_vars`, `_missing`, `_unclosed`,
+`test_store_router_config_yaml`, `test_store_router_config_json`, `test_store_config_builder`,
+`test_key_prefix_parsing`, `test_key_prefix_empty`, and the `expand_env_vars` doc-test (its `use`
+line changes crate). No assertion changes — if any needs changing, the move was not behaviour-
+preserving and that is a finding.
 
-[Test templates generated by skill]
+#### Stay in `liquers-store` (2)
+
+`test_is_opendal_store_type`, `test_get_opendal_scheme` — they test the OpenDAL type tables, which
+do not move. Their module home changes from `config.rs` to `store_factory.rs`.
+
+#### Rewritten, because the design changes what is true (3)
+
+| Test | Asserts today | Must assert after |
+|---|---|---|
+| `factory02_factory_precedes_builtin` | A factory claiming `http` beats the built-in OpenDAL dispatch, "consulted **before** the built-in types" | A factory chained **before** the OpenDAL factory wins. Renamed `chain03_earlier_factory_wins`. Its doc comment — an argument that consulting factories second "would make that impossible" — is replaced by the real mechanism |
+| `factory03_unclaimed_type_falls_through` | An unclaimed type "still reaches the built-ins" | **Deleted and replaced.** There are no built-ins. `chain05_unclaimed_type_lists_supported_types` asserts the error and that its message names the supported set |
+| `factory04_gated_type_names_the_feature` | `create_store` on `s3` with `opendal` off names the feature | Same guarantee via `StoreTypeAvailability::Unavailable`; the call becomes the chain's `create`. Keeps its `#[cfg(not(feature = "opendal"))]` gate and both assertions, including "a gated-off type is not an unknown type" |
+
+`factory01_custom_type_is_created` survives with only an API update (`with_factory` → a chain), as do
+`test_create_memory_store`, `test_create_filesystem_store`, `test_store_router_from_yaml`,
+`test_store_router_from_json`, `test_unknown_store_type`, `test_filesystem_missing_path`.
+
+### New unit tests — `liquers-core/src/store_factory.rs` (13)
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- StoreTypeMap ---
+    #[test] fn map01_claims_only_registered_types();
+    #[test] fn map02_create_dispatches_to_the_registered_constructor();
+    #[test] fn map03_store_types_is_sorted();          // BTreeMap: deterministic error text
+    #[test] fn map04_unregistered_type_errors();
+
+    // --- ChainedStoreFactory ---
+    #[test] fn chain01_empty_chain_claims_nothing();
+    #[test] fn chain02_single_factory_behaves_as_itself();
+    #[test] fn chain03_earlier_factory_wins();          // replaces factory02
+    #[test] fn chain04_store_types_is_the_union_first_wins();
+    #[test] fn chain05_unclaimed_type_lists_supported_types();
+    #[test] fn chain06_unavailable_type_reports_its_reason();
+
+    // --- core factory ---
+    #[test] fn core01_claims_memory_and_filesystem();
+    #[test] fn core02_memory_store_is_constructed();
+    #[cfg(target_arch = "wasm32")]
+    #[test] fn core03_filesystem_is_listed_but_unavailable_on_wasm();
+}
+```
+
+Two are worth explaining because they are the ones that could be written vacuously:
+
+**`chain04_store_types_is_the_union_first_wins`.** Two factories both claiming `memory`, with
+different `doc` strings. The union must contain `memory` **once**, with the *first* factory's
+description. Without this, `store_types()` could advertise a description belonging to a factory that
+will never be called — and since that list is what the error message prints, the message would lie.
+
+**`chain05_unclaimed_type_lists_supported_types`.** Asserts on message *content*, not just
+`is_err()` — the supported names appear, the unclaimed one appears, and (per `factory04`'s surviving
+rule) an unavailable type is not described as unknown. `test_unknown_store_type` today asserts only
+`is_err()`, which would pass against an empty message.
+
+### New unit tests — `liquers-store/src/store_factory.rs` (6)
+
+```rust
+#[test] fn opendal01_claims_the_opendal_type_table();
+#[test] fn opendal02_claims_the_opendal_underscore_prefix();
+#[cfg(feature = "opendal")]
+#[test] fn opendal03_constructs_a_store();
+#[cfg(not(feature = "opendal"))]
+#[test] fn factory04_gated_type_names_the_feature();     // preserved, retargeted
+#[test] fn default01_chain_is_core_then_opendal();
+#[test] fn default02_core_types_are_not_shadowed_by_opendal();  // `fs` != `filesystem`
+```
+
+`default02` guards a real near-miss: OpenDAL claims `fs`, core claims `filesystem`. They do not
+collide today, and a future rename of either would silently change which factory serves a document.
+
+### New integration tests — `liquers-core/tests/store_router_STORE.rs` (4)
+
+```rust
+#[tokio::test] async fn core_router01_builds_from_yaml_without_liquers_store();
+#[tokio::test] async fn core_router02_routes_by_prefix_first_match_wins();
+#[tokio::test] async fn core_router03_env_expansion_applies_on_build();
+#[test]        fn core_router04_type_info_round_trips_through_json();
+```
+
+`core_router01` is the design's thesis stated as an assertion, and its value is structural: a test in
+`liquers-core/tests/` **cannot** reach `liquers-store` — it is not a dependency — so the test cannot
+pass by accident.
+
+### Existing suites that must keep passing unchanged
+
+| Suite | Why it matters here |
+|---|---|
+| `cargo test -p liquers-web --target wasm32-unknown-unknown` | `STORE11`, `c12`, and the environment-rebuild tests exercise the configuration path end to end. Their assertions must not change — only import paths |
+| `cargo test -p liquers-lib --test registry_export` | Must stay green untouched: proof this design did not leak into the command surface |
+| `cargo test -p liquers-axum` | The one other `liquers-store` consumer |
+
+### Commands
+
+```bash
+cargo test -p liquers-core --lib                                    # moved + new unit tests
+cargo test -p liquers-core --test store_router_STORE                # new integration tests
+cargo test -p liquers-store                                         # factory suite, opendal on
+cargo test -p liquers-store --no-default-features --features async_store   # factory04's gate
+cargo test -p liquers-lib --lib --tests                             # regression, incl. registry_export
+cargo test -p liquers-axum
+bash scripts/check-build-matrix.sh                                  # + the 4 new liquers-core rows
+cargo clean && cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+```
+
+The `--no-default-features` run is not optional: `factory04` is `#[cfg(not(feature = "opendal"))]`
+and **never executes in the default configuration**. It is the only test covering the message
+`StoreTypeAvailability` exists to preserve.
+
+### Coverage summary
+
+| Area | Tests | Note |
+|---|---|---|
+| Configuration data | 11 moved | Verbatim; any change is a finding |
+| OpenDAL type tables | 2 moved | New module, same assertions |
+| Factory machinery | 13 new | Chain order, union, availability, error text |
+| `liquers-store` factories | 6 (4 rewritten) | Includes the preserved gated-feature message |
+| Core-only router | 4 new | The design's thesis, structurally unfakeable |
+| Browser | existing, retargeted | Import paths only |
+| Build matrix | 4 new rows | `liquers-core` has none today |
+
+**Total: 36 tests + 4 matrix rows**, of which 13 assert behaviour that does not exist yet and 3
+replace assertions this design invalidates.
+
+## Inline Review Findings
+
+The three reviewer roles were run as sequential passes in this session rather than spawned as
+parallel agents; the same independent concerns were covered and the outcomes are recorded here.
+
+**Pass 1 — Phase 1 conformity.** No scope drift. Phase 3 introduces no capability Phase 1 did not
+approve; the examples are the Phase 1 interactions made concrete. The two questions Phase 1 left open
+for this phase are both answered by Scenario 2: `StoreArgumentType::Array` has exactly one user
+(`keys`), and `Object` still has none.
+
+**Pass 2 — Phase 2 conformity.** Every signature used in the examples was checked against Phase 2.
+Two gaps found and fixed in Phase 2 rather than worked around here:
+
+1. `StoreArgumentInfo`'s builder methods were never specified — Phase 2 gave them for
+   `StoreTypeInfo` only, while Scenario 2 needs `new`/`required`/`with_doc`. Added.
+2. `liquers-web`'s `default_store_factory` takes a `WebStoreFactory` argument, unlike core's and
+   `liquers-store`'s, which take none. That is not an error — `WebStoreFactory` is stateful, holding
+   page objects registered at runtime — but the convention as written implied a uniform signature.
+   Recorded as a deliberate deviation with its reason.
+
+**Pass 3 — codebase and query validation.** Test names and line references checked against
+`liquers-store/src/store_builder.rs`, `liquers-store/src/config.rs` and
+`liquers-web/tests/store_js_STORE.rs`; the 18-test inventory is exhaustive against those files.
+`liquers-validate` was **not** run and is not applicable: this design contains no Liquers query. The
+strings that look path-like (`cache/x.txt`, `data/x.txt`) are store keys in prose, not queries, and
+no example evaluates anything. No command is registered, so there is nothing to check against
+`specs/command_registry.yaml`.
+
+The finding from this pass that shaped the document: the existing `factory01`–`factory04` suite was
+discovered by reading the source rather than by searching for it, and `factory02` turned out to
+assert — with a doc comment arguing the case at length — precisely the rule this design inverts.
+That is why the test inventory leads the Test Plan instead of trailing it.

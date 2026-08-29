@@ -131,8 +131,13 @@ and the reason is that these are different concepts rather than the same concept
 JSON-type enum today (checked: `type_system.rs`, `media_type.rs`, `command_metadata.rs`), so nothing
 is being shadowed. Flagged at the gate rather than decided silently.
 
+**Builder methods**, in the `StoreConfig::with_prefix` style already in the moved code:
+`StoreArgumentInfo::new(name, argument_type)`, `.with_label(…)`, `.with_doc(…)`, `.required()`,
+`.with_default(serde_json::Value)`. `required()` takes no argument — it reads better at the call
+site than `.required(true)`, and there is no `.optional()` because that is the default.
+
 **Ownership:** all fields owned. A `StoreTypeInfo` is built once per factory and cloned into error
-messages and registry exports; there is nothing large enough to justify `Arc`.
+messages; there is nothing large enough to justify `Arc`.
 
 ### `StoreArgumentType` — the JSON type of one configuration key
 
@@ -271,6 +276,12 @@ guide will teach:
 | `liquers-core` | `memory`, `filesystem` | core only — nothing is below it |
 | `liquers-store` | the OpenDAL types | core, then OpenDAL |
 | `liquers-web` | `localstorage`, `js`, `http`, `https` | core, then web (**not** OpenDAL — it is not in the browser's graph) |
+
+**One deviation, for a real reason.** `liquers-core`'s and `liquers-store`'s
+`default_store_factory()` take no arguments; `liquers-web`'s takes a `WebStoreFactory`, because that
+factory is *stateful* — it holds the page objects a `js` store entry can name, which are registered
+at runtime and cannot come from a configuration document. The convention is about what each crate
+provides, not about a signature every crate must match.
 
 **The default factory is what a consumer should reach for.** Composing a chain by hand is for
 someone who wants a different order or a subset. This keeps "which stores do I get" answerable by
