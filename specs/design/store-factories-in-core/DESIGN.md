@@ -249,6 +249,34 @@ cannot pass by accident, because a test in `liquers-core/tests/` has no way to r
 
 Totals: 36 tests + 4 build-matrix rows; 13 assert behaviour that does not exist yet.
 
+**OpenDAL examples added (Scenario 4), checked against the 0.55 sources rather than from memory.**
+Field counts read from `opendal-0.55.0/src/services/*/config.rs`: `ftp` 4, `http` 5, `webdav` 6,
+`sftp` 6, `azblob` 9, `gcs` 13, **`s3` 26** — about **134 fields across the 20 types in
+`OPENDAL_STORE_TYPES`**. S3 is the first and only place `StoreArgumentType::Boolean` and `Number`
+have real users; without it both would look speculative.
+
+**A latent defect found while checking, filed as
+[`STORE-OPENDAL-LIST-OPTION-MISPARSED`](../../issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md)
+(P2, S).** `config_as_string_map` flattens a JSON array to JSON *text* (`["a","b"]`), while
+OpenDAL's `ConfigDeserializer::deserialize_seq` splits on **commas** — so a list-valued option
+parses into garbage. Reach today is one field (`tikv.endpoints`, the only non-scalar across all of
+OpenDAL 0.55) behind the `opendal_tikv` escape hatch, hence P2. Two adjacent edges in the same
+function: a JSON float stringifies to `"1000.0"` which OpenDAL's integer parser rejects, and null
+becomes the literal `"null"`. Booleans and integers agree correctly. This design neither causes nor
+fixes it — `config_as_string_map` moves to core unchanged.
+
+**It answers the `Array` question with evidence.** An OpenDAL list option is spelled as a
+comma-separated *string* in the document, so it is `StoreArgumentType::String` with the convention in
+its `doc`, not `Array`. `Array` therefore has exactly one legitimate user — the browser `http` store's
+`keys` — and `Object` has **none**, since no OpenDAL service config has a map-valued field.
+
+**New scoping question for Phase 4.** Describing all ~134 OpenDAL fields by hand is disproportionate
+and would drift on the next OpenDAL upgrade. Proposed asymmetry: describe core and browser store
+types fully — Liquers owns them and their arguments *are* the specification — but describe only the
+essentials for OpenDAL types and point at OpenDAL's own documentation, since duplicating a
+dependency's struct creates a second source of truth that can only decay. This changes how much work
+Phase 4's OpenDAL step is, so it is raised at the gate.
+
 Two Phase 2 gaps were found by the conformity pass and fixed there rather than worked around:
 `StoreArgumentInfo`'s builder methods were never specified, and `liquers-web`'s
 `default_store_factory` takes an argument (its factory is stateful, holding runtime-registered page

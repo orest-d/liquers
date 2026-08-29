@@ -45,6 +45,7 @@ the existing browser suite.
 | 1 | Example | Router from a document, default factory | The ordinary path is unchanged in shape: parse a `StoreRouterConfig`, hand it a `default_store_factory()`, build |
 | 2 | Example | An integration contributes store types | `WebStoreFactory` after the move: own factory describing its types, chained after core's, no `liquers-store` |
 | 3 | Example | Pitfalls | First-wins is not last-wins; no built-in fallback; an unclaimed type is an error, not a silent miss |
+| 4 | Example | OpenDAL store types | Conceptual: S3 (26 fields) and FTP (4) described as `StoreTypeInfo`; where our stringification and OpenDAL's parser disagree |
 | 4 | Unit tests | `store_config` (11 tests) | Moved verbatim: env-var expansion, YAML/JSON parsing, builder methods, `key_prefix` |
 | 5 | Unit tests | `store_factory` — core (13 new) | `StoreTypeMap`, chain order, `store_types()` union, availability, error text |
 | 6 | Unit tests | `store_factory` — `liquers-store` (6, 4 rewritten) | OpenDAL factory, default chain, the `factory01`–`factory04` suite restated |
@@ -274,6 +275,177 @@ so the fix is in the message.
 
 **Test that protects it:** `chain05_unclaimed_type_lists_supported_types`.
 
+## Example 4: OpenDAL Store Types — the Complex Configurations
+
+### Why this example exists
+
+Scenarios 1 and 2 use `memory`, `filesystem` and the browser types, all of which take one or two
+arguments. They do not test whether `StoreTypeInfo` can describe a *real* backend. OpenDAL's are the
+demanding ones, and describing them is what the `OpendalStoreFactory` must actually do.
+
+Conceptual only — none of this runs here; the values are checked against OpenDAL 0.55's service
+config structs (`opendal-0.55.0/src/services/*/config.rs`) rather than against a live backend.
+
+### The size of the job
+
+Field counts read from the 0.55 sources, not estimated:
+
+| Type | Fields | Character |
+|---|---|---|
+| `ftp` | 4 | the simple case: `endpoint`, `root`, `user`, `password` |
+| `http` | 5 | read-only, no credentials |
+| `webdav` | 6 | two auth styles — `username`+`password` **or** `token` |
+| `sftp` | 6 | key-file based |
+| `azblob` | 9 | account name/key, SAS token |
+| `gcs` | 13 | service-account JSON, scopes, predefined ACL |
+| **`s3`** | **26** | the hardest: credentials, assume-role, four server-side-encryption modes, virtual-host style, request-payer, batch limits |
+
+**≈134 fields across the 20 types in `OPENDAL_STORE_TYPES`.** That is the honest cost of "a factory
+describes the arguments for each store type", and it is a scoping question for Phase 4 rather than a
+design flaw — see §Scoping question below.
+
+### FTP — the common simple case
+
+```yaml
+stores:
+  - type: ftp
+    prefix: archive
+    config:
+      endpoint: ftp.example.org:21
+      root: /exports/liquers
+      user: ${FTP_USER}
+      password: ${FTP_PASSWORD}
+```
+
+```rust
+StoreTypeInfo::new("ftp")
+    .with_label("FTP")
+    .with_doc("FTP server via OpenDAL. Credentials are sent by the protocol in cleartext.")
+    .with_argument(
+        StoreArgumentInfo::new("endpoint", StoreArgumentType::String)
+            .required()
+            .with_doc("host:port, e.g. ftp.example.org:21"),
+    )
+    .with_argument(
+        StoreArgumentInfo::new("root", StoreArgumentType::String)
+            .with_doc("Server-side directory treated as the store root."),
+    )
+    .with_argument(StoreArgumentInfo::new("user", StoreArgumentType::String))
+    .with_argument(StoreArgumentInfo::new("password", StoreArgumentType::String))
+```
+
+All four are strings, so nothing is stressed. This is the shape most types have.
+
+### S3 — the hard case
+
+Every argument below is a real OpenDAL 0.55 field name. This is a *subset*; the full struct has 26.
+
+```yaml
+stores:
+  - type: s3
+    prefix: remote
+    config:
+      bucket: my-liquers-bucket          # the only required field
+      region: eu-central-1
+      endpoint: https://s3.eu-central-1.amazonaws.com
+      access_key_id: ${AWS_ACCESS_KEY_ID}
+      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      session_token: ${AWS_SESSION_TOKEN}
+      root: datasets/2026
+      server_side_encryption: aws:kms
+      server_side_encryption_aws_kms_key_id: ${KMS_KEY_ARN}
+      enable_virtual_host_style: true    # boolean
+      allow_anonymous: false             # boolean
+      disable_config_load: true          # boolean — do not read ~/.aws
+      batch_max_operations: 1000         # number
+      default_storage_class: INTELLIGENT_TIERING
+```
+
+An assume-role deployment instead uses `role_arn`, `external_id` and `role_session_name`; a
+customer-managed-key deployment uses `server_side_encryption_customer_algorithm` and
+`server_side_encryption_customer_key`. Those combinations are mutually exclusive in practice and
+**nothing in `StoreTypeInfo` can express that** — see §Scoping question.
+
+```rust
+StoreTypeInfo::new("s3")
+    .with_label("Amazon S3 (and S3-compatible)")
+    .with_doc("S3 via OpenDAL. Also serves MinIO, Ceph and other S3-compatible endpoints;                set `endpoint` for those.")
+    .with_argument(
+        StoreArgumentInfo::new("bucket", StoreArgumentType::String)
+            .required()
+            .with_doc("Bucket name. The only argument S3 always needs."),
+    )
+    .with_argument(
+        StoreArgumentInfo::new("region", StoreArgumentType::String)
+            .with_doc("e.g. eu-central-1. Inferred from the environment when omitted."),
+    )
+    .with_argument(
+        StoreArgumentInfo::new("access_key_id", StoreArgumentType::String)
+            .with_doc("Use ${AWS_ACCESS_KEY_ID}; never write a literal key into a document."),
+    )
+    .with_argument(
+        StoreArgumentInfo::new("enable_virtual_host_style", StoreArgumentType::Boolean)
+            .with_default(serde_json::Value::Bool(false))
+            .with_doc("Address the bucket as a subdomain rather than a path element."),
+    )
+    .with_argument(
+        StoreArgumentInfo::new("batch_max_operations", StoreArgumentType::Number)
+            .with_doc("Cap on operations per batch request. Whole number."),
+    )
+    // … 21 more
+```
+
+This is the first place `StoreArgumentType::Boolean` and `Number` have real users — the core and
+browser types are all strings — so S3 is what justifies those variants existing.
+
+### What checking this against OpenDAL actually found
+
+Everything reaching OpenDAL goes through `config_as_string_map`, which flattens each
+`serde_json::Value` to a `String`, and then through OpenDAL's `ConfigDeserializer`, which parses it
+back. The two must agree. Reading `opendal-0.55.0/src/raw/serde_util.rs`:
+
+| Value | We send | OpenDAL expects | Agrees? |
+|---|---|---|---|
+| Boolean | `"true"` / `"false"` | `"true"`/`"on"`, `"false"`/`"off"`, case-insensitive | **yes** |
+| Integer | `"1000"` | `parse::<usize>()` etc. | **yes** |
+| Float `1000.0` | `"1000.0"` | `parse::<usize>()` on an integer field | **no** — parse error |
+| Array | `["a","b"]` (JSON text) | `split(',')` — comma-separated, unquoted | **no** — splits into garbage |
+| Null | `"null"` | a four-character string | **no** |
+
+**The array row is a defect that exists today**, independent of this design, and it is filed as
+[`STORE-OPENDAL-LIST-OPTION-MISPARSED`](../../issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md) (P2, S).
+Its reach is currently one field — `endpoints: Option<Vec<String>>` on `tikv`, the only non-scalar
+across all of OpenDAL 0.55's service configs — and `tikv` is reachable only through the
+`opendal_tikv` escape hatch. `config_as_string_map` moves to `liquers-core` unchanged, so the
+behaviour crosses the move intact; this design neither causes nor fixes it.
+
+**It settles the `StoreArgumentType::Array` question, though.** An OpenDAL list option is spelled as
+a *comma-separated string* in the document, so it is `StoreArgumentType::String` with the convention
+in its `doc` — not `Array`. `Array` therefore still has exactly one legitimate user, the browser
+`http` store's `keys`, which really is a YAML list because `parse_key_list` reads a
+`serde_json::Value::Array`. And `Object` still has **none**: no OpenDAL service config has a
+map-valued field.
+
+### Scoping question for Phase 4
+
+Describing all ≈134 OpenDAL fields by hand is disproportionate, and hand-written metadata beside a
+dependency's struct is exactly the kind that drifts on the next upgrade. Three options:
+
+1. **Describe every field.** Complete, ~134 entries, and stale the day OpenDAL 0.55 becomes 0.56.
+2. **Describe the common subset per type and mark the type as accepting further keys.** `StoreTypeInfo`
+   would need a "further arguments are passed through" flag; the error path stays useful because the
+   *type* is still known, only its full argument list is not.
+3. **Describe `bucket`-style essentials only, and point at OpenDAL's documentation for the rest.**
+   Cheapest, and honest about where the truth lives.
+
+**Proposed: option 3 for OpenDAL types specifically, option 1 for core and browser types.** The
+asymmetry is principled — Liquers owns the core and browser store types and their arguments *are*
+the specification, whereas OpenDAL owns its own and duplicating them here creates a second source of
+truth that can only decay. This does not weaken the unclaimed-type error, which lists store *types*
+rather than arguments.
+
+Flagged at this gate because it changes how much work Phase 4's OpenDAL step is.
+
 ## Corner Cases
 
 ### Memory
@@ -342,8 +514,12 @@ Guide-worthy material identified while writing these examples, for
 
 Learning to carry to Phase 5:
 
-- Writing Scenario 2 confirmed `StoreArgumentType::Array` has exactly one user (`keys`) and
-  `Object` still has **none**. The open question stands.
+- `StoreArgumentType::Array` has exactly one legitimate user — the browser `http` store's `keys` —
+  and Scenario 4 explains why OpenDAL does not add a second: an OpenDAL list option is a
+  comma-separated string, not a document list. `Object` still has **none**; no OpenDAL service config
+  has a map-valued field. The open question is now answerable with evidence rather than absence.
+- `Boolean` and `Number` earn their place through S3 and nothing else. Had Scenario 4 not been
+  written, both would have looked speculative.
 - The browser store types' arguments were documented only in a module doc-comment. Moving them into
   `StoreTypeInfo` is the first time they are machine-readable — a benefit Phase 1 did not claim.
 - `factory02`'s doc comment is a small essay on why factories precede built-ins. Rewriting it is the
