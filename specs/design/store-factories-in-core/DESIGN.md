@@ -176,6 +176,49 @@ registry for recipe providers with a precise technical reason — `AsyncRecipePr
 because `AsyncStore` is not generic". That independently confirms this design's object-safety
 assumption, and is worth citing in the new store-factory guide as the boundary of the pattern.
 
+## Phase 1 gate answers, fourth round (2026-08-29)
+
+All seven Phase 1 open questions answered; four changed Phase 2 materially.
+
+**Minimal, because store selection is fixed at compile time.** Unlike the command metadata registry
+and like the type registry, the set of store types is settled when the binary is built, and a user
+configures stores at most once. So: no exported registry file, no dynamic registration machinery. Do
+provide a list of supported stores with descriptions and per-argument descriptions.
+
+**Arguments carry JSON types, not `ArgumentType`.** The first Phase 2 draft reused
+`command_metadata::ArgumentType`. That is now rejected: it is a command-parameter vocabulary
+(`Integer`/`Float`/`IntegerOption`, `Enum`/`GlobalEnum` needing a `CommandMetadataRegistry`) with no
+container variant, so it cannot express the browser `http` type's `keys: [...]`. Replaced by a small
+`StoreArgumentType` mirroring JSON — scalars preferred, `Array`/`Object` allowed where genuinely
+needed. Store configuration must stay ergonomic and directly representable as JSON. This is the one
+place the "reuse core structures" instruction is not followed; core has no JSON-type enum to reuse
+(checked `type_system.rs`, `media_type.rs`, `command_metadata.rs`), so nothing is shadowed.
+
+**No compatibility shims at all.** No backwards compatibility is required, and a `liquers-store`
+re-export of a core type is precisely the shadowing to avoid. `liquers-store/src/config.rs` and
+`src/store_builder.rs` are **deleted**; the crate shrinks to `opendal_store.rs` plus a new
+`store_factory.rs`. This supersedes the issue's verification item 1 ("still resolves via re-export;
+no call site edited") — every call site moves, and all are in this repository.
+
+**One own factory plus one default chained factory, per crate.** Stated as the convention the guide
+teaches: `CoreStoreFactory` / `OpendalStoreFactory` / `WebStoreFactory` each describe only their own
+crate's store types, and each crate's `default_store_factory()` chains its own after everything below
+it that should be available. The default is what a consumer reaches for. `with_factory` returns with
+**replace** semantics (append hid where a factory landed, which is the ambiguity first-wins removes),
+plus a `chain_factory` convenience.
+
+**Validate on construction; no separate validation path.** Stores are built at startup, so
+construction is the validation. The constraint that follows: `create` must be fast and must not fetch
+bulk data. A store type that benefits from pre-fetching is making a trade-off it must document.
+
+**Unbuildable types stay** as a soft quality-of-life requirement, justified by being nearly free —
+one enum field set in a `#[cfg]` branch that already exists. The case that matters is a documented
+type disabled by a feature.
+
+`liquers-store/toml` forwards to `liquers-core/toml` and drops its own `toml` dependency. The §3
+`area` question was withdrawn and decided as bookkeeping: `store/config` is redefined by topic rather
+than by a file list, since both files it names are deleted.
+
 ## Cross-design coordination
 
 **Standing obligation (maintainer instruction, 2026-08-29): keep

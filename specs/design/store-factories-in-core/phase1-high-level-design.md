@@ -224,32 +224,50 @@ restates the verification list in full.
 | `eprintln!` on overlap | **Not implemented**, so the wasm-has-no-stderr problem does not arise. |
 | "Parametrisable store creation function/method" | **A `StoreFactory` built from a map** of store-type names to creation functions. |
 | `liquers-store`'s `opendal` feature | **Kept.** Non-OpenDAL backends in `liquers-store` are expected, so an OpenDAL-free configuration of the crate keeps its purpose. |
+| Built-in fallback in the builder | **None.** Every store comes from a factory the builder was given. |
+| Overriding a core store type | **Supported**, by composing a chain with your factory first. First-wins fixes the *default* ordering, not the only possible one. |
+| Unclaimed `store_type` | **An error naming the store types the chain supports**, enumerated from the factories. |
+| Argument descriptions | A factory carries, **per store type, a description of its configuration arguments** — name, documentation, JSON type, required, default. Minimal: no exporter, no registry machinery. |
+| Argument type vocabulary | **JSON types.** Scalars preferred; object and array allowed where a type genuinely needs them. Store configuration must stay ergonomic and directly representable as JSON. |
+| Why not a dynamic registry | Store selection is **fixed once compiled** — like the type registry, unlike the command metadata registry — and a user configures stores at most once. Nothing dynamic needs tracking. |
+| Unbuildable types | **Keep**, as a soft quality-of-life requirement justified by being nearly free: one enum field set in a `#[cfg]` branch that already exists. The case that matters is a documented type disabled by a feature. |
+| Factory composition convention | **One factory per crate describing only that crate's own stores, plus one convenience factory chaining everything that should be available. The convenience factory is the default.** |
+| Setting a factory | `with_factory` **replaces**; a convenience method chains onto the existing one and replaces. Chaining carries all the ordering logic. |
+| Validation | **On construction only.** No separate validate-without-building path. Construction must be fast — no bulk data fetching. |
+| Backwards compatibility | **None required.** No re-export shims in `liquers-store`; call sites move to the core paths. |
 
 ## Open Questions
 
-1. **How rich is the per-store-type argument description?** Name, type and documentation per
-   configuration key are clearly wanted. Required-vs-optional, defaults, and enumerated values are
-   each plausible and each adds a field every factory implementation must fill. Reuse
-   `ArgumentInfo`, subset it, or define a store-specific type? Should the resulting store-type
-   registry be exportable the way `specs/command_registry.yaml` is?
-2. **Can a factory explain a type it knows of but cannot build?** The two messages worth preserving
-   are "that type needs the `opendal` feature" and "`filesystem` is unavailable on wasm". Both are
-   `#[cfg]`-conditional knowledge a factory *has*; whether the trait gives it a way to say so is a
-   design choice, and the alternative is that those types simply do not appear in the supported list
-   for that build.
-3. **Does `with_factory` survive alongside chaining,** re-expressed as "chain this after", or is it
-   deprecated in favour of building a chain and handing it over whole? With no built-in fallback,
-   `StoreRouterBuilder::new(config)` alone can now build nothing, so the builder's constructor may
-   want the factory as a required argument.
-4. **Does configuration validation without construction become possible?** With per-type argument
-   descriptions in hand, a chain could check a document — unknown type, unknown key, missing
-   required key — without constructing a single store. Attractive, and clearly beyond this design;
-   worth filing rather than absorbing.
-5. **Re-export shape in `liquers-store`:** explicit `pub use` lists or globs, and deprecation
-   attributes or not?
-6. **Feature forwarding:** does `liquers-store/toml` become `["liquers-core/toml"]`?
-7. **`area` vocabulary (§3):** does `core/store` absorb the new modules, or does the closed
-   vocabulary gain a value? `store/config` names files that will no longer exist.
+All seven Phase 1 questions were answered at the gate; the decisions are in the table above and are
+applied in Phase 2. What remains open is narrower and belongs to Phase 3.
+
+1. **Does any real store type need a JSON object or array argument?** One candidate is known: the
+   browser `http` type's `keys: [input.csv, sub/report.json]`. If it stays the only one, `Array`
+   earns its place and `Object` may not — but each is one variant, and omitting `Object` now would
+   be a breaking addition later. Both are included; Phase 3's worked examples test whether that was
+   right.
+2. **How far to restate conformance item `STORE12`** in `LANGUAGE-INTEGRATION_GUIDE.md`. It requires
+   that a factory overriding a shared type name resolves to the integration's implementation; after
+   this change `liquers-web` has nothing to override, because it no longer chains the OpenDAL
+   factory. Proposed: restate in terms of chain order rather than mark `NA` — chain order is the
+   mechanism now, and the requirement is still meaningful.
+3. **Whether `Error::parse_error` is added** to `liquers-core/src/error.rs`. Outside the boundary
+   Phase 1 drew; see Phase 2 §Error Handling.
+
+### Questions withdrawn at the gate
+
+- *Registry export, the way `specs/command_registry.yaml` exports commands* — withdrawn. Store
+  selection is fixed at compile time, unlike the command registry and like the type registry, so
+  there is nothing dynamic for an exported file to track. The `Serialize` derives stay (one line) so
+  an exporter is cheap later; none is built.
+- *Configuration validation without construction* — withdrawn. Stores are constructed at startup, so
+  construction *is* the validation. The constraint this places on factory implementations: `create`
+  must be fast and must not fetch bulk data. A deliberate exception — pre-fetching a remote metadata
+  database, say — is a trade-off for that store type to document.
+- *Re-export shape and deprecation in `liquers-store`* — withdrawn. No backwards compatibility is
+  required, so there are no shims to shape.
+- *`area` vocabulary* — withdrawn as a design question and settled as documentation bookkeeping in
+  Phase 2 §Documentation Architecture.
 
 ## References
 

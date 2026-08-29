@@ -105,9 +105,9 @@ pub struct StoreArgumentInfo {
     pub label: String,
     /// What the argument means and what a valid value looks like.
     pub doc: String,
-    /// Reused from `command_metadata` — see the reuse note below.
+    /// JSON type this key accepts — see the vocabulary note below.
     #[serde(default)]
-    pub argument_type: ArgumentType,
+    pub argument_type: StoreArgumentType,
     /// A store cannot be constructed without it; `require_config_string` will fail.
     #[serde(default)]
     pub required: bool,
@@ -117,16 +117,55 @@ pub struct StoreArgumentInfo {
 }
 ```
 
-**Reuse:** `argument_type` is `liquers_core::command_metadata::ArgumentType`, not a new enum. It
-already carries exactly the cases store configuration needs — `String`, `Integer`, `Float`,
-`Boolean`, `Enum`, `Any` — and is already `Serialize + Deserialize + Default`. Defining a parallel
-store-only enum would be a second vocabulary for one concept. The `GlobalEnum` variant is simply
-never used by a store type; `resolve_global_enums` is a command-registry concern and is not called
-here. Cost of the reuse: `store_factory` imports from `command_metadata`, which is a within-crate
-coupling of a general-purpose type that happens to live in a command-flavoured module.
+**Why not `command_metadata::ArgumentType`.** Phase 2's first draft reused it. The gate decision that
+store arguments carry **JSON types** rules it out: `ArgumentType` is a *command-parameter*
+vocabulary. It splits number into `Integer`/`Float`/`IntegerOption`/`FloatOption`, carries
+`Enum`/`GlobalEnum` variants whose resolution needs a `CommandMetadataRegistry`, and has no container
+variant at all — so it cannot express the browser `http` type's `keys: [...]`. Store configuration is
+a `HashMap<String, serde_json::Value>` parsed from a JSON/YAML document, and its type vocabulary
+should be JSON's. Reusing `ArgumentType` here would import command-registry concepts into a place
+that has no registry, and still fail on the one container case that already exists.
+
+This is the one place the "reuse core structures, don't shadow them" instruction is *not* followed,
+and the reason is that these are different concepts rather than the same concept twice. Core has no
+JSON-type enum today (checked: `type_system.rs`, `media_type.rs`, `command_metadata.rs`), so nothing
+is being shadowed. Flagged at the gate rather than decided silently.
 
 **Ownership:** all fields owned. A `StoreTypeInfo` is built once per factory and cloned into error
 messages and registry exports; there is nothing large enough to justify `Arc`.
+
+### `StoreArgumentType` — the JSON type of one configuration key
+
+```rust
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum StoreArgumentType {
+    String,
+    /// JSON has one numeric type; a store type wanting an integer says so in `doc`.
+    Number,
+    Boolean,
+    /// Allowed but discouraged — see below.
+    Array,
+    /// Allowed but discouraged — see below.
+    Object,
+    /// Unconstrained; any JSON value.
+    #[default]
+    Any,
+}
+```
+
+**Variant semantics.** `String`, `Number`, `Boolean` are the scalars a store argument should
+normally be. `Array` and `Object` exist because at least one real type needs a container — the
+browser `http` store's `keys: [input.csv, sub/report.json]` — and because adding a variant to a
+public serde enum later is a breaking change while including it now is one line. `Any` is the
+default for an argument a factory has not described precisely.
+
+**Scalars are preferred, and the guide says so.** A configuration document should stay ergonomic and
+directly representable as JSON; nesting objects inside `config:` makes both the document and
+`config_as_string_map` harder to reason about. `Object` is present for the case that genuinely needs
+it, not as an invitation.
+
+**No default match arm** on this enum anywhere.
 
 ### `StoreTypeAvailability` — why a known type cannot be built here
 
@@ -217,6 +256,26 @@ creates it. Intended assembly is bottom-up — `liquers-core`, then `liquers-sto
 default. A caller needing an override composes their own chain with their factory first; the API
 permits it and the default ordering simply does not.
 
+### The per-crate factory convention
+
+Every crate contributing store types provides **exactly two things**, and this is the convention the
+guide will teach:
+
+| | Names | Contains |
+|---|---|---|
+| Its own factory | `CoreStoreFactory`, `OpendalStoreFactory`, `WebStoreFactory` | **only** that crate's own store types |
+| Its default factory | `default_store_factory()` | its own chained after everything below it that should be available |
+
+| Crate | Own factory claims | `default_store_factory()` returns |
+|---|---|---|
+| `liquers-core` | `memory`, `filesystem` | core only — nothing is below it |
+| `liquers-store` | the OpenDAL types | core, then OpenDAL |
+| `liquers-web` | `localstorage`, `js`, `http`, `https` | core, then web (**not** OpenDAL — it is not in the browser's graph) |
+
+**The default factory is what a consumer should reach for.** Composing a chain by hand is for
+someone who wants a different order or a subset. This keeps "which stores do I get" answerable by
+naming one function per crate, and keeps each own-factory small enough to read.
+
 ### `StoreRouterBuilder` — no built-in knowledge
 
 ```rust
@@ -228,7 +287,9 @@ pub struct StoreRouterBuilder {
 
 The factory is a **required** field, not an accumulating `Vec` with a hidden fallback. This is the
 structural expression of "there should not be a builtin": the builder cannot construct a store type
-nobody gave it.
+nobody gave it. `with_factory` **replaces** it; `chain_factory` is the convenience that chains onto
+what is there and replaces. All ordering logic lives in `ChainedStoreFactory`, so the builder holds
+exactly one factory and never has to reason about precedence.
 
 ### Moved verbatim
 
@@ -356,7 +417,12 @@ call site to solve a problem nobody has. Documented rather than engineered aroun
 ### `liquers-core/src/store_factory.rs`
 
 ```rust
+/// Only the store types `liquers-core` implements: `memory`, and `filesystem` off wasm.
 pub fn core_store_factory() -> StoreTypeMap;
+
+/// Core's convenience chain. Nothing is below core, so this is `core_store_factory()`
+/// in a chain — named for the convention, so a consumer writes the same call in every crate.
+pub fn default_store_factory() -> ChainedStoreFactory;
 
 impl StoreTypeMap {
     pub fn new() -> Self;
@@ -365,29 +431,39 @@ impl StoreTypeMap {
 
 impl ChainedStoreFactory {
     pub fn new() -> Self;
+    /// Append: this factory is consulted after everything already in the chain.
     pub fn chain(self, factory: Box<dyn StoreFactory>) -> Self;
 }
 
 impl StoreRouterBuilder {
     pub fn new(config: StoreRouterConfig, factory: Box<dyn StoreFactory>) -> Self;
     pub fn from_yaml(yaml: &str, factory: Box<dyn StoreFactory>) -> Result<Self, Error>;
-    pub fn from_json(yaml: &str, factory: Box<dyn StoreFactory>) -> Result<Self, Error>;
+    pub fn from_json(json: &str, factory: Box<dyn StoreFactory>) -> Result<Self, Error>;
+
+    /// Replace the builder's factory outright.
+    pub fn with_factory(self, factory: Box<dyn StoreFactory>) -> Self;
+    /// Convenience: chain `factory` after the current one and replace.
+    /// Equivalent to `with_factory(ChainedStoreFactory::new().chain(current).chain(factory))`.
+    pub fn chain_factory(self, factory: Box<dyn StoreFactory>) -> Self;
+
     pub fn build(mut self) -> Result<AsyncStoreRouter, Error>;
     pub fn build_without_env_expansion(self) -> Result<AsyncStoreRouter, Error>;
 }
 
 /// The error a chain returns for a `store_type` no member claims.
-/// Public so a caller validating a document can produce the same message.
-pub fn unknown_store_type_error(
-    store_type: &str,
-    known: &[StoreTypeInfo],
-) -> Error;
+pub fn unknown_store_type_error(store_type: &str, known: &[StoreTypeInfo]) -> Error;
 ```
 
-`with_factory` is **removed**, not deprecated. With the factory required at construction it has
-nothing to add to, and leaving a method that silently appends would reintroduce the ambiguity about
-where in the order a factory lands. Its single caller (`liquers-web/src/store/builder.rs`) becomes a
-`ChainedStoreFactory` built explicitly.
+`with_factory` survives with **replace** semantics rather than the append it has today. The
+distinction matters: append hid where in the order a factory landed, which is exactly the ambiguity
+first-wins is meant to remove. Replace is unambiguous, and `chain_factory` covers the common case
+without reintroducing a hidden position.
+
+**Construction must be fast.** `StoreFactory::create` builds a handle; it must not fetch bulk data.
+A store type that genuinely benefits from pre-fetching — a remote metadata database, say — is making
+a trade-off it must document, because startup is where every store in a configuration is built and a
+slow `create` is a slow start. This is the constraint that follows from validating on construction
+rather than separately, and the guide states it.
 
 ### `liquers-store/src/store_factory.rs` (new)
 
@@ -425,26 +501,36 @@ dependency graph changes. Nothing else is added: `serde`, `serde_derive`, `serde
 
 ### `liquers-store`
 
-**`src/config.rs`** becomes a re-export shim with **explicit** `pub use` (not a glob), so the crate's
-surface stays auditable and a removal upstream is a compile error here rather than a silent gap:
+**No compatibility shims — gate decision, "reuse core structures, don't shadow them; there is no
+need to keep any backwards compatibility at this moment".** Phase 2's first draft kept
+`liquers-store::config` as a re-export module so no call site would need editing. That is now
+rejected: a re-export of a core type from `liquers-store` is exactly the shadowing the instruction
+forbids, and it would leave two documented import paths for one type with nothing to choose between
+them.
 
-```rust
-pub use liquers_core::store_config::{expand_env_vars, StoreConfig, StoreRouterConfig};
-```
+Consequently `liquers-store` shrinks to three files:
 
-Plus the unmoved OpenDAL type helpers. **No `#[deprecated]` attributes:** the paths are documented in
-`STORE_CONFIG_FSD.md` and used by `liquers-axum` consumers outside this repository; deprecation
-warnings would be noise for a re-export that costs nothing to keep. Phase 5 records this as a
-decision so a later cleanup does not read it as an oversight.
+| File | Fate |
+|---|---|
+| `src/opendal_store.rs` | unchanged |
+| `src/store_factory.rs` | **new** — `OpendalStoreFactory`, `default_store_factory()`, the OpenDAL type helpers, and the `create_router_from_*` convenience functions |
+| `src/lib.rs` | declares the two modules; its `pub use config::{…}` line goes |
+| `src/config.rs` | **deleted** — types to core; `OPENDAL_STORE_TYPES`, `is_opendal_store_type`, `get_opendal_scheme` fold into `store_factory.rs`, which is their only caller |
+| `src/store_builder.rs` | **deleted** — `StoreFactory`/`StoreRouterBuilder` to core; `create_store` dissolved into the two factories; convenience functions to `store_factory.rs` |
 
-**`src/store_builder.rs`** keeps `create_router_from_yaml` / `create_router_from_json` (now built over
-`default_store_factory()`) and re-exports `StoreFactory` and `StoreRouterBuilder` from core.
-`create_store` is **removed**: its memory and filesystem arms become `core_store_factory()`, its
-OpenDAL arm becomes `OpendalStoreFactory`, and its unknown-type arm becomes the chain's error. It is
-a `pub fn` with no in-tree caller outside its own tests.
+`create_store` is removed rather than relocated: its memory and filesystem arms become
+`core_store_factory()`, its OpenDAL arm becomes `OpendalStoreFactory`, and its unknown-type arm
+becomes the chain's error. Nothing calls it outside its own tests.
 
-**`Cargo.toml`:** `toml = ["dep:toml", "liquers-core/toml"]` so the feature forwards. The `opendal`
-feature is **kept** — non-OpenDAL backends are expected in this crate — but its manifest comment must
+**This supersedes the issue's verification item 1** — "`liquers_store::config::StoreRouterConfig`
+still resolves (re-export); no call site edited" — which assumed the data-only boundary and a
+compatibility shim. Both are gone. Call sites move to `liquers_core::store_config` and
+`liquers_core::store_factory`; all of them are in this repository and are enumerated under
+`liquers-web` below. Phase 5 rewrites that verification list in the issue file.
+
+**`Cargo.toml`:** `toml = ["liquers-core/toml"]` — the feature forwards and the crate's own `toml`
+dependency is dropped, since nothing in `liquers-store` parses TOML once `from_toml` lives in core.
+The `opendal` feature is **kept** — non-OpenDAL backends are expected in this crate — but its manifest comment must
 change: the wasm-consumer justification it gives is exactly what this design removes.
 
 ### `liquers-web`
@@ -539,12 +625,30 @@ or discarded:
 | `guides/LANGUAGE-INTEGRATION_GUIDE.md` | **keep** | See the reversal below — the largest single edit |
 | `README.md` (repo root) | **keep** | Line 93: config/builder under `liquers_core`, OpenDAL under `liquers_store` |
 | `CLAUDE.md` | **keep** | "Adding a Store Backend" — the four steps change crate and now begin from a factory, not a `match` arm |
-| `specs/DOCS_STRUCTURE_GUIDE.md` §3 | **keep** | `core/store` gains `store_config.rs`/`store_factory.rs`; `store/config` narrows to `liquers-store`'s remaining `config.rs`/`store_builder.rs` shims rather than retiring, since those files persist |
+| `specs/DOCS_STRUCTURE_GUIDE.md` §3 | **keep** | See the decision below |
 | `scripts/check-build-matrix.sh` | **keep** | Header rationale + new `liquers-core` rows (see Integration Points) |
 | `design/liquers-web-store/` | **keep** | Add a supersession note: its factory-precedence rationale no longer describes the code |
 | `reference/PROJECT_OVERVIEW.md` | **discard** | Names `liquers-store (storage backends)` in a crate tree, which remains accurate — the crate keeps its backends |
 | `reference/WEB_API_SPECIFICATION.md` | **discard** | No store-configuration content |
 | `reference/ASSETS.md`, `DEPENDENCIES_STATUS.md`, `ASSET_LIFECYCLE.md` | **discard** | Share `core/store` by area only; concern asset lifecycle, not store construction |
+
+#### The `area` vocabulary — decided, not asked
+
+Phase 1 raised this as a question; it is bookkeeping, so it is decided here. §3 is a closed
+vocabulary and `store/config` is currently defined by two filenames — "`liquers-store`: `config.rs`,
+`store_builder.rs`" — **both of which this design deletes.** Two options:
+
+- *Retire `store/config`.* Clean, but every row carrying it (`STORE_CONFIG_FSD.md` and several
+  issues) needs remapping, and retiring a value from a closed vocabulary is churn spread across
+  unrelated documents.
+- *Redefine it by topic rather than by file list.* One row edited, every existing row still valid.
+
+**Redefine.** `store/config` becomes "store configuration and construction: `liquers-core`'s
+`store_config.rs` and `store_factory.rs`, and `liquers-store`'s `store_factory.rs`", and the
+`core/store` row stays as-is (`store.rs`, `cache.rs` — the traits). This keeps the `area` value
+pointing at the *subject* a reader searches for, which is what §3 values are for, and avoids
+rewriting front-matter in documents this design does not otherwise touch. The `store/backends` row
+is unchanged.
 
 **Authoritative `affects_docs`:** `reference/STORE_CONFIG_FSD.md`,
 `reference/api/DOC_01_ARCHITECTURE_REFERENCE.md`, `guides/LANGUAGE-INTEGRATION_GUIDE.md`,
@@ -589,12 +693,14 @@ Two conformance items in the same guide also move:
 
 ### Evidence to Collect During Implementation
 
-- Whether `ArgumentType` reuse survives contact with real store arguments, or whether a store-only
-  type is needed after all (watch: `keys: [a, b]` on the browser `http` type is a list, and
-  `ArgumentType` has no list variant — the first thing likely to strain the reuse).
+- Whether `StoreArgumentType`'s `Array` and `Object` variants earn their place. `Array` has exactly
+  one known user (the browser `http` type's `keys`); `Object` has none yet and is included only
+  because adding a serde enum variant later is breaking.
 - The actual argument descriptions written for OpenDAL types: how many are there, and does writing
   them reveal that `OPENDAL_STORE_TYPES` is a bare list with no documentation anywhere?
-- Whether removing `create_store` breaks anything outside the repository's visibility.
+- Whether deleting `liquers-store::config` and `store_builder` breaks anything outside the
+  repository's visibility. Every in-tree call site is enumerated; external consumers are not, and the
+  no-backwards-compatibility decision accepts that.
 - Feature-matrix surprises from making `toml` optional in core, of the kind the guide's option-3
   cost list predicts.
 - Whether `StoreRouterBuilder::new`'s new arity is ergonomic in practice or wants a convenience
@@ -689,7 +795,7 @@ browser.
 - [x] Trait bounds minimal — none, justified by the browser factory
 - [x] `StoreTypeAvailability` matched exhaustively; no `_ =>` arm planned
 - [x] Dependency flow one-way: core ← store ← web, and code moves down it
-- [x] Imports named: `command_metadata::ArgumentType` is the only cross-module reuse
+- [x] Imports named: no cross-module reuse remains — `StoreArgumentType` is local to `store_factory`
 
 Checks to run in Phase 4:
 
@@ -724,13 +830,22 @@ items Phase 1 left open are resolved *inside* its stated boundary (`with_factory
 `liquers-core/src/error.rs`, which Phase 1 did not list. Surfaced at the gate rather than absorbed.
 
 **Pass B — codebase alignment.** Signatures checked against `liquers-store/src/store_builder.rs`,
-`liquers-web/src/store/builder.rs` and `liquers-core/src/store.rs`. Findings acted on: `ArgumentType`
-already exists and is reused instead of a new enum; `Error::not_supported` already exists and is used
+`liquers-web/src/store/builder.rs` and `liquers-core/src/store.rs`. Findings acted on:
+`Error::not_supported` already exists and is used
 instead of `general_error`; `AsyncMemoryStore`/`AsyncFileStore` are already core types, so the core
 factory constructs nothing new; `BTreeMap` chosen over `HashMap` for deterministic error text;
 `liquers-core` has **no** build-matrix row today, found by reading `scripts/check-build-matrix.sh`
 rather than by area search.
 
-**Open for the user, not resolvable from context:** the `Error::parse_error` addition; the
-`ArgumentType`-has-no-list-variant strain on the browser `http` type's `keys` argument; and how far
-`STORE12` should be restated versus marked `NA`.
+**Revised after the Phase 1 gate answers (second pass).** Four decisions changed this document
+materially: `StoreArgumentType` replaces the `ArgumentType` reuse (JSON vocabulary, and
+`ArgumentType` cannot express `keys: [...]`); all compatibility shims are dropped, deleting
+`liquers-store`'s `config.rs` and `store_builder.rs` and superseding the issue's verification item 1;
+`with_factory` returns with replace semantics plus a `chain_factory` convenience; and the per-crate
+"own factory + default chained factory" convention is now stated explicitly as the pattern the guide
+teaches. The registry-export and validate-without-construction directions are withdrawn, not
+deferred.
+
+**Open for the user, not resolvable from context:** the `Error::parse_error` addition; whether
+`StoreArgumentType::Object` should ship with no known user; and how far `STORE12` should be restated
+versus marked `NA`.
