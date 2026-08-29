@@ -2,7 +2,6 @@ id,kind,title,status,status_source,phase,priority,complexity,area,gh_issue,gh_pr
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",draft,local,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 STORE-OPENDAL-SERVICES-NOT-ENABLED,issue,"No OpenDAL service features are enabled, so every advertised OpenDAL store type fails to build",draft,local,,P0,S,store/backends,,,,,,2026-08-29,specs/issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",draft,local,,P0,M,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
-STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",draft,local,,P0,L,core/store;store/config;web,,,,store-factories-in-core,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
 CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC,issue,SimpleEnvironmentWithPayload panics when no recipe provider is configured,draft,local,,P1,S,core/context,,,,payload-env-recipe-provider-fallback,,2026-08-27,specs/issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md
 STORE-OPENDAL-SLASH-HANDLING,issue,OpenDAL store mishandles keys containing slashes,accepted,local,,P1,M,store/backends,,,,opendal-path-mapping,,2026-08-08,specs/issues/STORE-OPENDAL-SLASH-HANDLING.md
 CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each other,accepted,local,,P1,L,core/assets;core/plan,,,,,,2026-08-08,specs/issues/CORE-EVALUATE-PATH-CONSOLIDATION.md
@@ -89,14 +88,15 @@ PLAN-CWD-FREEZE,design,Freeze CWD in the plan and cut correct predecessor bounda
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,in_review,local,architecture,,,core/assets;web,,,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
 REGISTER-COMMAND-ENUM,design,Enum parameters in register_command!,draft,local,architecture,,,macro;core/commands,,,,register-command-enum,,2026-03-02,specs/design/register-command-enum/DESIGN.md
 STORE-CONFIG-URI,design,Configuring a store from a URI,in_review,local,architecture,,,store/config;store/backends;core/store,,,,store-config-uri,,2026-08-29,specs/design/store-config-uri/DESIGN.md
-STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,draft,local,implementation,,,core/store;store/config;store/backends;web;docs,,,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
+STORE-FACTORIES-IN-CORE,design,Store configuration and factories in liquers-core,draft,local,documentation,,,core/store;store/config;store/backends;web;docs,,,,store-factories-in-core,,2026-08-27,specs/design/store-factories-in-core/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,overdue,local,,,,build,,,,,2026-03-02,,specs/guides/UNITTEST_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,core/commands;macro,,,,,2026-08-25,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-26,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-08-29,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,core/query,,,,,2026-08-14,,specs/guides/QUERY_ESCAPING_GUIDE.md
+STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,core/store;store/config,,,,,2026-08-29,,specs/guides/STORE_FACTORY_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,core/value;lib/value,,,,,2026-08-26,,specs/guides/TYPE_SYSTEM_GUIDE.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,docs;build,,,,,2026-08-11,,specs/guides/autonomous_issue_fixing.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
@@ -129,6 +129,7 @@ EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD,issue,Five expiration_integration t
 PARAMETER-ESCAPING-INCOMPLETE,issue,Action-parameter escaping cannot express every value,closed,local,,P0,M,core/query,,,,parameter-entity-escaping,,2026-08-08,specs/issues/PARAMETER-ESCAPING-INCOMPLETE.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,closed,local,,P0,M,core/store;store/backends;axum,,,,store-key-guard,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
+STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",closed,local,,P0,L,core/store;store/config;web,,,,store-factories-in-core,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
 ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES,issue,ActionParameter::set_value double-encodes its value,closed,local,,P1,S,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,closed,local,,P1,S,core/value,,,,value-type-system,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed as a command argument,closed,local,,P1,S,core/commands;core/query,,,,plan-cwd-freeze,,2026-08-15,specs/issues/CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND.md

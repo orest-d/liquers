@@ -118,7 +118,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Absolute store keys** — built → `liquers_core::store` module docs; rule summarised in
   [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §5, conformance in the
   store section of [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
-- **Store configuration and factories in core** — designing → [`design/store-factories-in-core/`](design/store-factories-in-core/)
+- **Store factories: defining, contributing and overriding store types** — documented → [`guides/STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) *(design in [`design/store-factories-in-core/`](design/store-factories-in-core/))*
 - **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — designing → [`design/opendal-path-mapping/`](design/opendal-path-mapping/)
@@ -192,7 +192,6 @@ question are both measure-first items.
 |---|---|---|---|
 | [`RECIPE-PROVIDER-BY-NAME`](issues/RECIPE-PROVIDER-BY-NAME.md) | P0 | S | `recipe-provider-selection` |
 | [`COMMAND-DECLARATION-FORMAT`](issues/COMMAND-DECLARATION-FORMAT.md) | P0 | M | `command-declaration` |
-| [`STORE-CONFIG-IN-CORE`](issues/STORE-CONFIG-IN-CORE.md) | P0 | L | `store-factories-in-core` |
 | [`CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC`](issues/CORE-PAYLOAD-ENV-RECIPE-PROVIDER-PANIC.md) | P1 | S | `payload-env-recipe-provider-fallback` |
 | [`STORE-OPENDAL-SLASH-HANDLING`](issues/STORE-OPENDAL-SLASH-HANDLING.md) | P1 | M | `opendal-path-mapping` |
 | [`QUEUED-MANAGER-STARTUP-READINESS`](issues/QUEUED-MANAGER-STARTUP-READINESS.md) | P1 | L | `environment-builder` |
@@ -222,7 +221,6 @@ deliberately folded behind a broader line.
 - feature `RECIPE-PROVIDER-BY-NAME`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
-- feature `STORE-CONFIG-IN-CORE`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `VALUE-CONVERSION-CAPABILITY`
@@ -235,6 +233,7 @@ deliberately folded behind a broader line.
 - [`COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md) — This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
+- [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — How to define a store type, contribute one from another crate, choose which set of store types a
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`autonomous_issue_fixing.md`](guides/autonomous_issue_fixing.md) — This is the binding procedure for a coding agent asked to fix an issue autonomously. The words

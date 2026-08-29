@@ -90,7 +90,9 @@ implementations, integrations, or bindings around those traits.
 | Assets | `AssetRef`, `AssetManager`, `DefaultAssetManager`, `ImmediateAssetManager`, `EvalMode` | `liquers_core::assets` |
 | Asset messages | `AssetServiceMessage`, `AssetNotificationMessage` | `liquers_core::assets` |
 | Stores | `AsyncStore`, `AsyncStoreRouter`, `AsyncMemoryStore`, `AsyncFileStore` | `liquers_core::store` |
-| Store configuration | `StoreConfig`, `StoreRouterConfig`, `StoreRouterBuilder` | `liquers_store` |
+| Store configuration | `StoreConfig`, `StoreRouterConfig` | `liquers_core::store_config` |
+| Store construction | `StoreFactory`, `StoreRouterBuilder` | `liquers_core::store_factory` |
+| OpenDAL backends | `OpendalStoreFactory`, `default_store_factory` | `liquers_store::store_factory` |
 | Dependencies | `DependencyRelation`, `PlanDependency` | `liquers_core::dependencies` |
 | Expiration | `Expires`, `ExpirationTime` | `liquers_core::expiration` |
 | Errors | `Error`, `ErrorType` | `liquers_core::error` |

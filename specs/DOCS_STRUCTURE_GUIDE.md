@@ -90,7 +90,7 @@ and a YAML list in front-matter.
 | `core/validate` | `liquers-core`: `validate/`, the `liquers-validate` binary |
 | `macro` | `liquers-macro` — `register_command!` |
 | `store/backends` | `liquers-store`: `opendal_store.rs` and future backends |
-| `store/config` | `liquers-store`: `config.rs`, `store_builder.rs` |
+| `store/config` | Store configuration and construction: `liquers-core`'s `store_config.rs` and `store_factory.rs`, and `liquers-store`'s `store_factory.rs` |
 | `lib/commands` | `liquers-lib`: `commands.rs`, `environment.rs`, `utils.rs` |
 | `lib/value` | `liquers-lib`: `value/` — `ExtValue` and extensions |
 | `lib/polars` | `liquers-lib`: `polars/` |

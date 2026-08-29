@@ -5,10 +5,25 @@ audience: internal
 area: [store/config]
 reviewed: 2026-08-29
 ---
-# Functional Specification Document (FSD): Store Configuration for `liquers-store`
+# Functional Specification Document (FSD): Store Configuration
 
 ## Overview
-This document specifies the requirements and design for configuring a store system in the `liquers-store` crate. The configuration system will allow users to define and instantiate an `AsyncStoreRouter` composed of multiple store backends, including OpenDAL-based stores, a built-in memory store, and a built-in filesystem store.
+
+This document specifies how a store system is configured: a declarative document defines an
+`AsyncStoreRouter` composed of several store backends.
+
+**Where each part lives.** The configuration format, the factory seam and the builder are
+`liquers-core`'s (`store_config.rs`, `store_factory.rs`); the OpenDAL backends are
+`liquers-store`'s; browser backends are `liquers-web`'s. That split is deliberate — a type that
+*describes* a store must be usable without a backend in the dependency graph, so core-side
+configuration can embed one. See `specs/design/store-factories-in-core/`.
+
+| Concern | Crate | Module |
+|---|---|---|
+| `StoreRouterConfig`, `StoreConfig`, `${VAR}` expansion | `liquers-core` | `store_config` |
+| `StoreFactory`, chaining, `StoreRouterBuilder`, `memory`, `filesystem` | `liquers-core` | `store_factory` |
+| OpenDAL backends and their factory | `liquers-store` | `store_factory`, `opendal_store` |
+| `localstorage`, `js`, `http`/`https` via `fetch` | `liquers-web` | `store::builder` |
 
 ## Goals
 - Enable declarative configuration of store backends and routing.
@@ -504,41 +519,146 @@ Though UI is put of scope, the UI should be optionally supported (as a feature) 
 ### Related
 - [serde](https://serde.rs/) - Serialization framework for Rust
 
+## Building stores: the factory model
+
+A [`StoreFactory`] declares the store types it can build, resolves a configuration entry to one of
+them, and builds it. Three rules govern the whole model.
+
+### 1. A factory declares what it can build
+
+`store_types()` returns a `StoreTypeInfo` per type: its name, documentation, configuration
+arguments, whether this build can construct it, and whether the argument list is exhaustive.
+
+That list is not decoration. It is what the error for an unrecognised type prints, so the message
+is accurate for the build in hand rather than describing a type set that may not be compiled in.
+
+### 2. The store type is resolved, not merely matched
+
+`resolve(&StoreConfig) -> Option<String>` answers "which of my types is this entry?". The default
+is an exact match on `type`, and every factory in the tree uses it today. A factory **may** override
+it to *infer* the type from the entry — the store type is the resolved identity of an entry, and
+what identifies it (a `type` field, or something else) is input to that.
+
+Two rules keep inference from becoming magic in a routing decision:
+
+- a factory may only resolve to a store type it declares; and
+- inference should key on something whose purpose is identification, never on the incidental
+  presence of an argument — otherwise adding that argument elsewhere silently reroutes a document.
+
+`create` is then called with `store_type` set to whatever `resolve` returned, so an implementation
+never has to re-derive it.
+
+### 3. Factories chain, and the first to resolve wins
+
+`ChainedStoreFactory` consults its members in order. A chain is assembled **bottom-up** —
+`liquers-core`, then `liquers-store`, then a library, then the integration — so a core store type
+means the same thing everywhere by default.
+
+**Overriding is available to anyone who needs it**: compose a chain with your factory first.
+First-wins fixes the *default* ordering, not the only possible one.
+
+There is **no built-in fallback**. `StoreRouterBuilder` has no store types of its own; everything it
+builds comes from the factory it was given, which is why the factory is a required constructor
+argument. Each crate offers a `default_store_factory()` as the convenience:
+
+| Crate | Its own factory claims | `default_store_factory()` |
+|---|---|---|
+| `liquers-core` | `memory`, `filesystem` | core only |
+| `liquers-store` | the OpenDAL types | core, then OpenDAL |
+| `liquers-web` | `localstorage`, `js`, `http`, `https` | core, then browser — **not** OpenDAL, which is not in its graph |
+
+```rust
+use liquers_core::store_factory::StoreRouterBuilder;
+use liquers_store::store_factory::default_store_factory;
+
+let router = StoreRouterBuilder::from_yaml(yaml, Box::new(default_store_factory()))?.build()?;
+```
+
+### Unrecognised and unavailable types
+
+An entry no factory resolves is an `ErrorType::NotSupported` naming the type and listing what the
+chain supports:
+
+```
+Unknown store type 'postgress'. Supported store types: filesystem, memory.
+Known but unavailable in this build: fs, s3, ftp (requires the 'opendal' feature of liquers-store).
+```
+
+The second sentence is the point. A type that is real and documented but compiled out — a Cargo
+feature is off, or the target does not support it — is reported as **unavailable with the reason**,
+never as unknown. Reporting it as unknown sends the reader hunting for a typo in something that
+exists. `filesystem` on wasm32 and every OpenDAL type without the `opendal` feature are the live
+cases.
+
+### How complete is an argument list?
+
+`ArgumentCoverage` distinguishes two situations, and the distinction is load-bearing:
+
+- **`Complete`** — Liquers owns the store type, so the argument list *is* the specification.
+  `memory`, `filesystem` and the browser types.
+- **`Partial { authority }`** — the type's arguments are defined by another project, so the list is
+  guidance, unlisted keys are passed to the backend, and `authority` says where the real
+  documentation lives. Every OpenDAL type.
+
+An externally-owned surface can only ever be described incompletely, because it changes on someone
+else's release schedule. `Partial` makes that a stated fact rather than an omission: an upstream
+release adding a field makes the description *less complete*, never *wrong*, and nobody has to
+notice for it to stay honest.
+
+Argument types are JSON's — `string`, `number`, `boolean`, `array`, `object`, `any` — because a
+configuration document is JSON or YAML. Scalars are strongly preferred; see the string-boundary
+rules above for why a list-valued OpenDAL option is written as a comma-separated string.
+
 ## Optional backends and extension
 
 ### The `opendal` feature
 
 OpenDAL is an **optional** dependency of `liquers-store`, enabled by default. Building with
-`--no-default-features --features async_store` gives the configuration types and the router builder
-without it, which is what lets a `wasm32` consumer — `liquers-web` — reuse this crate: OpenDAL is
-native-oriented and large, and none of the browser's backends need it.
+`--no-default-features --features async_store` gives the crate without it.
 
-With the feature off, a configuration naming an OpenDAL type is refused with an error that **names
-the missing feature** rather than reporting the type as unknown; a real, documented store type must
-not look like a typo. `filesystem` behaves the same way on `wasm32`, where `AsyncFileStore` cannot
-exist because it uses `tokio::fs`.
+The original reason for the option no longer applies and is worth correcting rather than leaving:
+it let a `wasm32` consumer take this crate for its configuration types and builder without OpenDAL.
+Those live in `liquers-core` now, so `liquers-web` does not depend on `liquers-store` at all. The
+feature earns its place for a different reason — non-OpenDAL backends are expected here too, so an
+OpenDAL-free configuration of the crate is still meaningful.
 
-### `StoreFactory` — store types this crate does not implement
+With the feature off, the OpenDAL types are **still declared**, each marked unavailable and naming
+the feature responsible. A configuration naming one is refused with that reason rather than as an
+unknown type: a real, documented store type must not look like a typo. `filesystem` behaves the
+same way on `wasm32`, where `AsyncFileStore` cannot exist because it uses `tokio::fs`.
+
+### The `StoreFactory` trait
 
 ```rust
 pub trait StoreFactory {
-    fn store_types(&self) -> Vec<String>;
+    fn store_types(&self) -> Vec<StoreTypeInfo>;
+    fn resolve(&self, config: &StoreConfig) -> Option<String>;   // default: exact type match
     fn create(&self, config: &StoreConfig) -> Result<Box<dyn AsyncStore>, Error>;
 }
-
-StoreRouterBuilder::new(config).with_factory(Box::new(my_factory)).build()
 ```
 
-Factories are consulted **before** the built-in types, and in registration order. Preceding the
-built-ins is required rather than convenient: it is what allows a factory to *override* a type.
-`http` and `https` are built-in OpenDAL types, and a browser has to serve them with `fetch`
-instead — consulting factories second would make that impossible, and one configuration document
-could not then mean the same thing on both targets.
+Contributing store types means implementing it and chaining your factory:
+
+```rust
+ChainedStoreFactory::new()
+    .chain(Box::new(core_store_factory()))
+    .chain(Box::new(my_factory))
+```
+
+`StoreTypeMap` is the alternative for a set of types that do not need a bespoke `resolve`: build it
+from `StoreTypeInfo` values and creation closures rather than implementing the trait.
 
 The trait deliberately carries no `Send`/`Sync` bound. A factory is transient — consumed while the
 router is built — and only the `AsyncStore` it produces has thread requirements, which `AsyncStore`
 already states. A bound no call site needs would exclude a browser factory holding JavaScript
 handles.
+
+**A note on how the browser's `http` wins.** Earlier versions of this document said factories were
+consulted before the built-in types, and that preceding them was what let a browser override `http`.
+That is no longer how it works, and the difference matters to anyone composing a chain: there are no
+built-ins, order in the chain decides, and `liquers-web`'s `http` wins because `liquers-store` is
+not one of its dependencies — the OpenDAL factory that would claim `http` is never in the browser's
+chain. Adding it would put both in one chain, and the earlier one would win.
 
 ### Browser store types
 
@@ -550,6 +670,9 @@ other store, and the routing rules above are unchanged.
 | `localstorage` | `localStorage` | yes | `namespace` (no `/`, default `liquers`), `quota_bytes` (omit for unlimited) |
 | `http` / `https` | `fetch` | no | `url_prefix`, `keys` |
 | `js` | a page object | depends on the object | `object` — a name registered with `registerStoreObject` |
+
+Each is declared with its arguments in `WebStoreFactory::store_types`, at
+`ArgumentCoverage::Complete`: Liquers owns these types, so that list is their specification.
 
 ```yaml
 stores:
@@ -583,3 +706,4 @@ Full design: `specs/design/liquers-web-store/`.
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
 | 2026-08-09 | Documented the optional `opendal` feature, the `StoreFactory` extension seam, and the three browser store types (`localstorage`, `http`/`https` via `fetch`, `js`). | `design/liquers-web-store/` |
 | 2026-08-29 | Reviewed against the implementation at HEAD. Added "Why this configuration exists alongside OpenDAL's own", correcting the claim that OpenDAL offers no text configuration — `via_iter` (0.48) and `from_uri` (0.55) do, but configure one backend each. Added "Configuration values and the OpenDAL string boundary", recording which document value types survive the flattening into OpenDAL's string map and which do not. No change to the configuration format itself. | `design/store-factories-in-core/` Phase 3 |
+| 2026-08-29 | Rescoped: the configuration format, the factory seam and the builder are `liquers-core`'s; `liquers-store` keeps the OpenDAL backends. Added "Building stores: the factory model" — declaration, resolution, first-wins chaining, the absence of a built-in fallback, the unrecognised/unavailable distinction, and `ArgumentCoverage`. Rewrote the `StoreFactory` section for the new trait and **corrected the claim that factories precede built-in types**: there are no built-ins, chain order decides, and the browser's `http` wins because `liquers-store` is not one of its dependencies. Corrected the `opendal` feature's stated rationale. | `design/store-factories-in-core/` Phase 5 |

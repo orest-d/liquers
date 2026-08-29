@@ -4,7 +4,7 @@ kind: design
 title: Store configuration and factories in liquers-core
 workflow: liquers-project
 status: draft
-phase: implementation
+phase: documentation
 area: [core/store, store/config, store/backends, web, docs]
 gh_pr: []
 issues: [STORE-CONFIG-IN-CORE]
@@ -22,7 +22,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture (approved)
 - [x] Phase 3: Examples & Testing (approved)
 - [x] Phase 4: Implementation Plan (approved)
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation (awaiting approval)
 - [x] Implementation: steps 1-8 and 10 complete and green; 9 and 11 deferred on a P0
 
 ## Notes

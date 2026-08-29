@@ -125,7 +125,9 @@ The concept index identifies primary types and modules, for example:
 | Assets | `liquers_core::assets::{AssetRef, AssetManager}` |
 | Commands | `liquers_core::commands::{CommandExecutor, CommandRegistry}` |
 | Registration | `liquers_macro::register_command!` |
-| Store configuration | `liquers_store::{StoreConfig, StoreRouterBuilder}` |
+| Store configuration | `liquers_core::store_config::{StoreConfig, StoreRouterConfig}` |
+| Store construction | `liquers_core::store_factory::{StoreFactory, StoreRouterBuilder}` |
+| OpenDAL backends | `liquers_store::store_factory::default_store_factory` |
 
 This exact mapping is particularly important for coding agents because it narrows
 source search and reduces invented imports.

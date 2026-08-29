@@ -420,10 +420,18 @@ longer matches the registered commands, comparing signatures rather than file by
 reformatting is not a failure but a changed argument list is.
 
 ### Adding a Store Backend
-1. Implement `AsyncStore` trait in `liquers-store/src/`
-2. Add config support in `liquers-store/src/config.rs` and `liquers-store/src/store_builder.rs`
-3. Update `OPENDAL_STORE_TYPES` in `liquers-store/src/config.rs` if OpenDAL-based
-4. See `specs/reference/STORE_CONFIG_FSD.md` for configuration format
+
+Configuration and construction live in `liquers-core`; only the backends live above it.
+
+1. Implement `AsyncStore` — in `liquers-core/src/store.rs` if it belongs to core, otherwise in the
+   crate that owns the backend (`liquers-store/src/`, `liquers-web/src/store/`)
+2. Declare the store type: add a `StoreTypeInfo` to the factory that will build it, with its
+   configuration arguments. Use `StoreTypeMap` for a set of plain types, or implement
+   `StoreFactory` when you need a bespoke `resolve`
+3. Make sure the factory is in the relevant `default_store_factory()` chain — order matters, first
+   to resolve wins
+4. Update `OPENDAL_STORE_TYPES` in `liquers-store/src/store_factory.rs` if OpenDAL-based
+5. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
 
 ### Adding a Value Type
 
